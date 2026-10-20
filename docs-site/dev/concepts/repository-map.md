@@ -74,7 +74,7 @@ last_reviewed: 2026-10-20
   旧 API lifecycle coordinator 已移除；`services/user_lifecycle.py` 仅保留
   `UserLifecycleService.lock_accounts`。Batch handoff/release helpers 已退役，Project owner
   transfer helper 继续供其他 workflows 使用。各命令的权限、回执和事务边界独立维护；offboarding
-  owner 的本地资格仍待 Root。
+  已通过限定的本地资格，精确范围见 [ADR-0128](/dev/adr/0128-independent-identity-offboarding-commands)。
 - 分组目录与账号指派：`api/v1/group_commands.py` 收口 HTTP 请求与权限映射；
   `services/identity_group_commands.py` 选择本地事务、函数 DSN 或 Identity runtime，
   `services/identity_group_data.py` 只适配当前 SQL Session 上的本地 Group command data。

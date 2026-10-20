@@ -1,6 +1,6 @@
 # 0128 — Identity 离职预览与提交所有权
 
-- **Status:** Accepted; implementation in progress, local qualification pending
+- **Status:** Accepted; owner slice locally qualified
 - **Date:** 2026-10-20
 - **Deciders:** Maintainers
 - **Supersedes:** None
@@ -18,7 +18,8 @@ This slice moves only `GET /api/v1/users/{user_id}/offboarding-preview` and
 `POST /api/v1/users/{user_id}/offboarding` into the existing Identity
 artifact/runtime. It does not add a service, process, dependency, framework,
 saga or database. Public paths, DTOs, versions, errors and callers remain
-unchanged. The local owner is still awaiting Root qualification.
+unchanged. Root has completed a bounded local qualification for this owner
+slice; that evidence does not qualify the full Identity module or deployment.
 
 ## Decision
 
@@ -183,7 +184,8 @@ and handoff blockers. Emergency mode still performs scope, CAS, state and
 duplicate checks, but skips receiver and blocker checks. Irrelevant mappings and
 receivers do not add validation errors, although initial User/Project locks
 remain held. Preserve lock failures and exact precedence rather than normalizing
-errors.
+errors. An inactive target with a null `disabled_kind` is nonrecoverable and
+returns `state_forbidden` (409).
 
 The stale-preview error is 409 and echoes the raw expected string, current SHA-256
 version and current blockers. A huge or NUL-containing expected version must
@@ -209,7 +211,10 @@ reason is exactly `emergency_suspension_requires_later_handoff`. Annotator and
 reviewer unresolved `batch_ids` include every snapshot Batch in the project,
 not only batches assigned to that role. Task counts include only direct active
 Tasks for that role. Both annotator and reviewer lock counts use the same
-project count of target locks on active related Tasks; owner counts are zero.
+project count of target locks on all active related Tasks, including Tasks
+assigned to other users; owner counts are zero. Completed Tasks do not count,
+but suspension still releases every target TaskLock, including locks on
+completed Tasks.
 
 Both modes set inactive/offline and choose `disabled_kind=suspended` or
 `emergency_suspended`. Normalize reason with Python
@@ -247,9 +252,9 @@ the established closed envelope
 
 Native request keys are exactly
 `schema/phase/operation/operation_id/actor/expected_key_hash/request_fingerprint/
-derivation_id/audit_context/payload`. Prepare payload has exactly
-`target_user_id/receiver_ids/payload_project_ids`; receiver and project UUID
-arrays are sorted and unique. Apply uses the same envelope with `phase=apply`
+derivation_id/audit_context/payload`. Native prepare payload has exactly the
+three keys `target_user_id/receiver_ids/payload_project_ids`; both UUID arrays
+are required even when empty, sorted and unique. Apply uses the same envelope with `phase=apply`
 and the commit operation; its closed payload carries the transaction ID,
 expected target generation/active state, normalized reason and presence flag,
 explicit transfer plans and frozen public transfer/unresolved rows. The
@@ -259,7 +264,10 @@ version and pre-CAS reason never enter native prepare JSONB. Use HMAC domain
 raw version/reason and normalized UUIDs), excluding token and Audit context.
 Native prepare returns its transaction ID and a discriminated `snapshot` or
 `replay` projection. Apply returns `{result}` with strict `replayed:boolean`;
-private prepare/apply facts never reach the public response.
+private prepare/apply facts never reach the public response. `normalized_reason`
+is JSON null only when `reason_present=false`; a string must be nonempty,
+Python-strip-normalized and at most 500 characters, with the flag matching its
+presence.
 
 Migration 0248 stores commit receipts only. Each receipt binds actor, private
 operation UUID/name, target, request fingerprint/derivation, target generation
@@ -287,9 +295,12 @@ HTTP, persist a prepare ledger, or split this into a saga. Native reply
 validators bind both phases to the original target; the apply result must also
 match the requested mode, `disabled_by` actor, normalized reason and terminal
 account state. The native committed result requires a positive nonnull int64
-`audit_id`. Native post-write validation failure must raise through a rollback
-subtransaction before returning `unavailable`, including for a direct SQL
-caller that commits the failure response.
+`audit_id`. After writing the successful receipt, the native owner clears its
+transaction-local prepare binding so another completed command can run in the
+same caller-owned outer transaction without stale prepare context. Native
+post-write validation failure must raise through a rollback subtransaction
+before returning `unavailable`, including for a direct SQL caller that commits
+the failure response.
 
 Preview policy, snapshot and public response are portable. Native prepare data
 is discriminated as `snapshot` or `replay`; current Principal remains outside
@@ -344,48 +355,94 @@ shared `UserLifecycleService.lock_accounts` capability after caller search.
 
 The exact business error pairs are:
 
-| Code                        | HTTP | Detail                                                                                                                           |
-| --------------------------- | ---: | -------------------------------------------------------------------------------------------------------------------------------- |
-| `manager_required`          |  403 | `当前账号已无管理权限`                                                                                                           |
-| `target_not_found`          |  404 | `用户不存在`                                                                                                                     |
-| `self_offboard`             |  400 | `不能交接自己`                                                                                                                   |
-| `last_super_admin`          |  400 | `不能停用最后一名超级管理员`                                                                                                     |
-| `target_role_forbidden`     |  403 | `项目管理员仅能处理标注员/审核员账号`                                                                                            |
-| `inactive_unmanaged`        |  403 | `该用户已停用且不在你管理的项目内，须由超级管理员处理`                                                                           |
-| `scope_forbidden`           |  403 | `该用户存在不在你管理范围内的项目`                                                                                               |
-| `offboarding_preview_stale` |  409 | `{code:offboarding_preview_stale,expected_preview_version,current_preview_version,blockers}`                                     |
-| `historical_target`         |  409 | `历史未知或已删除账号不可再次交接`                                                                                               |
-| `state_forbidden`           |  409 | `账号当前状态不可交接`                                                                                                           |
-| `duplicate_project`         |  422 | `同一项目不能重复提交交接映射`                                                                                                   |
-| `receiver_required`         |  409 | `{code:receiver_required,project_id,role}`                                                                                       |
-| `receiver_ineligible`       |  409 | `{code:receiver_ineligible,project_id,role,receiver_id}`                                                                         |
-| `offboarding_blocked`       |  409 | `{code:offboarding_blocked,blockers}`                                                                                            |
-| `account_busy`              |  409 | `账号正在更新，请刷新后重试`                                                                                                     |
-| `offboarding_busy`          |  409 | Project/member lock: `{code:offboarding_busy,message:职责正在变化，请刷新预览后重试}`; task/edit lock: `{code:offboarding_busy}` |
-| `operation_conflict`        |  409 | `null`                                                                                                                           |
-| `unavailable`               |  503 | `null`                                                                                                                           |
-| `invalid_request`           |  400 | `null`                                                                                                                           |
+| Code                        | HTTP | Detail                                                                                                                                      |
+| --------------------------- | ---: | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `manager_required`          |  403 | `当前账号已无管理权限`                                                                                                                      |
+| `target_not_found`          |  404 | `用户不存在`                                                                                                                                |
+| `self_offboard`             |  400 | `不能交接自己`                                                                                                                              |
+| `last_super_admin`          |  400 | `不能停用最后一名超级管理员`                                                                                                                |
+| `target_role_forbidden`     |  403 | `项目管理员仅能处理标注员/审核员账号`                                                                                                       |
+| `inactive_unmanaged`        |  403 | `该用户已停用且不在你管理的项目内，须由超级管理员处理`                                                                                      |
+| `scope_forbidden`           |  403 | `该用户存在不在你管理范围内的项目`                                                                                                          |
+| `offboarding_preview_stale` |  409 | `{code:offboarding_preview_stale,expected_preview_version,current_preview_version,blockers}`                                                |
+| `historical_target`         |  409 | `历史未知或已删除账号不可再次交接`                                                                                                          |
+| `state_forbidden`           |  409 | `账号当前状态不可交接`                                                                                                                      |
+| `duplicate_project`         |  422 | `同一项目不能重复提交交接映射`                                                                                                              |
+| `receiver_required`         |  409 | `{code:receiver_required,project_id,role}`                                                                                                  |
+| `receiver_ineligible`       |  409 | `{code:receiver_ineligible,project_id,role,receiver_id}`                                                                                    |
+| `offboarding_blocked`       |  409 | `{code:offboarding_blocked,blockers}`                                                                                                       |
+| `account_busy`              |  409 | `账号正在更新，请刷新后重试`                                                                                                                |
+| `offboarding_busy`          |  409 | SQL resource lock: `{code:offboarding_busy,message:职责正在变化，请刷新预览后重试}`; task edit advisory try-lock: `{code:offboarding_busy}` |
+| `operation_conflict`        |  409 | `null`                                                                                                                                      |
+| `unavailable`               |  503 | `null`                                                                                                                                      |
+| `invalid_request`           |  400 | `null`                                                                                                                                      |
 
 Existing Identity authentication errors preserve null status/detail. Initial
 inactive admission is 401; an admitted actor that becomes inactive is mapped
 to the existing public manager 403. Error builders use JSON-mode for UUIDs,
 including nested blocker lists. Reject duplicates, aliases, extras, non-finite
 values, numeric coercion, misbinding and secret echo; validate native and final
-wire data inside the transaction. No local database/runtime/image qualification
-is claimed yet. The full ten-module/seven-gate objective remains active; this
-slice does not qualify full Identity, Go or another provider, production
+wire data inside the transaction. All SQL resource-lock conflicts (Project,
+ProjectMember, Batch, Task and TaskLock) preserve the message detail; only a
+failed per-task edit advisory try-lock returns the same `offboarding_busy` code
+without that message. The full ten-module/seven-gate objective remains active;
+this slice does not qualify full Identity, Go or another provider, production
 capacity, or primary cutover.
 
+Root's latest accepted case union contains 77 distinct selected cases: 76
+database/process cases and one static artifact case, with zero skips. It
+contains 64 native/public cases, including the two owner-baseline fixtures, and
+13 live/restore cases: three owner-process cases, two auth-only API bindings
+(remote container and dedicated DSN), one offboarding receipt-restore case and
+seven prior Identity restore/legacy-challenge cases. The union records the
+latest accepted result per case; focused reruns replace earlier fixture
+failures and are not counted again. Migration 0248 upgraded to head, frozen SQL
+was installed and rolled back, downgrade to 0189 succeeded, grants were
+reapplied, and every owned resource was cleaned with no cleanup errors.
+The Root evidence aggregate and per-case union are recorded in
+`.worktree/identity-offboarding-qualified.json`.
+
+Source and installed package suites each passed 523 tests. All 109 installed
+package file hashes match; the installed package uses Pydantic 2.14.1 and
+contains no API, SQLAlchemy, Celery, Boto3 or Torch runtime. The API assembly
+passed 604 checks with 130 architecture rules explicitly deferred; Node
+self-checks passed 21 and SDK checks passed 37. OpenAPI remained byte-identical;
+the operation catalog has 509 routes across 93 modules, and generated
+environment documentation covers 462 variables in 48 sections.
+
+The restricted Identity owner image
+`aap-identity:offboarding-local-4c54a5032f67`
+(`sha256:88d89236acbabc78b660ab5c232dbe4e6d046747af15799014755d45f63e9586`)
+passed a real remote API binding as a nonroot, read-only process under 1 CPU and
+256 MiB. The cold API image
+`aap-api:local-identity-offboarding-1b7f51747db6`
+(`sha256:ab7d0a5b0e2fc672d0cc8800343f945cb5cb01b5b87455efad9411e4b5940e2b`,
+source `fa6a26369d9a948335b28f4c701812d8695bc03a`) verified 109 package files
+and 46 API/native inputs, both offboarding routes and all 18 user routes without
+ORM hydration, migration head 0248, current OpenAPI, hidden SQL parameters and
+absence of the retired legacy offboarding path. It ran with no network, read
+only and 1 CPU/512 MiB; the container was removed. Its 40.662 seconds is the
+combined build and offline verification time, not startup latency.
+
 The pre-owner legacy characterization baseline passed two tests and cleaned up
-all owned resources. On a fixture with one project and three tasks, legacy
-preview used 11 SQL calls, 1,196,316 peak Python bytes and 41.509 ms host time;
-commit used 30 calls, 813,724 bytes and 46.974 ms. On four projects and twelve
-tasks, preview used 20 calls, 908,996 bytes and 48.771 ms; commit used 54 calls,
-959,931 bytes and 65.541 ms. The frozen preview-version vectors are
+all owned resources. A later owned baseline used the same one-project/three-task
+and four-project/twelve-task fixtures:
+
+| Fixture and phase              | Legacy calls / peak bytes / host ms | Owner calls / peak bytes / host ms |
+| ------------------------------ | ----------------------------------- | ---------------------------------- |
+| 1 project / 3 tasks, preview   | 11 / 1,196,316 / 41.509             | 3 / 375,862 / 19.855               |
+| 1 project / 3 tasks, commit    | 30 / 813,724 / 46.974               | 5 / 451,503 / 25.090               |
+| 4 projects / 12 tasks, preview | 20 / 908,996 / 48.771               | 3 / 504,082 / 23.728               |
+| 4 projects / 12 tasks, commit  | 54 / 959,931 / 65.541               | 5 / 597,522 / 34.108               |
+
+The captured legacy preview vectors are
 `22377e1b9f071a85ada1364c91aaf3d2e70ff94de723d93574a6c29754f47d28` and
-`48b16b7c7558d05990a779d8ea10fb88e2c5f2f42db5057f573c07d299043497` for those
-fixtures, respectively. These are legacy baselines for same-scenario comparison,
-not offboarding-owner passes, an SLO or production-capacity evidence.
+`48b16b7c7558d05990a779d8ea10fb88e2c5f2f42db5057f573c07d299043497`; the
+owner vectors are
+`264f87baddcc06b1dfdd1317c2bae328058c5358cf085afe68ab4d79ddee3466` and
+`b0177f8512c5605c2736ac8ab0c7677d898fa26b962f8bf934f9924639983c5b` for the
+same fixtures, respectively. These are single instrumented samples; host times
+are not container CPU timing, an SLO or production-capacity evidence.
 
 ## Consequences
 
@@ -404,8 +461,8 @@ Negative:
   option/name/email changes intentionally affect the digest.
 - A handoff may alter target-derived references, so replay must use accepted
   scope basis while rechecking current project ownership for project-admins.
-- Migration, current runtime qualification, other Identity lifecycle and all
-  full-module/provider goals remain unfinished.
+- Remaining Identity lifecycle, the full-module/provider goals and production
+  deployment qualification remain unfinished.
 
 ## Notes
 

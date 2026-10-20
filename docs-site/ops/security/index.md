@@ -313,7 +313,7 @@ Identity offboarding 的 `preview_version` 是精确保留旧 Python snapshot �
 
 `preview_version` 按旧公共合同为 unbounded string；stale 409 会原样回传 `expected_preview_version`。应将其视为不可信请求数据：不要写入日志、PostgreSQL JSONB 或控制/Audit payload。预览只展示 API-key ID 和受限元数据，不返回 key secret。提交 reason 最多 500 字符，按 Python `str.strip()` 归一化后保存在目标 User 的停用原因；原始 reason 不进入 Audit、错误、日志或 native prepare JSON。`user.offboard` Audit 只记录 `reason_present`，不是完整的数据擦除或匿名化保证。提交还会在同一事务推进凭据代际、撤销 active API keys 并消费未使用的 reset links。
 
-这些敏感事实只由 Identity owner 与 Workspace／Labeling／Audit typed capabilities 协调；调用角色没有其他 owner 的原始表权限。详细事务锁序、接收人投影、重放范围和错误优先级见 [Identity offboarding ADR](/dev/adr/0128-independent-identity-offboarding-commands)。此能力仍处于本地资格验收前，不代表生产切换或容量结论。
+这些敏感事实只由 Identity owner 与 Workspace／Labeling／Audit typed capabilities 协调；调用角色没有其他 owner 的原始表权限。该 owner 已通过限定的本地资格；详细事务锁序、接收人投影、重放范围、错误优先级和证据边界见 [Identity offboarding ADR](/dev/adr/0128-independent-identity-offboarding-commands)。本地资格不代表生产切换、容量或 SLO 结论。
 
 ---
 
