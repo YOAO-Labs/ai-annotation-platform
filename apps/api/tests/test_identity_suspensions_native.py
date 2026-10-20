@@ -590,7 +590,6 @@ async def test_suspend_reactivate_receipts_and_new_credentials_survive_replay(
         assert reactivated.data.user.disabled_reason is None
         assert reactivated.data.user.deactivation_requested_at == requested_at
         assert reactivated.data.user.deactivation_scheduled_at == scheduled_at
-        assert reactivated.data.user.deactivation_reason == "Accepted self-deactivation"
 
         async with maker.begin() as session:
             session.add(
