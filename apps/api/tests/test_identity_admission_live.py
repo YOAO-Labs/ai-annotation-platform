@@ -156,6 +156,7 @@ async def _start_container_identity(
     enable_groups=False,
     enable_invitations=False,
     enable_directory=False,
+    enable_admin_password=False,
     enable_deactivation=False,
     enable_deactivation_operator=False,
     enable_presence=True,
@@ -188,6 +189,11 @@ async def _start_container_identity(
         (enable_groups, "GROUP", "IDENTITY_GROUP_DATABASE_URL"),
         (enable_invitations, "INVITATION", "IDENTITY_INVITATION_DATABASE_URL"),
         (enable_directory, "DIRECTORY", "IDENTITY_DIRECTORY_DATABASE_URL"),
+        (
+            enable_admin_password,
+            "ADMIN_PASSWORD",
+            "IDENTITY_ADMIN_PASSWORD_DATABASE_URL",
+        ),
         (enable_deactivation, "DEACTIVATION", "IDENTITY_DEACTIVATION_DATABASE_URL"),
         (
             enable_deactivation_operator,
@@ -331,6 +337,7 @@ def _start_identity(
     enable_groups=False,
     enable_invitations=False,
     enable_directory=False,
+    enable_admin_password=False,
     enable_deactivation=False,
     enable_deactivation_operator=False,
     enable_presence=True,
@@ -358,6 +365,8 @@ def _start_identity(
         values["invitation_database_url"] = _dsn("INVITATION", test_engine)
     if enable_directory:
         values["directory_database_url"] = _dsn("DIRECTORY", test_engine)
+    if enable_admin_password:
+        values["admin_password_database_url"] = _dsn("ADMIN_PASSWORD", test_engine)
     if enable_deactivation:
         values["deactivation_database_url"] = _dsn("DEACTIVATION", test_engine)
     if enable_deactivation_operator:
@@ -419,6 +428,8 @@ def _start_api(
             "IDENTITY_INVITATION_DATABASE_URL_FILE": "",
             "IDENTITY_DIRECTORY_DATABASE_URL": "",
             "IDENTITY_DIRECTORY_DATABASE_URL_FILE": "",
+            "IDENTITY_ADMIN_PASSWORD_DATABASE_URL": "",
+            "IDENTITY_ADMIN_PASSWORD_DATABASE_URL_FILE": "",
             "IDENTITY_DEACTIVATION_DATABASE_URL": "",
             "IDENTITY_DEACTIVATION_DATABASE_URL_FILE": "",
             "IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL": "",
