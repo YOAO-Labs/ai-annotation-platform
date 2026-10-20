@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     account_database_url_file: str | None = None
     presence_database_url: SecretStr | None = None
     presence_database_url_file: str | None = None
+    recovery_database_url: SecretStr | None = None
+    recovery_database_url_file: str | None = None
+    recovery_mail_key: SecretStr | None = None
+    recovery_mail_key_file: str | None = None
     token: SecretStr | None = None
     token_file: str | None = None
     signing_secret: SecretStr | None = None
@@ -33,6 +37,10 @@ class Settings(BaseSettings):
     command_timeout_seconds: float = Field(default=10, gt=0, le=60)
     expire_minutes: int = Field(default=1440, ge=1, le=525600)
     email_verification_required: bool = False
+    allow_open_registration: bool = False
+    frontend_base_url: str = Field(
+        default="http://localhost:3000", min_length=1, max_length=2048
+    )
     login_captcha_threshold: int = Field(default=5, ge=0)
     login_failed_window_seconds: int = Field(default=3600, gt=0)
 
@@ -90,7 +98,11 @@ class Settings(BaseSettings):
                 raise ValueError(f"Empty {field}")
         if self.session_database_url is not None and self.login_redis_url is None:
             raise ValueError("session_database_url requires login_redis_url")
-        for field in ("account_database_url", "presence_database_url"):
+        for field in (
+            "account_database_url",
+            "presence_database_url",
+            "recovery_database_url",
+        ):
             value = getattr(self, field)
             path = getattr(self, field + "_file")
             if value is not None and path is not None:
@@ -107,4 +119,23 @@ class Settings(BaseSettings):
                 setattr(self, field, value)
             if value is not None and not value.get_secret_value().strip():
                 raise ValueError(f"Empty {field}")
+        if (
+            self.recovery_mail_key is not None
+            and self.recovery_mail_key_file is not None
+        ):
+            raise ValueError("Set at most one recovery_mail_key source")
+        if self.recovery_mail_key_file is not None:
+            try:
+                with Path(self.recovery_mail_key_file).open("rb") as stream:
+                    raw = stream.read(4097)
+                if len(raw) > 4096:
+                    raise ValueError()
+                self.recovery_mail_key = SecretStr(raw.decode().strip())
+            except (OSError, ValueError, UnicodeError):
+                raise ValueError("Invalid recovery_mail_key file") from None
+        if (
+            self.recovery_mail_key is not None
+            and not self.recovery_mail_key.get_secret_value().strip()
+        ):
+            raise ValueError("Empty recovery_mail_key")
         return self

@@ -10,7 +10,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from pydantic import TypeAdapter  # noqa: E402
+from aap_identity.account_contract import (  # noqa: E402
+    AccountFailureReply,
+    AccountReply,
+    AccountRequest,
+    NativeAccountFailureReply,
+    NativeAccountPolicyReply,
+    NativeAccountReply,
+    NativeApplyCommand,
+    NativePrepareCommand,
+    NativePrepareReply,
+)
 from aap_identity.contract import (  # noqa: E402
     AuthenticateRequest,
     CandidatesPage,
@@ -25,6 +35,25 @@ from aap_identity.key_contract import (  # noqa: E402
     NativeKeyFailureReply,
     NativeKeyReply,
 )
+from aap_identity.preference_models import (  # noqa: E402
+    UserPreferences,
+    UserPreferencesRead,
+)
+from aap_identity.presence_contract import (  # noqa: E402
+    PresenceReply,
+    PresenceRequest,
+)
+from aap_identity.recovery_contract import (  # noqa: E402
+    NativeRecoveryApplyCommand,
+    NativeRecoveryApplyReply,
+    NativeRecoveryFailureReply,
+    NativeRecoveryPolicyReply,
+    NativeRecoveryPrepareCommand,
+    NativeRecoveryPrepareReply,
+    RecoveryFailureReply,
+    RecoveryReply,
+    RecoveryRequest,
+)
 from aap_identity.session_contract import (  # noqa: E402
     LoginCandidateReply,
     NativeSessionCommand,
@@ -36,25 +65,7 @@ from aap_identity.session_contract import (  # noqa: E402
     SessionReply,
     SessionRequest,
 )
-from aap_identity.account_contract import (  # noqa: E402
-    AccountFailureReply,
-    AccountReply,
-    AccountRequest,
-    NativeAccountFailureReply,
-    NativeAccountPolicyReply,
-    NativeAccountReply,
-    NativeApplyCommand,
-    NativePrepareCommand,
-    NativePrepareReply,
-)
-from aap_identity.presence_contract import (  # noqa: E402
-    PresenceReply,
-    PresenceRequest,
-)
-from aap_identity.preference_models import (  # noqa: E402
-    UserPreferences,
-    UserPreferencesRead,
-)
+from pydantic import TypeAdapter  # noqa: E402
 
 
 def principal_shape(schema):
@@ -166,6 +177,21 @@ def main():
         "src/aap_identity/presence_protocol.schema.json": render_schema(
             TypeAdapter(PresenceRequest | PresenceReply),
             "aap-identity-presence/v1",
+        ),
+        "src/aap_identity/recovery_protocol.schema.json": render_schema(
+            TypeAdapter(RecoveryRequest | RecoveryReply | RecoveryFailureReply),
+            "aap-identity-recovery/v1",
+        ),
+        "src/aap_identity/native_recovery_protocol.schema.json": render_schema(
+            TypeAdapter(
+                NativeRecoveryPrepareCommand
+                | NativeRecoveryApplyCommand
+                | NativeRecoveryPrepareReply
+                | NativeRecoveryApplyReply
+                | NativeRecoveryFailureReply
+                | NativeRecoveryPolicyReply
+            ),
+            "aap-identity-recovery-native/v1",
         ),
         "src/aap_identity/preferences_write.schema.json": render_schema(
             TypeAdapter(UserPreferences), "aap-identity-preferences-write/v1"

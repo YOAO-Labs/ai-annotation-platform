@@ -1,0 +1,17 @@
+{
+  "purpose": "Public test-only recovery crypto known-answer vector",
+  "secret": "identity-recovery-test-signing-secret",
+  "token": "legacy-token",
+  "token_hash": "8b7d507cddc8d8950f283613360e85abbfcc4d245494ee90b1e6d1585bd2f37b",
+  "request": {
+    "operation": "request_password_reset",
+    "payload": {
+      "email": "person@example.test",
+      "captcha_verified": true
+    }
+  },
+  "derivation_id": "fb3cd42cbd83e9d310b7636c11a901918a456618777882429c244c8eb4c1dec2",
+  "request_fingerprint": "a1ab638a48fd6229eee7f4aad13a032616c1793bce4b8b4296aa3d71a18fc321",
+  "mail_key": "cgGe0HIRfLj1HJHHyfrBMxsR37Tt_-miDp2SqE6YIsk=",
+  "encryption_id": "df1b8ec132c1f21e4a921abc7888cd1ebcb9566ce8cd088a4cfbd119b738c852"
+}

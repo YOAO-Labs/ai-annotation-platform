@@ -3,16 +3,21 @@ from __future__ import annotations
 import asyncio
 import hmac
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-from pydantic import ValidationError
-
+from aap_identity.account_contract import (
+    ACCOUNT_POLICY_PROTOCOL,
+    ACCOUNT_PROTOCOL,
+    AccountFailure,
+    account_failure_reply,
+    decode_account_request,
+)
+from aap_identity.account_manager import AccountManager
+from aap_identity.account_postgres import AccountPostgresData
 from aap_identity.authenticator import Authenticator
 from aap_identity.contract import (
+    REFRESH_GRACE_SECONDS,
     AuthenticateRequest,
     IdentityFailure,
     IdentityUnavailable,
-    REFRESH_GRACE_SECONDS,
     failure_reply,
     principal_reply,
 )
@@ -24,8 +29,22 @@ from aap_identity.key_contract import (
 )
 from aap_identity.key_manager import KeyManager
 from aap_identity.key_postgres import KeyPostgresData
-from aap_identity.postgres import PostgresData
 from aap_identity.login_counter import RedisLoginCounter
+from aap_identity.postgres import PostgresData
+from aap_identity.presence_contract import (
+    decode_presence_request,
+)
+from aap_identity.presence_postgres import PresencePostgresData
+from aap_identity.recovery_contract import (
+    RECOVERY_POLICY_PROTOCOL,
+    RECOVERY_PROTOCOL,
+    RecoveryFailure,
+    decode_recovery_request,
+    recovery_failure_reply,
+)
+from aap_identity.recovery_crypto import mail_key_from_secret
+from aap_identity.recovery_manager import RecoveryManager
+from aap_identity.recovery_postgres import RecoveryPostgresData
 from aap_identity.security import ALGORITHM, ISSUER
 from aap_identity.session_contract import (
     SessionFailure,
@@ -34,19 +53,9 @@ from aap_identity.session_contract import (
 )
 from aap_identity.session_manager import SessionManager
 from aap_identity.session_postgres import SessionPostgresData
-from aap_identity.account_contract import (
-    ACCOUNT_POLICY_PROTOCOL,
-    ACCOUNT_PROTOCOL,
-    AccountFailure,
-    account_failure_reply,
-    decode_account_request,
-)
-from aap_identity.account_manager import AccountManager
-from aap_identity.account_postgres import AccountPostgresData
-from aap_identity.presence_contract import (
-    decode_presence_request,
-)
-from aap_identity.presence_postgres import PresencePostgresData
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 
 from .config import Settings
 
@@ -60,6 +69,7 @@ def create_app(
     login_counter: RedisLoginCounter | None = None,
     account_data: AccountPostgresData | None = None,
     presence_data: PresencePostgresData | None = None,
+    recovery_data: RecoveryPostgresData | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     data = data or PostgresData(
@@ -120,6 +130,32 @@ def create_app(
             connect_timeout=settings.connect_timeout_seconds,
             command_timeout=settings.command_timeout_seconds,
         )
+    recovery_configured = (
+        recovery_data is not None or settings.recovery_database_url is not None
+    )
+    if recovery_data is None and settings.recovery_database_url is not None:
+        recovery_data = RecoveryPostgresData(
+            settings.recovery_database_url.get_secret_value(),
+            connect_timeout=settings.connect_timeout_seconds,
+            command_timeout=settings.command_timeout_seconds,
+        )
+    recovery_manager = (
+        RecoveryManager(
+            recovery_data,
+            settings.signing_secret.get_secret_value(),
+            (
+                settings.recovery_mail_key.get_secret_value()
+                if settings.recovery_mail_key is not None
+                else mail_key_from_secret(settings.signing_secret.get_secret_value())
+            ),
+            email_verification_required=settings.email_verification_required,
+            allow_open_registration=settings.allow_open_registration,
+            frontend_base_url=settings.frontend_base_url,
+            expire_minutes=settings.expire_minutes,
+        )
+        if recovery_configured and recovery_data is not None
+        else None
+    )
     slots = asyncio.Semaphore(settings.max_concurrency)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -148,6 +184,10 @@ def create_app(
                     if presence_data is None:
                         raise IdentityUnavailable()
                     await presence_data.check_capability()
+                if recovery_configured:
+                    if recovery_data is None:
+                        raise IdentityUnavailable()
+                    recovery_policy = await recovery_data.recovery_policy()
             if policy != {
                 "schema": "aap-identity-policy/v1",
                 "issuer": ISSUER,
@@ -175,6 +215,17 @@ def create_app(
                 if account_policy_value != {
                     "schema": ACCOUNT_POLICY_PROTOCOL,
                     "policy": ACCOUNT_PROTOCOL,
+                }:
+                    raise IdentityUnavailable()
+            if recovery_configured:
+                recovery_policy_value = (
+                    recovery_policy.model_dump(mode="json", by_alias=True)
+                    if hasattr(recovery_policy, "model_dump")
+                    else recovery_policy
+                )
+                if recovery_policy_value != {
+                    "schema": RECOVERY_POLICY_PROTOCOL,
+                    "policy": RECOVERY_PROTOCOL,
                 }:
                     raise IdentityUnavailable()
         except (IdentityUnavailable, TimeoutError):
@@ -376,6 +427,51 @@ def create_app(
         except (IdentityUnavailable, TimeoutError):
             return JSONResponse(
                 {"detail": "Identity presence maintenance unavailable"},
+                status_code=503,
+            )
+        return JSONResponse(reply.model_dump(mode="json", by_alias=True))
+
+    @app.post("/v1/identity/recovery/execute")
+    async def execute_recovery_command(request: Request):
+        supplied = request.headers.get("authorization", "").encode()
+        expected = ("Bearer " + settings.token.get_secret_value()).encode()
+        if not hmac.compare_digest(supplied, expected):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        if (
+            request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            != "application/json"
+        ):
+            return JSONResponse(
+                recovery_failure_reply("invalid_request"), status_code=400
+            )
+        if recovery_manager is None:
+            return JSONResponse(
+                {"detail": "Identity recovery commands unavailable"},
+                status_code=503,
+            )
+        try:
+            async with asyncio.timeout(settings.request_timeout_seconds):
+                async with slots:
+                    body = bytearray()
+                    async for chunk in request.stream():
+                        body.extend(chunk)
+                        if len(body) > 65536:
+                            return JSONResponse(
+                                recovery_failure_reply("invalid_request"),
+                                status_code=400,
+                            )
+                    try:
+                        parsed = decode_recovery_request(bytes(body))
+                    except (ValidationError, ValueError, TypeError, UnicodeError):
+                        return JSONResponse(
+                            recovery_failure_reply("invalid_request"), status_code=400
+                        )
+                    reply = await recovery_manager.execute(parsed)
+        except RecoveryFailure as error:
+            return JSONResponse(recovery_failure_reply(error))
+        except (IdentityUnavailable, TimeoutError):
+            return JSONResponse(
+                {"detail": "Identity recovery commands unavailable"},
                 status_code=503,
             )
         return JSONResponse(reply.model_dump(mode="json", by_alias=True))
