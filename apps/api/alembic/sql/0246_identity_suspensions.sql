@@ -561,8 +561,8 @@ BEGIN
     IF v_user_record IS NULL
        OR (v_user_record->>'id')::uuid IS DISTINCT FROM v_target_user_id
        OR v_user_record->'is_active' IS DISTINCT FROM
-            CASE WHEN v_operation = 'suspend_account'
-                 THEN 'false'::jsonb ELSE 'true'::jsonb END THEN
+            (CASE WHEN v_operation = 'suspend_account'
+                  THEN 'false'::jsonb ELSE 'true'::jsonb END) THEN
         RAISE EXCEPTION USING ERRCODE = 'XX000',
             MESSAGE = 'invalid frozen Identity suspension user result';
     END IF;
