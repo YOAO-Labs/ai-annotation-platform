@@ -153,7 +153,9 @@ export function FilterValueEditor({
         }}
         onBlur={commit}
       >
-        <option value="">请选择</option>
+        <option value="" disabled hidden>
+          请选择
+        </option>
         <option value="true">是</option>
         <option value="false">否</option>
       </select>
@@ -168,7 +170,9 @@ export function FilterValueEditor({
         }}
         onBlur={commit}
       >
-        <option value="">请选择</option>
+        <option value="" disabled hidden>
+          请选择
+        </option>
         {draft && !field.options.some((option) => option.value === draft) && (
           <option value={draft}>{draft}（已保存）</option>
         )}

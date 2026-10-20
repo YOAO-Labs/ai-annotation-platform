@@ -421,7 +421,7 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
               }}
               className={clsx(INPUT_CLASS, MONO_INPUT_CLASS, "cursor-pointer")}
             >
-              <option value="">无 GPU 声明（不等于已确认 CPU）</option>
+              <option value="">无 GPU 声明</option>
               {hasUnknownCurrentResource && (
                 <option value={gpuResourceId}>{gpuResourceId} · 当前配置中已不存在</option>
               )}
@@ -432,7 +432,8 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
               ))}
             </select>
             <div className={HELP_CLASS}>
-              单个 backend 只能绑定一张稳定物理资源；不会从容器内 cuda:0 或 URL 自动推断。
+              无 GPU 声明不等于已确认使用 CPU。 单个 backend 只能绑定一张稳定物理资源；不会从容器内
+              cuda:0 或 URL 自动推断。
             </div>
             {resourcesQ.isLoading && <div className={HELP_CLASS}>正在读取 GPU 资源配置…</div>}
             {resourcesQ.isError && (

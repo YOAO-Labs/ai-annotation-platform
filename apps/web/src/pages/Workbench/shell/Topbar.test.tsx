@@ -73,6 +73,7 @@ it("preserves native segment selector keys without activating overflow menu acti
       onSubmit={vi.fn()}
       onSmartNextOpen={onSmartNextOpen}
       videoSegments={[]}
+      activeVideoSegmentId="segment-1"
       onSelectVideoSegment={onSelectVideoSegment}
     />,
   );
@@ -80,6 +81,7 @@ it("preserves native segment selector keys without activating overflow menu acti
   fireEvent.click(trigger);
   const menu = screen.getByRole("menu");
   const select = within(menu).getByRole("combobox", { name: "当前视频分段" });
+  expect(within(select).getByRole("option", { name: "退出当前分段" })).toBeEnabled();
   select.focus();
   for (const key of ["ArrowDown", "ArrowUp", "Home", "End", "Enter", " "]) {
     expect(fireEvent.keyDown(select, { key })).toBe(true);

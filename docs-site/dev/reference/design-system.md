@@ -144,6 +144,16 @@ Web 应用的暗色模式由 `<html data-theme="dark">` 驱动。`shadcn.css` �
 
 <span id="icon-semantics" aria-hidden="true"></span>
 
+## 下拉菜单的提示与选项
+
+原生 `select` 中的「请选择」「加载中」「暂无可用项」使用 `<option disabled hidden>`，保留当前字段的提示显示，但不进入可选列表。共享主题根据被选中的 `disabled hidden` 选项自动应用 `--sc-muted-foreground`；真实选项恢复 `--sc-foreground`，禁用选项保持弱化。此规则同样适用于保留非空执行 ID 的临时提示，不依赖提示文案或空字符串判断。
+
+「全部」「不绑定」「首次划分」等具有业务含义的空值仍为正常选项。需要撤销选择时，提供明确的取消／清除按钮或「退出当前分段」动作，不能让隐藏提示兼任清除入口。清除比较基线时同步重置其类别、页码和变化筛选；保留当前数据版本。异步加载、分页或权限变化时，继续保留已有精确 ID，不自动改选列表中的第一项。
+
+选项只放辨识条目所需的名称、状态及来源；用途、操作指导等说明放在控件下方，以弱化文字展示，必要时通过 `aria-describedby` 关联。空列表按业务状态禁用控件。Radix Select 使用 `SelectValue` 的 `placeholder`，提示不应创建为 `SelectItem`，Trigger 已内置占位文字样式。
+
+浏览器回归使用 `pnpm --filter @anno/web test:e2e:layout --grep 'native prompts|real empty filter|Radix placeholders'`，覆盖明暗主题、窄屏、键盘选择、普通空值筛选和类别绑定清除，夹具不依赖 API 或数据库。
+
 ## 图标语义规范（Icon Semantics）
 
 应用以 Lucide 作为主图标库，`components/ui/Icon.tsx` 统一渲染 Lucide 图标与 `annotationIcons.ts` 中的少量标注专用图标（共用 24px 网格、`currentColor`、描边宽度与无障碍装饰属性）：

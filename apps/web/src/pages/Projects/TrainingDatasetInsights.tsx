@@ -713,10 +713,25 @@ function InsightsContent({
                     })
                   }
                 >
-                  <option value="">选择已就绪版本</option>
+                  <option value="" disabled hidden>
+                    选择已就绪版本
+                  </option>
                   {baselineId &&
-                    !baselineChoices.data?.items.some((item) => item.id === baselineId) && (
-                      <option value={baselineId}>{baseline.data?.name ?? "当前基线"}</option>
+                    !baselineChoices.data?.items.some(
+                      (item) =>
+                        item.id === baselineId &&
+                        item.id !== version.id &&
+                        (item.task ?? "detect") === (version.task ?? "detect"),
+                    ) && (
+                      <option
+                        value={baselineId}
+                        disabled={baselineId === version.id}
+                        hidden={baselineId === version.id}
+                      >
+                        {baselineId === version.id
+                          ? `${version.name}（不能作为自身基线）`
+                          : (baseline.data?.name ?? "当前基线")}
+                      </option>
                     )}
                   {baselineChoices.data?.items
                     .filter(
@@ -738,6 +753,23 @@ function InsightsContent({
                     ))}
                 </select>
               </label>
+              {baselineId && (
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="ghost"
+                  onClick={() =>
+                    update({
+                      data_baseline: "",
+                      data_class: "",
+                      data_page: "0",
+                      data_change: "all",
+                    })
+                  }
+                >
+                  清除比较基线
+                </Button>
+              )}
               {baselineId && (
                 <CopyValueButton value={baselineId} kind="id" label="复制比较基线数据版本 ID" />
               )}

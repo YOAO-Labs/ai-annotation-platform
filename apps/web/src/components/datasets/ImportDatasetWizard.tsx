@@ -863,9 +863,14 @@ function ConnectionImportSource({
             className={styles.input}
             disabled={isLoading || connections.length === 0}
           >
-            <option value="">
+            <option value="" disabled hidden>
               {isLoading ? "加载中..." : connections.length ? "选择连接器" : "暂无连接器"}
             </option>
+            {connectionId && !connections.some((connection) => connection.id === connectionId) && (
+              <option value={connectionId} disabled hidden>
+                已选连接器（正在核对可用状态）
+              </option>
+            )}
             {connections.map((conn) => (
               <option key={conn.id} value={conn.id}>
                 {conn.name} · {conn.kind.toUpperCase()} ·{" "}

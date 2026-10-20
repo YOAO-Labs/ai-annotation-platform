@@ -268,7 +268,7 @@ describe("ProjectModelsPanel", () => {
     await user.clear(name);
     await screen.findByRole("option", { name: "成功训练" });
     await user.selectOptions(source, "run-1");
-    await screen.findByLabelText(/原生类别 0/);
+    await screen.findByRole("combobox", { name: /原生类别 0/ });
     expect(name).toHaveValue("");
     expect(screen.getByRole("button", { name: "从训练结果添加模型" })).toBeDisabled();
     expect(trainedModelsApi.register).not.toHaveBeenCalled();
@@ -306,12 +306,12 @@ describe("ProjectModelsPanel", () => {
       await user.click(screen.getByRole("button", { name: "从训练结果添加模型" }));
       await user.type(screen.getByLabelText("模型名称"), "回流候选");
       await user.selectOptions(await screen.findByLabelText("来源训练实验"), "run-1");
-      await screen.findByLabelText(/原生类别 0/);
+      await screen.findByRole("combobox", { name: /原生类别 0/ });
       const button = screen.getByRole("button", { name: "从训练结果添加模型" });
       expect(button).toBeDisabled();
-      await user.selectOptions(screen.getByLabelText(/原生类别 0/), "车辆");
+      await user.selectOptions(screen.getByRole("combobox", { name: /原生类别 0/ }), "车辆");
       expect(button).toBeDisabled();
-      await user.selectOptions(screen.getByLabelText(/原生类别 1/), "行人");
+      await user.selectOptions(screen.getByRole("combobox", { name: /原生类别 1/ }), "行人");
       await user.click(button);
       await screen.findByText("响应中断");
       const first = vi.mocked(trainedModelsApi.register).mock.calls[0][1];
@@ -407,6 +407,24 @@ describe("ProjectModelsPanel", () => {
       "验证基准、类别绑定或评估配置不同，不计算新旧提升。请分别查看各自报告。",
     );
     expect(screen.queryByText("同一验证范围")).not.toBeInTheDocument();
+    vi.mocked(trainedModelsApi.list).mockResolvedValue({
+      total: 2,
+      items: [model, { ...second, id: "model-3" }],
+    });
+    await act(async () => {
+      await clients[clients.length - 1]!.refetchQueries({
+        queryKey: ["trained-models", "project-1"],
+      });
+    });
+    expect(screen.getByLabelText("对比另一候选")).toHaveValue("model-2");
+    await waitFor(() =>
+      expect(screen.getByLabelText("对比另一候选")).toHaveDisplayValue(
+        "已选对比模型（未在当前列表中）",
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "取消模型对比" }));
+    expect(screen.getByLabelText("对比另一候选")).toHaveValue("");
+    expect(screen.queryByText(/验证基准、类别绑定或评估配置不同/)).not.toBeInTheDocument();
   });
 });
 
@@ -715,6 +733,33 @@ it("disables loading when the selected service goes offline during polling", asy
   ).toBeVisible();
   expect(screen.getByRole("button", { name: "加载模型并试用" })).toBeDisabled();
   expect(trainedModelsApi.deploy).not.toHaveBeenCalled();
+});
+
+it("preserves a removed service ID instead of visually selecting another live service", async () => {
+  const user = userEvent.setup();
+  mount("/projects/project-1/learning/models/model-1");
+  const select = await screen.findByLabelText("用于加载模型的推理服务");
+  await screen.findByRole("option", { name: "受控推理 · 在线" });
+  await user.selectOptions(select, "backend-1");
+  vi.mocked(mlBackendsApi.listAvailable).mockResolvedValue({
+    items: [
+      {
+        enabled: true,
+        backend: {
+          id: "backend-2",
+          name: "另一推理服务",
+          auth_method: "token",
+          state: "connected",
+        },
+      },
+    ],
+  } as never);
+  await act(async () => {
+    await clients[clients.length - 1]!.refetchQueries({ queryKey: ["learning-backends"] });
+  });
+  expect(select).toHaveValue("backend-1");
+  await waitFor(() => expect(select).toHaveDisplayValue("已选推理服务（暂不可用）"));
+  expect(screen.getByRole("button", { name: "加载模型并试用" })).toBeDisabled();
 });
 
 it.each(["super_admin", "project_admin", "employee"])(

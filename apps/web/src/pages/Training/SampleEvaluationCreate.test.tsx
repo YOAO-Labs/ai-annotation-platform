@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { mlBackendsApi } from "@/api/ml-backends";
@@ -132,6 +132,56 @@ async function choose(selectedDeploymentId = deployment) {
   await screen.findByRole("checkbox", { name: /^选择验证成员 1（/ });
 }
 describe("explicit frozen evaluation creation", () => {
+  it("retains a deployment that disappears on refresh and requires another explicit choice", async () => {
+    mount();
+    await choose();
+    fireEvent.click(screen.getByRole("checkbox", { name: /^选择验证成员 1（/ }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "开始逐样本评估" })).toBeEnabled(),
+    );
+    vi.mocked(trainedModelsApi.get).mockResolvedValue({
+      model: { id: model, project_id: project, framework: "ultralytics" },
+      deployments: [
+        {
+          id: id(40),
+          registry_id: id(41),
+          status: "ready",
+          created_at: "2025-01-01",
+          checked_at: null,
+        },
+      ],
+    } as never);
+    await act(async () => {
+      await clients[clients.length - 1]!.refetchQueries({
+        queryKey: ["evaluation-model", project],
+      });
+    });
+    const select = screen.getByRole("combobox", { name: /已安装部署/ });
+    expect(select).toHaveValue(deployment);
+    await waitFor(() => expect(select).toHaveDisplayValue("已选部署（暂不可用，请重新选择）"));
+    expect(screen.getByRole("button", { name: "开始逐样本评估" })).toBeDisabled();
+    expect(sampleEvaluationsApi.create).not.toHaveBeenCalled();
+  });
+  it("requires a new deployment choice after changing the candidate model", async () => {
+    vi.mocked(trainedModelsApi.list).mockResolvedValue({
+      total: 2,
+      items: [
+        { id: model, name: "候选", framework: "ultralytics", project_id: project },
+        { id: id(40), name: "另一候选", framework: "ultralytics", project_id: project },
+      ],
+    } as never);
+    mount();
+    await choose();
+    const deploymentSelect = screen.getByRole("combobox", { name: /已安装部署/ });
+    expect(deploymentSelect).toHaveValue(deployment);
+    fireEvent.change(screen.getByRole("combobox", { name: /已注册模型/ }), {
+      target: { value: id(40) },
+    });
+    expect(deploymentSelect).toHaveValue("");
+    expect(deploymentSelect.querySelector('option[value=""]')).toBeDisabled();
+    expect(deploymentSelect.querySelector('option[value=""]')).toHaveAttribute("hidden");
+    expect(screen.getByRole("button", { name: "开始逐样本评估" })).toBeDisabled();
+  });
   it("keeps duplicate backend deployment labels stable and submits the selected deployment after reordering", async () => {
     const unnamedRegistry = id(20);
     const registryA = id(21);

@@ -221,7 +221,9 @@ export function VideoTrackQualitySidebar({
                 }}
                 className="h-8 min-w-0 rounded border border-border bg-card px-1 text-xs text-foreground"
               >
-                <option value="">左 fragment</option>
+                <option value="" disabled hidden>
+                  左 fragment
+                </option>
                 {leftFragments.map((item) => (
                   <option key={item.annotation_id} value={item.annotation_id}>
                     {item.class_name} · {item.track_id ?? item.annotation_id.slice(0, 8)}
@@ -234,7 +236,9 @@ export function VideoTrackQualitySidebar({
                 onChange={(event) => setManualRightId(event.target.value)}
                 className="h-8 min-w-0 rounded border border-border bg-card px-1 text-xs text-foreground"
               >
-                <option value="">右 fragment</option>
+                <option value="" disabled hidden>
+                  右 fragment
+                </option>
                 {rightFragments.map((item) => (
                   <option key={item.annotation_id} value={item.annotation_id}>
                     {item.class_name} · {item.track_id ?? item.annotation_id.slice(0, 8)}

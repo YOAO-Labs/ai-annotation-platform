@@ -519,7 +519,7 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
                   defaultValue=""
                   className="mt-2 w-full cursor-pointer appearance-none rounded-sm border border-border bg-card px-2 py-1.5 text-xs text-foreground"
                 >
-                  <option value="" disabled>
+                  <option value="" disabled hidden>
                     关联到项目...
                   </option>
                   {availableProjects.map((p) => (

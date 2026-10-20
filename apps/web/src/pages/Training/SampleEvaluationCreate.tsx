@@ -171,6 +171,7 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
     !!qualification.data &&
     !qualification.error &&
     !model.error &&
+    model.data?.deployments.some((item) => item.id === deploymentId && item.status === "ready") &&
     !dataset.error &&
     dataset.data?.status === "ready" &&
     selected.length > 0 &&
@@ -245,7 +246,9 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
                       setDeploymentId("");
                     }}
                   >
-                    <option value="">选择候选模型</option>
+                    <option value="" disabled hidden>
+                      选择候选模型
+                    </option>
                     {modelId && !models.data?.items.some((item) => item.id === modelId) && (
                       <option value={modelId}>
                         {model.data?.model.name ?? "已选候选模型（暂不可用）"}
@@ -291,7 +294,15 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
                       create.isPending
                     }
                   >
-                    <option value="">选择就绪部署</option>
+                    <option value="" disabled hidden>
+                      选择就绪部署
+                    </option>
+                    {deploymentId &&
+                      !deploymentOptions.some(({ item }) => item.id === deploymentId) && (
+                        <option value={deploymentId} disabled hidden>
+                          已选部署（暂不可用，请重新选择）
+                        </option>
+                      )}
                     {deploymentOptions.map(({ item, label }) => (
                       <option key={item.id} value={item.id}>
                         {label}
@@ -361,15 +372,21 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
                 <select
                   className={trainingInputClass}
                   value={role}
+                  aria-describedby="evaluation-purpose-help"
                   onChange={(e) => {
                     setRole(e.target.value as typeof role);
                     setConfirmed(false);
                   }}
                 >
-                  <option value="validation_selection">验证集，用于模型选择</option>
-                  <option value="held_out_test">独立测试，未参与候选训练或选择</option>
+                  <option value="validation_selection">验证集</option>
+                  <option value="held_out_test">独立测试</option>
                 </select>
               </label>
+              <p id="evaluation-purpose-help" className="mt-1 text-xs text-muted-foreground">
+                {role === "held_out_test"
+                  ? "使用未参与候选训练或模型选择的数据进行独立测试。"
+                  : "使用验证集评估结果进行模型选择。"}
+              </p>
               {role === "held_out_test" && (
                 <label className="mt-3 flex items-start gap-2 text-xs">
                   <input
@@ -433,7 +450,9 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
                     setSamplePage(0);
                   }}
                 >
-                  <option value="">选择冻结数据版本</option>
+                  <option value="" disabled hidden>
+                    选择冻结数据版本
+                  </option>
                   {datasetId && !datasets.data?.items.some((item) => item.id === datasetId) && (
                     <option value={datasetId}>
                       {dataset.data?.name ?? "已选数据版本（暂不可用）"}

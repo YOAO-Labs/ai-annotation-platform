@@ -324,6 +324,22 @@
   }
 }
 
+/* Native select prompts are display-only options. Keep this outside layers so
+   field text utilities and CSS modules cannot make a selected prompt look like
+   a real value. Empty business values (all/none/reset) remain ordinary options. */
+select:has(> option[disabled][hidden]:checked) {
+  color: var(--sc-muted-foreground);
+}
+
+select:has(> option[disabled][hidden]) > option {
+  color: var(--sc-foreground);
+  background-color: var(--sc-background);
+}
+
+select:has(> option[disabled][hidden]) > option:disabled {
+  color: var(--sc-muted-foreground);
+}
+
 @layer utilities {
   .text-status-danger {
     color: var(--sc-status-danger);

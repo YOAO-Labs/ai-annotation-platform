@@ -497,6 +497,25 @@ describe("frozen evaluation evidence navigation", () => {
     expect(screen.queryByRole("columnheader", { name: "第二减当前" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /同一冻结成员/ })).not.toBeInTheDocument();
   });
+  it("cancels candidate comparison without changing the current attempt or sample", async () => {
+    mount(`attempt=${attempt}&sample=0&second=${second}`);
+    expect(await screen.findByRole("columnheader", { name: "第二减当前" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "取消评估比较" }));
+    expect(screen.getByLabelText("第二个明确评估")).toHaveValue("");
+    const query = new URLSearchParams(screen.getByTestId("location").textContent!.split("?")[1]);
+    expect(query.get("second")).toBeNull();
+    expect(query.get("attempt")).toBe(attempt);
+    expect(query.get("sample")).toBe("0");
+    expect(screen.queryByRole("columnheader", { name: "第二减当前" })).not.toBeInTheDocument();
+  });
+  it("keeps an invalid self comparison visible as the requested selection", async () => {
+    mount(`attempt=${attempt}&second=${evaluation}`);
+    await screen.findByText("须选择两个不同的评估。");
+    expect(screen.getByLabelText("第二个明确评估")).toHaveValue(evaluation);
+    expect(screen.getByLabelText("第二个明确评估")).toHaveDisplayValue(
+      "冻结路口评估（不能与自身比较）",
+    );
+  });
   it("returns to the exact lineage route after opening a sample report", async () => {
     const target = `/projects/${project}/learning/lineage/evaluation/${evaluation}?relation=evaluations&cursor=owned`;
     mount(`attempt=${attempt}&returnTo=${encodeURIComponent(target)}`);

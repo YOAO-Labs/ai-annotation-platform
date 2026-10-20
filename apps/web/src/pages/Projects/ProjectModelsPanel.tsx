@@ -771,23 +771,40 @@ function ModelsContent({
                 </div>
               </div>
               <Evaluation model={activeModel} />
-              <label className="mt-4 block space-y-1 text-xs">
-                对比另一候选
-                <select
-                  className={inputClass}
-                  value={compareId}
-                  onChange={(event) => setCompareId(event.target.value)}
-                >
-                  <option value="">选择模型</option>
-                  {models.data?.items
-                    .filter((item) => item.id !== activeModel.id)
-                    .map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
+              <div className="mt-4 flex min-w-0 items-end gap-2">
+                <label className="min-w-0 flex-1 space-y-1 text-xs">
+                  对比另一候选
+                  <select
+                    className={inputClass}
+                    value={compareId}
+                    onChange={(event) => setCompareId(event.target.value)}
+                  >
+                    <option value="" disabled hidden>
+                      选择模型
+                    </option>
+                    {compareId &&
+                      !models.data?.items.some(
+                        (item) => item.id === compareId && item.id !== activeModel.id,
+                      ) && (
+                        <option value={compareId} disabled hidden>
+                          已选对比模型（未在当前列表中）
+                        </option>
+                      )}
+                    {models.data?.items
+                      .filter((item) => item.id !== activeModel.id)
+                      .map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                {compareId && (
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setCompareId("")}>
+                    取消模型对比
+                  </Button>
+                )}
+              </div>
               {comparison &&
                 (comparable ? (
                   <div className="mt-3 overflow-x-auto">
@@ -837,7 +854,17 @@ function ModelsContent({
                       setError("");
                     }}
                   >
-                    <option value="">选择 YOLO 推理服务</option>
+                    <option value="" disabled hidden>
+                      选择 YOLO 推理服务
+                    </option>
+                    {selectedRegistryId &&
+                      !backends.data?.items.some(
+                        (item) => item.backend.id === selectedRegistryId,
+                      ) && (
+                        <option value={selectedRegistryId} disabled hidden>
+                          已选推理服务（暂不可用）
+                        </option>
+                      )}
                     {backends.data?.items.map((item) => (
                       <option
                         key={item.backend.id}

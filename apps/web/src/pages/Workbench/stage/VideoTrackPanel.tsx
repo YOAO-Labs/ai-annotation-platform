@@ -276,7 +276,9 @@ export function VideoTrackPanel({
                   }}
                   className="appearance-none min-w-24 border border-border rounded-md bg-background text-foreground text-xs py-1 px-1.5"
                 >
-                  <option value="">改类</option>
+                  <option value="" disabled hidden>
+                    改类
+                  </option>
                   {(classes ?? []).map((cls) => (
                     <option key={cls} value={cls}>
                       {cls}

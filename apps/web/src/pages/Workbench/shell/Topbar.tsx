@@ -200,7 +200,19 @@ export function Topbar({
       }}
       className="h-7 min-w-0 w-32 max-w-full rounded border border-border bg-card px-2 text-xs text-foreground focus-visible:ring-2 focus-visible:ring-ring @max-[1000px]:hidden"
     >
-      <option value="">选择分段</option>
+      {activeVideoSegmentId ? (
+        <option value="">退出当前分段</option>
+      ) : (
+        <option value="" disabled hidden>
+          选择分段
+        </option>
+      )}
+      {activeVideoSegmentId &&
+        !videoSegments.some((segment) => segment.id === activeVideoSegmentId) && (
+          <option value={activeVideoSegmentId} disabled hidden>
+            当前分段（未在列表中）
+          </option>
+        )}
       {videoSegments.map((segment) => (
         <option key={segment.id} value={segment.id} disabled={segment.status === "completed"}>
           S{segment.segment_index + 1} · {segment.start_frame}-{segment.end_frame} ·{" "}
