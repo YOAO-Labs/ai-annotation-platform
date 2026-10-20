@@ -483,11 +483,19 @@ async def test_installed_suspension_replay_reservation_credentials_and_host_samp
             role="annotator",
             assigned_by=manager.id,
         )
-        large_preferences = (
-            '{"opaque":{"wide":9007199254740993,'
-            '"decimal":0.1234567890123456789,"token":"preference token",'
-            f'"blob":"{"x" * 80_000}"}}'
+        large_preferences = json.dumps(
+            {
+                "opaque": {
+                    "wide": 9007199254740993,
+                    "decimal": 0.1234567890123456789,
+                    "token": "preference token",
+                    "blob": "x" * 80_000,
+                }
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
         )
+        assert json.loads(large_preferences)["opaque"]["wide"] == 9007199254740993
         await db.execute(
             text(
                 "UPDATE public.users SET preferences=CAST(:value AS jsonb) WHERE id=:id"

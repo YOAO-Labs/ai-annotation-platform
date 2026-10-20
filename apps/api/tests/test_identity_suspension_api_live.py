@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
+from aap_identity.recovery_crypto import mail_encryption_id, mail_key_from_secret
 from aap_identity.security import decode_access_token
 from app.db.models.user import User
 from tests.factory import create_api_key, create_user
@@ -112,7 +113,8 @@ async def test_auth_only_suspension_api_bindings_and_public_credential_lifecycle
 ):
     maker, actor_id = await _world(test_engine)
     secret, control = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
-    recovery_key = secrets.token_urlsafe(32)
+    recovery_key = mail_key_from_secret(secret)
+    assert mail_encryption_id(recovery_key)
     suffix = uuid.uuid4().hex
     user_ids = [actor_id]
     jtis = []
