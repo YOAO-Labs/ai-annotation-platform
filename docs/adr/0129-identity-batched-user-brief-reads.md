@@ -239,10 +239,20 @@ users, valid roles, ordering, versions and avatars. The focused acceptance union
 passed 21 selected cases with zero skips (18 database/process and three
 pure/static); it includes the focused Native/role-write cases and extended
 remote/dedicated API assertions. SDK serialization passed 44 checks, including
-two new member-response assertions, with no SDK production change. The existing
+the captured member-response serialization case, with no SDK production change. The existing
 114-file installed package and qualified owner image were unchanged and reused;
 they are not additional consumer qualification runs. These results qualify
 this consumer path only and do not add to the prior 64-case owner qualification.
+
+The updated consumer assembly was also verified in a fresh API image,
+`aap-api:local-identity-member-profiles-a443d477f161`
+(`sha256:5b64c0fb1636a8144036ec6d1b420ccdf90652cd2d6727f410cbea163b865ca7`,
+source `3955efd57b5d3a87f5dd8d229159cbc426d23cdd`). Its 114 package and 47
+API/native inputs match the committed source. The offline, read-only proof at
+1 CPU/512 MiB confirmed all ten member fields, required platform-role validation,
+and no User ORM read in the three profile serializer functions; its container
+was removed. The 12.416 seconds is build plus offline verification, not startup
+latency. The existing Identity owner artifact was reused without a rebuild.
 
 The full ten-module/seven-gate objective remains active. This internal read
 extraction does not qualify full Identity, provider-language replacement,
