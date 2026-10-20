@@ -2598,3 +2598,31 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   full Identity credentials/cutover and the other module gates remain unfinished.
   Current evidence is retained in
   `.worktree/identity-recovery-verification-current.json`; the full goal stays active.
+
+### Identity recovery assembled artifact verification
+
+- Committed source `b7957ba36` supplies the assembled recovery group. The
+  independent image matches all 54 build-input fingerprints, and the API's
+  network-disabled/read-only cold proof matches 49 installed Identity/mail source
+  files and 25 API/dependency/native/snapshot files. All five public recovery
+  routes consume command values; obsolete ORM token services are absent, OpenAPI
+  matches, migration head is 0239, and the real scheduler task signature and SQL
+  bind-value protection pass.
+- All five live cases pass against the current installed package and readonly
+  nonroot image, including a real AUTH-only API, SMTP after commit, sender death
+  and container takeover, bounded registration load and two actual Celery
+  dispatches across separate event loops. A final Node replay case additionally
+  keeps frozen viewer claims while current role changes, and accepts the
+  historical token's current generation failure without rejecting its valid
+  recovery receipt. The latest package has 241 passes; 78 distinct backend cases,
+  53 distinct worktree checks, 30 Node self-checks and both frozen-schema checks pass.
+- Documentation builds in 13.79 seconds, with 194 frontmatter files and 119 ADRs
+  passing their checks. Required source-commit hooks pass. A missing frontmatter
+  block in the existing spatial API guide is corrected without changing behavior.
+- Eight clean modifier worktrees are removed after all 15 commits match integrated
+  stable patch identities and no runtime ownership state exists. Scoped verifier
+  resources and proof containers are removed; the qualified local images remain
+  available. Fresh read-only checks keep the primary checkout clean at 856fa79c8,
+  annotation at 0234 and the unrelated test database at 0218, with the same four
+  infrastructure containers running. There is no push, remote CI, production or
+  primary Identity cutover; full module and provider-language gates remain active.
