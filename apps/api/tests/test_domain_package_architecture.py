@@ -534,6 +534,7 @@ DOMAIN_PACKAGES = (
             "app.services.display_id",
             "app.services.guide_asset_contracts",
             "app.services.project_kind",
+            "aap_workspace.configuration_policy",
             "app.services.project_template",
         ),
     ),

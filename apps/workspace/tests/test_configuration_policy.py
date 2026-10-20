@@ -8,6 +8,8 @@ import pytest
 from aap_workspace.configuration_policy import (
     CLONEABLE_PROJECT_FIELDS,
     ConfigurationPolicyError,
+    DatasetKind,
+    ProjectKind,
     assert_can_create_scope,
     assert_template_creation_scope,
     assert_template_visible,
@@ -16,6 +18,11 @@ from aap_workspace.configuration_policy import (
     data_type_from_type_key,
     dump_project_to_template_payload,
     lookup_classes_for_tool_unit,
+    media_kind_aliases,
+    project_kind,
+    dataset_kind,
+    kind_matches,
+    kind_mismatch_detail,
     merge_from_source,
     merge_template_into_payload,
     prepare_project_create_payload,
@@ -148,6 +155,28 @@ def test_project_kind_cross_fill_inheritance_mismatch_and_scene_policy():
     assert payload["data_type"] == "lidar"
     assert payload["prefer_same_scene_continuation"] is True
     assert "classes" not in payload
+
+
+def test_project_and_dataset_kind_helpers_share_media_alias_policy():
+    assert media_kind_aliases("point_cloud") == ("lidar", "point_cloud", "pointcloud")
+    assert media_kind_aliases(None) == ("image",)
+
+    project = project_kind("point_cloud", 1)
+    dataset = dataset_kind("lidar", True)
+    assert project == ProjectKind(data_type="lidar", scene_mode=True)
+    assert dataset == DatasetKind(data_type="lidar", has_scenes=True)
+    assert kind_matches(project, dataset)
+    assert kind_mismatch_detail(project, dataset) is None
+
+    no_scenes = dataset_kind("lidar", False)
+    assert not kind_matches(project, no_scenes)
+    assert kind_mismatch_detail(project, no_scenes) == (
+        "scene 模式不匹配(scene 项目只能关联 has_scenes=true 的数据集)"
+    )
+    other_kind = dataset_kind("video", True)
+    assert kind_mismatch_detail(project, other_kind) == (
+        "data_type 不匹配(项目 lidar / 数据集 video)"
+    )
 
 
 def test_template_dump_and_merge_deepcopy_skip_null_and_respect_caller():

@@ -41,7 +41,7 @@ from app.services.data_management.entities import (
     task_dataset_item_id_expr,
 )
 from app.services.data_management.entity_filters import compile_entity_filter
-from app.services.project_kind import project_kind
+from aap_workspace.configuration_policy import project_kind
 from app.services.data_management.task_filters import visible_tasks_stmt
 from app.services.video_tracks import frame_is_outside
 
@@ -422,7 +422,7 @@ class DataManagerTrackService:
         project: Project,
         project_role: str | None = None,
     ) -> DataManagerTrackQueryResponse:
-        kind = project_kind(project)
+        kind = project_kind(project.data_type, project.scene_mode)
         if not (kind.scene_mode or kind.data_type == "video"):
             raise HTTPException(status_code=422, detail="Track lens is not supported")
         if kind.data_type == "video" and not kind.scene_mode:

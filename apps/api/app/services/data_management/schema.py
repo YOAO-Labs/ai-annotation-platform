@@ -23,7 +23,7 @@ from app.schemas.data_manager import (
     DataManagerSchemaResponse,
     DataManagerToolUnitOut,
 )
-from app.services.project_kind import project_kind
+from aap_workspace.configuration_policy import project_kind
 
 
 _TEXT_OPS = ["eq", "ne", "in"]
@@ -103,7 +103,7 @@ def _class_names(binding: dict[str, Any]) -> list[str]:
 
 
 def _track_capable(project: Project) -> bool:
-    kind = project_kind(project)
+    kind = project_kind(project.data_type, project.scene_mode)
     if kind.scene_mode:
         return True
     if kind.data_type != "video":
@@ -137,7 +137,7 @@ def builtin_view_keys(project: Project) -> list[str]:
 def build_data_manager_schema(
     project: Project, entity_scope: DataManagerEntityScope = "tasks"
 ) -> DataManagerSchemaResponse:
-    kind = project_kind(project)
+    kind = project_kind(project.data_type, project.scene_mode)
     bindings = _enabled_bindings(project)
     class_values = sorted(
         {class_name for _, binding in bindings for class_name in _class_names(binding)}

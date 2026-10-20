@@ -4,7 +4,7 @@ from typing import NoReturn
 
 from fastapi import HTTPException
 
-from app.services.project_kind import canonical_media_kind
+from aap_workspace.configuration_policy import canonical_media_kind
 from app.services.task_creation_contract import TaskCreationFailure
 
 

@@ -18,7 +18,7 @@ from app.services.data_management.filter_tree import (
     validate_in_value,
 )
 from app.services.data_management.schema import build_data_manager_schema
-from app.services.project_kind import project_kind
+from aap_workspace.configuration_policy import project_kind
 from app.services.feedback import annotation_unresolved_issue_count_sq
 from app.services.data_management.task_filters import (
     _compile_annotation_object_condition,
@@ -308,7 +308,7 @@ async def count_entity_filters(
             for index, condition in enumerate(conditions)
         ]
     elif entity_scope == "tracks":
-        kind = project_kind(project)
+        kind = project_kind(project.data_type, project.scene_mode)
         if kind.data_type == "video" and not kind.scene_mode:
             base = and_(
                 active,

@@ -1090,7 +1090,7 @@ async def _build_project_roles_image_project(
     from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
     from app.db.models.project import Project
     from app.db.models.task import Task
-    from app.services.project_workspace import coalesce_legacy_into_tool_bindings
+    from aap_workspace.configuration_policy import coalesce_legacy_into_tool_bindings
     from app.services.storage import storage_service
 
     kw: dict = {"classes": ["car", "person"]}

@@ -50,7 +50,7 @@ from app.services.data_management.task_metrics import (  # noqa: F401
     pending_prediction_shapes_expr,
     pending_tracker_jobs_expr,
 )
-from app.services.project_kind import project_kind
+from aap_workspace.configuration_policy import project_kind
 from app.services.project_access import is_privileged_for_project
 from app.services.scheduler import task_visibility_clause
 from app.services.feedback import unresolved_issue_count_sq
@@ -289,7 +289,7 @@ def _is_annotation_object_rule(node: dict[str, Any]) -> bool:
 
 
 def _is_project_filter_field_supported(field: str, project: Project) -> bool:
-    kind = project_kind(project)
+    kind = project_kind(project.data_type, project.scene_mode)
     if field.startswith("scene.") and not kind.scene_mode:
         return False
     if field == "ai.pending_tracker_job_count" and kind.data_type != "video":

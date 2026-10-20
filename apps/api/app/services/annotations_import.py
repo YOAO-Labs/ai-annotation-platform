@@ -289,7 +289,7 @@ async def import_aap_json_annotations(
         project.tool_bindings or {} if project else {}
     )
 
-    from app.services.project_workspace import lookup_classes_for_tool_unit
+    from aap_workspace.configuration_policy import lookup_classes_for_tool_unit
 
     for block in envelope.tasks:
         match_dict = block.task_match.model_dump(exclude_none=True)

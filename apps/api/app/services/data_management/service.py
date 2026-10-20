@@ -64,7 +64,7 @@ from app.schemas.data_manager import (
     DataManagerScopeSummary,
     DataManagerSummaryResponse,
 )
-from app.services.project_kind import project_kind
+from aap_workspace.configuration_policy import project_kind
 from app.services.prediction import to_internal_shape
 from app.services.project_access import is_privileged_for_project
 from app.services.feedback import unresolved_issue_count_sq
@@ -338,7 +338,7 @@ class DataManagerService:
                 )
             )
 
-        kind = project_kind(project)
+        kind = project_kind(project.data_type, project.scene_mode)
         kind_metrics: dict[str, int | float | None] = {}
         if kind.data_type == "image":
             image_rows = (

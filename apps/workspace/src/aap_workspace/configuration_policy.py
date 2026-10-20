@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Collection, Mapping
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
@@ -40,6 +41,18 @@ _DATA_TYPE_TO_LEGACY_TYPE_KEY = {
     "lidar": "lidar",
 }
 _LIDAR_DATA_TYPES = ("lidar", "point_cloud", "pointcloud")
+
+
+@dataclass(frozen=True)
+class ProjectKind:
+    data_type: str
+    scene_mode: bool
+
+
+@dataclass(frozen=True)
+class DatasetKind:
+    data_type: str
+    has_scenes: bool
 
 
 def merge_from_source(
@@ -129,6 +142,13 @@ def coalesce_legacy_into_tool_bindings(
     payload["tool_bindings"] = merged
 
 
+def discard_legacy_project_configuration_fields(
+    payload: dict[str, Any],
+) -> None:
+    for field in ("classes", "classes_config", "attribute_schema"):
+        payload.pop(field, None)
+
+
 def data_type_from_type_key(type_key: str | None) -> str:
     if type_key and type_key.startswith("video"):
         return "video"
@@ -190,8 +210,40 @@ def canonical_media_kind(data_type: str | None) -> str:
     return data_type or "image"
 
 
+def media_kind_aliases(data_type: str | None) -> tuple[str, ...]:
+    kind = canonical_media_kind(data_type)
+    return _LIDAR_DATA_TYPES if kind == "lidar" else (kind,)
+
+
+def project_kind(data_type: str | None, scene_mode: bool) -> ProjectKind:
+    return ProjectKind(canonical_media_kind(data_type), bool(scene_mode))
+
+
+def dataset_kind(data_type: str | None, has_scenes: bool) -> DatasetKind:
+    return DatasetKind(canonical_media_kind(data_type), bool(has_scenes))
+
+
+def kind_matches(project: ProjectKind, dataset: DatasetKind) -> bool:
+    return (
+        project.data_type == dataset.data_type
+        and project.scene_mode == dataset.has_scenes
+    )
+
+
 def scene_mode_allowed(data_type: str | None) -> bool:
     return canonical_media_kind(data_type) in {"image", "lidar"}
+
+
+def kind_mismatch_detail(project: ProjectKind, dataset: DatasetKind) -> str | None:
+    if project.data_type != dataset.data_type:
+        return (
+            f"data_type 不匹配(项目 {project.data_type} / 数据集 {dataset.data_type})"
+        )
+    if project.scene_mode != dataset.has_scenes:
+        if project.scene_mode:
+            return "scene 模式不匹配(scene 项目只能关联 has_scenes=true 的数据集)"
+        return "scene 模式不匹配(普通项目只能关联 has_scenes=false 的数据集)"
+    return None
 
 
 def prepare_project_create_payload(
@@ -213,8 +265,7 @@ def prepare_project_create_payload(
     coalesce_legacy_into_tool_bindings(
         payload, existing_tool_bindings=None, type_key=payload.get("type_key")
     )
-    for legacy_field in ("classes", "classes_config", "attribute_schema"):
-        payload.pop(legacy_field, None)
+    discard_legacy_project_configuration_fields(payload)
 
 
 def lookup_classes_for_tool_unit(
