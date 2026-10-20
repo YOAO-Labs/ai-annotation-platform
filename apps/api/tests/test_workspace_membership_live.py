@@ -578,6 +578,18 @@ async def test_node_membership_owner_and_native_same_transaction_consumers(
         assert add_reply["ok"] is True and add_reply["reply"]["ok"] is True
         assert add_reply["reply"]["data"]["member"]["user_id"] == str(add_target.id)
 
+        async with maker() as db:
+            audit_count_before_restart = await db.scalar(
+                select(func.count(AuditLog.id)).where(
+                    AuditLog.actor_id == owner.id,
+                    AuditLog.target_type == "project_member",
+                )
+            )
+        workspace.stop()
+        workspace = await runtime_helpers._start_workspace(
+            test_engine, tmp_path / "owner-restarted", control
+        )
+
         replay = _node(
             "--call",
             payload={
@@ -588,6 +600,14 @@ async def test_node_membership_owner_and_native_same_transaction_consumers(
             },
         )
         assert replay["reply"] == add_reply["reply"]
+        async with maker() as db:
+            audit_count_after_restart = await db.scalar(
+                select(func.count(AuditLog.id)).where(
+                    AuditLog.actor_id == owner.id,
+                    AuditLog.target_type == "project_member",
+                )
+            )
+        assert audit_count_after_restart == audit_count_before_restart
 
         member_id = add_reply["reply"]["data"]["member"]["id"]
         preview_request = request(
