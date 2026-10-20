@@ -58,22 +58,40 @@ class TransactionConnection:
 
 
 class PolicyConnection:
-    def __init__(self, policy, grants):
+    def __init__(self, policy, grants, *, table_access=False, column_access=False):
         self.policy = policy
         self.grants = grants
+        self.table_access = table_access
+        self.column_access = column_access
         self.closed = False
-        self.grant_query = ""
+        self.queries = []
 
     @asynccontextmanager
     async def transaction(self):
         yield
 
-    async def fetchval(self, _sql):
+    async def fetchval(self, sql):
+        self.queries.append(sql)
+        if "has_table_privilege" in sql:
+            return self.table_access or self.column_access
         return self.policy
 
     async def fetch(self, sql):
-        self.grant_query = sql
-        return [{"proname": name, "args": args} for name, args in self.grants]
+        self.queries.append(sql)
+        return [
+            {
+                "nspname": namespace,
+                "proname": name,
+                "args": args,
+                "prosecdef": security_definer,
+            }
+            for namespace, name, args, security_definer, kind, return_type in self.grants
+            if namespace not in {"pg_catalog", "information_schema"}
+            and not namespace.startswith(("pg_toast", "pg_temp_"))
+            and kind in {"f", "p", "a", "w"}
+            and return_type not in {"trigger", "event_trigger"}
+            and (namespace.startswith("aap_") or security_definer)
+        ]
 
     async def close(self, timeout):
         assert timeout == 2
@@ -166,14 +184,52 @@ async def test_user_and_operator_ready_require_exact_function_grants(monkeypatch
             "schema": "aap-identity-deactivation-policy/v1",
             "policy": "aap-identity-deactivation/v1",
         },
-        [("deactivation_policy", ""), ("execute_deactivation_command", "jsonb")],
+        [
+            (
+                "aap_identity_deactivation_v1",
+                "deactivation_policy",
+                "",
+                False,
+                "f",
+                "jsonb",
+            ),
+            (
+                "aap_identity_deactivation_v1",
+                "execute_deactivation_command",
+                "jsonb",
+                True,
+                "f",
+                "jsonb",
+            ),
+            ("public", "ordinary_helper", "text", False, "f", "void"),
+            ("aap_ignored", "trigger_function", "", False, "f", "trigger"),
+            ("aap_ignored", "event_trigger_function", "", False, "f", "event_trigger"),
+            ("pg_catalog", "pg_notify", "text", True, "f", "void"),
+        ],
     )
     due = PolicyConnection(
         {
             "schema": "aap-identity-deactivation-due-policy/v1",
             "policy": "aap-identity-deactivation-due/v1",
         },
-        [("due_policy", ""), ("process_due_deactivations", "jsonb")],
+        [
+            (
+                "aap_identity_deactivation_v1",
+                "due_policy",
+                "",
+                False,
+                "f",
+                "jsonb",
+            ),
+            (
+                "aap_identity_deactivation_v1",
+                "process_due_deactivations",
+                "jsonb",
+                True,
+                "f",
+                "jsonb",
+            ),
+        ],
     )
     connections = [user, due]
 
@@ -195,9 +251,116 @@ async def test_user_and_operator_ready_require_exact_function_grants(monkeypatch
     ).due_policy()
     assert user_policy.policy == "aap-identity-deactivation/v1"
     assert due_policy.policy == "aap-identity-deactivation-due/v1"
-    assert "oidvectortypes(p.proargtypes)" in user.grant_query
-    assert "oidvectortypes(p.proargtypes)" in due.grant_query
+    user_capability_sql = next(sql for sql in user.queries if "pg_proc" in sql)
+    due_capability_sql = next(sql for sql in due.queries if "pg_proc" in sql)
+    assert "oidvectortypes(function.proargtypes)" in user_capability_sql
+    assert "prokind IN ('f', 'p', 'a', 'w')" in user_capability_sql
+    assert "return_type.typname IN ('trigger', 'event_trigger')" in user_capability_sql
+    assert "namespace.nspname NOT LIKE 'pg_temp_%'" in user_capability_sql
+    assert "OR function.prosecdef" in user_capability_sql
+    assert "oidvectortypes(function.proargtypes)" in due_capability_sql
+    table_sql = next(sql for sql in due.queries if "has_table_privilege" in sql)
+    assert "has_any_column_privilege" in table_sql
     assert user.closed and due.closed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "extra_grant",
+    [
+        ("aap_notifications_v1", "unexpected", "uuid", True, "f", "jsonb"),
+        ("public", "unsafe_definer", "uuid", True, "f", "jsonb"),
+    ],
+)
+async def test_readiness_rejects_extra_domain_and_security_definer_capabilities(
+    monkeypatch, extra_grant
+):
+    connection = PolicyConnection(
+        {
+            "schema": "aap-identity-deactivation-policy/v1",
+            "policy": "aap-identity-deactivation/v1",
+        },
+        [
+            (
+                "aap_identity_deactivation_v1",
+                "deactivation_policy",
+                "",
+                False,
+                "f",
+                "jsonb",
+            ),
+            (
+                "aap_identity_deactivation_v1",
+                "execute_deactivation_command",
+                "jsonb",
+                True,
+                "f",
+                "jsonb",
+            ),
+            extra_grant,
+        ],
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "asyncpg",
+        SimpleNamespace(
+            connect=lambda *args, **kwargs: _return(connection),
+            PostgresError=Exception,
+            InterfaceError=Exception,
+        ),
+    )
+    with pytest.raises(IdentityUnavailable):
+        await DeactivationPostgresData(
+            "postgresql://user.invalid/db"
+        ).deactivation_policy()
+    assert connection.closed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("table_access,column_access", [(True, False), (False, True)])
+async def test_readiness_rejects_table_and_column_privileges(
+    monkeypatch, table_access, column_access
+):
+    connection = PolicyConnection(
+        {
+            "schema": "aap-identity-deactivation-due-policy/v1",
+            "policy": "aap-identity-deactivation-due/v1",
+        },
+        [
+            (
+                "aap_identity_deactivation_v1",
+                "due_policy",
+                "",
+                False,
+                "f",
+                "jsonb",
+            ),
+            (
+                "aap_identity_deactivation_v1",
+                "process_due_deactivations",
+                "jsonb",
+                True,
+                "f",
+                "jsonb",
+            ),
+        ],
+        table_access=table_access,
+        column_access=column_access,
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "asyncpg",
+        SimpleNamespace(
+            connect=lambda *args, **kwargs: _return(connection),
+            PostgresError=Exception,
+            InterfaceError=Exception,
+        ),
+    )
+    with pytest.raises(IdentityUnavailable):
+        await DeactivationDuePostgresData(
+            "postgresql://operator.invalid/db"
+        ).due_policy()
+    assert connection.closed
 
 
 async def _return(value):

@@ -94,6 +94,98 @@ class DeactivationPostgresData:
                     if not asyncio.current_task().cancelling():
                         raise IdentityUnavailable() from None
 
+    @staticmethod
+    async def _assert_capabilities(connection, expected: set[str]) -> None:
+        import asyncpg
+
+        try:
+            rows = await connection.fetch(
+                """
+                SELECT namespace.nspname,
+                       function.proname,
+                       pg_catalog.oidvectortypes(function.proargtypes) AS args,
+                       function.prosecdef
+                FROM pg_catalog.pg_proc AS function
+                JOIN pg_catalog.pg_namespace AS namespace
+                  ON namespace.oid = function.pronamespace
+                JOIN pg_catalog.pg_type AS return_type
+                  ON return_type.oid = function.prorettype
+                WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+                  AND namespace.nspname NOT LIKE 'pg_toast%'
+                  AND namespace.nspname NOT LIKE 'pg_temp_%'
+                  AND function.prokind IN ('f', 'p', 'a', 'w')
+                  AND NOT (
+                      return_type.typnamespace = 'pg_catalog'::pg_catalog.regnamespace
+                      AND return_type.typname IN ('trigger', 'event_trigger')
+                  )
+                  AND (
+                      pg_catalog.left(namespace.nspname, 4) = 'aap_'
+                      OR function.prosecdef
+                  )
+                  AND pg_catalog.has_function_privilege(
+                      current_user, function.oid, 'EXECUTE'
+                  )
+                ORDER BY namespace.nspname, function.proname, args
+                """
+            )
+            actual = {
+                f"{row['nspname']}.{row['proname']}({row['args']})" for row in rows
+            }
+            if actual != expected:
+                raise IdentityUnavailable()
+            has_table_access = await connection.fetchval(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM pg_catalog.pg_class AS relation
+                    JOIN pg_catalog.pg_namespace AS namespace
+                      ON namespace.oid = relation.relnamespace
+                    WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+                      AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+                      AND (
+                          pg_catalog.has_table_privilege(
+                              current_user, relation.oid, 'SELECT'
+                          )
+                          OR pg_catalog.has_table_privilege(
+                              current_user, relation.oid, 'INSERT'
+                          )
+                          OR pg_catalog.has_table_privilege(
+                              current_user, relation.oid, 'UPDATE'
+                          )
+                          OR pg_catalog.has_table_privilege(
+                              current_user, relation.oid, 'DELETE'
+                          )
+                          OR pg_catalog.has_table_privilege(
+                              current_user, relation.oid, 'TRUNCATE'
+                          )
+                          OR pg_catalog.has_table_privilege(
+                              current_user, relation.oid, 'REFERENCES'
+                          )
+                          OR pg_catalog.has_table_privilege(
+                              current_user, relation.oid, 'TRIGGER'
+                          )
+                          OR pg_catalog.has_any_column_privilege(
+                              current_user, relation.oid,
+                              'SELECT,INSERT,UPDATE,REFERENCES'
+                          )
+                      )
+                )
+                """
+            )
+            if has_table_access is not False:
+                raise IdentityUnavailable()
+        except IdentityUnavailable:
+            raise
+        except (
+            asyncpg.PostgresError,
+            asyncpg.InterfaceError,
+            OSError,
+            TimeoutError,
+            ValueError,
+            TypeError,
+        ):
+            raise IdentityUnavailable() from None
+
     async def deactivation_policy(self) -> DeactivationPolicyReply:
         import asyncpg
 
@@ -109,22 +201,13 @@ class DeactivationPostgresData:
                 raw = await connection.fetchval(
                     "SELECT aap_identity_deactivation_v1.deactivation_policy()"
                 )
-                granted = await connection.fetch(
-                    """
-                    SELECT p.proname, oidvectortypes(p.proargtypes) AS args
-                    FROM pg_proc AS p
-                    JOIN pg_namespace AS n ON n.oid = p.pronamespace
-                    WHERE n.nspname = 'aap_identity_deactivation_v1'
-                      AND has_function_privilege(current_user, p.oid, 'EXECUTE')
-                    ORDER BY p.proname, args
-                    """
+                await DeactivationPostgresData._assert_capabilities(
+                    connection,
+                    {
+                        "aap_identity_deactivation_v1.deactivation_policy()",
+                        "aap_identity_deactivation_v1.execute_deactivation_command(jsonb)",
+                    },
                 )
-                actual = {f"{row['proname']}({row['args']})" for row in granted}
-                if actual != {
-                    "deactivation_policy()",
-                    "execute_deactivation_command(jsonb)",
-                }:
-                    raise IdentityUnavailable()
                 value = json.loads(raw) if isinstance(raw, str) else raw
                 return decode_deactivation_policy(value)
         except IdentityUnavailable:
@@ -241,22 +324,13 @@ class DeactivationDuePostgresData:
                 raw = await connection.fetchval(
                     "SELECT aap_identity_deactivation_v1.due_policy()"
                 )
-                granted = await connection.fetch(
-                    """
-                    SELECT p.proname, oidvectortypes(p.proargtypes) AS args
-                    FROM pg_proc AS p
-                    JOIN pg_namespace AS n ON n.oid = p.pronamespace
-                    WHERE n.nspname = 'aap_identity_deactivation_v1'
-                      AND has_function_privilege(current_user, p.oid, 'EXECUTE')
-                    ORDER BY p.proname, args
-                    """
+                await DeactivationPostgresData._assert_capabilities(
+                    connection,
+                    {
+                        "aap_identity_deactivation_v1.due_policy()",
+                        "aap_identity_deactivation_v1.process_due_deactivations(jsonb)",
+                    },
                 )
-                actual = {f"{row['proname']}({row['args']})" for row in granted}
-                if actual != {
-                    "due_policy()",
-                    "process_due_deactivations(jsonb)",
-                }:
-                    raise IdentityUnavailable()
                 value = json.loads(raw) if isinstance(raw, str) else raw
                 return decode_deactivation_due_policy(value)
         except IdentityUnavailable:
