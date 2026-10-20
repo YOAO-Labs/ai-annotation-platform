@@ -265,7 +265,8 @@ async def _task_rows(maker, task_ids):
     async with maker() as db:
         rows = await db.execute(
             text(
-                "SELECT id, assignee_id, reviewer_id, status, batch_id, assigned_at "
+                "SELECT id, assignee_id, reviewer_id, status, batch_id, assigned_at, "
+                "updated_at "
                 "FROM public.tasks WHERE id=ANY(CAST(:ids AS uuid[])) ORDER BY id"
             ),
             {"ids": task_ids},
@@ -466,6 +467,15 @@ async def test_installed_owner_deletion_transfer_replay_and_bounded_sample(
                     lock_only_task,
                 ]
             ]
+            old_updated_at = base_time - timedelta(days=1)
+            for task in [
+                *direct_tasks,
+                completed_task,
+                reviewer_task,
+                batch_only_task,
+                lock_only_task,
+            ]:
+                task.updated_at = old_updated_at
             for task in direct_tasks:
                 db.add(
                     TaskLock(
@@ -550,6 +560,10 @@ async def test_installed_owner_deletion_transfer_replay_and_bounded_sample(
                 )
             )
             await db.flush()
+        seeded_task_rows = await _task_rows(maker, task_ids)
+        assert all(
+            row["updated_at"] == old_updated_at for row in seeded_task_rows.values()
+        )
         user_ids.extend(
             [
                 target.id,
@@ -794,11 +808,19 @@ async def test_installed_owner_deletion_transfer_replay_and_bounded_sample(
             row = transferred_rows[task.id]
             assert row["assignee_id"] == receiver.id
             assert row["assigned_at"] is not None and row["assigned_at"] > base_time
+            assert row["updated_at"] > old_updated_at
         assert transferred_rows[completed_task.id]["assignee_id"] == target.id
+        assert transferred_rows[completed_task.id]["updated_at"] == old_updated_at
         assert transferred_rows[reviewer_task.id]["assignee_id"] == receiver.id
         assert transferred_rows[reviewer_task.id]["reviewer_id"] == target.id
+        assert transferred_rows[reviewer_task.id]["updated_at"] == old_updated_at
         assert transferred_rows[batch_only_task.id]["assignee_id"] == receiver.id
         assert transferred_rows[batch_only_task.id]["batch_id"] == batch.id
+        assert transferred_rows[batch_only_task.id]["updated_at"] == old_updated_at
+        assert transferred_rows[lock_only_task.id]["updated_at"] == old_updated_at
+        updated_at_after_delete = {
+            task_id: row["updated_at"] for task_id, row in transferred_rows.items()
+        }
         assert {
             "annotator_id": batch.annotator_id,
             "reviewer_id": batch.reviewer_id,
@@ -918,6 +940,10 @@ async def test_installed_owner_deletion_transfer_replay_and_bounded_sample(
         assert await _receipts(test_engine, [delete_operation]) == {
             delete_operation: receipt
         }
+        replayed_task_rows = await _task_rows(maker, task_ids)
+        assert {
+            task_id: row["updated_at"] for task_id, row in replayed_task_rows.items()
+        } == updated_at_after_delete
         assert await _lock_ids(maker, target.id) == [post_delete_lock.id]
         post_delete_rows = await _task_rows(maker, [post_delete_task.id])
         assert post_delete_rows[post_delete_task.id]["assignee_id"] == target.id
