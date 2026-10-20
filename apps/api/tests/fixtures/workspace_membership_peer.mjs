@@ -15,6 +15,7 @@ const nativeRole = "workspace_membership_client";
 const operations = new Set(["add_member", "preview_role_change", "change_role", "remove_member"]);
 const publicOperations = new Set([...operations, "list_members"]);
 const roles = new Set(["annotator", "reviewer", "viewer"]);
+let phase = "input";
 const memberKeys = [
   "id",
   "project_id",
@@ -1083,6 +1084,7 @@ function validateOwnerHttpResponse(request, response) {
 }
 
 async function runPublicHttp(input) {
+  phase = "public HTTP request";
   const response = await requestJson(
     input.origin,
     input.path,
@@ -1091,16 +1093,37 @@ async function runPublicHttp(input) {
     input.body,
   );
   const status = BigInt(response.status);
+  phase = `public HTTP status ${response.status}`;
   if (status !== integer(input.expected.status)) fail();
+  phase = "public HTTP response encoding";
   if (status !== 204n && !response.contentType.toLowerCase().includes("application/json")) fail();
   if (status === 204n && response.text !== "") fail();
   const body = response.text === "" ? null : parseStrictJson(response.text);
+  phase = "public HTTP response contract";
   if (status >= 200n && status < 300n) validatePublicBody(input.operation, body);
   else if (!exact(body, ["detail"])) fail();
+  if (
+    input.operation === "add_member" &&
+    status === 201n &&
+    input.expected.body.id === "$membership_added" &&
+    !Object.hasOwn(input.aliases, body.id)
+  ) {
+    input.aliases = { ...input.aliases, [body.id]: "membership_added" };
+  }
   const actualNormalized = normalizePublic(body, input.aliases);
   const expectedNormalized = normalizePublic(input.expected.body, input.aliases);
+  if (input.operation === "list_members" && status === 200n) {
+    for (let index = 1; index < body.length; index += 1) {
+      if (Date.parse(body[index].assigned_at) > Date.parse(body[index - 1].assigned_at)) fail();
+    }
+    // The legacy capture shares a transaction timestamp; tie order is unspecified.
+    const byUser = (left, right) => left.user_id.localeCompare(right.user_id);
+    actualNormalized.sort(byUser);
+    expectedNormalized.sort(byUser);
+  }
+  phase = "public HTTP legacy comparison";
   if (!compareValue(actualNormalized, expectedNormalized)) fail();
-  return { ok: true, status, body };
+  return { ok: true, status: response.status, body };
 }
 
 function linesReader(stream) {
@@ -1611,7 +1634,7 @@ async function main() {
 
 if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   main().catch(() => {
-    process.stderr.write("Workspace membership peer failed\n");
+    process.stderr.write(`Workspace membership peer failed (${phase})\n`);
     process.exitCode = 1;
   });
 }

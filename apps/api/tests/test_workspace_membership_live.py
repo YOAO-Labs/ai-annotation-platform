@@ -92,7 +92,9 @@ def _node(*args: str, payload: dict | None = None) -> dict:
             secret = payload.get(secret_field)
             if isinstance(secret, str):
                 assert secret not in result.stdout + result.stderr
-    assert result.returncode == 0, "Independent Workspace membership peer failed"
+    assert result.returncode == 0, (
+        f"Independent Workspace membership peer failed: {result.stderr.strip()}"
+    )
     return json.loads(result.stdout)
 
 
@@ -124,8 +126,14 @@ async def _node_public(
     )
 
 
-async def _seed_membership_world(test_engine):
+async def _seed_membership_world(test_engine, legacy):
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    # Preserve frozen UUID sort order without sharing rows between bindings.
+    prefix = secrets.randbits(96) << 32
+    identifiers = {
+        alias: uuid.UUID(int=prefix + index, version=4)
+        for index, (_, alias) in enumerate(sorted(legacy["aliases"].items()))
+    }
     aliases: dict[str, str] = {}
     users: dict[str, User] = {}
     project = None
@@ -148,17 +156,23 @@ async def _seed_membership_world(test_engine):
                 f"member-baseline-{name}-{uuid.uuid4().hex}@example.test",
                 name,
             )
+            users[name].id = identifiers[name]
+            await db.flush()
             aliases[str(users[name].id)] = name
 
         project = await create_project(
             db, owner_id=users["owner"].id, name="Membership baseline"
         )
+        project.id = identifiers["project"]
+        await db.flush()
         aliases[str(project.id)] = "project"
-        for name, role in (
-            ("member", "annotator"),
-            ("annotator", "annotator"),
-            ("reviewer", "reviewer"),
-            ("other_reviewer", "reviewer"),
+        for position, (name, role) in enumerate(
+            (
+                ("member", "annotator"),
+                ("annotator", "annotator"),
+                ("reviewer", "reviewer"),
+                ("other_reviewer", "reviewer"),
+            )
         ):
             memberships[name] = await create_membership(
                 db,
@@ -167,9 +181,14 @@ async def _seed_membership_world(test_engine):
                 role=role,
                 assigned_by=users["owner"].id,
             )
+            memberships[name].id = identifiers[f"membership_{name}"]
+            memberships[name].assigned_at = datetime(2020, 1, 4 - position, tzinfo=UTC)
+            await db.flush()
             aliases[str(memberships[name].id)] = f"membership_{name}"
 
         batch = await create_batch(db, project_id=project.id, status="annotating")
+        batch.id = identifiers["batch"]
+        await db.flush()
         aliases[str(batch.id)] = "batch"
         batch.annotator_id = users["member"].id
         batch.reviewer_id = users["member"].id
@@ -182,6 +201,8 @@ async def _seed_membership_world(test_engine):
             ("pool", "review"),
         ):
             task = await create_task(db, project_id=project.id, status=status)
+            task.id = identifiers[f"task_{name}"]
+            await db.flush()
             tasks[name] = task
             aliases[str(task.id)] = f"task_{name}"
             if name != "pool":
@@ -263,7 +284,7 @@ async def test_project_member_http_preserves_the_actual_legacy_contract(
         memberships,
         tasks,
         batch,
-    ) = await _seed_membership_world(test_engine)
+    ) = await _seed_membership_world(test_engine, legacy)
     _add_email_aliases(legacy, users, aliases)
     task_ids = {name: task.id for name, task in tasks.items()}
     control = secrets.token_urlsafe(32)
@@ -473,6 +494,10 @@ async def test_project_member_http_preserves_the_actual_legacy_contract(
                     )
                 ).all()
             )
+            business_rows = [
+                row for row in audit_rows if not row.action.startswith("http.")
+            ]
+            assert len(audit_rows) - len(business_rows) == 18
             audit_values = [
                 {
                     "action": row.action,
@@ -482,7 +507,7 @@ async def test_project_member_http_preserves_the_actual_legacy_contract(
                     "actor_id": str(row.actor_id),
                     "actor_role": row.actor_role,
                 }
-                for row in audit_rows
+                for row in business_rows
             ]
         assert len(audit_values) == 4
         assert _normalize(audit_values, aliases) == legacy["audits"]

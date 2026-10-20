@@ -116,7 +116,7 @@ async def _start_container_workspace(test_engine, directory, control):
         "--name",
         f"aap-workspace-membership-{owner}",
         "--label",
-        "org.aap.acceptance=workspace-membership",
+        "org.aap.acceptance=module-data-boundary",
         "--label",
         f"org.aap.acceptance-id={owner}",
         "--read-only",

@@ -239,12 +239,17 @@ async def test_membership_receipt_replays_after_restore_and_blocks_populated_dow
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
                 == "0253"
             )
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT shobj_description(oid,'pg_database') "
+                        "FROM pg_database WHERE datname=current_database()"
+                    )
+                )
+                == ownership
+            )
             await db.execute(
-                text(
-                    "DELETE FROM public.workspace_membership_operation_receipts "
-                    "WHERE operation_id=:operation_id"
-                ),
-                {"operation_id": operation_id},
+                text("DELETE FROM public.workspace_membership_operation_receipts")
             )
         empty = _alembic(test_engine.url.set(database=clone), "downgrade", "0252")
         assert empty.returncode == 0, (
