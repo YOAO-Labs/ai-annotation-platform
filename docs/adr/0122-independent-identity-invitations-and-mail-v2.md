@@ -1,6 +1,6 @@
 # 0122 — Identity 邀请生命周期与 durable MailV2 投递所有权
 
-- **Status:** Accepted; implementation is in progress and runtime qualification is pending
+- **Status:** Accepted; local invitation and MailV2 qualification completed
 - **Date:** 2026-10-20
 - **Deciders:** Maintainers
 - **Supersedes:** None
@@ -122,9 +122,9 @@ Negative:
   leases and deployment configuration that must be operated together.
 - SMTP is at-least-once; a disconnect after DATA can cause a duplicate message,
   and a 502 timeout does not prove that the message will not arrive later.
-- Accepted design and local source implementation do not establish migration,
-  role, API-consumer, restart, backup/restore, capacity or production
-  qualification. Those checks remain pending.
+- Local qualification is bounded to the invitation and mail capabilities and
+  the measured container budgets. Full Identity ownership, daily cutover,
+  a replacement-language provider and production capacity remain unfinished.
 
 ## Notes
 
@@ -137,3 +137,36 @@ Negative:
   and the repository's `docker-compose.identity.yml`.
 - Full-module progress remains in
   `docs/plans/1792160873_backend-module-decoupling.md`.
+
+## Local qualification
+
+Committed source `52856bc0b` passes 68 database-backed native, role, existing API
+and independent-process checks with no skipped cases. Both an AUTH-only API
+using a remote Identity container and one using the dedicated Invitation DSN
+complete all thirteen public operations with an external MailV2 sender.
+Migration round trips and frozen SQL installation, rolling quota, 500-item
+preview rollback, partial batch apply, current-authority fencing, registration
+replay, group/membership atomicity and int64 pagination boundaries pass.
+
+Real SMTP tests cover lost acknowledgement, stable Message-ID retry, killing
+the sender after DATA, lease takeover, V1 purpose isolation and suppression of
+stale, accepted or revoked invitation links. Backup/restore retains the original
+proof/JWT, exact function ACLs and renewable mail leases without repeating
+Audit. A changed derivation epoch and populated downgrade are refused.
+
+The noneditable package passes 375 checks and matches all 77 installed source
+and schema files. Node self-checks pass 37 cases; the API assembly suite passes
+324 cases with 124 explicitly deferred architectural rules. The independently
+built API image passes a network-disabled, read-only, 512 MiB cold check of 77
+package and 63 API/native files, public route bindings, OpenAPI, head 0242 and
+relay registration. The SDK has 36 passing invitation/management checks.
+
+A 1 CPU/256 MiB read-only Identity container reads 600 catalog rows. Twelve
+creates at concurrency four take 0.640 seconds including seven contention
+retries; observed p50/p95 are 0.107/0.372 seconds. These are local correctness
+and budget samples, not production throughput or latency commitments.
+
+The scoped evidence is retained under `.worktree/identity-invitations-*` in
+the integration checkout; all owned test databases, buckets, credentials and
+containers were removed. No primary Identity cutover, production deployment,
+push, release or Go expansion was performed.

@@ -2865,3 +2865,54 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   claim. Directory/admin ownership, full Identity, remaining module gates,
   alternate-language provider, production capacity and Go experiment status are
   unchanged; no primary cutover or production deployment is included.
+
+### Identity invitation local and assembled artifact qualification
+
+- Source integration `9a5b8e043` and corrective source `52856bc0b` complete the
+  thirteen-operation invitation owner and durable MailV2 slice. The final owned
+  verifier passes 68 cases with no skips: 58 native/role/existing-API cases and
+  ten independent process/API/SMTP/restore/legacy-challenge cases. Migration
+  head 0242/down 0189/frozen install and rollback/up head and runtime grants pass.
+- Actual independent qualification found and fixed a long-email Audit target
+  overflow, missing current target on register replay, and an overbroad replay
+  `SELECT *` incompatible with column grants. Full invitation email remains
+  authoritative; only the Audit target summary is truncated to 64 characters.
+  Query pagination preserves int64 pages and clamps offset arithmetic; Node
+  exercises `2**31` and `2**63-1` without truncation or overflow. Test fixtures
+  now use an integer mail retry delay, await committed delivery after SMTP ACK
+  and attribute registration Audit to the registrant. Temporary diagnostic
+  fallback code never entered the product or a commit.
+- Both remote-container and dedicated-DSN bindings run an API holding only AUTH
+  database capabilities through all thirteen public operations. An external
+  MailV2 process delivers without the API holding MAILV2 credentials. The real
+  500-item preview rolls back completely; partial apply, receipts, current
+  issuer/owner/credential races, registration/member/group atomicity and
+  generation-retired replay refusal pass.
+- Real SMTP loss of ACK repeats the same link and Message-ID; forced sender
+  termination after DATA is recovered by the next process using an expired
+  lease. V1 continues draining only recovery purposes; stale rotated, accepted
+  and revoked links are suppressed. Restored PostgreSQL preserves original
+  tokens/JWT, current authority, exact three/four-function ACLs, mail leases
+  and no-repeat Audit. Epoch conflict and populated downgrade refusal pass.
+- Independent noneditable Identity installation passes 375 checks; all 77 installed
+  source/schema files match. Node 37 self-checks, SDK 36 checks and API assembly
+  324 checks pass (the latter has 124 explicitly deferred architecture rules).
+  The Identity image uses the same 77 source files and passes the live container
+  proof. API image `sha256:5537983adef00c03cc15dc9e9f0cffc2ee9f4f76d22736e6334fa782bc4a2ef8`,
+  built from 52856bc0b, passes network-disabled/read-only/512 MiB cold verification
+  of 77 package files, 63 API/native inputs, 13 invitation routes, prior owner routes,
+  head 0242, OpenAPI and the default-queue invitation relay registration.
+- A 1 CPU/256 MiB/non-root/read-only Identity container returns 600 catalog rows
+  (list 273907/export 274037 bytes). Twelve creates at concurrency 4 take 0.640s
+  including 7 contention retries; observed p50/p95 = .107/.372s. These finite local
+  samples establish no production throughput, latency, GPU or capacity SLO.
+- Scoped JSON/JUnit/artifact evidence remains in the integration checkout's
+  `.worktree/identity-invitations-*`. Owned verifier resources and cold-proof
+  containers were removed. The protected primary checkout/runtime/databases
+  stay unchanged. No push, release, remote CI, production, primary Identity cutover or
+  Go expansion was performed.
+- Invitation ownership is now locally qualified. Next is the four-operation
+  Identity directory read owner, preserving the current differences between
+  legacy list visibility and query/stats/export visibility. Platform-admin
+  writes, cross-owner offboarding, remaining Identity authority and all other
+  module/seven-gate work remain active; this slice does not close the full goal.
