@@ -148,7 +148,7 @@ GRANT SELECT (
     last_login_at, last_seen_at, password_admin_reset_at, deactivation_requested_at,
     deactivation_reason,
     deactivation_scheduled_at, preferences, avatar_ref, password_hash, status,
-    created_at
+    created_at, weekly_target_default
 ), UPDATE (
     id, credential_generation, last_login_at, last_seen_at, status, role, name, preferences,
     password_hash, password_admin_reset_at, avatar_ref, email_verified_at,
@@ -1120,6 +1120,8 @@ ALTER FUNCTION aap_identity_v1.read_actor_facts(uuid) OWNER TO :"identity_owner"
 ALTER FUNCTION aap_identity_v1._admission_failure(text)
     OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.authentication_policy()
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.read_actor_context(uuid, text)
     OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.read_jwt_principal(
     uuid, uuid, bigint, timestamptz, boolean

@@ -186,6 +186,7 @@ SQL_ARTIFACTS = (
     "0248_identity_offboarding.sql",
     "0249_identity_briefs_support.sql",
     "0249_identity_briefs.sql",
+    "0250_identity_actor_context.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -247,6 +248,7 @@ SCHEMA_ARTIFACTS = (
     "0247_identity_deletions.schema.json",
     "0248_identity_offboarding.schema.json",
     "0249_identity_briefs.schema.json",
+    "0250_identity_actor_context.schema.json",
 )
 TEST_FILES = (
     "tests/test_identity_admin_passwords_native.py",
@@ -267,6 +269,7 @@ TEST_FILES = (
     "tests/test_identity_briefs_native.py",
     "tests/test_identity_briefs_roles.py",
     "tests/test_identity_briefs_restore.py",
+    "tests/test_identity_actor_context_native.py",
     "tests/test_users_role_matrix.py::TestRoleMatrix::test_sa_cannot_demote_last_super_admin",
     "tests/test_identity_directory_native.py",
     "tests/test_identity_directory_roles.py",
@@ -1755,6 +1758,7 @@ def _install_and_rollback_frozen_sql(
         "SELECT aap_identity_offboarding_v1.offboarding_policy();\n"
         "SELECT aap_identity_offboarding_v1.prepare_offboarding_command('{}'::jsonb);\n"
         "SELECT aap_identity_offboarding_v1.apply_offboarding_command('{}'::jsonb);\n"
+        "SELECT aap_identity_v1.read_actor_context(NULL::uuid,NULL::text);\n"
         "SELECT aap_identity_briefs_v1.briefs_policy();\n"
         "SELECT aap_identity_briefs_v1.execute_briefs_command('{}'::jsonb);\n"
         "SELECT aap_identity_deactivation_v1.deactivation_policy();\n"
@@ -1902,6 +1906,7 @@ def _install_and_rollback_frozen_sql(
         "aap-identity-deletions-native/v1": "invalid_request",
         "aap-identity-offboarding-native/v1": "invalid_request",
         "aap-identity-briefs-native/v1": "invalid_request",
+        "aap-identity-actor/v1": "invalid_request",
     }
     if any(
         not any(
@@ -1993,6 +1998,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_identity_offboarding_v1') IS NULL "
             "AND to_regnamespace('aap_identity_briefs_v1') IS NULL "
             "AND to_regprocedure('aap_workspace_v1.identity_brief_project_roles(uuid,uuid[])') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.read_actor_context(uuid,text)') IS NULL "
             "AND to_regnamespace('aap_identity_mail_v2') IS NULL "
             "AND to_regnamespace('aap_workspace_v1') IS NULL "
             "AND to_regnamespace('aap_assets_v1') IS NULL "
@@ -2385,8 +2391,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0249"]:
-            raise RuntimeError("module-data acceptance requires migration head 0249")
+        if heads != ["0250"]:
+            raise RuntimeError("module-data acceptance requires migration head 0250")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(

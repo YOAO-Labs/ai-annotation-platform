@@ -1,4 +1,4 @@
--- Grant the four narrow Identity LOGIN surfaces after migrations and
+-- Grant the five narrow Identity LOGIN surfaces after migrations and
 -- module-data-grants. Roles must already exist and have no memberships.
 -- Database provisioning must revoke PUBLIC TEMP first; this script changes no PUBLIC ACL.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
@@ -129,6 +129,7 @@ GRANT USAGE ON SCHEMA aap_identity_v1 TO
     :"identity_fence_role", :"identity_operator_role";
 GRANT EXECUTE ON FUNCTION
     aap_identity_v1.authentication_policy(),
+    aap_identity_v1.read_actor_context(uuid, text),
     aap_identity_v1.read_jwt_principal(uuid, uuid, bigint, timestamptz, boolean),
     aap_identity_v1.read_api_key_candidates(text, uuid, integer),
     aap_identity_v1.confirm_api_key_principal(uuid, text)
@@ -161,6 +162,7 @@ BEGIN
                 current_setting('aap.identity_auth_role'),
                 ARRAY[
                     pg_catalog.to_regprocedure('aap_identity_v1.authentication_policy()')::oid,
+                    pg_catalog.to_regprocedure('aap_identity_v1.read_actor_context(uuid,text)')::oid,
                     pg_catalog.to_regprocedure('aap_identity_v1.read_jwt_principal(uuid,uuid,bigint,timestamptz,boolean)')::oid,
                     pg_catalog.to_regprocedure('aap_identity_v1.read_api_key_candidates(text,uuid,integer)')::oid,
                     pg_catalog.to_regprocedure('aap_identity_v1.confirm_api_key_principal(uuid,text)')::oid

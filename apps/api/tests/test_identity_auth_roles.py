@@ -17,6 +17,7 @@ from tests.test_identity_auth_native import _cleanup, _seed
 SURFACES = {
     "AUTH": {
         "authentication_policy",
+        "read_actor_context",
         "read_jwt_principal",
         "read_api_key_candidates",
         "confirm_api_key_principal",
@@ -88,6 +89,11 @@ async def test_identity_logins_have_exact_functions_and_no_private_or_ddl_access
         ):
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 await connection.execute(sql)
+        if kind != "AUTH":
+            with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                await connection.execute(
+                    "SELECT aap_identity_v1.read_actor_context(NULL::uuid,'super_admin')"
+                )
 
         actor = fixture["actor_id"]
         jti = uuid.uuid4()
@@ -99,6 +105,17 @@ async def test_identity_logins_have_exact_functions_and_no_private_or_ddl_access
                 )
             )
             assert policy["issuer"] == "aap-identity/v1"
+            context = json.loads(
+                await connection.fetchval(
+                    "SELECT aap_identity_v1.read_actor_context($1,$2)",
+                    actor,
+                    "super_admin",
+                )
+            )
+            assert context["data"]["id"] == str(actor)
+            assert context["data"]["role"] == "super_admin"
+            assert context["data"]["is_active"] is True
+            assert context["data"]["weekly_target_default"] is None
             result = json.loads(
                 await connection.fetchval(
                     "SELECT aap_identity_v1.read_jwt_principal($1,$2,0,$3,false)",

@@ -80,6 +80,7 @@ GRANT USAGE ON SCHEMA aap_identity_v1, aap_identity_keys_v1,
     aap_settings_v1, aap_notifications_v1 TO :"application_role";
 GRANT EXECUTE ON FUNCTION
     aap_identity_v1.authentication_policy(),
+    aap_identity_v1.read_actor_context(uuid,text),
     aap_identity_v1.lock_super_admin_invariant(),
     aap_identity_v1.super_admin_status(uuid),
     aap_identity_v1.read_jwt_principal(uuid,uuid,bigint,timestamptz,boolean),
