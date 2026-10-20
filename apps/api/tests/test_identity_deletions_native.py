@@ -1013,20 +1013,19 @@ async def test_malformed_deletion_audit_reply_rolls_back_transfer_and_soft_delet
             assert await owner.scalar(text("SELECT current_database()")) == (
                 test_engine.url.database
             )
-            connection = await owner.connection()
-            await connection.exec_driver_sql(
+            await owner.exec_driver_sql(
                 f"ALTER FUNCTION {function}(jsonb, uuid, jsonb, jsonb) "
                 f"RENAME TO {original_name}"
             )
-            await connection.exec_driver_sql(override)
-            await connection.exec_driver_sql(
+            await owner.exec_driver_sql(override)
+            await owner.exec_driver_sql(
                 f"REVOKE ALL ON FUNCTION {function}(jsonb, uuid, jsonb, jsonb) "
                 "FROM PUBLIC"
             )
-            await connection.exec_driver_sql(
+            await owner.exec_driver_sql(
                 f"ALTER FUNCTION {function}(jsonb, uuid, jsonb, jsonb) OWNER TO audit_code"
             )
-            await connection.exec_driver_sql(
+            await owner.exec_driver_sql(
                 f"GRANT EXECUTE ON FUNCTION {function}(jsonb, uuid, jsonb, jsonb) "
                 "TO identity_code"
             )
@@ -1151,11 +1150,10 @@ async def test_malformed_deletion_audit_reply_rolls_back_transfer_and_soft_delet
         try:
             if wrapped:
                 async with owner_engine.begin() as owner:
-                    connection = await owner.connection()
-                    await connection.exec_driver_sql(
+                    await owner.exec_driver_sql(
                         f"DROP FUNCTION {function}(jsonb, uuid, jsonb, jsonb)"
                     )
-                    await connection.exec_driver_sql(
+                    await owner.exec_driver_sql(
                         f"ALTER FUNCTION {original}(jsonb, uuid, jsonb, jsonb) "
                         "RENAME TO record_identity_deletion_event"
                     )
