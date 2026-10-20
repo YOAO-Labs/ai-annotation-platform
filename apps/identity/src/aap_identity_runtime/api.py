@@ -29,6 +29,15 @@ from aap_identity.key_contract import (
 )
 from aap_identity.key_manager import KeyManager
 from aap_identity.key_postgres import KeyPostgresData
+from aap_identity.group_contract import (
+    GROUP_POLICY_PROTOCOL,
+    GROUP_PROTOCOL,
+    GroupFailure,
+    decode_group_request,
+    group_failure_reply,
+)
+from aap_identity.group_manager import GroupManager
+from aap_identity.group_postgres import GroupPostgresData
 from aap_identity.login_counter import RedisLoginCounter
 from aap_identity.postgres import PostgresData
 from aap_identity.presence_contract import (
@@ -70,6 +79,7 @@ def create_app(
     account_data: AccountPostgresData | None = None,
     presence_data: PresencePostgresData | None = None,
     recovery_data: RecoveryPostgresData | None = None,
+    group_data: GroupPostgresData | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     data = data or PostgresData(
@@ -156,6 +166,18 @@ def create_app(
         if recovery_configured and recovery_data is not None
         else None
     )
+    group_configured = group_data is not None or settings.group_database_url is not None
+    if group_data is None and settings.group_database_url is not None:
+        group_data = GroupPostgresData(
+            settings.group_database_url.get_secret_value(),
+            connect_timeout=settings.connect_timeout_seconds,
+            command_timeout=settings.command_timeout_seconds,
+        )
+    groups = (
+        GroupManager(auth, group_data, settings.signing_secret.get_secret_value())
+        if group_data is not None
+        else None
+    )
     slots = asyncio.Semaphore(settings.max_concurrency)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -188,6 +210,10 @@ def create_app(
                     if recovery_data is None:
                         raise IdentityUnavailable()
                     recovery_policy = await recovery_data.recovery_policy()
+                if group_configured:
+                    if group_data is None:
+                        raise IdentityUnavailable()
+                    group_policy = await group_data.group_policy()
             if policy != {
                 "schema": "aap-identity-policy/v1",
                 "issuer": ISSUER,
@@ -226,6 +252,17 @@ def create_app(
                 if recovery_policy_value != {
                     "schema": RECOVERY_POLICY_PROTOCOL,
                     "policy": RECOVERY_PROTOCOL,
+                }:
+                    raise IdentityUnavailable()
+            if group_configured:
+                group_policy_value = (
+                    group_policy.model_dump(mode="json", by_alias=True)
+                    if hasattr(group_policy, "model_dump")
+                    else group_policy
+                )
+                if group_policy_value != {
+                    "schema": GROUP_POLICY_PROTOCOL,
+                    "policy": GROUP_PROTOCOL,
                 }:
                     raise IdentityUnavailable()
         except (IdentityUnavailable, TimeoutError):
@@ -472,6 +509,42 @@ def create_app(
         except (IdentityUnavailable, TimeoutError):
             return JSONResponse(
                 {"detail": "Identity recovery commands unavailable"},
+                status_code=503,
+            )
+        return JSONResponse(reply.model_dump(mode="json", by_alias=True))
+
+    @app.post("/v1/identity/groups/execute")
+    async def execute_group_command(request: Request):
+        supplied = request.headers.get("authorization", "").encode()
+        expected = ("Bearer " + settings.token.get_secret_value()).encode()
+        if not hmac.compare_digest(supplied, expected):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        if (
+            request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            != "application/json"
+        ):
+            return JSONResponse(group_failure_reply("invalid_request"), status_code=400)
+        if groups is None:
+            return JSONResponse(
+                {"detail": "Identity group commands unavailable"},
+                status_code=503,
+            )
+        try:
+            async with asyncio.timeout(settings.request_timeout_seconds):
+                async with slots:
+                    body = await request.body()
+                    try:
+                        parsed = decode_group_request(body)
+                    except (ValidationError, ValueError, TypeError, UnicodeError):
+                        return JSONResponse(
+                            group_failure_reply("invalid_request"), status_code=400
+                        )
+                    reply = await groups.execute(parsed)
+        except GroupFailure as error:
+            return JSONResponse(group_failure_reply(error))
+        except (IdentityUnavailable, TimeoutError):
+            return JSONResponse(
+                {"detail": "Identity group commands unavailable"},
                 status_code=503,
             )
         return JSONResponse(reply.model_dump(mode="json", by_alias=True))

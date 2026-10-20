@@ -27,6 +27,15 @@ from aap_identity.contract import (  # noqa: E402
     FailureReply,
     PrincipalReply,
 )
+from aap_identity.group_contract import (  # noqa: E402
+    GroupFailureReply,
+    GroupPolicyReply,
+    GroupReply,
+    GroupRequest,
+    NativeGroupCommand,
+    NativeGroupFailureReply,
+    NativeGroupSuccess,
+)
 from aap_identity.key_contract import (  # noqa: E402
     KeyFailureReply,
     KeyReply,
@@ -201,6 +210,19 @@ def main():
                 | NativeRecoveryPolicyReply
             ),
             "aap-identity-recovery-native/v1",
+        ),
+        "src/aap_identity/group_protocol.schema.json": render_schema(
+            TypeAdapter(GroupRequest | GroupReply | GroupFailureReply),
+            "aap-identity-groups/v1",
+        ),
+        "src/aap_identity/native_group_protocol.schema.json": render_schema(
+            TypeAdapter(
+                NativeGroupCommand
+                | NativeGroupSuccess
+                | NativeGroupFailureReply
+                | GroupPolicyReply
+            ),
+            "aap-identity-groups-native/v1",
         ),
         "src/aap_identity/native_mail_protocol.schema.json": render_schema(
             TypeAdapter(
