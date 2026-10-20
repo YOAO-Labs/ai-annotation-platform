@@ -46,7 +46,7 @@ def compile_entity_filter(
     annotation,
     *,
     project: Project,
-    user: User | None = None,
+    user: User | IdentityActorFacts | None = None,
 ) -> ColumnElement[bool]:
     """Compile a Data Manager filter at one concrete annotation grain.
 
@@ -63,7 +63,7 @@ def _compile_entity_node(
     annotation,
     *,
     project: Project,
-    user: User | None = None,
+    user: User | IdentityActorFacts | None = None,
 ) -> ColumnElement[bool]:
     if not filter_json:
         return literal(True)

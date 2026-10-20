@@ -35,7 +35,7 @@ router = APIRouter(
 )
 
 
-def project_scope(user):
+def project_scope(user: IdentityActorFacts):
     predicate = managed_project_scope_clause(user, Project.id)
     return [] if predicate is None else [predicate]
 

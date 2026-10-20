@@ -109,7 +109,7 @@ def _managed_project_ids(user: User | IdentityActorFacts) -> Select[tuple[object
     return select(Project.id).where(Project.owner_id == user.id)
 
 
-def managed_project_scope_clause(user: User, project_column):
+def managed_project_scope_clause(user: User | IdentityActorFacts, project_column):
     """Management-only aggregate scope, mirroring the canonical access resolver."""
     if not getattr(user, "is_active", False) or user.role not in PLATFORM_ROLES:
         return false()
