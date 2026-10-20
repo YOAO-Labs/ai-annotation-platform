@@ -45,6 +45,11 @@ from aap_identity.account_lock_contract import (  # noqa: E402
     AccountLockReply,
     AccountLockRequest,
 )
+from aap_identity.provisioning_contract import (  # noqa: E402
+    ProvisioningCreateRequest,
+    ProvisioningLookupRequest,
+    ProvisioningReply,
+)
 from aap_identity.deactivation_contract import (  # noqa: E402
     DeactivationDueFailureReply,
     DeactivationDuePolicyReply,
@@ -279,6 +284,14 @@ def main():
         "src/aap_identity/account_lock_protocol.schema.json": render_schema(
             TypeAdapter(AccountLockRequest | AccountLockReply),
             "aap-identity-account-locks/v1",
+        ),
+        "src/aap_identity/provisioning_protocol.schema.json": render_schema(
+            TypeAdapter(
+                ProvisioningLookupRequest
+                | ProvisioningCreateRequest
+                | ProvisioningReply
+            ),
+            "aap-identity-provisioning/v1",
         ),
         "src/aap_identity/key_protocol.schema.json": render_schema(
             TypeAdapter(KeyRequest | KeyReply | KeyFailureReply),

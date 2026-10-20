@@ -1,0 +1,140 @@
+{
+  "$defs": {
+    "ProvisioningCreateRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "format": "uuid",
+          "title": "Account Id",
+          "type": "string"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "bootstrap_admin",
+            "import_admin"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "now": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Now"
+        },
+        "password_hash": {
+          "title": "Password Hash",
+          "type": "string"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Request Id"
+        },
+        "schema": {
+          "const": "aap-identity-provisioning/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "mode",
+        "account_id",
+        "email",
+        "name",
+        "password_hash",
+        "now",
+        "request_id"
+      ],
+      "title": "ProvisioningCreateRequest",
+      "type": "object"
+    },
+    "ProvisioningLookupRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-provisioning/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "email"
+      ],
+      "title": "ProvisioningLookupRequest",
+      "type": "object"
+    },
+    "ProvisioningReply": {
+      "additionalProperties": false,
+      "properties": {
+        "account_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Account Id"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-provisioning/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "email",
+        "account_id"
+      ],
+      "title": "ProvisioningReply",
+      "type": "object"
+    }
+  },
+  "$id": "aap-identity-provisioning/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/ProvisioningLookupRequest"
+    },
+    {
+      "$ref": "#/$defs/ProvisioningCreateRequest"
+    },
+    {
+      "$ref": "#/$defs/ProvisioningReply"
+    }
+  ]
+}
