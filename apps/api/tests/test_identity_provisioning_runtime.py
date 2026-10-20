@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import subprocess
 import sys
 import uuid
 
 import pytest
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.audit_log import AuditLog
@@ -19,6 +21,84 @@ from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_identity_admission_live import ROOT
 from tests.test_module_data_roles import _role_url
 from app.core.security import verify_password
+from app.application.bootstrap_admin import bootstrap_admin
+
+
+@pytest.mark.skipif(
+    os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires owned provisioning verifier",
+)
+async def test_bootstrap_audit_rejection_keeps_caller_transaction_aborted(test_engine):
+    _verify_postgres(test_engine.url)
+    baseline = json.loads(
+        (ROOT / "apps/api/tests/fixtures/identity_provisioning_legacy.json").read_text()
+    )["records"]["audit_failure"]
+    suffix = uuid.uuid4().hex
+    trigger = f"provisioning_audit_rejection_{suffix}"
+    email = f"audit-rejection-{suffix}@example.test"
+    pending_id = uuid.uuid4()
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    async with test_engine.begin() as db:
+        await db.execute(
+            text(
+                f"CREATE FUNCTION public.{trigger}() RETURNS trigger "
+                "LANGUAGE plpgsql AS $body$ BEGIN "
+                "IF NEW.action='system.bootstrap_admin' "
+                f"AND NEW.actor_email='{email}' THEN "
+                "RAISE EXCEPTION USING ERRCODE='23514', "
+                "MESSAGE='provisioning_baseline_audit_rejected'; "
+                "END IF; RETURN NEW; END; $body$"
+            )
+        )
+        await db.execute(
+            text(
+                f"CREATE TRIGGER {trigger} BEFORE INSERT ON public.audit_logs "
+                f"FOR EACH ROW EXECUTE FUNCTION public.{trigger}()"
+            )
+        )
+    try:
+        async with maker() as caller:
+            caller.add(
+                User(
+                    id=pending_id,
+                    email=f"pending-{suffix}@example.test",
+                    name="Unrelated caller work",
+                    password_hash="fixture",
+                    role="viewer",
+                    is_active=True,
+                )
+            )
+            with pytest.raises(DBAPIError) as rejected:
+                await bootstrap_admin(
+                    caller,
+                    email=email,
+                    name="Rejected audit",
+                    password="AuditBaseline123",
+                )
+            assert rejected.value.orig.sqlstate == baseline["sqlstate"]
+            with pytest.raises(DBAPIError) as aborted:
+                await caller.scalar(text("SELECT 1"))
+            assert (aborted.value.orig.sqlstate == "25P02") == baseline[
+                "requires_rollback"
+            ]
+            await caller.rollback()
+            assert await caller.scalar(text("SELECT 1")) == 1
+        async with maker() as observer:
+            assert (
+                await observer.scalar(select(User.id).where(User.email == email))
+                is None
+            ) == baseline["account_missing_after_rollback"]
+            assert (
+                await observer.scalar(
+                    select(func.count(AuditLog.id)).where(AuditLog.actor_email == email)
+                )
+                == 0
+            ) == baseline["audit_missing_after_rollback"]
+            assert await observer.get(User, pending_id) is None
+    finally:
+        async with test_engine.begin() as db:
+            await db.execute(text(f"DROP TRIGGER {trigger} ON public.audit_logs"))
+            await db.execute(text(f"DROP FUNCTION public.{trigger}()"))
 
 
 async def test_image_import_bootstrap_flushes_pending_work_and_rolls_back_together(

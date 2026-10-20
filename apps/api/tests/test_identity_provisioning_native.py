@@ -339,7 +339,7 @@ async def test_bootstrap_defaults_audit_atomicity_and_existing_email_noop(
         with pytest.raises(_AbortProvisioning):
             async with maker.begin() as session:
                 manager = AccountProvisioningManager(_SessionProvisioningData(session))
-                await manager.create_bootstrap_super_admin(
+                rollback_id = await manager.create_bootstrap_super_admin(
                     email=rollback_email,
                     name="Rollback owner",
                     password="rollback password",

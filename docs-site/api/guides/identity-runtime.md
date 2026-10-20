@@ -50,7 +50,7 @@ Migration 0251 在 `aap_identity_v1` 提供三项安全函数：`lock_accounts_s
 
 账号事实锁必须遵守账号 → Project → membership → resource 的既有顺序，保留每个调用方的 SHARE/UPDATE/KEY SHARE 和 NOWAIT/wait 选择。API 依旧由 caller 映射错误：单账号竞争保持 `account_busy`，账号／项目联合 guard 保持 `project_busy`，Project access 分别区分账号、项目、成员争用。`UserLifecycleService.lock_accounts` 对所有 DBAPIError 显式回滚并保留 `账号正在更新，请刷新后重试` 的旧 409 文案；其他调用方由原事务所有者决定回滚，不能在共享数据端口统一处理。
 
-跨帧 worker 每个待写帧都重新锁定并核对当前账号及项目／成员／任务权限，不使用跨帧快照或 `db.refresh(User)` 替代。忙碌仍映射到既有 `permission_changed`，无新重试；账号删除、停用、基础设施失败与阶段拒绝的分类也保持旧区分。当前未锁定的 Workspace 查询与 bootstrap/import User 写入仍待迁移。最新本地 qualification 去重后 231 项全部通过，包括受限 Node 调用、转移／角色变更竞态、恢复与新 Celery 进程。源码及非 editable 安装各通过 595 项，119 个包文件与独立 owner／API 容器指纹一致。旧行为 baseline 的一个测试覆盖 15 个场景，不能叠加到新资格数量。细节见 [ADR-0131](/dev/adr/0131-identity-transactional-account-locks)。
+跨帧 worker 每个待写帧都重新锁定并核对当前账号及项目／成员／任务权限，不使用跨帧快照或 `db.refresh(User)` 替代。忙碌仍映射到既有 `permission_changed`，无新重试；账号删除、停用、基础设施失败与阶段拒绝的分类也保持旧区分。非锁定 Workspace authority 查询与 bootstrap/import 写入由下文的 provisioning 切片接管。最新本地 qualification 去重后 231 项全部通过，包括受限 Node 调用、转移／角色变更竞态、恢复与新 Celery 进程。源码及非 editable 安装各通过 595 项，119 个包文件与独立 owner／API 容器指纹一致。旧行为 baseline 的一个测试覆盖 15 个场景，不能叠加到新资格数量。细节见 [ADR-0131](/dev/adr/0131-identity-transactional-account-locks)。
 
 ## 运维账号 provisioning
 
@@ -68,7 +68,7 @@ Import 只查精确 email `admin`。已有任意 row 都原样复用，包括 in
 
 Migration 0252 只增加只读 `read_provisioning_account(text)` 和 mutable `create_provisioning_account(jsonb)` 两个 Identity 函数，并新增仅有这两项 function grants 的 `identity_provisioning_client`。Audit 由固定 `aap_audit_v1.record_identity_bootstrap_admin(uuid,text,text)` capability 写入，Identity 没有 Audit table 权限。Native SQL constraint／duplicate 错误原样抛出；相同 email 并发创建仍以 `23505` 中止事务，无 conflict-ignore、重试或 adapter rollback。读路径遵循 `autoflush/no_autoflush`；create 即使在 `no_autoflush` 下也显式 flush caller pending work。没有新 runtime DSN、setting 或独立服务；verifier-only `AAP_MODULE_DATA_IDENTITY_PROVISIONING_URL` 不是应用配置。
 
-Project authority 的非锁定 actor/status 查询与任务、批次等已拥有者复用现有 `read_actor_facts` 和事务内 account-lock functions，不新增 SQL/http 协议，不改变锁序、mode、等待行为或 401/Bearer/403/404 映射；仍需要 Project ORM refresh 的调用方继续 refresh，active-only guard 不新增 role check。Provisioning 与 authority-consumer qualification 仍待 Root；此前 account locks 的 231-case 验收继续单独关闭，不计入本切片。精确默认、Audit 与权限边界见 [ADR-0132](/dev/adr/0132-identity-operational-provisioning-and-authority-reads)。
+Project authority 的非锁定 actor/status 查询与任务、批次等已拥有者复用现有 `read_actor_facts` 和事务内 account-lock functions，不新增 SQL/http 协议，不改变锁序、mode、等待行为或 401/Bearer/403/404 映射；仍需要 Project ORM refresh 的调用方继续 refresh，active-only guard 不新增 role check。Provisioning 与 authority consumers 已通过限定本地资格：236 个去重选定案例全部通过、无有效跳过，包括受限 Node client、实际 CLI、新 Celery worker、八项恢复及事务／锁语义。源码与非 editable 安装各通过 619 项检查，122 个包文件在独立 owner 及禁网只读 API 镜像中一致。此前 account locks 的 231-case 验收独立，不计入本切片；全 Identity 和完整多模块目标仍未完成。精确默认、Audit 与权限边界见 [ADR-0132](/dev/adr/0132-identity-operational-provisioning-and-authority-reads)。
 
 ## API key 请求
 

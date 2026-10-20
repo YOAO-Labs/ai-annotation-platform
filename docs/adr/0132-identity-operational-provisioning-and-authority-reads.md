@@ -190,7 +190,55 @@ Adding another operation would duplicate policy and could alter lock behavior.
   `0252_identity_provisioning.schema.json`,
   `infra/docker/identity-provisioning-grants.sql` and the existing owner/LAN
   grant sources.
-- This slice's local qualification is pending Root evidence. The previous
-  account-lock 231-case result remains closed and is not a provisioning count.
-  The full Identity and ten-module/seven-gate objectives remain unfinished; no
-  production or primary cutover is claimed.
+- The previous account-lock 231-case result remains closed and is not a
+  provisioning count. Full Identity and the ten-module/seven-gate objectives
+  remain unfinished; no production or primary cutover is claimed.
+
+## Local qualification
+
+The actual legacy implementation was captured on migration head 0251 before
+integration: one test records ten scenarios, including per-email bootstrap,
+multiple admins, production refusal, staging defaults, historical-account reuse,
+autoflush/no-autoflush, rollback, Audit rejection and concurrent duplicates.
+Supplied bootstrap passwords and bcrypt hashes are absent from the frozen
+fixture; the documented production error retains the legacy weak import default.
+The new implementation
+passes 236 distinct selected cases with no effective skips. Retained failed
+attempts are superseded by the latest passing result for the same case and are
+not counted twice. This includes native contract/grants, real Node calls under
+the two-function LOGIN, actual bootstrap CLI, current authority and lock tests,
+batch workflows, nuScenes import, eight Identity restores and a fresh Celery
+consumer with three dispatches.
+
+Audit fault injection reproduces the original raw `23514`, followed by `25P02`
+until explicit caller rollback; the account, Audit and unrelated pending caller
+work are all absent afterward. Native rollback checks retain the actual UUID
+returned by the manager. The legacy ORM transaction's Python exception wrapper
+is not required to match the native adapter; the original SQLSTATE and need for
+caller rollback remain the compatibility requirements.
+
+Source and noneditable installed suites each pass 619 tests. All 122 package
+files match source, installed and fresh standalone owner image; the owner
+environment has no API, SQLAlchemy, Celery, Boto3 or Torch dependencies. The
+network-disabled, read-only API image verifies the same 122 installed files and
+61 current-slice API/native inputs, migration head 0252, provisioning snapshots,
+caller transaction behavior and the public OpenAPI. These 61 inputs supplement
+the image build; they are not a claim to hash every API source file. The Node
+peer's 24 self-checks include psql verbose SQLSTATE parsing. Architecture checks
+pass 316 cases with 132 existing inapplicable rules explicitly deferred. Public
+OpenAPI remains byte-identical; codegen and the 509-route/93-module catalog match.
+
+Fresh local images are
+`aap-identity:provisioning-local-70bb3022eb4e`
+(`sha256:f7416ff5681eaa8dffd0aafcf3676eaa992f38939af797728a774eb0ef0736b1`)
+and `aap-api:local-identity-provisioning-cf5526e209a6`
+(`sha256:f2172e8991298ad88b3fb1d72aceb4d442c08d94bf271f744178865613fd612c`).
+The API image's committed code input is
+`ef7be4850e2cdfaa34d5323f727f1a07ad2475a7`; subsequent qualification test and
+documentation changes do not change its application/native inputs. Offline
+build/probe timings do not measure startup, capacity or production SLOs.
+
+All database/process acceptance uses verifier-owned disposable state. This is
+local qualification of operational provisioning and these authority consumers,
+not independent deployment of the whole Identity or Workspace modules, another
+language Identity provider, primary cutover, production capacity or Go expansion.

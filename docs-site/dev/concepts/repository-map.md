@@ -80,7 +80,7 @@ last_reviewed: 2026-10-21
   bootstrap 的 `None`，不把 User ORM/password hash 交给 CLI。Native 负责 per-email
   bootstrap defaults/fixed Audit 与 exact import-admin guard；outer bootstrap/import caller
   保留 commit/rollback。邀请账号仍由 Identity Invitation owner 创建；运维 provisioning
-  不复用邀请写入路径。本切片资格仍待 Root，见
+  不复用邀请写入路径。本切片已通过限定本地资格，见
   [ADR-0132](/dev/adr/0132-identity-operational-provisioning-and-authority-reads)。
 - Identity authority facts 复用：`project_access` 的非锁定账号读取复用现有
   `IdentityAccountLockData.read_actor_status`／`read_actor_facts`；事务写路径复用已有 SHARE、
