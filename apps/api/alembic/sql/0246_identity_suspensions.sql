@@ -323,6 +323,12 @@ BEGIN
                 'operation_conflict', 409, NULL
             );
         END IF;
+        IF v_receipt.target_generation IS DISTINCT FROM v_target_generation
+           OR v_receipt.target_is_active IS DISTINCT FROM v_target_active THEN
+            RETURN aap_identity_suspensions_v1._failure(
+                'operation_conflict', 409, NULL
+            );
+        END IF;
     END IF;
 
     IF v_operation = 'suspend_account' THEN
@@ -365,12 +371,6 @@ BEGIN
         END IF;
 
         IF v_receipt_found THEN
-            IF v_receipt.target_generation IS DISTINCT FROM v_target_generation
-               OR v_receipt.target_is_active IS DISTINCT FROM v_target_active THEN
-                RETURN aap_identity_suspensions_v1._failure(
-                    'operation_conflict', 409, NULL
-                );
-            END IF;
             RETURN pg_catalog.jsonb_build_object(
                 'schema', 'aap-identity-suspensions-native/v1',
                 'ok', true,
@@ -496,12 +496,6 @@ BEGIN
         END IF;
 
         IF v_receipt_found THEN
-            IF v_receipt.target_generation IS DISTINCT FROM v_target_generation
-               OR v_receipt.target_is_active IS DISTINCT FROM v_target_active THEN
-                RETURN aap_identity_suspensions_v1._failure(
-                    'operation_conflict', 409, NULL
-                );
-            END IF;
             RETURN pg_catalog.jsonb_build_object(
                 'schema', 'aap-identity-suspensions-native/v1',
                 'ok', true,

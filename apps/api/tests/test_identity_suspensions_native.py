@@ -423,6 +423,22 @@ def test_frozen_suspension_artifacts_and_native_lock_contract():
         == 2
     )
     assert artifact.count("v_scope_has_projects IS NULL") == 2
+    receipt_binding = artifact.index(
+        "v_receipt.request_fingerprint IS DISTINCT FROM v_request_fingerprint"
+    )
+    receipt_state_fence = artifact.index(
+        "v_receipt.target_generation IS DISTINCT FROM v_target_generation"
+    )
+    suspension_policy = artifact.index(
+        "IF v_operation = 'suspend_account' THEN", receipt_binding
+    )
+    assert receipt_binding < receipt_state_fence < suspension_policy
+    assert (
+        artifact.count(
+            "v_receipt.target_generation IS DISTINCT FROM v_target_generation"
+        )
+        == 1
+    )
     assert "deactivation_requested_at =" not in artifact
     assert "deactivation_scheduled_at =" not in artifact
     assert "disabled_reason = '管理员停用账号'" in artifact
@@ -902,6 +918,71 @@ async def test_inactive_suspend_noop_precedes_pa_role_and_scope_and_is_receipted
                     {"id": operation_id},
                 )
             ) is None
+            assert (
+                await session.scalar(
+                    text(
+                        "SELECT count(*) FROM public.audit_logs WHERE target_id=:id "
+                        "AND action='user.deactivate'"
+                    ),
+                    {"id": str(target_id)},
+                )
+                == 0
+            )
+
+        # The accepted no-op freezes its inactive result. If another lifecycle
+        # writer activates the target afterward, the old receipt must conflict
+        # before PA target-role policy can reject it as a fresh request.
+        async with maker.begin() as session:
+            await session.execute(
+                text(
+                    "UPDATE public.users SET is_active=true, status='online', "
+                    "disabled_kind=NULL, disabled_at=NULL, disabled_by=NULL, "
+                    "disabled_reason=NULL WHERE id=:id"
+                ),
+                {"id": target_id},
+            )
+        with pytest.raises(SuspensionFailure) as changed_poststate:
+            await manager.execute(request)
+        assert changed_poststate.value.code == "operation_conflict"
+        assert changed_poststate.value.status_code == 409
+
+        async with maker() as session:
+            state = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT is_active, credential_generation, disabled_kind, "
+                            "disabled_reason FROM public.users WHERE id=:id"
+                        ),
+                        {"id": target_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            assert state == {
+                "is_active": True,
+                "credential_generation": 0,
+                "disabled_kind": None,
+                "disabled_reason": None,
+            }
+            receipt = (
+                (
+                    await session.execute(
+                        text(
+                            "SELECT result, audit_id FROM "
+                            "public.identity_suspension_operation_receipts "
+                            "WHERE operation_id=:id"
+                        ),
+                        {"id": operation_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            assert receipt["result"]["user"]["is_active"] is False
+            assert receipt["result"]["user"]["disabled_kind"] == "deleted"
+            assert receipt["audit_id"] is None
             assert (
                 await session.scalar(
                     text(
