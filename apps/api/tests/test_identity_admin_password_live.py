@@ -6,9 +6,12 @@ import asyncio
 from datetime import timedelta
 import hashlib
 import json
+import math
 import os
 import secrets
+import statistics
 import subprocess
+import time
 import uuid
 
 import pytest
@@ -20,7 +23,7 @@ from app.db.models.audit_log import AuditLog
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
-from tests.factory import create_membership, create_project, create_user
+from tests.factory import create_api_key, create_membership, create_project, create_user
 from tests.test_identity_admission_live import (
     ROOT,
     _start_identity,
@@ -56,7 +59,7 @@ def _password_request(token, target_id, *, operation_id=None, request_id=None):
     }
 
 
-def _node(identity, control, signing_secret, request, *, discard=False):
+def _node(identity, control, signing_secret, request, *, discard=False, timeout=120):
     peer = ROOT / "apps/api/tests/fixtures/identity_admin_password_peer.mjs"
     result = subprocess.run(
         ["node", str(peer)],
@@ -75,7 +78,7 @@ def _node(identity, control, signing_secret, request, *, discard=False):
         env={"PATH": os.environ.get("PATH", "")},
         text=True,
         capture_output=True,
-        timeout=120,
+        timeout=timeout,
     )
     assert result.returncode == 0, (
         "Independent Node administrator-password consumer failed"
@@ -186,6 +189,7 @@ async def test_installed_admin_password_replay_restart_scope_and_fencing(
     actor_ids = [super_admin_id]
     project_ids = []
     operation_ids = []
+    load_targets = []
     identity = None
     super_token = _token(super_admin_id, signing_secret)
     async with maker.begin() as db:
@@ -220,6 +224,21 @@ async def test_installed_admin_password_replay_restart_scope_and_fencing(
             "Inactive employee",
         )
         inactive_employee.is_active = False
+        for index in range(12):
+            load_targets.append(
+                await create_user(
+                    db,
+                    "employee",
+                    f"admin-password-load-{suffix}-{index}@example.test",
+                    f"Load target {index}",
+                )
+            )
+        target_api_key, target_api_key_plaintext = await create_api_key(
+            db,
+            load_targets[0].id,
+            "Admin password sample target key",
+            ["datasets:read"],
+        )
         pa_project = await create_project(
             db, owner_id=project_admin.id, name=f"Admin password owned {suffix}"
         )
@@ -248,6 +267,7 @@ async def test_installed_admin_password_replay_restart_scope_and_fencing(
             reviewer_foreign.id,
             employee.id,
             inactive_employee.id,
+            *(target.id for target in load_targets),
         ]
     )
     project_ids.extend([pa_project.id, foreign_project.id])
@@ -543,6 +563,327 @@ async def test_installed_admin_password_replay_restart_scope_and_fencing(
                 {"id": super_admin_id},
             )
         assert generation == 0
+
+        # Finite host-process qualification only. The separate container gate
+        # owns image resource-boundary evidence.
+        load_operation_ids = [uuid.uuid4() for _ in load_targets]
+        operation_ids.extend(load_operation_ids)
+        load_requests = [
+            _password_request(super_token, target.id, operation_id=operation_id)
+            for target, operation_id in zip(
+                load_targets, load_operation_ids, strict=True
+            )
+        ]
+        load_expected_passwords = []
+        for request in load_requests:
+            request_model = decode_admin_password_request(request)
+            request_fingerprint = admin_password_request_fingerprint(
+                signing_secret, request_model
+            )
+            load_expected_passwords.append(
+                derive_admin_password(
+                    signing_secret,
+                    super_admin_id,
+                    uuid.UUID(request["operation_id"]),
+                    request_fingerprint,
+                )
+            )
+        load_target_ids = [target.id for target in load_targets]
+        load_uuid_ids = list(load_target_ids)
+        assert len(set(load_target_ids)) == len(load_target_ids) == 12
+        assert len(set(load_operation_ids)) == len(load_operation_ids) == 12
+
+        async def target_states():
+            async with maker() as db:
+                rows = (
+                    await db.execute(
+                        text(
+                            "SELECT id, password_hash, password_admin_reset_at, "
+                            "credential_generation FROM public.users "
+                            "WHERE id=ANY(CAST(:ids AS uuid[])) ORDER BY id"
+                        ),
+                        {"ids": load_target_ids},
+                    )
+                ).mappings()
+                return {
+                    row["id"]: (
+                        row["password_hash"],
+                        row["password_admin_reset_at"],
+                        row["credential_generation"],
+                    )
+                    for row in rows
+                }
+
+        async def operation_receipts():
+            async with test_engine.connect() as connection:
+                rows = (
+                    await connection.execute(
+                        text(
+                            "SELECT operation_id, actor_id, target_user_id, operation, "
+                            "request_fingerprint, derivation_id, target_email, "
+                            "password_admin_reset_at, password_state_fingerprint, "
+                            "audit_id, created_at "
+                            "FROM public.identity_admin_password_reset_receipts "
+                            "WHERE operation_id=ANY(CAST(:ids AS uuid[]))"
+                        ),
+                        {"ids": load_operation_ids},
+                    )
+                ).mappings()
+                return {row["operation_id"]: dict(row) for row in rows}
+
+        async def operation_audits(audit_ids):
+            async with maker() as db:
+                rows = (
+                    await db.execute(
+                        text(
+                            "SELECT id, actor_id, action, target_type, target_id, "
+                            "status_code, detail_json FROM public.audit_logs "
+                            "WHERE id=ANY(CAST(:ids AS bigint[])) ORDER BY id"
+                        ),
+                        {"ids": audit_ids},
+                    )
+                ).mappings()
+                return [dict(row) for row in rows]
+
+        async def actor_api_key_state():
+            async with maker() as db:
+                rows = (
+                    await db.execute(
+                        text(
+                            "SELECT id, revoked_at FROM public.api_keys "
+                            "WHERE user_id=:actor ORDER BY id"
+                        ),
+                        {"actor": super_admin_id},
+                    )
+                ).all()
+                return rows
+
+        async def target_api_key_state():
+            async with maker() as db:
+                rows = (
+                    await db.execute(
+                        text(
+                            "SELECT id, user_id, revoked_at, last_used_at, expires_at "
+                            "FROM public.api_keys "
+                            "WHERE user_id=ANY(CAST(:targets AS uuid[])) ORDER BY id"
+                        ),
+                        {"targets": load_target_ids},
+                    )
+                ).all()
+                return rows
+
+        async with maker() as db:
+            existing_audits = await db.scalar(
+                text(
+                    "SELECT count(*) FROM public.audit_logs "
+                    "WHERE actor_id=:actor AND action='user.password_admin_reset' "
+                    "AND target_id=ANY(CAST(:targets AS text[]))"
+                ),
+                {
+                    "actor": super_admin_id,
+                    "targets": [str(value) for value in load_target_ids],
+                },
+            )
+        assert existing_audits == 0
+        initial_target_states = await target_states()
+        assert set(initial_target_states) == set(load_uuid_ids)
+        initial_api_key_state = await actor_api_key_state()
+        initial_target_api_key_state = await target_api_key_state()
+        concurrency = 4
+        max_attempts = 8
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def bounded_peer_call(request):
+            started = time.perf_counter()
+            attempts = 0
+            retries = 0
+            while attempts < max_attempts:
+                attempts += 1
+                async with semaphore:
+                    result = await asyncio.to_thread(
+                        _node,
+                        identity,
+                        control,
+                        signing_secret,
+                        request,
+                        timeout=45,
+                    )
+                if result["ok"] is True:
+                    return {
+                        "result": result,
+                        "attempts": attempts,
+                        "retries": retries,
+                        "latency_ms": (time.perf_counter() - started) * 1000,
+                    }
+                code = result.get("error", {}).get("code")
+                if code not in {"account_busy", "credential_busy"}:
+                    pytest.fail(
+                        "Host-process sample failed with a non-retryable Identity result"
+                    )
+                if attempts == max_attempts:
+                    pytest.fail("Host-process sample exhausted bounded lock retries")
+                retries += 1
+                await asyncio.sleep(min(0.025 * 2 ** (retries - 1), 0.2))
+            pytest.fail("Host-process sample did not complete")
+
+        async def collect_peer_calls():
+            calls = await asyncio.gather(
+                *(bounded_peer_call(request) for request in load_requests),
+                return_exceptions=True,
+            )
+            for call in calls:
+                if isinstance(call, BaseException):
+                    raise call
+            return calls
+
+        batch_started = time.perf_counter()
+        initial_calls = await collect_peer_calls()
+        batch_elapsed_ms = (time.perf_counter() - batch_started) * 1000
+        initial_results = {
+            request["operation_id"]: call["result"]
+            for request, call in zip(load_requests, initial_calls, strict=True)
+        }
+        for target, request, call in zip(
+            load_targets, load_requests, initial_calls, strict=True
+        ):
+            result = call["result"]
+            assert result["operation_id"] == request["operation_id"]
+            assert result["data"]["target_user_id"] == str(target.id)
+            assert result["data"]["target_email"] == target.email
+            assert result["data"]["temp_password_verified"] is True
+
+        initial_receipts = await operation_receipts()
+        assert set(initial_receipts) == set(load_operation_ids)
+        assert len(initial_receipts) == 12
+        for target, operation_id in zip(load_targets, load_operation_ids, strict=True):
+            receipt = initial_receipts[operation_id]
+            assert receipt["actor_id"] == super_admin_id
+            assert receipt["target_user_id"] == target.id
+            assert receipt["operation"] == "admin_reset_password"
+            assert receipt["target_email"] == target.email
+        load_audit_ids = [receipt["audit_id"] for receipt in initial_receipts.values()]
+        assert len(set(load_audit_ids)) == 12
+        initial_audits = await operation_audits(load_audit_ids)
+        assert len(initial_audits) == 12
+        assert {row["target_id"] for row in initial_audits} == {
+            str(value) for value in load_target_ids
+        }
+        assert all(
+            row["action"] == "user.password_admin_reset"
+            and row["target_type"] == "user"
+            and row["status_code"] == 200
+            for row in initial_audits
+        )
+        audits_by_id = {row["id"]: row for row in initial_audits}
+        for target, operation_id in zip(load_targets, load_operation_ids, strict=True):
+            receipt = initial_receipts[operation_id]
+            audit = audits_by_id[receipt["audit_id"]]
+            assert audit["actor_id"] == super_admin_id
+            assert audit["target_id"] == str(target.id)
+            assert audit["detail_json"] == {
+                "target_email": target.email,
+                "target_role": "employee",
+            }
+        initial_written_states = await target_states()
+
+        confirmation_started = time.perf_counter()
+        confirmations = await collect_peer_calls()
+        confirmation_elapsed_ms = (time.perf_counter() - confirmation_started) * 1000
+        for request, confirmation in zip(load_requests, confirmations, strict=True):
+            assert confirmation["result"] == initial_results[request["operation_id"]]
+        confirmed_receipts = await operation_receipts()
+        confirmed_states = await target_states()
+        confirmed_audits = await operation_audits(load_audit_ids)
+        confirmed_actor_key_state = await actor_api_key_state()
+        confirmed_target_api_key_state = await target_api_key_state()
+        assert confirmed_receipts == initial_receipts
+        assert confirmed_states == initial_written_states
+        assert confirmed_audits == initial_audits
+        assert confirmed_actor_key_state == initial_api_key_state
+        assert confirmed_target_api_key_state == initial_target_api_key_state
+        assert any(
+            row[0] == target_api_key.id and row[1] == load_targets[0].id
+            for row in confirmed_target_api_key_state
+        )
+        assert all(
+            initial_written_states[target_id][2] == initial_target_states[target_id][2]
+            for target_id in load_uuid_ids
+        )
+        async with maker() as db:
+            final_actor_generation = await db.scalar(
+                text("SELECT credential_generation FROM public.users WHERE id=:id"),
+                {"id": super_admin_id},
+            )
+            final_audit_count = await db.scalar(
+                text(
+                    "SELECT count(*) FROM public.audit_logs "
+                    "WHERE actor_id=:actor AND action='user.password_admin_reset' "
+                    "AND target_id=ANY(CAST(:targets AS text[]))"
+                ),
+                {
+                    "actor": super_admin_id,
+                    "targets": [str(value) for value in load_target_ids],
+                },
+            )
+        assert final_actor_generation == generation
+        assert final_audit_count == 12
+        operation_latencies = [call["latency_ms"] for call in initial_calls]
+        confirmation_latencies = [call["latency_ms"] for call in confirmations]
+
+        def percentiles(values):
+            ordered = sorted(values)
+            return statistics.median(ordered), ordered[
+                math.ceil(0.95 * len(ordered)) - 1
+            ]
+
+        operation_p50, operation_p95 = percentiles(operation_latencies)
+        confirmation_p50, confirmation_p95 = percentiles(confirmation_latencies)
+        record_property(
+            "identity_admin_password_host_process_sample",
+            json.dumps(
+                {
+                    "execution_context": "HOST PROCESS",
+                    "latency_scope": "Node subprocess, HTTP and Identity bcrypt",
+                    "target_count": 12,
+                    "concurrency": concurrency,
+                    "max_attempts_per_operation": max_attempts,
+                    "operation_attempts": sum(
+                        call["attempts"] for call in initial_calls
+                    ),
+                    "operation_busy_retries": sum(
+                        call["retries"] for call in initial_calls
+                    ),
+                    "operation_batch_elapsed_ms": round(batch_elapsed_ms, 3),
+                    "operation_latency_ms": [
+                        round(value, 3) for value in operation_latencies
+                    ],
+                    "operation_latency_p50_ms": round(operation_p50, 3),
+                    "operation_latency_p95_ms": round(operation_p95, 3),
+                    "confirmation_attempts": sum(
+                        call["attempts"] for call in confirmations
+                    ),
+                    "confirmation_busy_retries": sum(
+                        call["retries"] for call in confirmations
+                    ),
+                    "confirmation_batch_elapsed_ms": round(confirmation_elapsed_ms, 3),
+                    "confirmation_latency_ms": [
+                        round(value, 3) for value in confirmation_latencies
+                    ],
+                    "confirmation_latency_p50_ms": round(confirmation_p50, 3),
+                    "confirmation_latency_p95_ms": round(confirmation_p95, 3),
+                    "receipts": len(initial_receipts),
+                    "audit_rows": len(initial_audits),
+                    "jwt_generation_unchanged": final_actor_generation == generation,
+                    "api_key_rows_unchanged": confirmed_actor_key_state
+                    == initial_api_key_state,
+                    "target_api_key_rows_unchanged": confirmed_target_api_key_state
+                    == initial_target_api_key_state,
+                    "capacity_claim": "none; bounded host-process sample only",
+                },
+                sort_keys=True,
+            ),
+        )
+
         async with maker.begin() as db:
             await db.execute(
                 text("UPDATE public.users SET role='viewer' WHERE id=:id"),
@@ -588,7 +929,15 @@ async def test_installed_admin_password_replay_restart_scope_and_fencing(
         identity = None
         _assert_no_secret_log(
             tmp_path / f"identity-{port}.log",
-            [signing_secret, control, super_token, pa_token, expected_password],
+            [
+                signing_secret,
+                control,
+                super_token,
+                pa_token,
+                expected_password,
+                target_api_key_plaintext,
+                *load_expected_passwords,
+            ],
         )
     finally:
         if identity:
