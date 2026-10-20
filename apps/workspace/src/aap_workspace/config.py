@@ -1,4 +1,4 @@
-"""Standalone membership owner settings, independent of the API environment."""
+"""Standalone Workspace owner settings, independent of the API environment."""
 
 from pathlib import Path
 
@@ -23,6 +23,8 @@ class RuntimeSettings(BaseSettings):
 
     membership_database_url: SecretStr | None = Field(default=None, repr=False)
     membership_database_url_file: str = ""
+    owner_transfer_database_url: SecretStr | None = Field(default=None, repr=False)
+    owner_transfer_database_url_file: str = ""
     membership_control_token: SecretStr | None = Field(default=None, repr=False)
     membership_control_token_file: str = ""
     host: str = "0.0.0.0"
@@ -37,6 +39,11 @@ class RuntimeSettings(BaseSettings):
         if not value:
             raise ValueError("Workspace membership DSN is required")
         return value
+
+    def transfer_database_url(self) -> str:
+        return secret_source(
+            self.owner_transfer_database_url, self.owner_transfer_database_url_file
+        )
 
     def control_token(self) -> str:
         value = secret_source(

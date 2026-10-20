@@ -716,7 +716,7 @@ last_reviewed: 2026-10-21
 | `ASSETS_IMAGES_LEGACY_BUCKET` | `—` | 留空依次使用 MINIO_BUCKET / MINIO_BUCKET_ANNOTATIONS；独立进程必须显式选定历史 Task 桶。 |
 | `ASSETS_IMAGES_SRGB_PROFILE` | `—` | 留空使用 IMAGE_PYRAMID_SRGB_PROFILE，再使用镜像内的 ICC 文件。 |
 
-## Workspace 项目成员生命周期命令（可选独立运行）。API 可选择私有 runtime URL、
+## Workspace 成员与项目负责人转移命令（可选独立运行）。API 可选择私有 runtime URL、
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
@@ -726,5 +726,9 @@ last_reviewed: 2026-10-21
 | `WORKSPACE_MEMBERSHIP_DATABASE_URL` | `—` | — |
 | `WORKSPACE_MEMBERSHIP_DATABASE_URL_FILE` | `—` | — |
 | `WORKSPACE_MEMBERSHIP_TIMEOUT_SECONDS` | `30` | — |
+| `WORKSPACE_OWNER_TRANSFER_URL` | `—` | 转移命令复用上面的 control token 和 timeout；默认借用 caller transaction 且不提交。 |
+| `WORKSPACE_OWNER_TRANSFER_DATABASE_URL` | `—` | — |
+| `WORKSPACE_OWNER_TRANSFER_DATABASE_URL_FILE` | `—` | — |
 | `WORKSPACE_RUNTIME_MEMBERSHIP_DATABASE_URL_FILE` | `—` | 独立 Compose runtime 的宿主 secret-file selectors，容器内映射为上面的数据库与控制 token 配置。 |
+| `WORKSPACE_RUNTIME_OWNER_TRANSFER_DATABASE_URL_FILE` | `—` | — |
 | `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE` | `—` | — |

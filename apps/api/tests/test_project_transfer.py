@@ -104,7 +104,7 @@ async def test_transfer_requires_active_target(db_session, httpx_client, super_a
     reason="requires the owned platform-role Identity verifier",
 )
 async def test_transfer_and_native_role_demotion_preserve_owner_lock_orders(
-    test_engine, tmp_path, monkeypatch
+    test_engine, tmp_path
 ):
     from app.application import project_workspace
     from tests.test_identity_admission_live import _start_identity, _world
@@ -126,6 +126,7 @@ async def test_transfer_and_native_role_demotion_preserve_owner_lock_orders(
     project_lock_acquired = asyncio.Event()
     release_project_lock = asyncio.Event()
     transfer_actor = None
+    held_project_id = None
 
     async def committed_transfer(project_id, new_owner_id):
         # A remote owner must observe a real commit, not the API fixture's savepoint.
@@ -136,6 +137,9 @@ async def test_transfer_and_native_role_demotion_preserve_owner_lock_orders(
                 project_id=project_id,
                 new_owner_id=new_owner_id,
             )
+            if project_id == held_project_id:
+                project_lock_acquired.set()
+                await asyncio.wait_for(release_project_lock.wait(), timeout=15)
             return project.owner_id
 
     try:
@@ -243,18 +247,7 @@ async def test_transfer_and_native_role_demotion_preserve_owner_lock_orders(
         )
         second_operation = uuid.UUID(second_request["operation_id"])
         operation_ids.append(second_operation)
-        original_lock = project_workspace.lock_workspace_project
-
-        async def hold_transfer_project_lock(db, project_id):
-            project = await original_lock(db, project_id)
-            if project_id == transfer_project.id:
-                project_lock_acquired.set()
-                await asyncio.wait_for(release_project_lock.wait(), timeout=15)
-            return project
-
-        monkeypatch.setattr(
-            project_workspace, "lock_workspace_project", hold_transfer_project_lock
-        )
+        held_project_id = transfer_project.id
         transfer_task = asyncio.create_task(
             committed_transfer(transfer_project.id, second_receiver.id)
         )

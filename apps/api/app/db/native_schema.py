@@ -49,6 +49,7 @@ NATIVE_MANAGED_TABLES = frozenset(
         "identity_deletion_operation_receipts",
         "identity_offboarding_operation_receipts",
         "workspace_membership_operation_receipts",
+        "workspace_owner_transfer_operation_receipts",
     }
 )
 

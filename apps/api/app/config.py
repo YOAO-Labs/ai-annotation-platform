@@ -282,6 +282,9 @@ class Settings(BaseSettings):
     workspace_membership_database_url: str = Field(default="", repr=False)
     workspace_membership_database_url_file: str = ""
     workspace_membership_timeout_seconds: float = Field(default=30, gt=0, le=3600)
+    workspace_owner_transfer_url: str = ""
+    workspace_owner_transfer_database_url: str = Field(default="", repr=False)
+    workspace_owner_transfer_database_url_file: str = ""
 
     media_probe_url: str = ""
     media_probe_token: str = Field(default="", repr=False)

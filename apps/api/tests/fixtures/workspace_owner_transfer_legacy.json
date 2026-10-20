@@ -1,0 +1,546 @@
+{
+  "kind": "actual-legacy-workspace-owner-transfer",
+  "base_head": "1a0526a4fc7a67f3867c999465b9623b3dc9094f",
+  "aliases": {
+    "b8d8cca8-bc6f-4480-9f4e-eb1c053e20bd": "actor",
+    "ea6b3ddd-287d-46a2-9dcd-2f1a2fdb4b51": "old_owner",
+    "ddd7189b-2914-4bcd-85e6-0eecc4e943c9": "receiver",
+    "154069e1-8cb8-45a0-b565-97cb2738f76c": "employee",
+    "d8de3b58-d993-4040-9a91-4578b531c9ba": "viewer",
+    "28f82efc-add9-4e2e-8e5d-9e99acd2511c": "inactive",
+    "73c1e2e6-eac1-4ced-bd5a-df89ddf9ad85": "project_main",
+    "P-E2E-4420e9": "display_main",
+    "33e36289-5836-4a94-860b-bb4088d84cee": "project_direct",
+    "P-E2E-5df8b2": "display_direct",
+    "450174c0-f14a-422f-8685-8e13e3b93be9": "missing_user",
+    "e75fbe5a-abae-499f-b946-9c1535d1afea": "missing_project"
+  },
+  "responses": {
+    "project_admin_actor": {
+      "status": 403,
+      "body": {
+        "detail": "需要角色权限: super_admin"
+      },
+      "www_authenticate": null
+    },
+    "employee_target": {
+      "status": 400,
+      "body": {
+        "detail": "仅可转移给 project_admin"
+      },
+      "www_authenticate": null
+    },
+    "viewer_target": {
+      "status": 400,
+      "body": {
+        "detail": "仅可转移给 project_admin"
+      },
+      "www_authenticate": null
+    },
+    "inactive_target": {
+      "status": 404,
+      "body": {
+        "detail": "目标用户不存在"
+      },
+      "www_authenticate": null
+    },
+    "missing_target": {
+      "status": 404,
+      "body": {
+        "detail": "目标用户不存在"
+      },
+      "www_authenticate": null
+    },
+    "missing_project": {
+      "status": 404,
+      "body": {
+        "detail": "项目不存在"
+      },
+      "www_authenticate": null
+    },
+    "missing_project_before_wrong_role": {
+      "status": 404,
+      "body": {
+        "detail": "项目不存在"
+      },
+      "www_authenticate": null
+    },
+    "missing_target_before_missing_project": {
+      "status": 404,
+      "body": {
+        "detail": "目标用户不存在"
+      },
+      "www_authenticate": null
+    },
+    "invalid_uuid": {
+      "status": 422,
+      "body": {
+        "detail": [
+          {
+            "type": "uuid_parsing",
+            "loc": ["body", "new_owner_id"],
+            "msg": "Input should be a valid UUID, invalid character: found `n` at 1",
+            "input": "not-a-uuid",
+            "ctx": {
+              "error": "invalid character: found `n` at 1"
+            }
+          }
+        ]
+      },
+      "www_authenticate": null
+    },
+    "missing_body_field": {
+      "status": 422,
+      "body": {
+        "detail": [
+          {
+            "type": "missing",
+            "loc": ["body", "new_owner_id"],
+            "msg": "Field required",
+            "input": {}
+          }
+        ]
+      },
+      "www_authenticate": null
+    },
+    "project_busy": {
+      "status": 409,
+      "body": {
+        "detail": {
+          "reason": "project_busy"
+        }
+      },
+      "www_authenticate": null
+    },
+    "project_busy_before_wrong_role": {
+      "status": 409,
+      "body": {
+        "detail": {
+          "reason": "project_busy"
+        }
+      },
+      "www_authenticate": null
+    },
+    "inactive_target_before_project_busy": {
+      "status": 404,
+      "body": {
+        "detail": "目标用户不存在"
+      },
+      "www_authenticate": null
+    },
+    "actor_account_busy": {
+      "status": 409,
+      "body": {
+        "detail": "账号正在更新，请刷新后重试"
+      },
+      "www_authenticate": null
+    },
+    "receiver_account_busy": {
+      "status": 409,
+      "body": {
+        "detail": "账号正在更新，请刷新后重试"
+      },
+      "www_authenticate": null
+    },
+    "success": {
+      "status": 200,
+      "body": {
+        "id": "$project_main",
+        "organization_id": null,
+        "display_id": "$display_main",
+        "name": "Owner transfer main",
+        "type_label": "图像目标检测",
+        "type_key": "image-det",
+        "data_type": "image",
+        "owner_id": "$receiver",
+        "owner_name": "receiver",
+        "owner_avatar_ref": null,
+        "member_count": 0,
+        "my_project_role": null,
+        "status": "in_progress",
+        "ai_enabled": false,
+        "ml_backend_id": null,
+        "classes": ["car", "person"],
+        "classes_config": {
+          "car": {
+            "color": null,
+            "order": 0,
+            "alias": null
+          },
+          "person": {
+            "color": null,
+            "order": 1,
+            "alias": null
+          }
+        },
+        "attribute_schema": {
+          "fields": []
+        },
+        "tool_bindings": {
+          "bbox": {
+            "enabled": true,
+            "classes": [
+              {
+                "name": "car",
+                "color": null,
+                "order": 0,
+                "alias": null,
+                "alias_to": null
+              },
+              {
+                "name": "person",
+                "color": null,
+                "order": 1,
+                "alias": null,
+                "alias_to": null
+              }
+            ],
+            "attribute_schema": {
+              "fields": []
+            },
+            "keypoint_schema": null,
+            "video_modes": null
+          }
+        },
+        "label_config": {},
+        "sampling": "sequence",
+        "maximum_annotations": 1,
+        "show_overlap_first": false,
+        "iou_dedup_threshold": 0.7,
+        "box_threshold": 0.3499999940395355,
+        "text_threshold": 0.25,
+        "ai_interactive_enabled": true,
+        "raster_mask_native_editing_enabled": true,
+        "mask_qc_config": {
+          "schema_version": 1,
+          "config_revision": 1,
+          "enabled": true,
+          "blocking": false,
+          "auto_run": "on_review_submit",
+          "single_frame": {
+            "near_empty_pixels": 16,
+            "small_component_pixels": 32,
+            "small_component_ratio": 0.005,
+            "small_hole_pixels": 32,
+            "narrow_bridge_width": 2,
+            "boundary_noise_ratio": 0.15,
+            "bbox_iou_min": 0.98,
+            "overlap_pixels": 1
+          },
+          "temporal": {
+            "sample_step": 1,
+            "iou_drop": 0.35,
+            "centroid_shift_diagonal": 0.15,
+            "area_change_ratio": 0.5,
+            "component_delta": 2,
+            "flicker_max_frames": 2,
+            "drift_min_consecutive": 3
+          },
+          "severity_overrides": {}
+        },
+        "point_cloud_quality_config": {
+          "schema_version": 2,
+          "config_revision": 1,
+          "enabled": true,
+          "thresholds": {
+            "minimum_points": 5,
+            "ground_sample_min": 24,
+            "ground_margin_m": 0.75,
+            "ground_penetration_m": 0.2,
+            "ground_float_m": 0.45,
+            "size_min_samples": 8,
+            "size_mad_z": 4.5,
+            "temporal_center_jump_m": 4.0,
+            "temporal_size_change_ratio": 0.6,
+            "temporal_yaw_jump_rad": 0.8,
+            "projection_min_iou": 0.5,
+            "projection_max_edge_residual_ratio": 0.025
+          },
+          "enabled_rules": [
+            "duplicate_track_member",
+            "ground_clearance",
+            "low_point_count",
+            "projection_residual",
+            "size_outlier",
+            "temporal_jump",
+            "track_gap",
+            "track_identity_drift"
+          ],
+          "severity_overrides": {},
+          "class_thresholds": {},
+          "governance": {
+            "minimum_reviewed_per_rule": 20,
+            "maximum_false_positive_rate": 0.1,
+            "minimum_confirmed_retention": 0.9
+          }
+        },
+        "rendering_config": {
+          "smoothImage": null,
+          "cssImageFilter": null,
+          "controlPointsSize": null,
+          "snapToGrid": null,
+          "box3dDefaultSize": null,
+          "propagateOverwrite": null,
+          "trackerDefaultModel": null
+        },
+        "video_sampling": {
+          "mode": "none",
+          "target_fps": null,
+          "frame_step": null
+        },
+        "video_collaboration": {
+          "enabled": false,
+          "overlap_frames": 0
+        },
+        "scene_mode": false,
+        "prefer_same_scene_continuation": false,
+        "scene_continuation_window_min": 30,
+        "default_variants": {},
+        "preannotate_pipeline": null,
+        "capability_warnings": [],
+        "annotation_guide": null,
+        "guide_assets": [],
+        "model_version": null,
+        "task_lock_ttl_seconds": 300,
+        "total_tasks": 0,
+        "completed_tasks": 0,
+        "review_tasks": 0,
+        "in_progress_tasks": 0,
+        "ai_completed_tasks": 0,
+        "batch_summary": {
+          "total": 0,
+          "assigned": 0,
+          "in_review": 0
+        },
+        "due_date": null,
+        "created_at": "<timestamp>",
+        "updated_at": "<timestamp>"
+      },
+      "www_authenticate": null
+    },
+    "same_owner_noop": {
+      "status": 200,
+      "body": {
+        "id": "$project_main",
+        "organization_id": null,
+        "display_id": "$display_main",
+        "name": "Owner transfer main",
+        "type_label": "图像目标检测",
+        "type_key": "image-det",
+        "data_type": "image",
+        "owner_id": "$receiver",
+        "owner_name": "receiver",
+        "owner_avatar_ref": null,
+        "member_count": 0,
+        "my_project_role": null,
+        "status": "in_progress",
+        "ai_enabled": false,
+        "ml_backend_id": null,
+        "classes": ["car", "person"],
+        "classes_config": {
+          "car": {
+            "color": null,
+            "order": 0,
+            "alias": null
+          },
+          "person": {
+            "color": null,
+            "order": 1,
+            "alias": null
+          }
+        },
+        "attribute_schema": {
+          "fields": []
+        },
+        "tool_bindings": {
+          "bbox": {
+            "enabled": true,
+            "classes": [
+              {
+                "name": "car",
+                "color": null,
+                "order": 0,
+                "alias": null,
+                "alias_to": null
+              },
+              {
+                "name": "person",
+                "color": null,
+                "order": 1,
+                "alias": null,
+                "alias_to": null
+              }
+            ],
+            "attribute_schema": {
+              "fields": []
+            },
+            "keypoint_schema": null,
+            "video_modes": null
+          }
+        },
+        "label_config": {},
+        "sampling": "sequence",
+        "maximum_annotations": 1,
+        "show_overlap_first": false,
+        "iou_dedup_threshold": 0.7,
+        "box_threshold": 0.3499999940395355,
+        "text_threshold": 0.25,
+        "ai_interactive_enabled": true,
+        "raster_mask_native_editing_enabled": true,
+        "mask_qc_config": {
+          "schema_version": 1,
+          "config_revision": 1,
+          "enabled": true,
+          "blocking": false,
+          "auto_run": "on_review_submit",
+          "single_frame": {
+            "near_empty_pixels": 16,
+            "small_component_pixels": 32,
+            "small_component_ratio": 0.005,
+            "small_hole_pixels": 32,
+            "narrow_bridge_width": 2,
+            "boundary_noise_ratio": 0.15,
+            "bbox_iou_min": 0.98,
+            "overlap_pixels": 1
+          },
+          "temporal": {
+            "sample_step": 1,
+            "iou_drop": 0.35,
+            "centroid_shift_diagonal": 0.15,
+            "area_change_ratio": 0.5,
+            "component_delta": 2,
+            "flicker_max_frames": 2,
+            "drift_min_consecutive": 3
+          },
+          "severity_overrides": {}
+        },
+        "point_cloud_quality_config": {
+          "schema_version": 2,
+          "config_revision": 1,
+          "enabled": true,
+          "thresholds": {
+            "minimum_points": 5,
+            "ground_sample_min": 24,
+            "ground_margin_m": 0.75,
+            "ground_penetration_m": 0.2,
+            "ground_float_m": 0.45,
+            "size_min_samples": 8,
+            "size_mad_z": 4.5,
+            "temporal_center_jump_m": 4.0,
+            "temporal_size_change_ratio": 0.6,
+            "temporal_yaw_jump_rad": 0.8,
+            "projection_min_iou": 0.5,
+            "projection_max_edge_residual_ratio": 0.025
+          },
+          "enabled_rules": [
+            "duplicate_track_member",
+            "ground_clearance",
+            "low_point_count",
+            "projection_residual",
+            "size_outlier",
+            "temporal_jump",
+            "track_gap",
+            "track_identity_drift"
+          ],
+          "severity_overrides": {},
+          "class_thresholds": {},
+          "governance": {
+            "minimum_reviewed_per_rule": 20,
+            "maximum_false_positive_rate": 0.1,
+            "minimum_confirmed_retention": 0.9
+          }
+        },
+        "rendering_config": {
+          "smoothImage": null,
+          "cssImageFilter": null,
+          "controlPointsSize": null,
+          "snapToGrid": null,
+          "box3dDefaultSize": null,
+          "propagateOverwrite": null,
+          "trackerDefaultModel": null
+        },
+        "video_sampling": {
+          "mode": "none",
+          "target_fps": null,
+          "frame_step": null
+        },
+        "video_collaboration": {
+          "enabled": false,
+          "overlap_frames": 0
+        },
+        "scene_mode": false,
+        "prefer_same_scene_continuation": false,
+        "scene_continuation_window_min": 30,
+        "default_variants": {},
+        "preannotate_pipeline": null,
+        "capability_warnings": [],
+        "annotation_guide": null,
+        "guide_assets": [],
+        "model_version": null,
+        "task_lock_ttl_seconds": 300,
+        "total_tasks": 0,
+        "completed_tasks": 0,
+        "review_tasks": 0,
+        "in_progress_tasks": 0,
+        "ai_completed_tasks": 0,
+        "batch_summary": {
+          "total": 0,
+          "assigned": 0,
+          "in_review": 0
+        },
+        "due_date": null,
+        "created_at": "<timestamp>",
+        "updated_at": "<timestamp>"
+      },
+      "www_authenticate": null
+    }
+  },
+  "api_sqlalchemy_round_trips": {
+    "project_admin_actor": 3,
+    "employee_target": 5,
+    "viewer_target": 5,
+    "inactive_target": 4,
+    "missing_target": 4,
+    "missing_project": 5,
+    "missing_project_before_wrong_role": 5,
+    "missing_target_before_missing_project": 4,
+    "invalid_uuid": 3,
+    "missing_body_field": 3,
+    "project_busy": 5,
+    "project_busy_before_wrong_role": 5,
+    "inactive_target_before_project_busy": 4,
+    "actor_account_busy": 4,
+    "receiver_account_busy": 4,
+    "success": 10,
+    "same_owner_noop": 9
+  },
+  "counter_scope": "API SQLAlchemy client statements including synchronous HTTP Audit; excludes SQL inside Native functions",
+  "caller_transactions": {
+    "accounts_busy": {
+      "status": 409,
+      "detail": "账号正在更新，请刷新后重试",
+      "in_transaction": false,
+      "query_after_error": 1
+    },
+    "project_busy": {
+      "status": 409,
+      "detail": {
+        "reason": "project_busy"
+      },
+      "in_transaction": true,
+      "query_after_error_sqlstate": "25P02"
+    },
+    "success_autoflush_False": {
+      "in_transaction": true,
+      "pending_unflushed": true
+    },
+    "success_autoflush_True": {
+      "in_transaction": true,
+      "pending_unflushed": false
+    }
+  },
+  "same_owner_response_unchanged": true,
+  "business_audit_count": 0,
+  "member_rows_added": 0,
+  "http_transaction_scope": "fresh real session per request, no savepoint sharing"
+}

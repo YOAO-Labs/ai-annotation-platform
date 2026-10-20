@@ -9,7 +9,6 @@ from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.enums import UserRole
 from app.db.models.project import Project
 from app.db.models.user import User
 from app.services.workspace_contract import ProjectAccess
@@ -17,8 +16,9 @@ from app.services.project_access import (
     lock_current_project_access,
     resolve_project_access_by_id,
 )
-from app.services.project_workspace import transfer_project_owner as write_project_owner
-from app.services.user_lifecycle import UserLifecycleService
+from app.services.workspace_owner_transfer import (
+    transfer_project_owner as execute_owner_transfer,
+)
 
 
 def _assert_project_manager(access: ProjectAccess) -> None:
@@ -88,17 +88,15 @@ async def transfer_project_owner(
     project_id: uuid.UUID,
     new_owner_id: uuid.UUID,
 ) -> Project:
-    accounts = await UserLifecycleService.lock_accounts(db, [actor_id, new_owner_id])
-    actor = accounts.get(actor_id)
-    if actor is None or not actor.is_active or actor.role != UserRole.SUPER_ADMIN.value:
-        raise HTTPException(status_code=403, detail="当前账号已无管理权限")
-    target = accounts.get(new_owner_id)
-    if target is None or not target.is_active:
-        raise HTTPException(status_code=404, detail="目标用户不存在")
-
-    project = await lock_workspace_project(db, project_id)
-    if target.role != UserRole.PROJECT_ADMIN:
-        raise HTTPException(status_code=400, detail="仅可转移给 project_admin")
-
-    write_project_owner(project=project, new_owner_id=target.id)
+    await execute_owner_transfer(
+        db, actor_id=actor_id, project_id=project_id, new_owner_id=new_owner_id
+    )
+    with db.no_autoflush:
+        project = await db.scalar(
+            select(Project)
+            .where(Project.id == project_id)
+            .execution_options(populate_existing=True)
+        )
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
     return project

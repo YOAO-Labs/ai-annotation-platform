@@ -542,6 +542,30 @@ UUID `Idempotency-Key`，结果不确定时以原内容和原键重放；回执�
 
 ## 前端开发
 
+### Workspace 项目负责人转移 owner
+
+`POST /api/v1/projects/{project_id}/transfer` 的公开合同不变。默认数据绑定继续借用调用方事务，
+不自行 commit：账号锁错误沿用显式 rollback，项目锁冲突保留失败事务，直到调用方 rollback。
+专用 DSN／HTTP owner 拥有自己的事务，不能跨进程提交 API 中无关的 pending work。
+
+API 可选 `WORKSPACE_OWNER_TRANSFER_URL`，或二选一的
+`WORKSPACE_OWNER_TRANSFER_DATABASE_URL`／`WORKSPACE_OWNER_TRANSFER_DATABASE_URL_FILE`；
+显式选择失败不回退。复用 `WORKSPACE_MEMBERSHIP_CONTROL_TOKEN(_FILE)` 和
+`WORKSPACE_MEMBERSHIP_TIMEOUT_SECONDS`。私有接口为
+`POST /v1/workspace/owner-transfer/execute`，封闭协议是 `aap-workspace-owner-transfer/v1`。
+同一个私有 operation UUID 仅在传输失败时最多重试一次；业务 409 不重试。
+
+独立 runtime 可只配置转移 DSN、只配置成员 DSN，或同时配置；ready 检查所有已配置能力。
+独立 Compose 文件 `docker-compose.workspace-owner-transfer.yml` 使用宿主端口 8173，
+secret 选择器为 `WORKSPACE_RUNTIME_OWNER_TRANSFER_DATABASE_URL_FILE` 和
+`WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE`，不改变原成员 Compose 所需 secret。
+受限 LOGIN `workspace_owner_transfer_client` 仅有 policy 和 transfer 两项 RPC。
+授权脚本在 `infra/docker/workspace-owner-transfer-grants.sql`，迁移与授权须指向同一数据库。
+
+Node conformance provider 只用于本地替换实验，Native 持有业务策略与原子写入；
+它不代表整个 Workspace 已能替换或已选定生产实现语言。部署与失败语义见
+[Workspace 运行指南](docs-site/api/guides/workspace-runtime.md)。
+
 ### 设计系统
 
 前端设计系统基于 Tailwind CSS + shadcn/ui。运行时主题 Token 定义在 `apps/web/src/styles/shadcn.css`：

@@ -80,12 +80,6 @@ async def create_import_project(
     return project
 
 
-def transfer_project_owner(*, project: Project, new_owner_id: UUID) -> None:
-    """Transfer ownership on the already-locked project row."""
-
-    project.owner_id = new_owner_id
-
-
 def rename_class_bindings(
     project: Project,
     *,

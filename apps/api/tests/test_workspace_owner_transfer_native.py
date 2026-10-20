@@ -118,7 +118,7 @@ async def _state(maker, actor_id, project_id):
                         "SELECT project.owner_id, project.updated_at, "
                         "(SELECT count(*) FROM public.audit_logs AS audit "
                         " WHERE audit.actor_id=:actor_id AND audit.target_type='project' "
-                        " AND audit.target_id=:project_id::text) AS audit_count, "
+                        " AND audit.target_id=CAST(project.id AS text)) AS audit_count, "
                         "(SELECT count(*) FROM public.project_members AS member "
                         " WHERE member.project_id=project.id) AS member_count "
                         "FROM public.projects AS project WHERE project.id=:project_id"
