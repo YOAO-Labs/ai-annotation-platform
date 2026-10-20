@@ -40,9 +40,7 @@ class Settings(BaseSettings):
     expire_minutes: int = Field(default=1440, ge=1, le=525600)
     email_verification_required: bool = False
     allow_open_registration: bool = False
-    frontend_base_url: str = Field(
-        default="http://localhost:3000", min_length=1, max_length=2048
-    )
+    frontend_base_url: str = Field(default="http://localhost:3000", min_length=1)
     login_captcha_threshold: int = Field(default=5, ge=0)
     login_failed_window_seconds: int = Field(default=3600, gt=0)
 

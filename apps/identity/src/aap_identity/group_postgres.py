@@ -102,7 +102,7 @@ class GroupPostgresData:
                 )
                 granted = await connection.fetch(
                     """
-                    SELECT p.proname, pg_get_function_identity_arguments(p.oid) AS args
+                    SELECT p.proname, oidvectortypes(p.proargtypes) AS args
                     FROM pg_proc AS p
                     JOIN pg_namespace AS n ON n.oid = p.pronamespace
                     WHERE n.nspname = 'aap_identity_groups_v1'

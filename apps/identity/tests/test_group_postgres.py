@@ -28,6 +28,7 @@ class PolicyConnection:
     def __init__(self, grants):
         self.grants = grants
         self.closed = False
+        self.grant_query = None
 
     @asynccontextmanager
     async def transaction(self):
@@ -39,7 +40,8 @@ class PolicyConnection:
             "policy": "aap-identity-groups/v1",
         }
 
-    async def fetch(self, _sql):
+    async def fetch(self, sql):
+        self.grant_query = sql
         return [{"proname": name, "args": args} for name, args in self.grants]
 
     async def close(self, timeout):
@@ -96,6 +98,7 @@ async def test_policy_ready_requires_exact_owner_function_grants(monkeypatch):
     )
     policy = await GroupPostgresData("postgresql://groups.invalid/db").group_policy()
     assert policy.policy == "aap-identity-groups/v1"
+    assert "oidvectortypes(p.proargtypes)" in connection.grant_query
     assert connection.closed
 
     extra = PolicyConnection(

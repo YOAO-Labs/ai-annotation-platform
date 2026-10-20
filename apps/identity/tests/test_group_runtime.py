@@ -130,3 +130,9 @@ def test_group_database_url_supports_optional_environment_file(tmp_path):
     assert configured.group_database_url.get_secret_value() == (
         "postgresql://groups.invalid/identity"
     )
+
+
+def test_frontend_base_url_keeps_long_runtime_values():
+    url = "https://frontend.example.test/" + ("path/" * 500)
+    configured = settings(frontend_base_url=url)
+    assert configured.frontend_base_url == url

@@ -163,6 +163,33 @@ def test_native_reply_is_checked_before_commit_and_binds_operation_principal():
         decode_native_group_reply(command, payload)
 
 
+def test_group_deletion_flag_rejects_integer_one():
+    request = group_request("delete_group")
+    payload = group_success(
+        request,
+        {"group_id": str(request.payload.group_id), "deleted": 1},
+    )
+    with pytest.raises(IdentityUnavailable):
+        decode_group_reply(request, payload)
+
+
+def test_success_principal_may_refresh_manager_role_but_not_lose_manager_authority():
+    request = group_request("list_groups")
+    expected = principal(role="super_admin")
+    demoted = expected.model_copy(update={"role": "employee"})
+    with pytest.raises(IdentityUnavailable):
+        decode_group_reply(
+            request,
+            group_success(request, {"items": []}, current_principal=demoted),
+            expected_principal=expected,
+        )
+
+    command = native_command(request, actor=expected)
+    native = native_success(command, {"items": []}, current_principal=demoted)
+    with pytest.raises(IdentityUnavailable):
+        decode_native_group_reply(command, native)
+
+
 def test_single_assignment_reply_targets_requested_account_not_actor():
     target_id = uuid.uuid4()
     request = group_request(
@@ -222,6 +249,38 @@ def test_preview_preserves_duplicate_order_but_never_exposes_out_of_scope_profil
     assert decode_group_reply(request, group_success(request, data)).data.blocked == 2
 
     items[0]["email"] = "private@example.test"
+    with pytest.raises(IdentityUnavailable):
+        decode_group_reply(request, group_success(request, data))
+
+
+def test_preview_missing_group_preserves_legacy_null_group_projection():
+    target_id = uuid.uuid4()
+    group_id = uuid.uuid4()
+    request = group_request(
+        "preview_group_assignments",
+        payload={"user_ids": [str(target_id)], "group_id": str(group_id)},
+    )
+    item = {
+        "user_id": str(target_id),
+        "email": "target@example.test",
+        "name": "Target user",
+        "ok": False,
+        "current_group_id": None,
+        "current_group_name": None,
+        "next_group_id": None,
+        "next_group_name": None,
+        "error": "数据组不存在",
+    }
+    data = {
+        "group_id": str(group_id),
+        "group_name": None,
+        "items": [item],
+        "applicable": 0,
+        "blocked": 1,
+    }
+    assert decode_group_reply(request, group_success(request, data)).data.blocked == 1
+
+    item["next_group_id"] = str(group_id)
     with pytest.raises(IdentityUnavailable):
         decode_group_reply(request, group_success(request, data))
 
@@ -331,5 +390,40 @@ def test_native_failure_requires_exact_closed_fields_and_known_operation():
     assert caught.value.code == "group_busy"
 
     failure["error"]["detail"] = "SQL exception details"
+    with pytest.raises(IdentityUnavailable):
+        decode_native_group_reply(command, failure)
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        "create_group",
+        "update_group",
+        "delete_group",
+        "assign_user_group",
+        "apply_group_assignments",
+    ],
+)
+def test_group_busy_is_valid_for_write_scope_and_advisory_locks(operation):
+    request = group_request(operation)
+    command = native_command(request)
+    failure = {
+        "schema": NATIVE_GROUP_PROTOCOL,
+        "ok": False,
+        "error": {"code": "group_busy", "status_code": None, "detail": None},
+    }
+    with pytest.raises(GroupFailure) as caught:
+        decode_native_group_reply(command, failure)
+    assert caught.value.code == "group_busy"
+
+
+def test_group_busy_is_not_valid_for_read_or_preview_commands():
+    request = group_request("preview_group_assignments")
+    command = native_command(request)
+    failure = {
+        "schema": NATIVE_GROUP_PROTOCOL,
+        "ok": False,
+        "error": {"code": "group_busy", "status_code": None, "detail": None},
+    }
     with pytest.raises(IdentityUnavailable):
         decode_native_group_reply(command, failure)

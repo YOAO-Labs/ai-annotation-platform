@@ -242,6 +242,13 @@ class DeletedGroupData(ClosedModel):
     group_id: uuid.UUID
     deleted: Literal[True]
 
+    @field_validator("deleted", mode="before")
+    @classmethod
+    def strict_deleted(cls, value):
+        if type(value) is not bool:
+            raise ValueError("deleted must be a boolean")
+        return value
+
 
 class GroupAssignmentPreviewItem(ClosedModel):
     user_id: uuid.UUID
@@ -632,11 +639,13 @@ def _expected_policy_error(
     if error.code == "target_not_found":
         return operation == "assign_user_group"
     if error.code == "group_busy":
-        return (
-            operation in {"update_group", "delete_group"}
-            or (operation == "assign_user_group" and payload.group_id is not None)
-            or (operation == "apply_group_assignments" and payload.group_id is not None)
-        )
+        return operation in {
+            "create_group",
+            "update_group",
+            "delete_group",
+            "assign_user_group",
+            "apply_group_assignments",
+        }
     if error.code == "account_busy":
         return True
     if error.code == "operation_conflict":
@@ -757,8 +766,15 @@ def _validate_data_binding(command, data) -> None:
                     payload.group_id is None
                     or item.email is None
                     or item.name is None
-                    or item.next_group_id != payload.group_id
-                    or item.next_group_name is not None
+                    or any(
+                        value is not None
+                        for value in (
+                            item.current_group_id,
+                            item.current_group_name,
+                            item.next_group_id,
+                            item.next_group_name,
+                        )
+                    )
                 ):
                     raise IdentityUnavailable()
             else:
@@ -813,6 +829,8 @@ def _decode_success(
     if expected_principal is not None and not _same_fenced_credential(
         reply.principal, expected_principal
     ):
+        raise IdentityUnavailable()
+    if reply.principal.role not in {"super_admin", "project_admin"}:
         raise IdentityUnavailable()
     _validate_data_binding(command, reply.data)
     return reply
