@@ -1,6 +1,6 @@
 # 0125 — Identity 平台角色预览与变更所有权
 
-- **Status:** Accepted; source implementation is in progress and local qualification is pending
+- **Status:** Accepted; locally qualified slice (2026-10-20)
 - **Date:** 2026-10-20
 - **Deciders:** Maintainers
 - **Supersedes:** None
@@ -106,22 +106,22 @@ change since admission; bind the credential identity, generation and expiry,
 then enforce current super-admin authority without treating a valid Principal
 as malformed.
 
-For a real role change, check work blockers first. If the old role is
-`super_admin` and the requested role is not, then check the existing
+After the invariant, ordered User and credential locks, a same-role mutation
+freezes its successful no-op receipt and returns without Project locks,
+blocker/last-super-admin checks or Audit. For a real role change, first lock all
+Projects currently owned by the target in UUID order with NOWAIT through
+Workspace. Account/global-fence contention returns 409
+`账号正在更新，请刷新后重试`; owned-Project contention returns 409 with
+`{reason:project_busy}`. Only after the Project locks, compute work blockers;
+any blocker returns 409 with exactly
+`{reason:platform_role_change_blocked,blockers:[...]}`. Then, if the old role
+is `super_admin` and the requested role is not, check the existing
 `super_admin_status(target)` under the shared fence. An unreserved remaining
 super-admin is active and has both deactivation request and schedule null. If
-none remains, return 400 `不能降级最后一名超级管理员`. A work blocker takes
-precedence and returns 409 with exactly
-`{reason:platform_role_change_blocked,blockers:[...]}`. This ordering differs
-from preview: a real change checks work blockers before the last-super-admin
-error.
-
-Before a real role change, lock all Projects currently owned by the target in
-UUID order with NOWAIT through Workspace, after the account locks. No-op
-mutation takes no Project locks and writes no Audit. Account/global-fence
-contention returns 409 `账号正在更新，请刷新后重试`; owned-Project contention
-returns 409 with `{reason:project_busy}`. Do not change project memberships,
-batch owners or tasks. Do not bump JWT generation or revoke API keys.
+none remains, return 400 `不能降级最后一名超级管理员`. Thus work-blocker 409
+takes precedence over the final-super-admin 400, while Project contention is
+reported first. Do not change project memberships, batch owners or tasks. Do
+not bump JWT generation or revoke API keys.
 
 Other exact failures are `invalid_request` 400/null,
 `super_admin_required` 403/`当前账号已无管理权限`,
@@ -208,7 +208,7 @@ immutable receipt. It binds actor, operation UUID, target, operation name,
 fingerprint and derivation, and freezes the accepted `{user: ...}` result plus nullable
 Audit ID. It contains no raw token, credential/hash, Principal or live User FK.
 Real changes write exactly one typed `user.role_change` Audit with detail
-`email/old_role/new_role`, status 200 and the target User. No-op receipts do not
+`email/old/new`, status 200 and the target User. No-op receipts do not
 write Audit.
 
 The shared invariant and User locks plus a try operation-advisory fence
@@ -244,6 +244,33 @@ Identity startup operational. An explicitly selected DSN must pass
 `platform_role_policy()` readiness before the API executes a command; failures
 are closed and do not fall back.
 
+### Local qualification
+
+Root integrated source revision `34800df85` passed 56 distinct selected
+database/process cases with zero skips: 48 Native/legacy-API cases, five restore
+cases and three live cases. The live cases cover the installed owner with the
+independent Node consumer, an AUTH-only API binding to the nonroot/read-only
+Identity runtime container (1 CPU, 256 MiB), and a dedicated-DSN API binding.
+The installed package has 94 exact `.py`/`.json` file hashes; source and
+installed package suites each passed 447 tests. API/architecture passed 499
+checks with 127 explicitly deferred rules; Node 22 self-checks and 35 SDK
+user/CLI/OpenAPI checks passed.
+
+The API cold image
+`sha256:a49450a0b203a3f05f68c6de058cd61d7d84d66cfd2b9384265ce3d8adbb6ca9`
+passed in 38.894 seconds with network disabled, read-only filesystem and a
+1 CPU/512 MiB limit. It verified 94 package files, 89 API/native inputs, both
+role routes, the prior owner route counts, unchanged OpenAPI, migration head 0245 and
+absence of retired role helpers; the temporary container was removed.
+
+A finite host-process sample used 12 targets at concurrency four. Execute made
+34 attempts with 22 busy retries in 927.441 ms (p50 455.302 ms, p95 920.672 ms);
+replay made 34 attempts with 22 retries in 907.557 ms (p50 446.324 ms, p95
+907.389 ms). These include Node/HTTP host-process overhead and do not establish
+capacity or an SLO. Replay left all 12 receipts and 12 Audit rows unchanged.
+This is local owner qualification only; full Identity, production capacity and
+cutover remain outside scope.
+
 ## Consequences
 
 Positive:
@@ -259,7 +286,9 @@ Negative:
 
 - Blocker ordering, count definitions and the historical A→B→A receipt behavior
   become versioned contract details.
-- Native role, restore, API/runtime and image qualification remains pending.
+- The local database/process, installed-package, architecture, SDK and cold-image
+  checks above qualify this owner slice only. They do not qualify full Identity,
+  production capacity or cutover.
 - Other-user hydration, lifecycle writes, full Identity, the ten-module/
   seven-gate objective, production capacity and language replacement remain
   outside this slice.

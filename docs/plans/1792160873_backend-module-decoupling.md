@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复／邮件、分组目录／指派、自助注销／due、完整 invitation lifecycle/MailV2 sender、四项用户目录读取及管理员临时密码重置 owner 均已有对应限定本地资格；当前实施平台角色预览／变更 owner，数据库、运行时、恢复与 API qualification 待 Root 验收。offboarding、其他用户 hydration 与剩余模块继续推进，既有 public API filters、字段和 statuses 保持。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
+> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复／邮件、分组目录／指派、自助注销／due、完整 invitation lifecycle/MailV2 sender、四项用户目录读取、管理员临时密码重置与平台角色预览／变更 owner 均已有各自限定的本地资格。offboarding、其他用户 hydration 与剩余模块继续推进，既有 public API filters、字段和 statuses 保持。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
 >
 > 创建日期：2026-10-16。
 >
@@ -2912,14 +2912,12 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   containers were removed. The protected primary checkout/runtime/databases
   stay unchanged. No push, release, remote CI, production, primary Identity cutover or
   Go expansion was performed.
-- Invitation, Directory reads and administrator password-reset owners are
-  locally qualified in their separate sections. The Directory section records
-  its four-operation evidence and the differences between legacy list visibility
-  and query/stats/export visibility. Platform-role preview/mutation is the
-  current in-progress Identity owner, with local qualification pending;
-  cross-owner offboarding, remaining Identity authority and all other
-  module/seven-gate work remain active, so these completed owners do not close
-  the full goal.
+- Invitation, Directory reads, administrator password-reset and platform-role
+  owners are locally qualified in their separate sections. The Directory section
+  records its four-operation evidence and the differences between legacy list
+  visibility and query/stats/export visibility. These completed owner slices do
+  not close cross-owner offboarding, remaining Identity authority or any of the
+  other module/seven-gate work.
 
 ### Identity user-directory read owner local qualification
 
@@ -3049,11 +3047,11 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   production capacity/SLO。12 个 receipts 与 Audit 在 confirmation 后未增加；JWT
   generation 与 API-key rows 未变。
 - 本地资格不代表 production/primary cutover、remote CI、push/release 或 Go 扩展。
-  平台角色写入、offboarding、other-user hydration、其他 Identity owners、十模块／
-  七门槛目标与 provider replacement 仍待完成；Directory 与 Invitation/MailV2
-  的历史资格仍分别按其 own slice 统计。
+  平台角色预览／变更已在下节独立限定验收；offboarding、other-user hydration、其他
+  Identity owners、十模块／七门槛目标与 provider replacement 仍待完成。Directory 与
+  Invitation/MailV2 的历史资格仍分别按其 own slice 统计。
 
-### Identity platform-role preview and mutation owner (qualification pending)
+### Identity platform-role preview and mutation owner (locally qualified slice)
 
 - 只迁移超级管理员平台角色预览与变更：`GET
 /api/v1/users/{user_id}/role/preview` 和 `PATCH
@@ -3080,11 +3078,12 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   成员职责、目标拥有项目、viewer 未完成工作，依次判断。Preview 另先处理 self、
   same role、last super-admin；不拿 last-SA reservation fence，保持 advisory。
 - Mutation 先锁 shared last-super-admin fence，再按 UUID 顺序 NOWAIT 锁 actor/target
-  User 并重验 active super-admin、JWT/API key 当前 credential。工作 blockers 在真实
-  变更时先于 last-SA 检查；若无其他 active 且未预留注销的 SA，返回现有 400。随后
-  Workspace 按 UUID 锁目标拥有项目；账户/global fence contention 为 `account_busy`
-  409，project contention 为 `project_busy` 409，work blockers 为带封闭 blocker list
-  的 `platform_role_change_blocked` 409。此写入不改成员、batch owner 或 Task。
+  User 并重验 active super-admin、JWT/API key 当前 credential。同角色直接保存 no-op
+  receipt，不锁 Project、不计算 blockers 或 last-SA、不写 Audit。真实变更先由 Workspace
+  按 UUID 锁目标拥有项目，再计算 work blockers，最后才执行 last-SA transition check；
+  账户/global fence contention 为 `account_busy` 409，project contention 为 `project_busy`
+  409，work blockers 为带封闭 blocker list 的 `platform_role_change_blocked` 409。
+  此写入不改成员、batch owner 或 Task。
 - Workspace stable facts 返回 owned-project 数、raw non-viewer membership 数和加入
   Project 的成员项目；volatile owner lock 独立。Labeling 一次性接收已排序的成员
   project UUID，返回不按 ID 限制的 global unfinished-work count 和同序、含零项的四种
@@ -3100,9 +3099,24 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   为 `IDENTITY_RUNTIME_PLATFORM_ROLE_DATABASE_URL_FILE`；selector 留空只关闭该
   capability、私有 route 503，不影响现有 Identity startup。API direct DSN 在调用前
   检查 `platform_role_policy()` readiness，明确配置失败不 fallback。
-- Core/Native/Peer 正在实施；DB role/grants、真实 API/runtime、恢复、response-loss、
-  A→B→A replay、非 root/read-only images 与 API cold image 均待 Root 实际证明。本节没有
-  给 platform-role slice 记录通过数量。管理员临时密码重置的 42 个联合 cases／420
-  package checks、API image 和 Directory 38 个 selected cases 分属 ADR-0124 与 ADR-0123，
-  不能算入本 slice。全十模块／七门槛、primary cutover、production capacity、Go 扩展与
-  language-provider replacement 均未完成。详见 [ADR-0125](../adr/0125-independent-identity-platform-role-commands.md)。
+- 本地联合验收以 Root source `34800df85` 完成 56 个选定 database/process cases，零跳过：
+  Native/旧 API 48、restore 5、live 3。Installed portable package 有 94 个 `.py`／`.json`
+  文件 hash 精确匹配，source 与 installed suites 各 447 项通过。API/architecture 499 项
+  通过、127 条 lazy rules 明确延期；Node 22 self-check 和 SDK user/CLI/OpenAPI 35 项通过。
+- API cold image `sha256:a49450a0b203a3f05f68c6de058cd61d7d84d66cfd2b9384265ce3d8adbb6ca9`
+  用时 38.894s，在 network-none/read-only/1 CPU/512 MiB 下核对 94 个 package files、
+  89 个 API/native inputs、两个平台角色路由、既有 owner 路由数量、当前 OpenAPI、migration
+  head 0245 和 retired helpers absent；cold container 已移除。Live cases 覆盖 installed
+  Node owner、AUTH-only nonroot/read-only Identity remote container 与 dedicated API DSN。
+- 12 个 target、并发 4 的 host-process sample：execute 34 attempts/22 busy retries，
+  927.441ms（p50/p95 455.302/920.672ms）；replay 34 attempts/22 retries，907.557ms
+  （p50/p95 446.324/907.389ms）。含 Node/HTTP host overhead，不构成生产容量/SLO；12 个
+  receipts 与 12 个 Audit rows 在 replay 后不变。当前 role owner 已通过本地限定资格，
+  但不代表 full Identity、production/primary cutover 或 language replacement。管理员改密
+  的 42-case／420-package／467-architecture 证据及 Directory/Invitation 历史数字各按其
+  ADR 独立统计；全十模块／七门槛、Go 扩展与 provider replacement 仍未完成。详见
+  [ADR-0125](../adr/0125-independent-identity-platform-role-commands.md)。
+- 下一个尚未拆分的 Identity 写入范围是管理员暂停／恢复账号（`POST
+/api/v1/users/{user_id}/deactivate` 与 `/reactivate`）。未来切片需保留既有 inactive
+  early-return、project-admin scope 差异、credential retirement 与自助注销的保留围栏；
+  这些入口不属于平台角色 owner。
