@@ -190,9 +190,16 @@ BEGIN
 
     IF v_operation = 'preview_offboarding' THEN
         IF NOT aap_identity_offboarding_v1._has_exact_keys(
-            v_payload, ARRAY['target_user_id']
+            v_payload,
+            ARRAY['target_user_id', 'receiver_ids', 'payload_project_ids']
         ) OR pg_catalog.jsonb_typeof(v_payload->'target_user_id') IS DISTINCT FROM 'string'
-          OR (v_payload->>'target_user_id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+          OR (v_payload->>'target_user_id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          OR pg_catalog.jsonb_typeof(v_payload->'receiver_ids') IS DISTINCT FROM 'array'
+          OR pg_catalog.jsonb_typeof(v_payload->'payload_project_ids') IS DISTINCT FROM 'array' THEN
+            RETURN aap_identity_offboarding_v1._failure('invalid_request', 400, NULL);
+        END IF;
+        IF pg_catalog.jsonb_array_length(v_payload->'receiver_ids') <> 0
+           OR pg_catalog.jsonb_array_length(v_payload->'payload_project_ids') <> 0 THEN
             RETURN aap_identity_offboarding_v1._failure('invalid_request', 400, NULL);
         END IF;
     ELSE
