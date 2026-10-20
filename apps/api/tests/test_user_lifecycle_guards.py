@@ -19,7 +19,7 @@ from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
 from app.deps import get_current_user, get_db
 from tests.factory import create_api_key
-from app.services.password_reset import PasswordResetService
+from tests.identity_recovery_helpers import seed_challenge
 from tests.factory import (
     create_membership,
     create_batch,
@@ -298,7 +298,7 @@ async def test_legacy_suspension_retires_keys_and_recovery_links(
     actor, _ = super_admin
     target, _, _, _, _ = await seed_handoff(db_session, actor)
     _, key = await create_api_key(db_session, target.id, "Old integration", ["*"])
-    token = await PasswordResetService(db_session).create_token(target.email)
+    token = await seed_challenge(db_session, target)
     response = await httpx_client.post(
         f"/api/v1/users/{target.id}/deactivate", headers=headers(actor)
     )

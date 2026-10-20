@@ -1,4 +1,4 @@
-"""v0.12.0 · 开放注册邮箱验证测试。"""
+"""Open-registration email verification behavior."""
 
 from __future__ import annotations
 
@@ -9,9 +9,11 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_identity.recovery_crypto import token_hash
 from app.config import settings
 from app.db.models.email_verification_token import EmailVerificationToken
 from app.db.models.user import User
+from tests.identity_recovery_helpers import credential_mail_capture  # noqa: F401
 
 
 @pytest.fixture
@@ -82,8 +84,14 @@ async def test_register_without_verification_auto_login(
 
 @pytest.mark.asyncio
 async def test_register_with_verification_no_token(
-    httpx_client: AsyncClient, enable_open_registration, require_verification
+    httpx_client: AsyncClient,
+    db_session: AsyncSession,
+    enable_open_registration,
+    require_verification,
+    credential_mail_capture,  # noqa: F811
+    caplog,
 ):
+    caplog.set_level("INFO")
     resp = await httpx_client.post(
         "/api/v1/auth/register-open",
         json={"email": "needverify@test.com", "name": "V", "password": "Abcd1234"},
@@ -93,6 +101,17 @@ async def test_register_with_verification_no_token(
     assert data["access_token"] is None
     assert data["email_verification_required"] is True
     assert data["user"]["email_verified_at"] is None
+    tokens = credential_mail_capture.tokens()
+    assert len(tokens) == 1
+    row = await db_session.scalar(
+        select(EmailVerificationToken).where(
+            EmailVerificationToken.token_hash == token_hash(tokens[0])
+        )
+    )
+    assert row is not None
+    assert row.issued_email == data["user"]["email"]
+    assert row.used_at is None
+    assert tokens[0] not in caplog.text
 
 
 @pytest.mark.asyncio
@@ -101,6 +120,7 @@ async def test_login_blocked_when_unverified(
     enable_open_registration,
     require_verification,
     reset_rate_limiter,
+    credential_mail_capture,  # noqa: F811
 ):
     await httpx_client.post(
         "/api/v1/auth/register-open",
@@ -124,6 +144,7 @@ async def test_verify_then_login(
     enable_open_registration,
     require_verification,
     reset_rate_limiter,
+    credential_mail_capture,  # noqa: F811
 ):
     email = "verifyme@test.com"
     await httpx_client.post(
@@ -133,18 +154,24 @@ async def test_verify_then_login(
     user = (
         await db_session.execute(select(User).where(User.email == email))
     ).scalar_one()
+    assert user.email == email
+    tokens = credential_mail_capture.tokens()
+    assert len(tokens) == 1
+    token_value = tokens[0]
     token = (
         await db_session.execute(
             select(EmailVerificationToken).where(
-                EmailVerificationToken.user_id == user.id
+                EmailVerificationToken.token_hash == token_hash(token_value)
             )
         )
     ).scalar_one()
 
     resp = await httpx_client.post(
-        "/api/v1/auth/verify-email", json={"token": token.token}
+        "/api/v1/auth/verify-email", json={"token": token_value}
     )
     assert resp.status_code == 200
+    await db_session.refresh(token)
+    assert token.used_at is not None
 
     login = await httpx_client.post(
         "/api/v1/auth/login", json={"email": email, "password": "Abcd1234"}
@@ -167,6 +194,7 @@ async def test_verify_token_reuse_rejected(
     db_session: AsyncSession,
     enable_open_registration,
     require_verification,
+    credential_mail_capture,  # noqa: F811
 ):
     email = "reuse@test.com"
     await httpx_client.post(
@@ -176,22 +204,28 @@ async def test_verify_token_reuse_rejected(
     user = (
         await db_session.execute(select(User).where(User.email == email))
     ).scalar_one()
+    assert user.email == email
+    tokens = credential_mail_capture.tokens()
+    assert len(tokens) == 1
+    token_value = tokens[0]
     token = (
         await db_session.execute(
             select(EmailVerificationToken).where(
-                EmailVerificationToken.user_id == user.id
+                EmailVerificationToken.token_hash == token_hash(token_value)
             )
         )
     ).scalar_one()
 
     first = await httpx_client.post(
-        "/api/v1/auth/verify-email", json={"token": token.token}
+        "/api/v1/auth/verify-email", json={"token": token_value}
     )
     assert first.status_code == 200
     second = await httpx_client.post(
-        "/api/v1/auth/verify-email", json={"token": token.token}
+        "/api/v1/auth/verify-email", json={"token": token_value}
     )
     assert second.status_code == 400
+    await db_session.refresh(token)
+    assert token.used_at is not None
 
 
 # ---- resend 防枚举：恒 202 ----
@@ -199,10 +233,42 @@ async def test_verify_token_reuse_rejected(
 
 @pytest.mark.asyncio
 async def test_resend_verification_always_202(
-    httpx_client: AsyncClient, reset_rate_limiter
+    httpx_client: AsyncClient,
+    db_session: AsyncSession,
+    reset_rate_limiter,
+    credential_mail_capture,  # noqa: F811
 ):
-    resp = await httpx_client.post(
+    user = User(
+        email="resend@test.com",
+        name="Pending verification",
+        password_hash="test-only",
+        role="viewer",
+        status="offline",
+        is_active=True,
+        email_verified_at=None,
+    )
+    db_session.add(user)
+    await db_session.flush()
+
+    known = await httpx_client.post(
+        "/api/v1/auth/send-verification-email",
+        json={"email": user.email},
+    )
+    assert known.status_code == 202
+    tokens = credential_mail_capture.tokens()
+    assert len(tokens) == 1
+    row = await db_session.scalar(
+        select(EmailVerificationToken).where(
+            EmailVerificationToken.token_hash == token_hash(tokens[0])
+        )
+    )
+    assert row is not None
+    assert row.issued_email == user.email
+    assert row.used_at is None
+
+    missing = await httpx_client.post(
         "/api/v1/auth/send-verification-email",
         json={"email": "nobody@test.com"},
     )
-    assert resp.status_code == 202
+    assert missing.status_code == known.status_code == 202
+    assert missing.json() == known.json()

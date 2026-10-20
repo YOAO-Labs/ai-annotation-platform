@@ -6,9 +6,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from sqlalchemy import delete, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from aap_identity.recovery_crypto import token_hash
 from app.db.models.api_key import ApiKey
 from app.db.models.password_reset_token import PasswordResetToken
 from app.db.models.user import User
@@ -298,11 +299,15 @@ async def test_generation_retirement_and_revocations_share_the_caller_transactio
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     try:
         async with maker.begin() as session:
+            email = await session.scalar(
+                select(User.email).where(User.id == fixture["actor_id"])
+            )
             session.add(
                 PasswordResetToken(
                     id=token_id,
                     user_id=fixture["actor_id"],
-                    token=uuid.uuid4().hex,
+                    token_hash=token_hash(uuid.uuid4().hex),
+                    issued_email=email,
                     expires_at=datetime.now(UTC) + timedelta(hours=1),
                 )
             )
