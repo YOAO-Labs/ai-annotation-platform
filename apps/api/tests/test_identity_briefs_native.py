@@ -183,6 +183,11 @@ def test_frozen_briefs_schema_and_function_only_boundary():
     role_grants = _ROLE_GRANTS.read_text(encoding="utf-8")
     lan_grants = _LAN_GRANTS.read_text(encoding="utf-8")
     verifier = _VERIFIER.read_text(encoding="utf-8")
+    normalized_support = " ".join(support.split())
+    compact_migration = "".join(migration.split())
+    compact_module_grants = "".join(module_grants.split())
+    compact_role_grants = "".join(role_grants.split())
+    compact_lan_grants = "".join(lan_grants.split())
 
     assert schema == canonical
     assert _SCHEMA.read_bytes() == _CANONICAL_SCHEMA.read_bytes()
@@ -192,9 +197,15 @@ def test_frozen_briefs_schema_and_function_only_boundary():
     assert migration.index('"0249_identity_briefs_support.sql"') < migration.index(
         '"0249_identity_briefs.sql"'
     )
-    assert "identity_brief_project_roles(p_project_id uuid" in support
-    assert "RETURNS TABLE(user_id uuid, role text)" in support
-    assert "identity_brief_project_roles(uuid,uuid[])" in migration
+    assert (
+        "CREATE FUNCTION aap_workspace_v1.identity_brief_project_roles( "
+        "p_project_id uuid, p_user_ids uuid[] ) RETURNS TABLE(user_id uuid, role text)"
+        in normalized_support
+    )
+    assert (
+        "aap_workspace_v1.identity_brief_project_roles(uuid,uuid[])"
+        in compact_migration
+    )
     assert "SECURITY DEFINER" in support
     assert "SET search_path = pg_catalog, pg_temp" in support
     assert "CREATE TABLE" not in support + artifact
@@ -203,15 +214,16 @@ def test_frozen_briefs_schema_and_function_only_boundary():
     assert "DELETE FROM" not in support + artifact
     assert "audit_logs" not in support + artifact
     assert (
-        "aap_workspace_v1.identity_brief_project_roles(uuid, uuid[])" in module_grants
+        "aap_workspace_v1.identity_brief_project_roles(uuid,uuid[])"
+        in compact_module_grants
     )
-    assert "GRANT SELECT (id, project_id, user_id, role)" in module_grants
-    assert 'ON public.project_members TO :"identity_owner"' not in module_grants
+    assert "GRANTSELECT(id,project_id,user_id,role)" in compact_module_grants
+    assert 'ONpublic.project_membersTO:"identity_owner"' not in compact_module_grants
     assert "identity_briefs_client" in role_grants
-    assert "aap_identity_briefs_v1.briefs_policy()" in role_grants
-    assert "aap_identity_briefs_v1.execute_briefs_command(jsonb)" in role_grants
+    assert "aap_identity_briefs_v1.briefs_policy()" in compact_role_grants
+    assert "aap_identity_briefs_v1.execute_briefs_command(jsonb)" in compact_role_grants
     assert "aap_identity_briefs_v1" in lan_grants
-    assert "aap_identity_briefs_v1.execute_briefs_command(jsonb)" in lan_grants
+    assert "aap_identity_briefs_v1.execute_briefs_command(jsonb)" in compact_lan_grants
     assert '"BRIEFS": "identity_briefs_client"' in verifier
     assert '"0249_identity_briefs.sql"' in verifier
     assert '"0249_identity_briefs.schema.json"' in verifier
