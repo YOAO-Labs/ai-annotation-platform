@@ -138,7 +138,7 @@ _ACTOR_REQUESTS = TypeAdapter(ActorContextRequest)
 def decode_actor_request(payload: dict | bytes) -> ActorContextRequest:
     try:
         return _ACTOR_REQUESTS.validate_json(_json_bytes(payload))
-    except (ValidationError, ValueError, TypeError, UnicodeError):
+    except (ValidationError, ValueError, TypeError, UnicodeError, RecursionError):
         raise IdentityFailure("invalid_request") from None
 
 

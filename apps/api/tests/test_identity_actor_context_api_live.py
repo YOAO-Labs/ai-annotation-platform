@@ -40,6 +40,51 @@ def _api_dsn(test_engine):
     )
 
 
+async def test_actor_context_container_rejects_deep_json_with_closed_failure(
+    test_engine, tmp_path
+):
+    secret, control = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
+    identity = await _start_container_identity(
+        test_engine,
+        tmp_path,
+        secret,
+        control,
+        enable_accounts=False,
+        enable_groups=False,
+        enable_invitations=False,
+        enable_directory=False,
+        enable_admin_password=False,
+        enable_platform_role=False,
+        enable_suspension=False,
+        enable_deactivation=False,
+        enable_deletions=False,
+        enable_offboarding=False,
+        enable_presence=False,
+    )
+    try:
+        async with httpx.AsyncClient(
+            base_url=identity.origin, trust_env=False, timeout=30
+        ) as client:
+            response = await client.post(
+                "/v1/identity/actor-context",
+                headers={
+                    "Authorization": f"Bearer {control}",
+                    "Content-Type": "application/json",
+                },
+                content=b"[" * 2000 + b"0" + b"]" * 2000,
+            )
+            ready = await client.get("/ready")
+        assert response.status_code == 400, response.text
+        assert response.json() == {
+            "schema": "aap-identity-actor/v1",
+            "ok": False,
+            "error": {"code": "invalid_request"},
+        }
+        assert ready.status_code == 200
+    finally:
+        identity.stop()
+
+
 async def _cleanup_actor_project(maker, *, user_ids, project_ids):
     users = list(user_ids)
     projects = list(project_ids)

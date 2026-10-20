@@ -104,6 +104,7 @@ def _start_node_owner(*, control, actor_id, role, scenarios):
             json.dumps(config, ensure_ascii=False, allow_nan=False) + "\n"
         )
         process.stdin.close()
+        process.stdin = None
         ready_set, _, _ = io_select.select([process.stdout], [], [], 10)
         if not ready_set:
             pytest.fail("Independent Node actor-context owner did not become ready")

@@ -11,7 +11,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 import aap_identity
+from aap_identity.contract import IdentityUnavailable
+from aap_identity.postgres import PostgresData
 from tests.test_identity_auth_native import _call, _cleanup, _seed
+from tests.test_identity_auth_roles import _dsn
 
 _ROOT = Path(__file__).parents[3]
 _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
@@ -56,6 +59,51 @@ def test_actor_context_artifact_preserves_the_frozen_admission_contract():
     assert "audit_logs" not in sql
     assert "INSERT INTO" not in sql
     assert "UPDATE public." not in sql
+
+
+@pytest.mark.asyncio
+async def test_auth_readiness_rejects_only_missing_actor_context_capability(
+    test_engine,
+):
+    data = PostgresData(_dsn("AUTH"))
+    maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    assert (await data.authentication_policy())["issuer"] == "aap-identity/v1"
+    try:
+        async with maker.begin() as session:
+            await session.execute(
+                text(
+                    "REVOKE EXECUTE ON FUNCTION "
+                    "aap_identity_v1.read_actor_context(uuid,text) FROM identity_auth_client"
+                )
+            )
+        async with maker() as session:
+            assert (
+                await session.scalar(
+                    text(
+                        "SELECT bool_and(has_function_privilege('identity_auth_client', capability, 'EXECUTE')) "
+                        "FROM unnest(ARRAY["
+                        "'aap_identity_v1.authentication_policy()',"
+                        "'aap_identity_v1.read_jwt_principal(uuid,uuid,bigint,timestamptz,boolean)',"
+                        "'aap_identity_v1.read_api_key_candidates(text,uuid,integer)',"
+                        "'aap_identity_v1.confirm_api_key_principal(uuid,text)'"
+                        "]) AS required(capability)"
+                    )
+                )
+                is True
+            )
+        with pytest.raises(IdentityUnavailable):
+            await data.authentication_policy()
+        with pytest.raises(IdentityUnavailable):
+            await data.read_actor_context(uuid.uuid4(), "employee")
+    finally:
+        async with maker.begin() as session:
+            await session.execute(
+                text(
+                    "GRANT EXECUTE ON FUNCTION "
+                    "aap_identity_v1.read_actor_context(uuid,text) TO identity_auth_client"
+                )
+            )
+    assert (await data.authentication_policy())["issuer"] == "aap-identity/v1"
 
 
 @pytest.mark.asyncio

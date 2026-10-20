@@ -94,6 +94,7 @@ def test_request_rejects_aliases_extra_fields_invalid_roles_and_types(payload):
         b'"actor_id":"8b24f2f0-4e18-4a31-9f42-a716ad2a0001","admitted_role":"employee"}',
         b'{"schema":"aap-identity-actor/v1","actor_id":"8b24f2f0-4e18-4a31-9f42-a716ad2a0001",'
         b'"admitted_role":"employee","ignored":NaN}',
+        b"[" * 2000 + b"0" + b"]" * 2000,
     ],
 )
 def test_request_rejects_duplicate_json_fields_and_nonfinite_values(payload):

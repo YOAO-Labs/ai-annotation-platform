@@ -120,6 +120,11 @@ async def test_actor_context_route_returns_only_bounded_typed_failures():
         oversized = await client.post(
             "/v1/identity/actor-context", headers=headers, content=b" " * 65537
         )
+        deeply_nested = await client.post(
+            "/v1/identity/actor-context",
+            headers=headers,
+            content=b"[" * 2000 + b"0" + b"]" * 2000,
+        )
 
     assert rejected.status_code == 200
     assert rejected.json() == actor_failure_reply("credential_invalid")
@@ -127,6 +132,8 @@ async def test_actor_context_route_returns_only_bounded_typed_failures():
     assert malformed.json() == actor_failure_reply("invalid_request")
     assert oversized.status_code == 400
     assert oversized.json() == actor_failure_reply("invalid_request")
+    assert deeply_nested.status_code == 400
+    assert deeply_nested.json() == actor_failure_reply("invalid_request")
 
 
 @pytest.mark.asyncio
