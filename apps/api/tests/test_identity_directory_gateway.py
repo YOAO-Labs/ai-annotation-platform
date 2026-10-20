@@ -270,6 +270,12 @@ async def test_explicit_directory_dsn_never_uses_caller_sql_on_connection_failur
         def __init__(self, dsn):
             assert dsn == "postgresql://offline.invalid/owned"
 
+        async def directory_policy(self):
+            return {
+                "schema": "aap-identity-directory-policy/v1",
+                "policy": "aap-identity-directory/v1",
+            }
+
     class Manager:
         def __init__(self, auth, data, secret):
             assert isinstance(data, Data)

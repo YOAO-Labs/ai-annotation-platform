@@ -81,6 +81,8 @@ class IdentityDeactivationCommands:
                     if dsn
                     else IdentityDeactivationCommandData(self.db)
                 )
+                if dsn:
+                    await data.deactivation_policy()
                 secret = (
                     self.identity.signing_secret
                     if self.identity.signing_secret is not None
@@ -121,6 +123,8 @@ class IdentityDeactivationDueCommands:
                     if dsn
                     else IdentityDeactivationDueData(self.db)
                 )
+                if dsn:
+                    await data.due_policy()
                 return await data.process_due_deactivations(request)
         except DeactivationDueFailure as error:
             if error.code == "invariant_busy":

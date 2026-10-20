@@ -75,6 +75,8 @@ class IdentityRecoveryCommands:
                     if dsn
                     else IdentityRecoveryCommandData(self.db)
                 )
+                if dsn:
+                    await data.recovery_policy()
                 secret = (
                     self.identity.signing_secret
                     if self.identity.signing_secret is not None

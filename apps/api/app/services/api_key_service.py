@@ -55,6 +55,8 @@ class IdentityKeyManagement:
                     settings.identity_key_database_url_file,
                 )
                 data = KeyPostgresData(dsn) if dsn else IdentityKeySessionData(self.db)
+                if dsn:
+                    await data.key_policy()
                 secret = (
                     self.identity.signing_secret
                     if self.identity.signing_secret is not None

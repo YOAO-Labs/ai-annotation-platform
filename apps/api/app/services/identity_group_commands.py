@@ -55,6 +55,8 @@ class IdentityGroupCommands:
                 data = (
                     GroupPostgresData(dsn) if dsn else IdentityGroupCommandData(self.db)
                 )
+                if dsn:
+                    await data.group_policy()
                 secret = (
                     self.identity.signing_secret
                     if self.identity.signing_secret is not None

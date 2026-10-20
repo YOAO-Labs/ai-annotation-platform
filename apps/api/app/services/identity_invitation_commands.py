@@ -64,6 +64,8 @@ class IdentityInvitationCommands:
                         if invitation_dsn
                         else IdentityInvitationCommandData(self.db)
                     )
+                    if invitation_dsn:
+                        await data.invitation_policy()
                     secret = self.identity.signing_secret or settings.secret_key
                     if not secret:
                         raise IdentityGatewayUnavailable()

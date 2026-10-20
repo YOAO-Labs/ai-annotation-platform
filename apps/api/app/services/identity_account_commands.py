@@ -138,6 +138,8 @@ class IdentityAccountCommands:
                     if dsn
                     else IdentityAccountCommandData(self.db)
                 )
+                if dsn:
+                    await data.account_policy()
                 secret = (
                     self.identity.signing_secret
                     if self.identity.signing_secret is not None

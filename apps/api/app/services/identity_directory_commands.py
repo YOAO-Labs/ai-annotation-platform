@@ -61,6 +61,8 @@ class IdentityDirectoryCommands:
                     if dsn
                     else IdentityDirectoryCommandData(self.db)
                 )
+                if dsn:
+                    await data.directory_policy()
                 secret = (
                     self.identity.signing_secret
                     if self.identity.signing_secret is not None
