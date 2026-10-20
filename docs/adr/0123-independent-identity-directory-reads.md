@@ -1,6 +1,6 @@
 # 0123 — Identity 用户目录读取所有权与可见性合同
 
-- **Status:** Accepted; implementation is in progress and runtime qualification is pending
+- **Status:** Accepted; local Directory read qualification completed
 - **Date:** 2026-10-20
 - **Deciders:** Maintainers
 - **Supersedes:** None
@@ -122,7 +122,7 @@ current authorization, returns the frozen export and does not repeat Audit.
 
 ### Owner capabilities and receipt scope
 
-Migration 0243 is designated to create `aap_identity_directory_v1`. The dedicated
+Migration 0243 creates `aap_identity_directory_v1`. The dedicated
 `identity_directory_client` LOGIN has exactly `directory_policy()` and
 `execute_directory_command(jsonb)`; it has no direct table, column, sequence,
 DDL or foreign-schema capability. Readiness rejects extra grants. Identity
@@ -156,7 +156,10 @@ The API and Identity runtime can select
 The optional Compose host selector is
 `IDENTITY_RUNTIME_DIRECTORY_DATABASE_URL_FILE`. A selected dedicated DSN uses
 the function-only role; a standalone runtime must be provisioned with that
-capability. Existing API paths and role checks remain the public boundary.
+capability. A blank Compose selector leaves Directory disabled and the private
+route unavailable (503), so existing Identity Compose deployments still start.
+Explicit DSN failures never select another writer. Existing API paths and role
+checks remain the public boundary.
 
 ## Consequences
 
@@ -176,10 +179,55 @@ Negative:
   separate in future work.
 - `is_lifecycle_managed` still requires a bounded, bulk cross-owner projection
   from Labeling through Workspace in the same PostgreSQL snapshot.
-- The source, API adapter, native roles, standalone runtime, export replay and
-  backup/restore still require local qualification. This ADR does not complete
-  those checks, platform-admin writes, full Identity or the ten-module/seven-gate
-  goal.
+- This slice adds no Directory user-write operations. Platform-role writes,
+  other-user hydration, offboarding, full Identity and the ten-module/seven-gate
+  goal remain unfinished; local qualification is not production capacity or a
+  replacement-language provider result.
+
+## Local qualification
+
+Committed source `eeeaa16e48459a1357389723a6d99ec74e3c71d3` passes 32 native/role
+cases, three restore cases and three live/API cases with no skips. These are 38
+selected database/process cases across the current suites; restore/live include
+invitation and legacy challenge compatibility, so they are not 38 new
+Directory-only cases. The live/API set includes one Node consumer and API runs
+against both remote and dedicated DSN bindings.
+
+The noneditable package passes 398 checks; all 82 installed source-file hashes
+match, and the package contains no application, SQLAlchemy, Celery, Boto3 or
+Torch dependency. Node passes 22 consumer checks, targeted SDK user-management
+and CLI checks pass 31, OpenAPI contract checks pass 14, and operation
+discovery/catalog checks pass 21. API assembly passes 348 checks, with 125
+explicitly deferred lazy architecture rules.
+
+Identity image `sha256:04cc403370bdccce6d84d89b6bc222997b9e4d77b976c0a547f0aff28805704e`
+contains the same 82 files and passes the real runtime/API proof. API image
+`sha256:12eadf471566c1487a5830961928232e9abf4b01728912b03fb18fa70fc60479`
+passes a network-disabled, read-only, 512 MiB cold check of 82 package files and
+70 API/native inputs, four Directory routes, prior invitation/recovery/group/
+deactivation routes, OpenAPI and migration head 0243. Public paths, fields and
+statuses are unchanged; only the users/stats OpenAPI descriptions changed.
+
+A 540-user fixture exercises list/export results beyond 500 rows and 64 KiB.
+The owner also passes int64 pagination, lifecycle-reference families, stale
+role 403, current visibility 409, credential-generation fencing, frozen
+profile/context replay without duplicate Audit, restore and restart checks. A
+separate 12-read host-process sample at concurrency four takes 0.232 seconds
+(p50 0.077, p95 0.081) including Node-process overhead; it is not the
+1 CPU/256 MiB remote-container budget or a capacity/SLO claim. The numeric
+consumer preserves incoming JSON tokens and wide integers; the 20-digit
+decimal fixture follows existing backend canonicalization
+`0.12345678901234568`, without a new decimal-precision claim.
+
+Environment documentation checks 447 variables in 48 sections; catalog/schema
+export checks pass. Owned
+PostgreSQL, Redis, S3 and proof resources are removed, and the original primary
+checkout and four infrastructure containers remain unchanged. No production,
+primary cutover, remote CI, push/release or Go expansion was performed.
+
+The prior Invitation/MailV2 slice remains qualified separately at 68
+database/process cases, 375 installed-package checks and 324 API-assembly
+checks. None of those historical counts are attributed to Directory reads.
 
 ## Notes
 

@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复／邮件、分组目录／指派、自助注销／due 与完整 invitation lifecycle/MailV2 sender 均已有对应限定本地资格；当前推进四项用户目录读取 owner，原有 public filters 和角色可见性保持，native／API／runtime qualification 待本次实际验收。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
+> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复／邮件、分组目录／指派、自助注销／due、完整 invitation lifecycle/MailV2 sender 及四项用户目录读取 owner 均已有对应限定本地资格；当前继续推进平台角色写入、offboarding、其他用户 hydration 与剩余模块，既有 public API filters、字段和 statuses 保持。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
 >
 > 创建日期：2026-10-16。
 >
@@ -2857,14 +2857,15 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   SMTP credential. The V2 process can accept, send and audit invitation mail
   after short database transactions and may repeat an uncertain SMTP delivery
   with a stable Message-ID.
-- At this checkpoint the 13-operation source, V2 sender, migration/role/image
-  assembly, public API preservation, actual SMTP acceptance/uncertain delivery,
-  sender restart/lease takeover and backup/restore checks are still being
-  implemented or awaited. This plan entry records the contract and deployment
-  boundary only; it adds no pass count and makes no invitation/mail qualification
-  claim. Directory/admin ownership, full Identity, remaining module gates,
-  alternate-language provider, production capacity and Go experiment status are
-  unchanged; no primary cutover or production deployment is included.
+- This entry records the pre-qualification design checkpoint: the
+  13-operation source, V2 sender, migration/role/image assembly, public API
+  preservation, SMTP acceptance/uncertain delivery, sender takeover and
+  backup/restore checks were then being implemented or awaited. The following
+  invitation qualification section records the completed evidence. Platform-role
+  administration, remaining offboarding, full Identity, other module gates,
+  alternate-language provider, production capacity and Go experiment status
+  remain outside that invitation slice; no primary cutover or production
+  deployment is included.
 
 ### Identity invitation local and assembled artifact qualification
 
@@ -2911,62 +2912,69 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   containers were removed. The protected primary checkout/runtime/databases
   stay unchanged. No push, release, remote CI, production, primary Identity cutover or
   Go expansion was performed.
-- Invitation ownership is locally qualified. The following directory section
-  records the current four-operation Identity read owner, preserving the
-  differences between legacy list visibility and query/stats/export visibility.
+- Invitation and Directory read owners are locally qualified. The following
+  Directory section records the four-operation scope and qualification,
+  preserving the differences between legacy list visibility and
+  query/stats/export visibility.
   Platform-admin writes, cross-owner offboarding, remaining Identity authority
   and all other module/seven-gate work remain active; this slice does not close
   the full goal.
 
-### Identity user-directory read owner (current slice)
+### Identity user-directory read owner local qualification
 
-- This slice moves only the four public reads `GET /api/v1/users`,
-  `/users/query`, `/users/stats` and `/users/export` to the versioned
-  `aap-identity-directory/v1` private contract. Public routes, filters,
-  defaults, `UserOut`/page models, statuses, SDK behavior and CSV/JSON output
-  remain unchanged. Platform-role changes, administrative password reset,
-  deactivate/delete, offboarding/reactivation, bootstrap/import provisioning
-  and dashboard analytics remain separate API workflows.
-- The protocol operations are `list_users`, `query_users`, `user_stats` and
-  `export_users`. Its exact request fields are `schema`, `operation`,
-  `operation_id`, current credential `token`, `audit_context` and `payload`.
-  The native request binds the authenticated Principal, current credential
-  facts, operation fingerprint/epoch and payload without forwarding the raw
-  bearer.
-- Preserve two separate project-admin visibility rules. Legacy list exposes
-  the global active-employee candidate mode only for `role=employee` and
-  `status=active`; otherwise it returns self plus owned-project members and
-  ignores `project_id`. Query/stats/export add global active employees and
-  read-only active super-admins when unfiltered. With `project_id`, these
-  global arms disappear and the literal self/owned-member intersection with
-  requested project members remains, including a member of a foreign project.
-  Query lifecycle flags preserve project-owner, membership, TaskBatch, Task
-  assignment and TaskLock-derived references, including historical/inactive
-  rows and the previous inner-join behavior for orphaned project refs.
-- Workspace supplies member and lifecycle-blocked projections; Labeling
-  supplies deduplicated project references for batches of at most 500 users.
-  User selection, total and flags share one SQL snapshot. Identity receives no
-  foreign-table read grants or per-user RPC dependency. The exact
-  `identity_directory_client` LOGIN has `directory_policy()` and
-  `execute_directory_command(jsonb)` only, under migration 0243.
-- Reads are receipt-free. Export alone writes `user.export`; its successful
-  receipt freezes the eight exported fields, metadata and Audit ID, contains no
-  live User FK or raw credentials, and prevents duplicate Audit on authorized
-  replay. Replay rechecks each frozen User ID under current export visibility
-  and the original `project_id`; it does not reapply search/group/status filters.
-  Deleted or newly invisible rows conflict, while profile/context changes alone
-  may return the original frozen export. It does not impose a total-row or byte
-  cap.
-- API/runtime select `IDENTITY_DIRECTORY_DATABASE_URL(_FILE)`; the optional
-  Compose host selector is `IDENTITY_RUNTIME_DIRECTORY_DATABASE_URL_FILE`.
-  Existing caller-transaction assembly and the standalone Identity runtime
-  both require precise function-only capability boundaries; explicit failures
-  must not select another writer.
-- Implementation, migration/grants, real API and standalone runtime binding,
-  export response-loss replay, backup/restore and local artifact qualification
-  remain pending Root verification. This section adds no pass count. The
-  previous invitation slice remains separately qualified at 68 database/
-  process cases, 375 installed-package checks and 324 API-assembly checks;
-  none of those counts covers directory reads. The ten-module/seven-gate goal
-  remains active; there is no primary Identity cutover, production deployment,
-  push/release, remote CI or Go expansion in this slice.
+- 本 slice 只迁移 `GET /api/v1/users`、`/users/query`、`/users/stats` 和
+  `/users/export` 四项读取，使用 `aap-identity-directory/v1`。公开路径、
+  filters、defaults、`UserOut`／分页模型、状态码、SDK 调用与 CSV/JSON
+  行为保持不变；平台角色写入、管理员改密、deactivate/delete、offboarding/
+  reactivation、bootstrap/import 与 dashboard analytics 仍是独立 API flows。
+- 私有操作为 `list_users`、`query_users`、`user_stats`、`export_users`；请求
+  精确包含 `schema/operation/operation_id/token/audit_context/payload`。Legacy
+  list 的 project-admin active employee picker 与 query/stats/export 的
+  active super-admin 只读 arm 分开保留。带 `project_id` 时，project-admin
+  继续使用 self／owned-member 与所选项目成员的字面交集，不额外要求项目归
+  当前 actor 所有。Lifecycle flags 延续 Workspace/Labeling 的历史、inactive、
+  archived 和 TaskLock 引用范围。
+- Workspace 以批量 capability 提供成员与 lifecycle-blocked 投影，Labeling
+  对最多 500 个用户返回去重 project refs；用户、total 与 flags 在同一
+  PostgreSQL snapshot 读取。`identity_directory_client` 精确只有
+  `directory_policy()`、`execute_directory_command(jsonb)`，migration 0243
+  安装 `aap_identity_directory_v1`，Identity 不获得 Workspace/Labeling 原表读权。
+  Host Compose selector 是 `IDENTITY_RUNTIME_DIRECTORY_DATABASE_URL_FILE`；留空
+  会关闭 Directory 并令私有路由返回 503，既有 Identity service 仍可启动。
+- Reads 不建 receipt。Export 独自记录 `user.export`，成功 receipt 只冻结 8 个
+  导出字段、metadata 和 Audit ID；重放需当前 actor/credential，并按当前 scope
+  与原 `project_id` 重验冻结用户可见性。Search/group/status filters 不重算；
+  删除或不可见用户返回 409，profile/context 变化本身仍可重放原内容。CSV
+  header/BOM/公式转义、JSON `_export_meta`、文件名和 response byte 行为不变。
+- Source `eeeaa16e48459a1357389723a6d99ec74e3c71d3` 通过 32 项 native/role、
+  3 项 restore、3 项 live/API 检查，均零跳过；合计 38 个选定数据库／进程用例，
+  restore/live 还含旧 invitation 与 legacy challenge 兼容，因此不把 38 项都算作
+  新 Directory 用例。Live 覆盖一个 Node consumer，以及 remote 与 dedicated DSN
+  两种 API binding。
+- Noneditable Identity package 通过 398 项检查，82 个 installed source hashes
+  一致，且无 application、SQLAlchemy、Celery、Boto3、Torch 依赖。Node 22 自检
+  22 项；SDK 用户管理／CLI 31 项、OpenAPI contract 14 项、operation discovery/
+  catalog 21 项；catalog `--check` 通过，只同步 7 个既有 Identity 描述，没有
+  method/schema/version changes。API assembly 348 项通过，另有 125 条明确延期
+  的 lazy architecture rules。
+- Identity image `sha256:04cc403370bdccce6d84d89b6bc222997b9e4d77b976c0a547f0aff28805704e`
+  安装与源一致的 82 个文件，live runtime/API proof 通过。API image
+  `sha256:12eadf471566c1487a5830961928232e9abf4b01728912b03fb18fa70fc60479`
+  在禁网、只读、512 MiB 环境冷启动 39.174 秒，核对 82 个 package 文件、70 个
+  API/native inputs、四条 Directory routes、旧 owner routes、0243 head、OpenAPI
+  与 relay。API 公开路径／字段／状态不变，仅 users/stats description 更新。
+  冷启动证据为 `.worktree/identity-directory-api-artifact.json`。
+- 540 个 synthetic users 验证 list/export 超过 500 行和 64 KiB；int64 大页、
+  lifecycle reference families、stale-role 403、当前可见性 409、冻结 profile/
+  context export、no-repeat Audit、credential-generation fence 与 restart 均通过。
+  另一个 12 次 host-process 读取、并发 4 的样本耗时 0.232 秒（p50 0.077、p95
+  0.081），含 Node process overhead；不适用 1 CPU/256 MiB remote Identity
+  container 预算，也不构成生产容量/SLO。Node 保留输入数值 token 和宽整数；
+  20 位十进制 fixture 只遵循既有 canonical `0.12345678901234568`，不宣称新的
+  backend decimal precision。
+- 环境文档核对 447 个变量／48 个分组，capability catalog、schema export 通过。
+  PostgreSQL、Redis、S3 和 proof 资源已清理；primary checkout 与四个基础容器不变。
+  本 slice 未做生产／primary cutover、push/release、remote CI 或 Go 扩展。此前邀请
+  slice 仍单独维持 68 DB/process、375 installed-package、324 API-assembly checks；
+  它们不计入 Directory。平台管理员写入、offboarding、其他用户 hydration、完整
+  Identity、十模块／七门槛和 provider replacement 仍待完成。
