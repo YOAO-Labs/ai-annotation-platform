@@ -1,6 +1,6 @@
 # 0135 — Portable Workspace Configuration Values and Dependencies
 
-- **Status:** Proposed; implementation foundation under local qualification
+- **Status:** Proposed; foundation locally qualified, configuration command owner pending
 - **Date:** 2026-10-21
 - **Deciders:** Backend architecture team
 - **Supersedes:** None
@@ -107,5 +107,20 @@ Inference installations passed 100 and 27 tests respectively; 19 and 7 package
 files match source bytes with no API, ORM, Celery, storage SDK or ML framework
 installed. Inference still transitively imports the shared protocol package's
 FastAPI error helpers and lifecycle crypto. OpenAPI and capability registry
-snapshots remain unchanged. Image and documentation qualification is recorded in
-the active backend decoupling plan as it completes.
+snapshots remain unchanged. Pre-commit and documentation build pass.
+
+The committed source checkpoint is
+`96a3c34a62a69aa43376cd7c8aaf08c5cf84ea70`. Its Workspace image
+`sha256:3d737300668ccae90bd30889458a90653002bba886b4d605cad5514d421f8836`
+passed an offline, read-only, nonroot container check at 1 CPU/256 MiB, matching 19
+package files and exercising the shared template projection. Its API image
+`sha256:8cb990e6d11d74db486444d019d346ac5ee0c127c9dd8e690f12b75b6816c40d`
+passed the equivalent check with explicit UID 10001 and 1 CPU/512 MiB, matching 162
+package files, 123 application/native inputs, unchanged OpenAPI and head 0255.
+Both proof containers were removed. These are packaging/assembly checks, not
+configuration-owner independent execution or production capacity measurements.
+
+Six clean, patch-equivalent modifier worktrees and their private branches were
+removed. Primary commit/worktree, shared dependency/configuration links and the
+four original running containers are preserved. No push, release, remote CI,
+production deployment or primary runtime cutover occurred.
