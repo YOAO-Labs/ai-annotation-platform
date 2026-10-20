@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     invitation_database_url_file: str | None = None
     directory_database_url: SecretStr | None = None
     directory_database_url_file: str | None = None
+    briefs_database_url: SecretStr | None = None
+    briefs_database_url_file: str | None = None
     admin_password_database_url: SecretStr | None = None
     admin_password_database_url_file: str | None = None
     platform_role_database_url: SecretStr | None = None
@@ -70,6 +72,13 @@ class Settings(BaseSettings):
     @field_validator("directory_database_url_file", mode="before")
     @classmethod
     def blank_directory_dsn_file_is_unset(cls, value):
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("briefs_database_url_file", mode="before")
+    @classmethod
+    def blank_briefs_dsn_file_is_unset(cls, value):
         if isinstance(value, str) and not value.strip():
             return None
         return value
@@ -172,6 +181,7 @@ class Settings(BaseSettings):
             "deactivation_operator_database_url",
             "invitation_database_url",
             "directory_database_url",
+            "briefs_database_url",
             "admin_password_database_url",
             "platform_role_database_url",
             "suspension_database_url",

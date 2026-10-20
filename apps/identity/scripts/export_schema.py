@@ -88,6 +88,15 @@ from aap_identity.directory_contract import (  # noqa: E402
     NativeDirectoryPolicyReply,
     NativeDirectorySuccess,
 )
+from aap_identity.briefs_contract import (  # noqa: E402
+    BriefsFailureReply,
+    BriefsPolicyReply,
+    BriefsReply,
+    BriefsRequest,
+    NativeBriefsCommand,
+    NativeBriefsFailureReply,
+    NativeBriefsSuccess,
+)
 from aap_identity.platform_role_contract import (  # noqa: E402
     LabelingPlatformRoleFactsReply,
     NativePlatformRoleCommand,
@@ -437,6 +446,19 @@ def main():
                 | NativeDirectoryPolicyReply
             ),
             "aap-identity-directory-native/v1",
+        ),
+        "src/aap_identity/briefs_protocol.schema.json": render_schema(
+            TypeAdapter(BriefsRequest | BriefsReply | BriefsFailureReply),
+            "aap-identity-briefs/v1",
+        ),
+        "src/aap_identity/native_briefs_protocol.schema.json": render_schema(
+            TypeAdapter(
+                NativeBriefsCommand
+                | NativeBriefsSuccess
+                | NativeBriefsFailureReply
+                | BriefsPolicyReply
+            ),
+            "aap-identity-briefs-native/v1",
         ),
         "src/aap_identity/platform_role_protocol.schema.json": render_schema(
             TypeAdapter(

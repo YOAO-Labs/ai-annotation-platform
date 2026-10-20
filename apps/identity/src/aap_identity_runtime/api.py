@@ -82,6 +82,15 @@ from aap_identity.directory_contract import (
 )
 from aap_identity.directory_manager import DirectoryManager
 from aap_identity.directory_postgres import DirectoryPostgresData
+from aap_identity.briefs_contract import (
+    BRIEFS_POLICY_PROTOCOL,
+    BRIEFS_PROTOCOL,
+    BriefsFailure,
+    briefs_failure_reply,
+    decode_briefs_request,
+)
+from aap_identity.briefs_manager import BriefsManager
+from aap_identity.briefs_postgres import BriefsPostgresData
 from aap_identity.login_counter import RedisLoginCounter
 from aap_identity.postgres import PostgresData
 from aap_identity.presence_contract import (
@@ -169,6 +178,7 @@ def create_app(
     suspension_data: SuspensionPostgresData | None = None,
     deletion_data: DeletionPostgresData | None = None,
     offboarding_data: OffboardingPostgresData | None = None,
+    briefs_data: BriefsPostgresData | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     data = data or PostgresData(
@@ -310,6 +320,16 @@ def create_app(
         if directory_data is not None
         else None
     )
+    briefs_configured = (
+        briefs_data is not None or settings.briefs_database_url is not None
+    )
+    if briefs_data is None and settings.briefs_database_url is not None:
+        briefs_data = BriefsPostgresData(
+            settings.briefs_database_url.get_secret_value(),
+            connect_timeout=settings.connect_timeout_seconds,
+            command_timeout=settings.command_timeout_seconds,
+        )
+    briefs = BriefsManager(briefs_data) if briefs_data is not None else None
     admin_password_configured = (
         admin_password_data is not None
         or settings.admin_password_database_url is not None
@@ -463,6 +483,10 @@ def create_app(
                     if directory_data is None:
                         raise IdentityUnavailable()
                     directory_policy = await directory_data.directory_policy()
+                if briefs_configured:
+                    if briefs_data is None:
+                        raise IdentityUnavailable()
+                    briefs_policy = await briefs_data.briefs_policy()
                 if admin_password_configured:
                     if admin_password_data is None:
                         raise IdentityUnavailable()
@@ -566,6 +590,17 @@ def create_app(
                 if directory_policy_value != {
                     "schema": DIRECTORY_POLICY_PROTOCOL,
                     "policy": DIRECTORY_PROTOCOL,
+                }:
+                    raise IdentityUnavailable()
+            if briefs_configured:
+                briefs_policy_value = (
+                    briefs_policy.model_dump(mode="json", by_alias=True)
+                    if hasattr(briefs_policy, "model_dump")
+                    else briefs_policy
+                )
+                if briefs_policy_value != {
+                    "schema": BRIEFS_POLICY_PROTOCOL,
+                    "policy": BRIEFS_PROTOCOL,
                 }:
                     raise IdentityUnavailable()
             if admin_password_configured:
@@ -1007,6 +1042,37 @@ def create_app(
             return JSONResponse(
                 {"detail": "Identity directory commands unavailable"},
                 status_code=503,
+            )
+        return JSONResponse(reply.model_dump(mode="json", by_alias=True))
+
+    @app.post("/v1/identity/briefs/execute")
+    async def execute_briefs_command(request: Request):
+        supplied = request.headers.get("authorization", "").encode()
+        expected = ("Bearer " + settings.token.get_secret_value()).encode()
+        if not hmac.compare_digest(supplied, expected):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        if (
+            request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            != "application/json"
+        ):
+            return JSONResponse(
+                briefs_failure_reply("invalid_request"), status_code=400
+            )
+        if briefs is None:
+            return JSONResponse(
+                {"detail": "Identity brief reads unavailable"}, status_code=503
+            )
+        try:
+            async with asyncio.timeout(settings.request_timeout_seconds):
+                async with slots:
+                    body = await request.body()
+                    parsed = decode_briefs_request(body)
+                    reply = await briefs.execute(parsed)
+        except BriefsFailure as error:
+            return JSONResponse(briefs_failure_reply(error), status_code=400)
+        except (IdentityUnavailable, TimeoutError):
+            return JSONResponse(
+                {"detail": "Identity brief reads unavailable"}, status_code=503
             )
         return JSONResponse(reply.model_dump(mode="json", by_alias=True))
 

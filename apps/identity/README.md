@@ -17,8 +17,8 @@ password recovery and email verification now have five versioned recovery
 operations. Self-deactivation adds separate two-function user and due-operator
 capabilities; the Notifications publisher is a distinct three-function/Redis
 process. Invitation commands use a separate three-function Identity capability;
-MailV2 uses its own four-function sender role. User directory reads use a
-separate two-function Identity capability. Platform-role preview and change use
+MailV2 uses its own four-function sender role. User directory and UserBrief reads
+use separate two-function Identity capabilities. Platform-role preview and change use
 their own two-function Identity capability. Account deletion uses a separate
 two-function Identity capability and preserves its inactive-target no-op, task
 handoff and partial Audit actor redaction; it does not retire credentials.
@@ -193,6 +193,24 @@ receipt commit atomically. Search uses Python's full Unicode `str.strip()`
 semantics and PostgreSQL ILIKE; the owner does not add a row-count or response
 byte cap. See `directory_protocol.schema.json` and
 `native_directory_protocol.schema.json` for the closed private DTOs.
+
+## UserBrief enrichment
+
+The private `POST /v1/identity/briefs/execute` route supplies the batched six-field
+`UserBrief` used by existing task, batch, discussion and history responses. The
+API applies each route's existing authorization before sending the selected user
+IDs. The control bearer protects this service-only capability; the Identity
+brief owner accepts no end-user credential or actor identity.
+
+Identity returns current `users` profile fields without active/status filters,
+and asks Workspace for project membership roles through a narrow helper when a
+project overlay is requested. Missing users are omitted; users without a
+project membership fall back to their global role. `avatar_initial` keeps the
+existing Python Unicode and whitespace behavior. The optional
+`IDENTITY_BRIEFS_DATABASE_URL(_FILE)` selects its exact two-function,
+read-only LOGIN; the owner also preserves the caller transaction when embedded.
+The closed wire and native DTOs are `briefs_protocol.schema.json` and
+`native_briefs_protocol.schema.json`.
 
 ## Administrator password reset
 
