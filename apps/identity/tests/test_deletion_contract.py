@@ -264,6 +264,58 @@ def test_failure_code_details_are_operation_and_receiver_bound():
         decode_deletion_reply(pa_request, wrong_scope, expected_principal=pa)
 
 
+@pytest.mark.parametrize(
+    ("actor_role", "target_is_actor", "failure_code", "detail"),
+    [
+        (
+            "project_admin",
+            False,
+            "receiver_scope_forbidden",
+            "转交目标必须是待转交任务所在项目的成员",
+        ),
+        (
+            "super_admin",
+            True,
+            "receiver_is_target",
+            "转交目标不能与被删用户相同",
+        ),
+        (
+            "super_admin",
+            False,
+            "receiver_unavailable",
+            "转交目标用户不存在或已禁用",
+        ),
+    ],
+)
+def test_receiver_failures_reject_unreachable_legacy_branches(
+    actor_role, target_is_actor, failure_code, detail
+):
+    actor = principal(role=actor_role)
+    target_id = actor.actor_id if target_is_actor else TARGET_ID
+    request = deletion_request(
+        target_user_id=target_id,
+        transfer_to_user_id=actor.actor_id,
+    )
+    command = native_command(request, actor=actor)
+    wire_error = {
+        "schema": DELETION_PROTOCOL,
+        "ok": False,
+        "error": {
+            "code": failure_code,
+            "status_code": 400 if failure_code != "receiver_scope_forbidden" else 403,
+            "detail": detail,
+        },
+    }
+    native_error = {
+        **wire_error,
+        "schema": NATIVE_DELETION_PROTOCOL,
+    }
+    with pytest.raises(IdentityUnavailable):
+        decode_deletion_reply(request, wire_error, expected_principal=actor)
+    with pytest.raises(IdentityUnavailable):
+        decode_native_deletion_reply(command, native_error)
+
+
 def test_schema_artifacts_have_expected_ids_and_closed_models():
     root = Path(__file__).resolve().parents[1] / "src" / "aap_identity"
     for filename, expected_id in (

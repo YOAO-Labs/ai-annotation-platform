@@ -166,10 +166,7 @@ def _json_bytes(payload: dict | bytes | ClosedModel) -> bytes:
 
 
 def decode_deletion_request(payload: dict | bytes) -> DeletionRequest:
-    try:
-        return _DELETION_REQUESTS.validate_json(_json_bytes(payload))
-    except (ValidationError, ValueError, TypeError, UnicodeError):
-        raise
+    return _DELETION_REQUESTS.validate_json(_json_bytes(payload))
 
 
 class DeletionData(ClosedModel):
@@ -472,12 +469,14 @@ def _expected_failure(
         return (
             receiver is not None
             and receiver != target
+            and receiver != actor.actor_id
             and error.status_code == 400
             and detail == _DETAILS[code][1]
         )
     if code == "receiver_is_target":
         return (
             receiver == target
+            and target != actor.actor_id
             and error.status_code == 400
             and detail == _DETAILS[code][1]
         )
@@ -493,6 +492,7 @@ def _expected_failure(
             actor.role == "project_admin"
             and receiver is not None
             and receiver != target
+            and receiver != actor.actor_id
             and error.status_code == 403
             and detail == _DETAILS[code][1]
         )
