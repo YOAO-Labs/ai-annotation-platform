@@ -1,0 +1,111 @@
+{
+  "$defs": {
+    "AccountLockFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "email",
+        "role",
+        "is_active"
+      ],
+      "title": "AccountLockFacts",
+      "type": "object"
+    },
+    "AccountLockReply": {
+      "additionalProperties": false,
+      "properties": {
+        "accounts": {
+          "items": {
+            "$ref": "#/$defs/AccountLockFacts"
+          },
+          "title": "Accounts",
+          "type": "array"
+        },
+        "schema": {
+          "const": "aap-identity-account-locks/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "accounts"
+      ],
+      "title": "AccountLockReply",
+      "type": "object"
+    },
+    "AccountLockRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "account_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Account Ids",
+          "type": "array"
+        },
+        "mode": {
+          "enum": [
+            "share",
+            "update",
+            "key_share"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "nowait": {
+          "title": "Nowait",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-account-locks/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "account_ids",
+        "mode",
+        "nowait"
+      ],
+      "title": "AccountLockRequest",
+      "type": "object"
+    }
+  },
+  "$id": "aap-identity-account-locks/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/AccountLockRequest"
+    },
+    {
+      "$ref": "#/$defs/AccountLockReply"
+    }
+  ]
+}

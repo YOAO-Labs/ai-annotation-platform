@@ -41,6 +41,10 @@ from aap_identity.actor_contract import (  # noqa: E402
     ActorContextRequest,
     ActorContextSuccess,
 )
+from aap_identity.account_lock_contract import (  # noqa: E402
+    AccountLockReply,
+    AccountLockRequest,
+)
 from aap_identity.deactivation_contract import (  # noqa: E402
     DeactivationDueFailureReply,
     DeactivationDuePolicyReply,
@@ -271,6 +275,10 @@ def main():
                 ActorContextRequest | ActorContextSuccess | ActorContextFailureReply
             ),
             "aap-identity-actor/v1",
+        ),
+        "src/aap_identity/account_lock_protocol.schema.json": render_schema(
+            TypeAdapter(AccountLockRequest | AccountLockReply),
+            "aap-identity-account-locks/v1",
         ),
         "src/aap_identity/key_protocol.schema.json": render_schema(
             TypeAdapter(KeyRequest | KeyReply | KeyFailureReply),
