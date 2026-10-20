@@ -133,6 +133,15 @@ from aap_identity.deletion_contract import (
 )
 from aap_identity.deletion_manager import DeletionManager
 from aap_identity.deletion_postgres import DeletionPostgresData
+from aap_identity.offboarding_contract import (
+    OFFBOARDING_POLICY_PROTOCOL,
+    OFFBOARDING_PROTOCOL,
+    OffboardingFailure,
+    decode_offboarding_request,
+    offboarding_failure_reply,
+)
+from aap_identity.offboarding_manager import OffboardingManager
+from aap_identity.offboarding_postgres import OffboardingPostgresData
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
@@ -159,6 +168,7 @@ def create_app(
     platform_role_data: PlatformRolePostgresData | None = None,
     suspension_data: SuspensionPostgresData | None = None,
     deletion_data: DeletionPostgresData | None = None,
+    offboarding_data: OffboardingPostgresData | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     data = data or PostgresData(
@@ -393,6 +403,22 @@ def create_app(
         if deletion_data is not None
         else None
     )
+    offboarding_configured = (
+        offboarding_data is not None or settings.offboarding_database_url is not None
+    )
+    if offboarding_data is None and settings.offboarding_database_url is not None:
+        offboarding_data = OffboardingPostgresData(
+            settings.offboarding_database_url.get_secret_value(),
+            connect_timeout=settings.connect_timeout_seconds,
+            command_timeout=settings.command_timeout_seconds,
+        )
+    offboardings = (
+        OffboardingManager(
+            auth, offboarding_data, settings.signing_secret.get_secret_value()
+        )
+        if offboarding_data is not None
+        else None
+    )
     slots = asyncio.Semaphore(settings.max_concurrency)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -465,6 +491,10 @@ def create_app(
                     if deletion_data is None:
                         raise IdentityUnavailable()
                     deletion_policy = await deletion_data.deletion_policy()
+                if offboarding_configured:
+                    if offboarding_data is None:
+                        raise IdentityUnavailable()
+                    offboarding_policy = await offboarding_data.offboarding_policy()
             if policy != {
                 "schema": "aap-identity-policy/v1",
                 "issuer": ISSUER,
@@ -602,6 +632,17 @@ def create_app(
                 if deletion_policy_value != {
                     "schema": DELETION_POLICY_PROTOCOL,
                     "policy": DELETION_PROTOCOL,
+                }:
+                    raise IdentityUnavailable()
+            if offboarding_configured:
+                offboarding_policy_value = (
+                    offboarding_policy.model_dump(mode="json", by_alias=True)
+                    if hasattr(offboarding_policy, "model_dump")
+                    else offboarding_policy
+                )
+                if offboarding_policy_value != {
+                    "schema": OFFBOARDING_POLICY_PROTOCOL,
+                    "policy": OFFBOARDING_PROTOCOL,
                 }:
                     raise IdentityUnavailable()
         except (IdentityUnavailable, TimeoutError):
@@ -1188,6 +1229,47 @@ def create_app(
         except (IdentityUnavailable, TimeoutError):
             return JSONResponse(
                 {"detail": "Identity deletion commands unavailable"},
+                status_code=503,
+            )
+        return JSONResponse(reply.model_dump(mode="json", by_alias=True))
+
+    @app.post("/v1/identity/offboarding/execute")
+    async def execute_offboarding_command(request: Request):
+        supplied = request.headers.get("authorization", "").encode()
+        expected = ("Bearer " + settings.token.get_secret_value()).encode()
+        if not hmac.compare_digest(supplied, expected):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        if (
+            request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            != "application/json"
+        ):
+            return JSONResponse(
+                offboarding_failure_reply("invalid_request"), status_code=400
+            )
+        if offboardings is None:
+            return JSONResponse(
+                {"detail": "Identity offboarding commands unavailable"},
+                status_code=503,
+            )
+        try:
+            async with asyncio.timeout(settings.request_timeout_seconds):
+                async with slots:
+                    # The legacy stale response must echo unbounded raw preview
+                    # versions, including NUL. This private route has no small body cap.
+                    body = await request.body()
+                    try:
+                        parsed = decode_offboarding_request(body)
+                    except (ValidationError, ValueError, TypeError, UnicodeError):
+                        return JSONResponse(
+                            offboarding_failure_reply("invalid_request"),
+                            status_code=400,
+                        )
+                    reply = await offboardings.execute(parsed)
+        except OffboardingFailure as error:
+            return JSONResponse(offboarding_failure_reply(error))
+        except (IdentityUnavailable, TimeoutError):
+            return JSONResponse(
+                {"detail": "Identity offboarding commands unavailable"},
                 status_code=503,
             )
         return JSONResponse(reply.model_dump(mode="json", by_alias=True))

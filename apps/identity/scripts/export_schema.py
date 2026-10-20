@@ -70,6 +70,15 @@ from aap_identity.deletion_contract import (  # noqa: E402
     NativeDeletionFailureReply,
     NativeDeletionSuccess,
 )
+from aap_identity.offboarding_contract import (  # noqa: E402
+    NativeOffboardingCommand,
+    NativeOffboardingFailureReply,
+    NativeOffboardingSuccess,
+    OffboardingFailureReply,
+    OffboardingPolicyReply,
+    OffboardingReply,
+    OffboardingRequest,
+)
 from aap_identity.directory_contract import (  # noqa: E402
     DirectoryFailureReply,
     DirectoryReply,
@@ -374,6 +383,21 @@ def main():
                 | DeletionPolicyReply
             ),
             "aap-identity-deletions-native/v1",
+        ),
+        "src/aap_identity/offboarding_protocol.schema.json": render_schema(
+            TypeAdapter(
+                OffboardingRequest | OffboardingReply | OffboardingFailureReply
+            ),
+            "aap-identity-offboarding/v1",
+        ),
+        "src/aap_identity/native_offboarding_protocol.schema.json": render_schema(
+            TypeAdapter(
+                NativeOffboardingCommand
+                | NativeOffboardingSuccess
+                | NativeOffboardingFailureReply
+                | OffboardingPolicyReply
+            ),
+            "aap-identity-offboarding-native/v1",
         ),
         "src/aap_identity/native_suspension_protocol.schema.json": render_schema(
             TypeAdapter(

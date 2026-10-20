@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     suspension_database_url_file: str | None = None
     deletion_database_url: SecretStr | None = None
     deletion_database_url_file: str | None = None
+    offboarding_database_url: SecretStr | None = None
+    offboarding_database_url_file: str | None = None
     recovery_mail_key: SecretStr | None = None
     recovery_mail_key_file: str | None = None
     token: SecretStr | None = None
@@ -96,6 +98,13 @@ class Settings(BaseSettings):
     @field_validator("deletion_database_url_file", mode="before")
     @classmethod
     def blank_deletion_dsn_file_is_unset(cls, value):
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("offboarding_database_url_file", mode="before")
+    @classmethod
+    def blank_offboarding_dsn_file_is_unset(cls, value):
         if isinstance(value, str) and not value.strip():
             return None
         return value
@@ -167,6 +176,7 @@ class Settings(BaseSettings):
             "platform_role_database_url",
             "suspension_database_url",
             "deletion_database_url",
+            "offboarding_database_url",
         ):
             value = getattr(self, field)
             path = getattr(self, field + "_file")

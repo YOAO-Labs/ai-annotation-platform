@@ -2,9 +2,10 @@
 
 This package contains the JWT/API-key verifier, API-key management, core sessions
 and self-account command owners, the user-directory read owner, administrator
-password-reset owner, account-deletion owner, group catalog/assignment owner, and invitation/mail-v2
-owners and their closed contracts. It has one private HTTP process plus separate
-private worker entrypoints. Invitation/MailV2, directory and administrator
+password-reset, account-deletion and offboarding owners, group catalog/assignment
+owner, and invitation/mail-v2 owners and their closed contracts. It has one
+private HTTP process plus separate private worker entrypoints. Invitation/MailV2,
+directory and administrator
 password reset have completed local qualification; platform-role qualification
 is in progress.
 The runtime has no application, SQLAlchemy, Celery or object-store dependency.
@@ -21,6 +22,8 @@ separate two-function Identity capability. Platform-role preview and change use
 their own two-function Identity capability. Account deletion uses a separate
 two-function Identity capability and preserves its inactive-target no-op, task
 handoff and partial Audit actor redaction; it does not retire credentials.
+Offboarding preview and commit use a separate three-function Identity
+capability.
 Dashboard analytics, other-user
 hydration and remaining multi-owner lifecycle remain in the API, so this is not
 yet a complete Identity service.
@@ -381,6 +384,25 @@ historical snapshot. Deletion preserves the legacy task handoff and partial
 Audit redaction behavior and does not retire credentials. The closed wire and
 native DTOs are `deletion_protocol.schema.json` and
 `native_deletion_protocol.schema.json`.
+
+## User offboarding preview and commit
+
+The private `POST /v1/identity/offboarding/execute` protocol owns the existing
+offboarding preview and commit commands. The optional
+`IDENTITY_OFFBOARDING_DATABASE_URL(_FILE)` selects its dedicated PostgreSQL
+owner; it never falls back to the API transaction. The owner preserves the
+legacy Python snapshot projection and SHA-256 preview version, rechecks current
+manager scope before that version, and commits project ownership, work
+assignments, credential retirement, task-lock release, Audit and the private
+operation receipt in one transaction.
+
+The versioned LOGIN can execute only `offboarding_policy()`,
+`prepare_offboarding_command(jsonb)` and `apply_offboarding_command(jsonb)`;
+it receives no direct application-table or sequence privileges. Public retries
+still use a fresh operation ID, so a consumed preview remains stale; a private
+retry returns its frozen result without repeating work. The closed wire and
+native DTOs are `offboarding_protocol.schema.json` and
+`native_offboarding_protocol.schema.json`.
 
 ## Registration and credential recovery
 
