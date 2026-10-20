@@ -10,7 +10,10 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from aap_identity.admin_password_postgres import AdminPasswordPostgresData
 from aap_identity.contract import IdentityUnavailable
+from aap_identity.directory_postgres import DirectoryPostgresData
+from aap_identity.platform_role_postgres import PlatformRolePostgresData
 from aap_identity.suspension_postgres import SuspensionPostgresData
 from app.config import settings
 
@@ -244,8 +247,50 @@ async def test_suspension_policy_rejects_an_extra_security_definer_function():
 
 
 @pytest.mark.asyncio
-async def test_suspension_policy_rejects_database_temp_and_recovers_after_revoke():
-    dsn = _dsn()
+@pytest.mark.parametrize(
+    ("environment_key", "role_name", "data_type", "policy_method"),
+    [
+        (
+            "AAP_MODULE_DATA_IDENTITY_SUSPENSION_URL",
+            "identity_suspension_client",
+            SuspensionPostgresData,
+            "suspension_policy",
+        ),
+        (
+            "AAP_MODULE_DATA_IDENTITY_DIRECTORY_URL",
+            "identity_directory_client",
+            DirectoryPostgresData,
+            "directory_policy",
+        ),
+        (
+            "AAP_MODULE_DATA_IDENTITY_ADMIN_PASSWORD_URL",
+            "identity_admin_password_client",
+            AdminPasswordPostgresData,
+            "admin_password_policy",
+        ),
+        (
+            "AAP_MODULE_DATA_IDENTITY_PLATFORM_ROLE_URL",
+            "identity_platform_role_client",
+            PlatformRolePostgresData,
+            "platform_role_policy",
+        ),
+    ],
+    ids=("suspension", "directory", "admin-password", "platform-role"),
+)
+async def test_suspension_policy_rejects_database_temp_and_recovers_after_revoke(
+    environment_key: str,
+    role_name: str,
+    data_type: type,
+    policy_method: str,
+):
+    if os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1":
+        pytest.skip("Identity LOGIN acceptance requires the owned verifier")
+    value = os.environ.get(environment_key)
+    assert value and os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID")
+    parsed = make_url(value)
+    assert parsed.database and parsed.database.endswith(("_test", "_e2e"))
+    assert parsed.username == role_name
+    dsn = parsed.set(drivername="postgresql").render_as_string(hide_password=False)
     database = make_url(dsn).database
     assert database
     owner_engine = create_async_engine(settings.effective_migration_database_url)
@@ -260,6 +305,7 @@ async def test_suspension_policy_rejects_database_temp_and_recovers_after_revoke
             )
         finally:
             await baseline.close()
+        await getattr(data_type(dsn), policy_method)()
 
         async with owner_engine.begin() as owner:
             assert await owner.scalar(text("SELECT current_database()")) == database
@@ -280,7 +326,7 @@ async def test_suspension_policy_rejects_database_temp_and_recovers_after_revoke
             await connection.close()
 
         try:
-            await SuspensionPostgresData(dsn).suspension_policy()
+            await getattr(data_type(dsn), policy_method)()
         except IdentityUnavailable:
             rejected = True
     finally:
@@ -298,7 +344,7 @@ async def test_suspension_policy_rejects_database_temp_and_recovers_after_revoke
 
     restored = False
     try:
-        await SuspensionPostgresData(dsn).suspension_policy()
+        await getattr(data_type(dsn), policy_method)()
         restored = True
     except IdentityUnavailable:
         pass
