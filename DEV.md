@@ -1192,6 +1192,37 @@ API 的 `IDENTITY_ACCOUNT_DATABASE_URL`／`_FILE` 可选择内嵌装配的账户
 
 账户的隔离验收通过同一验证器显式启用：`AAP_IDENTITY_ACCOUNTS_LIVE_ACCEPTANCE=1`，并选择 `tests/test_identity_accounts_live.py`、`tests/test_identity_recovery.py`。安装包／镜像设置沿用上文，Node 夹具覆盖七项账户操作与扫描；它是消费者，尚非另一语言提供方。完整协议、回执、头像清理和剩余范围见 [ADR-0118](docs/adr/0118-independent-identity-account-commands.md)。
 
+### 注册、密码恢复与凭据邮件
+
+Identity recovery 包含五个私有操作：`register_open`、`request_password_reset`、`resend_email_verification`、`consume_password_reset` 和 `consume_email_verification`，通过 `POST /v1/identity/recovery/execute` 的 `aap-identity-recovery/v1` 协议调用。API 仍持有 CAPTCHA、每分钟三次限制与公开 HTTP 翻译；忘记密码和验证邮件重发在 owner 接受后返回原有通用 202，投递由 durable outbox 异步完成。开放注册要求邮箱验证时，User、挑战、初始邮件 intent 与 `USER_REGISTER` Audit 同一事务提交，不返回 JWT；关闭验证时签发既有 JWT 形状。新账号默认 `viewer`、无项目分组。
+
+Native 0239 将两个 token 表的现存明文 token 原地改为 SHA-256 摘要，保留已经签发的链接，并冻结 `issued_email`。Recovery owner 保存 operation HMAC 回执；mail outbox 仅存 token 摘要及 Fernet 密文。原 token 不进入 API／RPC 结果或日志。Reset 会消费挑战、更新密码、清除管理员重置标记并推进 JWT generation；API key 不因此撤销。邮箱验证可验证 inactive 用户而不重新激活或改变 generation。两个挑战在 `now >= expires_at` 时失效；同一邮箱的旧有效链接仍各自可用一次。
+
+为预先创建、无成员关系的 `identity_recovery_client`、`identity_mail_client`、`identity_mail_settings_client` 安装最小函数权限；先应用当前迁移并重新应用 `module-data-grants.sql`，数据库初始化须已撤销 PUBLIC TEMP：
+
+```bash
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v identity_owner=identity_code \
+  -v identity_recovery_role=identity_recovery_client \
+  -v identity_mail_role=identity_mail_client \
+  -v identity_mail_settings_role=identity_mail_settings_client \
+  -f infra/docker/identity-recovery-grants.sql
+```
+
+Recovery LOGIN 只有 `recovery_policy()`、`prepare_recovery_command(jsonb)`、`apply_recovery_command(jsonb)`；MAIL LOGIN 只有 `mail_policy()`、`claim_mail(jsonb)`、`renew_mail(jsonb)`、`finish_mail(jsonb)`；`MAIL_SETTINGS` LOGIN 只有 Settings 的 `mail_delivery_policy(jsonb)`。Identity code owner 另只能调用 `aap_settings_v1.identity_recovery_policy(jsonb)` 读取开放注册与 frontend URL 策略；它用 Settings SHARE 锁围栏注册策略。SMTP snapshot 只含 `smtp_host`、`smtp_port`、`smtp_user`、`smtp_password`、`smtp_from`，由 `MAIL_SETTINGS` function 一次返回，数据库值覆盖环境 fallback；credential mail 不读取通知偏好。角色不得拥有 recovery token、outbox、User 或 Settings 的直接表权限，也不得是其他角色的成员。
+
+`identity-mail` 使用同一 `apps/identity/Dockerfile` 制成的 `aap-identity:local` 镜像，命令为 `python -m aap_identity_runtime.mail_worker`。它只得到 MAIL DSN、`MAIL_SETTINGS` DSN、Fernet key，以及 `IDENTITY_MAIL_SMTP_HOST`、`IDENTITY_MAIL_SMTP_PORT`、`IDENTITY_MAIL_SMTP_USER`、`IDENTITY_MAIL_SMTP_PASSWORD`、`IDENTITY_MAIL_SMTP_FROM` fallback；不配置 AUTH、control bearer 或 JWT signing secret，也不接收 Recovery DSN。Worker 每次领取一条 intent 并先提交 lease，再做 SMTP；claim、续租和 finish 使用短事务，绝不持 SQL 锁发信。默认 lease 60 秒，发送期间续租；lease 与 retry delay 限在 1–300 秒。稳定 Message-ID 为 `<aap.{delivery_id}.{purpose}@aap.invalid>`。SMTP 是 at-least-once：发送开始后的断连会按 unknown 处理，并用相同 token 密文与 Message-ID 重排队，允许重复邮件。`delivered` 和确定 `rejected` 终态；`not_configured` 也是确定拒绝，只回收该 reset token，验证 token 仍有效。retry、unknown 与 invalid_key 保留 intent；过期 intent 终止。
+
+Fernet key 应单独配置，不与 JWT secret 共用。轮换时保留旧 key，直到旧密钥加密的待投递行排空；换 key 不会改变 hash-only 链接的有效性，但缺少旧 key 的行无法解密投递。SMTP 超时后仍可能产生重复邮件，不能把结果未知当成未发送。
+
+`.env.example` 区分 API 配置与 Compose 宿主机的 secret-file 选择器。API 可配置八个字段，即四组直接值／文件：`IDENTITY_RECOVERY_DATABASE_URL` 与 `IDENTITY_RECOVERY_DATABASE_URL_FILE`、`IDENTITY_RECOVERY_MAIL_KEY` 与 `IDENTITY_RECOVERY_MAIL_KEY_FILE`、`IDENTITY_MAIL_DATABASE_URL` 与 `IDENTITY_MAIL_DATABASE_URL_FILE`、`IDENTITY_MAIL_SETTINGS_DATABASE_URL` 与 `IDENTITY_MAIL_SETTINGS_DATABASE_URL_FILE`；每对最多设置一项。Recovery DSN 留空时使用 API 调用方事务；指定 Recovery DSN 后，MAIL 与 `MAIL_SETTINGS` 两个 DSN 必须同时指定，否则 fail closed，不会静默轮询 API 数据库。若两个 mail DSN 都留空，嵌入式 mail kick 复用 API session。若 API 选用远程 `IDENTITY_URL`，该 Identity owner 旁必须部署自己的 mail worker；本 API 不会扫描远程 outbox。Compose 主机路径选择器分别是 `IDENTITY_RUNTIME_RECOVERY_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE`、`IDENTITY_RUNTIME_MAIL_DATABASE_URL_FILE` 和 `IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE`；Admission 容器映射为 `IDENTITY_RECOVERY_DATABASE_URL_FILE`、`IDENTITY_RECOVERY_MAIL_KEY_FILE`，Mail worker 映射为 `IDENTITY_MAIL_DATABASE_URL_FILE`、`IDENTITY_MAIL_SETTINGS_DATABASE_URL_FILE`、`IDENTITY_MAIL_ENCRYPTION_KEY_FILE`。四个 PostgreSQL 文件与共用 Fernet key 文件都必须显式配置；secret-file 读取失败不会回退。
+
+普通单体 API 的 `application_role` 增加了 Identity public-function allowlist，源文件为 `infra/docker/lan-production-grants.sql`；这是 grants source 的改动，尚未应用到生产数据库。隔离 service 使用上面的三个专用 LOGIN 与同一函数集合，不把这项单体授权解释为 API 全角色已实现最小权限。
+
+Producer 的直启策略名是 `IDENTITY_ALLOW_OPEN_REGISTRATION`、`IDENTITY_EMAIL_VERIFICATION_REQUIRED` 和 `IDENTITY_FRONTEND_BASE_URL`；Compose 主机端以 `IDENTITY_RUNTIME_ALLOW_OPEN_REGISTRATION`、`IDENTITY_RUNTIME_EMAIL_VERIFICATION_REQUIRED`、`IDENTITY_RUNTIME_FRONTEND_BASE_URL` 提供值。SMTP 环境 fallback 与主 API 现存的 `SMTP_*` SMTP 测试邮件配置分开；Settings 中的 mail policy 优先。mail worker `/health` 为 liveness，`/ready` 检查 8171 端口上的原生能力、Settings 与 key；Compose 覆盖镜像原先检查 8170 的 healthcheck，容器只读并以 UID 10003 运行。
+
+这是本地架构切片，不代表 Identity 已完整独立、主环境已切换或已可用于生产；Go 月报只是实验，当前也没有另一语言的 recovery/mail provider。分组／管理员和多 owner 生命周期仍留在 API。详见 [ADR-0119](docs/adr/0119-independent-identity-recovery-and-mail.md)。
+
 ## 普通批量结果检查点
 
 安装当前迁移和 `module-data-grants.sql` 后，为预先创建、无角色成员关系的 `preannotation_result_client` LOGIN 安装精确能力。数据库初始化必须已撤销 PUBLIC 的 TEMP，并按需给现有角色单独重授；授权脚本会核验此项，不隐式修改 PUBLIC ACL。本地一次性验收器执行该初始化：
