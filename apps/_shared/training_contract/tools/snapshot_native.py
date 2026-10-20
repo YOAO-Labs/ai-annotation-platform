@@ -4,12 +4,20 @@ import argparse
 import ast
 import hashlib
 import json
+from importlib.metadata import distributions
 from pathlib import Path
 
 import yaml
 
 
 def snapshot(root):
+    versions = {
+        dist.metadata["Name"].lower(): dist.version
+        for dist in distributions(path=[str(root)])
+    }
+    for package in ("ultralytics", "libreyolo"):
+        if package not in versions:
+            raise ValueError(f"Missing installed package metadata: {package}")
     ultra = root / "ultralytics/cfg/default.yaml"
     libre = root / "libreyolo/training/config.py"
     defaults = yaml.safe_load(ultra.read_text())
@@ -30,8 +38,8 @@ def snapshot(root):
                     }
     result = {
         "ultralytics": {
-            "version": "8.4.177",
-            "source": "https://github.com/ultralytics/ultralytics/blob/v8.4.177/ultralytics/cfg/default.yaml",
+            "version": versions["ultralytics"],
+            "source": f"https://github.com/ultralytics/ultralytics/blob/v{versions['ultralytics']}/ultralytics/cfg/default.yaml",
             "source_sha256": hashlib.sha256(ultra.read_bytes()).hexdigest(),
             "fields": {
                 key: {
@@ -43,8 +51,8 @@ def snapshot(root):
             },
         },
         "libreyolo": {
-            "version": "1.6.0",
-            "source": "https://github.com/LibreYOLO/libreyolo/blob/809009bc294daa6e75e0976ab7cfdd0057d17d79/libreyolo/training/config.py",
+            "version": versions["libreyolo"],
+            "source": f"https://github.com/LibreYOLO/libreyolo/blob/v{versions['libreyolo']}/libreyolo/training/config.py",
             "source_sha256": hashlib.sha256(libre.read_bytes()).hexdigest(),
             "fields": fields,
         },

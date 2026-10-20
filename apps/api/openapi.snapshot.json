@@ -15302,7 +15302,11 @@
             "type": "string"
           },
           "model_family": {
-            "const": "yolo11",
+            "enum": [
+              "yolov8",
+              "yolo11",
+              "yolo26"
+            ],
             "title": "Model Family",
             "type": "string"
           },
@@ -15450,7 +15454,11 @@
             "type": "string"
           },
           "model_family": {
-            "const": "yolo11",
+            "enum": [
+              "yolov8",
+              "yolo11",
+              "yolo26"
+            ],
             "title": "Model Family",
             "type": "string"
           },
@@ -15487,7 +15495,10 @@
             "type": "string"
           },
           "task": {
-            "const": "image-detection",
+            "enum": [
+              "image-detection",
+              "detect"
+            ],
             "title": "Task",
             "type": "string"
           },
@@ -42036,6 +42047,17 @@
               }
             ]
           },
+          "compatible": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compatible"
+          },
           "filename": {
             "title": "Filename",
             "type": "string"
@@ -42044,9 +42066,55 @@
             "title": "Id",
             "type": "string"
           },
+          "model_family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Family"
+          },
+          "model_size": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Size"
+          },
+          "object_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Object Key"
+          },
           "sha256": {
             "title": "Sha256",
             "type": "string"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 2147483648.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
           },
           "task": {
             "default": "detect",
@@ -42056,6 +42124,17 @@
             ],
             "title": "Task",
             "type": "string"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
           }
         },
         "required": [

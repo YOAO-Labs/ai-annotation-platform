@@ -34,6 +34,8 @@ PYTHONPATH=. uv run python scripts/seed.py --profile online-training
 
 COCO8 是流程夹具，指标不适合评判泛化质量。逐样本比较应固定同一验证版本、类别、阈值和推理协议；TP／FP／FN 与匹配实例 Dice 一起查看，Dice 不能替代漏检统计或 COCO AP。
 
+扩展模型验收时，在新建实验中依次选任务、框架、家族和规格；每个组合单独记录结果。需要训练集 Precision／Recall／mAP 时开启「评估训练集」，并核对训练表现与验证表现分别来自各自分区。模型初始化还应分别检查预训练、从头训练和同身份候选初始化。YOLO26 分割另核对 L1／语义分割损失及其预算限制；低分辨率、batch 1 的成功不能证明 640 分辨率或更大 batch 的容量。
+
 ## 人工修正回流第二轮
 
 选择原始训练图片 `000000000009.jpg`，或另一张明确属于训练分区的图片。用原标注员 `anno` 登录工作台，已完成的任务先点击「继续编辑」，再修改一个实例的实际像素、保存并提交，由 `qa` 审核通过。仅打开、原样保存或编辑版本号变化不算有效数据增长。
@@ -66,11 +68,14 @@ COCO8 是流程夹具，指标不适合评判泛化质量。逐样本比较应�
 
 ## 受控分割模型生命周期
 
-使用包含最新脚本的目标 YOLO 镜像，在同型号、同 UUID 的独占 GPU 上运行 `apps/yolo-backend/scripts/validate_managed_lifecycle.py`。先准备已核验的真实 `yolo11n-seg` 训练权重、代表性原图及严格 JSON 夹具：
+使用包含最新脚本的目标 YOLO 镜像，在目标 UUID 的独占 GPU 上运行 `apps/yolo-backend/scripts/validate_managed_lifecycle.py`。先准备已核验的真实训练权重、代表性原图及严格 JSON 夹具。以下以 `yolo26n-seg` 为例；三个家族的 15 个分割组合应按实际部署范围分别验收：
 
 ```json
 {
-  "schema": 1,
+  "schema": 3,
+  "task": "segment",
+  "base_model": "yolo26n-seg",
+  "framework_version": "8.4.183",
   "frozen_model_ref": {
     "model_version_id": "00000000-0000-0000-0000-000000000001",
     "sha256": "<实际权重的64位SHA-256>",
@@ -86,10 +91,12 @@ COCO8 是流程夹具，指标不适合评判泛化质量。逐样本比较应�
 以上 UUID 和类别是格式示例，部署验收必须换成实际候选身份与完整类别顺序。代表图必须能产生至少一个非空实例，不能以空结果证明 RLE 路径通过。三个输入环境变量必须一起提供：
 
 ```bash
-export VALIDATION_CONTROLLED_SEGMENT_WEIGHTS=/fixtures/best.pt
-export VALIDATION_CONTROLLED_SEGMENT_FIXTURE=/fixtures/controlled.json
-export VALIDATION_CONTROLLED_SEGMENT_IMAGE=/fixtures/image.jpg
+export VALIDATION_CONTROLLED_MODEL_WEIGHTS=/fixtures/best.pt
+export VALIDATION_CONTROLLED_MODEL_FIXTURE=/fixtures/controlled.json
+export VALIDATION_CONTROLLED_MODEL_IMAGE=/fixtures/image.jpg
 ```
+
+`base_model`、`framework_version` 必须对应实际 checkpoint 和目标镜像。旧 schema 1 固定为 `yolo11n-seg`／Ultralytics `8.4.177`；schema 2 支持显式分割身份。原有 `VALIDATION_CONTROLLED_SEGMENT_*` 输入组仍可用，但两组变量不能混用，也不能用旧身份的报告覆盖新身份。
 
 将输入只读挂到资格容器，另外提供原有四任务权重摘要、批准引用、Git commit、实际镜像 ID 和 GPU UUID，再按 [YOLO Backend README](https://github.com/yyq19990828/ai-annotation-platform/blob/main/apps/yolo-backend/README.md) 的完整命令运行。输入路径是容器内路径；`set -o pipefail` 保留脚本退出码。原有普通 YOLO 模式可以继续使用，但没有 `controlled_segment` 证据的报告只覆盖普通模型。
 
@@ -102,6 +109,8 @@ export VALIDATION_CONTROLLED_SEGMENT_IMAGE=/fixtures/image.jpg
 - 最终 `residency.state=unloaded`、`gpu_loaded=false`，所有池为空，active／builder／borrower 为零，PyTorch allocated／reserved 为零。
 
 失败时保持 `YOLO_MANAGED_LIFECYCLE_VERIFIED=0`。通过后也须先复核镜像、权重、物理卡、驱动和池容量，再按部署流程启用并重创目标实例。更换任一资格身份后重验；本机另一块卡或另一组模型的报告不能替代目标部署。取消计数验收不等于中断真实 GPU kernel，也不覆盖硬件掉卡或驱动复位。
+
+受控检测模型使用同一工具单独运行：schema 3 设 `task="detect"`，基础模型改为实际检测规格。报告必须包含 `controlled_detect_*` 全真检查及 `deployment.pool_topology.controlled_detect` 两轮非空原生检测框证据。普通 `YOLO(name)` 检测结果不能代替该受控路径。LibreYOLO 回流当前是 CPU 原生检测资格，不能用它生成 CUDA 显存回收结论；其训练 GPU 恢复仍按前面的故障表验收。
 
 ## GPU 仲裁与硬件范围
 

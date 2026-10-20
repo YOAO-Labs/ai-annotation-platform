@@ -434,6 +434,43 @@ async function prepare(review = true) {
   return { user, view };
 }
 
+it.each([true, false])(
+  "blocks an unprepared current model and explains node readiness (online=%s)",
+  async (online) => {
+    vi.mocked(trainingRunsApi.catalog).mockResolvedValue({
+      ...catalog,
+      online,
+      items: [
+        {
+          ...catalog.items[0],
+          version: "8.4.183",
+          base_models: [
+            {
+              ...catalog.items[0].base_models[0],
+              compatible: online ? false : null,
+              unavailable_reason: online ? "该节点尚未准备此基础模型权重" : "训练节点离线",
+            },
+          ],
+        },
+      ],
+    });
+    vi.mocked(trainingRunsApi.parameterSchema).mockResolvedValue({
+      ...schema,
+      framework_version: "8.4.183",
+    });
+    const user = userEvent.setup();
+    mount();
+    await user.selectOptions(screen.getByLabelText("实验任务"), "detect");
+    await user.selectOptions(await screen.findByLabelText("训练数据"), "dataset-1");
+    await screen.findByRole("option", { name: /^yolo11n ·/ });
+    await user.selectOptions(screen.getByLabelText("基础模型"), "yolo11n");
+    await screen.findByText(online ? "该节点尚未准备此基础模型权重" : "训练节点离线");
+    expect(screen.getByRole("button", { name: "下一步" })).toBeDisabled();
+    expect(trainingRunsApi.preflight).not.toHaveBeenCalled();
+    if (!online) expect(screen.getByText(/须在线确认所选模型权重就绪/)).toBeVisible();
+  },
+);
+
 it("persists scratch initialization and sends optional training evaluation in the frozen request", async () => {
   vi.mocked(trainingRunsApi.parameterSchema).mockResolvedValue({
     ...schema,

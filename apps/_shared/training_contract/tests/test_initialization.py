@@ -85,6 +85,39 @@ def fresh(value):
     }
 
 
+@pytest.mark.parametrize("family", ["yolov8", "yolo11", "yolo26"])
+@pytest.mark.parametrize("suffix", ["", "-seg"])
+def test_current_initialization_policy_binds_exact_family_and_task(family, suffix):
+    from training_contract.dataset import INSTANCE_RLE_CONTRACT
+    from training_contract.initialization import policy_for_model
+
+    value = pin()
+    base = f"{family}x{suffix}"
+    policy = policy_for_model(base, "8.4.183")
+    value.update(
+        policy_digest=digest(policy),
+        base_model=base,
+        model_family=family,
+        framework_version="8.4.183",
+        task=policy["task"],
+    )
+    if suffix:
+        value["data_contract"] = INSTANCE_RLE_CONTRACT
+        value["evaluation"].update(
+            normalized_model_digest="a" * 64,
+            descriptor_digest="b" * 64,
+            weights_sha256=value["artifact"]["sha256"],
+        )
+    value["source_digest"] = digest(
+        {key: item for key, item in value.items() if key != "source_digest"}
+    )
+    assert validate_pin(value) == value
+    changed = copy.deepcopy(value)
+    changed["base_model"] = "yolo11n" if family != "yolo11" else "yolov8n"
+    with pytest.raises(ValueError):
+        validate_pin(changed)
+
+
 def test_pin_is_exact_and_requires_qualified_execution_capability():
     value = pin()
     assert validate_pin(value) == value

@@ -2,9 +2,16 @@
 
 import re
 import uuid
+from aap_task_contract import normalize_task
 
 from .catalog import digest
 from .dataset import SEGMENTATION, config_task, data_contract, data_task
+from .models import (
+    ULTRALYTICS_VERSION,
+    LEGACY_ULTRALYTICS_VERSION,
+    model_spec,
+    supports_version,
+)
 
 MAX_WEIGHTS_BYTES = 2 * 1024**3
 POLICY = {
@@ -36,11 +43,46 @@ SEGMENTATION_POLICY = {
 SEGMENTATION_POLICY_DIGEST = digest(SEGMENTATION_POLICY)
 
 
+def policy_for_model(base_model, framework_version):
+    spec = model_spec("ultralytics", base_model)
+    if not supports_version(spec, framework_version):
+        raise ValueError("初始化模型与原生框架版本不兼容")
+    segmentation = spec.task == SEGMENTATION
+    if framework_version == LEGACY_ULTRALYTICS_VERSION:
+        return SEGMENTATION_POLICY if segmentation else POLICY
+    return {
+        **(SEGMENTATION_POLICY if segmentation else POLICY),
+        "revision": 3,
+        "framework_version": ULTRALYTICS_VERSION,
+        "task": spec.task,
+        "model_family": spec.family,
+        "qualified_models": [
+            f"{spec.family}{scale}{'-seg' if segmentation else ''}" for scale in "nsmlx"
+        ],
+    }
+
+
+def supported_policy_digests(framework_version):
+    if framework_version == LEGACY_ULTRALYTICS_VERSION:
+        return [POLICY_DIGEST, SEGMENTATION_POLICY_DIGEST]
+    if framework_version == ULTRALYTICS_VERSION:
+        return [
+            digest(policy_for_model(f"{family}n{suffix}", framework_version))
+            for family in ("yolov8", "yolo11", "yolo26")
+            for suffix in ("", "-seg")
+        ]
+    return []
+
+
 def policy_for_pin(pin):
     if isinstance(pin, dict) and pin.get("policy_digest") == POLICY_DIGEST:
         return POLICY
     if isinstance(pin, dict) and pin.get("policy_digest") == SEGMENTATION_POLICY_DIGEST:
         return SEGMENTATION_POLICY
+    if isinstance(pin, dict):
+        policy = policy_for_model(pin.get("base_model"), pin.get("framework_version"))
+        if pin.get("policy_digest") == digest(policy):
+            return policy
     raise ValueError("初始化来源尚未通过当前原生资格验证")
 
 
@@ -79,7 +121,7 @@ def is_sha256(value):
 
 def validate_pin(pin):
     policy = policy_for_pin(pin)
-    segmentation = policy is SEGMENTATION_POLICY
+    segmentation = normalize_task(policy["task"]) == SEGMENTATION
     if set(pin) != PIN_KEYS | ({"data_contract"} if segmentation else set()):
         raise ValueError("初始化来源的冻结字段不完整")
     if (
@@ -89,7 +131,7 @@ def validate_pin(pin):
             for key in ("framework", "framework_version", "task", "model_family")
         )
         or not isinstance(pin["base_model"], str)
-        or pin["base_model"] not in ({"yolo11n-seg"} if segmentation else VARIANTS)
+        or pin["base_model"] not in policy.get("qualified_models", VARIANTS)
     ):
         raise ValueError("初始化来源尚未通过当前原生资格验证")
     if segmentation and (
@@ -198,7 +240,7 @@ def compatible_runtime(config, runtime):
             and pin["policy_digest"] in runtime["initialization_policy_digests"]
         )
         and (
-            policy is POLICY
+            normalize_task(policy["task"]) != SEGMENTATION
             or config_task(config) == SEGMENTATION
             and data_task(config["data_contract"]) == SEGMENTATION
         )
@@ -241,7 +283,7 @@ def verify_evidence(config, evidence, *, resumed):
     ):
         raise ValueError("原生初始化未完整转移权重或未重置训练状态")
 
-    if policy_for_pin(pin) is SEGMENTATION_POLICY and (
+    if normalize_task(policy_for_pin(pin)["task"]) == SEGMENTATION and (
         not is_sha256(evidence.get("mask_head_tensor_digest"))
         or evidence["mask_head_tensor_digest"]
         != evidence.get("loaded_mask_head_tensor_digest")

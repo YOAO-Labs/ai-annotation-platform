@@ -76,6 +76,8 @@ python scripts/download_weights.py --series yolo11
 
 管理员准备经过审核的 JSON 清单：`version` 为 `1`，`assets` 为数组，每项填写
 `filename`、64 位小写 `sha256`、实际 `size_bytes` 及上述固定 `object_key`。
+仓库的 `scripts/controlled-model-assets.json` 提供 34 个目标组合的确切大小、摘要和固定官方下载来源，
+可以筛选成当前部署要开放的子集。清单不包含权重本体，也不会自动启用训练目录或授予设备资格。
 清单须描述受控目录所采用的确切文件；下载同名文件不能代替校验。已有预下载脚本提供受控模式，
 该模式不导入模型框架、不申请 GPU，也不会在缺失时切换到其他上游文件：
 
@@ -107,6 +109,8 @@ apps/api/.venv/bin/python apps/yolo-backend/scripts/download_weights.py \
 训练器只读挂载为 `/models`，Backend 只读挂载为 `/model-assets`。
 不同机器各自准备本地缓存，无需 NFS；Docker 卷也不会自动跨机器共享。
 Backend 的检查点状态、模型安装收据和评估日志继续保存在单独的可写卷中。
+受控安装在该保护目录的 `.blobs/sha256` 复用相同摘要的权重，版本目录保留独立收据；
+每次新安装仍检查任务、类别与原生运行时。取消或修复损坏缓存不会改写其他保留版本的文件。
 执行器启动时只报告该节点已校验的资产，新增资产准备完成后需刷新执行器的启动快照。
 桶内存在对象、另一节点可用或已有本地缓存，都不能代替本节点的镜像、设备和操作资格验收。
 
@@ -142,16 +146,19 @@ jq -e '.passed == true and .runtime_ephemera_clean == true' \
 进程级 cuBLAS workspace，再释放 allocator cache，避免池对象已空但显存仍被工作区占用。验收器会先做
 一次真实卷积 priming 与全卸载，以成熟 CUDA/cuDNN context 作为随后两轮 90% 工作集回收的稳定基线。
 
-### 受控分割权重的部署资格
+### 受控权重的部署资格
 
-普通 `segment` 验收不代替受控 `trained:<model_version_id>` 路径。部署项目训练得到的
-`yolo11n-seg` 时，额外提供同一份真实 checkpoint、代表性原图及以下严格 JSON 夹具。
+普通四任务验收不代替受控 `trained:<model_version_id>` 路径。部署项目训练得到的
+检测或分割模型时，额外提供同一份真实 checkpoint、代表性原图及以下严格 JSON 夹具。
 三个环境变量必须同时设置；未设置时保留原有普通模型验收。目标 GPU、运行镜像、pool cap
 和业务权重仍须与待部署环境一致，目标卡必须独占。
 
 ```json
 {
-  "schema": 1,
+  "schema": 3,
+  "task": "segment",
+  "base_model": "yolo26n-seg",
+  "framework_version": "8.4.183",
   "frozen_model_ref": {
     "model_version_id": "77123456-1234-4234-8234-123456789abc",
     "sha256": "<best.pt 的小写 SHA-256>",
@@ -169,15 +176,20 @@ jq -e '.passed == true and .runtime_ephemera_clean == true' \
 `model_version_id` 可用正式候选身份，或批准的离线验收夹具 UUID；不得因此声称已完成平台注册。
 `min_instances` 至少为 1：选择确实能产出实例的代表图和已批准阈值，空结果不能关闭原生 RLE 门禁。
 夹具、原图和 checkpoint 均记录审批引用及内容摘要，不能用结构相似的其他权重代替。
+`task`、`base_model`、`framework_version` 必须与权重的原生身份完全相符；更换家族、规格或运行时要分别验收。
+旧 schema 1 仅保留 `yolo11n-seg`／Ultralytics `8.4.177` 身份，schema 2 则显式指定分割基础模型和版本。
+旧夹具不能拿来证明新模型组合通过。
 
 将这三个文件放在独立的 `FIXTURE_DIR`，挂载为只读；在前述普通验收命令中增加：
 
 ```bash
   -v "$FIXTURE_DIR:/fixtures:ro" \
-  -e VALIDATION_CONTROLLED_SEGMENT_WEIGHTS=/fixtures/best.pt \
-  -e VALIDATION_CONTROLLED_SEGMENT_FIXTURE=/fixtures/controlled.json \
-  -e VALIDATION_CONTROLLED_SEGMENT_IMAGE=/fixtures/representative.jpg \
+  -e VALIDATION_CONTROLLED_MODEL_WEIGHTS=/fixtures/best.pt \
+  -e VALIDATION_CONTROLLED_MODEL_FIXTURE=/fixtures/controlled.json \
+  -e VALIDATION_CONTROLLED_MODEL_IMAGE=/fixtures/representative.jpg \
 ```
+
+原有 `VALIDATION_CONTROLLED_SEGMENT_*` 三项仍兼容分割夹具，但不能与新输入组混用。
 
 验收器先冻结私有输入副本，通过临时 loopback HTTP 服务调用真实 `/managed-models` 安装流程，
 核验权重、原生架构、runtime 和持久 receipt，再核对 GET receipt。安装目录位于本次临时目录，
@@ -205,6 +217,15 @@ jq -e '
 `deployment.pool_topology.controlled_segment` 保留冻结引用、receipt／runtime 资格摘要、原图／夹具
 摘要、尺寸和每轮实例数。通用的两轮显存回收阈值及完整空池要求继续适用。此验收验证推理后端
 生命周期；训练执行器的 GPU checkpoint 恢复、宿主／驱动故障和跨后端仲裁仍分别验收。
+
+检测夹具使用相同 schema 3，改为 `task="detect"` 及实际基础模型（例如 `yolo26n`）。工具核验原生
+检测框、原图尺寸、类别、置信度和非空结果，记录到 `deployment.pool_topology.controlled_detect`；
+对应检查为 `controlled_detect_install`、`controlled_detect_reference_mismatch_rejected`、
+`controlled_detect_receipt_mismatch_rejected`、`controlled_detect_native_boxes` 和
+`controlled_detect_cold_reload`。两轮冷加载、卸载、故障检查和显存门槛与分割相同；两种受控任务各自运行、各自留证。
+
+普通四任务权重从 `MODEL_ASSETS_DIR` 的 SHA256 缓存读取时，审批清单仍用逻辑文件名绑定摘要，
+报告同时记录逻辑名与实际 SHA 文件。坏映射、缺失或损坏的缓存会阻断验收，不回退到同名旧文件。
 
 ## 结果映射
 

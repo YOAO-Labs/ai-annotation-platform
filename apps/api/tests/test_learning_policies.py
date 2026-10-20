@@ -30,7 +30,7 @@ async def test_v2_policy_adoption_is_explicit_and_children_replay_pinned_effecti
     legacy = copy.deepcopy(policy.config)
     assert "configuration" not in legacy
     assert service.template_current(policy)
-    schema = definition("ultralytics")
+    schema = definition("ultralytics", version="8.4.177")
     update = {key: value for key, value in body.items() if key != "parameters"}
     update.update(
         expected_revision=1,
@@ -180,7 +180,7 @@ async def test_task_policies_have_independent_revision_disable_and_history(
     )
     db_session.add(segment_parent)
     await db_session.flush()
-    schema = definition("ultralytics", "yolo11n-seg")
+    schema = definition("ultralytics", "yolo11n-seg", version="8.4.177")
     segment_body = {key: value for key, value in body.items() if key != "parameters"}
     segment_body.update(
         task="segment",

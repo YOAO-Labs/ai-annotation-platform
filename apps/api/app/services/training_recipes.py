@@ -20,6 +20,14 @@ def snapshot(framework, base_model, configuration, initialization_pin=None):
             framework, base_model, configuration
         )
     }
+    if (
+        value["configuration"]["identity"]["framework_version"]
+        != template["framework_version"]
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="配方参数定义与当前训练器版本不一致，请刷新后重新核对",
+        )
     if initialization_pin:
         if not value["configuration"]["effective_values"].get("pretrained", True):
             raise HTTPException(

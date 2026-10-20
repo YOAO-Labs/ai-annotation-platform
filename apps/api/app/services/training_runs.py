@@ -17,7 +17,14 @@ from sqlalchemy.dialects.postgresql import insert
 from training_contract import definition, resolve, schema_identity, verify_native
 from training_contract.validation import CANONICAL, configuration_for_data_contract
 from training_contract.dataset import DETECTION, SEGMENTATION, is_instance_rle
+from training_contract.models import (
+    ULTRALYTICS_VERSION,
+    LEGACY_ULTRALYTICS_VERSION,
+    model_spec,
+    supports_version,
+)
 from training_contract.observability import failure_receipt, redact_text
+from training_contract.assets import AssetReference
 
 from app.config import settings
 from app.db.models.training_dataset import TrainingDatasetVersion
@@ -76,7 +83,12 @@ def catalog():
         image = entry.get("image_digest", "")
         models = entry.get("base_models", {})
         if (
-            version != ADAPTERS[framework]["version"]
+            version
+            not in (
+                {ULTRALYTICS_VERSION, LEGACY_ULTRALYTICS_VERSION}
+                if framework == "ultralytics"
+                else {ADAPTERS[framework]["version"]}
+            )
             or not image.startswith("sha256:")
             or len(image) != 71
         ):
@@ -84,11 +96,26 @@ def catalog():
         valid_models = []
         for name, model in models.items():
             try:
-                task = definition(framework, name)["task"]
+                spec = model_spec(framework, name)
+                if not supports_version(spec, version):
+                    continue
+                task = definition(framework, name, version=version)["task"]
             except ValueError:
                 continue
             sha = model.get("sha256", "")
             filename = model.get("filename", "")
+            try:
+                AssetReference.from_mapping(model)
+            except (ValueError, KeyError, TypeError):
+                continue
+            object_key = model.get("object_key")
+            size_bytes = model.get("size_bytes")
+            if object_key is not None and (
+                object_key != f"model-assets/sha256/{sha}/weights.pt"
+                or type(size_bytes) is not int
+                or not 0 < size_bytes <= 2 * 1024**3
+            ):
+                continue
             if (
                 len(sha) == 64
                 and all(c in "0123456789abcdef" for c in sha)
@@ -103,11 +130,18 @@ def catalog():
                         "sha256": sha,
                         "filename": filename,
                         "task": task,
+                        "model_family": spec.family,
+                        "model_size": spec.scale,
+                        **(
+                            {"object_key": object_key, "size_bytes": size_bytes}
+                            if object_key
+                            else {}
+                        ),
                         "capabilities": {
                             **capabilities(framework, task, name),
                             **(
-                                {"instance_rle": instance_rle_capability()}
-                                if name == "yolo11n-seg"
+                                {"instance_rle": instance_rle_capability(version)}
+                                if task == SEGMENTATION
                                 else {}
                             ),
                         },
@@ -131,7 +165,9 @@ def catalog():
                             )
                         },
                     },
-                    "parameter_schemas": parameter_summaries(framework, valid_models),
+                    "parameter_schemas": parameter_summaries(
+                        framework, valid_models, version=version
+                    ),
                 }
             )
     return {
@@ -141,11 +177,11 @@ def catalog():
     }
 
 
-def parameter_summaries(framework, models):
+def parameter_summaries(framework, models, *, version=None):
     schemas = {}
     for base in models:
         try:
-            schema = definition(framework, base["id"])
+            schema = definition(framework, base["id"], version=version)
         except ValueError:
             continue
         identity = schema_identity(schema)
@@ -155,6 +191,92 @@ def parameter_summaries(framework, models):
         )
         schemas[schema["schema_id"]] = identity
     return list(schemas.values())
+
+
+def annotate_readiness(result, runtime, *, online):
+    """Project exact model/node readiness without treating one sibling as ready."""
+    for item in result["items"]:
+        for base in item["base_models"]:
+            schema = next(
+                (
+                    schema
+                    for schema in item["parameter_schemas"]
+                    if schema["task"] == base["task"]
+                    and schema["model_family"] == base["model_family"]
+                ),
+                None,
+            )
+            identity = {
+                key: value
+                for key, value in (schema or {}).items()
+                if key not in {"field_count", "editable_count", "compatible"}
+            }
+            candidate = {
+                "framework": item["framework"],
+                "framework_version": item["version"],
+                "image_digest": item["image_digest"],
+                "base_model": base,
+                "adapter_revision": 2,
+                "configuration": {"identity": identity},
+            }
+            ready = (
+                bool(
+                    schema
+                    and runtime.get("gpu_uuid") == settings.training_gpu_uuid
+                    and runtime_compatible(candidate, runtime)
+                )
+                if online
+                else None
+            )
+            base["compatible"] = ready
+            base["unavailable_reason"] = (
+                "训练节点离线"
+                if not online
+                else "该节点尚未准备此基础模型权重"
+                if requires_prepared_asset(item["framework"], item["version"], base)
+                and base["sha256"] not in runtime.get("base_asset_sha256", [])
+                else "该节点的镜像、框架或模型参数身份不兼容"
+                if not ready
+                else None
+            )
+        for schema in item["parameter_schemas"]:
+            schema["compatible"] = (
+                any(
+                    base["compatible"]
+                    for base in item["base_models"]
+                    if base["task"] == schema["task"]
+                    and base["model_family"] == schema["model_family"]
+                )
+                if online
+                else None
+            )
+        legacy_ready = (
+            online
+            and item["version"] != ULTRALYTICS_VERSION
+            and runtime.get("gpu_uuid") == settings.training_gpu_uuid
+            and any(
+                runtime_compatible(
+                    {
+                        "framework": item["framework"],
+                        "framework_version": item["version"],
+                        "image_digest": item["image_digest"],
+                        "base_model": base,
+                        "adapter_revision": 1,
+                    },
+                    runtime,
+                )
+                for base in item["base_models"]
+                if base["task"] == DETECTION
+            )
+        )
+        item["compatible"] = (
+            bool(
+                legacy_ready or any(base["compatible"] for base in item["base_models"])
+            )
+            if online
+            else None
+        )
+    return result
 
 
 def resolve_configuration(framework, base_model, configuration):
@@ -177,17 +299,30 @@ def controlled_template(framework, base_model):
         "framework": framework,
         "framework_version": template["version"],
         "image_digest": template["image_digest"],
-        "base_model": {key: base[key] for key in ("id", "sha256", "filename")},
+        "base_model": {
+            key: base[key]
+            for key in ("id", "sha256", "filename", "object_key", "size_bytes")
+            if key in base
+        },
         "resource_id": options["resource_id"],
     }
 
 
+def requires_prepared_asset(framework, version, base):
+    return bool(base.get("object_key")) or (
+        framework == "ultralytics" and version == ULTRALYTICS_VERSION
+    )
+
+
 def runtime_compatible(config, runtime):
     framework = config["framework"]
-    if (
-        is_instance_rle(config.get("data_contract", {}))
-        and runtime.get("instance_rle_consumer") != instance_rle_capability()
-    ):
+    if requires_prepared_asset(
+        framework, config["framework_version"], config.get("base_model", {})
+    ) and config["base_model"]["sha256"] not in runtime.get("base_asset_sha256", []):
+        return False
+    if is_instance_rle(config.get("data_contract", {})) and runtime.get(
+        "instance_rle_consumer"
+    ) != instance_rle_capability(config["framework_version"]):
         return False
     if config.get("study_budget"):
         from training_contract.budget import POLICY_DIGEST
@@ -213,7 +348,11 @@ def runtime_compatible(config, runtime):
         supported = revision == 1 and "configuration" not in config
     elif protocol == 2:
         try:
-            schema = definition(framework, config["base_model"]["id"])
+            schema = definition(
+                framework,
+                config["base_model"]["id"],
+                version=config["framework_version"],
+            )
             family = schema["model_family"]
         except (KeyError, ValueError):
             return False
@@ -298,6 +437,17 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
     )
     if template is None or base is None:
         raise HTTPException(status_code=422, detail="训练器或基础权重不在受控目录中")
+    if requires_prepared_asset(body.framework, template["version"], base):
+        lease = await db.get(TrainingResourceLease, resource_id())
+        if not (
+            lease
+            and lease.last_seen_at
+            and lease.last_seen_at > now() - timedelta(seconds=30)
+            and base["sha256"] in lease.runtime.get("base_asset_sha256", [])
+        ):
+            raise HTTPException(
+                status_code=409, detail="该训练节点尚未准备并校验所选基础模型权重"
+            )
     dataset = await db.scalar(
         select(TrainingDatasetVersion)
         .where(
@@ -312,7 +462,9 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
         raise HTTPException(status_code=409, detail="训练数据版本尚未就绪")
     try:
         contract = contract_of(dataset.manifest)
-        schema = definition(body.framework, body.base_model)
+        schema = definition(
+            body.framework, body.base_model, version=template["version"]
+        )
     except (TrainingDatasetError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if body.task is not None and body.task != normalize_task(contract["task"]):
@@ -325,6 +477,8 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
         raise HTTPException(
             status_code=422, detail="分割训练必须提交完整的任务参数配置"
         )
+    if template["version"] == ULTRALYTICS_VERSION and body.configuration is None:
+        raise HTTPException(status_code=422, detail="该训练器版本必须提交完整参数配置")
     config = {
         "task": normalize_task(contract["task"]),
         "media_type": "image",
@@ -333,7 +487,11 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
         "framework": body.framework,
         "framework_version": template["version"],
         "image_digest": template["image_digest"],
-        "base_model": {key: base[key] for key in ("id", "sha256", "filename")},
+        "base_model": {
+            key: base[key]
+            for key in ("id", "sha256", "filename", "object_key", "size_bytes")
+            if key in base
+        },
         "dataset_id": str(dataset.id),
         "dataset_sha256": dataset.package_sha256,
         "dataset_digest": dataset.manifest["content_digest"],
@@ -352,6 +510,10 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
             ),
             contract,
         )
+        if configuration["identity"]["framework_version"] != template["version"]:
+            raise HTTPException(
+                status_code=409, detail="训练器版本已变化，请重新读取目录与参数定义"
+            )
         config.update(
             adapter_revision=2,
             configuration=configuration,
@@ -382,6 +544,13 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
                 status_code=422, detail="从零训练不能同时选择项目模型权重"
             )
         config["initialization"] = pin
+    if config.get("configuration"):
+        from training_contract import verify_frozen
+
+        try:
+            verify_frozen(config)
+        except (ValueError, KeyError, TypeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     return config
 
 

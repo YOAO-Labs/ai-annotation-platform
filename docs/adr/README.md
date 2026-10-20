@@ -135,3 +135,5 @@
 - [0088](archive/0088-model-catalog-and-frozen-pipelines.md) — 模型目录独立投影，管线按阶段冻结并完整重试
 
 - [0089](archive/0089-task-scoped-native-instance-learning.md) — 实例分割采用原生掩码训练与按任务隔离的在线学习
+
+- [0090](archive/0090-versioned-yolo-identities-and-content-assets.md) — YOLO 家族按冻结运行时核验，权重按内容寻址并独立准备节点

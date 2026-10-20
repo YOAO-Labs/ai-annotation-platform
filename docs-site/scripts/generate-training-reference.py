@@ -90,7 +90,7 @@ RUNTIME_VALUES = {
     "name": '`"framework"`',
     "exist_ok": "`false`",
     "resume": "首次 `false`；续训使用已核验检查点路径",
-    "size": "由基础型号派生 `t/s/m/c/e`",
+    "size": "由基础型号派生 `t/s/m/c`",
     "num_classes": "冻结的原生类别数量",
     "data_dir": "`null`，使用冻结 YAML 中的路径",
 }

@@ -187,7 +187,7 @@ last_reviewed: 2026-10-16
 | GET  | `/projects` | 用 `search` 搜索名称或编号，`limit`／`offset` 分页；返回结构资格原因、就绪版本数与活跃实验数                              |
 | GET  | `/runs`     | 用 `state=active\|finished\|failed\|all`、可选 `framework`／`project_id` 筛选及分页；返回实验、项目名称与同权限范围的计数 |
 
-`catalog.items[].compatible` 仅在执行器在线时核对实际 GPU、镜像和框架版本；离线时为 `null`。配置已启用不代表执行器已在线或兼容。多个框架可共享一个容器，目录不会泄露执行器原始运行环境中的任意字段或凭据，也不会暴露不可管理项目的占用实验名称。
+`catalog.items[].compatible` 仅在执行器在线时核对实际 GPU、镜像和框架版本；离线时为 `null`。基础模型还返回 `model_family`、`model_size`、自己的 `compatible` 和 `unavailable_reason`，参数定义按家族／任务分别匹配。桶中基础资产可附 `object_key` 和 `size_bytes`，节点必须声明已校验的 SHA 缓存后才就绪；仅对象存在不能接受该节点的训练。配置已启用不代表执行器已在线或兼容。多个框架可共享一个容器，目录不会泄露执行器原始运行环境中的任意字段或凭据，也不会暴露不可管理项目的占用实验名称。
 
 项目的 `can_prepare_dataset` 只表示媒体类型和矩形框类别满足结构条件，不代替实际样本预检。`ready_dataset_count` 只统计已有训练包校验摘要的就绪版本。实验计数在状态筛选前、框架与项目筛选后计算；`failed` 筛选包含失败和失联。队列读取沿用项目实验列表的失联对账，心跳超时标记 `lost`，继续保留资源租约。
 
@@ -218,7 +218,7 @@ last_reviewed: 2026-10-16
 
 `framework` 支持目录中已验证的 `ultralytics` 和 `libreyolo`。目录的 `capabilities` 返回 `tasks`、`resume`、`artifact_download` 与 `model_registration`；LibreYOLO 的模型注册能力已开放到独立通过原生 CPU 资格检查的 YOLO9 t/s/m/c 检测格式。目录能力表示存在受支持路径，具体冻结实验仍须读取详情顶层 `registration_eligibility` 的 `qualified`、`reason` 和 `qualification`，注册接口会重新计算资格；下载能力不依赖回流资格。配置固定适配器修订和框架原生选项。LibreYOLO 指标文件包含真实 `summary`、`native_raw`、`native_alias_semantics`、`per_class_available=false` 和最终评估权重 SHA-256，不将其别名解释为常规精确率／召回率。
 
-基础权重另返回自己的 `task` 与 `capabilities`。`yolo11n-seg` 目前限定为 `segment`，必须提交匹配的完整 `configuration`；冻结配置增加 `data_contract` 并与数据清单严格匹配。未知基础规格不会作为已通过资格的目录项展示。分割可以使用普通配方、克隆、训练／续训与下载；模型注册、项目权重初始化、CPU 增强预览、逐样本评估、自动策略和参数搜索继续拒绝未通过的分割任务。
+基础模型另返回自己的 `task` 与 `capabilities`。当前 Ultralytics 支持 YOLOv8／YOLO11／YOLO26 的 n/s/m/l/x 检测与实例分割，LibreYOLO9 支持 t/s/m/c 检测；目录只投影管理员配置且有原生路径的组合，未知规格不会因文件名相近而获得资格。新 Ultralytics 实验与分割任务必须提交匹配的完整 `configuration`，分割数据契约与清单严格匹配。注册、初始化、逐样本评估和自动策略仍逐项核验冻结身份，CPU 增强预览保留其独立资格范围。
 
 分割最终评估描述符使用 `revision=2`、`evaluator.task=instance-segmentation`，原生指标保留 `(B)` 与 `(M)` 后缀，分别表示框和掩码。逐类别包含两套 precision、recall、mAP50 与 mAP50–95；评估身份包含独立实例掩码、掩码分辨率、实际掩码处理选项及实现源码。`fitness` 是原生选择分数，不属于 0–1 指标。检测描述符仍使用修订 1，原有语义和摘要保持兼容。
 
@@ -357,7 +357,7 @@ last_reviewed: 2026-10-16
 { "kind": "trained_model", "model_version_id": "<UUID>", "source_digest": "<SHA256>" }
 ```
 
-省略或 `{kind: "catalog"}` 沿用目录权重，保持旧请求与配置摘要形状。项目模型初始化要求完整 `configuration`，只支持已保留的同项目成功 Ultralytics YOLO11 检测产物、相同规格与完全一致的原生类别顺序。当前资格限定锁定的 Ultralytics、Torch、TorchVision、Python 与 CUDA 组合；归档和部署／发布状态不决定训练资格。接口不接受 URL、路径、任意检查点或类别重映射。
+省略或 `{kind: "catalog"}` 沿用目录权重，保持旧请求与配置摘要形状。项目模型初始化要求完整 `configuration`，只支持已保留的同项目成功 Ultralytics 产物、相同框架版本／家族／规格／任务与完全一致的原生类别顺序。历史策略保持原范围，新策略由目标模型的精确版本选择；不默认接受旧版本来源跨版本初始化。当前资格限定锁定的 Ultralytics、Torch、TorchVision、Python 与 CUDA 组合；归档和部署／发布状态不决定训练资格。接口不接受 URL、路径、任意检查点或类别重映射。
 
 `config.initialization` 固定项目／模型／实验／尝试／数据身份，权重 key、SHA、大小，类别与绑定摘要，来源配置／数据／验证摘要，运行时与评估证据，以及资格策略摘要。权重不得超过 2 GiB。预检、创建和首次领取分别完整核验权重及评估对象；来源丢失或摘要变化明确失败，不回退目录权重。旧执行器未声明匹配初始化能力时不能领取。
 

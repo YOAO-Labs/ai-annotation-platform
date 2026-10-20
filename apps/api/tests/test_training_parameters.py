@@ -22,7 +22,7 @@ pytestmark = pytest.mark.usefixtures("training_config_fixture")
 
 
 def configuration(**values):
-    schema = definition("ultralytics")
+    schema = definition("ultralytics", version="8.4.177")
     return {
         "schema_id": schema["schema_id"],
         "schema_digest": schema["schema_digest"],
@@ -37,7 +37,7 @@ def segmentation_catalog(monkeypatch):
         "filename": "yolo11n-seg.pt",
     }
     monkeypatch.setattr(settings, "training_catalog_json", catalog)
-    schema = definition("ultralytics", "yolo11n-seg")
+    schema = definition("ultralytics", "yolo11n-seg", version="8.4.177")
     return {
         "schema_id": schema["schema_id"],
         "schema_digest": schema["schema_digest"],
@@ -89,7 +89,7 @@ async def test_segmentation_requires_exact_dataset_base_schema_and_keeps_recipes
         reusable["configuration"]["identity"]["task"] == SEGMENTATION_CONTRACT["task"]
     )
     assert training_recipes.compatibility(reusable) == (True, None)
-    with pytest.raises(HTTPException, match="检测"):
+    with pytest.raises(HTTPException, match="任务"):
         learning_policies.fixed_template("ultralytics", "yolo11n-seg")
     model = next(
         base
@@ -99,7 +99,7 @@ async def test_segmentation_requires_exact_dataset_base_schema_and_keeps_recipes
     )
     assert (
         model["capabilities"]["artifact_download"]
-        and not model["capabilities"]["model_registration"]
+        and model["capabilities"]["model_registration"]
     )
     study = await httpx_client.post(
         f"/api/v1/projects/{project.id}/training-studies:preview",
@@ -138,14 +138,14 @@ async def test_segmentation_requires_exact_dataset_base_schema_and_keeps_recipes
             "cooldown_minutes": 0,
         },
     )
-    assert policy.status_code == 422 and "检测父数据" in policy.text
+    assert policy.status_code == 422 and "任务与父数据版本不匹配" in policy.text
 
 
 def test_runtime_image_upgrade_requires_full_qualified_schema_and_source_image(
     monkeypatch,
 ):
     old, new = "sha256:" + "a" * 64, "sha256:" + "b" * 64
-    identity = schema_identity(definition("ultralytics", "yolo11n"))
+    identity = schema_identity(definition("ultralytics", "yolo11n", version="8.4.177"))
     config = {
         "framework": "ultralytics",
         "framework_version": "8.4.177",
@@ -171,7 +171,9 @@ def test_runtime_image_upgrade_requires_full_qualified_schema_and_source_image(
         {"configuration": {"identity": {**identity, "schema_digest": "0" * 64}}},
     ]:
         assert not service.runtime_compatible({**config, **changed}, runtime)
-    seg_identity = schema_identity(definition("ultralytics", "yolo11n-seg"))
+    seg_identity = schema_identity(
+        definition("ultralytics", "yolo11n-seg", version="8.4.177")
+    )
     segmentation = {
         **config,
         "image_digest": new,
@@ -241,8 +243,11 @@ async def test_parameter_schema_is_project_authorized_and_complete(
     path = f"/api/v1/projects/{project.id}/training-runs/parameter-schema?framework=ultralytics&base_model=yolo11n"
     result = await httpx_client.get(path, headers={"Authorization": f"Bearer {token}"})
     assert result.status_code == 200, result.text
-    assert len(result.json()["fields"]) == 113
-    assert result.json()["schema_digest"] == definition("ultralytics")["schema_digest"]
+    assert len(result.json()["fields"]) == 114
+    assert (
+        result.json()["schema_digest"]
+        == definition("ultralytics", version="8.4.177")["schema_digest"]
+    )
     _, other_token = annotator
     forbidden = await httpx_client.get(
         path, headers={"Authorization": f"Bearer {other_token}"}
@@ -297,7 +302,7 @@ async def test_old_executors_cannot_claim_v2_and_new_executor_must_advertise_exa
     assert await service.claim(db_session, claim) is None
     claim.runtime.update(executor_protocol=2, supported_configs=[])
     assert await service.claim(db_session, claim) is None
-    wrong = schema_identity(definition("ultralytics"))
+    wrong = schema_identity(definition("ultralytics", version="8.4.177"))
     wrong["schema_digest"] = "0" * 64
     claim.runtime["supported_configs"] = [wrong]
     assert await service.claim(db_session, claim) is None

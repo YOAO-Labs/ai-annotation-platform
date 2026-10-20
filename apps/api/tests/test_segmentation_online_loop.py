@@ -76,7 +76,7 @@ def auth(token):
 
 
 def configuration():
-    schema = definition("ultralytics", "yolo11n-seg")
+    schema = definition("ultralytics", "yolo11n-seg", version="8.4.177")
     return {
         "schema_id": schema["schema_id"],
         "schema_digest": schema["schema_digest"],

@@ -226,3 +226,20 @@ def test_prior_parameter_schema_is_still_exactly_resolvable(base, expected):
     )
     assert "evaluate_train" not in resolved["effective_values"]
     assert resolved["effective_values"]["pretrained"] is True
+
+
+@pytest.mark.parametrize(
+    "base,expected",
+    [
+        ("yolo11n", "2fa8760d69bc97f3ce5a042163a2f3e50b419159ce8dfabcd8ec86f7f042c5fa"),
+        (
+            "yolo11n-seg",
+            "79ecff81a2dac4071aadd78a0205ee02f2abe5f58190f5ba0dd89e71dc84d5e8",
+        ),
+    ],
+)
+def test_previous_current_schema_and_version_remain_frozen(base, expected):
+    schema = definition("ultralytics", base, version="8.4.177")
+    assert schema["schema_digest"] == expected
+    assert schema["framework_version"] == "8.4.177"
+    assert schema["schema_id"].endswith("-4")

@@ -98,6 +98,9 @@ async def catalog(
         and lease.last_seen_at > service.now() - timedelta(seconds=30)
     )
     result["busy"] = bool(lease and lease.attempt_id)
+    service.annotate_readiness(
+        result, lease.runtime if lease else {}, online=result["online"]
+    )
     result["initialization_policy_digest"] = (
         lease.runtime.get("initialization_policy_digest") if lease else None
     )
@@ -150,7 +153,7 @@ async def parameter_schema(
     ):
         raise HTTPException(status_code=422, detail="基础权重不在当前受控目录中")
     try:
-        return definition(framework, base_model)
+        return definition(framework, base_model, version=template["version"])
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

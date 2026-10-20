@@ -480,10 +480,21 @@ function TrainingCreateContent({
       template?.version === draft.source.frameworkVersion &&
       draft.schemaId === draft.source.schemaId &&
       draft.schemaDigest === draft.source.schemaDigest);
+  const requiresPreparedAsset =
+    !!selectedBase?.object_key ||
+    (draft.framework === "ultralytics" && template?.version === "8.4.183");
+  const modelUnavailable =
+    selectedBase?.compatible === false ||
+    (requiresPreparedAsset && (!catalog.data?.online || selectedBase?.compatible !== true));
+  const modelUnavailableReason = modelUnavailable
+    ? selectedBase?.unavailable_reason ||
+      "该训练节点尚未确认所选基础模型就绪，请联系管理员准备权重并检查执行器。"
+    : null;
   const contextValid =
     !!draft.name.trim() &&
     !!validDataset &&
     !!selectedBase &&
+    !modelUnavailable &&
     tasksMatch &&
     schemaMatches &&
     !schemaQuery.isError &&
@@ -1643,11 +1654,17 @@ function TrainingCreateContent({
                       .map((item) => (
                         <option value={item.id} key={item.id}>
                           {item.id} · {modelSizeLabel(item)} · {trainingTaskLabel(item.task)}
+                          {item.compatible === false ? " · 未就绪" : ""}
                         </option>
                       ))}
                   </select>
                 </label>
               </fieldset>
+              {modelUnavailableReason && (
+                <p role="status" className="text-xs text-status-warning">
+                  {modelUnavailableReason}
+                </p>
+              )}
               <TrainingInitializationSource
                 projectId={projectId}
                 value={draft.initialization}
@@ -1987,7 +2004,9 @@ function TrainingCreateContent({
               ? catalog.data.busy
                 ? "执行器正忙，新实验将排队。"
                 : "执行器在线。"
-              : "执行器离线，创建后将等待执行器。"}{" "}
+              : requiresPreparedAsset
+                ? "执行器离线，须在线确认所选模型权重就绪后再创建。"
+                : "执行器离线，创建后将等待执行器。"}{" "}
             使用固定验证集；取消后可从已保存的完整轮次续训。
           </p>
         </aside>

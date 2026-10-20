@@ -60,7 +60,7 @@ def test_budgets_reject_before_any_decode(args, code):
 
 
 def test_rle_config_workers_is_additive_and_historical_schema_is_unchanged():
-    schema = definition("ultralytics", "yolo11n-seg")
+    schema = definition("ultralytics", "yolo11n-seg", version="8.4.177")
     configuration = resolve(
         "ultralytics",
         "yolo11n-seg",

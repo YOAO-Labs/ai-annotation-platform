@@ -34,6 +34,12 @@ class TrainingBaseModel(BaseModel):
     sha256: str
     filename: str
     task: Literal["detect", "segment"] = "detect"
+    model_family: str | None = None
+    model_size: str | None = None
+    object_key: str | None = None
+    size_bytes: int | None = Field(default=None, gt=0, le=2 * 1024**3)
+    compatible: bool | None = None
+    unavailable_reason: str | None = None
     capabilities: TrainingCapabilities | None = None
 
 

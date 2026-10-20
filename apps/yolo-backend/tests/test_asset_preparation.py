@@ -39,6 +39,40 @@ def asset(content=b"reviewed weight"):
     return AssetReference(sha, "yolo11n.pt", len(content), asset_object_key(sha))
 
 
+def test_reviewed_asset_manifest_covers_exactly_the_controlled_model_matrix():
+    from training_contract.assets import read_manifest
+    from training_contract.models import MODEL_SPECS
+
+    path = (
+        Path(__file__).resolve().parents[1] / "scripts" / "controlled-model-assets.json"
+    )
+    values = json.loads(path.read_text())["assets"]
+    references = read_manifest(path)
+    assert {item["base_model"] for item in values} == {spec.id for spec in MODEL_SPECS}
+    assert len(references) == len(MODEL_SPECS)
+    assert all(reference.size_bytes is not None for reference in references)
+    for item in values:
+        expected_source = (
+            "https://huggingface.co/LibreYOLO/"
+            if item["framework"] == "libreyolo"
+            else "https://github.com/ultralytics/assets/releases/download/"
+        )
+        assert item["source_url"].startswith(expected_source)
+
+
+def test_admin_storage_client_uses_the_platform_ssl_setting(preparation, monkeypatch):
+    monkeypatch.setenv("MINIO_ENDPOINT", "storage.example:9000")
+    monkeypatch.setenv("MINIO_USE_SSL", "true")
+    monkeypatch.setitem(
+        sys.modules, "boto3", SimpleNamespace(client=lambda service, **kwargs: kwargs)
+    )
+    monkeypatch.setitem(
+        sys.modules, "botocore.config", SimpleNamespace(Config=lambda **kwargs: kwargs)
+    )
+    client = preparation._storage_client(SimpleNamespace(endpoint=None))
+    assert client["endpoint_url"] == "https://storage.example:9000"
+
+
 def test_existing_preparation_cli_imports_without_native_loader(
     preparation, tmp_path, monkeypatch, capsys
 ):

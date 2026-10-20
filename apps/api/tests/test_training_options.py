@@ -14,7 +14,7 @@ from app.services import training_recipes, training_runs
 
 
 def configuration(**values):
-    schema = definition("ultralytics")
+    schema = definition("ultralytics", version="8.4.177")
     return dict(
         schema_id=schema["schema_id"],
         schema_digest=schema["schema_digest"],

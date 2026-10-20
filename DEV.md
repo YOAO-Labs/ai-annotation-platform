@@ -169,7 +169,7 @@ pnpm dev:worktree -- exec --mode dev -- sh -c 'cd apps/api && .venv/bin/python s
 
 主开发 API 仅监听宿主 `127.0.0.1:8000` 时，训练执行器的本机 Compose override 需设置 `network_mode: host`，并将 `TRAINING_API_URL` 指向 `http://127.0.0.1:8000/api/v1/internal/training`。凭据文件保持 `0600`，将执行器 `user` 配置为其所有者的 UID/GID，并让持久 `/state` 卷归该用户所有；执行器移除了全部 capabilities，不能依靠 root 绕过文件权限。该 override 只用于独立训练 Compose 项目，不加入核心 worker 的 Compose 配置。
 
-已验证适配器为 Ultralytics 8.4.177 与 LibreYOLO 1.6.0；两者支持图片检测，Ultralytics 还支持受控 `yolo11n-seg` 简单多边形与原生掩码实例分割。LibreYOLO 目录项使用同样的 `version`、`image_digest` 和 `base_models` 结构，基础模型 ID 为 `LibreYOLO9t`，文件名 `LibreYOLO9t.pt`。官方模型来自 `LibreYOLO/LibreYOLO9t` 的固定修订 `66ac39d1ac9b880076b96ad4674ef9235ca1a15e`，大小 8,645,036 字节，SHA-256 为 `b4d7e93f9e0393830fb42e6135c0e3464b2673b05e5ecf4b7f2374ec18e39eb2`。先下载并核验字节和原生加载，再将只读文件及实际镜像身份配置到目录；执行器不会自动下载基础权重。
+训练镜像固定 Ultralytics 8.4.183 与 LibreYOLO 1.6.0。共享注册表登记 YOLOv8／YOLO11／YOLO26 的 n/s/m/l/x 检测与实例分割，以及 LibreYOLO YOLO9 t/s/m/c 检测；目录只启用已准备权重并完成对应资格核验的型号。旧实验保留原框架、参数和镜像身份，不自动授权跨版本续训。LibreYOLO 目录项使用同样的 `version`、`image_digest` 和 `base_models` 结构，基础模型 ID 为 `LibreYOLO9t`，文件名 `LibreYOLO9t.pt`。官方模型来自 `LibreYOLO/LibreYOLO9t` 的固定修订 `66ac39d1ac9b880076b96ad4674ef9235ca1a15e`，大小 8,645,036 字节，SHA-256 为 `b4d7e93f9e0393830fb42e6135c0e3464b2673b05e5ecf4b7f2374ec18e39eb2`。先下载并核验字节和原生加载，再将只读文件及实际镜像身份配置到目录；执行器不会自动下载基础权重。
 
 启用实例分割前，核验 [官方 YOLO11n 分割权重](https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n-seg.pt)：大小 6,182,636 字节，SHA-256 为 `55ed65c56c91713d23e8402371c6c49a6fd84f257f7dce452e8d70e41dcbe152`。将文件加入只读基础权重目录，在 Ultralytics 的 `base_models` 中加入 `yolo11n-seg`，其 `filename` 为 `yolo11n-seg.pt`，`sha256` 为上述摘要。任务与资格从受控参数定义派生，不能通过添加任意模型 ID 开放新规格。共享契约变化后重建实际训练／推理镜像，再刷新目标 API、Celery 和 scheduler，确认目录中的分割参数身份与执行器相容。原生掩码训练需执行器明确上报 `instance_rle_consumer`；分割受控回流、逐样本 mask 评估、项目权重初始化、任务独立策略和主动选样各自核验资格，增强预览及参数搜索仍受原有任务限制。升级应用迁移后重建开发 API worker、YOLO 与训练执行器镜像，保持目录中的实际 registry image digest 一致；原有实验需要目录明确声明兼容镜像。见[实例分割链路](docs-site/dev/concepts/instance-segmentation-learning.md)。
 
@@ -179,7 +179,7 @@ hf download LibreYOLO/LibreYOLO9t LibreYOLO9t.pt \
 sha256sum ./training/models/LibreYOLO9t.pt
 ```
 
-LibreYOLO 使用自己的回调、完整状态恢复与评估，不接受 Ultralytics 专属参数。最终指标记录实际最佳权重摘要，原生 `precision`／`recall` 别名分别表示 mAP50-95／AR100，暂无分类别指标；训练可取消并续训，但不保证逐位复现。成功实验中的 LibreYOLO YOLO9 t/s/m/c 原生检测最佳权重可注册候选，通过原生 CPU 安装与固定样本试用后由负责人发布。E、其他任务、量化及外部格式尚未通过回流资格检查；共享样本评估与主动学习排名仍仅支持 Ultralytics。移除训练目录项可停止新实验，但不改变已有模型或发布。
+LibreYOLO 使用自己的回调、完整状态恢复与评估，不接受 Ultralytics 专属参数。最终指标记录实际最佳权重摘要，原生 `precision`／`recall` 别名分别表示 mAP50-95／AR100，暂无分类别指标；训练可取消并续训，但不保证逐位复现。成功实验中的 LibreYOLO YOLO9 t/s/m/c 原生检测最佳权重可注册候选，通过原生 CPU 安装与固定样本试用后由负责人发布。E 不在固定 LibreYOLO 的原生实现中，不可新建执行；其他任务、量化及外部格式尚未通过回流资格检查；共享样本评估与主动学习排名仍仅支持 Ultralytics。移除训练目录项可停止新实验，但不改变已有模型或发布。
 
 可用 `docker compose -f docker-compose.training.yml --profile training up -d training-executor` 启动独立服务。启动前先准备已发布的训练镜像，Compose 不再兼任构建。`TRAINING_IMAGE` 填仓库名（可带标签，但不得已有 `@digest`），`TRAINING_IMAGE_DIGEST` 填该镜像的 registry manifest digest，例如 `sha256:` 加 64 位小写十六进制。使用 registry 返回的摘要或 `docker image inspect` 的 `RepoDigests`，不能使用 `.Id` 的镜像配置摘要。Compose 将同一个 `repository@sha256` 引用用于实际镜像和 `TRAINING_IMAGE_REFERENCE`，执行器从该引用派生上报摘要；目录的 `image_digest` 也须一致。仅修改 API/Web 业务代码不要求重建训练镜像。
 

@@ -105,6 +105,8 @@ def resolve(framework, base_model, request):
         key: "user" if key in user_values else "reviewed-default" for key in effective
     }
     fixed = {**FIXED[framework]}
+    if framework == "ultralytics" and schema["model_family"] == "yolo26":
+        fixed["nms"] = False
     if fields.get("pretrained", {}).get("status") == "editable":
         fixed.pop("pretrained", None)
     if normalize_task(schema["task"]) == SEGMENTATION:
@@ -245,6 +247,30 @@ def verify_frozen(config):
         "pretrained", True
     ):
         raise ValueError("随机初始化与项目权重初始化不能同时启用")
+    if config.get("initialization"):
+        from .initialization import validate_pin
+
+        pin = validate_pin(config["initialization"])
+        if (
+            pin["framework"] != config["framework"]
+            or pin["framework_version"] != config["framework_version"]
+            or pin["base_model"] != config["base_model"]["id"]
+            or pin["classes"] != config["classes"]
+            or normalize_task(pin["task"]) != normalize_task(identity["task"])
+        ):
+            raise ValueError(
+                "项目模型初始化与目标训练的框架版本、架构、任务或类别不一致"
+            )
+    if (
+        identity["model_family"] == "yolo26"
+        and normalize_task(identity["task"]) == SEGMENTATION
+    ):
+        values = resolved["effective_values"]
+        elements = values["batch"] * len(config["classes"]) * values["imgsz"] ** 2
+        if elements > 64_000_000:
+            raise ValueError(
+                f"语义辅助目标超出 64000000 元素上限：batch={values['batch']}、类别={len(config['classes'])}、imgsz={values['imgsz']}；请减小批大小或输入尺寸"
+            )
     if config["parameters"] != {
         key: resolved["effective_values"][key] for key in CANONICAL
     }:

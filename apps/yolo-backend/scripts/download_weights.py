@@ -45,7 +45,7 @@ def _storage_client(args):
     if not endpoint:
         raise ValueError("A reachable object-storage endpoint is required")
     if not endpoint.startswith(("http://", "https://")):
-        secure = os.environ.get("MINIO_SECURE", "false").lower() == "true"
+        secure = os.environ.get("MINIO_USE_SSL", "false").lower() == "true"
         endpoint = ("https://" if secure else "http://") + endpoint
     from botocore.config import Config  # noqa: PLC0415
 
