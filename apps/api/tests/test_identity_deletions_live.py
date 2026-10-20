@@ -1237,7 +1237,7 @@ async def test_installed_owner_project_admin_deletion_scope_and_receiver_members
         assert not_member["ok"] is False
         assert not_member["error"]["code"] == "receiver_scope_forbidden"
         assert not_member["error"]["status_code"] == 403
-        assert await _task_rows(maker, [task.id])[task.id]["assignee_id"] == target.id
+        assert (await _task_rows(maker, [task.id]))[task.id]["assignee_id"] == target.id
         assert len(await _lock_ids(maker, target.id)) == 1
         assert await _receipts(test_engine, [not_member_operation]) == {}
         async with maker.begin() as db:
@@ -1254,7 +1254,9 @@ async def test_installed_owner_project_admin_deletion_scope_and_receiver_members
         accepted = await asyncio.to_thread(_node, identity, control, accepted_request)
         assert accepted["ok"] is True
         assert accepted["data"]["user"]["is_active"] is False
-        assert await _task_rows(maker, [task.id])[task.id]["assignee_id"] == receiver.id
+        assert (await _task_rows(maker, [task.id]))[task.id][
+            "assignee_id"
+        ] == receiver.id
         assert await _lock_ids(maker, target.id) == []
 
         empty_request = _delete_request(manager_token, empty_target.id)
@@ -1292,10 +1294,9 @@ async def test_installed_owner_project_admin_deletion_scope_and_receiver_members
         )
         assert self_receiver_result["ok"] is True
         assert self_receiver_result["data"]["user"]["is_active"] is False
+        self_receiver_rows = await _task_rows(maker, self_receiver_project["task_ids"])
         assert (
-            await _task_rows(maker, self_receiver_project["task_ids"])[
-                self_receiver_project["task_ids"][0]
-            ]["assignee_id"]
+            self_receiver_rows[self_receiver_project["task_ids"][0]]["assignee_id"]
             == manager.id
         )
     finally:
