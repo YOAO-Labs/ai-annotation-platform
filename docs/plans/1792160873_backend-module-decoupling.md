@@ -2431,3 +2431,24 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   recovery/email and deactivation need their complete challenge and multi-owner
   lifecycle contracts. The full module goal remains active, without a primary
   cutover, Go expansion, production, push, release or remote CI change.
+
+### Identity preference assembled artifact verification
+
+- Clean-source Identity and API images from `b1a81cd14` both pass network-disabled,
+  read-only cold verification. Each installed Identity package matches all 26
+  source/schema files; the API image also matches 14 affected API/dependency/
+  migration/snapshot files, imports the real preference handlers, confirms schema
+  re-export identity, and matches the complete public OpenAPI at migration head 0237. The standalone package imports no application, FastAPI, SQLAlchemy,
+  Celery or object-store module for preference policy use. Proof containers are
+  removed; this is artifact verification, not a new live account-command service.
+- Locked schema checks pass under both package/API Pydantic environments. Existing
+  admission/key/session schema JSON is semantically unchanged. Required commit
+  hooks, pinned Ruff/format, whitespace and docs build (13.36 seconds) pass.
+  The modifier is removed after clean status, no runtime ownership state, and
+  exact patch-identity equivalence with the integrated commit.
+- Fresh read-only checks keep the primary checkout clean at `856fa79c8`, the
+  main database at 0234 and the unrelated test database at 0218. Only the original
+  four infrastructure containers remain. Both used Root test/e2e modes are
+  destroyed; no task-owned browser, server, proof container or execution handle
+  remains. Current evidence is retained under
+  `.worktree/identity-preferences-verification-current.json`.
