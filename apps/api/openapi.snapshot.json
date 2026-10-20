@@ -86244,6 +86244,7 @@
     },
     "/api/v1/users/{user_id}/deactivate": {
       "post": {
+        "description": "Suspend an account with current manager authority and retained reservations.",
         "operationId": "deactivate_user_api_v1_users__user_id__deactivate_post",
         "parameters": [
           {
@@ -86456,7 +86457,7 @@
     },
     "/api/v1/users/{user_id}/reactivate": {
       "post": {
-        "description": "Reactivate only an explicitly suspended account.",
+        "description": "Reactivate a suspended account and retire its previous credentials.",
         "operationId": "reactivate_user_api_v1_users__user_id__reactivate_post",
         "parameters": [
           {

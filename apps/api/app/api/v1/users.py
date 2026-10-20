@@ -37,6 +37,8 @@ from app.api.v1.platform_role_commands import (
     get_platform_role_commands,
 )
 from app.services.identity_platform_role_commands import PlatformRoleCommandsPort
+from app.api.v1.suspension_commands import execute_suspension, get_suspension_commands
+from app.services.identity_suspension_commands import SuspensionCommandsPort
 from app.api.v1.admin_password_commands import (
     execute_admin_password_reset,
     get_admin_password_commands,
@@ -52,7 +54,6 @@ from app.api.v1.invitation_commands import (
 from app.services.identity_invitation_commands import InvitationCommandsPort
 from app.services.identity_group_commands import GroupCommandsPort
 from app.application.legacy_user_lifecycle import (
-    deactivate_user as deactivate_user_workflow,
     delete_user as delete_user_workflow,
 )
 from app.application.user_lifecycle import UserLifecycleWorkflow
@@ -444,11 +445,12 @@ async def delete_user(
 async def deactivate_user(
     user_id: str,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: SuspensionCommandsPort = Depends(get_suspension_commands),
 ):
-    return await deactivate_user_workflow(
-        db, user_id=user_id, actor=actor, request=request
+    """Suspend an account with current manager authority and retained reservations."""
+    return await execute_suspension(
+        request, credentials, commands, "suspend_account", user_id
     )
 
 
@@ -510,28 +512,18 @@ async def reactivate_user(
     user_id: UUID,
     request: Request,
     payload: ReactivateRequest | None = Body(None),
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: SuspensionCommandsPort = Depends(get_suspension_commands),
 ):
-    """Reactivate only an explicitly suspended account."""
-
-    try:
-        user = await UserLifecycleWorkflow.reactivate(
-            db,
-            target_id=user_id,
-            actor=actor,
-            reason=payload.reason if payload else None,
-            request=request,
-        )
-        await db.commit()
-    except DBAPIError as exc:
-        await db.rollback()
-        if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
-            raise HTTPException(
-                status_code=409, detail="账号正在更新，请刷新后重试"
-            ) from exc
-        raise
-    return user
+    """Reactivate a suspended account and retire its previous credentials."""
+    return await execute_suspension(
+        request,
+        credentials,
+        commands,
+        "reactivate_account",
+        user_id,
+        payload.reason if payload else None,
+    )
 
 
 class GroupAssignPayload(BaseModel):

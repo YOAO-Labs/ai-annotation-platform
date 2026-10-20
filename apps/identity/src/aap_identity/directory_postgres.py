@@ -180,7 +180,7 @@ class DirectoryPostgresData:
                           )
                     )
                     OR pg_catalog.has_database_privilege(
-                        current_user, current_database(), 'CREATE'
+                        current_user, current_database(), 'CREATE,TEMP'
                     )
                 """
             )

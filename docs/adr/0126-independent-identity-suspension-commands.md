@@ -52,6 +52,10 @@ role/name/email/scopes may change since admission without making it malformed;
 bind credential identity, generation and expiry. Preserve the opaque
 1–255-character `expected_key_hash`. Global/account/credential contention
 returns 409 `account_busy` with `账号正在更新，请刷新后重试`.
+Initial public admission still rejects inactive credentials with 401. If the
+already-admitted actor becomes inactive before the owner executes the command,
+the public adapter preserves the legacy 403 `当前账号已无管理权限`; the private
+`user_inactive` authentication code remains unchanged.
 
 The existing derived-project set is the distinct Projects referenced by target
 ownership, any target `ProjectMember`, `TaskBatch` annotator/reviewer, direct
@@ -132,8 +136,10 @@ Retire credentials **before** changing account metadata, then set
 `is_active=true`, `status=offline` and clear `disabled_kind`, `disabled_at`,
 `disabled_by` and `disabled_reason`. Write exactly one `user.reactivate` Audit
 with status 200, target type `user`, target UUID and detail exactly
-`{reason_present:boolean}`. Determine presence with Python Unicode
-`str.strip()` semantics through the existing same-owner SQL helper; never store
+`{reason_present:boolean}`. The portable manager determines presence with Python
+Unicode `str.strip()` semantics and passes only the strict boolean to the native
+command. Raw reason never enters PostgreSQL JSONB; this preserves accepted input
+such as U+0000, which the legacy workflow used only for that boolean. Never store
 or log the raw optional reason.
 
 Every real suspension/reactivation uses the existing credential retirement
@@ -159,8 +165,11 @@ exactly `{target_user_id}`. Reactivate payload is exactly
 repr/errors/logs. Native request has exactly
 `schema/operation/operation_id/actor/expected_key_hash/request_fingerprint/derivation_id/audit_context/payload`;
 `actor` is authenticated Principal, never a request assertion.
-`expected_key_hash` is present only for API-key credentials and remains opaque
-1–255 characters. Fingerprint and derivation use the canonical operation/payload HMAC pattern with distinct
+Native suspension payload remains `{target_user_id}`; native reactivation payload
+is exactly `{target_user_id,reason_present}` with a strict boolean derived by the
+portable manager. The wire reason remains unchanged for fingerprinting.
+`expected_key_hash` is nonnull only for API-key credentials and remains opaque
+1–255 characters; the required field is null for JWT credentials. Fingerprint and derivation use the canonical wire operation/payload HMAC pattern with distinct
 `aap-identity-suspensions/v1` domain, normalized UUIDs, untouched reason text
 and audit context excluded. Portable interfaces are
 `SuspensionRequest/Reply/Failure`, `SuspensionManager(auth,data,secret).execute`

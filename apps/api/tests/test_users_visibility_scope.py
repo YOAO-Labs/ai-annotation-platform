@@ -390,31 +390,32 @@ async def test_pa_account_writes_on_foreign_member_but_lifecycle_gated(
 
     world = await _seed_scope_world(db_session, project_admin, super_admin)
     target = world.foreign_member
+    target_id = target.id
     headers = _headers(project_admin)
 
     role = await httpx_client.patch(
-        f"/api/v1/users/{target.id}/role",
+        f"/api/v1/users/{target_id}/role",
         json={"role": "employee"},
         headers=headers,
     )
     assert role.status_code == 403, role.text
 
     reset = await httpx_client.post(
-        f"/api/v1/users/{target.id}/admin-reset-password", headers=headers
+        f"/api/v1/users/{target_id}/admin-reset-password", headers=headers
     )
     assert reset.status_code == 200, reset.text
 
     offboard = await httpx_client.get(
-        f"/api/v1/users/{target.id}/offboarding-preview", headers=headers
+        f"/api/v1/users/{target_id}/offboarding-preview", headers=headers
     )
     assert offboard.status_code == 403, offboard.text
 
     deactivate = await httpx_client.post(
-        f"/api/v1/users/{target.id}/deactivate", headers=headers
+        f"/api/v1/users/{target_id}/deactivate", headers=headers
     )
     assert deactivate.status_code == 403, deactivate.text
 
-    delete = await httpx_client.delete(f"/api/v1/users/{target.id}", headers=headers)
+    delete = await httpx_client.delete(f"/api/v1/users/{target_id}", headers=headers)
     assert delete.status_code == 403, delete.text
 
 
@@ -488,21 +489,22 @@ async def test_pa_lifecycle_blocked_for_task_straddling_annotator(
     )
     await db_session.flush()
 
+    straddler_id = straddler.id
     headers = _headers(project_admin)
 
     # Account-level writes stay open on the enabled annotator.
     reset = await httpx_client.post(
-        f"/api/v1/users/{straddler.id}/admin-reset-password", headers=headers
+        f"/api/v1/users/{straddler_id}/admin-reset-password", headers=headers
     )
     assert reset.status_code == 200, reset.text
 
     # Lifecycle writes must stay gated even without any ProjectMember row.
     deactivate = await httpx_client.post(
-        f"/api/v1/users/{straddler.id}/deactivate", headers=headers
+        f"/api/v1/users/{straddler_id}/deactivate", headers=headers
     )
     assert deactivate.status_code == 403, deactivate.text
 
-    delete = await httpx_client.delete(f"/api/v1/users/{straddler.id}", headers=headers)
+    delete = await httpx_client.delete(f"/api/v1/users/{straddler_id}", headers=headers)
     assert delete.status_code == 403, delete.text
 
 

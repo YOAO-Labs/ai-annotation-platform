@@ -52,17 +52,6 @@ def set_disabled_metadata(
     user.disabled_reason = (reason or "").strip()[:500] or None
 
 
-def reactivate_account(user: User) -> None:
-    """Clear lifecycle metadata when the account owner restores access."""
-
-    user.is_active = True
-    user.status = "offline"
-    user.disabled_kind = None
-    user.disabled_at = None
-    user.disabled_by = None
-    user.disabled_reason = None
-
-
 async def retire_account_credentials(
     db: AsyncSession, user_id: uuid.UUID
 ) -> list[uuid.UUID]:

@@ -2,10 +2,10 @@
 
 import uuid
 from datetime import datetime, timedelta, timezone
-from types import SimpleNamespace
 
 import httpx
 import pytest
+from fastapi import Request
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -17,7 +17,8 @@ from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
-from app.deps import get_current_user, get_db
+from app.deps import get_current_principal, get_db
+from app.services.identity_gateway import IdentityGateway
 from tests.factory import create_api_key
 from tests.identity_recovery_helpers import seed_challenge
 from tests.factory import (
@@ -401,30 +402,36 @@ async def test_reactivate_rechecks_actor_after_authentication(
     target, _, _, _, _ = await seed_handoff(db_session, actor)
     target.is_active = False
     target.disabled_kind = "suspended"
-    stale_actor = SimpleNamespace(id=actor.id, role=actor.role, is_active=True)
+    target_id = target.id
+    admitted_headers = headers(actor)
+    admitted = await IdentityGateway().authenticate(
+        admitted_headers["Authorization"].removeprefix("Bearer "), db=db_session
+    )
     if change == "inactive":
         actor.is_active = False
     else:
         actor.role = "viewer"
-    await db_session.flush()
+    await db_session.commit()
 
-    async def prior_actor():
-        return stale_actor
+    async def prior_principal(request: Request):
+        request.state.identity_principal = admitted
+        return admitted
 
-    previous = app_module.dependency_overrides.get(get_current_user)
-    app_module.dependency_overrides[get_current_user] = prior_actor
+    previous = app_module.dependency_overrides.get(get_current_principal)
+    app_module.dependency_overrides[get_current_principal] = prior_principal
     try:
         response = await httpx_client.post(
-            f"/api/v1/users/{target.id}/reactivate", headers=headers(stale_actor)
+            f"/api/v1/users/{target_id}/reactivate", headers=admitted_headers
         )
         assert response.status_code == 403, response.text
+        assert response.json()["detail"] == "当前账号已无管理权限"
         await db_session.refresh(target)
         assert not target.is_active
     finally:
         if previous is None:
-            app_module.dependency_overrides.pop(get_current_user, None)
+            app_module.dependency_overrides.pop(get_current_principal, None)
         else:
-            app_module.dependency_overrides[get_current_user] = previous
+            app_module.dependency_overrides[get_current_principal] = previous
 
 
 @pytest.mark.parametrize("role", ["owner", "reviewer", "annotator"])

@@ -3155,7 +3155,8 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   reactivate 使用 FOR SHARE owned subset；没有 generalized lock system。Batch clear/reassignment
   没有锁旧 User 的历史 race 未被修复或视为资格通过。
 - Audit 仅由 typed capability 接受 `user.deactivate {email}` 和
-  `user.reactivate {reason_present}`；reason presence 使用 Unicode `str.strip()` 语义，原文
+  `user.reactivate {reason_present}`；portable manager 用 Unicode `str.strip()` 计算 presence，
+  Native 仅接收 strict `reason_present` boolean，不让合法 U+0000 原因进入 PostgreSQL JSONB；原文
   不保存。真实操作通过原 helper retirement generation +1、撤销当前 API keys、消费 unused
   reset links；旧凭据不能复活。成功 receipts 也包含 inactive-suspend no-op；回放重验当前
   manager/原 authority scope，只有 target generation 与 active flag 仍匹配时才返回冻结 User

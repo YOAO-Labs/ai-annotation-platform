@@ -20,7 +20,6 @@ from app.services.audit import AuditAction, AuditService
 from app.services.batch import BatchService
 from app.services.user_lifecycle import (
     UserLifecycleService,
-    retire_account_credentials,
     set_disabled_metadata,
 )
 
@@ -282,58 +281,6 @@ async def delete_user(
 
     await AuditService.redact_actor_history(db, user.id, deletion_entry=deletion_entry)
 
-    await db.commit()
-    await db.refresh(user)
-    return user
-
-
-async def deactivate_user(
-    db: AsyncSession, *, user_id: str, actor: User, request: Request
-) -> User:
-    user, actor = await _lock_legacy_lifecycle_target(
-        db, user_id, actor, protect_super_admin=True
-    )
-    if user.id == actor.id:
-        raise HTTPException(status_code=400, detail="不能停用自己")
-    if not user.is_active:
-        return user
-    await _lock_lifecycle_projects(db, user.id)
-
-    if actor.role == UserRole.PROJECT_ADMIN.value:
-        if user.role not in _PA_ASSIGNABLE_ROLES:
-            raise HTTPException(
-                status_code=403, detail="项目管理员仅能停用标注员/审核员账号"
-            )
-        if not await project_admin_manages_target(db, actor=actor, target=user):
-            raise HTTPException(status_code=403, detail="该用户不在你管理的项目内")
-        if not await _target_only_in_actor_projects(db, actor=actor, target=user):
-            raise HTTPException(
-                status_code=403, detail="该用户跨多个项目，须由超级管理员处理"
-            )
-
-    if user.role == UserRole.SUPER_ADMIN.value:
-        if (await UserLifecycleService.super_admin_status(db, user.id))[
-            "other_unreserved"
-        ] == 0:
-            raise HTTPException(status_code=400, detail="不能停用最后一名超级管理员")
-
-    set_disabled_metadata(
-        user,
-        kind="suspended",
-        actor_id=actor.id,
-        reason="管理员停用账号",
-    )
-    await retire_account_credentials(db, user.id)
-    await AuditService.log(
-        db,
-        actor=actor,
-        action=AuditAction.USER_DEACTIVATE,
-        target_type="user",
-        target_id=str(user.id),
-        request=request,
-        status_code=200,
-        detail={"email": user.email},
-    )
     await db.commit()
     await db.refresh(user)
     return user

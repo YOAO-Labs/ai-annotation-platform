@@ -29,7 +29,6 @@ from app.schemas.user import (
     OffboardingResult,
     OffboardingUnresolvedResult,
     OffboardingTransferResult,
-    UserOut,
 )
 from app.services.audit import AuditAction, AuditService
 from app.services.batch import BatchService
@@ -41,7 +40,6 @@ from app.services.user_lifecycle import (
     UserLifecycleService,
     lifecycle_user_out,
     retire_account_credentials,
-    reactivate_account,
     set_disabled_metadata,
 )
 
@@ -889,70 +887,3 @@ class UserLifecycleWorkflow:
             revoked_api_key_ids=revoked_key_ids,
             audit_id=audit.id,
         )
-
-    @classmethod
-    async def reactivate(
-        cls,
-        db: AsyncSession,
-        *,
-        target_id: uuid.UUID,
-        actor: User,
-        reason: str | None,
-        request: Request | None = None,
-    ) -> UserOut:
-        await UserLifecycleService.lock_super_admin_invariant(db)
-        accounts = await UserLifecycleService.lock_accounts(db, [target_id, actor.id])
-        target = accounts.get(target_id)
-        actor = accounts.get(actor.id)
-        if target is None:
-            raise HTTPException(status_code=404, detail="用户不存在")
-        if (
-            actor is None
-            or not actor.is_active
-            or actor.role
-            not in {UserRole.SUPER_ADMIN.value, UserRole.PROJECT_ADMIN.value}
-        ):
-            raise HTTPException(status_code=403, detail="当前账号已无管理权限")
-        if actor.id == target.id:
-            raise HTTPException(status_code=400, detail="不能恢复自己")
-        if actor.role == UserRole.PROJECT_ADMIN.value:
-            if target.role not in MANAGED_PROJECT_ROLES:
-                raise HTTPException(status_code=403, detail="项目管理员不能恢复该角色")
-            project_ids = await UserLifecycleService._project_ids_for_target(
-                db, target.id
-            )
-            if not project_ids:
-                raise HTTPException(status_code=403, detail="该用户不在你管理的项目内")
-            owned = await db.scalars(
-                select(Project.id)
-                .where(
-                    Project.id.in_(sorted(project_ids))
-                    if project_ids
-                    else text("false"),
-                    Project.owner_id == actor.id,
-                )
-                .with_for_update(read=True, nowait=True)
-            )
-            if set(owned.all()) != project_ids:
-                raise HTTPException(
-                    status_code=403, detail="该用户存在不在你管理范围内的项目"
-                )
-        if target.is_active:
-            raise HTTPException(status_code=409, detail="账号当前已启用")
-        if target.disabled_kind not in REACTIVATABLE_KINDS:
-            raise HTTPException(status_code=409, detail="该停用状态不可恢复")
-        # Also covers accounts suspended through the compatible legacy endpoint.
-        await retire_account_credentials(db, target_id)
-        reactivate_account(target)
-        await AuditService.log(
-            db,
-            actor=actor,
-            action=AuditAction.USER_REACTIVATE,
-            target_type="user",
-            target_id=str(target.id),
-            request=request,
-            status_code=200,
-            detail={"reason_present": bool((reason or "").strip())},
-        )
-        await db.flush()
-        return lifecycle_user_out(target)

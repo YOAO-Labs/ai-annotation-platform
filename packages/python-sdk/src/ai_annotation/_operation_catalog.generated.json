@@ -37603,7 +37603,7 @@
       "path": "/api/v1/users/{user_id}/deactivate",
       "operation_id": "deactivate_user_api_v1_users__user_id__deactivate_post",
       "summary": "Deactivate User",
-      "description": null,
+      "description": "Suspend an account with current manager authority and retained reservations.",
       "tags": [
         "users"
       ],
@@ -37716,7 +37716,7 @@
       "path": "/api/v1/users/{user_id}/reactivate",
       "operation_id": "reactivate_user_api_v1_users__user_id__reactivate_post",
       "summary": "Reactivate User",
-      "description": "Reactivate only an explicitly suspended account.",
+      "description": "Reactivate a suspended account and retire its previous credentials.",
       "tags": [
         "users"
       ],
