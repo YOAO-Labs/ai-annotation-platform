@@ -1,0 +1,9 @@
+{
+  "signing_secret": "identity-deletion-vector-secret",
+  "operation_id": "fedcba98-7654-4321-8fed-cba987654321",
+  "target_user_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "transfer_to_user_id": null,
+  "canonical_request": "{\"operation\":\"delete_account\",\"payload\":{\"target_user_id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"transfer_to_user_id\":null}}",
+  "request_fingerprint": "590cc201d71b40e441943cb40c041a9f18e5c1848223097fd9963ed5133e243e",
+  "derivation_id": "7b4a256f4fd1db6a85308c26e426d5f0ab952dbe611bcb185c474f5b13fc697f"
+}

@@ -2,7 +2,7 @@
 
 This package contains the JWT/API-key verifier, API-key management, core sessions
 and self-account command owners, the user-directory read owner, administrator
-password-reset owner, group catalog/assignment owner, and invitation/mail-v2
+password-reset owner, account-deletion owner, group catalog/assignment owner, and invitation/mail-v2
 owners and their closed contracts. It has one private HTTP process plus separate
 private worker entrypoints. Invitation/MailV2, directory and administrator
 password reset have completed local qualification; platform-role qualification
@@ -18,7 +18,10 @@ capabilities; the Notifications publisher is a distinct three-function/Redis
 process. Invitation commands use a separate three-function Identity capability;
 MailV2 uses its own four-function sender role. User directory reads use a
 separate two-function Identity capability. Platform-role preview and change use
-their own two-function Identity capability. Dashboard analytics, other-user
+their own two-function Identity capability. Account deletion uses a separate
+two-function Identity capability and preserves its inactive-target no-op, task
+handoff and partial Audit actor redaction; it does not retire credentials.
+Dashboard analytics, other-user
 hydration and remaining multi-owner lifecycle remain in the API, so this is not
 yet a complete Identity service.
 
@@ -364,6 +367,20 @@ while the native command carries only its Python `str.strip()`-based
 `reason_present` boolean; neither Audit nor receipts store the raw reason. The
 closed wire and native DTOs are `suspension_protocol.schema.json` and
 `native_suspension_protocol.schema.json`.
+
+## Administrator account deletion
+
+The private `POST /v1/identity/deletions/execute` protocol owns the existing
+`DELETE /api/v1/users/{id}` command. The optional
+`IDENTITY_DELETION_DATABASE_URL(_FILE)` selects its dedicated two-function
+PostgreSQL owner; a configured source never falls back to the API transaction.
+Successful receipts preserve the original User result and prevent retries from
+repeating task transfers, lock release, Audit writes or historical actor
+redaction. An already inactive target remains a no-op and is returned as its
+historical snapshot. Deletion preserves the legacy task handoff and partial
+Audit redaction behavior and does not retire credentials. The closed wire and
+native DTOs are `deletion_protocol.schema.json` and
+`native_deletion_protocol.schema.json`.
 
 ## Registration and credential recovery
 

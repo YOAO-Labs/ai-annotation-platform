@@ -124,6 +124,15 @@ from aap_identity.suspension_contract import (
 )
 from aap_identity.suspension_manager import SuspensionManager
 from aap_identity.suspension_postgres import SuspensionPostgresData
+from aap_identity.deletion_contract import (
+    DELETION_POLICY_PROTOCOL,
+    DELETION_PROTOCOL,
+    DeletionFailure,
+    decode_deletion_request,
+    deletion_failure_reply,
+)
+from aap_identity.deletion_manager import DeletionManager
+from aap_identity.deletion_postgres import DeletionPostgresData
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
@@ -149,6 +158,7 @@ def create_app(
     admin_password_data: AdminPasswordPostgresData | None = None,
     platform_role_data: PlatformRolePostgresData | None = None,
     suspension_data: SuspensionPostgresData | None = None,
+    deletion_data: DeletionPostgresData | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     data = data or PostgresData(
@@ -369,6 +379,20 @@ def create_app(
         if suspension_data is not None
         else None
     )
+    deletion_configured = (
+        deletion_data is not None or settings.deletion_database_url is not None
+    )
+    if deletion_data is None and settings.deletion_database_url is not None:
+        deletion_data = DeletionPostgresData(
+            settings.deletion_database_url.get_secret_value(),
+            connect_timeout=settings.connect_timeout_seconds,
+            command_timeout=settings.command_timeout_seconds,
+        )
+    deletions = (
+        DeletionManager(auth, deletion_data, settings.signing_secret.get_secret_value())
+        if deletion_data is not None
+        else None
+    )
     slots = asyncio.Semaphore(settings.max_concurrency)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -437,6 +461,10 @@ def create_app(
                     if suspension_data is None:
                         raise IdentityUnavailable()
                     suspension_policy = await suspension_data.suspension_policy()
+                if deletion_configured:
+                    if deletion_data is None:
+                        raise IdentityUnavailable()
+                    deletion_policy = await deletion_data.deletion_policy()
             if policy != {
                 "schema": "aap-identity-policy/v1",
                 "issuer": ISSUER,
@@ -563,6 +591,17 @@ def create_app(
                 if suspension_policy_value != {
                     "schema": SUSPENSION_POLICY_PROTOCOL,
                     "policy": SUSPENSION_PROTOCOL,
+                }:
+                    raise IdentityUnavailable()
+            if deletion_configured:
+                deletion_policy_value = (
+                    deletion_policy.model_dump(mode="json", by_alias=True)
+                    if hasattr(deletion_policy, "model_dump")
+                    else deletion_policy
+                )
+                if deletion_policy_value != {
+                    "schema": DELETION_POLICY_PROTOCOL,
+                    "policy": DELETION_PROTOCOL,
                 }:
                     raise IdentityUnavailable()
         except (IdentityUnavailable, TimeoutError):
@@ -1103,6 +1142,52 @@ def create_app(
         except (IdentityUnavailable, TimeoutError):
             return JSONResponse(
                 {"detail": "Identity suspension commands unavailable"},
+                status_code=503,
+            )
+        return JSONResponse(reply.model_dump(mode="json", by_alias=True))
+
+    @app.post("/v1/identity/deletions/execute")
+    async def execute_deletion_command(request: Request):
+        supplied = request.headers.get("authorization", "").encode()
+        expected = ("Bearer " + settings.token.get_secret_value()).encode()
+        if not hmac.compare_digest(supplied, expected):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        if (
+            request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            != "application/json"
+        ):
+            return JSONResponse(
+                deletion_failure_reply("invalid_request"), status_code=400
+            )
+        if deletions is None:
+            return JSONResponse(
+                {"detail": "Identity deletion commands unavailable"},
+                status_code=503,
+            )
+        try:
+            async with asyncio.timeout(settings.request_timeout_seconds):
+                async with slots:
+                    body = bytearray()
+                    async for chunk in request.stream():
+                        body.extend(chunk)
+                        if len(body) > 65536:
+                            return JSONResponse(
+                                deletion_failure_reply("invalid_request"),
+                                status_code=400,
+                            )
+                    try:
+                        parsed = decode_deletion_request(bytes(body))
+                    except (ValidationError, ValueError, TypeError, UnicodeError):
+                        return JSONResponse(
+                            deletion_failure_reply("invalid_request"),
+                            status_code=400,
+                        )
+                    reply = await deletions.execute(parsed)
+        except DeletionFailure as error:
+            return JSONResponse(deletion_failure_reply(error))
+        except (IdentityUnavailable, TimeoutError):
+            return JSONResponse(
+                {"detail": "Identity deletion commands unavailable"},
                 status_code=503,
             )
         return JSONResponse(reply.model_dump(mode="json", by_alias=True))

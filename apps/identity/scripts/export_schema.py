@@ -61,6 +61,15 @@ from aap_identity.suspension_contract import (  # noqa: E402
     SuspensionReply,
     SuspensionRequest,
 )
+from aap_identity.deletion_contract import (  # noqa: E402
+    DeletionFailureReply,
+    DeletionPolicyReply,
+    DeletionReply,
+    DeletionRequest,
+    NativeDeletionCommand,
+    NativeDeletionFailureReply,
+    NativeDeletionSuccess,
+)
 from aap_identity.directory_contract import (  # noqa: E402
     DirectoryFailureReply,
     DirectoryReply,
@@ -352,6 +361,19 @@ def main():
         "src/aap_identity/suspension_protocol.schema.json": render_schema(
             TypeAdapter(SuspensionRequest | SuspensionReply | SuspensionFailureReply),
             "aap-identity-suspensions/v1",
+        ),
+        "src/aap_identity/deletion_protocol.schema.json": render_schema(
+            TypeAdapter(DeletionRequest | DeletionReply | DeletionFailureReply),
+            "aap-identity-deletions/v1",
+        ),
+        "src/aap_identity/native_deletion_protocol.schema.json": render_schema(
+            TypeAdapter(
+                NativeDeletionCommand
+                | NativeDeletionSuccess
+                | NativeDeletionFailureReply
+                | DeletionPolicyReply
+            ),
+            "aap-identity-deletions-native/v1",
         ),
         "src/aap_identity/native_suspension_protocol.schema.json": render_schema(
             TypeAdapter(
