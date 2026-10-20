@@ -137,7 +137,7 @@ async def test_auth_only_admin_password_api_binding_and_credential_preservation(
             tmp_path,
             secret,
             control,
-            enable_accounts=False,
+            enable_accounts=True,
             enable_groups=False,
             enable_presence=False,
             enable_admin_password=True,
@@ -147,6 +147,7 @@ async def test_auth_only_admin_password_api_binding_and_credential_preservation(
         identity_origin = ""
         configuration = {
             "IDENTITY_AUTH_DATABASE_URL": _dsn("AUTH", test_engine),
+            "IDENTITY_ACCOUNT_DATABASE_URL": _dsn("ACCOUNT", test_engine),
             "IDENTITY_ADMIN_PASSWORD_DATABASE_URL": _dsn("ADMIN_PASSWORD", test_engine),
         }
     try:
@@ -166,12 +167,14 @@ async def test_auth_only_admin_password_api_binding_and_credential_preservation(
         ) as client:
             jwt_headers = {"Authorization": f"Bearer {jwt}"}
             key_headers = {"Authorization": f"Bearer {api_key}"}
-            assert (
-                await client.get("/api/v1/auth/me", headers=jwt_headers)
-            ).status_code == 200
-            assert (
-                await client.get("/api/v1/auth/me", headers=key_headers)
-            ).status_code == 200
+            jwt_me = await client.get("/api/v1/auth/me", headers=jwt_headers)
+            assert jwt_me.status_code == 200, (
+                f"JWT /auth/me failed with {jwt_me.status_code}: {jwt_me.text}"
+            )
+            key_me = await client.get("/api/v1/auth/me", headers=key_headers)
+            assert key_me.status_code == 200, (
+                f"API-key /auth/me failed with {key_me.status_code}: {key_me.text}"
+            )
 
             if binding == "dedicated_dsn":
                 before_hash, before_marker, _ = await _password_state(
