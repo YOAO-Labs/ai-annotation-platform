@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     recovery_database_url_file: str | None = None
     group_database_url: SecretStr | None = None
     group_database_url_file: str | None = None
+    deactivation_database_url: SecretStr | None = None
+    deactivation_database_url_file: str | None = None
+    deactivation_operator_database_url: SecretStr | None = None
+    deactivation_operator_database_url_file: str | None = None
     recovery_mail_key: SecretStr | None = None
     recovery_mail_key_file: str | None = None
     token: SecretStr | None = None
@@ -103,6 +107,8 @@ class Settings(BaseSettings):
             "presence_database_url",
             "recovery_database_url",
             "group_database_url",
+            "deactivation_database_url",
+            "deactivation_operator_database_url",
         ):
             value = getattr(self, field)
             path = getattr(self, field + "_file")

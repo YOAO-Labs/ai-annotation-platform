@@ -38,6 +38,23 @@ from aap_identity.group_contract import (
 )
 from aap_identity.group_manager import GroupManager
 from aap_identity.group_postgres import GroupPostgresData
+from aap_identity.deactivation_contract import (
+    DEACTIVATION_POLICY_PROTOCOL,
+    DEACTIVATION_PROTOCOL,
+    DUE_POLICY_PROTOCOL,
+    DUE_PROTOCOL,
+    DeactivationDueFailure,
+    DeactivationFailure,
+    decode_deactivation_due_request,
+    decode_deactivation_request,
+    deactivation_due_failure_reply,
+    deactivation_failure_reply,
+)
+from aap_identity.deactivation_manager import DeactivationManager
+from aap_identity.deactivation_postgres import (
+    DeactivationDuePostgresData,
+    DeactivationPostgresData,
+)
 from aap_identity.login_counter import RedisLoginCounter
 from aap_identity.postgres import PostgresData
 from aap_identity.presence_contract import (
@@ -80,6 +97,8 @@ def create_app(
     presence_data: PresencePostgresData | None = None,
     recovery_data: RecoveryPostgresData | None = None,
     group_data: GroupPostgresData | None = None,
+    deactivation_data: DeactivationPostgresData | None = None,
+    deactivation_due_data: DeactivationDuePostgresData | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     data = data or PostgresData(
@@ -178,6 +197,35 @@ def create_app(
         if group_data is not None
         else None
     )
+    deactivation_configured = (
+        deactivation_data is not None or settings.deactivation_database_url is not None
+    )
+    if deactivation_data is None and settings.deactivation_database_url is not None:
+        deactivation_data = DeactivationPostgresData(
+            settings.deactivation_database_url.get_secret_value(),
+            connect_timeout=settings.connect_timeout_seconds,
+            command_timeout=settings.command_timeout_seconds,
+        )
+    deactivation_manager = (
+        DeactivationManager(
+            auth, deactivation_data, settings.signing_secret.get_secret_value()
+        )
+        if deactivation_data is not None
+        else None
+    )
+    deactivation_due_configured = (
+        deactivation_due_data is not None
+        or settings.deactivation_operator_database_url is not None
+    )
+    if (
+        deactivation_due_data is None
+        and settings.deactivation_operator_database_url is not None
+    ):
+        deactivation_due_data = DeactivationDuePostgresData(
+            settings.deactivation_operator_database_url.get_secret_value(),
+            connect_timeout=settings.connect_timeout_seconds,
+            command_timeout=settings.command_timeout_seconds,
+        )
     slots = asyncio.Semaphore(settings.max_concurrency)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -214,6 +262,14 @@ def create_app(
                     if group_data is None:
                         raise IdentityUnavailable()
                     group_policy = await group_data.group_policy()
+                if deactivation_configured:
+                    if deactivation_data is None:
+                        raise IdentityUnavailable()
+                    deactivation_policy = await deactivation_data.deactivation_policy()
+                if deactivation_due_configured:
+                    if deactivation_due_data is None:
+                        raise IdentityUnavailable()
+                    due_policy = await deactivation_due_data.due_policy()
             if policy != {
                 "schema": "aap-identity-policy/v1",
                 "issuer": ISSUER,
@@ -263,6 +319,28 @@ def create_app(
                 if group_policy_value != {
                     "schema": GROUP_POLICY_PROTOCOL,
                     "policy": GROUP_PROTOCOL,
+                }:
+                    raise IdentityUnavailable()
+            if deactivation_configured:
+                deactivation_policy_value = (
+                    deactivation_policy.model_dump(mode="json", by_alias=True)
+                    if hasattr(deactivation_policy, "model_dump")
+                    else deactivation_policy
+                )
+                if deactivation_policy_value != {
+                    "schema": DEACTIVATION_POLICY_PROTOCOL,
+                    "policy": DEACTIVATION_PROTOCOL,
+                }:
+                    raise IdentityUnavailable()
+            if deactivation_due_configured:
+                due_policy_value = (
+                    due_policy.model_dump(mode="json", by_alias=True)
+                    if hasattr(due_policy, "model_dump")
+                    else due_policy
+                )
+                if due_policy_value != {
+                    "schema": DUE_POLICY_PROTOCOL,
+                    "policy": DUE_PROTOCOL,
                 }:
                     raise IdentityUnavailable()
         except (IdentityUnavailable, TimeoutError):
@@ -545,6 +623,86 @@ def create_app(
         except (IdentityUnavailable, TimeoutError):
             return JSONResponse(
                 {"detail": "Identity group commands unavailable"},
+                status_code=503,
+            )
+        return JSONResponse(reply.model_dump(mode="json", by_alias=True))
+
+    @app.post("/v1/identity/deactivation/execute")
+    async def execute_deactivation_command(request: Request):
+        supplied = request.headers.get("authorization", "").encode()
+        expected = ("Bearer " + settings.token.get_secret_value()).encode()
+        if not hmac.compare_digest(supplied, expected):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        if (
+            request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            != "application/json"
+        ):
+            return JSONResponse(
+                deactivation_failure_reply("invalid_request"), status_code=400
+            )
+        if deactivation_manager is None:
+            return JSONResponse(
+                {"detail": "Identity deactivation commands unavailable"},
+                status_code=503,
+            )
+        try:
+            async with asyncio.timeout(settings.request_timeout_seconds):
+                async with slots:
+                    body = await request.body()
+                    try:
+                        parsed = decode_deactivation_request(body)
+                    except (ValidationError, ValueError, TypeError, UnicodeError):
+                        return JSONResponse(
+                            deactivation_failure_reply("invalid_request"),
+                            status_code=400,
+                        )
+                    reply = await deactivation_manager.execute(parsed)
+        except DeactivationFailure as error:
+            return JSONResponse(deactivation_failure_reply(error))
+        except (IdentityUnavailable, TimeoutError):
+            return JSONResponse(
+                {"detail": "Identity deactivation commands unavailable"},
+                status_code=503,
+            )
+        return JSONResponse(reply.model_dump(mode="json", by_alias=True))
+
+    @app.post("/v1/identity/deactivation/process-due")
+    async def process_due_deactivations(request: Request):
+        supplied = request.headers.get("authorization", "").encode()
+        expected = ("Bearer " + settings.token.get_secret_value()).encode()
+        if not hmac.compare_digest(supplied, expected):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        if (
+            request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            != "application/json"
+        ):
+            return JSONResponse(
+                deactivation_due_failure_reply("invalid_request"), status_code=400
+            )
+        if deactivation_due_data is None:
+            return JSONResponse(
+                {"detail": "Identity deactivation operator unavailable"},
+                status_code=503,
+            )
+        try:
+            async with asyncio.timeout(settings.request_timeout_seconds):
+                async with slots:
+                    body = await request.body()
+                    try:
+                        parsed = decode_deactivation_due_request(body)
+                    except (ValidationError, ValueError, TypeError, UnicodeError):
+                        return JSONResponse(
+                            deactivation_due_failure_reply("invalid_request"),
+                            status_code=400,
+                        )
+                    reply = await deactivation_due_data.process_due_deactivations(
+                        parsed
+                    )
+        except DeactivationDueFailure as error:
+            return JSONResponse(deactivation_due_failure_reply(error))
+        except (IdentityUnavailable, TimeoutError):
+            return JSONResponse(
+                {"detail": "Identity deactivation operator unavailable"},
                 status_code=503,
             )
         return JSONResponse(reply.model_dump(mode="json", by_alias=True))

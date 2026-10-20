@@ -27,6 +27,22 @@ from aap_identity.contract import (  # noqa: E402
     FailureReply,
     PrincipalReply,
 )
+from aap_identity.deactivation_contract import (  # noqa: E402
+    DeactivationDueFailureReply,
+    DeactivationDuePolicyReply,
+    DeactivationDueReply,
+    DeactivationDueRequest,
+    DeactivationFailureReply,
+    DeactivationPolicyReply,
+    DeactivationReply,
+    DeactivationRequest,
+    NativeDeactivationCommand,
+    NativeDeactivationDueCommand,
+    NativeDeactivationDueFailureReply,
+    NativeDeactivationDueSuccess,
+    NativeDeactivationFailureReply,
+    NativeDeactivationSuccess,
+)
 from aap_identity.group_contract import (  # noqa: E402
     GroupFailureReply,
     GroupPolicyReply,
@@ -35,6 +51,14 @@ from aap_identity.group_contract import (  # noqa: E402
     NativeGroupCommand,
     NativeGroupFailureReply,
     NativeGroupSuccess,
+)
+from aap_identity.notification_delivery_contract import (  # noqa: E402
+    NotificationClaimReply,
+    NotificationClaimRequest,
+    NotificationDeliveryPolicyReply,
+    NotificationFinishReply,
+    NotificationFinishRequest,
+    NotificationLease,
 )
 from aap_identity.key_contract import (  # noqa: E402
     KeyFailureReply,
@@ -223,6 +247,49 @@ def main():
                 | GroupPolicyReply
             ),
             "aap-identity-groups-native/v1",
+        ),
+        "src/aap_identity/deactivation_protocol.schema.json": render_schema(
+            TypeAdapter(
+                DeactivationRequest | DeactivationReply | DeactivationFailureReply
+            ),
+            "aap-identity-deactivation/v1",
+        ),
+        "src/aap_identity/native_deactivation_protocol.schema.json": render_schema(
+            TypeAdapter(
+                NativeDeactivationCommand
+                | NativeDeactivationSuccess
+                | NativeDeactivationFailureReply
+                | DeactivationPolicyReply
+            ),
+            "aap-identity-deactivation-native/v1",
+        ),
+        "src/aap_identity/deactivation_due_protocol.schema.json": render_schema(
+            TypeAdapter(
+                DeactivationDueRequest
+                | DeactivationDueReply
+                | DeactivationDueFailureReply
+            ),
+            "aap-identity-deactivation-due/v1",
+        ),
+        "src/aap_identity/native_deactivation_due_protocol.schema.json": render_schema(
+            TypeAdapter(
+                NativeDeactivationDueCommand
+                | NativeDeactivationDueSuccess
+                | NativeDeactivationDueFailureReply
+                | DeactivationDuePolicyReply
+            ),
+            "aap-identity-deactivation-due-native/v1",
+        ),
+        "src/aap_identity/notification_delivery_protocol.schema.json": render_schema(
+            TypeAdapter(
+                NotificationClaimRequest
+                | NotificationClaimReply
+                | NotificationFinishRequest
+                | NotificationFinishReply
+                | NotificationDeliveryPolicyReply
+                | NotificationLease
+            ),
+            "aap-notifications-delivery/v1",
         ),
         "src/aap_identity/native_mail_protocol.schema.json": render_schema(
             TypeAdapter(

@@ -1,0 +1,146 @@
+{
+  "$defs": {
+    "DeactivationDueFailureDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": ["invalid_request", "invariant_busy", "operation_conflict"],
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "DeactivationDueFailureDetail",
+      "type": "object"
+    },
+    "DeactivationDuePolicyReply": {
+      "additionalProperties": false,
+      "properties": {
+        "policy": {
+          "const": "aap-identity-deactivation-due/v1",
+          "title": "Policy",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-deactivation-due-policy/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "policy"],
+      "title": "DeactivationDuePolicyReply",
+      "type": "object"
+    },
+    "NativeDeactivationDueCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "maximum": 500,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-deactivation-due-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation_id", "limit"],
+      "title": "NativeDeactivationDueCommand",
+      "type": "object"
+    },
+    "NativeDeactivationDueFailureReply": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/DeactivationDueFailureDetail"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-deactivation-due-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "title": "NativeDeactivationDueFailureReply",
+      "type": "object"
+    },
+    "NativeDeactivationDueSuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "blocked_last_super_admin": {
+          "minimum": 0,
+          "title": "Blocked Last Super Admin",
+          "type": "integer"
+        },
+        "examined": {
+          "minimum": 0,
+          "title": "Examined",
+          "type": "integer"
+        },
+        "has_more": {
+          "title": "Has More",
+          "type": "boolean"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "processed": {
+          "minimum": 0,
+          "title": "Processed",
+          "type": "integer"
+        },
+        "schema": {
+          "const": "aap-identity-deactivation-due-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "ok",
+        "operation_id",
+        "processed",
+        "examined",
+        "blocked_last_super_admin",
+        "has_more"
+      ],
+      "title": "NativeDeactivationDueSuccess",
+      "type": "object"
+    }
+  },
+  "$id": "aap-identity-deactivation-due-native/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/NativeDeactivationDueCommand"
+    },
+    {
+      "$ref": "#/$defs/NativeDeactivationDueSuccess"
+    },
+    {
+      "$ref": "#/$defs/NativeDeactivationDueFailureReply"
+    },
+    {
+      "$ref": "#/$defs/DeactivationDuePolicyReply"
+    }
+  ]
+}
