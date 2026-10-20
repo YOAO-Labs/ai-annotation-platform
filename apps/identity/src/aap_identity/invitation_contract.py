@@ -898,9 +898,20 @@ def _wire_policy_failure_matches(
     if operation == "create_invitation":
         known_platform_roles = set(_ROLE_LABELS)
         project_role_valid = payload.project_member_role in _PROJECT_ROLE_LABELS
+        requested_project_role_label = _PROJECT_ROLE_LABELS.get(
+            payload.project_member_role
+        )
         pair_compatible = payload.role == "employee" or (
             payload.role == "viewer" and payload.project_member_role == "viewer"
         )
+        existing_role_mismatch_details = {
+            (
+                f"当前账号是{_ROLE_LABELS[current_role]}，无法持有"
+                f"{requested_project_role_label}项目职责。为避免静默修改平台角色，"
+                "请联系管理员调整账号角色后再接受邀请"
+            )
+            for current_role in _ROLE_LABELS
+        }
         return (
             (
                 failure.status_code == 400
@@ -934,6 +945,12 @@ def _wire_policy_failure_matches(
                 and detail == "项目管理员仅能邀请员工或观察者"
                 and payload.role not in {"employee", "viewer"}
             )
+            or (
+                failure.status_code == 409
+                and requested_project_role_label is not None
+                and payload.project_id is not None
+                and detail in existing_role_mismatch_details
+            )
         )
     if operation == "register_invitation":
         errors = validate_password_strength(payload.password)
@@ -958,15 +975,9 @@ def _wire_policy_failure_matches(
             )
         )
     if operation == "accept_invitation":
-        role_mismatch_details = {
-            (
-                f"当前账号是{_ROLE_LABELS[role]}，无法持有"
-                f"{project_role_label}项目职责。为避免静默修改平台角色，"
-                "请联系管理员调整账号角色后再接受邀请"
-            )
-            for role in _ROLE_LABELS
-            for project_role_label in _PROJECT_ROLE_LABELS.values()
-        }
+        role_mismatch_details = _role_mismatch_details(
+            set(_PROJECT_ROLE_LABELS.values())
+        )
         return (
             (
                 failure.status_code == 409
@@ -1066,8 +1077,12 @@ def _operation_allows_failure(
     if code in {"invitation_used", "invitation_revoked", "invitation_expired"}:
         return operation in _PROOF_OPERATIONS | {"send_invitation_email"}
     if code == "invitation_scope_invalid":
+        if operation == "create_invitation":
+            return (
+                request.payload.project_id is not None
+                and failure.detail == "邀请人已不再管理目标项目"
+            )
         return operation in {
-            "create_invitation",
             "resolve_invitation",
             "register_invitation",
             "accept_invitation",
@@ -1097,6 +1112,18 @@ def _operation_allows_failure(
     if code == "policy_rejected":
         return _wire_policy_failure_matches(request, failure)
     return False
+
+
+def _role_mismatch_details(project_role_labels: set[str]) -> set[str]:
+    return {
+        (
+            f"当前账号是{_ROLE_LABELS[role]}，无法持有"
+            f"{project_role_label}项目职责。为避免静默修改平台角色，"
+            "请联系管理员调整账号角色后再接受邀请"
+        )
+        for role in _ROLE_LABELS
+        for project_role_label in project_role_labels
+    }
 
 
 def _native_operation_allows_failure(operation: str, code: str) -> bool:
@@ -1868,7 +1895,7 @@ def _expected_policy_detail(
         "scope_all_forbidden": _READ_OPERATIONS,
         "group_name_invalid": {"register_invitation"},
         "manager_required": _MANAGER_OPERATIONS,
-        "incompatible_account_role": {"accept_invitation"},
+        "incompatible_account_role": {"create_invitation", "accept_invitation"},
     }
     if operation not in allowed_operations[policy]:
         raise IdentityUnavailable()
@@ -1907,6 +1934,10 @@ def _expected_policy_detail(
         if policy == "already_member" and args.project_id is None:
             raise IdentityUnavailable()
         if policy == "active_email_exists" and args.project_id is not None:
+            raise IdentityUnavailable()
+        if policy == "incompatible_account_role" and (
+            args.project_id is None or args.project_member_role not in project_roles
+        ):
             raise IdentityUnavailable()
     if policy == "manager_required" and (
         command.actor is None
@@ -2016,15 +2047,17 @@ def _expected_policy_detail(
             raise IdentityUnavailable()
         status_code = 400
     elif policy == "incompatible_account_role":
-        possible_details = {
-            (
-                f"当前账号是{_ROLE_LABELS[current_role]}，无法持有"
-                f"{_PROJECT_ROLE_LABELS[project_role]}项目职责。为避免静默修改平台角色，"
-                "请联系管理员调整账号角色后再接受邀请"
+        if operation == "create_invitation":
+            project_role_label = _PROJECT_ROLE_LABELS.get(
+                command.args.project_member_role
             )
-            for current_role in _ROLE_LABELS
-            for project_role in _PROJECT_ROLE_LABELS
-        }
+            if project_role_label is None:
+                raise IdentityUnavailable()
+            possible_details = _role_mismatch_details({project_role_label})
+        else:
+            possible_details = _role_mismatch_details(
+                set(_PROJECT_ROLE_LABELS.values())
+            )
         if detail not in possible_details:
             raise IdentityUnavailable()
         expected = detail

@@ -8,9 +8,14 @@ import pytest
 from aap_identity.contract import IdentityUnavailable
 from aap_identity.invitation_contract import (
     INVITATION_PROTOCOL,
+    NATIVE_INVITATION_PROTOCOL,
     InvitationFailure,
     decode_invitation_reply,
+    decode_native_invitation_prepare_reply,
+    native_invitation_prepare_command,
 )
+from aap_identity.invitation_crypto import invitation_request_fingerprint
+from aap_identity.invitation_contract import NativeInvitationConfig
 from aap_identity.session_contract import SessionClaims
 from aap_identity.session_manager import sign_session_claims
 from invitation_helpers import (
@@ -89,6 +94,125 @@ def test_failures_bind_dynamic_email_and_operation_specific_not_found_detail():
                     else principal(role="super_admin")
                 ),
             )
+
+
+def test_create_existing_account_role_conflict_binds_project_role_label():
+    request = invitation_request(
+        "create_invitation",
+        payload={
+            "email": "invitee@example.test",
+            "role": "employee",
+            "group_name": None,
+            "project_id": "ac2f005c-49b7-4a47-8ff5-6eeb574bd24c",
+            "project_member_role": "reviewer",
+        },
+    )
+    detail = (
+        "当前账号是超级管理员，无法持有审核员项目职责。为避免静默修改平台角色，"
+        "请联系管理员调整账号角色后再接受邀请"
+    )
+    with pytest.raises(InvitationFailure) as exc_info:
+        decode_invitation_reply(
+            request,
+            failure(request, "policy_rejected", 409, detail),
+            expected_principal=principal(role="super_admin"),
+        )
+    assert exc_info.value.detail == detail
+
+    wrong_project_role = detail.replace("审核员", "标注员")
+    with pytest.raises(IdentityUnavailable):
+        decode_invitation_reply(
+            request,
+            failure(request, "policy_rejected", 409, wrong_project_role),
+            expected_principal=principal(role="super_admin"),
+        )
+
+
+def test_create_project_admin_scope_preserves_the_legacy_410_failure():
+    project_request = invitation_request(
+        "create_invitation",
+        payload={
+            "email": "invitee@example.test",
+            "role": "employee",
+            "group_name": None,
+            "project_id": "ac2f005c-49b7-4a47-8ff5-6eeb574bd24c",
+            "project_member_role": "annotator",
+        },
+    )
+    with pytest.raises(InvitationFailure) as exc_info:
+        decode_invitation_reply(
+            project_request,
+            failure(
+                project_request,
+                "invitation_scope_invalid",
+                410,
+                "邀请人已不再管理目标项目",
+            ),
+            expected_principal=principal(role="project_admin"),
+        )
+    assert exc_info.value.status_code == 410
+
+    account_request = invitation_request("create_invitation")
+    with pytest.raises(IdentityUnavailable):
+        decode_invitation_reply(
+            account_request,
+            failure(
+                account_request,
+                "invitation_scope_invalid",
+                410,
+                "邀请人已不再管理目标项目",
+            ),
+            expected_principal=principal(role="project_admin"),
+        )
+
+
+def test_native_create_policy_accepts_only_request_bound_project_scope_details():
+    request = invitation_request(
+        "create_invitation",
+        payload={
+            "email": "invitee@example.test",
+            "role": "employee",
+            "group_name": None,
+            "project_id": "ac2f005c-49b7-4a47-8ff5-6eeb574bd24c",
+            "project_member_role": "reviewer",
+        },
+    )
+    command = native_invitation_prepare_command(
+        request,
+        actor=principal(role="super_admin"),
+        expected_key_hash=None,
+        request_fingerprint=invitation_request_fingerprint(INVITATION_SECRET, request)[
+            0
+        ],
+        derivation_id="b" * 64,
+        config=NativeInvitationConfig(
+            invitation_ttl_days=7,
+            max_invitations_per_day=30,
+            frontend_base_url="https://frontend.example.test",
+            expire_minutes=1440,
+        ),
+    )
+    detail = (
+        "当前账号是超级管理员，无法持有审核员项目职责。为避免静默修改平台角色，"
+        "请联系管理员调整账号角色后再接受邀请"
+    )
+    native_failure = {
+        "schema": NATIVE_INVITATION_PROTOCOL,
+        "ok": False,
+        "error": {
+            "code": "policy_rejected",
+            "policy": "incompatible_account_role",
+            "detail": detail,
+        },
+    }
+    with pytest.raises(InvitationFailure) as exc_info:
+        decode_native_invitation_prepare_reply(command, native_failure)
+    assert exc_info.value.status_code == 409
+
+    wrong_project_role = detail.replace("审核员", "标注员")
+    native_failure["error"]["detail"] = wrong_project_role
+    with pytest.raises(IdentityUnavailable):
+        decode_native_invitation_prepare_reply(command, native_failure)
 
 
 def test_failure_decoder_rejects_arbitrary_policy_and_credential_details():
