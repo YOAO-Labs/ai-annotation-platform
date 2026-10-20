@@ -266,7 +266,7 @@ async def test_public_invoker_helper_cannot_write_private_identity_tables():
                     pg_catalog.gen_random_uuid(),
                     1,
                     '{}'::jsonb,
-                    'admin-password-role-probe'
+                    'admin-reset-probe'
                 )
                 """
             )

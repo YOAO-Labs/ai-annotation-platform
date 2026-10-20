@@ -240,6 +240,7 @@ DOMAIN_PACKAGES = (
     ),
     DomainSpec(package="identity_group_commands", legacy_facades=()),
     DomainSpec(package="identity_directory_commands", legacy_facades=()),
+    DomainSpec(package="identity_admin_password_commands", legacy_facades=()),
     DomainSpec(package="identity_invitation_commands", legacy_facades=()),
     DomainSpec(package="identity_mail_v2_delivery", legacy_facades=()),
     DomainSpec(package="quality_job_dispatch", legacy_facades=()),

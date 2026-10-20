@@ -618,36 +618,39 @@ async def test_pa_writes_blocked_on_super_admin(
     httpx_client: httpx.AsyncClient, project_admin, super_admin, db_session
 ):
     world = await _seed_scope_world(db_session, project_admin, super_admin)
+    # Owner denials roll back the command; retain fixture rows in the outer savepoint.
+    await db_session.commit()
     target = world.admin
+    target_id, target_email, target_name = target.id, target.email, target.name
     headers = _headers(project_admin)
 
     role = await httpx_client.patch(
-        f"/api/v1/users/{target.id}/role",
+        f"/api/v1/users/{target_id}/role",
         json={"role": "employee"},
         headers=headers,
     )
     assert role.status_code == 403, role.text
 
     reset = await httpx_client.post(
-        f"/api/v1/users/{target.id}/admin-reset-password", headers=headers
+        f"/api/v1/users/{target_id}/admin-reset-password", headers=headers
     )
     assert reset.status_code == 403, reset.text
 
     deactivate = await httpx_client.post(
-        f"/api/v1/users/{target.id}/deactivate", headers=headers
+        f"/api/v1/users/{target_id}/deactivate", headers=headers
     )
     assert deactivate.status_code == 403, deactivate.text
 
-    delete = await httpx_client.delete(f"/api/v1/users/{target.id}", headers=headers)
+    delete = await httpx_client.delete(f"/api/v1/users/{target_id}", headers=headers)
     assert delete.status_code == 403, delete.text
 
     # Platform-role preview is super-admin only, so an out-of-scope project
     # administrator is denied before any user detail is disclosed.
     preview = await httpx_client.get(
-        f"/api/v1/users/{target.id}/role/preview?role=employee", headers=headers
+        f"/api/v1/users/{target_id}/role/preview?role=employee", headers=headers
     )
     assert preview.status_code == 403, preview.text
-    assert target.email not in preview.text and target.name not in preview.text
+    assert target_email not in preview.text and target_name not in preview.text
 
 
 async def test_legacy_role_filters_are_rejected(

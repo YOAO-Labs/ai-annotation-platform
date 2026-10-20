@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import secrets
-import string
-from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import HTTPException, Request
@@ -13,7 +10,6 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import hash_password
 from app.db.enums import PLATFORM_ROLES, UserRole
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
@@ -23,7 +19,6 @@ from app.db.models.user import User
 from app.services.audit import AuditAction, AuditService
 from app.services.batch import BatchService
 from app.services.management import platform_role_change_blockers
-from app.services.identity_commands import IdentityCommandService
 from app.services.user_lifecycle import (
     UserLifecycleService,
     retire_account_credentials,
@@ -441,81 +436,6 @@ async def change_user_role(
     await db.commit()
     await db.refresh(user)
     return user
-
-
-_ROLE_LEVEL = {
-    UserRole.SUPER_ADMIN.value: 0,
-    UserRole.PROJECT_ADMIN.value: 1,
-    UserRole.REVIEWER.value: 2,
-    UserRole.EMPLOYEE.value: 3,
-    UserRole.ANNOTATOR.value: 3,
-    UserRole.VIEWER.value: 4,
-}
-
-
-def _generate_temp_password(length: int = 16) -> str:
-    """生成 16 位强临时密码：≥1 大写 / 小写 / 数字 / 符号。"""
-    upper = string.ascii_uppercase
-    lower = string.ascii_lowercase
-    digits = string.digits
-    # 限制符号集合，避免 shell 转义麻烦：!@#$%^&*?
-    symbols = "!@#$%^&*?"
-    pool = upper + lower + digits + symbols
-    while True:
-        pwd = "".join(secrets.choice(pool) for _ in range(length))
-        if (
-            any(c in upper for c in pwd)
-            and any(c in lower for c in pwd)
-            and any(c in digits for c in pwd)
-            and any(c in symbols for c in pwd)
-        ):
-            return pwd
-
-
-async def admin_reset_password(
-    db: AsyncSession, *, user_id: UUID, actor: User, request: Request
-) -> tuple[User, str]:
-    target, actor = await _lock_legacy_lifecycle_target(db, str(user_id), actor)
-    if target is None or not target.is_active:
-        raise HTTPException(status_code=404, detail="用户不存在")
-    if target.id == actor.id:
-        raise HTTPException(
-            status_code=400, detail="不能给自己重置密码（请用「修改密码」）"
-        )
-
-    actor_lvl = _ROLE_LEVEL.get(actor.role, 99)
-    target_lvl = _ROLE_LEVEL.get(target.role, 99)
-    # 只能重置严格低等级（数值更大）的用户
-    if target_lvl <= actor_lvl:
-        raise HTTPException(status_code=403, detail="只能重置等级低于你的用户的密码")
-
-    if actor.role == UserRole.PROJECT_ADMIN.value:
-        # project_admin 可重置启用标注员/审核员（含未分配）的密码；同级与超管除外
-        if target.role == UserRole.PROJECT_ADMIN.value:
-            raise HTTPException(status_code=403, detail="项目管理员之间不可互重置")
-        if not await project_admin_manages_target(db, actor=actor, target=target):
-            raise HTTPException(status_code=403, detail="该用户不在你管理的项目内")
-
-    temp_password = _generate_temp_password()
-    IdentityCommandService.set_password_for_locked_user(
-        target,
-        hash_password(temp_password),
-        admin_reset_at=datetime.now(timezone.utc),
-    )
-
-    await AuditService.log(
-        db,
-        actor=actor,
-        action=AuditAction.USER_PASSWORD_ADMIN_RESET,
-        target_type="user",
-        target_id=str(target.id),
-        request=request,
-        status_code=200,
-        # 注意：detail 不记录密码本身
-        detail={"target_email": target.email, "target_role": target.role},
-    )
-    await db.commit()
-    return target, temp_password
 
 
 def bulk_error(exc: Exception) -> str:

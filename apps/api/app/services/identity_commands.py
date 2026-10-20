@@ -130,14 +130,3 @@ class IdentityCommandService:
         self.db.add(admin)
         await self.db.flush()
         return admin
-
-    @staticmethod
-    def set_password_for_locked_user(
-        user: User,
-        password_hash: str,
-        *,
-        admin_reset_at: datetime | None = None,
-    ) -> None:
-        """Set a credential while its account row is locked; None clears reset state."""
-        user.password_hash = password_hash
-        user.password_admin_reset_at = admin_reset_at

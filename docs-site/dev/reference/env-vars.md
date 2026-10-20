@@ -490,6 +490,8 @@ last_reviewed: 2026-10-20
 | `IDENTITY_GROUP_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_DIRECTORY_DATABASE_URL` | `—` | User directory reads use an optional two-function Identity LOGIN; leave empty for the caller transaction. |
 | `IDENTITY_DIRECTORY_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_ADMIN_PASSWORD_DATABASE_URL` | `—` | Administrator password reset uses its own optional two-function Identity LOGIN. |
+| `IDENTITY_ADMIN_PASSWORD_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_INVITATION_DATABASE_URL` | `—` | Complete Identity invitation lifecycle uses an optional three-function owner; mail-v2 is a separate optional four-function sender. |
 | `IDENTITY_INVITATION_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_MAIL_V2_DATABASE_URL` | `—` | — |
@@ -519,6 +521,7 @@ last_reviewed: 2026-10-20
 | `IDENTITY_RUNTIME_PRESENCE_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_GROUP_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_DIRECTORY_DATABASE_URL_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_ADMIN_PASSWORD_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_INVITATION_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE` | `—` | Required when starting the optional `mail-v2` Compose profile. |
 | `IDENTITY_RUNTIME_DEACTIVATION_DATABASE_URL_FILE` | `—` | — |

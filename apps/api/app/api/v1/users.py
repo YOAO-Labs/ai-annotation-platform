@@ -8,7 +8,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, sta
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core.ratelimit import limiter
 from app.deps import bearer_scheme, get_db, require_roles
@@ -35,6 +35,11 @@ from app.services.csv_export import csv_literal
 from app.services.management import (
     role_impact_preview,
 )
+from app.api.v1.admin_password_commands import (
+    execute_admin_password_reset,
+    get_admin_password_commands,
+)
+from app.services.identity_admin_password_commands import AdminPasswordCommandsPort
 from app.api.v1.directory_commands import execute_directory, get_directory_commands
 from app.services.identity_directory_commands import DirectoryCommandsPort
 from app.api.v1.group_commands import execute_group, get_group_commands
@@ -45,7 +50,6 @@ from app.api.v1.invitation_commands import (
 from app.services.identity_invitation_commands import InvitationCommandsPort
 from app.services.identity_group_commands import GroupCommandsPort
 from app.application.legacy_user_lifecycle import (
-    admin_reset_password as admin_reset_password_workflow,
     change_user_role as change_user_role_workflow,
     deactivate_user as deactivate_user_workflow,
     delete_user as delete_user_workflow,
@@ -385,11 +389,8 @@ async def change_user_role(
     )
 
 
-# —— v0.8.1 · 管理员重置低等级用户密码 ——
-
-
 class AdminResetPasswordResponse(BaseModel):
-    temp_password: str
+    temp_password: str = Field(repr=False)
     message: str
     target_email: str
 
@@ -403,17 +404,15 @@ class AdminResetPasswordResponse(BaseModel):
 async def admin_reset_password(
     user_id: UUID,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: AdminPasswordCommandsPort = Depends(get_admin_password_commands),
 ):
-    target, temp_password = await admin_reset_password_workflow(
-        db, user_id=user_id, actor=actor, request=request
-    )
+    result = await execute_admin_password_reset(request, credentials, commands, user_id)
 
     return AdminResetPasswordResponse(
-        temp_password=temp_password,
+        temp_password=result.temp_password,
         message="请通过安全渠道告知用户首次登录后立即修改密码",
-        target_email=target.email,
+        target_email=result.target_email,
     )
 
 
