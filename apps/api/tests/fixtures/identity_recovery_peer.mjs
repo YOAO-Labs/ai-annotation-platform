@@ -37,34 +37,6 @@ const maxInt64 = (1n << 63n) - 1n;
 const maxPythonEpochSeconds = 253402300799n;
 const maxInputBytes = 128 * 1024;
 const maxRequestBytes = 64 * 1024;
-const secretFieldNames = new Set([
-  "password",
-  "password_hash",
-  "old_password",
-  "new_password",
-  "token",
-  "token_hash",
-  "token_ciphertext",
-  "raw_token",
-  "challenge_token",
-  "challenge_url",
-  "delivery_token",
-  "verification_url",
-  "reset_url",
-  "lease_token",
-  "smtp_user",
-  "smtp_password",
-  "smtp_secret",
-  "smtp_credential",
-  "mail_user",
-  "mail_password",
-  "mail_secret",
-  "mail_credential",
-  "delivery_credential",
-  "delivery_secret",
-  "encryption_id",
-  "authorization",
-]);
 
 function fail() {
   throw new Error("Invalid Identity recovery request or response");
@@ -414,39 +386,15 @@ function validateAccountRecord(value) {
   return value;
 }
 
-function assertNoSecretFields(value) {
-  if (Array.isArray(value)) {
-    for (const item of value) assertNoSecretFields(item);
-    return;
-  }
-  if (!isRecord(value)) return;
-  for (const [key, item] of Object.entries(value)) {
-    if (secretFieldNames.has(key.toLowerCase())) fail();
-    assertNoSecretFields(item);
-  }
-}
-
-function assertNoSecretEcho(reply, request) {
+function assertNoSecretEcho(detail, request) {
+  if (typeof detail !== "string") return;
   const secrets = [];
   if (request.operation === "register_open") secrets.push(request.payload.password);
   if (request.operation === "consume_password_reset") {
     secrets.push(request.payload.token, request.payload.new_password);
   }
   if (request.operation === "consume_email_verification") secrets.push(request.payload.token);
-  const visit = (value) => {
-    if (typeof value === "string") {
-      for (const secret of secrets) {
-        if (secret.length >= 8 && value.includes(secret)) fail();
-      }
-      return;
-    }
-    if (Array.isArray(value)) {
-      for (const item of value) visit(item);
-      return;
-    }
-    if (isRecord(value)) for (const item of Object.values(value)) visit(item);
-  };
-  visit(reply);
+  for (const secret of secrets) if (secret.length >= 8 && detail.includes(secret)) fail();
 }
 
 function normalizedClaims(claims) {
@@ -555,8 +503,6 @@ export function decodeRecoveryResponse(request, source, status, contentType) {
     { path: ["data", "claims", "exp"], max: maxPythonEpochSeconds, positive: true },
     { path: ["data", "claims", "gen"], max: maxInt64, asBigInt: true },
   ]);
-  assertNoSecretFields(document);
-  assertNoSecretEcho(document, request.request);
   if (!isRecord(document) || document.schema !== schema || typeof document.ok !== "boolean") fail();
 
   if (document.ok === false) {
@@ -570,6 +516,7 @@ export function decodeRecoveryResponse(request, source, status, contentType) {
     ) {
       fail();
     }
+    assertNoSecretEcho(document.error.detail, request.request);
     return {
       receipt: {
         status,
@@ -755,6 +702,22 @@ function selfCheck() {
   }
   checks += 1;
 
+  const sharedPasswordName = "StrongPass123";
+  const sharedNameRequest = makeRequest("register_open", actorId, {
+    email: "same-name@example.test",
+    name: sharedPasswordName,
+    password: sharedPasswordName,
+    captcha_verified: true,
+  });
+  const sharedNameResult = decodeRecoveryResponse(
+    sharedNameRequest,
+    testReply(sharedNameRequest, registrationData(sharedNameRequest)),
+    200,
+    "application/json",
+  );
+  if (sharedNameResult.receipt.account.name !== sharedPasswordName) fail();
+  checks += 1;
+
   const verifiedRegister = makeRequest("register_open", actorId, {
     email: "new-user@example.test",
     name: "New User",
@@ -770,6 +733,26 @@ function selfCheck() {
   if (
     !pending.receipt.email_verification_required ||
     pending.receipt.access_token_sha256 !== null
+  ) {
+    fail();
+  }
+  checks += 1;
+
+  const opaquePreferences = registrationData(register);
+  opaquePreferences.account.preferences = {
+    token: "opaque-preference-value",
+    password: "opaque-preference-password",
+    protocol: "aap-identity-recovery/v1",
+  };
+  const opaquePreferenceResult = decodeRecoveryResponse(
+    register,
+    testReply(register, opaquePreferences),
+    200,
+    "application/json",
+  );
+  if (
+    opaquePreferenceResult.receipt.account.preferences.token !== "opaque-preference-value" ||
+    opaquePreferenceResult.receipt.account.preferences.protocol !== "aap-identity-recovery/v1"
   ) {
     fail();
   }
@@ -821,6 +804,24 @@ function selfCheck() {
     if (response.receipt.completed !== completed) fail();
     checks += 1;
   }
+
+  const reservedLookingToken = makeRequest("consume_email_verification", actorId, {
+    token: "password_reset",
+  });
+  const reservedLookingResult = decodeRecoveryResponse(
+    reservedLookingToken,
+    testReply(reservedLookingToken, {
+      account: null,
+      claims: null,
+      access_token: null,
+      email_verification_required: null,
+      completed: true,
+    }),
+    200,
+    "application/json",
+  );
+  if (reservedLookingResult.receipt.completed !== true) fail();
+  checks += 1;
 
   const legacyToken = "legacy-token_" + "a".repeat(51);
   const legacyConsume = makeRequest("consume_email_verification", actorId, {
@@ -958,10 +959,16 @@ function selfCheck() {
   expectFailure(() =>
     decodeRecoveryResponse(
       register,
-      testReply(register, { ...registrationData(register), challenge_token: "raw" }),
+      testReply(register, { ...registrationData(register), token_ciphertext: "ciphertext" }),
       200,
       "application/json",
     ),
+  );
+  checks += 1;
+  const accountWithHash = registrationData(register);
+  accountWithHash.account.password_hash = "must-not-be-public";
+  expectFailure(() =>
+    decodeRecoveryResponse(register, testReply(register, accountWithHash), 200, "application/json"),
   );
   checks += 1;
   expectFailure(() =>
@@ -1062,10 +1069,7 @@ function validatePeerInput(value) {
 }
 
 function validateIssuedPrincipal(source, status, contentType, account, claims) {
-  const strict = parseStrictJson(source, [
-    { path: ["data", "generation"], max: maxInt64, asBigInt: true },
-  ]).document;
-  assertNoSecretFields(strict);
+  parseStrictJson(source, [{ path: ["data", "generation"], max: maxInt64, asBigInt: true }]);
   const issued = parseIdentityReceipt(source, status, contentType);
   if (
     !issued.ok ||
