@@ -1,11 +1,11 @@
 # Identity
 
 This package contains the JWT/API-key verifier, API-key management, core sessions
-and self-account command owners, the user-directory read owner, the group
-catalog/assignment owner, and the invitation/mail-v2 owners and their closed
-contracts. It has one private HTTP process plus separate private worker
-entrypoints. Invitation/MailV2 have completed local qualification; directory
-qualification is part of the current slice.
+and self-account command owners, the user-directory read owner, administrator
+password-reset owner, group catalog/assignment owner, and invitation/mail-v2
+owners and their closed contracts. It has one private HTTP process plus separate
+private worker entrypoints. Invitation/MailV2 have completed local qualification;
+directory and administrator password-reset qualification are in progress.
 The runtime has no application, SQLAlchemy, Celery or object-store dependency.
 Admission uses four PostgreSQL capabilities, key management uses two, and
 sessions use three plus a scoped Redis login-counter identity. Each configured
@@ -16,9 +16,9 @@ operations. Self-deactivation adds separate two-function user and due-operator
 capabilities; the Notifications publisher is a distinct three-function/Redis
 process. Invitation commands use a separate three-function Identity capability;
 MailV2 uses its own four-function sender role. User directory reads use a
-separate two-function Identity capability. Platform-role/password administration,
-dashboard analytics, other-user hydration and multi-owner lifecycle remain in
-the API, so this is not yet a complete Identity service.
+separate two-function Identity capability. Platform-role administration,
+dashboard analytics, other-user hydration and remaining multi-owner lifecycle
+remain in the API, so this is not yet a complete Identity service.
 
 ## Run
 
@@ -185,6 +185,26 @@ receipt commit atomically. Search uses Python's full Unicode `str.strip()`
 semantics and PostgreSQL ILIKE; the owner does not add a row-count or response
 byte cap. See `directory_protocol.schema.json` and
 `native_directory_protocol.schema.json` for the closed private DTOs.
+
+## Administrator password reset
+
+The private `POST /v1/identity/admin-passwords/execute` accepts the control
+bearer and a current user credential in `aap-identity-admin-passwords/v1`. It
+owns the password hash, reset marker, typed audit entry and idempotency receipt
+in one owner transaction. The temporary password is deterministically derived
+from the signing-secret epoch, actor, operation UUID and target; bcrypt cost 12
+is computed before opening the database transaction. The immutable receipt
+stores no plaintext password or usable password hash, and a replay is returned
+only while the target's current password state still matches it.
+
+The optional `IDENTITY_ADMIN_PASSWORD_DATABASE_URL(_FILE)` selects the dedicated
+two-function owner login. A configured owner never falls back to the API
+transaction, and `/ready` verifies the exact policy and least-privilege
+capability set. See `admin_password_protocol.schema.json` and
+`native_admin_password_protocol.schema.json` for the closed wire and native
+DTOs. The public API adapter retains the existing reset response and handles
+the temporary password as a secret. Platform-role administration remains in the
+API.
 
 ## Invitation lifecycle and MailV2
 
@@ -387,5 +407,5 @@ the exact file mapping and lifecycle rules.
 
 This implementation is a local architecture slice. It does not complete the
 Identity module, authorize a primary cutover or production deployment, or supply
-an alternate-language provider. Group/admin workflows and full lifecycle
+an alternate-language provider. Group assignment and remaining lifecycle
 ownership remain open.

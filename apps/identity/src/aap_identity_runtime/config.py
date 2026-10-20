@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     invitation_database_url_file: str | None = None
     directory_database_url: SecretStr | None = None
     directory_database_url_file: str | None = None
+    admin_password_database_url: SecretStr | None = None
+    admin_password_database_url_file: str | None = None
     recovery_mail_key: SecretStr | None = None
     recovery_mail_key_file: str | None = None
     token: SecretStr | None = None
@@ -60,6 +62,13 @@ class Settings(BaseSettings):
     @field_validator("directory_database_url_file", mode="before")
     @classmethod
     def blank_directory_dsn_file_is_unset(cls, value):
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("admin_password_database_url_file", mode="before")
+    @classmethod
+    def blank_admin_password_dsn_file_is_unset(cls, value):
         if isinstance(value, str) and not value.strip():
             return None
         return value
@@ -127,6 +136,7 @@ class Settings(BaseSettings):
             "deactivation_operator_database_url",
             "invitation_database_url",
             "directory_database_url",
+            "admin_password_database_url",
         ):
             value = getattr(self, field)
             path = getattr(self, field + "_file")

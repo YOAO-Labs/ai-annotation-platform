@@ -21,6 +21,15 @@ from aap_identity.account_contract import (  # noqa: E402
     NativePrepareCommand,
     NativePrepareReply,
 )
+from aap_identity.admin_password_contract import (  # noqa: E402
+    AdminPasswordFailureReply,
+    AdminPasswordReply,
+    AdminPasswordRequest,
+    NativeAdminPasswordCommand,
+    NativeAdminPasswordFailureReply,
+    NativeAdminPasswordPolicyReply,
+    NativeAdminPasswordSuccess,
+)
 from aap_identity.contract import (  # noqa: E402
     AuthenticateRequest,
     CandidatesPage,
@@ -231,6 +240,21 @@ def main():
         "src/aap_identity/account_protocol.schema.json": render_schema(
             TypeAdapter(AccountRequest | AccountReply | AccountFailureReply),
             "aap-identity-accounts/v1",
+        ),
+        "src/aap_identity/admin_password_protocol.schema.json": render_schema(
+            TypeAdapter(
+                AdminPasswordRequest | AdminPasswordReply | AdminPasswordFailureReply
+            ),
+            "aap-identity-admin-passwords/v1",
+        ),
+        "src/aap_identity/native_admin_password_protocol.schema.json": render_schema(
+            TypeAdapter(
+                NativeAdminPasswordCommand
+                | NativeAdminPasswordSuccess
+                | NativeAdminPasswordFailureReply
+                | NativeAdminPasswordPolicyReply
+            ),
+            "aap-identity-admin-passwords-native/v1",
         ),
         "src/aap_identity/native_account_protocol.schema.json": render_schema(
             TypeAdapter(

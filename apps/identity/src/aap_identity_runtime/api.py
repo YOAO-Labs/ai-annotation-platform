@@ -12,6 +12,15 @@ from aap_identity.account_contract import (
 )
 from aap_identity.account_manager import AccountManager
 from aap_identity.account_postgres import AccountPostgresData
+from aap_identity.admin_password_contract import (
+    ADMIN_PASSWORD_POLICY_PROTOCOL,
+    ADMIN_PASSWORD_PROTOCOL,
+    AdminPasswordFailure,
+    decode_admin_password_request,
+    admin_password_failure_reply,
+)
+from aap_identity.admin_password_manager import AdminPasswordManager
+from aap_identity.admin_password_postgres import AdminPasswordPostgresData
 from aap_identity.authenticator import Authenticator
 from aap_identity.contract import (
     REFRESH_GRACE_SECONDS,
@@ -119,6 +128,7 @@ def create_app(
     deactivation_due_data: DeactivationDuePostgresData | None = None,
     invitation_data: InvitationPostgresData | None = None,
     directory_data: DirectoryPostgresData | None = None,
+    admin_password_data: AdminPasswordPostgresData | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     data = data or PostgresData(
@@ -260,6 +270,23 @@ def create_app(
         if directory_data is not None
         else None
     )
+    admin_password_configured = (
+        admin_password_data is not None
+        or settings.admin_password_database_url is not None
+    )
+    if admin_password_data is None and settings.admin_password_database_url is not None:
+        admin_password_data = AdminPasswordPostgresData(
+            settings.admin_password_database_url.get_secret_value(),
+            connect_timeout=settings.connect_timeout_seconds,
+            command_timeout=settings.command_timeout_seconds,
+        )
+    admin_passwords = (
+        AdminPasswordManager(
+            auth, admin_password_data, settings.signing_secret.get_secret_value()
+        )
+        if admin_password_data is not None
+        else None
+    )
     deactivation_configured = (
         deactivation_data is not None or settings.deactivation_database_url is not None
     )
@@ -333,6 +360,12 @@ def create_app(
                     if directory_data is None:
                         raise IdentityUnavailable()
                     directory_policy = await directory_data.directory_policy()
+                if admin_password_configured:
+                    if admin_password_data is None:
+                        raise IdentityUnavailable()
+                    admin_password_policy = (
+                        await admin_password_data.admin_password_policy()
+                    )
                 if deactivation_configured:
                     if deactivation_data is None:
                         raise IdentityUnavailable()
@@ -412,6 +445,17 @@ def create_app(
                 if directory_policy_value != {
                     "schema": DIRECTORY_POLICY_PROTOCOL,
                     "policy": DIRECTORY_PROTOCOL,
+                }:
+                    raise IdentityUnavailable()
+            if admin_password_configured:
+                admin_password_policy_value = (
+                    admin_password_policy.model_dump(mode="json", by_alias=True)
+                    if hasattr(admin_password_policy, "model_dump")
+                    else admin_password_policy
+                )
+                if admin_password_policy_value != {
+                    "schema": ADMIN_PASSWORD_POLICY_PROTOCOL,
+                    "policy": ADMIN_PASSWORD_PROTOCOL,
                 }:
                     raise IdentityUnavailable()
             if deactivation_configured:
@@ -797,6 +841,52 @@ def create_app(
         except (IdentityUnavailable, TimeoutError):
             return JSONResponse(
                 {"detail": "Identity directory commands unavailable"},
+                status_code=503,
+            )
+        return JSONResponse(reply.model_dump(mode="json", by_alias=True))
+
+    @app.post("/v1/identity/admin-passwords/execute")
+    async def execute_admin_password_command(request: Request):
+        supplied = request.headers.get("authorization", "").encode()
+        expected = ("Bearer " + settings.token.get_secret_value()).encode()
+        if not hmac.compare_digest(supplied, expected):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        if (
+            request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            != "application/json"
+        ):
+            return JSONResponse(
+                admin_password_failure_reply("invalid_request"), status_code=400
+            )
+        if admin_passwords is None:
+            return JSONResponse(
+                {"detail": "Identity administrator password service unavailable"},
+                status_code=503,
+            )
+        try:
+            async with asyncio.timeout(settings.request_timeout_seconds):
+                async with slots:
+                    try:
+                        body = bytearray()
+                        async for chunk in request.stream():
+                            body.extend(chunk)
+                            if len(body) > 65536:
+                                return JSONResponse(
+                                    admin_password_failure_reply("invalid_request"),
+                                    status_code=400,
+                                )
+                        parsed = decode_admin_password_request(bytes(body))
+                    except (ValidationError, ValueError, TypeError, UnicodeError):
+                        return JSONResponse(
+                            admin_password_failure_reply("invalid_request"),
+                            status_code=400,
+                        )
+                    reply = await admin_passwords.execute(parsed)
+        except AdminPasswordFailure as error:
+            return JSONResponse(admin_password_failure_reply(error))
+        except (IdentityUnavailable, TimeoutError):
+            return JSONResponse(
+                {"detail": "Identity administrator password service unavailable"},
                 status_code=503,
             )
         return JSONResponse(reply.model_dump(mode="json", by_alias=True))
