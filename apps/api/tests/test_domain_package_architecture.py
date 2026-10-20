@@ -46,6 +46,7 @@ _SPATIAL_RETIRED_MODULES = (
 )
 
 REMOVED_MODULES = (
+    "app.application.project_workspace_configuration",
     "app.services.project_membership",
     "app.application.project_membership",
     "app.services.invitation",
@@ -526,18 +527,20 @@ DOMAIN_PACKAGES = (
         package="project_workspace",
         legacy_facades=(),
         allowed_app_imports=(
-            "app.db.enums",
-            "app.db.models.dataset",
             "app.db.models.project",
-            "app.db.models.project_template",
-            "app.db.models.user",
-            "app.services.display_id",
             "app.services.guide_asset_contracts",
-            "app.services.project_kind",
-            "aap_workspace.configuration_policy",
-            "app.services.project_template",
         ),
     ),
+    DomainSpec(
+        package="workspace_configuration",
+        legacy_facades=(),
+        allowed_app_imports=(
+            "app.config",
+            "app.services.inference_limits",
+            "app.services.workspace_configuration_data",
+        ),
+    ),
+    DomainSpec(package="workspace_configuration_data", legacy_facades=()),
     DomainSpec(
         package="guide_asset_contracts", legacy_facades=(), allowed_app_imports=()
     ),
