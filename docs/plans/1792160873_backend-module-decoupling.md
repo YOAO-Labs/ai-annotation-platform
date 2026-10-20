@@ -3495,3 +3495,43 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - Final noneditable packages, constrained images and bounded local concurrency
   evidence remain open. Public contracts and OpenAPI are unchanged. Current implementation
   and scope are documented in [ADR-0136](../adr/0136-workspace-configuration-command-owner.md).
+
+### Workspace configuration command owner: bounded local qualification closed
+
+- The six-command slice is locally qualified at code checkpoint
+  `a82f83cc5cf9b02b3b62be4c16bcb2e1641b0565`. The full ten-module objective
+  remains active; this does not complete Workspace or another language provider.
+- Noneditable installation outside the source test tree passed132 Workspace and
+  27 Inference cases. Installed25/7 package files plus14 shared dependency files
+  match source, with no API/SQLAlchemy/Celery/Boto3/Torch installed. The standalone
+  owner image verifies all46 files; the API image verifies168 installed files,
+  131 application/Native inputs, unchanged public OpenAPI and migration head0257.
+- Actual prebuilt-image acceptance passed private and public API configuration
+  writes, restart/replay, deleted-template frozen replay without overwriting
+  later edits, and current actor revocation. The owner runs as UID10004 with a
+  read-only root, cap-drop ALL, no-new-privileges,64 PIDs,1 CPU,256 MiB,32 MiB
+  tmpfs and exactly two read-only secret mounts. All containers, secret files
+  and disposable database resources were cleaned. The API cold proof uses
+  UID10001, no network, a read-only root,1 CPU and512 MiB.
+- A bounded local profile completed16 updates to16 independent projects at
+  concurrency4:16 successes, zero failures/OOM,420 ms elapsed, p50 103 ms and
+  nearest-rank p95 114 ms. Shared PostgreSQL/caller resources are outside the
+  owner budget. This is not a production capacity/SLO result. Existing
+  shared-target NOWAIT conflicts are deliberately not replaced with retries.
+- Architecture checks pass322 cases with135 inapplicable parameter cases
+  explicitly skipped. Final read-only production review found no additional
+  actionable issue. Normal source commit hooks, documentation build and
+  whitespace checks pass. Earlier binding/oracle/transaction/restore/migration
+  evidence stays separate and is not added to the package or architecture counts.
+- Workspace image: `sha256:5de0eca63baa2109f8c0625f085ee73832b2d0c36189458420cfc11b758b0bba`.
+  API image: `sha256:9dc72f68e3d995daeaa217f6727f326c08901fcf204d0c9f07e63e980cfbb3f8`.
+  Primary source/shared links and its four original running containers remain
+  unchanged. No primary/production cutover, push, release or remote CI occurred.
+- The next coherent extraction is template list/detail and postcommit response
+  projection, followed by the larger project read model. Freeze current scope,
+  organization membership, creator display, filtering/ordering and committed-null
+  response behavior before moving ownership. Member display already uses the
+  separate Identity brief owner; it must not be described as an unmoved User JOIN.
+  Guide assets, class rename, named pipelines, import creation and adjacent writers
+  remain separate work. Full Workspace, Identity and all-module language replacement
+  stay unfinished. Go remains an optional experiment.

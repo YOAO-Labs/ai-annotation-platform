@@ -15,28 +15,28 @@ last_reviewed: 2026-10-21
 
 ## 1. 顶层结构与依赖方向
 
-| 区域            | 位置                                                                                        | 允许依赖                                                                                                                            |
-| --------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| 前端页面 / 装配 | `apps/web/src/pages/**`                                                                     | 领域 hooks → API client → 生成类型                                                                                                  |
-| 前端领域状态    | `apps/web/src/pages/Workbench/state/**`、各页面 `*UrlState.ts`                              | 纯函数，不触网                                                                                                                      |
-| 前端授权        | `apps/web/src/hooks/useProjectAccess.ts`、`src/components/routing/RequireProjectAccess.tsx` | 只消费后端返回的能力集                                                                                                              |
-| API 路由        | `apps/api/app/api/v1/**`                                                                    | 应用工作流或服务层；不做业务规则推导                                                                                                |
-| 应用工作流      | `apps/api/app/application/**`                                                               | 显式装配领域服务、协调用例事务与派发顺序；不持有领域状态机                                                                          |
-| 服务层          | `apps/api/app/services/**`                                                                  | 项目授权在 `project_access`，任务访问/写入准入在 `task_access`，聚合 SQL 在 `project_aggregates`                                    |
-| Worker          | `apps/api/app/workers/**`                                                                   | 复用工作流与服务；终态信号仅适配事件、连接及调用方提交                                                                              |
-| ML 共享运行时   | `apps/_shared/backend_runtime`                                                              | 无状态叶子函数 + `ManagedLruPool` 池内核                                                                                            |
-| ML 协议         | `apps/_shared/protocol_v2`                                                                  | 五个 backend 共用的 schema 与受控词表                                                                                               |
-| 任务契约        | `apps/_shared/task_contract`                                                                | 纯 Python 统一视觉操作名（detect/segment/classify 等）与别名映射                                                                    |
-| 训练参数契约    | `apps/_shared/training_contract`                                                            | 纯 Python 原生框架字段快照、catalog 依赖校验、预算与回流契约                                                                        |
-| 项目只读契约    | `apps/_shared/workspace_contract`                                                           | 纯 Project 配置快照、类别与属性投影；不依赖提供方 ORM、API 或运行时                                                                 |
-| 项目成员命令    | `apps/workspace` (`aap-workspace`)                                                          | membership add/preview/change/remove 的便携 policy；依赖窄 Native Workspace/Identity/Labeling/Audit 能力；本地 qualification 待完成 |
-| 独立素材目录    | `apps/assets-catalog`                                                                       | 七项目录与关联读取操作；受限 SQL LOGIN、只读 S3 身份与独立镜像                                                                      |
-| 独立素材来源    | `apps/assets-source`                                                                        | 单文件上传/发布、来源删除、同步 ZIP/旧前缀扫描、六项连接管理操作与持久连接器导入；纯合同和独立 SQL/S3 身份                          |
-| 审计请求契约    | `apps/_shared/audit_contract`                                                               | 冻结请求上下文字段，不依赖 API 或 ORM                                                                                               |
-| 训练执行器      | `apps/training-executor`                                                                    | 独立拉取式执行器，文件锁独占 GPU，管理原生训练子进程与脱敏日志                                                                      |
-| 素材探测服务    | `apps/media-probe`                                                                          | 独立元数据/帧时间表/packet 探测与 HTTP/NDJSON 合同；不取得数据库或对象存储访问权                                                    |
-| 事务数据能力    | `apps/api/alembic/sql/0190*` 至 `0217*`                                                     | 授权、建题、删除、解绑、上传、目录、关联读取、空间状态、ZIP/扫描与连接管理；冻结 SQL/JSON 合同及同库事务                            |
-| ML backend      | `apps/{grounded-sam2,sam3,yolo,rapidocr,onnxtools}-backend`                                 | 各自的池包装 / 观测 / 生命周期                                                                                                      |
+| 区域            | 位置                                                                                        | 允许依赖                                                                                                   |
+| --------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| 前端页面 / 装配 | `apps/web/src/pages/**`                                                                     | 领域 hooks → API client → 生成类型                                                                         |
+| 前端领域状态    | `apps/web/src/pages/Workbench/state/**`、各页面 `*UrlState.ts`                              | 纯函数，不触网                                                                                             |
+| 前端授权        | `apps/web/src/hooks/useProjectAccess.ts`、`src/components/routing/RequireProjectAccess.tsx` | 只消费后端返回的能力集                                                                                     |
+| API 路由        | `apps/api/app/api/v1/**`                                                                    | 应用工作流或服务层；不做业务规则推导                                                                       |
+| 应用工作流      | `apps/api/app/application/**`                                                               | 显式装配领域服务、协调用例事务与派发顺序；不持有领域状态机                                                 |
+| 服务层          | `apps/api/app/services/**`                                                                  | 项目授权在 `project_access`，任务访问/写入准入在 `task_access`，聚合 SQL 在 `project_aggregates`           |
+| Worker          | `apps/api/app/workers/**`                                                                   | 复用工作流与服务；终态信号仅适配事件、连接及调用方提交                                                     |
+| ML 共享运行时   | `apps/_shared/backend_runtime`                                                              | 无状态叶子函数 + `ManagedLruPool` 池内核                                                                   |
+| ML 协议         | `apps/_shared/protocol_v2`                                                                  | 五个 backend 共用的 schema 与受控词表                                                                      |
+| 任务契约        | `apps/_shared/task_contract`                                                                | 纯 Python 统一视觉操作名（detect/segment/classify 等）与别名映射                                           |
+| 训练参数契约    | `apps/_shared/training_contract`                                                            | 纯 Python 原生框架字段快照、catalog 依赖校验、预算与回流契约                                               |
+| 项目只读契约    | `apps/_shared/workspace_contract`                                                           | 纯 Project 配置快照、类别与属性投影；不依赖提供方 ORM、API 或运行时                                        |
+| 项目成员命令    | `apps/workspace` (`aap-workspace`)                                                          | 成员、负责人转移与配置命令的便携 owner；限定本地验收已完成，普通读取与相邻写入仍待迁移                     |
+| 独立素材目录    | `apps/assets-catalog`                                                                       | 七项目录与关联读取操作；受限 SQL LOGIN、只读 S3 身份与独立镜像                                             |
+| 独立素材来源    | `apps/assets-source`                                                                        | 单文件上传/发布、来源删除、同步 ZIP/旧前缀扫描、六项连接管理操作与持久连接器导入；纯合同和独立 SQL/S3 身份 |
+| 审计请求契约    | `apps/_shared/audit_contract`                                                               | 冻结请求上下文字段，不依赖 API 或 ORM                                                                      |
+| 训练执行器      | `apps/training-executor`                                                                    | 独立拉取式执行器，文件锁独占 GPU，管理原生训练子进程与脱敏日志                                             |
+| 素材探测服务    | `apps/media-probe`                                                                          | 独立元数据/帧时间表/packet 探测与 HTTP/NDJSON 合同；不取得数据库或对象存储访问权                           |
+| 事务数据能力    | `apps/api/alembic/sql/0190*` 至 `0217*`                                                     | 授权、建题、删除、解绑、上传、目录、关联读取、空间状态、ZIP/扫描与连接管理；冻结 SQL/JSON 合同及同库事务   |
+| ML backend      | `apps/{grounded-sam2,sam3,yolo,rapidocr,onnxtools}-backend`                                 | 各自的池包装 / 观测 / 生命周期                                                                             |
 
 ## 2. 授权真值（唯一来源）
 

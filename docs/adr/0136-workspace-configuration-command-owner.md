@@ -1,6 +1,6 @@
 # 0136 — Workspace Configuration Command Owner
 
-- **Status:** Proposed; implementation and local qualification in progress
+- **Status:** Proposed; local command-slice qualification complete
 - **Date:** 2026-10-21
 - **Deciders:** Backend architecture team
 - **Related:** ADR-0135
@@ -63,7 +63,7 @@ the API retains commit/response assembly and live raw-row reads.
 Point-cloud evaluation promotion, guides, class rename, imports and other
 adjacent writers retain their existing boundaries.
 
-## Evidence and open gates
+## Evidence and remaining module work
 
 The existing 106 HTTP and 17 caller captures remain immutable. An additional
 pre-port fixture records numeric dirty/timestamp behavior, ten account-lock
@@ -101,7 +101,40 @@ skips. Full migration validation passed at0257, including fresh installation,
 173 reversible downgrades, the83-revision reversible suffix, forward migration
 and backup/restore. Its four derived databases were removed without cleanup errors.
 
-This is a local implementation checkpoint. Final noneditable installed artifacts,
-constrained images and bounded local concurrency qualification remain open. Full Workspace, the other
-modules and the ten-module language-replacement objective remain unfinished.
-There is no primary runtime or production cutover, push or release.
+Noneditable installed suites passed132 Workspace and27 Inference checks outside
+the source tree. Their25/7 package files plus14 shared dependency files match
+source; the environment has no API, SQLAlchemy, Celery, Boto3 or Torch package.
+The standalone owner image matches all46 files. Its offline proof and actual
+configuration-only HTTP/public API flow passed as UID10004, read-only, with all
+capabilities dropped, no new privileges,64 PIDs,1 CPU,256 MiB and32 MiB tmpfs.
+Only two read-only secret files are mounted. Restart preserves receipts and
+deleted-template replay without overwriting later edits; revoked actors are
+rejected. Containers, secret files and disposable database resources were removed.
+
+A bounded local profile completed16 updates to16 independent projects at
+concurrency4, with16 successes, no failures and no OOM. Elapsed time was420 ms,
+p50 was103 ms and nearest-rank p95 was114 ms. PostgreSQL and the caller are outside
+the owner container budget. This is a local interoperability/load observation,
+not a production capacity or SLO result. Shared-target NOWAIT semantics remain
+unchanged; this profile does not measure their conflict rate.
+
+The restricted offline API image matches168 installed package files and131
+application/Native inputs, public OpenAPI and migration head0257. It uses
+UID10001, no network, a read-only filesystem,1 CPU and512 MiB for the cold proof;
+this does not change the API image's default user or transitional runtime role.
+Architecture checks passed322 cases with135 inapplicable parameter cases skipped.
+Final read-only review found no additional actionable issue. Normal commit hooks,
+documentation build and whitespace checks passed.
+
+The qualified code checkpoint is `a82f83cc5cf9b02b3b62be4c16bcb2e1641b0565`.
+The Workspace image is `sha256:5de0eca63baa2109f8c0625f085ee73832b2d0c36189458420cfc11b758b0bba`;
+the API image is `sha256:9dc72f68e3d995daeaa217f6727f326c08901fcf204d0c9f07e63e980cfbb3f8`.
+
+This closes the bounded local qualification for six configuration commands.
+Template/project reads and response hydration still use API ORM paths; guide
+assets, class rename, named pipelines, import project creation and adjacent
+writers retain their existing owners. Full Workspace, the other modules and the
+ten-module language-replacement objective remain unfinished. There is no full
+second-language provider, independent database or production capacity claim.
+Primary source, shared links and its four original running containers were
+preserved. There is no primary runtime or production cutover, push or release.

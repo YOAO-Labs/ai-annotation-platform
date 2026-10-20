@@ -69,6 +69,6 @@ Node conformance provider 以标准 PostgreSQL 协议调用相同的两项函数
 公开配置路由已接入同一个配置 owner，默认借用调用方事务，HTTP 保留提交与响应。
 专用 DSN／HTTP 通过 `WORKSPACE_CONFIGURATION_DATABASE_URL(_FILE)`／
 `WORKSPACE_CONFIGURATION_URL` 选择，不能同时配置；显式失败不回退。
-三条绑定路径各已对照106项原公开响应；独立进程的丢响应重试、重启重放及不可用不回退也已通过本地检查。失败事务、备份恢复、9项关联恢复及0257完整迁移验证均已通过。独立安装包、受限镜像与本地并发执行验收继续进行，这一步不代表完整
+三条绑定路径各已对照106项原公开响应；独立进程的丢响应重试、重启重放及不可用不回退也已通过本地检查。失败事务、备份恢复、9项关联恢复及0257完整迁移验证均已通过。独立安装包、受限镜像与本地并发执行也已完成限定验收；项目／模板的普通读取与响应投影仍在 API。这一步不代表完整
 Workspace 已独立部署。状态与事务取舍见
 [ADR-0136](/dev/adr/0136-workspace-configuration-command-owner)。

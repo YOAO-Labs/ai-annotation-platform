@@ -135,7 +135,7 @@ archived
 
 如果你改的是「标注长什么样」, 十有八九要从 project.tool_bindings 入手, 而不是 task。
 
-写入路径由 `projects.py` 保留 HTTP 请求、提交与响应；六项项目／模板配置命令通过 `services/workspace_configuration.py` 进入同一个 Workspace owner。`apps/workspace/src/aap_workspace` 持有配置编排、值、旧扁平类别/属性规范化、kind、克隆与模板策略；Native 执行当前权限围栏、跨 owner 类型化调用及固定列写入。默认适配器借用调用方 Session，不自行提交或回滚；独立 DSN／HTTP 只拥有各自的业务事务，显式失败不回退。原配置 API 工作流与 ORM 行命令已删除；普通模板读可见性适配器仍保留组织范围查询，API 在提交后读取当前行，避免复用 Session 返回旧的模板用量。项目内嵌与命名流水线共用 `aap_inference.pipeline.validate_saved_pipeline`。`ProjectOut` 继续消费共享 Workspace 纯投影。完整独立运行验收仍在进行，见 [配置命令 ADR](/dev/adr/0136-workspace-configuration-command-owner)。
+写入路径由 `projects.py` 保留 HTTP 请求、提交与响应；六项项目／模板配置命令通过 `services/workspace_configuration.py` 进入同一个 Workspace owner。`apps/workspace/src/aap_workspace` 持有配置编排、值、旧扁平类别/属性规范化、kind、克隆与模板策略；Native 执行当前权限围栏、跨 owner 类型化调用及固定列写入。默认适配器借用调用方 Session，不自行提交或回滚；独立 DSN／HTTP 只拥有各自的业务事务，显式失败不回退。原配置 API 工作流与 ORM 行命令已删除；普通模板读可见性适配器仍保留组织范围查询，API 在提交后读取当前行，避免复用 Session 返回旧的模板用量。项目内嵌与命名流水线共用 `aap_inference.pipeline.validate_saved_pipeline`。`ProjectOut` 继续消费共享 Workspace 纯投影。六项命令已完成限定本地包、进程、镜像与恢复验收；普通读取和其余写入仍待迁移，见 [配置命令 ADR](/dev/adr/0136-workspace-configuration-command-owner)。
 
 前端项目设置的归属：`基本信息` 只维护名称、状态、截止日期和类型展示；`类别与属性` 是 `tool_bindings` 的唯一编辑入口，同一个工具单位 tab 下同时维护类别、关键点骨骼模板与属性 schema。
 
@@ -162,7 +162,7 @@ scene 模式项目额外多一层连续派题逻辑：打开 `prefer_same_scene_
 项目还决定：
 
 - 是否启用 AI：`ai_enabled` 是独立持久化字段；当前前端在选择或清空主后端时同步写入它，但数据库没有“只要绑定后端就自动派生”的约束
-- 主服务池：ORM 字段是 `Project.ml_backend_pool_id`，workspace 提供 `set_primary_backend_binding()` 字段设置命令。`application/ml_registry_deletion.py` 先完成删除准入、路由静默及 registry 删除，仅成功后才由 workspace 清空指向该池的全部主绑定；清理与 registry 删除同属一个调用者事务，启用关系不变。公共 API 暂以 `ml_backend_id` 接收 / 返回 registry ID，并在配置入口解析到服务池。
+- 主服务池：ORM 字段是 `Project.ml_backend_pool_id`，配置 owner 通过固定 Native binding 步骤写入。`application/ml_registry_deletion.py` 先完成删除准入、路由静默及 registry 删除，仅成功后才调用 `services/project_workspace.py::clear_primary_backend_binding_for_pool()` 清空指向该池的全部主绑定；清理与 registry 删除同属一个调用者事务，启用关系不变。公共 API 暂以 `ml_backend_id` 接收 / 返回 registry ID，并在配置入口解析到服务池。
 - 文本预标注默认阈值：`box_threshold` / `text_threshold`
 
 AI 能力是 project 级开关，不是 batch 或 task 私有配置。

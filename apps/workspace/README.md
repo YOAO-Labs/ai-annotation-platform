@@ -1,7 +1,8 @@
 # aap-workspace
 
 `aap-workspace` contains portable contracts and policy for project membership
-creation, role previews, role changes, member removal, and project owner transfer. The core package
+creation, role previews, role changes, member removal, project owner transfer,
+and six project/template configuration commands. The core package
 uses Pydantic, the shared Workspace projection contract and Inference's portable
 configuration validation. Inference transitively imports shared protocol FastAPI
 error helpers and lifecycle crypto. Runtime and PostgreSQL bindings are optional;
@@ -33,6 +34,7 @@ phased facts and a six-command owner under `aap-workspace-configuration/v1`.
 Its fixed step capability uses function-only credentials and one transaction;
 the standalone HTTP runtime can enable configuration without membership or
 owner transfer. Public API callers use the same owner with a borrowed session
-by default; the old configuration ORM writers are removed. Full independent-owner
-qualification remains in progress. See ADR-0136 for the current evidence and
-remaining gates; adjacent writers and the full Workspace module remain open.
+by default; the old configuration ORM writers are removed. These six commands
+passed bounded local package, restricted database, process, container, restart,
+restore and concurrency qualification. See ADR-0136 for evidence and scope.
+API-side read projections, adjacent writers and the full Workspace module remain open.
