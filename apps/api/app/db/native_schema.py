@@ -41,6 +41,7 @@ NATIVE_MANAGED_TABLES = frozenset(
         "identity_deactivation_due_receipts",
         "identity_deactivation_requests",
         "notification_delivery_outbox",
+        "identity_invitation_operation_receipts",
     }
 )
 

@@ -1,0 +1,536 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-identity-invitations-native-v1.schema.json",
+  "title": "Identity invitation lifecycle native capabilities",
+  "oneOf": [
+    { "$ref": "#/$defs/policyEnvelope" },
+    { "$ref": "#/$defs/prepareSuccess" },
+    { "$ref": "#/$defs/applySuccess" },
+    { "$ref": "#/$defs/failure" }
+  ],
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "nullableTimestamp": {
+      "anyOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }]
+    },
+    "nullableUuid": {
+      "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }]
+    },
+    "nullableString": { "type": ["string", "null"] },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_invitations_per_day",
+        "invitation_ttl_days",
+        "frontend_base_url",
+        "expire_minutes"
+      ],
+      "properties": {
+        "max_invitations_per_day": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "invitation_ttl_days": { "type": "integer", "minimum": 1, "maximum": 90 },
+        "frontend_base_url": { "type": "string", "minLength": 1 },
+        "expire_minutes": { "type": "integer", "minimum": 1, "maximum": 525600 }
+      }
+    },
+    "policyEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "policy"],
+      "properties": {
+        "schema": { "const": "aap-identity-invitation-policy/v1" },
+        "policy": { "const": "aap-identity-invitations/v1" }
+      }
+    },
+    "principal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actor_id",
+        "name",
+        "email",
+        "role",
+        "is_active",
+        "credential_type",
+        "credential_id",
+        "generation",
+        "scopes",
+        "expires_at"
+      ],
+      "properties": {
+        "actor_id": { "$ref": "#/$defs/uuid" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "enum": ["super_admin", "project_admin", "employee", "viewer"] },
+        "is_active": { "const": true },
+        "credential_type": { "enum": ["jwt", "api_key"] },
+        "credential_id": { "$ref": "#/$defs/uuid" },
+        "generation": { "type": ["integer", "null"], "minimum": 0 },
+        "scopes": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        },
+        "expires_at": { "$ref": "#/$defs/nullableTimestamp" }
+      }
+    },
+    "nativeActor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "email", "name", "role", "is_active", "credential_generation"],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "enum": ["super_admin", "project_admin", "employee", "viewer"] },
+        "is_active": { "type": "boolean" },
+        "credential_generation": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "nativeProject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "owner_id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "name": { "type": "string" },
+        "owner_id": { "$ref": "#/$defs/uuid" }
+      }
+    },
+    "invitation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "email",
+        "role",
+        "group_name",
+        "project_id",
+        "project_name",
+        "project_member_role",
+        "status",
+        "expires_at",
+        "invited_by",
+        "invited_by_name",
+        "accepted_at",
+        "revoked_at",
+        "created_at"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "email": { "type": "string" },
+        "role": { "type": "string" },
+        "group_name": { "$ref": "#/$defs/nullableString" },
+        "project_id": { "$ref": "#/$defs/nullableUuid" },
+        "project_name": { "$ref": "#/$defs/nullableString" },
+        "project_member_role": { "$ref": "#/$defs/nullableString" },
+        "status": { "enum": ["pending", "accepted", "expired", "revoked"] },
+        "expires_at": { "$ref": "#/$defs/timestamp" },
+        "invited_by": { "$ref": "#/$defs/uuid" },
+        "invited_by_name": { "$ref": "#/$defs/nullableString" },
+        "accepted_at": { "$ref": "#/$defs/nullableTimestamp" },
+        "revoked_at": { "$ref": "#/$defs/nullableTimestamp" },
+        "created_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "account": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "email",
+        "name",
+        "role",
+        "group_name",
+        "group_id",
+        "status",
+        "is_active",
+        "disabled_kind",
+        "disabled_at",
+        "disabled_by",
+        "disabled_reason",
+        "email_verified_at",
+        "last_login_at",
+        "last_seen_at",
+        "password_admin_reset_at",
+        "deactivation_requested_at",
+        "deactivation_scheduled_at",
+        "preferences",
+        "avatar_ref",
+        "created_at"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "enum": ["super_admin", "project_admin", "employee", "viewer"] },
+        "group_name": { "$ref": "#/$defs/nullableString" },
+        "group_id": { "$ref": "#/$defs/nullableUuid" },
+        "status": { "type": "string" },
+        "is_active": { "type": "boolean" },
+        "disabled_kind": { "$ref": "#/$defs/nullableString" },
+        "disabled_at": { "$ref": "#/$defs/nullableTimestamp" },
+        "disabled_by": { "$ref": "#/$defs/nullableUuid" },
+        "disabled_reason": { "$ref": "#/$defs/nullableString" },
+        "email_verified_at": { "$ref": "#/$defs/nullableTimestamp" },
+        "last_login_at": { "$ref": "#/$defs/nullableTimestamp" },
+        "last_seen_at": { "$ref": "#/$defs/nullableTimestamp" },
+        "password_admin_reset_at": { "$ref": "#/$defs/nullableTimestamp" },
+        "deactivation_requested_at": { "$ref": "#/$defs/nullableTimestamp" },
+        "deactivation_scheduled_at": { "$ref": "#/$defs/nullableTimestamp" },
+        "preferences": { "type": "object" },
+        "avatar_ref": { "$ref": "#/$defs/nullableString" },
+        "created_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sub", "role", "exp", "jti", "gen", "iss"],
+      "properties": {
+        "sub": { "$ref": "#/$defs/uuid" },
+        "role": { "enum": ["super_admin", "project_admin", "employee", "viewer"] },
+        "exp": { "type": "integer", "minimum": 1 },
+        "jti": { "$ref": "#/$defs/uuid" },
+        "gen": { "type": "integer", "minimum": 0 },
+        "iss": { "const": "aap-identity/v1" }
+      }
+    },
+    "acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id",
+        "project_name",
+        "project_member_role",
+        "next_action",
+        "next_action_label",
+        "responsible_person_name",
+        "active_batch_count"
+      ],
+      "properties": {
+        "project_id": { "$ref": "#/$defs/nullableUuid" },
+        "project_name": { "$ref": "#/$defs/nullableString" },
+        "project_member_role": { "$ref": "#/$defs/nullableString" },
+        "next_action": { "enum": ["wait_for_allocation", "start_work"] },
+        "next_action_label": { "type": "string" },
+        "responsible_person_name": { "$ref": "#/$defs/nullableString" },
+        "active_batch_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "batchResultItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "email",
+        "ok",
+        "retryable",
+        "invitation_id",
+        "project_id",
+        "project_name",
+        "error"
+      ],
+      "properties": {
+        "index": { "type": "integer", "minimum": 0, "maximum": 499 },
+        "email": { "type": "string" },
+        "ok": { "type": "boolean" },
+        "retryable": { "type": "boolean" },
+        "invitation_id": { "$ref": "#/$defs/nullableUuid" },
+        "project_id": { "$ref": "#/$defs/nullableUuid" },
+        "project_name": { "$ref": "#/$defs/nullableString" },
+        "error": { "$ref": "#/$defs/nullableString" }
+      }
+    },
+    "stats": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "pending", "accepted", "expired", "revoked"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "pending": { "type": "integer", "minimum": 0 },
+        "accepted": { "type": "integer", "minimum": 0 },
+        "expired": { "type": "integer", "minimum": 0 },
+        "revoked": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "invitation",
+        "invitations",
+        "items",
+        "total",
+        "page",
+        "page_size",
+        "pages",
+        "stats",
+        "account",
+        "claims",
+        "acceptance",
+        "email_verification_required",
+        "preview",
+        "succeeded",
+        "failed",
+        "exported_by",
+        "exported_at",
+        "invitation_id",
+        "email",
+        "mail_status",
+        "mail_failure_code",
+        "frontend_base_url"
+      ],
+      "properties": {
+        "invitation": { "anyOf": [{ "$ref": "#/$defs/invitation" }, { "type": "null" }] },
+        "invitations": { "type": ["array", "null"], "items": { "$ref": "#/$defs/invitation" } },
+        "items": { "type": ["array", "null"], "items": { "$ref": "#/$defs/batchResultItem" } },
+        "total": { "type": ["integer", "null"], "minimum": 0 },
+        "page": { "type": ["integer", "null"], "minimum": 1 },
+        "page_size": { "type": ["integer", "null"], "minimum": 1, "maximum": 500 },
+        "pages": { "type": ["integer", "null"], "minimum": 0 },
+        "stats": { "anyOf": [{ "$ref": "#/$defs/stats" }, { "type": "null" }] },
+        "account": { "anyOf": [{ "$ref": "#/$defs/account" }, { "type": "null" }] },
+        "claims": { "anyOf": [{ "$ref": "#/$defs/claims" }, { "type": "null" }] },
+        "acceptance": { "anyOf": [{ "$ref": "#/$defs/acceptance" }, { "type": "null" }] },
+        "email_verification_required": { "type": ["boolean", "null"] },
+        "preview": { "type": ["boolean", "null"] },
+        "succeeded": { "type": ["integer", "null"], "minimum": 0 },
+        "failed": { "type": ["integer", "null"], "minimum": 0 },
+        "exported_by": { "$ref": "#/$defs/nullableString" },
+        "exported_at": { "$ref": "#/$defs/nullableTimestamp" },
+        "invitation_id": { "$ref": "#/$defs/nullableUuid" },
+        "email": { "$ref": "#/$defs/nullableString" },
+        "mail_status": { "enum": ["pending", "sent", "failed", null] },
+        "mail_failure_code": {
+          "enum": [
+            "sent",
+            "not_configured",
+            "message_invalid",
+            "tls_failed",
+            "auth_failed",
+            "recipient_rejected",
+            "sender_rejected",
+            "data_rejected",
+            "connect_failed",
+            "transport_failed",
+            "derivation_unavailable",
+            null
+          ]
+        },
+        "frontend_base_url": { "$ref": "#/$defs/nullableString" }
+      }
+    },
+    "prepareData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy",
+        "actor",
+        "invitation",
+        "project",
+        "target",
+        "membership_exists",
+        "existing_password_hash",
+        "invitation_token",
+        "mail_token_hash",
+        "mail_token_ciphertext",
+        "mail_encryption_id",
+        "mail_frontend_url",
+        "replayed",
+        "result"
+      ],
+      "properties": {
+        "policy": { "anyOf": [{ "$ref": "#/$defs/policy" }, { "type": "null" }] },
+        "actor": { "anyOf": [{ "$ref": "#/$defs/nativeActor" }, { "type": "null" }] },
+        "invitation": { "anyOf": [{ "$ref": "#/$defs/invitation" }, { "type": "null" }] },
+        "project": { "anyOf": [{ "$ref": "#/$defs/nativeProject" }, { "type": "null" }] },
+        "target": { "anyOf": [{ "$ref": "#/$defs/nativeActor" }, { "type": "null" }] },
+        "membership_exists": { "type": ["boolean", "null"] },
+        "existing_password_hash": { "$ref": "#/$defs/nullableString" },
+        "invitation_token": { "$ref": "#/$defs/nullableString" },
+        "mail_token_hash": { "$ref": "#/$defs/nullableString" },
+        "mail_token_ciphertext": { "$ref": "#/$defs/nullableString" },
+        "mail_encryption_id": { "$ref": "#/$defs/nullableString" },
+        "mail_frontend_url": { "$ref": "#/$defs/nullableString" },
+        "replayed": { "type": "boolean" },
+        "result": { "anyOf": [{ "$ref": "#/$defs/result" }, { "type": "null" }] }
+      }
+    },
+    "policyReason": {
+      "enum": [
+        "manager_required",
+        "scope_all_forbidden",
+        "invalid_platform_role",
+        "invalid_project_role",
+        "account_project_role",
+        "project_admin_role_forbidden",
+        "project_admin_scope",
+        "active_email_exists",
+        "platform_project_role_incompatible",
+        "already_member",
+        "daily_quota",
+        "project_not_found",
+        "invitation_not_found",
+        "invitation_used",
+        "invitation_revoked",
+        "invitation_expired",
+        "invitation_accepted",
+        "issuer_inactive",
+        "issuer_role_invalid",
+        "project_owner_unavailable",
+        "legacy_platform_role",
+        "email_exists",
+        "account_only_invitation",
+        "email_mismatch",
+        "incompatible_account_role",
+        "actor_inactive",
+        "privileged_resend",
+        "group_name_invalid"
+      ]
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "error"],
+      "properties": {
+        "schema": { "const": "aap-identity-invitations-native/v1" },
+        "ok": { "const": false },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code"],
+          "properties": {
+            "code": {
+              "enum": [
+                "invalid_request",
+                "current_scope_busy",
+                "operation_conflict",
+                "policy_rejected",
+                "unavailable",
+                "credential_invalid",
+                "credential_revoked",
+                "generation_outdated",
+                "token_expired",
+                "user_inactive",
+                "invalid_account_role",
+                "credential_busy"
+              ]
+            },
+            "policy": { "$ref": "#/$defs/policyReason" },
+            "detail": { "type": "string" }
+          }
+        }
+      }
+    },
+    "prepareSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "operation", "operation_id", "principal", "data"],
+      "properties": {
+        "schema": { "const": "aap-identity-invitations-native/v1" },
+        "ok": { "const": true },
+        "operation": { "type": "string" },
+        "operation_id": { "$ref": "#/$defs/uuid" },
+        "principal": { "anyOf": [{ "$ref": "#/$defs/principal" }, { "type": "null" }] },
+        "data": { "$ref": "#/$defs/prepareData" }
+      }
+    },
+    "applyData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor", "replayed", "result"],
+      "properties": {
+        "actor": { "anyOf": [{ "$ref": "#/$defs/nativeActor" }, { "type": "null" }] },
+        "replayed": { "type": "boolean" },
+        "result": { "$ref": "#/$defs/result" }
+      }
+    },
+    "applySuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "operation", "operation_id", "principal", "data"],
+      "properties": {
+        "schema": { "const": "aap-identity-invitations-native/v1" },
+        "ok": { "const": true },
+        "operation": { "type": "string" },
+        "operation_id": { "$ref": "#/$defs/uuid" },
+        "principal": { "anyOf": [{ "$ref": "#/$defs/principal" }, { "type": "null" }] },
+        "data": { "$ref": "#/$defs/applyData" }
+      }
+    }
+  },
+  "x-postgresql-functions": [
+    "aap_identity_invitations_v1.invitation_policy()",
+    "aap_identity_invitations_v1.prepare_invitation_command(jsonb)",
+    "aap_identity_invitations_v1.apply_invitation_command(jsonb)"
+  ],
+  "x-private-functions": [
+    "aap_identity_invitations_v1._failure(text,text,text)",
+    "aap_identity_invitations_v1._strip_unicode_space(text)",
+    "aap_identity_invitations_v1._account_record(uuid)",
+    "aap_identity_invitations_v1._invitation_record(uuid,text)",
+    "aap_identity_invitations_v1._project_map(uuid[])",
+    "aap_identity_invitations_v1._policy(jsonb)",
+    "aap_identity_invitations_v1._lock_users(uuid[])",
+    "aap_identity_invitations_v1._actor(jsonb,text,boolean,boolean)",
+    "aap_identity_invitations_v1.invitation_quota_reached(uuid,timestamptz,integer)",
+    "aap_identity_invitations_v1._empty_result()",
+    "aap_identity_invitations_v1._incompatible_role_detail(text,text)",
+    "aap_identity_invitations_v1._args_valid(text,jsonb)",
+    "aap_identity_invitations_v1._read_result(text,uuid,jsonb)",
+    "aap_identity_invitations_v1._native_actor(uuid)",
+    "aap_identity_invitations_v1._project_record(uuid)",
+    "aap_identity_invitations_v1._batch_snapshot(uuid,jsonb)",
+    "aap_identity_invitations_v1._batch_effects(boolean,uuid,text,text,jsonb,jsonb,jsonb,jsonb,jsonb)",
+    "aap_identity_invitations_v1._run_invitation_preview(uuid,text,text,jsonb,jsonb,jsonb,jsonb)",
+    "aap_identity_invitations_v1.lock_invitation_mail_scope(uuid,text)"
+  ],
+  "x-cross-owner-functions": [
+    "aap_workspace_v1.invitation_projects(uuid[])",
+    "aap_workspace_v1.lock_invitation_project(uuid,uuid)",
+    "aap_workspace_v1.read_invitation_membership(uuid,uuid)",
+    "aap_workspace_v1.grant_invitation_membership(uuid,uuid,text,uuid,uuid)",
+    "aap_identity_groups_v1.resolve_invitation_group(uuid,text)",
+    "aap_labeling_v1.invitation_work_summary(uuid,uuid,text)",
+    "aap_settings_v1.invitation_policy(jsonb)",
+    "aap_audit_v1.record_identity_invitation_event(text,jsonb,jsonb,jsonb,jsonb)"
+  ],
+  "x-mail-v2-functions": [
+    "aap_identity_mail_v2.mail_policy()",
+    "aap_identity_mail_v2.claim_mail(jsonb)",
+    "aap_identity_mail_v2.renew_mail(jsonb)",
+    "aap_identity_mail_v2.finish_mail(jsonb)"
+  ],
+  "x-login-role-capabilities": {
+    "identity_invitation_client": [
+      "aap_identity_invitations_v1.invitation_policy()",
+      "aap_identity_invitations_v1.prepare_invitation_command(jsonb)",
+      "aap_identity_invitations_v1.apply_invitation_command(jsonb)"
+    ],
+    "identity_mail_v2_client": [
+      "aap_identity_mail_v2.mail_policy()",
+      "aap_identity_mail_v2.claim_mail(jsonb)",
+      "aap_identity_mail_v2.renew_mail(jsonb)",
+      "aap_identity_mail_v2.finish_mail(jsonb)"
+    ]
+  },
+  "x-receipts": "Success receipts bind operation ID, actor ID (nullable only for public registration), operation, HMAC request fingerprint and derivation epoch. They store token-free result data, no raw bearer/proof/link/password/ciphertext, and have no User or Invitation foreign key.",
+  "x-lock-order": "Lock participating User authority rows in UUID order using KEY SHARE first; quota creates upgrade the inviter to UPDATE before email. Then acquire the existing email advisory key hashtextextended(email,0), Project, and Invitation/ProjectMember. Project ownership is captured through Workspace before User locks and revalidated while Project remains locked. Batch preview performs the real ordered writes and Audit inside a private PL/pgSQL subtransaction, then rolls it all back with one exact sentinel.",
+  "x-native-errors": [
+    "invalid_request",
+    "current_scope_busy",
+    "operation_conflict",
+    "policy_rejected",
+    "unavailable",
+    "credential_invalid",
+    "credential_revoked",
+    "generation_outdated",
+    "token_expired",
+    "user_inactive",
+    "invalid_account_role",
+    "credential_busy"
+  ],
+  "x-managed-tables": ["public.identity_invitation_operation_receipts"],
+  "x-outbox": "Invitation mail reuses public.identity_credential_mail_outbox with purpose=invitation; outbox.id is the stable send operation ID, actor_id stores issuer, invitation_context stores project snapshot, sender actor triple and typed Audit context. The authoritative raw token stays only on user_invitations; outbox stores the encrypted token, hash and key epoch."
+}
