@@ -21,6 +21,15 @@ class IdentityBriefsUnavailable(IdentityGatewayUnavailable):
 
 
 @dataclass(frozen=True, slots=True)
+class IdentityActorStatus:
+    """Minimum current account state from the existing Identity capability."""
+
+    id: uuid.UUID
+    role: str
+    is_active: bool
+
+
+@dataclass(frozen=True, slots=True)
 class IdentityActorFacts:
     """Current account facts, separate from project-scoped authorization."""
 

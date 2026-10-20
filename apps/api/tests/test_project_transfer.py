@@ -104,7 +104,7 @@ async def test_transfer_requires_active_target(db_session, httpx_client, super_a
     reason="requires the owned platform-role Identity verifier",
 )
 async def test_transfer_and_native_role_demotion_preserve_owner_lock_orders(
-    test_engine, httpx_client, tmp_path, monkeypatch
+    test_engine, tmp_path, monkeypatch
 ):
     from app.application import project_workspace
     from tests.test_identity_admission_live import _start_identity, _world
@@ -126,6 +126,18 @@ async def test_transfer_and_native_role_demotion_preserve_owner_lock_orders(
     project_lock_acquired = asyncio.Event()
     release_project_lock = asyncio.Event()
     transfer_actor = None
+
+    async def committed_transfer(project_id, new_owner_id):
+        # A remote owner must observe a real commit, not the API fixture's savepoint.
+        async with maker.begin() as db:
+            project = await project_workspace.transfer_project_owner(
+                db,
+                actor_id=transfer_actor.id,
+                project_id=project_id,
+                new_owner_id=new_owner_id,
+            )
+            return project.owner_id
+
     try:
         async with maker.begin() as db:
             transfer_actor = await create_user(
@@ -214,11 +226,10 @@ async def test_transfer_and_native_role_demotion_preserve_owner_lock_orders(
         assert (await _user_snapshot(maker, demotion_first.id))[
             "role"
         ] == "project_admin"
-        transfer_response = await _transfer(
-            httpx_client, demotion_project.id, first_receiver.id, transfer_actor
+        assert (
+            await committed_transfer(demotion_project.id, first_receiver.id)
+            == first_receiver.id
         )
-        assert transfer_response.status_code == 200, transfer_response.text
-        assert transfer_response.json()["owner_id"] == str(first_receiver.id)
         demotion = await asyncio.to_thread(_node, identity, control, first_request)
         assert demotion["ok"] is True
         assert demotion["data"]["user"]["role"] == "employee"
@@ -245,9 +256,7 @@ async def test_transfer_and_native_role_demotion_preserve_owner_lock_orders(
             project_workspace, "lock_workspace_project", hold_transfer_project_lock
         )
         transfer_task = asyncio.create_task(
-            _transfer(
-                httpx_client, transfer_project.id, second_receiver.id, transfer_actor
-            )
+            committed_transfer(transfer_project.id, second_receiver.id)
         )
         await asyncio.wait_for(project_lock_acquired.wait(), timeout=10)
         busy = await asyncio.to_thread(_node, identity, control, second_request)
@@ -259,10 +268,9 @@ async def test_transfer_and_native_role_demotion_preserve_owner_lock_orders(
             "role"
         ] == "project_admin"
         release_project_lock.set()
-        transfer_result = await asyncio.wait_for(transfer_task, timeout=20)
+        transferred_owner = await asyncio.wait_for(transfer_task, timeout=20)
         transfer_task = None
-        assert transfer_result.status_code == 200, transfer_result.text
-        assert transfer_result.json()["owner_id"] == str(second_receiver.id)
+        assert transferred_owner == second_receiver.id
         raced_demotion = await asyncio.to_thread(
             _node, identity, control, second_request
         )

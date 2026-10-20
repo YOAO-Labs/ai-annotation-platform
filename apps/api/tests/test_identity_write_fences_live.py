@@ -338,6 +338,12 @@ async def test_account_lock_outputs_match_capture_and_execute_only_peer(
             await caller.rollback()
         records["wait"] = await _legacy_wait_record(maker, fixture)
         assert records == expected
+        current_batch = [
+            records["wait"]["actor"]
+            if row["id"] == str(fixture["users"]["owner"])
+            else row
+            for row in expected["batch"]
+        ]
 
         async with maker() as status_session:
             status_reader = IdentityAccountLockData(status_session)
@@ -381,7 +387,7 @@ async def test_account_lock_outputs_match_capture_and_execute_only_peer(
             assert peer["database"] == database
             assert peer["raw_user_privileges"] is False
             assert peer["request"]["mode"] == mode
-            assert peer["accounts"] == expected["batch"]
+            assert peer["accounts"] == current_batch
 
         for mode in ("share", "update", "key_share"):
             async with maker() as holder, maker() as contender:

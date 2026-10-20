@@ -123,7 +123,7 @@ async def _conflict_rollback(
 
 async def _lock_accounts_nowait(
     db: AsyncSession, user_ids: Iterable[uuid.UUID | None]
-) -> dict[uuid.UUID, User]:
+) -> dict[uuid.UUID, IdentityActorFacts]:
     """Reuse the lifecycle account lock so every writer shares one lock order."""
 
     ids = sorted({uid for uid in user_ids if uid is not None})

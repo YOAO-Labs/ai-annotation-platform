@@ -25,13 +25,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "id",
-        "name",
-        "email",
-        "role",
-        "is_active"
-      ],
+      "required": ["id", "name", "email", "role", "is_active"],
       "title": "AccountLockFacts",
       "type": "object"
     },
@@ -51,10 +45,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "schema",
-        "accounts"
-      ],
+      "required": ["schema", "accounts"],
       "title": "AccountLockReply",
       "type": "object"
     },
@@ -70,11 +61,7 @@
           "type": "array"
         },
         "mode": {
-          "enum": [
-            "share",
-            "update",
-            "key_share"
-          ],
+          "enum": ["share", "update", "key_share"],
           "title": "Mode",
           "type": "string"
         },
@@ -88,12 +75,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "schema",
-        "account_ids",
-        "mode",
-        "nowait"
-      ],
+      "required": ["schema", "account_ids", "mode", "nowait"],
       "title": "AccountLockRequest",
       "type": "object"
     }

@@ -6,11 +6,11 @@ import uuid
 from typing import Iterable
 
 from fastapi import HTTPException
-from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.user import User
+from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.identity_contracts import IdentityActorFacts
 
 
 class UserLifecycleService:
@@ -23,20 +23,16 @@ class UserLifecycleService:
         *,
         nowait: bool = True,
         authority_only: bool = False,
-    ) -> dict[uuid.UUID, User]:
+    ) -> dict[uuid.UUID, IdentityActorFacts]:
         """Lock current accounts; authority-only KEY SHARE admits non-auth projections.
 
         Account role, active-state and password writers retain the default FOR UPDATE.
         """
         try:
-            accounts = await db.scalars(
-                select(User)
-                .where(User.id.in_(sorted(set(user_ids))))
-                .order_by(User.id)
-                .with_for_update(
-                    read=authority_only, key_share=authority_only, nowait=nowait
-                )
-                .execution_options(populate_existing=True)
+            return await IdentityAccountLockData(db).lock_accounts(
+                user_ids,
+                mode="key_share" if authority_only else "update",
+                nowait=nowait,
             )
         except DBAPIError as exc:
             await db.rollback()
@@ -45,4 +41,3 @@ class UserLifecycleService:
                     status_code=409, detail="账号正在更新，请刷新后重试"
                 ) from exc
             raise
-        return {user.id: user for user in accounts}

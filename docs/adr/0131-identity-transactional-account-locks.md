@@ -116,6 +116,12 @@ LOGIN capabilities do not change. The existing `read_actor_facts` capability
 may be granted to workflow/application roles for the worker's initial status
 read; no new LOGIN, DSN or environment selector is introduced.
 
+The local worktree compatibility runtime also needs these three functions and
+the existing `read_actor_facts`/`read_actor_context` operations. Its explicit
+allowlist in `scripts/worktree_resources.py` is synchronized during runtime
+grant refresh. Qualification applies it only to owned disposable state; the
+runtime's existing broad table access is not an independent-module boundary.
+
 ### Refresh actor facts for every eligible cross-frame write
 
 The frame worker uses the stable job `user_id` and existing
@@ -127,8 +133,10 @@ or call `db.refresh(User)` as a substitute. Per-frame commit/rollback,
 cancellation, source-stale fast paths, task locks, audit and result/error counts
 stay in place. Account contention remains the existing `permission_changed`
 failure; this slice adds no retry policy. A mid-job deleted account keeps
-generic `propagate_failed`; inactive or authority change remains
-`permission_changed`.
+generic `propagate_failed`; an inactive account remains `permission_changed`.
+Authority changes retain their existing phase-specific mappings, including
+`source_task_locked` and `target_task_locked`; they are not normalized into
+one failure reason.
 
 Unlocked Workspace reads and bootstrap account writers remain future work.
 This slice does not broaden scope to those paths.

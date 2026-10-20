@@ -267,7 +267,9 @@ async def execute_cross_frame_job(
             try:
                 actor = await lock_actor_account_facts(db, actor_user_id)
             except HTTPException as exc:
-                raise RuntimeError("permission_changed") from exc
+                if exc.status_code == 409 and exc.detail == {"reason": "account_busy"}:
+                    raise RuntimeError("permission_changed") from exc
+                raise
             if actor is None:
                 raise ValueError("cross-frame job actor not found")
             if not actor.is_active:

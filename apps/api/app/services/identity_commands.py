@@ -14,6 +14,7 @@ from app.core.security import hash_password
 from app.db.enums import UserRole
 from app.db.models.user import User
 from app.services.user_lifecycle import UserLifecycleService
+from app.services.identity_contracts import IdentityActorFacts
 
 
 class IdentityCommandService:
@@ -24,7 +25,7 @@ class IdentityCommandService:
 
     async def lock_account(
         self, user_id: uuid.UUID, *, nowait: bool = True
-    ) -> User | None:
+    ) -> IdentityActorFacts | None:
         """Refresh under the canonical account lock, preserving caller wait policy."""
         return (
             await UserLifecycleService.lock_accounts(self.db, [user_id], nowait=nowait)
@@ -32,7 +33,7 @@ class IdentityCommandService:
 
     async def lock_active_account(
         self, user_id: uuid.UUID, *, nowait: bool = True
-    ) -> User:
+    ) -> IdentityActorFacts:
         user = await self.lock_account(user_id, nowait=nowait)
         if user is None or not user.is_active:
             raise HTTPException(
@@ -44,7 +45,7 @@ class IdentityCommandService:
 
     async def lock_platform_super_admin(
         self, user_id: uuid.UUID, *, nowait: bool = False
-    ) -> User:
+    ) -> IdentityActorFacts:
         """Re-read and hold current super-admin authority through the caller's commit."""
         user = await self.lock_active_account(user_id, nowait=nowait)
         if user.role != UserRole.SUPER_ADMIN.value:

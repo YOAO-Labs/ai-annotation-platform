@@ -1379,9 +1379,11 @@ Migration 0251 在既有 Identity 数据库连接上提供三项 typed SQL capab
 
 函数执行权只加给已有 owner：Workspace owner 三项全有，Labeling 与 Learning 为 SHARE，Inference 为 UPDATE，既有 workflow LOGIN 三项全有。仅授予所需的 schema USAGE／function EXECUTE，不授权 User 原表／列；现有 AUTH 与 credential FENCE LOGIN 不变。`application_role` 的三项 EXECUTE 只写入 LAN production-grants source，未应用到生产数据库。Worker 的初始状态检查复用已存在的 `read_actor_facts(actor_id)`；这不是新增 credential capability。
 
+本地 worktree 的兼容运行角色通过 `scripts/worktree_resources.py` 的明确白名单获取三项锁函数，以及已存在的 `read_actor_facts` 和 `read_actor_context`；prepare／grant refresh 会同步这些执行权。本轮只在一次性验收环境应用，未刷新 primary 环境。该兼容角色既有的表权限不代表独立模块的权限边界。
+
 API wrappers 按自己的契约保留冲突语义：单账号 guard 映射 `account_busy`，账号与项目联合 guard 的任一争用映射 `project_busy`，`project_access` 分别保留 account/project/member busy。`UserLifecycleService.lock_accounts` 对任意 `DBAPIError` 显式 rollback，并维持原 busy 409 文案 `账号正在更新，请刷新后重试`；其他调用方不在数据端口 rollback。锁序仍是排序账号 → Project → membership → 资源，保留各调用方的 lock mode 和 NOWAIT/waiting 选择。
 
-帧 worker 每帧重新获取锁内 actor facts 和当前 project/member/task 权威，不缓存跨帧 actor，也不以 `db.refresh(User)` 代替锁后事实。busy 仍沿用 `permission_changed` 结果，不新增重试；删除账号仍走 `propagate_failed`，停用或当前权限变化仍走既有 `permission_changed`。未锁定的 Workspace 查询和 bootstrap／import User 写入不在这次迁移范围。
+帧 worker 每帧重新获取锁内 actor facts 和当前 project/member/task 权威，不缓存跨帧 actor，也不以 `db.refresh(User)` 代替锁后事实。busy 仍沿用 `permission_changed` 结果，不新增重试；删除账号仍走 `propagate_failed`，停用仍走 `permission_changed`。权限变化保留原阶段映射，包括 `source_task_locked`、`target_task_locked`，不统一改写原因。未锁定的 Workspace 查询和 bootstrap／import User 写入不在这次迁移范围。
 
 Root 的旧实现 baseline 在 owned disposable state 上通过 1 个测试、覆盖 15 个场景；`identity-write-fences-legacy.json` 与 `identity-write-fences-legacy-samples.json` 是旧行为记录，不是新函数资格结果，也不应对新实现重跑。新切片资格待 Root 验证；完整 Identity、十模块／七门槛、生产容量与 primary cutover 仍未完成。精确合同见 [ADR-0131](docs/adr/0131-identity-transactional-account-locks.md)。
 

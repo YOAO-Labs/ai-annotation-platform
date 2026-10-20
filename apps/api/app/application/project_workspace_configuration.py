@@ -39,7 +39,8 @@ from app.services.project_template import (
     can_edit_template,
     merge_template_into_payload,
 )
-from app.services.project_write_guard import lock_actor_account
+from app.services.project_write_guard import lock_actor_account_facts
+from app.services.identity_contracts import IdentityActorFacts
 from app.services.video_collaboration import validate_project_collaboration_update
 from app.services.point_cloud_quality.evaluation import (
     prepare_evaluation_promotion,
@@ -471,7 +472,7 @@ class WorkspaceConfigurationWorkflow:
         actor_id: uuid.UUID,
         source_project_id: uuid.UUID | None,
         template_id: uuid.UUID | None,
-    ) -> tuple[User, Project | None, ProjectTemplate | None]:
+    ) -> tuple[IdentityActorFacts, Project | None, ProjectTemplate | None]:
         if source_project_id is not None:
             actor, source_project, _access = await lock_current_project_access(
                 self.db, actor_id=actor_id, project_id=source_project_id
@@ -498,7 +499,7 @@ class WorkspaceConfigurationWorkflow:
         return actor
 
     async def _visible_template_for_actor(
-        self, template_id: uuid.UUID, actor: User
+        self, template_id: uuid.UUID, actor: User | IdentityActorFacts
     ) -> ProjectTemplate:
         template = await self.db.get(
             ProjectTemplate, template_id, populate_existing=True
@@ -508,9 +509,15 @@ class WorkspaceConfigurationWorkflow:
         await assert_template_visible(self.db, template, actor)
         return template
 
-    async def _lock_current_actor(self, actor_id: uuid.UUID) -> User:
-        await lock_actor_account(self.db, actor_id)
-        return await self._current_actor(actor_id)
+    async def _lock_current_actor(self, actor_id: uuid.UUID) -> IdentityActorFacts:
+        actor = await lock_actor_account_facts(self.db, actor_id)
+        if actor is None or not actor.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="无效的认证凭据",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return actor
 
     async def _lock_project_configuration(self, project_id: uuid.UUID) -> Project:
         try:
@@ -559,7 +566,9 @@ class WorkspaceConfigurationWorkflow:
         return sqlstate in _BUSY_SQLSTATES
 
     @staticmethod
-    def _assert_project_creator(actor: User, *, duplicate: bool = False) -> None:
+    def _assert_project_creator(
+        actor: User | IdentityActorFacts, *, duplicate: bool = False
+    ) -> None:
         if actor.role not in _MANAGER_ROLES:
             detail = (
                 "仅项目管理员或超级管理员可克隆模板"
@@ -569,7 +578,7 @@ class WorkspaceConfigurationWorkflow:
             raise HTTPException(status_code=403, detail=detail)
 
     @staticmethod
-    def _assert_template_creator(actor: User) -> None:
+    def _assert_template_creator(actor: User | IdentityActorFacts) -> None:
         if actor.role not in _MANAGER_ROLES:
             raise HTTPException(
                 status_code=403, detail="仅项目管理员或超级管理员可创建模板"

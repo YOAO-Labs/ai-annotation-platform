@@ -30,6 +30,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.user import User
+from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.identity_contracts import IdentityActorFacts
 from app.services.project_access import (
     bind_project_write_policy_resolver,
     restore_project_write_policy_failure,
@@ -53,13 +55,19 @@ async def lock_actor_account(
 ) -> None:
     """Account-first bounded FOR SHARE lock on the acting account."""
 
+    await lock_actor_account_facts(db, actor_id, nowait=nowait)
+
+
+async def lock_actor_account_facts(
+    db: AsyncSession, actor_id, *, nowait: bool = True
+) -> IdentityActorFacts | None:
+    """Hold the account SHARE lock and return only its current Identity facts."""
+
     from sqlalchemy.exc import DBAPIError
 
     try:
-        await db.execute(
-            select(User.id)
-            .where(User.id == actor_id)
-            .with_for_update(read=True, nowait=nowait)
+        accounts = await IdentityAccountLockData(db).lock_accounts(
+            [actor_id] if actor_id is not None else [], mode="share", nowait=nowait
         )
     except DBAPIError as exc:
         if _busy_lock_error(exc):
@@ -67,6 +75,7 @@ async def lock_actor_account(
                 status_code=409, detail={"reason": "account_busy"}
             ) from exc
         raise
+    return accounts.get(actor_id)
 
 
 async def lock_actor_scope(
@@ -110,10 +119,8 @@ async def lock_actor_project_authority(
     from app.db.models.project import Project
 
     try:
-        await db.execute(
-            select(User.id)
-            .where(User.id == actor_id)
-            .with_for_update(read=True, nowait=nowait)
+        await IdentityAccountLockData(db).lock_accounts(
+            [actor_id] if actor_id is not None else [], mode="share", nowait=nowait
         )
         await db.execute(
             select(Project.id)
@@ -150,7 +157,7 @@ async def lock_project_manager(
 async def assert_phase_write_allowed(
     db: AsyncSession,
     task: Task,
-    actor: User,
+    actor: User | IdentityActorFacts,
     *,
     action: str = "write",
     lock_membership: bool = True,

@@ -1,0 +1,222 @@
+{
+  "kind": "actual-legacy-account-write-fences",
+  "records": {
+    "access": [
+      {
+        "case": "owner",
+        "actor": {
+          "id": "db2246e5-8393-5a1f-aa26-3c8ea14d3109",
+          "name": "  Owner \u00df  ",
+          "email": "owner@write-fences.test",
+          "role": "project_admin",
+          "is_active": true
+        },
+        "project_id": "f32c44b1-3685-518f-a944-c23567f970e9",
+        "access": {
+          "user_id": "db2246e5-8393-5a1f-aa26-3c8ea14d3109",
+          "project_id": "f32c44b1-3685-518f-a944-c23567f970e9",
+          "platform_role": "project_admin",
+          "project_role": null,
+          "membership_id": null,
+          "membership_version": null,
+          "access_kind": "owner",
+          "capabilities": [
+            "annotation.write",
+            "export.annotations",
+            "member.manage",
+            "member.read",
+            "performance.read",
+            "project.manage",
+            "project.read",
+            "review.write",
+            "task.read"
+          ],
+          "is_super_admin": false,
+          "is_owner": true,
+          "is_manager": true
+        }
+      },
+      {
+        "case": "employee",
+        "actor": {
+          "id": "dbda0214-1eae-5df0-b936-bfdf0050a5d5",
+          "name": "  employee \ud83d\ude00 ",
+          "email": "employee@write-fences.test",
+          "role": "employee",
+          "is_active": true
+        },
+        "project_id": "f32c44b1-3685-518f-a944-c23567f970e9",
+        "access": {
+          "user_id": "dbda0214-1eae-5df0-b936-bfdf0050a5d5",
+          "project_id": "f32c44b1-3685-518f-a944-c23567f970e9",
+          "platform_role": "employee",
+          "project_role": "annotator",
+          "membership_id": "299c6aba-5a91-5599-b461-19a1f4c3b241",
+          "membership_version": 1,
+          "access_kind": "member",
+          "capabilities": ["annotation.write", "member.read", "project.read", "task.read"],
+          "is_super_admin": false,
+          "is_owner": false,
+          "is_manager": false
+        }
+      },
+      {
+        "case": "viewer",
+        "actor": {
+          "id": "9a2c25ac-53e4-5407-85dd-0bc079501b24",
+          "name": "  viewer \ud83d\ude00 ",
+          "email": "viewer@write-fences.test",
+          "role": "viewer",
+          "is_active": true
+        },
+        "project_id": "f32c44b1-3685-518f-a944-c23567f970e9",
+        "access": {
+          "user_id": "9a2c25ac-53e4-5407-85dd-0bc079501b24",
+          "project_id": "f32c44b1-3685-518f-a944-c23567f970e9",
+          "platform_role": "viewer",
+          "project_role": "viewer",
+          "membership_id": "b4a4b05e-133d-5a7a-9143-ba4c95d53584",
+          "membership_version": 1,
+          "access_kind": "member",
+          "capabilities": ["member.read", "project.read", "task.read"],
+          "is_super_admin": false,
+          "is_owner": false,
+          "is_manager": false
+        }
+      },
+      {
+        "case": "incompatible",
+        "failure": {
+          "status": 403,
+          "detail": "\u8d26\u53f7\u5e73\u53f0\u89d2\u8272\u4e0e\u9879\u76ee\u804c\u8d23\u4e0d\u517c\u5bb9",
+          "headers": null
+        }
+      },
+      {
+        "case": "bad_member",
+        "failure": {
+          "status": 403,
+          "detail": "\u9879\u76ee\u804c\u8d23\u65e0\u6548\uff0c\u8bbf\u95ee\u88ab\u62d2\u7edd",
+          "headers": null
+        }
+      },
+      {
+        "case": "legacy",
+        "failure": {
+          "status": 403,
+          "detail": "\u8d26\u53f7\u89d2\u8272\u65e0\u6548\uff0c\u8bbf\u95ee\u88ab\u62d2\u7edd",
+          "headers": null
+        }
+      },
+      {
+        "case": "inactive",
+        "failure": {
+          "status": 401,
+          "detail": "\u8d26\u53f7\u5df2\u505c\u7528\u6216\u4e0d\u5b58\u5728",
+          "headers": {
+            "WWW-Authenticate": "Bearer"
+          }
+        }
+      },
+      {
+        "case": "absent_member",
+        "failure": {
+          "status": 404,
+          "detail": "\u9879\u76ee\u4e0d\u5b58\u5728",
+          "headers": null
+        }
+      },
+      {
+        "case": "missing",
+        "failure": {
+          "status": 401,
+          "detail": "\u8d26\u53f7\u5df2\u505c\u7528\u6216\u4e0d\u5b58\u5728",
+          "headers": {
+            "WWW-Authenticate": "Bearer"
+          }
+        }
+      }
+    ],
+    "contention": [
+      {
+        "case": "account",
+        "failure": {
+          "status": 409,
+          "detail": {
+            "reason": "account_busy"
+          },
+          "headers": null
+        },
+        "in_transaction": true,
+        "subsequent_sqlstate": "25P02"
+      },
+      {
+        "case": "project_authority_account",
+        "failure": {
+          "status": 409,
+          "detail": {
+            "reason": "project_busy"
+          },
+          "headers": null
+        },
+        "in_transaction": true,
+        "subsequent_sqlstate": "25P02"
+      },
+      {
+        "case": "access_account",
+        "failure": {
+          "status": 409,
+          "detail": {
+            "reason": "account_busy"
+          },
+          "headers": null
+        },
+        "in_transaction": true,
+        "subsequent_sqlstate": "25P02"
+      },
+      {
+        "case": "lifecycle",
+        "failure": {
+          "status": 409,
+          "detail": "\u8d26\u53f7\u6b63\u5728\u66f4\u65b0\uff0c\u8bf7\u5237\u65b0\u540e\u91cd\u8bd5",
+          "headers": null
+        },
+        "in_transaction": false,
+        "subsequent_sqlstate": null
+      }
+    ],
+    "batch": [
+      {
+        "id": "032dc374-c3e6-50c5-ba7f-d4c7f38b4411",
+        "name": "  legacy \ud83d\ude00 ",
+        "email": "legacy@write-fences.test",
+        "role": "reviewer",
+        "is_active": true
+      },
+      {
+        "id": "7e5eddb6-3be9-5a40-8715-a3b30ccc6b6e",
+        "name": "  inactive \ud83d\ude00 ",
+        "email": "inactive@write-fences.test",
+        "role": "employee",
+        "is_active": false
+      },
+      {
+        "id": "db2246e5-8393-5a1f-aa26-3c8ea14d3109",
+        "name": "  Owner \u00df  ",
+        "email": "owner@write-fences.test",
+        "role": "project_admin",
+        "is_active": true
+      }
+    ],
+    "wait": {
+      "actually_waited": true,
+      "actor": {
+        "id": "db2246e5-8393-5a1f-aa26-3c8ea14d3109",
+        "name": "Waited current owner",
+        "email": "owner@write-fences.test",
+        "role": "project_admin",
+        "is_active": true
+      }
+    }
+  }
+}

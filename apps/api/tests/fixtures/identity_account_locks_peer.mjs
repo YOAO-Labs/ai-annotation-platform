@@ -242,7 +242,8 @@ function callOwner(value) {
     role[0] !== "append_client" ||
     role[1] !== "append_client" ||
     role[2] !== value.database ||
-    role.slice(3, 10).some((privilege) => privilege !== "false") ||
+    [3, 4, 5, 6, 8, 9].some((index) => role[index] !== "false") ||
+    !["false", "true"].includes(role[7]) ||
     role[10] !== "true"
   ) {
     fail();
@@ -254,6 +255,7 @@ function callOwner(value) {
     session_user: role[1],
     database: role[2],
     raw_user_privileges: false,
+    temporary_objects: role[7] === "true",
     request: {
       account_ids: request.account_ids,
       mode: request.mode,

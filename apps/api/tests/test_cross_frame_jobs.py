@@ -698,3 +698,36 @@ async def test_cross_frame_missing_actor_after_rollback_keeps_generic_failure(
         "propagate_failed",
         None,
     ]
+
+
+@pytest.mark.parametrize(
+    "status,detail,reason",
+    [
+        (409, {"reason": "account_busy"}, "permission_changed"),
+        (503, "身份认证服务暂不可用", "propagate_failed"),
+    ],
+    ids=["account-busy", "owner-unavailable"],
+)
+async def test_cross_frame_actor_lock_failure_preserves_error_category(
+    db_session, super_admin, monkeypatch, status, detail, reason
+):
+    from fastapi import HTTPException
+
+    owner, _ = super_admin
+    job_id, _ = await _create_worker_job(
+        db_session, owner_id=owner.id, target_statuses=["in_progress"]
+    )
+
+    async def unavailable(_db, _actor_id, *, nowait=True):
+        raise HTTPException(status_code=status, detail=detail)
+
+    monkeypatch.setattr(
+        "app.services.project_write_guard.lock_actor_account_facts", unavailable
+    )
+    await execute_cross_frame_job(db_session, job_id=job_id)
+    job = await db_session.get(AsyncJob, job_id)
+    await db_session.refresh(job)
+    assert job.status == AsyncJobStatus.FAILED.value
+    assert job.result["failed_count"] == 1
+    assert job.result["success_count"] == 0
+    assert job.result["items"][0]["reason"] == reason
