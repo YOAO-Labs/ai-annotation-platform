@@ -74,6 +74,7 @@ GRANT USAGE ON SCHEMA aap_identity_v1, aap_identity_keys_v1,
     aap_identity_groups_v1, aap_identity_deactivation_v1,
     aap_identity_invitations_v1, aap_identity_mail_v2,
     aap_identity_directory_v1, aap_identity_admin_passwords_v1,
+    aap_identity_platform_roles_v1,
     aap_settings_v1, aap_notifications_v1 TO :"application_role";
 GRANT EXECUTE ON FUNCTION
     aap_identity_v1.authentication_policy(),
@@ -117,6 +118,8 @@ GRANT EXECUTE ON FUNCTION
     aap_identity_directory_v1.execute_directory_command(jsonb),
     aap_identity_admin_passwords_v1.admin_password_policy(),
     aap_identity_admin_passwords_v1.execute_admin_password_command(jsonb),
+    aap_identity_platform_roles_v1.platform_role_policy(),
+    aap_identity_platform_roles_v1.execute_platform_role_command(jsonb),
     aap_identity_mail_v2.mail_policy(),
     aap_identity_mail_v2.claim_mail(jsonb),
     aap_identity_mail_v2.renew_mail(jsonb),

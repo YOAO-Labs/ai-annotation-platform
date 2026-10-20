@@ -44,6 +44,7 @@ NATIVE_MANAGED_TABLES = frozenset(
         "identity_invitation_operation_receipts",
         "identity_directory_export_receipts",
         "identity_admin_password_reset_receipts",
+        "identity_platform_role_operation_receipts",
     }
 )
 
