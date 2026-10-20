@@ -1,6 +1,6 @@
 # 0127 — Identity 管理员删除账号所有权
 
-- **Status:** Accepted; implementation in progress, local qualification pending
+- **Status:** Accepted; locally qualified slice (2026-10-20)
 - **Date:** 2026-10-20
 - **Deciders:** Maintainers
 - **Supersedes:** None
@@ -8,10 +8,10 @@
 
 ## Context
 
-`DELETE /api/v1/users/{user_id}` currently combines account locking, manager
-scope, task transfer, TaskLock release, soft-deletion metadata, Audit and
-historical actor redaction in the API. Moving only the account status would
-split those effects or change the existing transfer and audit behavior.
+The legacy API implementation of `DELETE /api/v1/users/{user_id}` combined
+account locking, manager scope, task transfer, TaskLock release, soft-deletion
+metadata, Audit and historical actor redaction. Moving only account status
+would split those effects or change the existing transfer and audit behavior.
 
 This slice moves only the administrator account-delete command to the existing
 Identity boundary. Offboarding preview/commit, registration-status settings,
@@ -75,12 +75,12 @@ project-admin actor, the receiver must be a member of every distinct nonnull
 Project containing a pending direct-assignee task unless the receiver is the
 actor. Do not impose a member-role rule or owner fallback.
 
-Transfer only the eligible `Task.assignee_id` rows and set their
-`assigned_at` to the current time; release all target TaskLocks. Leave reviewer
-assignments, TaskBatch ownership, ProjectMember, Project ownership and all
-other Task statuses untouched. Do not introduce a new Task/Batch lock regime.
-Keep the transfer, account update, Audit, redaction and receipt in one caller
-transaction.
+Transfer only eligible `Task.assignee_id` rows and set both `assigned_at` and
+`updated_at` to the current time, preserving the old ORM `onupdate` effect; then
+release all target TaskLocks. Leave reviewer assignments, TaskBatch ownership,
+ProjectMember, Project ownership, other Task statuses and their timestamps
+untouched. Do not introduce a new Task/Batch lock regime. Keep the transfer,
+account update, Audit, redaction and receipt in one caller transaction.
 
 ### Delete without retiring credentials; preserve Audit behavior
 
@@ -92,14 +92,18 @@ JWT/JTI state. Account inactivity continues to govern admission; this command
 does not revoke credentials as administrator suspension/reactivation does.
 Preserve accepted self-deactivation request, schedule and reason unchanged.
 
-Write one typed `USER_DELETE` Audit event with the existing detail fields:
-`email`, `role`, `transferred_to` (UUID string or null),
+The typed Audit owner first redacts `actor_email` and `actor_role` on all prior
+Audit rows for the deleted target and captures the row count; it then inserts
+one fixed `USER_DELETE` event in the same transaction. The new event keeps the
+existing detail fields `email`, `role`, `transferred_to` (UUID string or null),
 `transferred_count` and `released_locks` (the pre-transfer count when a receiver
-was supplied, otherwise zero). Redact `actor_email` and `actor_role` on all
-prior Audit rows for the deleted target; retain `actor_id`, `detail_json`, IP
-and target fields. Add `redacted_audit_rows` to the deletion Audit detail only
-when at least one row was redacted. This is partial historical actor redaction,
-not complete personal-data erasure.
+was supplied, otherwise zero). Add `redacted_audit_rows` only when at least one
+row was redacted, embedded in the INSERT. The helper must preserve Audit's
+least-privilege UPDATE boundary: it may update `actor_email` and `actor_role`,
+but must not gain UPDATE access to `detail_json`. The API already forbids
+actor-equals-target; the owner helper enforces this precondition. Retain prior
+`actor_id`, `detail_json`, IP and target fields. This is partial historical
+actor redaction, not complete personal-data erasure.
 
 ### Private protocol and receipts
 
@@ -200,18 +204,22 @@ API/runtime use optional `IDENTITY_DELETION_DATABASE_URL(_FILE)` and optional
 Compose host selector `IDENTITY_RUNTIME_DELETION_DATABASE_URL_FILE`. A blank
 selector disables only this capability and leaves existing Identity startup
 available; an explicitly selected DSN must pass readiness and never falls
-back. Migration, role grants and full local qualification are still being
-verified; no production-capacity claim is made.
+back. Migration, grants and local qualification pass as documented below; no
+production-capacity claim is made.
 
-### Initial source checks; local qualification pending
+### Local qualification
 
-Root's initial source checks passed 494 portable source-package tests and 576
-API assembly checks, with 129 architecture rules explicitly deferred. The SDK
-passed 35 checks. OpenAPI changed only the DELETE operation description; public
-paths, schemas and fields remain unchanged. These checks do not qualify the
-owner: database/restore, installed-package, live API, owner-image and cold-image
-evidence are still pending. No database, live, installed-package, image,
-production-capacity or cutover result is claimed here.
+Root final evidence at source revision `edb213550c81439f5707f531f82bce31d236cbe2` passed 72 selected acceptance cases with zero skips: 71 database/process cases and one static-artifact case. The aggregate uses the latest result per case; focused restore and dedicated-API passes replace earlier fixture failures, and reruns are not additive counts. The set includes compatibility regressions and is not 72 new DELETE-only tests. Migration 0247 downgrade to 0189, frozen-SQL rollback and restoration to 0247 with grants passed. All owned resources were cleaned up with no cleanup errors.
+
+Portable source and installed-package suites each passed 502 tests; 104 installed package files have exact hashes. The installed package uses Pydantic 2.14.1 and has no API, SQLAlchemy, Celery, Boto3 or Torch dependency. API assembly passed 576 checks with 129 architecture rules explicitly deferred; Node passed 21 self-checks and SDK passed 35. OpenAPI changed only the DELETE operation description; public paths, schemas and fields remain unchanged. Codegen/catalog/schema checks passed, and environment docs contain 459 variables across 48 sections.
+
+The Identity owner image `sha256:4e4d71b3a573fba29758b6a4563ad18a97c25fec0b283a4d115df1c4423a73c0` passed an actual remote API binding in a nonroot, read-only container limited to 1 CPU/256 MiB. Four live cases passed: installed-owner transfer/replay, project-admin scope/receiver coverage, an AUTH-only API binding to the remote Identity container, and a dedicated-DSN API-key binding.
+
+The API cold image `sha256:82aa52c6c31721c449b7fe9bcc1046a47956250a83b8284c798f265799dae997` passed with networking disabled, a read-only filesystem and 1 CPU/512 MiB. It matched 104 package and 104 API/native input hashes; verified migration head 0247, one DELETE route, existing S/R (2), platform-role (2), admin-password (1), directory (4), invitation (13), recovery (5), group (8) and deactivation (2) routes, current OpenAPI, and absence of retired helpers. The temporary container was removed. Its 139.297 seconds measure total image build plus offline verification, not application startup latency.
+
+The finite host-process sample used 12 targets at concurrency four: 34 attempts, 22 busy retries, 861.920 ms elapsed, p50 458.037 ms and p95 856.836 ms. It includes Node/HTTP host overhead and is not container CPU timing, production capacity or an SLO. Confirmation left all 12 receipts and 12 Audit rows unchanged; work, locks, Audit rows and credentials created after acceptance remained untouched by replay.
+
+Native regression also proved that a post-write typed-helper failure rolls back the direct-SQL transfer/deletion and manager transaction. If a request was admitted as super-admin but the account is now project-admin, execution uses the current project-admin scope and preserves its 403 failure; actor-ID and generation fences were not weakened, and protocol schemas did not change. This qualifies only the DELETE owner. Offboarding, registration settings, dashboard hydration, complete Identity, the ten-module/seven-gate objective, production capacity/cutover and provider-language replacement remain incomplete.
 
 ## Consequences
 
@@ -241,6 +249,6 @@ Negative:
   `apps/api/app/services/identity_deletion_commands.py` and
   `apps/api/app/services/identity_deletion_data.py`.
 - The portable implementation is in `apps/identity/src/aap_identity/` and its
-  runtime package. Remove only the obsolete legacy delete writer and helpers
-  after caller checks; retain shared `release_user_task_locks` while offboarding
-  still uses it.
+  runtime package. The duplicate legacy delete writer, Batch transfer helper
+  and Audit redaction helper have been retired; shared
+  `release_user_task_locks` remains for offboarding.
