@@ -190,14 +190,16 @@ def test_frozen_offboarding_artifacts_and_native_owner_boundary():
     assert "result jsonb NOT NULL" in support
     assert "scope_basis jsonb NOT NULL" in support
     assert "identity_directory_project_refs" in support
-    assert "lock_identity_offboarding_scope(uuid,uuid[],uuid[])" in migration.replace(
-        " ", ""
-    )
-    assert "identity_offboarding_replay_scope(uuid, uuid[])" in migration
-    assert "lock_identity_offboarding_work(uuid, uuid[])" in migration
-    assert "transfer_identity_offboarding_owners(uuid, jsonb)" in migration
-    assert "transfer_identity_offboarding_work(uuid, jsonb)" in migration
-    assert "record_identity_offboarding_event(jsonb, uuid, jsonb, jsonb)" in migration
+    compact_migration = "".join(migration.split())
+    for signature in (
+        "lock_identity_offboarding_scope(uuid,uuid[],uuid[])",
+        "identity_offboarding_replay_scope(uuid,uuid[])",
+        "lock_identity_offboarding_work(uuid,uuid[])",
+        "transfer_identity_offboarding_owners(uuid,jsonb)",
+        "transfer_identity_offboarding_work(uuid,jsonb)",
+        "record_identity_offboarding_event(jsonb,uuid,jsonb,jsonb)",
+    ):
+        assert signature in compact_migration
     assert (
         "aap_identity_offboarding_v1.prepare_offboarding_command(jsonb)" in role_grants
     )
