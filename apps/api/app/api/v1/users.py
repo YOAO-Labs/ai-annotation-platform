@@ -39,6 +39,8 @@ from app.api.v1.platform_role_commands import (
 from app.services.identity_platform_role_commands import PlatformRoleCommandsPort
 from app.api.v1.suspension_commands import execute_suspension, get_suspension_commands
 from app.services.identity_suspension_commands import SuspensionCommandsPort
+from app.api.v1.deletion_commands import execute_deletion, get_deletion_commands
+from app.services.identity_deletion_commands import DeletionCommandsPort
 from app.api.v1.admin_password_commands import (
     execute_admin_password_reset,
     get_admin_password_commands,
@@ -53,9 +55,6 @@ from app.api.v1.invitation_commands import (
 )
 from app.services.identity_invitation_commands import InvitationCommandsPort
 from app.services.identity_group_commands import GroupCommandsPort
-from app.application.legacy_user_lifecycle import (
-    delete_user as delete_user_workflow,
-)
 from app.application.user_lifecycle import UserLifecycleWorkflow
 from sqlalchemy.exc import DBAPIError
 
@@ -420,24 +419,16 @@ async def delete_user(
     user_id: str,
     request: Request,
     payload: DeleteUserPayload | None = Body(None),
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: DeletionCommandsPort = Depends(get_deletion_commands),
 ):
-    """软删除（is_active=False）。super_admin 可删任意（除自己/最后一名超管）；
-    project_admin 可删启用的标注员/审核员，但目标的派生项目（成员、批次、
-    任务、锁、名下项目）一旦出现在其他人的项目里（跨项目交接需上级处理）
-    则拒绝；未分配账号无项目归属，可直接删除。
-
-    若 target 仍持有未完成任务（assignee_id + status in pending/in_progress/review）或 task_lock，
-    返回 409，要求传入 `transfer_to_user_id`；前端弹"先转交"二次 Modal。
-    project_admin 的转交接收人必须是每个待转交任务所在项目的成员。
-    """
-    return await delete_user_workflow(
-        db,
-        user_id=user_id,
-        actor=actor,
-        request=request,
-        transfer_to_user_id=payload.transfer_to_user_id if payload else None,
+    """Soft-delete with current manager authority and the existing task handoff rules."""
+    return await execute_deletion(
+        request,
+        credentials,
+        commands,
+        user_id,
+        payload.transfer_to_user_id if payload else None,
     )
 
 

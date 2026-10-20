@@ -248,6 +248,8 @@ class Settings(BaseSettings):
     identity_platform_role_database_url_file: str = ""
     identity_suspension_database_url: str = Field(default="", repr=False)
     identity_suspension_database_url_file: str = ""
+    identity_deletion_database_url: str = Field(default="", repr=False)
+    identity_deletion_database_url_file: str = ""
     identity_invitation_database_url: str = Field(default="", repr=False)
     identity_invitation_database_url_file: str = ""
     identity_invitation_mail_timeout_seconds: float = Field(default=60, gt=0, le=120)

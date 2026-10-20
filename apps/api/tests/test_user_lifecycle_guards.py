@@ -331,7 +331,13 @@ async def test_legacy_delete_requires_handoff_for_rejected_work(
         f"/api/v1/users/{target.id}", headers=headers(actor)
     )
     assert response.status_code == 409, response.text
-    assert response.json()["detail"]["pending_task_count"] == 1
+    assert response.json()["detail"] == {
+        "reason": "has_pending_tasks",
+        "pending_task_count": 1,
+        "locked_task_count": 0,
+        "sample_task_ids": [str(tasks[0].id)],
+        "message": "该用户当前有 1 个未完成任务、0 个锁定任务，需先转交",
+    }
     await db_session.refresh(target)
     assert target.is_active
 
@@ -395,13 +401,14 @@ async def test_restored_employee_cannot_replay_into_handed_off_task(
 
 
 @pytest.mark.parametrize("change", ["inactive", "demoted"])
-async def test_reactivate_rechecks_actor_after_authentication(
-    change, httpx_client, db_session, super_admin, app_module
+@pytest.mark.parametrize("operation", ["delete", "reactivate"])
+async def test_lifecycle_rechecks_actor_after_authentication(
+    change, operation, httpx_client, db_session, super_admin, app_module
 ):
     actor, _ = super_admin
     target, _, _, _, _ = await seed_handoff(db_session, actor)
-    target.is_active = False
-    target.disabled_kind = "suspended"
+    target.is_active = operation == "delete"
+    target.disabled_kind = None if operation == "delete" else "suspended"
     target_id = target.id
     admitted_headers = headers(actor)
     admitted = await IdentityGateway().authenticate(
@@ -420,13 +427,17 @@ async def test_reactivate_rechecks_actor_after_authentication(
     previous = app_module.dependency_overrides.get(get_current_principal)
     app_module.dependency_overrides[get_current_principal] = prior_principal
     try:
-        response = await httpx_client.post(
-            f"/api/v1/users/{target_id}/reactivate", headers=admitted_headers
+        response = await (
+            httpx_client.delete(f"/api/v1/users/{target_id}", headers=admitted_headers)
+            if operation == "delete"
+            else httpx_client.post(
+                f"/api/v1/users/{target_id}/reactivate", headers=admitted_headers
+            )
         )
         assert response.status_code == 403, response.text
         assert response.json()["detail"] == "当前账号已无管理权限"
         await db_session.refresh(target)
-        assert not target.is_active
+        assert target.is_active is (operation == "delete")
     finally:
         if previous is None:
             app_module.dependency_overrides.pop(get_current_principal, None)

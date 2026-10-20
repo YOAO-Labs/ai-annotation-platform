@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from enum import Enum
 from typing import Any
-from uuid import UUID
 
 from fastapi import Request
-from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.audit_log import AuditLog
@@ -220,25 +218,6 @@ def export_metadata_header(
 
 class AuditService:
     """业务层显式打点。同事务 flush，由调用方 commit。"""
-
-    @staticmethod
-    async def redact_actor_history(
-        db: AsyncSession, actor_id: UUID, *, deletion_entry: AuditLog | None = None
-    ) -> int:
-        """Redact historical actor identity in the caller's deletion transaction."""
-        await db.execute(text("SET LOCAL \"app.allow_audit_update\" = 'true'"))
-        result = await db.execute(
-            update(AuditLog)
-            .where(AuditLog.actor_id == actor_id)
-            .values(actor_email=None, actor_role=None)
-        )
-        count = result.rowcount or 0
-        if count and deletion_entry is not None:
-            deletion_entry.detail_json = {
-                **(deletion_entry.detail_json or {}),
-                "redacted_audit_rows": count,
-            }
-        return count
 
     @staticmethod
     async def log(

@@ -391,25 +391,6 @@ class BatchService:
                 if value
             ]
 
-    async def legacy_transfer_task_assignments(
-        self,
-        *,
-        from_user_id: uuid.UUID,
-        to_user_id: uuid.UUID,
-        statuses: Iterable[str],
-    ) -> int:
-        """Transfer only the legacy disable/delete endpoint's task subset."""
-
-        result = await self.db.execute(
-            update(Task)
-            .where(
-                Task.assignee_id == from_user_id,
-                Task.status.in_(tuple(statuses)),
-            )
-            .values(assignee_id=to_user_id, assigned_at=func.now())
-        )
-        return result.rowcount or 0
-
     async def release_user_task_locks(self, user_id: uuid.UUID) -> None:
         await self.db.execute(delete(TaskLock).where(TaskLock.user_id == user_id))
 

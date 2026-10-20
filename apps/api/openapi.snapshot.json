@@ -86131,7 +86131,7 @@
     },
     "/api/v1/users/{user_id}": {
       "delete": {
-        "description": "软删除（is_active=False）。super_admin 可删任意（除自己/最后一名超管）；\nproject_admin 可删启用的标注员/审核员，但目标的派生项目（成员、批次、\n任务、锁、名下项目）一旦出现在其他人的项目里（跨项目交接需上级处理）\n则拒绝；未分配账号无项目归属，可直接删除。\n\n若 target 仍持有未完成任务（assignee_id + status in pending/in_progress/review）或 task_lock，\n返回 409，要求传入 `transfer_to_user_id`；前端弹\"先转交\"二次 Modal。\nproject_admin 的转交接收人必须是每个待转交任务所在项目的成员。",
+        "description": "Soft-delete with current manager authority and the existing task handoff rules.",
         "operationId": "delete_user_api_v1_users__user_id__delete",
         "parameters": [
           {

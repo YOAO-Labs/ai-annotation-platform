@@ -107,6 +107,18 @@ _CASES = (
         "execute",
     ),
     (
+        "deletions",
+        "app.services.identity_deletion_commands",
+        "IdentityDeletionCommands",
+        "DeletionPostgresData",
+        "IdentityDeletionCommandData",
+        "DeletionManager",
+        "identity_deletion_database_url",
+        "identity_deletion_database_url_file",
+        "deletion_policy",
+        "execute",
+    ),
+    (
         "deactivation_due",
         "app.services.identity_deactivation_commands",
         "IdentityDeactivationDueCommands",
