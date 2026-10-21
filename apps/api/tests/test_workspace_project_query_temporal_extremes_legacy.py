@@ -400,17 +400,64 @@ async def _capture_http_read(app, engine, *, token: str, path: str) -> dict:
     }
 
 
-def _replace_project_id(value, project_id) -> object:
-    raw_id = str(project_id)
-    if isinstance(value, str):
-        return value.replace(raw_id, "$project")
+def _normalise_response_value(
+    value,
+    *,
+    actor_id,
+    project_id,
+    project_display_id: str,
+    project_name: str,
+):
     if isinstance(value, list):
-        return [_replace_project_id(item, project_id) for item in value]
+        return [
+            _normalise_response_value(
+                item,
+                actor_id=actor_id,
+                project_id=project_id,
+                project_display_id=project_display_id,
+                project_name=project_name,
+            )
+            for item in value
+        ]
     if isinstance(value, dict):
-        return {
-            key: _replace_project_id(item, project_id) for key, item in value.items()
-        }
+        normalized = {}
+        for key, item in value.items():
+            if key == "id" and item == str(project_id):
+                normalized[key] = "$project"
+            elif key == "owner_id" and item == str(actor_id):
+                normalized[key] = "$actor"
+            elif key == "display_id" and item == project_display_id:
+                normalized[key] = "$project_display_id"
+            elif key == "name" and item == project_name:
+                normalized[key] = "Project temporal probe $capture_suffix"
+            else:
+                normalized[key] = _normalise_response_value(
+                    item,
+                    actor_id=actor_id,
+                    project_id=project_id,
+                    project_display_id=project_display_id,
+                    project_name=project_name,
+                )
+        return normalized
     return value
+
+
+def _normalise_attempt_responses(
+    attempts: list[dict], *, actor_id, project_id, project_display_id, project_name
+) -> list[dict]:
+    normalized = []
+    for attempt in attempts:
+        item = dict(attempt)
+        if "response" in item:
+            item["response"] = _normalise_response_value(
+                item["response"],
+                actor_id=actor_id,
+                project_id=project_id,
+                project_display_id=project_display_id,
+                project_name=project_name,
+            )
+        normalized.append(item)
+    return normalized
 
 
 async def _reset_project_times(owner_maker, project_id) -> None:
@@ -475,9 +522,19 @@ async def test_capture_legacy_project_temporal_extremes(test_engine, app_module)
     runtime_maker = async_sessionmaker(runtime_engine, expire_on_commit=False)
     actor_id = None
     project_id = None
+    project_display_id = None
+    project_name = None
     token = None
     capture = {
         "capture_kind": "actual-pre-extraction-project-temporal-extremes",
+        "identity_normalization": {
+            "response_actor_id": "$actor",
+            "response_project_id": "$project",
+            "response_project_display_id": "$project_display_id",
+            "response_project_name": "Project temporal probe $capture_suffix",
+            "database_name": "$owned_test_database",
+            "exception_text": "preserved verbatim and may contain run-specific values",
+        },
         "source": source,
         "database_identity": None,
         "driver_expression_probes": [],
@@ -498,13 +555,14 @@ async def test_capture_legacy_project_temporal_extremes(test_engine, app_module)
                     text("SELECT current_user, current_database()")
                 )
             ).one()
+            server_version = await connection.scalar(text("SELECT version()"))
         assert runtime_role == "legacy_runtime"
         assert runtime_database == test_engine.url.database
         capture["database_identity"] = {
             "runtime_role": runtime_role,
-            "database": runtime_database,
+            "database_alias": "$owned_test_database",
             "database_name_ends_test": runtime_database.endswith("_test"),
-            "server_version": await connection.scalar(text("SELECT version()")),
+            "server_version": server_version,
         }
         capture["runtime_versions"] = {
             "python": sys.version.split()[0],
@@ -531,13 +589,23 @@ async def test_capture_legacy_project_temporal_extremes(test_engine, app_module)
                 classes=["probe"],
             )
             project_id = project.id
+            project_display_id = project.display_id
+            project_name = project.name
             project.due_date = date(2000, 1, 2)
             project.created_at = project.updated_at = datetime(
                 2000, 1, 2, 3, 4, 5, tzinfo=timezone.utc
             )
         token = create_access_token(subject=str(actor_id), role="project_admin")
-        capture["actor"] = {"role": "project_admin", "active": True}
-        capture["project"] = {"alias": "$project"}
+        capture["actor"] = {
+            "alias": "$actor",
+            "role": "project_admin",
+            "active": True,
+        }
+        capture["project"] = {
+            "alias": "$project",
+            "display_id": "$project_display_id",
+            "name": "Project temporal probe $capture_suffix",
+        }
 
         async with runtime_engine.connect() as connection:
             await connection.execute(text("SET LOCAL DateStyle = 'ISO, YMD'"))
@@ -637,12 +705,20 @@ async def test_capture_legacy_project_temporal_extremes(test_engine, app_module)
                         "method": "GET",
                         "path": path.replace(str(project_id), "$project"),
                         "actor_role": "project_admin",
-                        "response": _replace_project_id(
-                            observation["response"], project_id
+                        "response": _normalise_response_value(
+                            observation["response"],
+                            actor_id=actor_id,
+                            project_id=project_id,
+                            project_display_id=project_display_id,
+                            project_name=project_name,
                         ),
                         "exception_attempt": observation["exception_attempt"],
-                        "attempts": _replace_project_id(
-                            observation["attempts"], project_id
+                        "attempts": _normalise_attempt_responses(
+                            observation["attempts"],
+                            actor_id=actor_id,
+                            project_id=project_id,
+                            project_display_id=project_display_id,
+                            project_name=project_name,
                         ),
                     }
                 )
