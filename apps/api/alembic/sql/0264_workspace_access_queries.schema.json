@@ -1,0 +1,24 @@
+{
+  "$comment": "Native implementation delta for the existing aap-workspace-project-query/v1 protocol; merge these facts with the canonical contract schema.",
+  "x-project-query-operation-actions": {
+    "get_project_access": ["get_row", "actor_status", "access_member_rows"]
+  },
+  "x-project-query-access-member-row": {
+    "columns": [
+      "id",
+      "project_id",
+      "user_id",
+      "role",
+      "assigned_by",
+      "assigned_at",
+      "version",
+      "updated_at",
+      "weekly_target"
+    ],
+    "rows_json": "JSON array text containing zero or one row",
+    "timestamp_encoding": "JSON timestamp strings from to_jsonb under function-local UTC and ISO GUCs"
+  },
+  "x-postgresql-functions": [
+    "aap_workspace_project_query_v1.project_query_step(jsonb,text,jsonb,text,text,text[],text[],uuid,text,timestamptz,timestamptz,bigint,integer)"
+  ]
+}
