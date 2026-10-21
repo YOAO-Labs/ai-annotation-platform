@@ -8,7 +8,6 @@ from aap_workspace.project_query_contract import (
 )
 import logging
 import uuid
-from collections import Counter
 from app.application.preannotation_contract import (
     BatchPredictionDispatcher,
     BatchPredictionRequest,
@@ -541,37 +540,19 @@ async def rename_class(
 
 @router.get("/{project_id}/class-usage", response_model=ProjectClassUsageOut)
 async def get_class_usage(
-    project: Project = Depends(require_project_owner),
+    project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    from app.db.models.annotation import Annotation
+    from app.services.labeling_class_query import execute_labeling_class_query
 
-    class_rows = (
-        await db.execute(
-            select(Annotation.class_name, func.count(Annotation.id))
-            .where(
-                Annotation.project_id == project.id,
-                Annotation.is_active.is_(True),
-            )
-            .group_by(Annotation.class_name)
-        )
-    ).all()
-    classes = {name: int(count or 0) for name, count in class_rows if name}
-
-    attribute_rows = (
-        await db.execute(
-            select(Annotation.attributes).where(
-                Annotation.project_id == project.id,
-                Annotation.is_active.is_(True),
-            )
-        )
-    ).scalars()
-    attributes: Counter[str] = Counter()
-    for attrs in attribute_rows:
-        if isinstance(attrs, dict):
-            attributes.update(str(key) for key in attrs.keys())
-
-    return ProjectClassUsageOut(classes=classes, attributes=dict(attributes))
+    await execute_project_query(
+        db,
+        operation="require_project_manager",
+        actor=current_user,
+        target_id=project_id,
+    )
+    return await execute_labeling_class_query(db, project_id=project_id)
 
 
 @router.post("/{project_id}/cleanup-orphans", response_model=ProjectCleanupOrphansOut)

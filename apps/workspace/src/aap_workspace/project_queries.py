@@ -152,6 +152,9 @@ class ProjectQueryManager:
                         if request.operation == "project_readiness"
                         else await self._detail(request, transaction, row)
                     )
+                elif request.operation == "require_project_manager":
+                    await accessible_project_row(request, transaction, self._step)
+                    data = {"project_id": str(request.target_id)}
                 elif request.operation == "get_project_access":
                     await accessible_project_row(request, transaction, self._step)
                     access = await current_project_access(

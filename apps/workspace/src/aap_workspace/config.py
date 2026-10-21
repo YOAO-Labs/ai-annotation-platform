@@ -15,6 +15,8 @@ def secret_source(direct: str | SecretStr | None, filename: str | None) -> str:
             value = Path(filename).read_text(encoding="utf-8").rstrip("\r\n")
         except (OSError, UnicodeError):
             raise ValueError("Workspace secret file is unavailable") from None
+        if not value:
+            raise ValueError("Workspace secret file is empty")
     return value
 
 

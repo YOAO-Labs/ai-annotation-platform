@@ -6,7 +6,7 @@ import asyncio
 from contextlib import asynccontextmanager
 import json
 
-from ._postgres_capabilities import FunctionRoleUnavailable, verify_function_only_role
+from aap_owner_data.postgres import FunctionRoleUnavailable, verify_function_only_role
 from .contract import (
     MEMBERSHIP_NATIVE_TEXT_CODEC,
     MembershipUnavailable,

@@ -29,6 +29,7 @@ ProjectQueryOperation: TypeAlias = Literal[
     "project_readiness",
     "get_project_projection",
     "get_project_access",
+    "require_project_manager",
     "search_projects",
 ]
 ProjectQueryAction: TypeAlias = Literal[
@@ -219,6 +220,7 @@ class ProjectQueryRequest(_ProjectQueryModel):
             "project_readiness",
             "get_project_projection",
             "get_project_access",
+            "require_project_manager",
         )
         if (self.filters_ascii is not None) != listed:
             raise ValueError("Filters do not match the operation")
@@ -532,6 +534,7 @@ PROJECT_QUERY_OPERATION_ACTIONS = {
     "query_projects": {"count_rows", "list_rows", "my_roles"} | _SERIALIZATION_ACTIONS,
     "get_project": _ACCESS_ACTIONS | _SERIALIZATION_ACTIONS | {"my_roles"},
     "get_project_access": _PROJECT_ACCESS_ACTIONS,
+    "require_project_manager": _PROJECT_ACCESS_ACTIONS,
     "project_stats": {
         "visible_rows",
         "annotation_count",

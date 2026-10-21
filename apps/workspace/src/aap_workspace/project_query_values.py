@@ -342,6 +342,18 @@ def validate_project_query_data(request, data_json):
             raise ProjectQueryUnavailable()
         for field in _READINESS_COUNTS:
             _integer(value[field])
+    elif operation == "require_project_manager":
+        if (
+            type(value) is not dict
+            or set(value) != {"project_id"}
+            or type(value["project_id"]) is not str
+            or value["project_id"] != str(request.target_id)
+        ):
+            raise ProjectQueryUnavailable()
+        try:
+            uuid.UUID(value["project_id"])
+        except ValueError:
+            raise ProjectQueryUnavailable() from None
     elif operation == "get_project_access":
         expected = {
             "project_id",
@@ -495,6 +507,8 @@ def materialize_project_query_data(reply):
             "project_id": uuid.UUID(value["project_id"]),
             **{key: int(value[key]) for key in _READINESS_COUNTS},
         }
+    if request.operation == "require_project_manager":
+        return {"project_id": uuid.UUID(value["project_id"])}
     if request.operation == "get_project_access":
         return {
             **value,

@@ -63,7 +63,7 @@ async def _step(connection, request, action, parameters=None):
 
 
 async def test_directory_login_has_only_two_functions_and_no_data_access(test_engine):
-    from aap_workspace._postgres_capabilities import verify_function_only_role
+    from aap_owner_data.postgres import verify_function_only_role
 
     dsn = _directory_dsn(test_engine)
     assert await DirectoryQueryPostgresData(dsn).directory_query_policy() is None

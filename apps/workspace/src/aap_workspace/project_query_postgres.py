@@ -99,7 +99,7 @@ class ProjectQueryPostgresData:
 
     async def _verify_policy(self, connection):
         import asyncpg
-        from ._postgres_capabilities import (
+        from aap_owner_data.postgres import (
             FunctionRoleUnavailable,
             verify_function_only_role,
         )

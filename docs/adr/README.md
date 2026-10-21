@@ -187,3 +187,4 @@
 - [0128 — Identity 离职预览与提交所有权（限定本地资格）](0128-independent-identity-offboarding-commands.md)
 - [0129 — Identity 批量 UserBrief 读取（限定本地资格）](0129-identity-batched-user-brief-reads.md)
 - [0130 — Identity 认证后的主体上下文读取（限定本地资格）](0130-identity-post-admission-actor-context.md)
+- [0142 — Labeling Class Usage Query Owner](0142-labeling-class-usage-query-owner.md)

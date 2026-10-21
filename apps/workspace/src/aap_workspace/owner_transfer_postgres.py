@@ -108,7 +108,7 @@ class OwnerTransferPostgresData:
         import asyncpg
 
         try:
-            from ._postgres_capabilities import (
+            from aap_owner_data.postgres import (
                 FunctionRoleUnavailable,
                 verify_function_only_role,
             )

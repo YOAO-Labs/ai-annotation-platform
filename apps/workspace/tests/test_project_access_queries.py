@@ -21,6 +21,7 @@ from aap_workspace.project_queries import ProjectQueryManager
 from aap_workspace.project_query_contract import (
     PROJECT_QUERY_PROTOCOL,
     PROJECT_ROW_COLUMNS,
+    ProjectQueryInvalidRequest,
     ProjectQueryUnavailable,
     decode_project_query_step,
     decode_project_query_reply,
@@ -63,8 +64,8 @@ def member_row(member_id, *, role="reviewer", version=2, **changes):
     }
 
 
-def request(role="employee"):
-    return project_query_request("get_project_access", ACTOR, role, target_id=PROJECT)
+def request(role="employee", *, operation="get_project_access"):
+    return project_query_request(operation, ACTOR, role, target_id=PROJECT)
 
 
 def actor_facts(role="employee"):
@@ -349,6 +350,101 @@ def test_protocol_limits_access_member_action_to_new_operation():
         decode_project_query_step(get_request, "access_member_rows", None, payload)
 
 
+def test_manager_request_requires_only_a_target():
+    with pytest.raises(ProjectQueryInvalidRequest):
+        project_query_request("require_project_manager", ACTOR, "employee")
+    with pytest.raises(ProjectQueryInvalidRequest):
+        project_query_request(
+            "require_project_manager",
+            ACTOR,
+            "employee",
+            target_id=PROJECT,
+            filters={},
+        )
+
+
+@pytest.mark.asyncio
+async def test_require_manager_returns_only_project_id_without_a_second_access_phase():
+    data = Data(
+        {
+            "get_row": [
+                {"row_json": json.dumps(project_row(owner_id=str(ACTOR)))},
+                {"row_json": json.dumps(project_row(owner_id=str(ACTOR)))},
+            ],
+            "actor_status": [
+                actor_facts("project_admin"),
+            ],
+        }
+    )
+    reply = await ProjectQueryManager(data, object()).execute(
+        request("project_admin", operation="require_project_manager")
+    )
+    assert reply.ok and json.loads(reply.data_json) == {"project_id": str(PROJECT)}
+    assert materialize_project_query_data(reply) == {"project_id": PROJECT}
+    assert data.events == [
+        "transaction",
+        ("get_row", None),
+        ("actor_status", None),
+        ("get_row", None),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_require_manager_decodes_visible_member_then_returns_legacy_403():
+    member = member_row(MEMBERSHIP_1, role="reviewer", version=9)
+    data = Data(access_facts(member_steps=((member,), ())))
+    reply = await ProjectQueryManager(data, object()).execute(
+        request(operation="require_project_manager")
+    )
+    assert not reply.ok
+    assert reply.error.status_code == 403
+    assert reply.error.detail == "仅项目负责人或超级管理员可执行"
+    assert data.events == [
+        "transaction",
+        ("get_row", None),
+        ("actor_status", None),
+        ("get_row", None),
+        ("access_member_rows", None),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_require_manager_preserves_hidden_and_full_row_temporal_errors():
+    missing = Data(access_facts(member_steps=((), ())))
+    reply = await ProjectQueryManager(missing, object()).execute(
+        request(operation="require_project_manager")
+    )
+    assert not reply.ok and reply.error.status_code == 404
+    assert reply.error.detail == "项目不存在"
+
+    overflow = member_row(MEMBERSHIP_1, assigned_at="10000-01-01T00:00:00+00:00")
+    data = Data(access_facts(member_steps=((overflow,), ())))
+    with pytest.raises(OverflowError):
+        await ProjectQueryManager(data, object()).execute(
+            request(operation="require_project_manager")
+        )
+    assert data.events[-1] == ("access_member_rows", None)
+
+
+def test_require_manager_reply_has_exact_target_bound_shape():
+    command = request(operation="require_project_manager")
+    for data in (
+        {},
+        {"project_id": str(OWNER)},
+        {"project_id": str(PROJECT), "is_manager": True},
+    ):
+        with pytest.raises(ProjectQueryUnavailable):
+            decode_project_query_reply(
+                command,
+                {
+                    "schema": PROJECT_QUERY_PROTOCOL,
+                    "ok": True,
+                    "request": command.model_dump(mode="json", by_alias=True),
+                    "data_json": json.dumps(data),
+                },
+            )
+
+
 def test_project_access_protocol_schema_matches_published_file():
     schema = project_query_schema()
     published = json.loads(
@@ -367,6 +463,20 @@ def test_project_access_protocol_schema_matches_published_file():
         == {"const": "get_project_access"}
     )
     assert operation_rule["then"]["properties"]["action"]["enum"] == [
+        "access_member_rows",
+        "actor_status",
+        "get_row",
+    ]
+    manager_rule = next(
+        condition
+        for condition in schema["$defs"]["ProjectQueryStep"]["allOf"]
+        if condition["if"]["properties"]
+        .get("request", {})
+        .get("properties", {})
+        .get("operation")
+        == {"const": "require_project_manager"}
+    )
+    assert manager_rule["then"]["properties"]["action"]["enum"] == [
         "access_member_rows",
         "actor_status",
         "get_row",

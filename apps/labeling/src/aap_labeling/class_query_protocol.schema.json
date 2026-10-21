@@ -1,0 +1,107 @@
+{
+  "$defs": {
+    "LabelingClassQueryPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-class-query/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema"],
+      "title": "LabelingClassQueryPolicy",
+      "type": "object"
+    },
+    "LabelingClassQueryRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-class-query/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "request_id": {
+          "format": "uuid",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "get_project_class_usage",
+          "title": "Operation",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "request_id", "operation", "project_id"],
+      "title": "LabelingClassQueryRequest",
+      "type": "object"
+    },
+    "LabelingClassQuerySuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-class-query/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "request": {
+          "$ref": "#/$defs/LabelingClassQueryRequest"
+        },
+        "data_json": {
+          "title": "Data Json",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "request", "data_json"],
+      "title": "LabelingClassQuerySuccess",
+      "type": "object"
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/LabelingClassQueryRequest"
+    },
+    {
+      "$ref": "#/$defs/LabelingClassQueryPolicy"
+    },
+    {
+      "$ref": "#/$defs/LabelingClassQuerySuccess"
+    }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-class-query/v1",
+  "x-data-json-schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["classes", "attributes"],
+    "properties": {
+      "classes": {
+        "type": "object",
+        "propertyNames": {
+          "minLength": 1
+        },
+        "additionalProperties": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "attributes": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}

@@ -89,12 +89,12 @@ async def accessible_project_row(request, transaction, step):
 
     access = _manager_access(request, platform_role=actor.platform_role, row=row)
     if access is None:
-        if request.operation == "get_project_access":
+        if request.operation in ("get_project_access", "require_project_manager"):
             member = _member_rows(
                 request,
                 await step(request, transaction, "access_member_rows"),
             )
-            _member_access(
+            access = _member_access(
                 request,
                 platform_role=actor.platform_role,
                 membership_id=member.id if member is not None else None,
@@ -103,13 +103,15 @@ async def accessible_project_row(request, transaction, step):
             )
         else:
             member = (await step(request, transaction, "member_access")).member
-            _member_access(
+            access = _member_access(
                 request,
                 platform_role=actor.platform_role,
                 membership_id=member.id if member is not None else None,
                 project_role=member.role if member is not None else None,
             )
-    if request.operation == "project_readiness" and access is None:
+    if request.operation in ("project_readiness", "require_project_manager") and (
+        not access.is_manager
+    ):
         raise ProjectQueryRejected(403, "仅项目负责人或超级管理员可执行")
     return row
 

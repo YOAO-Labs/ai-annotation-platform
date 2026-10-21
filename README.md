@@ -389,6 +389,8 @@ Identity 准入、API key、核心会话、自助账户、注册恢复／邮件�
 
 项目访问上下文 `/access` 也已接入现有 Project Query owner，沿用同一部署配置，保留两轮当前权限读取与最终成员版本；三路径响应对照、独立安装包、受限镜像、重启、恢复及完整迁移已通过限定本地验收。完整 Workspace 与全模块独立部署仍在推进，见 [访问上下文 ADR](./docs/adr/0141-workspace-project-access-query.md)。
 
+类别与属性用量已接入 Labeling 读取边界，先核验当前项目管理权，保留原统计口径和两次顺序读取；独立安装包、三路径响应与语句间提交已通过本地进程验证，受限工件和恢复验收继续推进，见 [Labeling 运行协议](./docs-site/api/guides/labeling-runtime.md)与 [统计 owner ADR](./docs/adr/0142-labeling-class-usage-query-owner.md)。
+
 项目与批次维护、数据回填、成员绩效、搜索、指引资源及预测／标注导入见 [项目、批次与数据运维](./docs-site/dev/sdk/project-workflows.md)。分派绑定原预览版本，项目范围约束先于查询限制，批次导出与项目导出使用相同能力检查。
 
 | 角色 / 任务                | 入口                                                                                                                            |

@@ -3897,3 +3897,50 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   request flag. Isolated core/Native guard extensions are prepared; no public
   route or production aggregation has switched yet. Full owner implementation,
   three-path replay and runtime/artifact/recovery gates remain open.
+
+### Labeling class usage: portable owner implementation
+
+- API now coordinates one `require_project_manager` operation on the existing
+  Workspace Project Query owner, followed by Labeling's independent
+  `get_project_class_usage` projection. Native0265 keeps the existing function
+  signature/OID/ACL and extends its closed operation set; Native0266 exposes
+  exactly three Labeling read functions. Public route, DTO and OpenAPI remain
+  unchanged. Labeling does not import Workspace, Identity, API or ORM packages.
+- The portable manager retains two sequential active-only Annotation reads,
+  complete Python JSON decoding and plain500 on a stored oversized numeric.
+  No Task join, partial result, extra lock, cache or shared remote snapshot is
+  introduced. Borrowed adapters retain caller autoflush/no_autoflush and rollback;
+  explicit providers use read-only READ COMMITTED with fail-closed selection.
+  Empty selected secret files are rejected before a local fallback can occur.
+- Move the existing function-only credential verifier into the dependency-free
+  `aap-owner-data` leaf and remove its old private Workspace implementation.
+  Workspace callers use the leaf directly. Labeling receives its own package,
+  frozen lockfile, Dockerfile and optional localhost-only Compose entry; API
+  packaging includes both new local packages without editable source.
+- Source and noneditable installed Workspace/Labeling suites pass 244/27 cases,
+  with 42/8 package files and two neutral files byte-identical. All16 frozen HTTP
+  samples match borrowed/dedicated/installed-HTTP bindings. Three real gated
+  statement-gap cases observe old class counts and newly committed attributes;
+  semantic replay is reported separately. Nine existing selected cases, three
+  new narrow-role/codec cases and the borrowed transaction case pass on0266.
+- Full migration validation passes fresh266, the173-step reversible prefix,
+  the92-step suffix, authentic forward conversion and pre-conversion restoration;
+  cleanup reports no retained owned databases. Static API checks pass354
+  applicable cases, with143 inapplicable architecture rules recorded separately.
+  Initial schema-preflight, missing owner-column grants, codec-ordering and empty
+  selected-file failures retain their reports and passing focused follow-ups.
+- Current-schema restore passes all16 frozen samples through each binding on
+  both source and clone, preserving function ownership/ACLs and narrow-client
+  denial. Borrowed statement-gap probes agree; clone-only account deactivation
+  is denied while source remains active. Exact dump/clone cleanup passes. Initial
+  harness state/URL-selection errors are retained and corrected without weakening
+  safety guards or changing the baseline.
+- The updated Workspace package passes nine old Project/Directory/Access
+  compatibility cases, preserving79 frozen public observations per binding on
+  the current noneditable artifact. These are compatibility checks for the new
+  manager operation and shared utility move, not repeated qualification totals.
+- Current restricted images, live container/restart and
+  bounded concurrency qualification remain open. This selected query owner does
+  not close complete Labeling, Workspace, ten modules/seven gates, another-language
+  replacement or production capacity. Primary runtime and Go experiment remain
+  unchanged.

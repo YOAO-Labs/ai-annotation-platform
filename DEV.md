@@ -658,6 +658,26 @@ Identity 的窄账号事实，不初始化 Briefs。空成员列表同样不访�
 三路径响应对照、独立安装包、受限 owner/API 镜像、故障恢复、备份恢复和完整迁移
 已通过限定本地验收；完整 Workspace、另一语言提供方和生产容量仍未完成。
 
+### Labeling 类别与属性统计查询
+
+`class-usage` 的 API 先调用 Workspace `require_project_manager`，再调用独立 Labeling
+统计边界；管理权限只解析一轮，两个 owner 使用各自的数据和凭据。
+默认借用调用方事务。显式 `LABELING_CLASS_QUERY_DATABASE_URL(_FILE)` 与
+`LABELING_CLASS_QUERY_URL` 二选一，HTTP 另配 `LABELING_CLASS_QUERY_CONTROL_TOKEN(_FILE)`。
+`LABELING_CLASS_QUERY_TIMEOUT_SECONDS` 默认30秒；显式选择失败或 DSN 文件为空时不回退。
+
+独立进程运行 `uv run --project apps/labeling --extra runtime python -m aap_labeling`，
+只需要自己的 DSN 和 control bearer；无 Workspace／Identity Briefs／对象存储配置。
+`docker-compose.labeling-class-query.yml` 只发布本机8178，并读取
+`LABELING_RUNTIME_CLASS_QUERY_DATABASE_URL_FILE` 与
+`LABELING_RUNTIME_CLASS_QUERY_CONTROL_TOKEN_FILE` 两个宿主 secret 文件。
+先迁移当前 head，再应用 module-data 和 Labeling class-query 两份 grants。
+匹配的 Workspace owner 也必须支持单轮管理权检查；不对旧提供方静默降级。
+
+独立安装包、三路径响应和真实语句间提交已通过本地进程验证；受限工件与恢复验收继续推进。
+命令、权限和范围见[内部运行协议](docs-site/api/guides/labeling-runtime.md)及
+[ADR-0142](docs/adr/0142-labeling-class-usage-query-owner.md)。
+
 ### 设计系统
 
 前端设计系统基于 Tailwind CSS + shadcn/ui。运行时主题 Token 定义在 `apps/web/src/styles/shadcn.css`：

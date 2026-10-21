@@ -1,0 +1,58 @@
+{
+  "$defs": {
+    "LabelingClassCountRow": {
+      "additionalProperties": false,
+      "properties": {
+        "class_name": {
+          "type": "string"
+        },
+        "annotation_count": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": ["class_name", "annotation_count"],
+      "type": "object"
+    },
+    "LabelingClassQueryPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-class-query/v1",
+          "type": "string"
+        }
+      },
+      "required": ["schema"],
+      "type": "object"
+    },
+    "LabelingClassAttributeRow": {
+      "additionalProperties": false,
+      "properties": {
+        "attributes_json": {
+          "type": ["string", "null"]
+        }
+      },
+      "required": ["attributes_json"],
+      "type": "object"
+    }
+  },
+  "$id": "aap-labeling-class-query-native/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/LabelingClassQueryPolicy"
+    },
+    {
+      "$ref": "#/$defs/LabelingClassCountRow"
+    },
+    {
+      "$ref": "#/$defs/LabelingClassAttributeRow"
+    }
+  ],
+  "$comment": "Fixed, read-only Labeling SQL facts. Attributes remain raw JSONB text for later Python decoding, including its legacy large-integer failure phase.",
+  "x-postgresql-functions": [
+    "aap_labeling_class_query_v1.class_query_policy()",
+    "aap_labeling_class_query_v1.class_counts(uuid)",
+    "aap_labeling_class_query_v1.attribute_rows(uuid)"
+  ]
+}

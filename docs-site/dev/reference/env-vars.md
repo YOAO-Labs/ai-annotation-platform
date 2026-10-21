@@ -764,3 +764,19 @@ last_reviewed: 2026-10-21
 | `WORKSPACE_RUNTIME_DIRECTORY_QUERY_DATABASE_URL_FILE` | `—` | — |
 | `WORKSPACE_RUNTIME_PROJECT_QUERY_BRIEFS_DATABASE_URL_FILE` | `—` | — |
 | `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE` | `—` | — |
+
+## Labeling class usage: API first checks current Workspace management authority.
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `LABELING_CLASS_QUERY_URL` | `—` | Empty selectors borrow the caller transaction. Select DSN or HTTP, never both. |
+| `LABELING_CLASS_QUERY_DATABASE_URL` | `—` | — |
+| `LABELING_CLASS_QUERY_DATABASE_URL_FILE` | `—` | — |
+| `LABELING_CLASS_QUERY_CONTROL_TOKEN` | `—` | — |
+| `LABELING_CLASS_QUERY_CONTROL_TOKEN_FILE` | `—` | — |
+| `LABELING_CLASS_QUERY_TIMEOUT_SECONDS` | `30` | — |
+| `LABELING_CLASS_QUERY_HOST` | `0.0.0.0` | Standalone runtime; it requires only its Labeling DSN and private bearer. |
+| `LABELING_CLASS_QUERY_PORT` | `8178` | — |
+| `LABELING_CLASS_QUERY_MAX_CONCURRENCY` | `8` | — |
+| `LABELING_RUNTIME_CLASS_QUERY_DATABASE_URL_FILE` | `—` | Host paths mapped to the standalone container's read-only secret files. |
+| `LABELING_RUNTIME_CLASS_QUERY_CONTROL_TOKEN_FILE` | `—` | — |

@@ -39,6 +39,13 @@ GET /api/v1/projects/query?page=1&page_size=20
 成员组保留停用账号的现有展示规则。两条读取都按当前账号和项目可见性授权，
 没有可见权限时返回404。内部独立部署配置见 [Workspace 运行协议](workspace-runtime#项目成员与提及候选)。
 
+## 类别与属性用量
+
+`GET /api/v1/projects/{project_id}/class-usage` 由当前项目负责人或超级管理员读取，返回
+`classes` 与 `attributes` 两个计数映射。统计项目内所有启用标注，包括仍启用的已取消和
+AI 标注；空类别名省略，属性统计对象的顶层键。类别和属性来自顺序的两次读取，
+不承诺共同快照或映射键顺序。内部提供方配置见 [Labeling 运行协议](labeling-runtime)。
+
 ## 创建项目
 
 ```http

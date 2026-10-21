@@ -108,7 +108,7 @@ class FakeConnection:
 
 
 def _install_capability_helper(monkeypatch, calls):
-    module = ModuleType("aap_workspace._postgres_capabilities")
+    module = ModuleType("aap_owner_data.postgres")
 
     class FunctionRoleUnavailable(Exception):
         pass

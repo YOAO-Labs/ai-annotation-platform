@@ -99,6 +99,7 @@ def request(operation="list_projects", *, role="project_admin", filters=None, **
         "project_readiness",
         "get_project_projection",
         "get_project_access",
+        "require_project_manager",
     ):
         kwargs.setdefault("target_id", PROJECT)
     return project_query_request(operation, ACTOR, role, filters=filters, **kwargs)

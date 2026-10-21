@@ -1,4 +1,4 @@
-"""Verify a standalone Workspace credential has only its closed RPC capability."""
+"""Verify an owner credential has only its closed RPC capability."""
 
 from __future__ import annotations
 

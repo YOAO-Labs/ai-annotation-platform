@@ -58,6 +58,11 @@ requires-dist = [
 provides-extras = ["probe", "test"]
 
 [[package]]
+name = "aap-owner-data"
+version = "0.1.0"
+source = { editable = "../_shared/owner_data" }
+
+[[package]]
 name = "aap-protocol-v2"
 version = "0.2.0"
 source = { editable = "../_shared/protocol_v2" }
@@ -92,6 +97,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "aap-inference" },
+    { name = "aap-owner-data" },
     { name = "aap-workspace-contract" },
     { name = "pydantic" },
 ]
@@ -122,6 +128,7 @@ test = [
 requires-dist = [
     { name = "aap-identity", extras = ["postgres"], marker = "extra == 'runtime'", editable = "../identity" },
     { name = "aap-inference", editable = "../inference" },
+    { name = "aap-owner-data", editable = "../_shared/owner_data" },
     { name = "aap-workspace-contract", editable = "../_shared/workspace_contract" },
     { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.29" },
     { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.29" },

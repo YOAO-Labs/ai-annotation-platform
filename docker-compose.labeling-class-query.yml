@@ -1,0 +1,30 @@
+services:
+  labeling-class-query:
+    image: aap-labeling:local
+    build:
+      context: .
+      dockerfile: apps/labeling/Dockerfile
+    environment:
+      LABELING_CLASS_QUERY_HOST: 0.0.0.0
+      LABELING_CLASS_QUERY_PORT: 8178
+      LABELING_CLASS_QUERY_DATABASE_URL_FILE: /run/secrets/class_query_database_url
+      LABELING_CLASS_QUERY_CONTROL_TOKEN_FILE: /run/secrets/class_query_control_token
+    secrets:
+      - class_query_database_url
+      - class_query_control_token
+    ports:
+      - "127.0.0.1:8178:8178"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1
+
+secrets:
+  class_query_database_url:
+    file: ${LABELING_RUNTIME_CLASS_QUERY_DATABASE_URL_FILE:?Set Labeling class-query function-only DSN file}
+  class_query_control_token:
+    file: ${LABELING_RUNTIME_CLASS_QUERY_CONTROL_TOKEN_FILE:?Set Labeling class-query private bearer file}

@@ -65,6 +65,7 @@ IDENTITY_CLIENT_ROLES = {
     "WORKSPACE_TEMPLATE_QUERY": "workspace_template_query_client",
     "WORKSPACE_PROJECT_QUERY": "workspace_project_query_client",
     "WORKSPACE_DIRECTORY_QUERY": "workspace_directory_query_client",
+    "LABELING_CLASS_QUERY": "labeling_class_query_client",
 }
 MODULE_ROLES = (
     "identity_code",
@@ -211,6 +212,8 @@ SQL_ARTIFACTS = (
     "0262_workspace_member_authority_temporals.sql",
     "0263_workspace_directory_queries.sql",
     "0264_workspace_access_queries.sql",
+    "0265_workspace_manager_queries.sql",
+    "0266_labeling_class_query.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -287,8 +290,11 @@ SCHEMA_ARTIFACTS = (
     "0262_workspace_member_authority_temporals.schema.json",
     "0263_workspace_directory_queries.schema.json",
     "0264_workspace_access_queries.schema.json",
+    "0265_workspace_manager_queries.schema.json",
+    "0266_labeling_class_query.schema.json",
 )
 TEST_FILES = (
+    "tests/test_labeling_class_query_native.py",
     "tests/test_workspace_project_access_queries_native.py",
     "tests/test_workspace_project_access_migration.py",
     "tests/test_workspace_project_access_read_phases.py",
@@ -2339,6 +2345,9 @@ def main(argv: list[str] | None = None) -> int:
         workspace_directory_query_grants_path = (
             ROOT / "infra/docker/workspace-directory-query-grants.sql"
         )
+        labeling_class_query_grants_path = (
+            ROOT / "infra/docker/labeling-class-query-grants.sql"
+        )
         identity_deactivation_grants_path = (
             ROOT / "infra/docker/identity-deactivation-grants.sql"
         )
@@ -2381,6 +2390,7 @@ def main(argv: list[str] | None = None) -> int:
             or not workspace_template_query_grants_path.is_file()
             or not workspace_project_query_grants_path.is_file()
             or not workspace_directory_query_grants_path.is_file()
+            or not labeling_class_query_grants_path.is_file()
             or not identity_account_grants_path.is_file()
             or not identity_recovery_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
@@ -2453,6 +2463,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         workspace_directory_query_grant_sql = (
             workspace_directory_query_grants_path.read_text(encoding="utf-8")
+        )
+        labeling_class_query_grant_sql = labeling_class_query_grants_path.read_text(
+            encoding="utf-8"
         )
         workspace_project_query_grant_sql = (
             workspace_project_query_grants_path.read_text(encoding="utf-8")
@@ -2571,8 +2584,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0264"]:
-            raise RuntimeError("module-data acceptance requires migration head 0264")
+        if heads != ["0266"]:
+            raise RuntimeError("module-data acceptance requires migration head 0266")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -3178,12 +3191,28 @@ def main(argv: list[str] | None = None) -> int:
                 "workspace_directory_query_role": "workspace_directory_query_client",
             },
         )
+        phase = "install-labeling-class-query-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_class_query_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "labeling_class_query_role": "labeling_class_query_client",
+            },
+        )
         resource_environment = backend.environment()
         resource_environment.update(
             {
                 (
                     f"AAP_MODULE_DATA_{kind}_URL"
-                    if kind.startswith("WORKSPACE_")
+                    if kind.startswith(("WORKSPACE_", "LABELING_"))
                     else f"AAP_MODULE_DATA_IDENTITY_{kind}_URL"
                 ): URL.create(
                     "postgresql+asyncpg",

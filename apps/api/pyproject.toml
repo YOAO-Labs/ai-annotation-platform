@@ -10,6 +10,7 @@ dependencies = [
     "aap-assets-media[client,runtime]",
     "aap-assets-mask-content[client,storage]",
     "aap-labeling-mask-gc[client]",
+    "aap-labeling[postgres]",
     "aap-preannotation-results",
     "aap-assets-cleanup",
     "aap-assets-source",
@@ -57,6 +58,7 @@ dependencies = [
 ]
 
 [tool.uv.sources]
+aap-owner-data = { path = "../_shared/owner_data", editable = true }
 aap-identity = { path = "../identity", editable = true }
 aap-inference = { path = "../inference", editable = true }
 aap-mail-transport = { path = "../_shared/mail_transport", editable = true }
@@ -64,6 +66,7 @@ aap-assets-catalog = { path = "../assets-catalog", editable = true }
 aap-assets-media = { path = "../assets-media", editable = true }
 aap-assets-mask-content = { path = "../assets-mask-content", editable = true }
 aap-labeling-mask-gc = { path = "../labeling-mask-gc", editable = true }
+aap-labeling = { path = "../labeling", editable = true }
 aap-preannotation-results = { path = "../preannotation-results", editable = true }
 aap-assets-cleanup = { path = "../assets-cleanup", editable = true }
 aap-assets-source = { path = "../assets-source", editable = true }

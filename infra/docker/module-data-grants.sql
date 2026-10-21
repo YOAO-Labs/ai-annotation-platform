@@ -100,26 +100,26 @@ BEGIN
 END $$;
 
 REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_membership_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
-    aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
+    aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
     aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_workspace_v1,
-    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_membership_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
+    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_membership_v1, aap_assets_v1, aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
     aap_inference_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
     aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
 REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
-    aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
+    aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
     aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1
     FROM :"asset_cleanup_role";
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_workspace_v1,
-    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
+    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_assets_v1, aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
     aap_inference_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
     aap_audit_v1 FROM :"asset_cleanup_role";
 REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
-    aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
+    aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
     aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1,
     aap_settings_v1, aap_notifications_v1 FROM :"mask_gc_role";
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_workspace_v1,
-    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
+    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_assets_v1, aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
     aap_inference_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
     aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM :"mask_gc_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"workflow_role";
@@ -697,6 +697,7 @@ GRANT SELECT (created_at, reviewed_at, updated_at, submitted_at)
     ON public.tasks TO :"labeling_owner";
 GRANT SELECT (created_at, parent_prediction_id, is_active, was_cancelled)
     ON public.annotations TO :"labeling_owner";
+GRANT SELECT (class_name, attributes) ON public.annotations TO :"labeling_owner";
 GRANT SELECT (id, status, annotator_id, reviewer_id)
     ON public.task_batches TO :"labeling_owner";
 GRANT UPDATE (
@@ -844,6 +845,7 @@ GRANT USAGE ON SCHEMA aap_inference_v1 TO :"inference_owner", :"workspace_owner"
 GRANT USAGE ON SCHEMA aap_workspace_configuration_v1 TO :"workspace_owner";
 GRANT USAGE ON SCHEMA aap_workspace_template_query_v1 TO :"workspace_owner";
 GRANT USAGE ON SCHEMA aap_workspace_directory_query_v1 TO :"workspace_owner";
+GRANT USAGE ON SCHEMA aap_labeling_class_query_v1 TO :"labeling_owner";
 GRANT USAGE ON SCHEMA aap_workspace_project_query_v1
     TO :"workspace_owner", :"labeling_owner", :"identity_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_project_query_v1.project_search_scope(uuid, text)
@@ -1908,6 +1910,12 @@ ALTER FUNCTION aap_assets_v1.workspace_project_query_dataset_item_count(uuid[])
 ALTER FUNCTION aap_assets_v1.workspace_project_query_dataset_item_ids(uuid[])
     OWNER TO :"assets_owner";
 REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
+
+GRANT CREATE ON SCHEMA aap_labeling_class_query_v1 TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_class_query_v1.class_query_policy() OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_class_query_v1.class_counts(uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_class_query_v1.attribute_rows(uuid) OWNER TO :"labeling_owner";
+REVOKE CREATE ON SCHEMA aap_labeling_class_query_v1 FROM :"labeling_owner";
 
 GRANT CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.append_dataset_items(uuid, uuid[], uuid) OWNER TO :"labeling_owner";

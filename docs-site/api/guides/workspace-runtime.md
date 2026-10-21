@@ -117,6 +117,11 @@ HTTP 使用 `WORKSPACE_TEMPLATE_QUERY_URL`，二者互斥，显式失败不回�
 恢复和完整迁移已通过限定本地验收；完整 Workspace 与生产容量仍未完成，证据见
 [ADR-0141](/dev/adr/0141-workspace-project-access-query)。
 
+供类别／属性统计使用的 `require_project_manager` 复用同一 Project Query 配置，
+只执行原来一轮当前权限检查，成功仅返回目标项目 ID。可见的普通成员在完整成员行解码后
+返回原管理权限错误，不使用 `/access` 的第二轮读取，也不访问显示资料。
+API 随后调用独立 Labeling 统计边界，配置见 [Labeling 运行协议](labeling-runtime)。
+
 ## 项目成员与提及候选
 
 `GET /api/v1/projects/{project_id}/members` 与 `/mention-candidates` 使用

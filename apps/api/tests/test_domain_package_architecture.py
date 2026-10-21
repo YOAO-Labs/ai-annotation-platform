@@ -568,6 +568,12 @@ DOMAIN_PACKAGES = (
         ),
     ),
     DomainSpec(package="workspace_directory_query_data", legacy_facades=()),
+    DomainSpec(
+        package="labeling_class_query",
+        legacy_facades=(),
+        allowed_app_imports=("app.config", "app.services.labeling_class_query_data"),
+    ),
+    DomainSpec(package="labeling_class_query_data", legacy_facades=()),
     DomainSpec(package="identity_organization_scope", legacy_facades=()),
     DomainSpec(
         package="guide_asset_contracts", legacy_facades=(), allowed_app_imports=()

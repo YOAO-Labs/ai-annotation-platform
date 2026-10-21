@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aap-labeling"
+version = "0.1.0"
+description = "Portable Labeling class-usage query contract and policy"
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2.10"]
+
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "README.md" },
+    { file = "src/**/*.py" },
+    { file = "src/**/*.json" },
+]
+
+[project.optional-dependencies]
+postgres = ["aap-owner-data", "asyncpg>=0.29"]
+runtime = [
+    "aap-owner-data",
+    "asyncpg>=0.29",
+    "fastapi>=0.115",
+    "pydantic-settings>=2.6",
+    "uvicorn>=0.30",
+]
+test = ["pytest>=8.3", "pytest-asyncio>=0.24", "httpx>=0.28"]
+
+[tool.uv.sources]
+aap-owner-data = { path = "../_shared/owner_data", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aap_labeling"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
