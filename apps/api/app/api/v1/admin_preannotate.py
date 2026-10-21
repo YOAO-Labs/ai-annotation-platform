@@ -57,6 +57,8 @@ class PreannotateQueueResponse(BaseModel):
 @router.get("/admin/preannotate-queue", response_model=PreannotateQueueResponse)
 async def list_preannotate_queue(
     limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    project_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)),
 ) -> PreannotateQueueResponse:
@@ -64,11 +66,12 @@ async def list_preannotate_queue(
 
     含 prediction / failed 计数 + 项目元数据, 供 AIPreAnnotatePage 历史表渲染.
     """
-    # 1. 拉所有 pre_annotated 批次 (limit 前)
+    statement = select(TaskBatch).where(TaskBatch.status == BatchStatus.PRE_ANNOTATED)
+    if project_id is not None:
+        statement = statement.where(TaskBatch.project_id == project_id)
     bres = await db.execute(
-        select(TaskBatch)
-        .where(TaskBatch.status == BatchStatus.PRE_ANNOTATED)
-        .order_by(TaskBatch.updated_at.desc())
+        statement.order_by(TaskBatch.updated_at.desc(), TaskBatch.id.desc())
+        .offset(offset)
         .limit(limit)
     )
     batches = list(bres.scalars().all())

@@ -1,3 +1,5 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPagination } from "@/hooks/useListPagination";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
@@ -43,6 +45,8 @@ export default function AIPreAnnotatePage() {
         )
       : items;
   }, [items, search]);
+
+  const pagination = useListPagination(filteredItems, search);
 
   if (selectedProjectId)
     return (
@@ -133,12 +137,19 @@ export default function AIPreAnnotatePage() {
       ) : (
         (!summaryQ.isError || items.length > 0) && (
           <ProjectCardGrid
-            items={filteredItems}
+            items={pagination.items}
             isLoading={summaryQ.isLoading}
             onSelect={setSelectedProjectId}
           />
         )
       )}
+      <ListPagination
+        label="预标项目"
+        {...pagination}
+        loading={summaryQ.isLoading}
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+      />
     </section>
   );
 }

@@ -61,8 +61,32 @@ export interface PreannotateProjectSummaryResponse {
 
 export const adminPreannotateApi = {
   /** v0.9.6 · 列出 pre_annotated 状态批次 + prediction/failed 计数. */
-  queue: (limit = 50) =>
-    apiClient.get<PreannotateQueueResponse>(`/admin/preannotate-queue?limit=${limit}`),
+  queue: (
+    limit = 50,
+    options: { projectId?: string; offset?: number; signal?: AbortSignal } = {},
+  ) => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (options.projectId) query.set("project_id", options.projectId);
+    if (options.offset) query.set("offset", String(options.offset));
+    return apiClient.get<PreannotateQueueResponse>(`/admin/preannotate-queue?${query}`, {
+      signal: options.signal,
+    });
+  },
+
+  /** Read the complete project collection before client-side search, sorting and selection. */
+  projectQueue: async (
+    projectId: string,
+    signal?: AbortSignal,
+  ): Promise<PreannotateQueueResponse> => {
+    const items: PreannotateQueueItem[] = [];
+    const limit = 200;
+    for (let offset = 0; ; offset += limit) {
+      const next = await adminPreannotateApi.queue(limit, { projectId, offset, signal });
+      items.push(...next.items);
+      if (next.items.length < limit) break;
+    }
+    return { items };
+  },
 
   /** v0.9.12 B-16 · 多选批量清理 prediction (predictions_only=回 active / reset_to_draft=全重置). */
   bulkClear: (payload: BulkClearRequest) =>

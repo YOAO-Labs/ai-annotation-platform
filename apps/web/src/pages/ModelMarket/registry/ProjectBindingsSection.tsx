@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useListPagination } from "@/hooks/useListPagination";
 /**
  * v0.23.4 P3 · registry "项目绑定" tab (Super Admin only).
  *
@@ -145,6 +148,11 @@ export function ProjectBindingsSection({
     return rows;
   }, [poolBindings, url.bindingPool, url.projectQ]);
 
+  const resetKey = `${url.bindingPool}|${url.projectQ}|${url.bindingView}`;
+  const projectsPagination = useListPagination(filteredProjectBindings, resetKey);
+  const poolsPagination = useListPagination(filteredPoolBindings, resetKey);
+  const pagination = isByProject ? projectsPagination : poolsPagination;
+
   if (loading.overview) {
     return <LoadingState label="加载项目绑定…" />;
   }
@@ -168,6 +176,12 @@ export function ProjectBindingsSection({
           message="尚无项目启用 AI 或服务池"
           hint="在项目设置里启用 AI 并绑定 backend 后会出现在这里。"
         />
+        <ListPagination
+          label="项目绑定"
+          {...pagination}
+          onPageChange={pagination.setPage}
+          onPageSizeChange={pagination.setPageSize}
+        />
       </div>
     );
   }
@@ -183,7 +197,7 @@ export function ProjectBindingsSection({
       />
 
       {isByProject ? (
-        <Table containerClassName="overflow-hidden rounded-lg border border-border bg-card">
+        <Table containerClassName={listStyles.surface}>
           <TableHeader>
             <TableRow>
               <TableHead>项目</TableHead>
@@ -194,7 +208,7 @@ export function ProjectBindingsSection({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredProjectBindings.map((b) => (
+            {projectsPagination.items.map((b) => (
               <ProjectBindingRow
                 key={b.project_id}
                 binding={b}
@@ -213,7 +227,7 @@ export function ProjectBindingsSection({
           </TableBody>
         </Table>
       ) : (
-        <Table containerClassName="overflow-hidden rounded-lg border border-border bg-card">
+        <Table containerClassName={listStyles.surface}>
           <TableHeader>
             <TableRow>
               <TableHead>服务池</TableHead>
@@ -223,7 +237,7 @@ export function ProjectBindingsSection({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredPoolBindings.map((b) => (
+            {poolsPagination.items.map((b) => (
               <PoolBindingRow key={b.pool.id} binding={b} ordinal={poolOrdinals.get(b.pool.id)} />
             ))}
             {filteredPoolBindings.length === 0 && (
@@ -238,6 +252,12 @@ export function ProjectBindingsSection({
           </TableBody>
         </Table>
       )}
+      <ListPagination
+        label="项目绑定"
+        {...pagination}
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+      />
     </div>
   );
 }

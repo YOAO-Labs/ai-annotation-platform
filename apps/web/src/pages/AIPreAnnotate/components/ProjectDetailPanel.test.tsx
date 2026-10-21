@@ -90,6 +90,7 @@ vi.mock("@/api/adminPreannotate", async () => {
       ...actual.adminPreannotateApi,
       summary: () => mockSummaryAPI(),
       queue: (limit: number) => mockQueueAPI(limit),
+      projectQueue: (projectId: string) => mockQueueAPI(projectId),
     },
   };
 });

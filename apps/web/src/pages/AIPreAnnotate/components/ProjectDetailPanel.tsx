@@ -319,10 +319,10 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
     }>
   ).filter(batchPreannotationEligible);
 
-  // pre_annotated 队列 (复用 /admin/preannotate-queue 端点 + 客户端按 project 过滤)
+  // Read all ready batches in this project before local history filtering and pagination.
   const queueQ = useQuery({
-    queryKey: ["admin", "preannotate-queue"],
-    queryFn: () => adminPreannotateApi.queue(50),
+    queryKey: ["admin", "preannotate-queue", projectId],
+    queryFn: ({ signal }) => adminPreannotateApi.projectQueue(projectId, signal),
     staleTime: 1000 * 30,
   });
   const projectQueue = useMemo(
@@ -1148,7 +1148,7 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
         </div>
       </Card>
 
-      <HistoryTable items={projectQueue} isLoading={queueQ.isLoading} />
+      <HistoryTable key={projectId} items={projectQueue} isLoading={queueQ.isLoading} />
     </div>
   );
 }

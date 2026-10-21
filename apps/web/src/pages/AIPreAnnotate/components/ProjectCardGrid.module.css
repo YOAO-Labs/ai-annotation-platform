@@ -12,22 +12,22 @@
 }
 
 .projectCard {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto;
+  align-items: center;
+  width: 100%;
   min-width: 0;
   gap: 10px;
-  padding: 14px;
-  border: 1px solid var(--sc-border);
-  border-radius: var(--radius-md);
+  border-radius: 0;
   background: var(--sc-card);
   font-family: inherit;
   text-align: left;
   cursor: pointer;
-  transition: border-color 120ms ease;
+  transition: background-color 120ms ease;
 }
 
 .projectCard:hover {
-  border-color: var(--sc-brand);
+  background: var(--sc-muted);
 }
 
 .projectCard:focus-visible {
@@ -146,4 +146,10 @@
 
 .emptyHint {
   font-size: 11px;
+}
+
+@media (max-width: 640px) {
+  .projectCard {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

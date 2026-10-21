@@ -1,3 +1,4 @@
+import { listStyles } from "@/components/ui/listStyles";
 /**
  * v0.9.12 · BUG B-17 · /ai-pre 项目卡片网格 (主视图入口).
  *
@@ -31,7 +32,7 @@ export function ProjectCardGrid({ items, isLoading, onSelect }: Props) {
   }
 
   return (
-    <div className={styles.grid}>
+    <div className={listStyles.surface}>
       {items.map((it) => (
         <ProjectCard key={it.project_id} item={it} onClick={() => onSelect(it.project_id)} />
       ))}
@@ -41,7 +42,7 @@ export function ProjectCardGrid({ items, isLoading, onSelect }: Props) {
 
 function ProjectCard({ item, onClick }: { item: PreannotateProjectSummary; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className={styles.projectCard}>
+    <button type="button" onClick={onClick} className={`${listStyles.row} ${styles.projectCard}`}>
       <div className={styles.cardTopRow}>
         <div className={styles.cardTitleBlock}>
           <div className={styles.projectName} title={item.project_name}>

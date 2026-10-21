@@ -2,6 +2,9 @@ import { useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useProtocolCapabilities, type ProtocolTask } from "@/api/mlCapabilities";
 import { useModelCatalog } from "@/api/modelCatalog";
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useListPagination } from "@/hooks/useListPagination";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import {
@@ -38,6 +41,7 @@ export function ProtocolCatalogPanel() {
           .toLowerCase()
           .includes(q.trim().toLowerCase()),
     ) ?? [];
+  const pagination = useListPagination(tasks, `${q}|${task}`);
   const modelUrl = (id: string) => `/model-market?model_task=${encodeURIComponent(id)}`;
   function update(key: string, value: string) {
     setSearch(
@@ -109,7 +113,7 @@ export function ProtocolCatalogPanel() {
           <p className="text-xs text-muted-foreground">
             {tasks.length} 类任务 · 目录数量按具体规格 / 版本统计，可用状态以模型目录为准
           </p>
-          <div className="overflow-hidden rounded-md border border-border bg-card">
+          <div className={listStyles.surface}>
             <div
               aria-hidden="true"
               className="hidden gap-4 bg-muted px-4 py-3 text-xs text-muted-foreground md:grid md:grid-cols-12"
@@ -119,10 +123,10 @@ export function ProtocolCatalogPanel() {
               <span className="col-span-3">标注输出</span>
               <span className="col-span-2">目录与协议</span>
             </div>
-            {tasks.map((item) => (
+            {pagination.items.map((item) => (
               <article
                 key={item.id}
-                className="grid gap-3 border-t border-border p-4 first:border-t-0 md:grid-cols-12 md:gap-4"
+                className={`${listStyles.row} grid gap-3 md:grid-cols-12 md:gap-4`}
               >
                 <div className="min-w-0 md:col-span-5">
                   <h2 className="text-sm font-semibold">
@@ -188,6 +192,12 @@ export function ProtocolCatalogPanel() {
               </p>
             )}
           </div>
+          <ListPagination
+            label="协议能力"
+            {...pagination}
+            onPageChange={pagination.setPage}
+            onPageSizeChange={pagination.setPageSize}
+          />
         </>
       )}
       <Sheet

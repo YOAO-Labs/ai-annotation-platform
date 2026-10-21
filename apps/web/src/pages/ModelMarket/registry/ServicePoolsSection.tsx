@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useFocusedListPagination } from "./useFocusedListPagination";
 /**
  * v0.23.4 P3 · registry "服务池" tab.
  *
@@ -190,17 +193,6 @@ export function ServicePoolsSection({
   // 当前不可访问 → 明确提示，不静默清掉条件。
   const focusPoolId = url.poolId;
   const focusPoolExists = vm.pools.some((p) => p.id === focusPoolId);
-  useEffect(() => {
-    if (!focusPoolId || !focusPoolExists) return;
-    setExpanded((prev) => {
-      if (prev.has(focusPoolId)) return prev;
-      const next = new Set(prev);
-      next.add(focusPoolId);
-      return next;
-    });
-    const row = document.querySelector<HTMLElement>(`[data-pool-row="${focusPoolId}"]`);
-    row?.scrollIntoView?.({ block: "nearest" });
-  }, [focusPoolId, focusPoolExists]);
 
   const submitCreate = () => {
     const name = poolName.trim();
@@ -305,11 +297,36 @@ export function ServicePoolsSection({
     </div>
   );
 
+  const pagination = useFocusedListPagination(
+    rows,
+    `${url.poolQ}|${url.poolHealth}`,
+    focusPoolId,
+    (pool) => pool.id,
+  );
+
+  useEffect(() => {
+    if (!focusPoolId || !focusPoolExists) return;
+    setExpanded((prev) => {
+      if (prev.has(focusPoolId)) return prev;
+      const next = new Set(prev);
+      next.add(focusPoolId);
+      return next;
+    });
+    const row = document.querySelector<HTMLElement>(`[data-pool-row="${focusPoolId}"]`);
+    row?.scrollIntoView?.({ block: "nearest" });
+  }, [focusPoolId, focusPoolExists, pagination.page]);
+
   if (vm.pools.length === 0) {
     return (
       <div className="flex flex-col gap-3">
         {toolbar}
         <EmptyState icon="layers" message="尚无服务池" />
+        <ListPagination
+          label="服务池"
+          {...pagination}
+          onPageChange={pagination.setPage}
+          onPageSizeChange={pagination.setPageSize}
+        />
         <CreatePoolDialog
           open={createOpen}
           name={poolName}
@@ -333,7 +350,7 @@ export function ServicePoolsSection({
           </Button>
         </div>
       )}
-      <Table containerClassName="overflow-hidden rounded-lg border border-border bg-card">
+      <Table containerClassName={listStyles.surface}>
         <TableHeader>
           <TableRow>
             <TableHead className="w-8" />
@@ -347,7 +364,7 @@ export function ServicePoolsSection({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((pool) => (
+          {pagination.items.map((pool) => (
             <PoolRow
               key={pool.id}
               pool={pool}
@@ -371,6 +388,12 @@ export function ServicePoolsSection({
           )}
         </TableBody>
       </Table>
+      <ListPagination
+        label="服务池"
+        {...pagination}
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+      />
       <CreatePoolDialog
         open={createOpen}
         name={poolName}

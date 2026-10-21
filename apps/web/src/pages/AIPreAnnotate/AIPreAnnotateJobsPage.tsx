@@ -1,3 +1,5 @@
+import { ListPagination, listPageSize } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
 import { FilterGroup, FilterSelect } from "@/components/filters/FilterControls";
 /**
  * v0.10.45 · /ai-pre/jobs — 统一 async_jobs AI 任务历史页.
@@ -25,7 +27,6 @@ import styles from "./AIPreAnnotateJobsPage.module.css";
 type StatusFilter = "" | AsyncJobStatus;
 
 const JOB_TABS = ["图像", "视频"];
-const PAGE_SIZE = 20;
 const IMAGE_JOB_KINDS = ["batch_predict", "prediction_retry"];
 const STATUS_ORDER: AsyncJobStatus[] = ["pending", "running", "completed", "failed", "cancelled"];
 
@@ -94,6 +95,7 @@ function ImageJobsPanel({ projectId }: { projectId?: string }) {
   const search = (rawSearch ?? "").trim();
   const rawPage = searchParams.get("page");
   const page = parsePage(rawPage);
+  const pageSize = listPageSize(searchParams.get("page_size"));
   const [searchDraft, setSearchDraft] = useState(search);
   const lastUrlSearch = useRef(search);
   const syncingSearchDraft = useRef(false);
@@ -158,7 +160,7 @@ function ImageJobsPanel({ projectId }: { projectId?: string }) {
   }, [page, rawPage, rawSearch, rawStatus, search, searchParams, setSearchParams, statusFilter]);
 
   const updateImageUrl = (
-    patch: { status?: StatusFilter; page?: number },
+    patch: { status?: StatusFilter; page?: number; pageSize?: number },
     options: { replace?: boolean } = {},
   ) => {
     setSearchParams(
@@ -167,6 +169,10 @@ function ImageJobsPanel({ projectId }: { projectId?: string }) {
         if (patch.status !== undefined) {
           if (patch.status) next.set("status", patch.status);
           else next.delete("status");
+        }
+        if (patch.pageSize !== undefined) {
+          if (patch.pageSize !== 20) next.set("page_size", String(patch.pageSize));
+          else next.delete("page_size");
         }
         if (patch.page !== undefined) {
           if (patch.page > 1) next.set("page", String(patch.page));
@@ -179,7 +185,16 @@ function ImageJobsPanel({ projectId }: { projectId?: string }) {
   };
 
   const jobsQ = useQuery({
-    queryKey: ["async-jobs", "image", authOwnerKey, projectId, search, statusFilter, page],
+    queryKey: [
+      "async-jobs",
+      "image",
+      authOwnerKey,
+      projectId,
+      search,
+      statusFilter,
+      page,
+      pageSize,
+    ],
     queryFn: ({ signal }) =>
       asyncJobsApi.list(
         {
@@ -187,8 +202,8 @@ function ImageJobsPanel({ projectId }: { projectId?: string }) {
           project_id: projectId || undefined,
           search: search || undefined,
           status: statusFilter || undefined,
-          limit: PAGE_SIZE,
-          offset: (page - 1) * PAGE_SIZE,
+          limit: pageSize,
+          offset: (page - 1) * pageSize,
         },
         { signal },
       ),
@@ -204,8 +219,22 @@ function ImageJobsPanel({ projectId }: { projectId?: string }) {
 
   const items = jobsQ.data?.items ?? [];
   const total = jobsQ.data?.total ?? 0;
-  const offset = (page - 1) * PAGE_SIZE;
-  const hasNext = offset + PAGE_SIZE < total;
+  const offset = (page - 1) * pageSize;
+  const hasNext = offset + pageSize < total;
+  const lastPage = Math.max(1, Math.ceil(total / pageSize));
+  useEffect(() => {
+    if (jobsQ.data && page > lastPage) {
+      setSearchParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          if (lastPage > 1) next.set("page", String(lastPage));
+          else next.delete("page");
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  }, [jobsQ.data, lastPage, page, setSearchParams]);
 
   return (
     <Card>
@@ -248,69 +277,58 @@ function ImageJobsPanel({ projectId }: { projectId?: string }) {
         ) : items.length === 0 ? (
           <EmptyState />
         ) : (
-          <div className={styles.tableWrap}>
-            <table className={styles.table}>
-              <thead>
-                <tr className={styles.headerRow}>
-                  <th className={styles.tableHeaderCell}>项目</th>
-                  <th className={styles.tableHeaderCell}>批次 / 任务</th>
-                  <th className={styles.tableHeaderCell}>Prompt / 错误</th>
-                  <th className={styles.tableHeaderCell}>模型 / 模式</th>
-                  <th className={styles.tableHeaderCell}>状态</th>
-                  <th className={styles.tableHeaderCell}>进度</th>
-                  <th className={styles.tableHeaderCell}>总数</th>
-                  <th className={styles.tableHeaderCell}>失败</th>
-                  <th className={styles.tableHeaderCell}>成本</th>
-                  <th className={styles.tableHeaderCell}>跑时长</th>
-                  <th className={styles.tableHeaderCell}>开始</th>
-                  <th className={styles.tableHeaderCell}>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((it) => (
-                  <JobRow
-                    key={it.id}
-                    job={it}
-                    navigate={navigate}
-                    returnTo={currentWorkbenchReturnTo(location)}
-                    cancelPending={cancelingId === it.id && cancelMut.isPending}
-                    onOpenDetail={(jobId) => setSelectedJobId(jobId)}
-                    onCancel={(jobId) => {
-                      setCancelingId(jobId);
-                      cancelMut.mutate(jobId);
-                    }}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {(page > 1 || hasNext) && (
-          <div className={styles.pagination}>
-            <span className={styles.helperInline}>
-              第 {page} 页 / 共 {total} 条
-            </span>
-            <div className={styles.inlineActions}>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={page === 1}
-                onClick={() => updateImageUrl({ page: page - 1 }, { replace: false })}
-              >
-                <Icon name="chevLeft" size={11} /> 上一页
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={!hasNext}
-                onClick={() => updateImageUrl({ page: page + 1 }, { replace: false })}
-              >
-                下一页 <Icon name="chevRight" size={11} />
-              </Button>
+          <div className={listStyles.surface}>
+            <div className={listStyles.scroll}>
+              <table className={listStyles.table}>
+                <thead>
+                  <tr className={styles.headerRow}>
+                    <th className={styles.tableHeaderCell}>项目</th>
+                    <th className={styles.tableHeaderCell}>批次 / 任务</th>
+                    <th className={styles.tableHeaderCell}>Prompt / 错误</th>
+                    <th className={styles.tableHeaderCell}>模型 / 模式</th>
+                    <th className={styles.tableHeaderCell}>状态</th>
+                    <th className={styles.tableHeaderCell}>进度</th>
+                    <th className={styles.tableHeaderCell}>总数</th>
+                    <th className={styles.tableHeaderCell}>失败</th>
+                    <th className={styles.tableHeaderCell}>成本</th>
+                    <th className={styles.tableHeaderCell}>跑时长</th>
+                    <th className={styles.tableHeaderCell}>开始</th>
+                    <th className={styles.tableHeaderCell}>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((it) => (
+                    <JobRow
+                      key={it.id}
+                      job={it}
+                      navigate={navigate}
+                      returnTo={currentWorkbenchReturnTo(location)}
+                      cancelPending={cancelingId === it.id && cancelMut.isPending}
+                      onOpenDetail={(jobId) => setSelectedJobId(jobId)}
+                      onCancel={(jobId) => {
+                        setCancelingId(jobId);
+                        cancelMut.mutate(jobId);
+                      }}
+                    />
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
+
+        <ListPagination
+          label="图片预标任务"
+          page={page - 1}
+          pageSize={pageSize}
+          total={total}
+          hasNext={hasNext}
+          loading={jobsQ.isFetching}
+          onPageChange={(next) => updateImageUrl({ page: next + 1 }, { replace: false })}
+          onPageSizeChange={(size) =>
+            updateImageUrl({ page: 1, pageSize: size }, { replace: false })
+          }
+        />
       </div>
       {selectedJobId && (
         <AsyncJobDetailModal

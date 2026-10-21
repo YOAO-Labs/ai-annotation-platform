@@ -76,7 +76,7 @@ describe("AI preannotation project selection", () => {
     const search = screen.getByRole("searchbox", { name: "搜索预标项目" });
     fireEvent.change(search, { target: { value: " P-VIDEO " } });
     expect(screen.queryByText("图片项目")).not.toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("匹配 1 / 2 个项目");
+    expect(screen.getByText("匹配 1 / 2 个项目")).toBeInTheDocument();
     fireEvent.click(screen.getByText("视频项目"));
     expect(screen.getByRole("region", { name: "项目配置" })).toHaveTextContent("video");
     fireEvent.click(screen.getByRole("button", { name: "返回项目列表" }));
@@ -94,7 +94,7 @@ describe("AI preannotation project selection", () => {
     expect(screen.getByText("没有匹配的项目")).toBeVisible();
     expect(screen.queryByText("暂无可预标的项目")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "清除搜索" }));
-    expect(screen.getByRole("status")).toHaveTextContent("共 2 个项目");
+    expect(screen.getByText("共 2 个项目")).toBeInTheDocument();
     expect(screen.getByText("图片项目")).toBeVisible();
   });
 

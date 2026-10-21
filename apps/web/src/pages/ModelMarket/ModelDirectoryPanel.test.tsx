@@ -165,4 +165,28 @@ describe("模型目录分组与详情", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("模型目录读取失败");
     expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument();
   });
+  it("按模型组切换页容量并回到首页，保留同组规格", async () => {
+    const user = userEvent.setup();
+    const entries = Array.from({ length: 21 }, (_, index) =>
+      entry(`model-${index}`, "n", {
+        name: `模型 ${index}`,
+        model_variants: { series: `series-${index}`, size: "n" },
+      }),
+    );
+    vi.mocked(modelCatalogApi.list).mockResolvedValue(
+      response([
+        ...entries,
+        entry("small", "s", { name: "模型 0", model_variants: { series: "series-0", size: "s" } }),
+      ]),
+    );
+    renderPanel();
+    await screen.findByText("21 组模型");
+    expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(21);
+    await user.click(screen.getByRole("button", { name: "下一页" }));
+    expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(2);
+    await user.selectOptions(screen.getByRole("combobox", { name: "每页模型目录数" }), "10");
+    expect(screen.getByRole("button", { name: "上一页" })).toBeDisabled();
+    expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(11);
+    expect(screen.getByRole("button", { name: "s" })).toBeInTheDocument();
+  });
 });

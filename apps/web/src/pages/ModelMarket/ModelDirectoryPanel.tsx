@@ -8,6 +8,8 @@ import {
   type CatalogEntry,
 } from "@/api/modelCatalog";
 import { useProtocolCapabilities } from "@/api/mlCapabilities";
+import { ListPagination, listPageSize } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import {
@@ -31,7 +33,6 @@ const publicationLabels: Record<string, string> = {
   previous: "曾发布",
   archived: "已停用",
 };
-const pageSize = 20;
 
 export function ModelDirectoryPanel() {
   const [search, setSearch] = useSearchParams();
@@ -46,6 +47,7 @@ export function ModelDirectoryPanel() {
   const catalog = useModelDirectory({ project_id: projectId, task, source, status, q });
   const projectOptions = useModelCatalog({ page_size: 1 });
   const protocol = useProtocolCapabilities();
+  const pageSize = listPageSize(search.get("model_page_size"));
   const groups = groupModelDirectory(catalog.data?.items ?? []);
   const pageCount = Math.max(1, Math.ceil(groups.length / pageSize));
   const requestedPage = Number(search.get("model_page")) || 1;
@@ -173,100 +175,88 @@ export function ModelDirectoryPanel() {
             </span>
             <span>类别与状态对应当前选中的规格</span>
           </div>
-          <div className="overflow-x-auto rounded-md border border-border">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-muted text-muted-foreground">
-                <tr>
-                  {["模型 / 来源", "型号规格", "任务", "类别", "使用状态", "操作"].map((label) => (
-                    <th key={label} scope="col" className="whitespace-nowrap px-3 py-3 font-medium">
-                      {label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {groups.slice((page - 1) * pageSize, page * pageSize).map((group) => {
-                  const entry = selected(group);
-                  return (
-                    <tr
-                      key={group.id}
-                      className="border-t border-border align-top hover:bg-muted/40"
-                    >
-                      <td className="min-w-44 px-3 py-3">
-                        <button
-                          type="button"
-                          onClick={(event) => showDetail(group, event.currentTarget)}
-                          className="text-left font-medium text-foreground hover:underline"
-                        >
-                          {group.name}
-                          {group.series && (
-                            <span className="mt-1 block font-mono text-primary">
-                              {group.series}
-                            </span>
-                          )}
-                        </button>
-                        <p className="mt-1 text-muted-foreground">
-                          {entry.project?.name ?? "内置模型"} · {entry.framework ?? "未声明框架"}
-                        </p>
-                      </td>
-                      <td className="min-w-40 px-3 py-3">
-                        <VariantOptions
-                          group={group}
-                          entry={entry}
-                          onSelect={(id) => selectVariant(group, id)}
-                        />
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-3">{taskLabel(entry.task)}</td>
-                      <td className="min-w-32 px-3 py-3">
-                        <ClassSummary entry={entry} />
-                      </td>
-                      <td className="min-w-40 px-3 py-3">
-                        <UsageSummary entry={entry} />
-                      </td>
-                      <td className="min-w-28 px-3 py-3">
-                        <div className="flex flex-col items-start gap-2">
+          <div className={listStyles.surface}>
+            <div className={listStyles.scroll}>
+              <table className={listStyles.table}>
+                <thead>
+                  <tr>
+                    {["模型 / 来源", "型号规格", "任务", "类别", "使用状态", "操作"].map(
+                      (label) => (
+                        <th key={label} scope="col">
+                          {label}
+                        </th>
+                      ),
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {groups.slice((page - 1) * pageSize, page * pageSize).map((group) => {
+                    const entry = selected(group);
+                    return (
+                      <tr key={group.id} className="align-top">
+                        <td className="min-w-44 px-3 py-3">
                           <button
                             type="button"
                             onClick={(event) => showDetail(group, event.currentTarget)}
-                            className="font-medium text-primary hover:underline"
+                            className="text-left font-medium text-foreground hover:underline"
                           >
-                            查看详情
+                            {group.name}
+                            {group.series && (
+                              <span className="mt-1 block font-mono text-primary">
+                                {group.series}
+                              </span>
+                            )}
                           </button>
-                          <ModelActions entry={entry} projectId={projectId} />
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                          <p className="mt-1 text-muted-foreground">
+                            {entry.project?.name ?? "内置模型"} · {entry.framework ?? "未声明框架"}
+                          </p>
+                        </td>
+                        <td className="min-w-40 px-3 py-3">
+                          <VariantOptions
+                            group={group}
+                            entry={entry}
+                            onSelect={(id) => selectVariant(group, id)}
+                          />
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-3">{taskLabel(entry.task)}</td>
+                        <td className="min-w-32 px-3 py-3">
+                          <ClassSummary entry={entry} />
+                        </td>
+                        <td className="min-w-40 px-3 py-3">
+                          <UsageSummary entry={entry} />
+                        </td>
+                        <td className="min-w-28 px-3 py-3">
+                          <div className="flex flex-col items-start gap-2">
+                            <button
+                              type="button"
+                              onClick={(event) => showDetail(group, event.currentTarget)}
+                              className="font-medium text-primary hover:underline"
+                            >
+                              查看详情
+                            </button>
+                            <ModelActions entry={entry} projectId={projectId} />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
             {!groups.length && (
               <p className="px-4 py-10 text-center text-sm text-muted-foreground">
                 没有匹配的模型。可调整筛选，或在项目的模型管理中注册训练结果。
               </p>
             )}
           </div>
-          <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-            <span>
-              第 {page} / {pageCount} 页 · 每页 {pageSize} 组
-            </span>
-            <div className="flex gap-2">
-              <Button
-                size="xs"
-                disabled={page <= 1}
-                onClick={() => update("model_page", String(page - 1))}
-              >
-                上一页
-              </Button>
-              <Button
-                size="xs"
-                disabled={page >= pageCount}
-                onClick={() => update("model_page", String(page + 1))}
-              >
-                下一页
-              </Button>
-            </div>
-          </div>
+          <ListPagination
+            label="模型目录"
+            page={page - 1}
+            pageSize={pageSize}
+            total={groups.length}
+            onPageChange={(next) => update("model_page", String(next + 1))}
+            onPageSizeChange={(size) => update("model_page_size", String(size))}
+          />
         </>
       )}
       <Sheet

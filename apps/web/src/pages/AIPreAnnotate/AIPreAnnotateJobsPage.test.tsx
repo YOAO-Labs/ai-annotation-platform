@@ -219,7 +219,7 @@ describe("AIPreAnnotateJobsPage", () => {
     mockAsyncJobsList.mockResolvedValue({ items: [], total: 0 });
     renderUI();
     await screen.findByText("暂无图片预标任务");
-    const select = screen.getByRole("combobox") as HTMLSelectElement;
+    const select = screen.getByRole("combobox", { name: "预标任务状态" }) as HTMLSelectElement;
     fireEvent.change(select, { target: { value: "failed" } });
     // 变更后重新调用 list
     expect(mockAsyncJobsList).toHaveBeenCalledWith(expect.objectContaining({ status: "failed" }), {
@@ -246,6 +246,7 @@ describe("AIPreAnnotateJobsPage", () => {
   });
 
   it("图像关键字与第一页在防抖后原子写回可恢复 URL", async () => {
+    mockAsyncJobsList.mockResolvedValue({ items: [], total: 61 });
     renderUI("/ai-pre/jobs?tab=image&q=old&page=3");
     await screen.findByText("暂无图片预标任务");
 
@@ -259,7 +260,9 @@ describe("AIPreAnnotateJobsPage", () => {
       expect(screen.getByTestId("location-search")).not.toHaveTextContent("page="),
     );
 
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "failed" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "预标任务状态" }), {
+      target: { value: "failed" },
+    });
     expect(screen.getByTestId("location-search")).toHaveTextContent("status=failed");
   });
 
@@ -293,6 +296,7 @@ describe("AIPreAnnotateJobsPage", () => {
   });
 
   it("图像未应用草稿在重新加载时仍恢复已应用页码和关键字", async () => {
+    mockAsyncJobsList.mockResolvedValue({ items: [], total: 61 });
     const rendered = renderUI("/ai-pre/jobs?tab=image&q=old&page=3");
     await screen.findByText("暂无图片预标任务");
     mockAsyncJobsList.mockClear();
@@ -389,7 +393,9 @@ describe("AIPreAnnotateJobsPage", () => {
     fireEvent.change(screen.getByPlaceholderText("搜索 prompt..."), {
       target: { value: "new" },
     });
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "failed" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "预标任务状态" }), {
+      target: { value: "failed" },
+    });
 
     await waitFor(() =>
       expect(mockAsyncJobsList).toHaveBeenCalledWith(
@@ -470,5 +476,36 @@ describe("AIPreAnnotateJobsPage", () => {
     await waitFor(() => {
       expect(mockAsyncJobsRetryFailed).toHaveBeenCalledWith("job-1");
     });
+  });
+  it("切换每页行数原子重置服务端 offset 并保留图片筛选", async () => {
+    mockAsyncJobsList.mockResolvedValue({ items: [], total: 61 });
+    renderUI("/ai-pre/jobs?tab=image&page=2&status=failed&q=car");
+    await screen.findByText("暂无图片预标任务");
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "每页图片预标任务数" })).toBeEnabled(),
+    );
+    fireEvent.change(screen.getByRole("combobox", { name: "每页图片预标任务数" }), {
+      target: { value: "50" },
+    });
+    await waitFor(() =>
+      expect(mockAsyncJobsList).toHaveBeenLastCalledWith(
+        expect.objectContaining({ limit: 50, offset: 0, status: "failed", search: "car" }),
+        expect.anything(),
+      ),
+    );
+    expect(screen.getByTestId("location-search").textContent).toContain("page_size=50");
+    expect(screen.getByRole("button", { name: "上一页" })).toBeDisabled();
+  });
+
+  it("远端结果缩水后回到最后一个有效页", async () => {
+    mockAsyncJobsList.mockResolvedValue({ items: [], total: 1 });
+    renderUI("/ai-pre/jobs?tab=image&page=3");
+    await waitFor(() =>
+      expect(screen.getByTestId("location-search").textContent).not.toContain("page="),
+    );
+    expect(mockAsyncJobsList).toHaveBeenCalledWith(
+      expect.objectContaining({ offset: 0 }),
+      expect.anything(),
+    );
   });
 });
