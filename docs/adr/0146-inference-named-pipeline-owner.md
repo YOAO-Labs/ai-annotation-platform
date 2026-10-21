@@ -1,6 +1,6 @@
 # 0146 — Independent Inference Named-Pipeline Owner
 
-- **Status:** Accepted; implementation and baseline local checks are present, with deeper qualification in progress
+- **Status:** Accepted; scoped local qualification completed
 - **Date:** 2026-10-21
 - **Deciders:** Backend architecture team
 - **Supersedes:** None
@@ -143,10 +143,28 @@ Negative:
 - An `unknown` receipt cannot be presented as rollback. The request reports
   unavailable and a later public retry is a new operation, matching the absence
   of a public idempotency key.
-- Frozen API replays through borrowed, dedicated-DSN and HTTP bindings, the
-  installed HTTP owner, package checks and migration phases have passed locally.
-  Phase fences, uncertain-outcome recovery, restore and container qualification
-  remain in progress. No production capacity, SLO or primary cutover is claimed.
+- Local qualification passes 33 distinct selected DB/process cases: 24 owner
+  capability cases and nine existing API compatibility cases. The seventy frozen
+  HTTP/database observations and two lock observations are observations inside
+  those cases, not added test counts. Source and noneditable Inference suites
+  each pass ninety tests; five installed packages match thirty-nine source files.
+  Existing Workspace/shared consumers separately pass 320 tests.
+- Actual final account/project/member contention maps to the preserved 409 reasons
+  across all bindings without writes. Nonempty dump/restore preserves receipt,
+  policy, function and ACL state; CRUD/status/replay work on source and clone,
+  with clone mutations isolated. The real HTTP lost-ack test issues one execute,
+  resolves its committed receipt through one status call, and survives restart.
+- The restricted owner image passes frozen API replay, restart/status/replay,
+  fresh projection and sixteen reads at concurrency four under one CPU/256 MiB,
+  without OOM. Local observed p95 is about 120 ms; API and PostgreSQL are outside
+  that budget. The offline restricted API image matches thirty-nine package files
+  and 1,232 application/Native inputs, current OpenAPI and Native head 0271.
+- All five migration phases pass and owned resources are removed. Failed attempts
+  remain separate from final selected passing cases; only explicitly named passing
+  cases are selected from mixed runs, whose original failed status is retained.
+  Canonical evidence is `.worktree/inference-pipeline-owner-qualification.json`.
+  This is local ARM64 evidence, not production capacity, an SLO, AMD64 or a primary
+  cutover.
 
 ## Alternatives Considered
 

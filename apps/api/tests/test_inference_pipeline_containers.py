@@ -427,6 +427,11 @@ async def test_inference_pipeline_container_image_replay_restart_and_local_profi
                 await owner.close()
 
             await asyncio.to_thread(_docker, "restart", container, timeout=60)
+            published = _inspect_docker(container)["NetworkSettings"]["Ports"][
+                "8768/tcp"
+            ]
+            assert len(published) == 1 and published[0]["HostIp"] == "127.0.0.1"
+            origin = f"http://127.0.0.1:{published[0]['HostPort']}"
             await _wait_ready(origin, container)
             assert _inspect_docker(container)["State"]["OOMKilled"] is False
 
@@ -481,6 +486,7 @@ async def test_inference_pipeline_container_image_replay_restart_and_local_profi
                 "p50_ms": statistics.median(latencies),
                 "p95_ms": max(latencies),
                 "restarted_status": committed.state,
+                "restart_port_reinspected": True,
                 "replay_resource_id_unchanged": replayed.result.resource_id
                 == pipeline_id,
                 "fresh_projection_reflects_later_update": (

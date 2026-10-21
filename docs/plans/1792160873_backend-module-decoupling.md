@@ -4334,3 +4334,44 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   containers and Native0271 full migration validation. No primary or production
   runtime has been switched. Full ten-module/seven-gate work and replacement
   language qualification remain open; Go stays an experiment.
+
+### Named pipelines: scoped local qualification closed
+
+- The final ledger selects 33 distinct passing DB/process cases: 24 owner
+  capability cases and nine existing API compatibility cases. Observations,
+  retries, source/installed repetitions and prior Guide/access-facts cases are
+  not added to this count. Mixed failed runs retain their failed status; only
+  explicitly named passing cases are selected, and the one failed compatibility
+  observer case has a later successful actual-SQL assertion.
+- All three bindings match the seventy immutable public HTTP/data observations.
+  Six frozen lock cases preserve KEY SHARE concurrency, deleted-source snapshot
+  copy and atomic insert failure; nine actual final authority conflicts retain
+  account/project/member-specific 409 outcomes, rollback and absence of receipts.
+- One nonempty dump/restore case compares data, all receipt/transient tables,
+  function definitions, ACLs and policy, then performs CRUD/status/replay through
+  all three bindings on source and clone. Clone-only mutation leaves the source
+  unchanged. One real HTTP case discards a successful response after commit,
+  recovers with one status request and no write repost, restarts the installed
+  owner and verifies exact replay plus conflicting request binding.
+- The current noneditable artifact passes ninety tests and matches five packages
+  and thirty-nine files, including the formatted 37,887-byte protocol resource.
+  Source Inference also passes ninety; Workspace/shared consumers separately
+  pass 320. API gateway checks pass twelve and focused architecture checks five;
+  public OpenAPI is unchanged. Source/cache qualification failures remain recorded.
+- Committed owner/API images use source revision 24c27bd452ca6bfbd98a971e9527de09629c87b9;
+  subsequent tracked changes are tests and documentation. The owner inventory
+  matches all thirty-nine package files. The offline, read-only, network-disabled
+  API image matches those files and 1,232 API/Native inputs, removed ORM paths,
+  current OpenAPI and head0271. Native full validation passes all five phases.
+- The actual owner container completes the frozen API replay and sixteen reads
+  at concurrency four under one CPU/256 MiB, no OOM, local p95 about120 ms.
+  Restart re-inspects Docker's ephemeral host port before checking committed
+  status, replay and a fresh projection reflecting a later update. Its first
+  attempt used the stale host port; that failed receipt remains, with owned
+  resources removed. API/PostgreSQL are outside this owner budget.
+- Canonical evidence is `.worktree/inference-pipeline-owner-qualification.json`;
+  scope and limitations are in ADR0146. This closes the named-pipeline slice,
+  not the full Inference module, independent database, non-Python replacement,
+  AMD64, production capacity/SLO, primary cutover or ten-module/seven-gate goal.
+  Go remains experimental. Registry/pool routing, GPU coordination and job
+  control still require their own owner boundaries and consumer qualification.
