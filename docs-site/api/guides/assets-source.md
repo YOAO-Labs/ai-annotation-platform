@@ -59,7 +59,7 @@ Schema 随合同包分发于 `aap_assets_source/guide_object_contract.schema.jso
 配置使用 `ASSETS_SOURCE_GUIDE_S3_*`，不从 API/MinIO/AWS 环境回退；完整变量见
 [环境变量参考](/dev/reference/env-vars)和服务 README。
 
-本接口只执行对象操作，Workspace 仍负责项目权限与元数据。公共指南工作流尚未切换。
+本接口只执行对象操作，Workspace 仍负责项目权限与元数据。公共指南工作流已接入 Workspace，命令的三路径与恢复验收仍在推进。
 网络超时或取消后的对象效果可能不确定；S3 与 SQL 没有原子提交，也不提供可自动重放的删除回执。
 实现边界、当前本地证据与后续命令验收见 [ADR-0144](/dev/adr/0144-workspace-guide-assets-owner)。
 

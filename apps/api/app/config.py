@@ -289,6 +289,10 @@ class Settings(BaseSettings):
     workspace_configuration_database_url: str = Field(default="", repr=False)
     workspace_configuration_database_url_file: str = ""
     workspace_configuration_timeout_seconds: float = Field(default=30, gt=0, le=3600)
+    workspace_guide_objects_url: str = Field(default="", repr=False)
+    workspace_guide_objects_token: str = Field(default="", repr=False)
+    workspace_guide_objects_token_file: str = ""
+    workspace_guide_objects_timeout_seconds: float = Field(default=15, gt=0, le=120)
     workspace_template_query_url: str = ""
     workspace_template_query_database_url: str = Field(default="", repr=False)
     workspace_template_query_database_url_file: str = ""

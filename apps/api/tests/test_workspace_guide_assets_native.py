@@ -315,7 +315,7 @@ async def test_guide_native_returns_full_phase_facts_and_keeps_shared_query_visi
             post_commit = await _step(connection, unknown_request, "guide_refresh")
             decode_project_row(
                 post_commit["facts"]["row_json"],
-                target_id=uuid.UUID(world["project_id"]),
+                target_id=world["project_id"],
             )
 
             first_project = await _step(
@@ -323,7 +323,7 @@ async def test_guide_native_returns_full_phase_facts_and_keeps_shared_query_visi
             )
             project = decode_project_row(
                 first_project["facts"]["row_json"],
-                target_id=uuid.UUID(world["project_id"]),
+                target_id=world["project_id"],
             )
             assert set(json.loads(first_project["facts"]["row_json"])) == set(
                 PROJECT_ROW_COLUMNS
@@ -354,7 +354,7 @@ async def test_guide_native_returns_full_phase_facts_and_keeps_shared_query_visi
             }
             decode_project_row(
                 shared["facts"]["row_json"],
-                target_id=uuid.UUID(world["project_id"]),
+                target_id=world["project_id"],
             )
             locked_member = await _step(connection, sign_request, "guide_member")
             locked_rows = json.loads(locked_member["facts"]["rows_json"])
@@ -369,12 +369,12 @@ async def test_guide_native_returns_full_phase_facts_and_keeps_shared_query_visi
             )
             decode_project_row(
                 locked_project["facts"]["row_json"],
-                target_id=uuid.UUID(world["project_id"]),
+                target_id=world["project_id"],
             )
             refreshed = await _step(connection, complete_request, "guide_refresh")
             decode_project_row(
                 refreshed["facts"]["row_json"],
-                target_id=uuid.UUID(world["project_id"]),
+                target_id=world["project_id"],
             )
 
         visible_request = {
@@ -393,11 +393,11 @@ async def test_guide_native_returns_full_phase_facts_and_keeps_shared_query_visi
         query_connection = await asyncpg.connect(_project_query_dsn(test_engine))
         row_reply = await _project_step(query_connection, visible_request, "get_row")
         assert row_reply["schema"] == "aap-workspace-project-query/v1"
-        assert row_reply["operation"] == "require_project_visible"
+        assert row_reply["request"] == visible_request
         assert row_reply["action"] == "get_row"
         decode_project_row(
             row_reply["facts"]["row_json"],
-            target_id=uuid.UUID(world["project_id"]),
+            target_id=world["project_id"],
         )
         status_reply = await _project_step(
             query_connection, visible_request, "actor_status"

@@ -154,8 +154,8 @@ exposes only PUT signing (900 seconds), HEAD, ordinary DELETE and GET signing
 (nominal 3600 seconds, aligned to a 600-second window). Requests and replies bind
 request UUID, operation, Project UUID and its `projects/{project}/guide/` key.
 There are no bucket/version selectors or public authorization decisions. Workspace
-retains project access policy and metadata ownership; public Guide routes have
-not switched to this prepared capability yet.
+retains project access policy and metadata ownership. Public Guide routes use
+the Workspace Configuration owner; command qualification is still in progress.
 
 Guide credentials allow GetObject, PutObject and DeleteObject only under the
 configured annotation bucket's `projects/*/guide/*`. Do not grant ListBucket,

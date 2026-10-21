@@ -854,6 +854,7 @@
             "get_project_projection",
             "get_project_access",
             "require_project_manager",
+            "require_project_visible",
             "search_projects"
           ],
           "title": "Operation",

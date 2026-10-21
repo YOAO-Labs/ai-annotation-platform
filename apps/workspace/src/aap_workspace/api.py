@@ -65,8 +65,18 @@ def create_app(
     project_query_profiles=None,
     directory_query_data=None,
     directory_query_profiles=None,
+    guide_objects=None,
 ) -> FastAPI:
     settings = settings or RuntimeSettings()
+    if guide_objects is None:
+        from .guide_asset_storage import RemoteGuideAssetObjects
+
+        guide_objects = RemoteGuideAssetObjects(
+            settings.guide_objects_url,
+            settings.guide_objects_token,
+            settings.guide_objects_token_file,
+            timeout_seconds=settings.guide_objects_timeout_seconds,
+        )
     control = settings.control_token().encode("utf-8")
     transfer_dsn = settings.transfer_database_url()
     config_dsn = settings.config_database_url()
@@ -237,6 +247,7 @@ def create_app(
                 ),
             ),
             noop_projection=noop_projection,
+            guide_objects=guide_objects,
         )
 
     register_command(

@@ -3,6 +3,89 @@ revision = 3
 requires-python = ">=3.11"
 
 [[package]]
+name = "aap-assets-cleanup"
+version = "0.1.0"
+source = { editable = "../assets-cleanup" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aap-assets-media", marker = "extra == 'worker'", editable = "../assets-media" },
+    { name = "asyncpg", marker = "extra == 'worker'", specifier = ">=0.30.0" },
+    { name = "boto3", marker = "extra == 'worker'", specifier = ">=1.43.77" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+]
+provides-extras = ["worker"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", specifier = ">=0.24.0" },
+    { name = "ruff", specifier = "==0.15.22" },
+]
+
+[[package]]
+name = "aap-assets-source"
+version = "0.1.0"
+source = { editable = "../assets-source" }
+dependencies = [
+    { name = "aap-assets-cleanup" },
+    { name = "aap-audit-contract" },
+    { name = "cryptography" },
+    { name = "pydantic" },
+]
+
+[package.optional-dependencies]
+client = [
+    { name = "httpx" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aap-assets-cleanup", editable = "../assets-cleanup" },
+    { name = "aap-assets-media", marker = "extra == 'importer'", editable = "../assets-media" },
+    { name = "aap-assets-media", marker = "extra == 'server'", editable = "../assets-media" },
+    { name = "aap-assets-media", marker = "extra == 'test'", editable = "../assets-media" },
+    { name = "aap-audit-contract", editable = "../_shared/audit_contract" },
+    { name = "anyio", marker = "extra == 'server'", specifier = ">=4.7.0" },
+    { name = "asyncpg", marker = "extra == 'importer'", specifier = ">=0.30.0" },
+    { name = "asyncpg", marker = "extra == 'server'", specifier = ">=0.30.0" },
+    { name = "boto3", marker = "extra == 'importer'", specifier = ">=1.43.77" },
+    { name = "boto3", marker = "extra == 'server'", specifier = ">=1.43.77" },
+    { name = "cryptography", specifier = ">=43.0.0" },
+    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115.0" },
+    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.27.0" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27.0" },
+    { name = "paramiko", marker = "extra == 'importer'", specifier = ">=3.4.0" },
+    { name = "paramiko", marker = "extra == 'server'", specifier = ">=3.4.0" },
+    { name = "pillow", marker = "extra == 'importer'", specifier = ">=10.0.0" },
+    { name = "pillow", marker = "extra == 'server'", specifier = ">=10.0.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
+    { name = "ruff", marker = "extra == 'test'", specifier = "==0.15.22" },
+    { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34.0" },
+]
+provides-extras = ["client", "server", "importer", "test"]
+
+[[package]]
+name = "aap-audit-contract"
+version = "0.1.0"
+source = { editable = "../_shared/audit_contract" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+]
+provides-extras = ["test"]
+
+[[package]]
 name = "aap-identity"
 version = "0.1.0"
 source = { editable = "../identity" }
@@ -111,6 +194,7 @@ postgres = [
     { name = "httpx" },
 ]
 runtime = [
+    { name = "aap-assets-source", extra = ["client"] },
     { name = "aap-identity", extra = ["postgres"] },
     { name = "asyncpg" },
     { name = "fastapi" },
@@ -126,6 +210,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-assets-source", extras = ["client"], marker = "extra == 'runtime'", editable = "../assets-source" },
     { name = "aap-identity", extras = ["postgres"], marker = "extra == 'runtime'", editable = "../identity" },
     { name = "aap-inference", editable = "../inference" },
     { name = "aap-owner-data", editable = "../_shared/owner_data" },

@@ -427,6 +427,7 @@ postgres = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-assets-source", extras = ["client"], marker = "extra == 'runtime'", editable = "../assets-source" },
     { name = "aap-identity", extras = ["postgres"], marker = "extra == 'runtime'", editable = "../identity" },
     { name = "aap-inference", editable = "../inference" },
     { name = "aap-owner-data", editable = "../_shared/owner_data" },

@@ -56,6 +56,13 @@ expiry is 900 seconds; download responses retain nominal 3600 seconds with the
 existing 600-second alignment window. HEAD missing-object mapping remains
 based on `404`, `NoSuchKey` or `NotFound` error code alone.
 
+The default API assembly reuses its existing S3 client as the local transport,
+including explicitly injected credentials/configuration. This does not bypass
+the Assets adapter's GET alignment. A no-network test with an actual default
+boto3 client confirms its presign query remains SigV2 even when ordinary I/O
+uses SigV4. The independent Source runtime always constructs its separate
+explicit SigV2 signer. Neither path copies credentials into Workspace policy.
+
 The HTTP binding makes one attempt, rejects redirects, bounds request and
 streamed response bodies, and validates reply scope. A storage error remains
 distinct from unavailable transport or malformed protocol. Neither endpoint
@@ -141,10 +148,34 @@ identities and exact object versions are removed. Image and installed artifacts
 are retained for review; canonical evidence is
 `.worktree/project-guide-object-primitive-qualification.json`.
 
-The public Guide workflow has not switched, and its old implementation remains
-in use until the owner command is integrated. Native/Workspace command
-integration, frozen response replay, actual revocation/lock interleaving and
-command artifact/recovery gates remain open. This prepared byte primitive is
-not added to the completed class-rename 47-case union. Neither slice completes
-Workspace, Assets or the ten-module/seven-gate objective. Primary and production
-remain unchanged; Go remains an optional experiment.
+## Command integration in progress
+
+Native 0269 extends the same two Configuration RPCs with stateless guide phases
+and adds only the Workspace guide_assets column UPDATE privilege. Two private
+unlocked helpers return complete Project/member rows; locked phases reuse the
+existing current-account, Project and member fences. Project counters remain
+behind Labeling's typed capability. The visible preflight is one Project Query
+pass, preserving its initial Project/actor/refreshed Project/member order and
+ordinary-member access without the access endpoint's second phase.
+
+The public Guide routes now select Configuration bindings and keep their
+missing-field check and raw truthy payload values. Full Project refresh remains
+after commit, without new authority checks; a refresh failure remains a plain
+500 after the metadata commit. Default borrowed execution does not commit,
+rollback or close its caller Session. Independent init/sign ends by rollback
+after the byte effect; complete/delete commits then reads the full row. No Guide
+state or receipt is written, and HTTP commands make one attempt.
+
+The old API workflow, Guide ORM helpers, redundant User read and constant file
+are removed without facades. Frozen response replay, live authority/lock
+interleaving and current command artifact/recovery gates remain open. Workspace
+pure checks currently have 314 passes; four Native and 26 existing public Guide
+cases pass against owned disposable data. Focused API transport/adapter/OpenAPI
+checks have 36 passes, and architecture checks pass with their existing
+inapplicable cases skipped. Failed preparation used the verifier's stale
+0268 head pin; later new driver fixes use an existing UUID directly and inspect
+the Query reply's nested request. Production SQL was unchanged for those fixes.
+This work is separate from the prepared byte primitive and the closed
+class-rename 47-case union. Neither slice completes Workspace, Assets or the
+ten-module/seven-gate objective. Primary and production remain unchanged; Go
+remains an optional experiment.

@@ -4147,3 +4147,30 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   gates under [ADR-0144](../adr/0144-workspace-guide-assets-owner.md). Full module
   extraction and the ten-module/seven-gate objective remain active; primary,
   production and Go are unchanged.
+
+### Project guide assets: command integrated, owner qualification in progress
+
+- Native0269 extends the existing Configuration RPCs with stateless Guide phases,
+  two private unlocked full-row readers and only guide_assets UPDATE. Project
+  counters remain behind the typed Labeling capability. One-pass visible preflight
+  uses the existing Project Query protocol; both original query/client RPC sets
+  stay unchanged. The public API delegates to Workspace and the old Guide workflow,
+  ORM helpers, unused User read and constant file are removed without facades.
+- API/default DSN byte composition reuses the existing S3 client. An actual default
+  boto3 no-network check proves its legacy SigV2 presign query and GET alignment;
+  the independent Source runtime retains its explicit separate signer. Workspace
+  runtime consumes only the Guide HTTP bearer and no S3 credentials, through the
+  optional existing Configuration service override.
+- Workspace pure checks pass 314 cases. Four Native and 26 existing public Guide
+  cases pass on owned PostgreSQL; focused API transport, adapter and exact OpenAPI
+  checks pass 36 cases. Architecture checks pass with existing inapplicable skips.
+  Failed Native attempts were driver-only: a stale0268 verifier head pin, UUID
+  re-wrapping and an assertion against a nonexistent top-level Query operation
+  instead of its nested request. Failed evidence is retained; all owned resources
+  were destroyed with no cleanup errors, and no production SQL fix was needed.
+- Three-binding replay of the unchanged eleven-response/S3 oracle, actual
+  revocation/lock-duration checks, current installed/image artifacts and command
+  recovery/migration gates remain active under ADR0144. The byte primitive's two
+  cases and class-rename's closed47 remain separate, with no sample/request-count
+  inflation. This is not a full Workspace/Assets or ten-module/seven-gate finish;
+  primary, production and Go remain unchanged.

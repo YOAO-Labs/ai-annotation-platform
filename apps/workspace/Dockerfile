@@ -8,6 +8,9 @@ COPY apps/_shared/task_contract /_shared/task_contract
 COPY apps/_shared/protocol_v2 /_shared/protocol_v2
 COPY apps/inference /inference
 COPY apps/identity /identity
+COPY apps/assets-source /assets-source
+COPY apps/assets-cleanup /assets-cleanup
+COPY apps/_shared/audit_contract /_shared/audit_contract
 COPY apps/workspace/pyproject.toml apps/workspace/uv.lock ./
 RUN uv sync --frozen --no-dev --extra runtime --no-install-project
 COPY apps/workspace/src ./src

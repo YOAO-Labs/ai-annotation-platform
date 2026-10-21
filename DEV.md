@@ -1162,8 +1162,18 @@ docker compose -p aap-assets-source-dev -f docker-compose.assets-source.yml exec
 凭据只覆盖配置标注桶的 `projects/*/guide/*`，允许 Get/Put/普通 Delete，显式禁止版本删除；
 无需 ListBucket 或桶管理权限。`ASSETS_SOURCE_GUIDE_MAX_IN_FLIGHT` 默认 4，超额立即返回 busy；
 指南 S3 连接／读取超时由 `_CONNECT_TIMEOUT_SECONDS`／`_READ_TIMEOUT_SECONDS` 指定，默认 2／5 秒。
-服务与客户端均不自动重试，网络超时后的对象效果可能不确定。当前公共指南工作流尚未切换，
+服务与客户端均不自动重试，网络超时后的对象效果可能不确定。当前公共指南工作流已接入 Workspace，命令验收仍在推进，
 本地字节能力的边界和后续验收见 [ADR-0144](docs/adr/0144-workspace-guide-assets-owner.md)。
+
+指南命令使用同一个 Workspace Configuration owner。先应用当前 Native 迁移及 module-data
+owner grants，再配置已有的 `WORKSPACE_CONFIGURATION_URL` 或专用 DSN；两者不同时设置。
+默认借用 API 事务，完成／删除由 HTTP 提交后完整刷新；独立 owner 自行提交与刷新。
+独立 Workspace 必须配置 `WORKSPACE_GUIDE_OBJECTS_URL` 和 `_TOKEN` 或 `_TOKEN_FILE`，
+指向已启用指南能力的 Assets Source，token 与该进程的 `ASSETS_SOURCE_TOKEN` 相同。
+字节 RPC 超时由 `WORKSPACE_GUIDE_OBJECTS_TIMEOUT_SECONDS` 指定，默认 15 秒，调用不自动重试。
+可将 `docker-compose.workspace-guide-assets.yml` 叠加到现有配置 owner，额外挂载一份只读 bearer；
+它不创建新服务，也不给 Workspace S3 凭据。API 未设置字节 URL 时复用现有客户端；
+设置后失败不回退。指南命令的三路径、实际锁跨度与工件／恢复资格仍在验证，不能当作生产切换。
 
 复制后进程退出或 SQL 回滚可能留下未登记来源拷贝；目前保留这些字节，尚无自动回收。单文件上传重试保持原 Item/操作 UUID，并使用新 publication 代次，不能通过删除原始文件或旧条目恢复。ZIP/扫描在一个外层 SQL 事务中提交素材、Labeling append、计数、ZIP Scene/frame 变更、收据和媒体派发意图。媒体派发由 API maintenance relay 领取，交付回执只表示 broker 接受，不代表媒体已完成。
 

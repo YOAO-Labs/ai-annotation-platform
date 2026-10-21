@@ -750,6 +750,10 @@ last_reviewed: 2026-10-21
 | `WORKSPACE_CONFIGURATION_DATABASE_URL` | `—` | — |
 | `WORKSPACE_CONFIGURATION_DATABASE_URL_FILE` | `—` | — |
 | `WORKSPACE_CONFIGURATION_TIMEOUT_SECONDS` | `30` | — |
+| `WORKSPACE_GUIDE_OBJECTS_URL` | `—` | Guide byte capability consumed by the API binding and the Workspace owner. In the independent owner, use the existing Assets Source Guide endpoint. |
+| `WORKSPACE_GUIDE_OBJECTS_TOKEN` | `—` | — |
+| `WORKSPACE_GUIDE_OBJECTS_TOKEN_FILE` | `—` | — |
+| `WORKSPACE_GUIDE_OBJECTS_TIMEOUT_SECONDS` | `15` | — |
 | `WORKSPACE_TEMPLATE_QUERY_URL` | `—` | Template reads: empty borrows the caller transaction. Select URL or DSN. Explicit remote failures do not fall back to another reader. |
 | `WORKSPACE_TEMPLATE_QUERY_DATABASE_URL` | `—` | — |
 | `WORKSPACE_TEMPLATE_QUERY_DATABASE_URL_FILE` | `—` | — |

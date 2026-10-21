@@ -149,9 +149,10 @@ last_reviewed: 2026-10-21
   创建/更新/删除、阶段深拷贝与默认项切换，结构校验使用 `aap_inference.pipeline.validate_saved_pipeline`；
   `application/project_pipeline.py::apply_saved_pipeline` 组合当前项目管理权威与 backend 启用校验。
   canonical `PipelineStage` / `PreannotateRequest` 位于 `aap_inference.preannotate`。
-- 指引图片：`application/project_guide_assets.py` 组合当前授权与存储，
-  `services/project_workspace.py` 持有 key/登记规则，纯值限制在 `guide_asset_contracts.py`。
-  HEAD 后再次取权并刷新登记，DELETE 保持当前围栏；HTTP 持有提交。
+- 指引图片：`aap_workspace.configuration.ConfigurationManager` 持有四项无状态命令，
+  `aap_workspace.guide_asset_policy` 持有 key、类型、大小与登记规则，Native 持有完整行读取和权限围栏。
+  `services/workspace_configuration.py` 选择绑定；`services/workspace_guide_objects.py` 只装配 Assets 字节端口。
+  借用事务由 HTTP 提交后完整刷新；独立 owner 自行提交和刷新。旧 API 工作流及 Guide ORM 写入已移除。
 - 全局 ML registry 删除：`application/ml_registry_deletion.py::delete_registry` 编排删除准入、路由静默、pool 解析与 registry 删除；成功后由 `services/project_workspace.py::clear_primary_backend_binding_for_pool` 在同一事务清空该 pool 的项目主绑定。workspace 持有主绑定 setter/clearer，`MLBackendService.delete` 不写 Project；HTTP 保留审计/提交，超管权限经 `identity_commands.IdentityCommandService.lock_platform_super_admin()` 锁定并刷新。
 - 原标注评论：`application/annotation_comment.py::AnnotationCommentWorkflow` 组合
   `services/annotation_comment.py`、反馈镜像、审计和通知；当前权威与真实任务/标注/评论行

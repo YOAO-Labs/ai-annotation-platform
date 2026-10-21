@@ -14,6 +14,9 @@ aap-owner-data = { path = "../_shared/owner_data", editable = true }
 aap-workspace-contract = { path = "../_shared/workspace_contract", editable = true }
 aap-inference = { path = "../inference", editable = true }
 aap-identity = { path = "../identity", editable = true }
+aap-assets-source = { path = "../assets-source", editable = true }
+aap-assets-cleanup = { path = "../assets-cleanup", editable = true }
+aap-audit-contract = { path = "../_shared/audit_contract", editable = true }
 
 [tool.uv]
 cache-keys = [
@@ -27,6 +30,7 @@ cache-keys = [
 postgres = ["asyncpg>=0.29", "httpx>=0.28"]
 runtime = [
     "aap-identity[postgres]",
+    "aap-assets-source[client]",
     "asyncpg>=0.29",
     "fastapi>=0.115",
     "httpx>=0.28",
