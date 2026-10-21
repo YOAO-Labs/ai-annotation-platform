@@ -13,3 +13,9 @@ The route filters Annotations by `Annotation.project_id` and `is_active`; it doe
 For the two-read sample, the harness executes the real route, waits for the class aggregate result, commits an active annotation with an empty class name and a new attribute key in a second session, and then allows the actual attribute read to continue. It records whether the response sees that commit while the class map remains unchanged. A final optional seed attempts a JSONB numeric scalar with 5,000 digits. If the database stores it, the route's actual second-read response and SQL/error trace are captured; if storage is rejected, the reason is recorded and no failure behavior is inferred.
 
 The harness only captures a baseline. It does not change production code or define a replacement query, and the generated `.worktree` evidence must remain immutable after Root has reviewed and promoted it.
+
+## Frozen actual observation
+
+Root promoted `samples.json` byte for byte after the owned capture passed. Its SHA-256 is `c2e4517d3f103156c20c0eda0f52f804601073bf3e73d0c91e62c8b7176e647e`. All 16 HTTP samples contain no request-session DML or commit. The database accepted every optional seed, including the cross-project Task relation and the 5,000-digit JSONB scalar. The former counts by Annotation project; the latter returns plain HTTP 500 after the class query succeeds and the full attribute read fails. The independent interleaving commit appears in the second attribute map. Inactive/unknown platform credentials return 401, the valid stale-role credential returns 404, and valid visible nonmanagers return 403 before either annotation read.
+
+The capture report passes with no cleanup errors; its owned database, Redis, buckets and containers are removed. This is an actual legacy baseline, not replacement-owner qualification. Do not recapture or overwrite it after extraction.

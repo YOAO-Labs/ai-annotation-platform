@@ -3873,3 +3873,27 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   pipeline persistence, cross-owner consumers and remaining modules are still
   open. No primary cutover or alternate-language provider is claimed; Go stays
   experimental.
+
+### Labeling class usage: actual legacy baseline frozen
+
+- Freeze 16 actual HTTP responses from the unchanged `class-usage` route at
+  migration head 0264. The immutable fixture SHA is
+  `c2e4517d3f103156c20c0eda0f52f804601073bf3e73d0c91e62c8b7176e647e`.
+  Source guards include the route, current Workspace policy, dependencies,
+  models and database decoder configuration.
+- Both statements scope active Annotation.project_id, including canceled/AI
+  rows and a target Annotation attached to a foreign Task. Complete JSONB
+  attributes decode precedes Python top-level key counting; a stored 5000-digit
+  numeric actually fails the second read with plain 500. An independent commit
+  between the two reads is visible in the attribute map. Request-session DML
+  and commit remain absent throughout.
+- Manager/member/outsider, physical employee owners, inactive and stale-role
+  credentials, unknown roles, missing and empty projects retain their actual
+  status/response behavior. The owned capture passes and removes its database,
+  Redis, buckets and containers without cleanup errors.
+- API will remain the trusted coordinator: a single-phase manager-only
+  Workspace read precedes a Labeling-owned projection. This avoids a new
+  Labeling-to-Workspace runtime dependency and never trusts an `is_manager`
+  request flag. Isolated core/Native guard extensions are prepared; no public
+  route or production aggregation has switched yet. Full owner implementation,
+  three-path replay and runtime/artifact/recovery gates remain open.
