@@ -3682,3 +3682,23 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   evidence, then perform provider/fault/package/image qualification. Current
   shared PostgreSQL and trusted coordinator constraints remain explicit.
   See [ADR-0138](../adr/0138-workspace-project-read-foundation.md).
+
+### Project query owner implementation
+
+- The full objective remains active. Existing API Project readers have not switched
+  at this checkpoint. The portable query protocol, fixed raw row codec and ordered
+  policy now cover seven operations and 24 typed read actions. Twenty-four focused
+  pure cases pass; no provider/public integration claim is made for these checks.
+- Additional actual pre-port captures pass: 12 temporal expression probes/eight
+  HTTP reads and 15 search/rename/transfer/configuration HTTP observations. The
+  latter includes collaborative video and its late invalid-boolean failure,
+  no-op rename without commit and accepted postcommit projections after demotion.
+  Initial reviewer-scope fixture expectations were corrected to actual legacy
+  behavior; the failed run remains separate. Immutable fixtures are promoted under
+  workspace_project_queries_legacy. No production visibility rule changed.
+- Transfer's actual precommit row capture is preserved as an accepted-write
+  snapshot handed to the selected query provider after caller commit; enrichment
+  does not reread a newer Project row. Membership facts bind actual actor/project,
+  and missing configuration projection remains an internal failure.
+- Native, API/runtime wiring and three-path/fault/artifact qualification remain
+  in progress. See [ADR-0139](../adr/0139-workspace-project-query-owner.md).

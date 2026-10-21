@@ -309,6 +309,7 @@ Jobs 持有建题作业计数与最新状态，Inference 持有主池的 legacy 
 Workspace 只获显式函数权限，不直接读取这些所有者的原表。
 
 实际旧行为已冻结27项 HTTP 观测、两项调用方事务探针，以及日期编码与43个物理字段；
-原 SQL 读取、授权时点和配置提交后的响应失败行为仍保留。独立 Project 查询协议、
-运行时、搜索关联事实及命令回读证据继续实施，详见
-[Project 读取基础 ADR](/dev/adr/0138-workspace-project-read-foundation)。
+原 SQL 读取、授权时点和配置提交后的响应失败行为仍保留。补充采集已冻结有限极端日期、
+搜索、重命名和移交／配置提交后降权的读回行为。独立包内已实现 Project 查询协议、
+原始值编码与分阶段纯策略，Native、API 和运行时接入继续实施；当前 API 入口尚未切换。
+详见 [Project 查询 owner ADR](/dev/adr/0139-workspace-project-query-owner)。

@@ -1,0 +1,2027 @@
+{
+  "actor": {
+    "active": true,
+    "alias": "$actor",
+    "role": "project_admin"
+  },
+  "capture_kind": "actual-pre-extraction-project-temporal-extremes",
+  "database_identity": {
+    "database_alias": "$owned_test_database",
+    "database_name_ends_test": true,
+    "date_style": "ISO, YMD",
+    "runtime_role": "legacy_runtime",
+    "server_version": "PostgreSQL 16.15 on aarch64-unknown-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit",
+    "time_zone": "UTC"
+  },
+  "driver_expression_probes": [
+    {
+      "binary_driver": {
+        "outcome": "value",
+        "python_type": "date",
+        "value": "0001-01-01"
+      },
+      "expression": "DATE '0001-01-01'",
+      "label": "python_min",
+      "postgres_type": "date",
+      "server_text_and_json": {
+        "json_text": "\"0001-01-01\"",
+        "json_value": "0001-01-01",
+        "outcome": "value",
+        "text": "0001-01-01"
+      }
+    },
+    {
+      "binary_driver": {
+        "outcome": "value",
+        "python_type": "date",
+        "value": "9999-12-31"
+      },
+      "expression": "DATE '9999-12-31'",
+      "label": "python_max",
+      "postgres_type": "date",
+      "server_text_and_json": {
+        "json_text": "\"9999-12-31\"",
+        "json_value": "9999-12-31",
+        "outcome": "value",
+        "text": "9999-12-31"
+      }
+    },
+    {
+      "binary_driver": {
+        "error": {
+          "chain": [
+            {
+              "class": "ValueError",
+              "message": "ordinal must be >= 1",
+              "sqlstate": null
+            }
+          ],
+          "class": "ValueError",
+          "message": "ordinal must be >= 1",
+          "sqlstate": null
+        },
+        "outcome": "error"
+      },
+      "expression": "DATE '0001-01-01 BC'",
+      "label": "finite_before_python_min",
+      "postgres_type": "date",
+      "server_text_and_json": {
+        "json_text": "\"0001-01-01 BC\"",
+        "json_value": "0001-01-01 BC",
+        "outcome": "value",
+        "text": "0001-01-01 BC"
+      }
+    },
+    {
+      "binary_driver": {
+        "error": {
+          "chain": [
+            {
+              "class": "ValueError",
+              "message": "year 10000 is out of range",
+              "sqlstate": null
+            }
+          ],
+          "class": "ValueError",
+          "message": "year 10000 is out of range",
+          "sqlstate": null
+        },
+        "outcome": "error"
+      },
+      "expression": "DATE '10000-01-01'",
+      "label": "finite_after_python_max",
+      "postgres_type": "date",
+      "server_text_and_json": {
+        "json_text": "\"10000-01-01\"",
+        "json_value": "10000-01-01",
+        "outcome": "value",
+        "text": "10000-01-01"
+      }
+    },
+    {
+      "binary_driver": {
+        "outcome": "value",
+        "python_type": "date",
+        "value": "0001-01-01"
+      },
+      "expression": "DATE '-infinity'",
+      "label": "negative_infinity",
+      "postgres_type": "date",
+      "server_text_and_json": {
+        "json_text": "\"-infinity\"",
+        "json_value": "-infinity",
+        "outcome": "value",
+        "text": "-infinity"
+      }
+    },
+    {
+      "binary_driver": {
+        "outcome": "value",
+        "python_type": "date",
+        "value": "9999-12-31"
+      },
+      "expression": "DATE 'infinity'",
+      "label": "positive_infinity",
+      "postgres_type": "date",
+      "server_text_and_json": {
+        "json_text": "\"infinity\"",
+        "json_value": "infinity",
+        "outcome": "value",
+        "text": "infinity"
+      }
+    },
+    {
+      "binary_driver": {
+        "outcome": "value",
+        "python_type": "datetime",
+        "value": "0001-01-01T00:00:00+00:00"
+      },
+      "expression": "TIMESTAMPTZ '0001-01-01 00:00:00+00'",
+      "label": "python_min",
+      "postgres_type": "timestamptz",
+      "server_text_and_json": {
+        "json_text": "\"0001-01-01T00:00:00+00:00\"",
+        "json_value": "0001-01-01T00:00:00+00:00",
+        "outcome": "value",
+        "text": "0001-01-01 00:00:00+00"
+      }
+    },
+    {
+      "binary_driver": {
+        "outcome": "value",
+        "python_type": "datetime",
+        "value": "9999-12-31T23:59:59.999999+00:00"
+      },
+      "expression": "TIMESTAMPTZ '9999-12-31 23:59:59.999999+00'",
+      "label": "python_max",
+      "postgres_type": "timestamptz",
+      "server_text_and_json": {
+        "json_text": "\"9999-12-31T23:59:59.999999+00:00\"",
+        "json_value": "9999-12-31T23:59:59.999999+00:00",
+        "outcome": "value",
+        "text": "9999-12-31 23:59:59.999999+00"
+      }
+    },
+    {
+      "binary_driver": {
+        "error": {
+          "chain": [
+            {
+              "class": "OverflowError",
+              "message": "date value out of range",
+              "sqlstate": null
+            }
+          ],
+          "class": "OverflowError",
+          "message": "date value out of range",
+          "sqlstate": null
+        },
+        "outcome": "error"
+      },
+      "expression": "TIMESTAMPTZ '0001-01-01 00:00:00 BC'",
+      "label": "finite_before_python_min",
+      "postgres_type": "timestamptz",
+      "server_text_and_json": {
+        "json_text": "\"0001-01-01T00:00:00+00:00 BC\"",
+        "json_value": "0001-01-01T00:00:00+00:00 BC",
+        "outcome": "value",
+        "text": "0001-01-01 00:00:00+00 BC"
+      }
+    },
+    {
+      "binary_driver": {
+        "error": {
+          "chain": [
+            {
+              "class": "OverflowError",
+              "message": "date value out of range",
+              "sqlstate": null
+            }
+          ],
+          "class": "OverflowError",
+          "message": "date value out of range",
+          "sqlstate": null
+        },
+        "outcome": "error"
+      },
+      "expression": "TIMESTAMPTZ '10000-01-01 00:00:00+00'",
+      "label": "finite_after_python_max",
+      "postgres_type": "timestamptz",
+      "server_text_and_json": {
+        "json_text": "\"10000-01-01T00:00:00+00:00\"",
+        "json_value": "10000-01-01T00:00:00+00:00",
+        "outcome": "value",
+        "text": "10000-01-01 00:00:00+00"
+      }
+    },
+    {
+      "binary_driver": {
+        "outcome": "value",
+        "python_type": "datetime",
+        "value": "0001-01-01T00:00:00"
+      },
+      "expression": "TIMESTAMPTZ '-infinity'",
+      "label": "negative_infinity",
+      "postgres_type": "timestamptz",
+      "server_text_and_json": {
+        "json_text": "\"-infinity\"",
+        "json_value": "-infinity",
+        "outcome": "value",
+        "text": "-infinity"
+      }
+    },
+    {
+      "binary_driver": {
+        "outcome": "value",
+        "python_type": "datetime",
+        "value": "9999-12-31T23:59:59.999999"
+      },
+      "expression": "TIMESTAMPTZ 'infinity'",
+      "label": "positive_infinity",
+      "postgres_type": "timestamptz",
+      "server_text_and_json": {
+        "json_text": "\"infinity\"",
+        "json_value": "infinity",
+        "outcome": "value",
+        "text": "infinity"
+      }
+    }
+  ],
+  "identity_normalization": {
+    "database_name": "$owned_test_database",
+    "exception_text": "preserved verbatim and may contain run-specific values",
+    "response_actor_id": "$actor",
+    "response_project_display_id": "$project_display_id",
+    "response_project_id": "$project",
+    "response_project_name": "Project temporal probe $capture_suffix"
+  },
+  "project": {
+    "alias": "$project",
+    "display_id": "$project_display_id",
+    "name": "Project temporal probe $capture_suffix"
+  },
+  "project_column_probes": [
+    {
+      "binary_driver": {
+        "error": {
+          "chain": [
+            {
+              "class": "ValueError",
+              "message": "ordinal must be >= 1",
+              "sqlstate": null
+            }
+          ],
+          "class": "ValueError",
+          "message": "ordinal must be >= 1",
+          "sqlstate": null
+        },
+        "outcome": "error"
+      },
+      "case": "due_date_finite_before_python_min",
+      "column": "due_date",
+      "expression": "DATE '0001-01-01 BC'",
+      "server_text_and_json": {
+        "json_text": "\"0001-01-01 BC\"",
+        "json_value": "0001-01-01 BC",
+        "outcome": "value",
+        "text": "0001-01-01 BC"
+      }
+    },
+    {
+      "binary_driver": {
+        "error": {
+          "chain": [
+            {
+              "class": "ValueError",
+              "message": "year 10000 is out of range",
+              "sqlstate": null
+            }
+          ],
+          "class": "ValueError",
+          "message": "year 10000 is out of range",
+          "sqlstate": null
+        },
+        "outcome": "error"
+      },
+      "case": "due_date_finite_after_python_max",
+      "column": "due_date",
+      "expression": "DATE '10000-01-01'",
+      "server_text_and_json": {
+        "json_text": "\"10000-01-01\"",
+        "json_value": "10000-01-01",
+        "outcome": "value",
+        "text": "10000-01-01"
+      }
+    },
+    {
+      "binary_driver": {
+        "outcome": "value",
+        "python_type": "date",
+        "value": "9999-12-31"
+      },
+      "case": "due_date_positive_infinity",
+      "column": "due_date",
+      "expression": "DATE 'infinity'",
+      "server_text_and_json": {
+        "json_text": "\"infinity\"",
+        "json_value": "infinity",
+        "outcome": "value",
+        "text": "infinity"
+      }
+    },
+    {
+      "binary_driver": {
+        "error": {
+          "chain": [
+            {
+              "class": "OverflowError",
+              "message": "date value out of range",
+              "sqlstate": null
+            }
+          ],
+          "class": "OverflowError",
+          "message": "date value out of range",
+          "sqlstate": null
+        },
+        "outcome": "error"
+      },
+      "case": "created_at_finite_after_python_max",
+      "column": "created_at",
+      "expression": "TIMESTAMPTZ '10000-01-01 00:00:00+00'",
+      "server_text_and_json": {
+        "json_text": "\"10000-01-01T00:00:00+00:00\"",
+        "json_value": "10000-01-01T00:00:00+00:00",
+        "outcome": "value",
+        "text": "10000-01-01 00:00:00+00"
+      }
+    },
+    {
+      "binary_driver": {
+        "error": {
+          "chain": [
+            {
+              "class": "OverflowError",
+              "message": "date value out of range",
+              "sqlstate": null
+            }
+          ],
+          "class": "OverflowError",
+          "message": "date value out of range",
+          "sqlstate": null
+        },
+        "outcome": "error"
+      },
+      "case": "updated_at_finite_before_python_min",
+      "column": "updated_at",
+      "expression": "TIMESTAMPTZ '0001-01-01 00:00:00 BC'",
+      "server_text_and_json": {
+        "json_text": "\"0001-01-01T00:00:00+00:00 BC\"",
+        "json_value": "0001-01-01T00:00:00+00:00 BC",
+        "outcome": "value",
+        "text": "0001-01-01 00:00:00+00 BC"
+      }
+    },
+    {
+      "binary_driver": {
+        "outcome": "value",
+        "python_type": "datetime",
+        "value": "9999-12-31T23:59:59.999999"
+      },
+      "case": "updated_at_positive_infinity",
+      "column": "updated_at",
+      "expression": "TIMESTAMPTZ 'infinity'",
+      "server_text_and_json": {
+        "json_text": "\"infinity\"",
+        "json_value": "infinity",
+        "outcome": "value",
+        "text": "infinity"
+      }
+    }
+  ],
+  "public_reads": [
+    {
+      "actor_role": "project_admin",
+      "attempts": [
+        {
+          "exception": {
+            "chain": [
+              {
+                "class": "ValueError",
+                "message": "ordinal must be >= 1",
+                "sqlstate": null
+              },
+              {
+                "class": "ExceptionGroup",
+                "message": "unhandled errors in a TaskGroup (1 sub-exception)",
+                "sqlstate": null
+              }
+            ],
+            "class": "ValueError",
+            "message": "ordinal must be >= 1",
+            "sqlstate": null
+          },
+          "raise_app_exceptions": true,
+          "sql": [
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_jwt_principal"
+              ],
+              "relations": [],
+              "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+              "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_actor_context"
+              ],
+              "relations": [],
+              "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+              "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [],
+              "relations": [
+                "projects"
+              ],
+              "sha256": "3d5cf71cc2442a3da6a0f3005458459547bf4ec269e943b8eb65803c6cf836a0",
+              "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID",
+              "verb": "SELECT"
+            }
+          ]
+        },
+        {
+          "exception": null,
+          "raise_app_exceptions": false,
+          "response": {
+            "body": "Internal Server Error",
+            "content_type": "text/plain; charset=utf-8",
+            "status": 500
+          },
+          "sql": [
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_jwt_principal"
+              ],
+              "relations": [],
+              "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+              "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_actor_context"
+              ],
+              "relations": [],
+              "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+              "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [],
+              "relations": [
+                "projects"
+              ],
+              "sha256": "3d5cf71cc2442a3da6a0f3005458459547bf4ec269e943b8eb65803c6cf836a0",
+              "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID",
+              "verb": "SELECT"
+            }
+          ]
+        }
+      ],
+      "case": "due_date_finite_before_python_min",
+      "column": "due_date",
+      "endpoint": "detail",
+      "exception_attempt": {
+        "chain": [
+          {
+            "class": "ValueError",
+            "message": "ordinal must be >= 1",
+            "sqlstate": null
+          },
+          {
+            "class": "ExceptionGroup",
+            "message": "unhandled errors in a TaskGroup (1 sub-exception)",
+            "sqlstate": null
+          }
+        ],
+        "class": "ValueError",
+        "message": "ordinal must be >= 1",
+        "sqlstate": null
+      },
+      "expression": "DATE '0001-01-01 BC'",
+      "method": "GET",
+      "path": "/api/v1/projects/$project",
+      "response": {
+        "body": "Internal Server Error",
+        "content_type": "text/plain; charset=utf-8",
+        "status": 500
+      }
+    },
+    {
+      "actor_role": "project_admin",
+      "attempts": [
+        {
+          "exception": {
+            "chain": [
+              {
+                "class": "ValueError",
+                "message": "year 10000 is out of range",
+                "sqlstate": null
+              },
+              {
+                "class": "ExceptionGroup",
+                "message": "unhandled errors in a TaskGroup (1 sub-exception)",
+                "sqlstate": null
+              }
+            ],
+            "class": "ValueError",
+            "message": "year 10000 is out of range",
+            "sqlstate": null
+          },
+          "raise_app_exceptions": true,
+          "sql": [
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_jwt_principal"
+              ],
+              "relations": [],
+              "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+              "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_actor_context"
+              ],
+              "relations": [],
+              "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+              "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [],
+              "relations": [
+                "projects"
+              ],
+              "sha256": "3d5cf71cc2442a3da6a0f3005458459547bf4ec269e943b8eb65803c6cf836a0",
+              "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID",
+              "verb": "SELECT"
+            }
+          ]
+        },
+        {
+          "exception": null,
+          "raise_app_exceptions": false,
+          "response": {
+            "body": "Internal Server Error",
+            "content_type": "text/plain; charset=utf-8",
+            "status": 500
+          },
+          "sql": [
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_jwt_principal"
+              ],
+              "relations": [],
+              "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+              "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_actor_context"
+              ],
+              "relations": [],
+              "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+              "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [],
+              "relations": [
+                "projects"
+              ],
+              "sha256": "3d5cf71cc2442a3da6a0f3005458459547bf4ec269e943b8eb65803c6cf836a0",
+              "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID",
+              "verb": "SELECT"
+            }
+          ]
+        }
+      ],
+      "case": "due_date_finite_after_python_max",
+      "column": "due_date",
+      "endpoint": "detail",
+      "exception_attempt": {
+        "chain": [
+          {
+            "class": "ValueError",
+            "message": "year 10000 is out of range",
+            "sqlstate": null
+          },
+          {
+            "class": "ExceptionGroup",
+            "message": "unhandled errors in a TaskGroup (1 sub-exception)",
+            "sqlstate": null
+          }
+        ],
+        "class": "ValueError",
+        "message": "year 10000 is out of range",
+        "sqlstate": null
+      },
+      "expression": "DATE '10000-01-01'",
+      "method": "GET",
+      "path": "/api/v1/projects/$project",
+      "response": {
+        "body": "Internal Server Error",
+        "content_type": "text/plain; charset=utf-8",
+        "status": 500
+      }
+    },
+    {
+      "actor_role": "project_admin",
+      "attempts": [
+        {
+          "exception": {
+            "chain": [
+              {
+                "class": "ValueError",
+                "message": "year 10000 is out of range",
+                "sqlstate": null
+              },
+              {
+                "class": "ExceptionGroup",
+                "message": "unhandled errors in a TaskGroup (1 sub-exception)",
+                "sqlstate": null
+              }
+            ],
+            "class": "ValueError",
+            "message": "year 10000 is out of range",
+            "sqlstate": null
+          },
+          "raise_app_exceptions": true,
+          "sql": [
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_jwt_principal"
+              ],
+              "relations": [],
+              "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+              "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_actor_context"
+              ],
+              "relations": [],
+              "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+              "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [],
+              "relations": [
+                "projects",
+                "project_members"
+              ],
+              "sha256": "813af7057a43dc7131cbc42d1c9e90cdf5478aa70e916a9929d40efdffd76be7",
+              "sql": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.owner_id = $1::UUID OR projects.id IN (SELECT project_members.project_id FROM project_members WHERE project_members.user_id = $2::UUID) ORDER BY projects.created_at DESC, projects.id DESC",
+              "verb": "SELECT"
+            }
+          ]
+        },
+        {
+          "exception": null,
+          "raise_app_exceptions": false,
+          "response": {
+            "body": "Internal Server Error",
+            "content_type": "text/plain; charset=utf-8",
+            "status": 500
+          },
+          "sql": [
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_jwt_principal"
+              ],
+              "relations": [],
+              "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+              "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_actor_context"
+              ],
+              "relations": [],
+              "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+              "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [],
+              "relations": [
+                "projects",
+                "project_members"
+              ],
+              "sha256": "813af7057a43dc7131cbc42d1c9e90cdf5478aa70e916a9929d40efdffd76be7",
+              "sql": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.owner_id = $1::UUID OR projects.id IN (SELECT project_members.project_id FROM project_members WHERE project_members.user_id = $2::UUID) ORDER BY projects.created_at DESC, projects.id DESC",
+              "verb": "SELECT"
+            }
+          ]
+        }
+      ],
+      "case": "due_date_finite_after_python_max",
+      "column": "due_date",
+      "endpoint": "list",
+      "exception_attempt": {
+        "chain": [
+          {
+            "class": "ValueError",
+            "message": "year 10000 is out of range",
+            "sqlstate": null
+          },
+          {
+            "class": "ExceptionGroup",
+            "message": "unhandled errors in a TaskGroup (1 sub-exception)",
+            "sqlstate": null
+          }
+        ],
+        "class": "ValueError",
+        "message": "year 10000 is out of range",
+        "sqlstate": null
+      },
+      "expression": "DATE '10000-01-01'",
+      "method": "GET",
+      "path": "/api/v1/projects",
+      "response": {
+        "body": "Internal Server Error",
+        "content_type": "text/plain; charset=utf-8",
+        "status": 500
+      }
+    },
+    {
+      "actor_role": "project_admin",
+      "attempts": [
+        {
+          "exception": null,
+          "raise_app_exceptions": true,
+          "response": {
+            "body": {
+              "ai_completed_tasks": 0,
+              "ai_enabled": false,
+              "ai_interactive_enabled": true,
+              "annotation_guide": null,
+              "attribute_schema": {
+                "fields": []
+              },
+              "batch_summary": {
+                "assigned": 0,
+                "in_review": 0,
+                "total": 0
+              },
+              "box_threshold": 0.3499999940395355,
+              "capability_warnings": [],
+              "classes": [
+                "probe"
+              ],
+              "classes_config": {
+                "probe": {
+                  "alias": null,
+                  "color": null,
+                  "order": 0
+                }
+              },
+              "completed_tasks": 0,
+              "created_at": "2000-01-02T03:04:05Z",
+              "data_type": "image",
+              "default_variants": {},
+              "display_id": "$project_display_id",
+              "due_date": "9999-12-31",
+              "guide_assets": [],
+              "id": "$project",
+              "in_progress_tasks": 0,
+              "iou_dedup_threshold": 0.7,
+              "label_config": {},
+              "mask_qc_config": {
+                "auto_run": "on_review_submit",
+                "blocking": false,
+                "config_revision": 1,
+                "enabled": true,
+                "schema_version": 1,
+                "severity_overrides": {},
+                "single_frame": {
+                  "bbox_iou_min": 0.98,
+                  "boundary_noise_ratio": 0.15,
+                  "narrow_bridge_width": 2,
+                  "near_empty_pixels": 16,
+                  "overlap_pixels": 1,
+                  "small_component_pixels": 32,
+                  "small_component_ratio": 0.005,
+                  "small_hole_pixels": 32
+                },
+                "temporal": {
+                  "area_change_ratio": 0.5,
+                  "centroid_shift_diagonal": 0.15,
+                  "component_delta": 2,
+                  "drift_min_consecutive": 3,
+                  "flicker_max_frames": 2,
+                  "iou_drop": 0.35,
+                  "sample_step": 1
+                }
+              },
+              "maximum_annotations": 1,
+              "member_count": 0,
+              "ml_backend_id": null,
+              "model_version": null,
+              "my_project_role": null,
+              "name": "Project temporal probe $capture_suffix",
+              "organization_id": null,
+              "owner_avatar_ref": null,
+              "owner_id": "$actor",
+              "owner_name": "Project temporal probe",
+              "point_cloud_quality_config": {
+                "class_thresholds": {},
+                "config_revision": 1,
+                "enabled": true,
+                "enabled_rules": [
+                  "duplicate_track_member",
+                  "ground_clearance",
+                  "low_point_count",
+                  "projection_residual",
+                  "size_outlier",
+                  "temporal_jump",
+                  "track_gap",
+                  "track_identity_drift"
+                ],
+                "governance": {
+                  "maximum_false_positive_rate": 0.1,
+                  "minimum_confirmed_retention": 0.9,
+                  "minimum_reviewed_per_rule": 20
+                },
+                "schema_version": 2,
+                "severity_overrides": {},
+                "thresholds": {
+                  "ground_float_m": 0.45,
+                  "ground_margin_m": 0.75,
+                  "ground_penetration_m": 0.2,
+                  "ground_sample_min": 24,
+                  "minimum_points": 5,
+                  "projection_max_edge_residual_ratio": 0.025,
+                  "projection_min_iou": 0.5,
+                  "size_mad_z": 4.5,
+                  "size_min_samples": 8,
+                  "temporal_center_jump_m": 4.0,
+                  "temporal_size_change_ratio": 0.6,
+                  "temporal_yaw_jump_rad": 0.8
+                }
+              },
+              "preannotate_pipeline": null,
+              "prefer_same_scene_continuation": false,
+              "raster_mask_native_editing_enabled": true,
+              "rendering_config": {
+                "box3dDefaultSize": null,
+                "controlPointsSize": null,
+                "cssImageFilter": null,
+                "propagateOverwrite": null,
+                "smoothImage": null,
+                "snapToGrid": null,
+                "trackerDefaultModel": null
+              },
+              "review_tasks": 0,
+              "sampling": "sequence",
+              "scene_continuation_window_min": 30,
+              "scene_mode": false,
+              "show_overlap_first": false,
+              "status": "in_progress",
+              "task_lock_ttl_seconds": 300,
+              "text_threshold": 0.25,
+              "tool_bindings": {
+                "bbox": {
+                  "attribute_schema": {
+                    "fields": []
+                  },
+                  "classes": [
+                    {
+                      "alias": null,
+                      "alias_to": null,
+                      "color": null,
+                      "name": "probe",
+                      "order": 0
+                    }
+                  ],
+                  "enabled": true,
+                  "keypoint_schema": null,
+                  "video_modes": null
+                }
+              },
+              "total_tasks": 0,
+              "type_key": "image-det",
+              "type_label": "Temporal boundary probe",
+              "updated_at": "2000-01-02T03:04:05Z",
+              "video_collaboration": {
+                "enabled": false,
+                "overlap_frames": 0
+              },
+              "video_sampling": {
+                "frame_step": null,
+                "mode": "none",
+                "target_fps": null
+              }
+            },
+            "content_type": "application/json",
+            "status": 200
+          },
+          "sql": [
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_jwt_principal"
+              ],
+              "relations": [],
+              "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+              "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_actor_context"
+              ],
+              "relations": [],
+              "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+              "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [],
+              "relations": [
+                "projects"
+              ],
+              "sha256": "3d5cf71cc2442a3da6a0f3005458459547bf4ec269e943b8eb65803c6cf836a0",
+              "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_actor_facts"
+              ],
+              "relations": [
+                "read_actor_facts"
+              ],
+              "sha256": "7ace85e5b02cdb2a5e38c7fa6cad1739bc7841381316ae8a03f3a9b095924151",
+              "sql": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [],
+              "relations": [
+                "projects"
+              ],
+              "sha256": "3d5cf71cc2442a3da6a0f3005458459547bf4ec269e943b8eb65803c6cf836a0",
+              "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [
+                "aap_identity_briefs_v1.execute_briefs_command"
+              ],
+              "relations": [],
+              "sha256": "2c5c939b9551d328804d711edd4c0399cc1047b131a515a960839924210fcc04",
+              "sql": "SELECT aap_identity_briefs_v1.execute_briefs_command(CAST($1 AS jsonb))",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [],
+              "relations": [
+                "project_members"
+              ],
+              "sha256": "6e7ecb3eaa5d15b144c9801cdf0a634b987c90e7bc88e00b6977c7c796b23a0e",
+              "sql": "SELECT count(*) AS count_1 FROM project_members WHERE project_members.project_id = $1::UUID",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [],
+              "relations": [
+                "annotations"
+              ],
+              "sha256": "eab6cd40076ce7d542a6a154020211cf2604af1f964e43bd407fcb6e9f1e8ba4",
+              "sql": "SELECT count(distinct(annotations.task_id)) AS count_1 FROM annotations WHERE annotations.project_id = $1::UUID AND annotations.parent_prediction_id IS NOT NULL AND annotations.is_active IS true",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [],
+              "relations": [
+                "project_members"
+              ],
+              "sha256": "6a1146744ffb434295a74c4a33f8921c8660b1c40ff38633eb7f996ca3660d84",
+              "sql": "SELECT project_members.project_id, project_members.role FROM project_members WHERE project_members.user_id = $1::UUID AND project_members.project_id IN ($2::UUID)",
+              "verb": "SELECT"
+            }
+          ]
+        }
+      ],
+      "case": "due_date_positive_infinity",
+      "column": "due_date",
+      "endpoint": "detail",
+      "exception_attempt": null,
+      "expression": "DATE 'infinity'",
+      "method": "GET",
+      "path": "/api/v1/projects/$project",
+      "response": {
+        "body": {
+          "ai_completed_tasks": 0,
+          "ai_enabled": false,
+          "ai_interactive_enabled": true,
+          "annotation_guide": null,
+          "attribute_schema": {
+            "fields": []
+          },
+          "batch_summary": {
+            "assigned": 0,
+            "in_review": 0,
+            "total": 0
+          },
+          "box_threshold": 0.3499999940395355,
+          "capability_warnings": [],
+          "classes": [
+            "probe"
+          ],
+          "classes_config": {
+            "probe": {
+              "alias": null,
+              "color": null,
+              "order": 0
+            }
+          },
+          "completed_tasks": 0,
+          "created_at": "2000-01-02T03:04:05Z",
+          "data_type": "image",
+          "default_variants": {},
+          "display_id": "$project_display_id",
+          "due_date": "9999-12-31",
+          "guide_assets": [],
+          "id": "$project",
+          "in_progress_tasks": 0,
+          "iou_dedup_threshold": 0.7,
+          "label_config": {},
+          "mask_qc_config": {
+            "auto_run": "on_review_submit",
+            "blocking": false,
+            "config_revision": 1,
+            "enabled": true,
+            "schema_version": 1,
+            "severity_overrides": {},
+            "single_frame": {
+              "bbox_iou_min": 0.98,
+              "boundary_noise_ratio": 0.15,
+              "narrow_bridge_width": 2,
+              "near_empty_pixels": 16,
+              "overlap_pixels": 1,
+              "small_component_pixels": 32,
+              "small_component_ratio": 0.005,
+              "small_hole_pixels": 32
+            },
+            "temporal": {
+              "area_change_ratio": 0.5,
+              "centroid_shift_diagonal": 0.15,
+              "component_delta": 2,
+              "drift_min_consecutive": 3,
+              "flicker_max_frames": 2,
+              "iou_drop": 0.35,
+              "sample_step": 1
+            }
+          },
+          "maximum_annotations": 1,
+          "member_count": 0,
+          "ml_backend_id": null,
+          "model_version": null,
+          "my_project_role": null,
+          "name": "Project temporal probe $capture_suffix",
+          "organization_id": null,
+          "owner_avatar_ref": null,
+          "owner_id": "$actor",
+          "owner_name": "Project temporal probe",
+          "point_cloud_quality_config": {
+            "class_thresholds": {},
+            "config_revision": 1,
+            "enabled": true,
+            "enabled_rules": [
+              "duplicate_track_member",
+              "ground_clearance",
+              "low_point_count",
+              "projection_residual",
+              "size_outlier",
+              "temporal_jump",
+              "track_gap",
+              "track_identity_drift"
+            ],
+            "governance": {
+              "maximum_false_positive_rate": 0.1,
+              "minimum_confirmed_retention": 0.9,
+              "minimum_reviewed_per_rule": 20
+            },
+            "schema_version": 2,
+            "severity_overrides": {},
+            "thresholds": {
+              "ground_float_m": 0.45,
+              "ground_margin_m": 0.75,
+              "ground_penetration_m": 0.2,
+              "ground_sample_min": 24,
+              "minimum_points": 5,
+              "projection_max_edge_residual_ratio": 0.025,
+              "projection_min_iou": 0.5,
+              "size_mad_z": 4.5,
+              "size_min_samples": 8,
+              "temporal_center_jump_m": 4.0,
+              "temporal_size_change_ratio": 0.6,
+              "temporal_yaw_jump_rad": 0.8
+            }
+          },
+          "preannotate_pipeline": null,
+          "prefer_same_scene_continuation": false,
+          "raster_mask_native_editing_enabled": true,
+          "rendering_config": {
+            "box3dDefaultSize": null,
+            "controlPointsSize": null,
+            "cssImageFilter": null,
+            "propagateOverwrite": null,
+            "smoothImage": null,
+            "snapToGrid": null,
+            "trackerDefaultModel": null
+          },
+          "review_tasks": 0,
+          "sampling": "sequence",
+          "scene_continuation_window_min": 30,
+          "scene_mode": false,
+          "show_overlap_first": false,
+          "status": "in_progress",
+          "task_lock_ttl_seconds": 300,
+          "text_threshold": 0.25,
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "alias": null,
+                  "alias_to": null,
+                  "color": null,
+                  "name": "probe",
+                  "order": 0
+                }
+              ],
+              "enabled": true,
+              "keypoint_schema": null,
+              "video_modes": null
+            }
+          },
+          "total_tasks": 0,
+          "type_key": "image-det",
+          "type_label": "Temporal boundary probe",
+          "updated_at": "2000-01-02T03:04:05Z",
+          "video_collaboration": {
+            "enabled": false,
+            "overlap_frames": 0
+          },
+          "video_sampling": {
+            "frame_step": null,
+            "mode": "none",
+            "target_fps": null
+          }
+        },
+        "content_type": "application/json",
+        "status": 200
+      }
+    },
+    {
+      "actor_role": "project_admin",
+      "attempts": [
+        {
+          "exception": {
+            "chain": [
+              {
+                "class": "OverflowError",
+                "message": "date value out of range",
+                "sqlstate": null
+              },
+              {
+                "class": "ExceptionGroup",
+                "message": "unhandled errors in a TaskGroup (1 sub-exception)",
+                "sqlstate": null
+              }
+            ],
+            "class": "OverflowError",
+            "message": "date value out of range",
+            "sqlstate": null
+          },
+          "raise_app_exceptions": true,
+          "sql": [
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_jwt_principal"
+              ],
+              "relations": [],
+              "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+              "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_actor_context"
+              ],
+              "relations": [],
+              "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+              "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [],
+              "relations": [
+                "projects"
+              ],
+              "sha256": "3d5cf71cc2442a3da6a0f3005458459547bf4ec269e943b8eb65803c6cf836a0",
+              "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID",
+              "verb": "SELECT"
+            }
+          ]
+        },
+        {
+          "exception": null,
+          "raise_app_exceptions": false,
+          "response": {
+            "body": "Internal Server Error",
+            "content_type": "text/plain; charset=utf-8",
+            "status": 500
+          },
+          "sql": [
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_jwt_principal"
+              ],
+              "relations": [],
+              "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+              "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_actor_context"
+              ],
+              "relations": [],
+              "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+              "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [],
+              "relations": [
+                "projects"
+              ],
+              "sha256": "3d5cf71cc2442a3da6a0f3005458459547bf4ec269e943b8eb65803c6cf836a0",
+              "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID",
+              "verb": "SELECT"
+            }
+          ]
+        }
+      ],
+      "case": "created_at_finite_after_python_max",
+      "column": "created_at",
+      "endpoint": "detail",
+      "exception_attempt": {
+        "chain": [
+          {
+            "class": "OverflowError",
+            "message": "date value out of range",
+            "sqlstate": null
+          },
+          {
+            "class": "ExceptionGroup",
+            "message": "unhandled errors in a TaskGroup (1 sub-exception)",
+            "sqlstate": null
+          }
+        ],
+        "class": "OverflowError",
+        "message": "date value out of range",
+        "sqlstate": null
+      },
+      "expression": "TIMESTAMPTZ '10000-01-01 00:00:00+00'",
+      "method": "GET",
+      "path": "/api/v1/projects/$project",
+      "response": {
+        "body": "Internal Server Error",
+        "content_type": "text/plain; charset=utf-8",
+        "status": 500
+      }
+    },
+    {
+      "actor_role": "project_admin",
+      "attempts": [
+        {
+          "exception": {
+            "chain": [
+              {
+                "class": "OverflowError",
+                "message": "date value out of range",
+                "sqlstate": null
+              },
+              {
+                "class": "ExceptionGroup",
+                "message": "unhandled errors in a TaskGroup (1 sub-exception)",
+                "sqlstate": null
+              }
+            ],
+            "class": "OverflowError",
+            "message": "date value out of range",
+            "sqlstate": null
+          },
+          "raise_app_exceptions": true,
+          "sql": [
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_jwt_principal"
+              ],
+              "relations": [],
+              "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+              "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_actor_context"
+              ],
+              "relations": [],
+              "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+              "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [],
+              "relations": [
+                "projects",
+                "project_members"
+              ],
+              "sha256": "0654d171a0739e466f3be57665022e0b15617fb4122e79033a2cd8af3fc351d4",
+              "sql": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.owner_id = $1::UUID OR projects.id IN (SELECT project_members.project_id FROM project_members WHERE project_members.user_id = $2::UUID)",
+              "verb": "SELECT"
+            }
+          ]
+        },
+        {
+          "exception": null,
+          "raise_app_exceptions": false,
+          "response": {
+            "body": "Internal Server Error",
+            "content_type": "text/plain; charset=utf-8",
+            "status": 500
+          },
+          "sql": [
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_jwt_principal"
+              ],
+              "relations": [],
+              "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+              "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_actor_context"
+              ],
+              "relations": [],
+              "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+              "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [],
+              "relations": [
+                "projects",
+                "project_members"
+              ],
+              "sha256": "0654d171a0739e466f3be57665022e0b15617fb4122e79033a2cd8af3fc351d4",
+              "sql": "SELECT projects.id, projects.organization_id, projects.display_id, projects.name, projects.type_label, projects.type_key, projects.data_type, projects.owner_id, projects.status, projects.ai_enabled, projects.ml_backend_pool_id, projects.default_variants, projects.preannotate_pipeline, projects.label_config, projects.tool_bindings, projects.sampling, projects.maximum_annotations, projects.show_overlap_first, projects.iou_dedup_threshold, projects.box_threshold, projects.text_threshold, projects.ai_interactive_enabled, projects.raster_mask_native_editing_enabled, projects.mask_qc_config, projects.point_cloud_quality_config, projects.rendering_config, projects.annotation_guide, projects.guide_assets, projects.model_version, projects.task_lock_ttl_seconds, projects.total_tasks, projects.completed_tasks, projects.review_tasks, projects.in_progress_tasks, projects.batch_summary, projects.video_sampling, projects.video_collaboration, projects.scene_mode, projects.prefer_same_scene_continuation, projects.scene_continuation_window_min, projects.due_date, projects.created_at, projects.updated_at FROM projects WHERE projects.owner_id = $1::UUID OR projects.id IN (SELECT project_members.project_id FROM project_members WHERE project_members.user_id = $2::UUID)",
+              "verb": "SELECT"
+            }
+          ]
+        }
+      ],
+      "case": "created_at_finite_after_python_max",
+      "column": "created_at",
+      "endpoint": "stats",
+      "exception_attempt": {
+        "chain": [
+          {
+            "class": "OverflowError",
+            "message": "date value out of range",
+            "sqlstate": null
+          },
+          {
+            "class": "ExceptionGroup",
+            "message": "unhandled errors in a TaskGroup (1 sub-exception)",
+            "sqlstate": null
+          }
+        ],
+        "class": "OverflowError",
+        "message": "date value out of range",
+        "sqlstate": null
+      },
+      "expression": "TIMESTAMPTZ '10000-01-01 00:00:00+00'",
+      "method": "GET",
+      "path": "/api/v1/projects/stats",
+      "response": {
+        "body": "Internal Server Error",
+        "content_type": "text/plain; charset=utf-8",
+        "status": 500
+      }
+    },
+    {
+      "actor_role": "project_admin",
+      "attempts": [
+        {
+          "exception": {
+            "chain": [
+              {
+                "class": "OverflowError",
+                "message": "date value out of range",
+                "sqlstate": null
+              },
+              {
+                "class": "ExceptionGroup",
+                "message": "unhandled errors in a TaskGroup (1 sub-exception)",
+                "sqlstate": null
+              }
+            ],
+            "class": "OverflowError",
+            "message": "date value out of range",
+            "sqlstate": null
+          },
+          "raise_app_exceptions": true,
+          "sql": [
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_jwt_principal"
+              ],
+              "relations": [],
+              "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+              "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_actor_context"
+              ],
+              "relations": [],
+              "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+              "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [],
+              "relations": [
+                "projects"
+              ],
+              "sha256": "3d5cf71cc2442a3da6a0f3005458459547bf4ec269e943b8eb65803c6cf836a0",
+              "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID",
+              "verb": "SELECT"
+            }
+          ]
+        },
+        {
+          "exception": null,
+          "raise_app_exceptions": false,
+          "response": {
+            "body": "Internal Server Error",
+            "content_type": "text/plain; charset=utf-8",
+            "status": 500
+          },
+          "sql": [
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_jwt_principal"
+              ],
+              "relations": [],
+              "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+              "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_actor_context"
+              ],
+              "relations": [],
+              "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+              "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [],
+              "relations": [
+                "projects"
+              ],
+              "sha256": "3d5cf71cc2442a3da6a0f3005458459547bf4ec269e943b8eb65803c6cf836a0",
+              "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID",
+              "verb": "SELECT"
+            }
+          ]
+        }
+      ],
+      "case": "updated_at_finite_before_python_min",
+      "column": "updated_at",
+      "endpoint": "detail",
+      "exception_attempt": {
+        "chain": [
+          {
+            "class": "OverflowError",
+            "message": "date value out of range",
+            "sqlstate": null
+          },
+          {
+            "class": "ExceptionGroup",
+            "message": "unhandled errors in a TaskGroup (1 sub-exception)",
+            "sqlstate": null
+          }
+        ],
+        "class": "OverflowError",
+        "message": "date value out of range",
+        "sqlstate": null
+      },
+      "expression": "TIMESTAMPTZ '0001-01-01 00:00:00 BC'",
+      "method": "GET",
+      "path": "/api/v1/projects/$project",
+      "response": {
+        "body": "Internal Server Error",
+        "content_type": "text/plain; charset=utf-8",
+        "status": 500
+      }
+    },
+    {
+      "actor_role": "project_admin",
+      "attempts": [
+        {
+          "exception": null,
+          "raise_app_exceptions": true,
+          "response": {
+            "body": {
+              "ai_completed_tasks": 0,
+              "ai_enabled": false,
+              "ai_interactive_enabled": true,
+              "annotation_guide": null,
+              "attribute_schema": {
+                "fields": []
+              },
+              "batch_summary": {
+                "assigned": 0,
+                "in_review": 0,
+                "total": 0
+              },
+              "box_threshold": 0.3499999940395355,
+              "capability_warnings": [],
+              "classes": [
+                "probe"
+              ],
+              "classes_config": {
+                "probe": {
+                  "alias": null,
+                  "color": null,
+                  "order": 0
+                }
+              },
+              "completed_tasks": 0,
+              "created_at": "2000-01-02T03:04:05Z",
+              "data_type": "image",
+              "default_variants": {},
+              "display_id": "$project_display_id",
+              "due_date": "2000-01-02",
+              "guide_assets": [],
+              "id": "$project",
+              "in_progress_tasks": 0,
+              "iou_dedup_threshold": 0.7,
+              "label_config": {},
+              "mask_qc_config": {
+                "auto_run": "on_review_submit",
+                "blocking": false,
+                "config_revision": 1,
+                "enabled": true,
+                "schema_version": 1,
+                "severity_overrides": {},
+                "single_frame": {
+                  "bbox_iou_min": 0.98,
+                  "boundary_noise_ratio": 0.15,
+                  "narrow_bridge_width": 2,
+                  "near_empty_pixels": 16,
+                  "overlap_pixels": 1,
+                  "small_component_pixels": 32,
+                  "small_component_ratio": 0.005,
+                  "small_hole_pixels": 32
+                },
+                "temporal": {
+                  "area_change_ratio": 0.5,
+                  "centroid_shift_diagonal": 0.15,
+                  "component_delta": 2,
+                  "drift_min_consecutive": 3,
+                  "flicker_max_frames": 2,
+                  "iou_drop": 0.35,
+                  "sample_step": 1
+                }
+              },
+              "maximum_annotations": 1,
+              "member_count": 0,
+              "ml_backend_id": null,
+              "model_version": null,
+              "my_project_role": null,
+              "name": "Project temporal probe $capture_suffix",
+              "organization_id": null,
+              "owner_avatar_ref": null,
+              "owner_id": "$actor",
+              "owner_name": "Project temporal probe",
+              "point_cloud_quality_config": {
+                "class_thresholds": {},
+                "config_revision": 1,
+                "enabled": true,
+                "enabled_rules": [
+                  "duplicate_track_member",
+                  "ground_clearance",
+                  "low_point_count",
+                  "projection_residual",
+                  "size_outlier",
+                  "temporal_jump",
+                  "track_gap",
+                  "track_identity_drift"
+                ],
+                "governance": {
+                  "maximum_false_positive_rate": 0.1,
+                  "minimum_confirmed_retention": 0.9,
+                  "minimum_reviewed_per_rule": 20
+                },
+                "schema_version": 2,
+                "severity_overrides": {},
+                "thresholds": {
+                  "ground_float_m": 0.45,
+                  "ground_margin_m": 0.75,
+                  "ground_penetration_m": 0.2,
+                  "ground_sample_min": 24,
+                  "minimum_points": 5,
+                  "projection_max_edge_residual_ratio": 0.025,
+                  "projection_min_iou": 0.5,
+                  "size_mad_z": 4.5,
+                  "size_min_samples": 8,
+                  "temporal_center_jump_m": 4.0,
+                  "temporal_size_change_ratio": 0.6,
+                  "temporal_yaw_jump_rad": 0.8
+                }
+              },
+              "preannotate_pipeline": null,
+              "prefer_same_scene_continuation": false,
+              "raster_mask_native_editing_enabled": true,
+              "rendering_config": {
+                "box3dDefaultSize": null,
+                "controlPointsSize": null,
+                "cssImageFilter": null,
+                "propagateOverwrite": null,
+                "smoothImage": null,
+                "snapToGrid": null,
+                "trackerDefaultModel": null
+              },
+              "review_tasks": 0,
+              "sampling": "sequence",
+              "scene_continuation_window_min": 30,
+              "scene_mode": false,
+              "show_overlap_first": false,
+              "status": "in_progress",
+              "task_lock_ttl_seconds": 300,
+              "text_threshold": 0.25,
+              "tool_bindings": {
+                "bbox": {
+                  "attribute_schema": {
+                    "fields": []
+                  },
+                  "classes": [
+                    {
+                      "alias": null,
+                      "alias_to": null,
+                      "color": null,
+                      "name": "probe",
+                      "order": 0
+                    }
+                  ],
+                  "enabled": true,
+                  "keypoint_schema": null,
+                  "video_modes": null
+                }
+              },
+              "total_tasks": 0,
+              "type_key": "image-det",
+              "type_label": "Temporal boundary probe",
+              "updated_at": "9999-12-31T23:59:59.999999",
+              "video_collaboration": {
+                "enabled": false,
+                "overlap_frames": 0
+              },
+              "video_sampling": {
+                "frame_step": null,
+                "mode": "none",
+                "target_fps": null
+              }
+            },
+            "content_type": "application/json",
+            "status": 200
+          },
+          "sql": [
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_jwt_principal"
+              ],
+              "relations": [],
+              "sha256": "d7762ee8373530c7cc67df29c8f77caf9f9cf3190b1c4f0d5620124aebdc0562",
+              "sql": "SELECT aap_identity_v1.read_jwt_principal($1, $2, $3, $4, $5)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_actor_context"
+              ],
+              "relations": [],
+              "sha256": "7bd0f87c12e5d0d0e90e61eca9e80fd6fff3a6b044846d0355ec63f472d012c8",
+              "sql": "SELECT aap_identity_v1.read_actor_context($1, $2)",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [],
+              "relations": [
+                "projects"
+              ],
+              "sha256": "3d5cf71cc2442a3da6a0f3005458459547bf4ec269e943b8eb65803c6cf836a0",
+              "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [
+                "aap_identity_v1.read_actor_facts"
+              ],
+              "relations": [
+                "read_actor_facts"
+              ],
+              "sha256": "7ace85e5b02cdb2a5e38c7fa6cad1739bc7841381316ae8a03f3a9b095924151",
+              "sql": "SELECT actor_id, platform_role, is_active FROM aap_identity_v1.read_actor_facts(CAST($1 AS uuid))",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [],
+              "relations": [
+                "projects"
+              ],
+              "sha256": "3d5cf71cc2442a3da6a0f3005458459547bf4ec269e943b8eb65803c6cf836a0",
+              "sql": "SELECT projects.id AS projects_id, projects.organization_id AS projects_organization_id, projects.display_id AS projects_display_id, projects.name AS projects_name, projects.type_label AS projects_type_label, projects.type_key AS projects_type_key, projects.data_type AS projects_data_type, projects.owner_id AS projects_owner_id, projects.status AS projects_status, projects.ai_enabled AS projects_ai_enabled, projects.ml_backend_pool_id AS projects_ml_backend_pool_id, projects.default_variants AS projects_default_variants, projects.preannotate_pipeline AS projects_preannotate_pipeline, projects.label_config AS projects_label_config, projects.tool_bindings AS projects_tool_bindings, projects.sampling AS projects_sampling, projects.maximum_annotations AS projects_maximum_annotations, projects.show_overlap_first AS projects_show_overlap_first, projects.iou_dedup_threshold AS projects_iou_dedup_threshold, projects.box_threshold AS projects_box_threshold, projects.text_threshold AS projects_text_threshold, projects.ai_interactive_enabled AS projects_ai_interactive_enabled, projects.raster_mask_native_editing_enabled AS projects_raster_mask_native_editing_enabled, projects.mask_qc_config AS projects_mask_qc_config, projects.point_cloud_quality_config AS projects_point_cloud_quality_config, projects.rendering_config AS projects_rendering_config, projects.annotation_guide AS projects_annotation_guide, projects.guide_assets AS projects_guide_assets, projects.model_version AS projects_model_version, projects.task_lock_ttl_seconds AS projects_task_lock_ttl_seconds, projects.total_tasks AS projects_total_tasks, projects.completed_tasks AS projects_completed_tasks, projects.review_tasks AS projects_review_tasks, projects.in_progress_tasks AS projects_in_progress_tasks, projects.batch_summary AS projects_batch_summary, projects.video_sampling AS projects_video_sampling, projects.video_collaboration AS projects_video_collaboration, projects.scene_mode AS projects_scene_mode, projects.prefer_same_scene_continuation AS projects_prefer_same_scene_continuation, projects.scene_continuation_window_min AS projects_scene_continuation_window_min, projects.due_date AS projects_due_date, projects.created_at AS projects_created_at, projects.updated_at AS projects_updated_at FROM projects WHERE projects.id = $1::UUID",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [
+                "aap_identity_briefs_v1.execute_briefs_command"
+              ],
+              "relations": [],
+              "sha256": "2c5c939b9551d328804d711edd4c0399cc1047b131a515a960839924210fcc04",
+              "sql": "SELECT aap_identity_briefs_v1.execute_briefs_command(CAST($1 AS jsonb))",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [],
+              "relations": [
+                "project_members"
+              ],
+              "sha256": "6e7ecb3eaa5d15b144c9801cdf0a634b987c90e7bc88e00b6977c7c796b23a0e",
+              "sql": "SELECT count(*) AS count_1 FROM project_members WHERE project_members.project_id = $1::UUID",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [],
+              "relations": [
+                "annotations"
+              ],
+              "sha256": "eab6cd40076ce7d542a6a154020211cf2604af1f964e43bd407fcb6e9f1e8ba4",
+              "sql": "SELECT count(distinct(annotations.task_id)) AS count_1 FROM annotations WHERE annotations.project_id = $1::UUID AND annotations.parent_prediction_id IS NOT NULL AND annotations.is_active IS true",
+              "verb": "SELECT"
+            },
+            {
+              "qualified_functions": [],
+              "relations": [
+                "project_members"
+              ],
+              "sha256": "6a1146744ffb434295a74c4a33f8921c8660b1c40ff38633eb7f996ca3660d84",
+              "sql": "SELECT project_members.project_id, project_members.role FROM project_members WHERE project_members.user_id = $1::UUID AND project_members.project_id IN ($2::UUID)",
+              "verb": "SELECT"
+            }
+          ]
+        }
+      ],
+      "case": "updated_at_positive_infinity",
+      "column": "updated_at",
+      "endpoint": "detail",
+      "exception_attempt": null,
+      "expression": "TIMESTAMPTZ 'infinity'",
+      "method": "GET",
+      "path": "/api/v1/projects/$project",
+      "response": {
+        "body": {
+          "ai_completed_tasks": 0,
+          "ai_enabled": false,
+          "ai_interactive_enabled": true,
+          "annotation_guide": null,
+          "attribute_schema": {
+            "fields": []
+          },
+          "batch_summary": {
+            "assigned": 0,
+            "in_review": 0,
+            "total": 0
+          },
+          "box_threshold": 0.3499999940395355,
+          "capability_warnings": [],
+          "classes": [
+            "probe"
+          ],
+          "classes_config": {
+            "probe": {
+              "alias": null,
+              "color": null,
+              "order": 0
+            }
+          },
+          "completed_tasks": 0,
+          "created_at": "2000-01-02T03:04:05Z",
+          "data_type": "image",
+          "default_variants": {},
+          "display_id": "$project_display_id",
+          "due_date": "2000-01-02",
+          "guide_assets": [],
+          "id": "$project",
+          "in_progress_tasks": 0,
+          "iou_dedup_threshold": 0.7,
+          "label_config": {},
+          "mask_qc_config": {
+            "auto_run": "on_review_submit",
+            "blocking": false,
+            "config_revision": 1,
+            "enabled": true,
+            "schema_version": 1,
+            "severity_overrides": {},
+            "single_frame": {
+              "bbox_iou_min": 0.98,
+              "boundary_noise_ratio": 0.15,
+              "narrow_bridge_width": 2,
+              "near_empty_pixels": 16,
+              "overlap_pixels": 1,
+              "small_component_pixels": 32,
+              "small_component_ratio": 0.005,
+              "small_hole_pixels": 32
+            },
+            "temporal": {
+              "area_change_ratio": 0.5,
+              "centroid_shift_diagonal": 0.15,
+              "component_delta": 2,
+              "drift_min_consecutive": 3,
+              "flicker_max_frames": 2,
+              "iou_drop": 0.35,
+              "sample_step": 1
+            }
+          },
+          "maximum_annotations": 1,
+          "member_count": 0,
+          "ml_backend_id": null,
+          "model_version": null,
+          "my_project_role": null,
+          "name": "Project temporal probe $capture_suffix",
+          "organization_id": null,
+          "owner_avatar_ref": null,
+          "owner_id": "$actor",
+          "owner_name": "Project temporal probe",
+          "point_cloud_quality_config": {
+            "class_thresholds": {},
+            "config_revision": 1,
+            "enabled": true,
+            "enabled_rules": [
+              "duplicate_track_member",
+              "ground_clearance",
+              "low_point_count",
+              "projection_residual",
+              "size_outlier",
+              "temporal_jump",
+              "track_gap",
+              "track_identity_drift"
+            ],
+            "governance": {
+              "maximum_false_positive_rate": 0.1,
+              "minimum_confirmed_retention": 0.9,
+              "minimum_reviewed_per_rule": 20
+            },
+            "schema_version": 2,
+            "severity_overrides": {},
+            "thresholds": {
+              "ground_float_m": 0.45,
+              "ground_margin_m": 0.75,
+              "ground_penetration_m": 0.2,
+              "ground_sample_min": 24,
+              "minimum_points": 5,
+              "projection_max_edge_residual_ratio": 0.025,
+              "projection_min_iou": 0.5,
+              "size_mad_z": 4.5,
+              "size_min_samples": 8,
+              "temporal_center_jump_m": 4.0,
+              "temporal_size_change_ratio": 0.6,
+              "temporal_yaw_jump_rad": 0.8
+            }
+          },
+          "preannotate_pipeline": null,
+          "prefer_same_scene_continuation": false,
+          "raster_mask_native_editing_enabled": true,
+          "rendering_config": {
+            "box3dDefaultSize": null,
+            "controlPointsSize": null,
+            "cssImageFilter": null,
+            "propagateOverwrite": null,
+            "smoothImage": null,
+            "snapToGrid": null,
+            "trackerDefaultModel": null
+          },
+          "review_tasks": 0,
+          "sampling": "sequence",
+          "scene_continuation_window_min": 30,
+          "scene_mode": false,
+          "show_overlap_first": false,
+          "status": "in_progress",
+          "task_lock_ttl_seconds": 300,
+          "text_threshold": 0.25,
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "alias": null,
+                  "alias_to": null,
+                  "color": null,
+                  "name": "probe",
+                  "order": 0
+                }
+              ],
+              "enabled": true,
+              "keypoint_schema": null,
+              "video_modes": null
+            }
+          },
+          "total_tasks": 0,
+          "type_key": "image-det",
+          "type_label": "Temporal boundary probe",
+          "updated_at": "9999-12-31T23:59:59.999999",
+          "video_collaboration": {
+            "enabled": false,
+            "overlap_frames": 0
+          },
+          "video_sampling": {
+            "frame_step": null,
+            "mode": "none",
+            "target_fps": null
+          }
+        },
+        "content_type": "application/json",
+        "status": 200
+      }
+    }
+  ],
+  "runtime_versions": {
+    "asyncpg": "0.31.0",
+    "fastapi": "0.136.1",
+    "python": "3.12.12",
+    "sqlalchemy": "2.0.49"
+  },
+  "source": {
+    "capture_driver_sha256": "617b511da7aed7a8bcf63862d4d0240608b514e740a6d898977ffca0c166796c",
+    "captured_head": "5e7198f63ead09f2481eb8a04a8d34489d5b6ae6",
+    "pre_port_base": "86f4ff527446a1932e585f6fda381520860161c9",
+    "runtime_source_sha256": {
+      "apps/_shared/workspace_contract/src/aap_workspace_contract/__init__.py": "2a4a9e416f5e570da9000d82d966a6a144c3cf86ce248d6e6e655f9a59e846fe",
+      "apps/_shared/workspace_contract/src/aap_workspace_contract/projections.py": "2b5ebf0e71246f9c512f117f8b926442602bce25e056dbd54c84195afce9dafa",
+      "apps/api/app/api/v1/projects.py": "42783392608fa03c75936e61b7a28f19d7998358773a301b42b9aa9025b23ff4",
+      "apps/api/app/core/security.py": "70ca9d3325406f3128bcac0dc5048f6b1387cb1a795dfb1b76d6df29a2ac0b9b",
+      "apps/api/app/db/models/project.py": "b274f2a7765a14e1ec62b3f9e1253e09046f592edd94c0a769fedd6be7e31da4",
+      "apps/api/app/db/models/user.py": "ab646405f6960cee9dce564ca6caff5ea9a9676c4551f9af1b2a738251ded687",
+      "apps/api/app/deps.py": "fbb9af9ab07e6ca3adce3b8b170c2e5cc37fc8c17afea8a10fe341896a932168",
+      "apps/api/app/schemas/project.py": "f74d44920b7e8d632c02cae64ba92849272e36a06386acafb4d87e12e75a4cb8",
+      "apps/api/app/schemas/user.py": "5f9200c5ffa4ea50e1b7bd4652a8d2ef9846e58e0c5b698ae79619334231dd45",
+      "apps/api/app/services/identity_contracts.py": "39fc901226518dcfa6adb840992b70c2131b361beeb5ed7aadd915f06d595b3e",
+      "apps/api/app/services/identity_gateway.py": "a81f0b92875ff28e1248d3e26e573ca3a20ba172a911264ca100d12723f8b914",
+      "apps/api/app/services/identity_session_data.py": "bc765bf901a2c274703d98d21193a1a8548fc2bbd31b5112d8493a66e52626d9",
+      "apps/api/app/services/project_access.py": "8a9d111b038e40070c17f2b6296f119855e26dc6f235bce613dc3eed08a1ab82",
+      "apps/api/app/services/user_brief.py": "eb23a7abc95184cb76eb480acda970497d031e4ae80560356d48fad5646f9869",
+      "apps/identity/src/aap_identity/actor_contract.py": "2d9354ac2652c1ddea860068bba7066f0bb8b0eed55a052732c289539a570a2c",
+      "apps/identity/src/aap_identity/actor_reader.py": "bc0ec751c0781fb81abed53f260745af4208f3d12b2aabac7e9f10c4bb6bc24a",
+      "apps/identity/src/aap_identity/authenticator.py": "5fdda4ac9baf417015eb26af594f5929b4b77f481178a38dc86fe5a865d9f2ec",
+      "apps/identity/src/aap_identity/contract.py": "a4bc483f9e059e4f29d918386e9314543758cefcb46434d9a0ff04eae1dd3340",
+      "apps/identity/src/aap_identity/postgres.py": "352e1316716a32dce144e460f0adc9a769ce1b851a4b32e95874c0377476e587",
+      "apps/workspace/src/aap_workspace/access_contract.py": "248cdfb9420a2efe796c02a4e7f8265cb01eab1a1b5d6a06894a37dcf6bb8590",
+      "apps/workspace/src/aap_workspace/configuration_values.py": "24d1c5ba51dd6356be56d34834b79195f08386d6d0b7fbef24f83cf40b6bd428"
+    }
+  }
+}

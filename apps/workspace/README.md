@@ -62,3 +62,9 @@ so source-only changes also invalidate a noneditable cached wheel. Independent
 artifact verification compares installed files against the source manifest.
 Hatchling packages the current source directory directly, preventing an old
 setuptools staging directory from retaining removed modules in a later wheel.
+
+Project query requests, typed read facts, raw value codecs and ordered policy are
+implemented in `project_query_contract`, `project_query_values` and
+`project_queries`. Native/API/runtime integration is still in progress; ordinary
+Project HTTP readers have not switched at this checkpoint. See ADR-0139 for
+authority phases, accepted projection snapshots and remaining qualification.

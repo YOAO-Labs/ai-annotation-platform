@@ -1,0 +1,2582 @@
+{
+  "capture_kind": "actual-pre-extraction-project-query-consumers-and-postcommit-projections",
+  "observations": {
+    "class_rename": {
+      "changed": {
+        "activity": {
+          "commit_count": 1,
+          "read_table_mentions": {
+            "annotations": 6,
+            "project_members": 1,
+            "projects": 5,
+            "tasks": 5
+          },
+          "sql_by_kind": {
+            "select": 12,
+            "update": 2
+          },
+          "sql_statement_count": 14,
+          "write_table_mentions": {
+            "annotations": 1,
+            "projects": 1
+          }
+        },
+        "projection": {
+          "commit_count_before_projection": 1,
+          "projection_started_after_route_commit": true
+        },
+        "state": {
+          "annotation_classes": [
+            [
+              "bbox",
+              "Truck"
+            ],
+            [
+              "region",
+              "Truck"
+            ]
+          ],
+          "bbox": [
+            "Truck"
+          ],
+          "region": [
+            "Car"
+          ]
+        }
+      },
+      "no_op": {
+        "activity": {
+          "commit_count": 0,
+          "read_table_mentions": {
+            "annotations": 4,
+            "project_members": 1,
+            "projects": 3,
+            "tasks": 3
+          },
+          "sql_by_kind": {
+            "select": 10
+          },
+          "sql_statement_count": 10,
+          "write_table_mentions": {}
+        },
+        "projection": {
+          "commit_count_before_projection": 0,
+          "projection_started_after_route_commit": false
+        },
+        "state": {
+          "annotation_classes": [
+            [
+              "bbox",
+              "Car"
+            ],
+            [
+              "region",
+              "Car"
+            ]
+          ],
+          "bbox": [
+            "Car"
+          ],
+          "region": [
+            "Car"
+          ]
+        }
+      }
+    },
+    "collaborative_video": {
+      "invalid_boolean_employee": {
+        "commit_count": 0,
+        "read_table_mentions": {
+          "annotations": 2,
+          "project_members": 2,
+          "projects": 2,
+          "task_batches": 1,
+          "tasks": 2
+        },
+        "sql_by_kind": {
+          "select": 4
+        },
+        "sql_statement_count": 4,
+        "write_table_mentions": {}
+      },
+      "invalid_boolean_super_admin": {
+        "commit_count": 0,
+        "read_table_mentions": {
+          "annotations": 2,
+          "datasets": 1,
+          "projects": 2,
+          "tasks": 2,
+          "users": 1
+        },
+        "sql_by_kind": {
+          "select": 6
+        },
+        "sql_statement_count": 6,
+        "write_table_mentions": {}
+      },
+      "visible_unassigned_video": {
+        "employee": {
+          "commit_count": 0,
+          "read_table_mentions": {
+            "annotations": 2,
+            "datasets": 1,
+            "project_members": 3,
+            "projects": 3,
+            "task_batches": 1,
+            "tasks": 2,
+            "users": 1
+          },
+          "sql_by_kind": {
+            "select": 6
+          },
+          "sql_statement_count": 6,
+          "write_table_mentions": {}
+        },
+        "project_admin": {
+          "commit_count": 0,
+          "read_table_mentions": {
+            "annotations": 2,
+            "datasets": 1,
+            "project_members": 3,
+            "projects": 3,
+            "task_batches": 1,
+            "tasks": 2,
+            "users": 1
+          },
+          "sql_by_kind": {
+            "select": 6
+          },
+          "sql_statement_count": 6,
+          "write_table_mentions": {}
+        },
+        "viewer": {
+          "commit_count": 0,
+          "read_table_mentions": {
+            "annotations": 2,
+            "datasets": 1,
+            "project_members": 3,
+            "projects": 3,
+            "task_batches": 1,
+            "tasks": 2,
+            "users": 1
+          },
+          "sql_by_kind": {
+            "select": 6
+          },
+          "sql_statement_count": 6,
+          "write_table_mentions": {}
+        }
+      }
+    },
+    "configuration_postcommit_projection": {
+      "accepted_actor_role": "project_admin",
+      "activity": {
+        "commit_count": 1,
+        "read_table_mentions": {
+          "annotations": 4,
+          "project_members": 1,
+          "projects": 3,
+          "tasks": 3
+        },
+        "sql_by_kind": {
+          "select": 14
+        },
+        "sql_statement_count": 14,
+        "write_table_mentions": {}
+      },
+      "actor_role_after_response": "employee",
+      "actor_role_at_projection": "employee",
+      "actor_role_before_projection": "project_admin",
+      "commits_before_projection": 1,
+      "operation_ids": [
+        "$configuration_operation_1"
+      ],
+      "owner_id": "$actor_project_admin",
+      "project_name": "Configuration projection updated PQXbe1e20ed4e",
+      "projection_started_after_route_commit": true,
+      "receipt_operation_id": "$configuration_operation_1",
+      "receipt_present": true,
+      "response_project_alias": "$project_configuration",
+      "response_status_after_role_change": 200,
+      "role_change_committed_before_projection": true
+    },
+    "global_search_scopes": {
+      "employee": {
+        "activity": {
+          "commit_count": 0,
+          "read_table_mentions": {
+            "annotations": 2,
+            "datasets": 1,
+            "project_members": 3,
+            "projects": 3,
+            "task_batches": 1,
+            "tasks": 2,
+            "users": 1
+          },
+          "sql_by_kind": {
+            "select": 6
+          },
+          "sql_statement_count": 6,
+          "write_table_mentions": {}
+        },
+        "datasets": [
+          "dataset_search"
+        ],
+        "members": [
+          "employee",
+          "project_admin",
+          "reviewer",
+          "viewer"
+        ],
+        "projects": [
+          "search_shared"
+        ],
+        "tasks": [
+          "employee_task"
+        ]
+      },
+      "hidden_employee": {
+        "activity": {
+          "commit_count": 0,
+          "read_table_mentions": {
+            "annotations": 2,
+            "datasets": 1,
+            "project_members": 3,
+            "projects": 3,
+            "task_batches": 1,
+            "tasks": 2,
+            "users": 1
+          },
+          "sql_by_kind": {
+            "select": 6
+          },
+          "sql_statement_count": 6,
+          "write_table_mentions": {}
+        },
+        "datasets": [
+          "dataset_search"
+        ],
+        "members": [
+          "hidden_employee"
+        ],
+        "projects": [
+          "search_hidden"
+        ],
+        "tasks": [
+          "hidden_task"
+        ]
+      },
+      "project_admin": {
+        "activity": {
+          "commit_count": 0,
+          "read_table_mentions": {
+            "annotations": 2,
+            "datasets": 1,
+            "project_members": 3,
+            "projects": 3,
+            "task_batches": 1,
+            "tasks": 2,
+            "users": 1
+          },
+          "sql_by_kind": {
+            "select": 6
+          },
+          "sql_statement_count": 6,
+          "write_table_mentions": {}
+        },
+        "datasets": [
+          "dataset_search"
+        ],
+        "members": [
+          "employee",
+          "project_admin",
+          "reviewer",
+          "viewer"
+        ],
+        "projects": [
+          "search_owner",
+          "search_shared"
+        ],
+        "tasks": [
+          "owner_task"
+        ]
+      },
+      "reviewer": {
+        "activity": {
+          "commit_count": 0,
+          "read_table_mentions": {
+            "annotations": 2,
+            "datasets": 1,
+            "project_members": 3,
+            "projects": 3,
+            "task_batches": 1,
+            "tasks": 2,
+            "users": 1
+          },
+          "sql_by_kind": {
+            "select": 6
+          },
+          "sql_statement_count": 6,
+          "write_table_mentions": {}
+        },
+        "datasets": [
+          "dataset_search"
+        ],
+        "members": [
+          "employee",
+          "project_admin",
+          "reviewer",
+          "viewer"
+        ],
+        "projects": [
+          "search_shared"
+        ],
+        "tasks": [
+          "reviewer_task",
+          "viewer_task"
+        ]
+      },
+      "super_admin": {
+        "activity": {
+          "commit_count": 0,
+          "read_table_mentions": {
+            "annotations": 2,
+            "datasets": 1,
+            "projects": 2,
+            "tasks": 2,
+            "users": 1
+          },
+          "sql_by_kind": {
+            "select": 6
+          },
+          "sql_statement_count": 6,
+          "write_table_mentions": {}
+        },
+        "datasets": [
+          "dataset_search"
+        ],
+        "members": [
+          "employee",
+          "hidden_employee",
+          "project_admin",
+          "reviewer",
+          "super_admin",
+          "viewer"
+        ],
+        "projects": [
+          "search_hidden",
+          "search_owner",
+          "search_shared"
+        ],
+        "tasks": [
+          "employee_task",
+          "hidden_task",
+          "owner_task",
+          "reviewer_task",
+          "unassigned_task",
+          "viewer_task"
+        ]
+      },
+      "viewer": {
+        "activity": {
+          "commit_count": 0,
+          "read_table_mentions": {
+            "annotations": 2,
+            "datasets": 1,
+            "project_members": 3,
+            "projects": 3,
+            "task_batches": 1,
+            "tasks": 2,
+            "users": 1
+          },
+          "sql_by_kind": {
+            "select": 6
+          },
+          "sql_statement_count": 6,
+          "write_table_mentions": {}
+        },
+        "datasets": [
+          "dataset_search"
+        ],
+        "members": [
+          "employee",
+          "project_admin",
+          "reviewer",
+          "viewer"
+        ],
+        "projects": [
+          "search_shared"
+        ],
+        "tasks": [
+          "viewer_task"
+        ]
+      }
+    },
+    "owner_transfer_readback": {
+      "accepted_actor_role": "super_admin",
+      "activity": {
+        "commit_count": 1,
+        "read_table_mentions": {
+          "annotations": 3,
+          "project_members": 1,
+          "projects": 2,
+          "tasks": 2
+        },
+        "sql_by_kind": {
+          "select": 9
+        },
+        "sql_statement_count": 9,
+        "write_table_mentions": {}
+      },
+      "actor_role_after_response": "employee",
+      "actor_role_at_projection": "employee",
+      "actor_role_before_projection": "super_admin",
+      "commits_before_projection": 1,
+      "owner_id": "$actor_project_admin",
+      "project_name": "Owner transfer projection",
+      "projection_started_after_route_commit": true,
+      "receipt_operation_id": "$owner_transfer_operation",
+      "receipt_present": true,
+      "response_owner_alias": "$actor_project_admin",
+      "response_status_after_role_change": 200,
+      "role_change_committed_before_projection": true
+    }
+  },
+  "runtime_identity": {
+    "database": "aap_wt_de84db452cf64791_test",
+    "database_role": "legacy_runtime"
+  },
+  "samples": [
+    {
+      "activity": {
+        "commit_count": 0,
+        "read_table_mentions": {
+          "annotations": 2,
+          "datasets": 1,
+          "projects": 2,
+          "tasks": 2,
+          "users": 1
+        },
+        "sql_by_kind": {
+          "select": 6
+        },
+        "sql_statement_count": 6,
+        "write_table_mentions": {}
+      },
+      "label": "global_search_super_admin",
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "super_admin",
+          "id": "$actor_super_admin",
+          "role": "super_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": {
+          "limit": 20,
+          "q": "$search_marker"
+        },
+        "path": "/api/v1/search"
+      },
+      "response": {
+        "body": {
+          "datasets": [
+            {
+              "data_type": "image",
+              "id": "$dataset_search",
+              "name": "PQX$capture_suffix public dataset"
+            }
+          ],
+          "members": [
+            {
+              "email": "consumer-employee-$capture_suffix@example.test",
+              "id": "$actor_employee",
+              "name": "employee PQX$capture_suffix",
+              "role": "employee"
+            },
+            {
+              "email": "consumer-hidden_employee-$capture_suffix@example.test",
+              "id": "$actor_hidden_employee",
+              "name": "hidden_employee PQX$capture_suffix",
+              "role": "employee"
+            },
+            {
+              "email": "consumer-project_admin-$capture_suffix@example.test",
+              "id": "$actor_project_admin",
+              "name": "project_admin PQX$capture_suffix",
+              "role": "project_admin"
+            },
+            {
+              "email": "consumer-reviewer-$capture_suffix@example.test",
+              "id": "$actor_reviewer",
+              "name": "reviewer PQX$capture_suffix",
+              "role": "employee"
+            },
+            {
+              "email": "consumer-super_admin-$capture_suffix@example.test",
+              "id": "$actor_super_admin",
+              "name": "super_admin PQX$capture_suffix",
+              "role": "super_admin"
+            },
+            {
+              "email": "consumer-viewer-$capture_suffix@example.test",
+              "id": "$actor_viewer",
+              "name": "viewer PQX$capture_suffix",
+              "role": "viewer"
+            }
+          ],
+          "projects": [
+            {
+              "data_type": "image",
+              "display_id": "$display_search_owner",
+              "id": "$project_search_owner",
+              "name": "PQX$capture_suffix owned",
+              "type_key": "image-det",
+              "type_label": "Project consumer capture"
+            },
+            {
+              "data_type": "image",
+              "display_id": "$display_search_shared",
+              "id": "$project_search_shared",
+              "name": "PQX$capture_suffix shared",
+              "type_key": "image-det",
+              "type_label": "Project consumer capture"
+            },
+            {
+              "data_type": "image",
+              "display_id": "$display_search_hidden",
+              "id": "$project_search_hidden",
+              "name": "PQX$capture_suffix hidden",
+              "type_key": "image-det",
+              "type_label": "Project consumer capture"
+            }
+          ],
+          "tasks": [
+            {
+              "display_id": "$display_task_owner_task",
+              "file_name": "PQX$capture_suffix-owner_task.jpg",
+              "id": "$task_owner_task",
+              "project_id": "$project_search_owner",
+              "project_name": "PQX$capture_suffix owned"
+            },
+            {
+              "display_id": "$display_task_employee_task",
+              "file_name": "PQX$capture_suffix-employee_task.jpg",
+              "id": "$task_employee_task",
+              "project_id": "$project_search_shared",
+              "project_name": "PQX$capture_suffix shared"
+            },
+            {
+              "display_id": "$display_task_reviewer_task",
+              "file_name": "PQX$capture_suffix-reviewer_task.jpg",
+              "id": "$task_reviewer_task",
+              "project_id": "$project_search_shared",
+              "project_name": "PQX$capture_suffix shared"
+            },
+            {
+              "display_id": "$display_task_viewer_task",
+              "file_name": "PQX$capture_suffix-viewer_task.jpg",
+              "id": "$task_viewer_task",
+              "project_id": "$project_search_shared",
+              "project_name": "PQX$capture_suffix shared"
+            },
+            {
+              "display_id": "$display_task_unassigned_task",
+              "file_name": "PQX$capture_suffix-unassigned_task.jpg",
+              "id": "$task_unassigned_task",
+              "project_id": "$project_search_shared",
+              "project_name": "PQX$capture_suffix shared"
+            },
+            {
+              "display_id": "$display_task_hidden_task",
+              "file_name": "PQX$capture_suffix-hidden_task.jpg",
+              "id": "$task_hidden_task",
+              "project_id": "$project_search_hidden",
+              "project_name": "PQX$capture_suffix hidden"
+            }
+          ]
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "eyJwcm9qZWN0cyI6W3siaWQiOiJmMGRlODNjNy1jM2MzLTQyZmEtOGU3Ny05NGI3YzIzNGE4NGIiLCJkaXNwbGF5X2lkIjoiUC1FMkUtNmViMDc2IiwibmFtZSI6IlBRWGJlMWUyMGVkNGUgb3duZWQiLCJ0eXBlX2tleSI6ImltYWdlLWRldCIsImRhdGFfdHlwZSI6ImltYWdlIiwidHlwZV9sYWJlbCI6IlByb2plY3QgY29uc3VtZXIgY2FwdHVyZSJ9LHsiaWQiOiI3YjY0NWU5My02YmUwLTQ3NDAtYjY0OC1mNDIyMTkzZGFhYmUiLCJkaXNwbGF5X2lkIjoiUC1FMkUtNjMzZTljIiwibmFtZSI6IlBRWGJlMWUyMGVkNGUgc2hhcmVkIiwidHlwZV9rZXkiOiJpbWFnZS1kZXQiLCJkYXRhX3R5cGUiOiJpbWFnZSIsInR5cGVfbGFiZWwiOiJQcm9qZWN0IGNvbnN1bWVyIGNhcHR1cmUifSx7ImlkIjoiZWY1ZjdiMjktNGJlOC00ODk1LWEzYTctNzYxYWIyOTk4Mjc5IiwiZGlzcGxheV9pZCI6IlAtRTJFLWQ5YzIzMSIsIm5hbWUiOiJQUVhiZTFlMjBlZDRlIGhpZGRlbiIsInR5cGVfa2V5IjoiaW1hZ2UtZGV0IiwiZGF0YV90eXBlIjoiaW1hZ2UiLCJ0eXBlX2xhYmVsIjoiUHJvamVjdCBjb25zdW1lciBjYXB0dXJlIn1dLCJ0YXNrcyI6W3siaWQiOiJmMjRlNDM5NS0wOGFjLTRmYTAtODljNi04MTk3Nzc0OTc0YTciLCJkaXNwbGF5X2lkIjoiVC1QUVhiZTFlMjBlZDRlLW93bmVyX3RhcyIsImZpbGVfbmFtZSI6IlBRWGJlMWUyMGVkNGUtb3duZXJfdGFzay5qcGciLCJwcm9qZWN0X2lkIjoiZjBkZTgzYzctYzNjMy00MmZhLThlNzctOTRiN2MyMzRhODRiIiwicHJvamVjdF9uYW1lIjoiUFFYYmUxZTIwZWQ0ZSBvd25lZCJ9LHsiaWQiOiI4MDRiN2NhZS0wYWJmLTRlZjItYTRlMy1kNDVhZThhMjQ1NWUiLCJkaXNwbGF5X2lkIjoiVC1QUVhiZTFlMjBlZDRlLWVtcGxveWVlXyIsImZpbGVfbmFtZSI6IlBRWGJlMWUyMGVkNGUtZW1wbG95ZWVfdGFzay5qcGciLCJwcm9qZWN0X2lkIjoiN2I2NDVlOTMtNmJlMC00NzQwLWI2NDgtZjQyMjE5M2RhYWJlIiwicHJvamVjdF9uYW1lIjoiUFFYYmUxZTIwZWQ0ZSBzaGFyZWQifSx7ImlkIjoiNjUzODdiYTItYWZiNC00NjkxLWI5YTItYWM4ZDUwNTNmMDJkIiwiZGlzcGxheV9pZCI6IlQtUFFYYmUxZTIwZWQ0ZS1yZXZpZXdlcl8iLCJmaWxlX25hbWUiOiJQUVhiZTFlMjBlZDRlLXJldmlld2VyX3Rhc2suanBnIiwicHJvamVjdF9pZCI6IjdiNjQ1ZTkzLTZiZTAtNDc0MC1iNjQ4LWY0MjIxOTNkYWFiZSIsInByb2plY3RfbmFtZSI6IlBRWGJlMWUyMGVkNGUgc2hhcmVkIn0seyJpZCI6ImZmYjk4OTA4LTc0NTYtNGY0Yy05ZmY4LWQ4Y2Q3YjE2NTdmZSIsImRpc3BsYXlfaWQiOiJULVBRWGJlMWUyMGVkNGUtdmlld2VyX3RhIiwiZmlsZV9uYW1lIjoiUFFYYmUxZTIwZWQ0ZS12aWV3ZXJfdGFzay5qcGciLCJwcm9qZWN0X2lkIjoiN2I2NDVlOTMtNmJlMC00NzQwLWI2NDgtZjQyMjE5M2RhYWJlIiwicHJvamVjdF9uYW1lIjoiUFFYYmUxZTIwZWQ0ZSBzaGFyZWQifSx7ImlkIjoiNDA3MTc0ZGUtMThkZC00YTQ4LWI4MDMtODhjODY0OGY4NWY1IiwiZGlzcGxheV9pZCI6IlQtUFFYYmUxZTIwZWQ0ZS11bmFzc2lnbmUiLCJmaWxlX25hbWUiOiJQUVhiZTFlMjBlZDRlLXVuYXNzaWduZWRfdGFzay5qcGciLCJwcm9qZWN0X2lkIjoiN2I2NDVlOTMtNmJlMC00NzQwLWI2NDgtZjQyMjE5M2RhYWJlIiwicHJvamVjdF9uYW1lIjoiUFFYYmUxZTIwZWQ0ZSBzaGFyZWQifSx7ImlkIjoiMDdkMDJiZDYtNDY0MC00YjhjLTg0YzQtN2QxOGM2YjM5NzEwIiwiZGlzcGxheV9pZCI6IlQtUFFYYmUxZTIwZWQ0ZS1oaWRkZW5fdGEiLCJmaWxlX25hbWUiOiJQUVhiZTFlMjBlZDRlLWhpZGRlbl90YXNrLmpwZyIsInByb2plY3RfaWQiOiJlZjVmN2IyOS00YmU4LTQ4OTUtYTNhNy03NjFhYjI5OTgyNzkiLCJwcm9qZWN0X25hbWUiOiJQUVhiZTFlMjBlZDRlIGhpZGRlbiJ9XSwiZGF0YXNldHMiOlt7ImlkIjoiZGRkN2M2MjMtMDUzMy00ODkyLWJmMjctNWU5MjJhZjY4NDIzIiwibmFtZSI6IlBRWGJlMWUyMGVkNGUgcHVibGljIGRhdGFzZXQiLCJkYXRhX3R5cGUiOiJpbWFnZSJ9XSwibWVtYmVycyI6W3siaWQiOiJlZDY0ZGU4Ny05NjVmLTRlNDYtYTgxZC04YTJmMmI4ZDcxNDgiLCJuYW1lIjoiZW1wbG95ZWUgUFFYYmUxZTIwZWQ0ZSIsImVtYWlsIjoiY29uc3VtZXItZW1wbG95ZWUtYmUxZTIwZWQ0ZUBleGFtcGxlLnRlc3QiLCJyb2xlIjoiZW1wbG95ZWUifSx7ImlkIjoiM2Q1YWRmNmEtMzZiYS00NjdkLWJhM2UtYjQyMWJkNzZlNzlmIiwibmFtZSI6ImhpZGRlbl9lbXBsb3llZSBQUVhiZTFlMjBlZDRlIiwiZW1haWwiOiJjb25zdW1lci1oaWRkZW5fZW1wbG95ZWUtYmUxZTIwZWQ0ZUBleGFtcGxlLnRlc3QiLCJyb2xlIjoiZW1wbG95ZWUifSx7ImlkIjoiMjlhZDkyMWItZmY2MS00OGY4LWIzZjMtNGFmNTdkMjJlNWNhIiwibmFtZSI6InByb2plY3RfYWRtaW4gUFFYYmUxZTIwZWQ0ZSIsImVtYWlsIjoiY29uc3VtZXItcHJvamVjdF9hZG1pbi1iZTFlMjBlZDRlQGV4YW1wbGUudGVzdCIsInJvbGUiOiJwcm9qZWN0X2FkbWluIn0seyJpZCI6IjEzOTkzZGYyLTMwYzgtNDBlNy1iYmQ0LTNhYzcxYTJiNTA0MSIsIm5hbWUiOiJyZXZpZXdlciBQUVhiZTFlMjBlZDRlIiwiZW1haWwiOiJjb25zdW1lci1yZXZpZXdlci1iZTFlMjBlZDRlQGV4YW1wbGUudGVzdCIsInJvbGUiOiJlbXBsb3llZSJ9LHsiaWQiOiJhNWQxNGZkNi03NDU0LTQwZGItOTQ5Yy1kNzM4N2ZmZDFkZTgiLCJuYW1lIjoic3VwZXJfYWRtaW4gUFFYYmUxZTIwZWQ0ZSIsImVtYWlsIjoiY29uc3VtZXItc3VwZXJfYWRtaW4tYmUxZTIwZWQ0ZUBleGFtcGxlLnRlc3QiLCJyb2xlIjoic3VwZXJfYWRtaW4ifSx7ImlkIjoiZGNjN2U0MzYtY2M4ZS00MzE0LWE3ODYtMjE3NGIwYzYxODg5IiwibmFtZSI6InZpZXdlciBQUVhiZTFlMjBlZDRlIiwiZW1haWwiOiJjb25zdW1lci12aWV3ZXItYmUxZTIwZWQ0ZUBleGFtcGxlLnRlc3QiLCJyb2xlIjoidmlld2VyIn1dfQ==",
+          "byte_length": 2965,
+          "sha256": "703b10f48eb3a092f839c538d51989fc91146a7e89f75221de51d7b262334789"
+        },
+        "status": 200
+      }
+    },
+    {
+      "activity": {
+        "commit_count": 0,
+        "read_table_mentions": {
+          "annotations": 2,
+          "datasets": 1,
+          "project_members": 3,
+          "projects": 3,
+          "task_batches": 1,
+          "tasks": 2,
+          "users": 1
+        },
+        "sql_by_kind": {
+          "select": 6
+        },
+        "sql_statement_count": 6,
+        "write_table_mentions": {}
+      },
+      "label": "global_search_project_admin",
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": {
+          "limit": 20,
+          "q": "$search_marker"
+        },
+        "path": "/api/v1/search"
+      },
+      "response": {
+        "body": {
+          "datasets": [
+            {
+              "data_type": "image",
+              "id": "$dataset_search",
+              "name": "PQX$capture_suffix public dataset"
+            }
+          ],
+          "members": [
+            {
+              "email": "consumer-reviewer-$capture_suffix@example.test",
+              "id": "$actor_reviewer",
+              "name": "reviewer PQX$capture_suffix",
+              "role": "employee"
+            },
+            {
+              "email": "consumer-project_admin-$capture_suffix@example.test",
+              "id": "$actor_project_admin",
+              "name": "project_admin PQX$capture_suffix",
+              "role": "project_admin"
+            },
+            {
+              "email": "consumer-viewer-$capture_suffix@example.test",
+              "id": "$actor_viewer",
+              "name": "viewer PQX$capture_suffix",
+              "role": "viewer"
+            },
+            {
+              "email": "consumer-employee-$capture_suffix@example.test",
+              "id": "$actor_employee",
+              "name": "employee PQX$capture_suffix",
+              "role": "employee"
+            }
+          ],
+          "projects": [
+            {
+              "data_type": "image",
+              "display_id": "$display_search_owner",
+              "id": "$project_search_owner",
+              "name": "PQX$capture_suffix owned",
+              "type_key": "image-det",
+              "type_label": "Project consumer capture"
+            },
+            {
+              "data_type": "image",
+              "display_id": "$display_search_shared",
+              "id": "$project_search_shared",
+              "name": "PQX$capture_suffix shared",
+              "type_key": "image-det",
+              "type_label": "Project consumer capture"
+            }
+          ],
+          "tasks": [
+            {
+              "display_id": "$display_task_owner_task",
+              "file_name": "PQX$capture_suffix-owner_task.jpg",
+              "id": "$task_owner_task",
+              "project_id": "$project_search_owner",
+              "project_name": "PQX$capture_suffix owned"
+            }
+          ]
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "eyJwcm9qZWN0cyI6W3siaWQiOiJmMGRlODNjNy1jM2MzLTQyZmEtOGU3Ny05NGI3YzIzNGE4NGIiLCJkaXNwbGF5X2lkIjoiUC1FMkUtNmViMDc2IiwibmFtZSI6IlBRWGJlMWUyMGVkNGUgb3duZWQiLCJ0eXBlX2tleSI6ImltYWdlLWRldCIsImRhdGFfdHlwZSI6ImltYWdlIiwidHlwZV9sYWJlbCI6IlByb2plY3QgY29uc3VtZXIgY2FwdHVyZSJ9LHsiaWQiOiI3YjY0NWU5My02YmUwLTQ3NDAtYjY0OC1mNDIyMTkzZGFhYmUiLCJkaXNwbGF5X2lkIjoiUC1FMkUtNjMzZTljIiwibmFtZSI6IlBRWGJlMWUyMGVkNGUgc2hhcmVkIiwidHlwZV9rZXkiOiJpbWFnZS1kZXQiLCJkYXRhX3R5cGUiOiJpbWFnZSIsInR5cGVfbGFiZWwiOiJQcm9qZWN0IGNvbnN1bWVyIGNhcHR1cmUifV0sInRhc2tzIjpbeyJpZCI6ImYyNGU0Mzk1LTA4YWMtNGZhMC04OWM2LTgxOTc3NzQ5NzRhNyIsImRpc3BsYXlfaWQiOiJULVBRWGJlMWUyMGVkNGUtb3duZXJfdGFzIiwiZmlsZV9uYW1lIjoiUFFYYmUxZTIwZWQ0ZS1vd25lcl90YXNrLmpwZyIsInByb2plY3RfaWQiOiJmMGRlODNjNy1jM2MzLTQyZmEtOGU3Ny05NGI3YzIzNGE4NGIiLCJwcm9qZWN0X25hbWUiOiJQUVhiZTFlMjBlZDRlIG93bmVkIn1dLCJkYXRhc2V0cyI6W3siaWQiOiJkZGQ3YzYyMy0wNTMzLTQ4OTItYmYyNy01ZTkyMmFmNjg0MjMiLCJuYW1lIjoiUFFYYmUxZTIwZWQ0ZSBwdWJsaWMgZGF0YXNldCIsImRhdGFfdHlwZSI6ImltYWdlIn1dLCJtZW1iZXJzIjpbeyJpZCI6IjEzOTkzZGYyLTMwYzgtNDBlNy1iYmQ0LTNhYzcxYTJiNTA0MSIsIm5hbWUiOiJyZXZpZXdlciBQUVhiZTFlMjBlZDRlIiwiZW1haWwiOiJjb25zdW1lci1yZXZpZXdlci1iZTFlMjBlZDRlQGV4YW1wbGUudGVzdCIsInJvbGUiOiJlbXBsb3llZSJ9LHsiaWQiOiIyOWFkOTIxYi1mZjYxLTQ4ZjgtYjNmMy00YWY1N2QyMmU1Y2EiLCJuYW1lIjoicHJvamVjdF9hZG1pbiBQUVhiZTFlMjBlZDRlIiwiZW1haWwiOiJjb25zdW1lci1wcm9qZWN0X2FkbWluLWJlMWUyMGVkNGVAZXhhbXBsZS50ZXN0Iiwicm9sZSI6InByb2plY3RfYWRtaW4ifSx7ImlkIjoiZGNjN2U0MzYtY2M4ZS00MzE0LWE3ODYtMjE3NGIwYzYxODg5IiwibmFtZSI6InZpZXdlciBQUVhiZTFlMjBlZDRlIiwiZW1haWwiOiJjb25zdW1lci12aWV3ZXItYmUxZTIwZWQ0ZUBleGFtcGxlLnRlc3QiLCJyb2xlIjoidmlld2VyIn0seyJpZCI6ImVkNjRkZTg3LTk2NWYtNGU0Ni1hODFkLThhMmYyYjhkNzE0OCIsIm5hbWUiOiJlbXBsb3llZSBQUVhiZTFlMjBlZDRlIiwiZW1haWwiOiJjb25zdW1lci1lbXBsb3llZS1iZTFlMjBlZDRlQGV4YW1wbGUudGVzdCIsInJvbGUiOiJlbXBsb3llZSJ9XX0=",
+          "byte_length": 1346,
+          "sha256": "78eaa5a263748da393184169f85e8456d8e147ffec937c0376ee2db7cadc3bb1"
+        },
+        "status": 200
+      }
+    },
+    {
+      "activity": {
+        "commit_count": 0,
+        "read_table_mentions": {
+          "annotations": 2,
+          "datasets": 1,
+          "project_members": 3,
+          "projects": 3,
+          "task_batches": 1,
+          "tasks": 2,
+          "users": 1
+        },
+        "sql_by_kind": {
+          "select": 6
+        },
+        "sql_statement_count": 6,
+        "write_table_mentions": {}
+      },
+      "label": "global_search_employee",
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "employee",
+          "id": "$actor_employee",
+          "role": "employee"
+        },
+        "body": null,
+        "method": "GET",
+        "params": {
+          "limit": 20,
+          "q": "$search_marker"
+        },
+        "path": "/api/v1/search"
+      },
+      "response": {
+        "body": {
+          "datasets": [
+            {
+              "data_type": "image",
+              "id": "$dataset_search",
+              "name": "PQX$capture_suffix public dataset"
+            }
+          ],
+          "members": [
+            {
+              "email": "consumer-reviewer-$capture_suffix@example.test",
+              "id": "$actor_reviewer",
+              "name": "reviewer PQX$capture_suffix",
+              "role": "employee"
+            },
+            {
+              "email": "consumer-project_admin-$capture_suffix@example.test",
+              "id": "$actor_project_admin",
+              "name": "project_admin PQX$capture_suffix",
+              "role": "project_admin"
+            },
+            {
+              "email": "consumer-viewer-$capture_suffix@example.test",
+              "id": "$actor_viewer",
+              "name": "viewer PQX$capture_suffix",
+              "role": "viewer"
+            },
+            {
+              "email": "consumer-employee-$capture_suffix@example.test",
+              "id": "$actor_employee",
+              "name": "employee PQX$capture_suffix",
+              "role": "employee"
+            }
+          ],
+          "projects": [
+            {
+              "data_type": "image",
+              "display_id": "$display_search_shared",
+              "id": "$project_search_shared",
+              "name": "PQX$capture_suffix shared",
+              "type_key": "image-det",
+              "type_label": "Project consumer capture"
+            }
+          ],
+          "tasks": [
+            {
+              "display_id": "$display_task_employee_task",
+              "file_name": "PQX$capture_suffix-employee_task.jpg",
+              "id": "$task_employee_task",
+              "project_id": "$project_search_shared",
+              "project_name": "PQX$capture_suffix shared"
+            }
+          ]
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "eyJwcm9qZWN0cyI6W3siaWQiOiI3YjY0NWU5My02YmUwLTQ3NDAtYjY0OC1mNDIyMTkzZGFhYmUiLCJkaXNwbGF5X2lkIjoiUC1FMkUtNjMzZTljIiwibmFtZSI6IlBRWGJlMWUyMGVkNGUgc2hhcmVkIiwidHlwZV9rZXkiOiJpbWFnZS1kZXQiLCJkYXRhX3R5cGUiOiJpbWFnZSIsInR5cGVfbGFiZWwiOiJQcm9qZWN0IGNvbnN1bWVyIGNhcHR1cmUifV0sInRhc2tzIjpbeyJpZCI6IjgwNGI3Y2FlLTBhYmYtNGVmMi1hNGUzLWQ0NWFlOGEyNDU1ZSIsImRpc3BsYXlfaWQiOiJULVBRWGJlMWUyMGVkNGUtZW1wbG95ZWVfIiwiZmlsZV9uYW1lIjoiUFFYYmUxZTIwZWQ0ZS1lbXBsb3llZV90YXNrLmpwZyIsInByb2plY3RfaWQiOiI3YjY0NWU5My02YmUwLTQ3NDAtYjY0OC1mNDIyMTkzZGFhYmUiLCJwcm9qZWN0X25hbWUiOiJQUVhiZTFlMjBlZDRlIHNoYXJlZCJ9XSwiZGF0YXNldHMiOlt7ImlkIjoiZGRkN2M2MjMtMDUzMy00ODkyLWJmMjctNWU5MjJhZjY4NDIzIiwibmFtZSI6IlBRWGJlMWUyMGVkNGUgcHVibGljIGRhdGFzZXQiLCJkYXRhX3R5cGUiOiJpbWFnZSJ9XSwibWVtYmVycyI6W3siaWQiOiIxMzk5M2RmMi0zMGM4LTQwZTctYmJkNC0zYWM3MWEyYjUwNDEiLCJuYW1lIjoicmV2aWV3ZXIgUFFYYmUxZTIwZWQ0ZSIsImVtYWlsIjoiY29uc3VtZXItcmV2aWV3ZXItYmUxZTIwZWQ0ZUBleGFtcGxlLnRlc3QiLCJyb2xlIjoiZW1wbG95ZWUifSx7ImlkIjoiMjlhZDkyMWItZmY2MS00OGY4LWIzZjMtNGFmNTdkMjJlNWNhIiwibmFtZSI6InByb2plY3RfYWRtaW4gUFFYYmUxZTIwZWQ0ZSIsImVtYWlsIjoiY29uc3VtZXItcHJvamVjdF9hZG1pbi1iZTFlMjBlZDRlQGV4YW1wbGUudGVzdCIsInJvbGUiOiJwcm9qZWN0X2FkbWluIn0seyJpZCI6ImRjYzdlNDM2LWNjOGUtNDMxNC1hNzg2LTIxNzRiMGM2MTg4OSIsIm5hbWUiOiJ2aWV3ZXIgUFFYYmUxZTIwZWQ0ZSIsImVtYWlsIjoiY29uc3VtZXItdmlld2VyLWJlMWUyMGVkNGVAZXhhbXBsZS50ZXN0Iiwicm9sZSI6InZpZXdlciJ9LHsiaWQiOiJlZDY0ZGU4Ny05NjVmLTRlNDYtYTgxZC04YTJmMmI4ZDcxNDgiLCJuYW1lIjoiZW1wbG95ZWUgUFFYYmUxZTIwZWQ0ZSIsImVtYWlsIjoiY29uc3VtZXItZW1wbG95ZWUtYmUxZTIwZWQ0ZUBleGFtcGxlLnRlc3QiLCJyb2xlIjoiZW1wbG95ZWUifV19",
+          "byte_length": 1164,
+          "sha256": "821d30cae144fc487b29357108d5044b028f3f08b2173b64810098936d6abe50"
+        },
+        "status": 200
+      }
+    },
+    {
+      "activity": {
+        "commit_count": 0,
+        "read_table_mentions": {
+          "annotations": 2,
+          "datasets": 1,
+          "project_members": 3,
+          "projects": 3,
+          "task_batches": 1,
+          "tasks": 2,
+          "users": 1
+        },
+        "sql_by_kind": {
+          "select": 6
+        },
+        "sql_statement_count": 6,
+        "write_table_mentions": {}
+      },
+      "label": "global_search_reviewer",
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "reviewer",
+          "id": "$actor_reviewer",
+          "role": "employee"
+        },
+        "body": null,
+        "method": "GET",
+        "params": {
+          "limit": 20,
+          "q": "$search_marker"
+        },
+        "path": "/api/v1/search"
+      },
+      "response": {
+        "body": {
+          "datasets": [
+            {
+              "data_type": "image",
+              "id": "$dataset_search",
+              "name": "PQX$capture_suffix public dataset"
+            }
+          ],
+          "members": [
+            {
+              "email": "consumer-reviewer-$capture_suffix@example.test",
+              "id": "$actor_reviewer",
+              "name": "reviewer PQX$capture_suffix",
+              "role": "employee"
+            },
+            {
+              "email": "consumer-project_admin-$capture_suffix@example.test",
+              "id": "$actor_project_admin",
+              "name": "project_admin PQX$capture_suffix",
+              "role": "project_admin"
+            },
+            {
+              "email": "consumer-viewer-$capture_suffix@example.test",
+              "id": "$actor_viewer",
+              "name": "viewer PQX$capture_suffix",
+              "role": "viewer"
+            },
+            {
+              "email": "consumer-employee-$capture_suffix@example.test",
+              "id": "$actor_employee",
+              "name": "employee PQX$capture_suffix",
+              "role": "employee"
+            }
+          ],
+          "projects": [
+            {
+              "data_type": "image",
+              "display_id": "$display_search_shared",
+              "id": "$project_search_shared",
+              "name": "PQX$capture_suffix shared",
+              "type_key": "image-det",
+              "type_label": "Project consumer capture"
+            }
+          ],
+          "tasks": [
+            {
+              "display_id": "$display_task_reviewer_task",
+              "file_name": "PQX$capture_suffix-reviewer_task.jpg",
+              "id": "$task_reviewer_task",
+              "project_id": "$project_search_shared",
+              "project_name": "PQX$capture_suffix shared"
+            },
+            {
+              "display_id": "$display_task_viewer_task",
+              "file_name": "PQX$capture_suffix-viewer_task.jpg",
+              "id": "$task_viewer_task",
+              "project_id": "$project_search_shared",
+              "project_name": "PQX$capture_suffix shared"
+            }
+          ]
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "eyJwcm9qZWN0cyI6W3siaWQiOiI3YjY0NWU5My02YmUwLTQ3NDAtYjY0OC1mNDIyMTkzZGFhYmUiLCJkaXNwbGF5X2lkIjoiUC1FMkUtNjMzZTljIiwibmFtZSI6IlBRWGJlMWUyMGVkNGUgc2hhcmVkIiwidHlwZV9rZXkiOiJpbWFnZS1kZXQiLCJkYXRhX3R5cGUiOiJpbWFnZSIsInR5cGVfbGFiZWwiOiJQcm9qZWN0IGNvbnN1bWVyIGNhcHR1cmUifV0sInRhc2tzIjpbeyJpZCI6IjY1Mzg3YmEyLWFmYjQtNDY5MS1iOWEyLWFjOGQ1MDUzZjAyZCIsImRpc3BsYXlfaWQiOiJULVBRWGJlMWUyMGVkNGUtcmV2aWV3ZXJfIiwiZmlsZV9uYW1lIjoiUFFYYmUxZTIwZWQ0ZS1yZXZpZXdlcl90YXNrLmpwZyIsInByb2plY3RfaWQiOiI3YjY0NWU5My02YmUwLTQ3NDAtYjY0OC1mNDIyMTkzZGFhYmUiLCJwcm9qZWN0X25hbWUiOiJQUVhiZTFlMjBlZDRlIHNoYXJlZCJ9LHsiaWQiOiJmZmI5ODkwOC03NDU2LTRmNGMtOWZmOC1kOGNkN2IxNjU3ZmUiLCJkaXNwbGF5X2lkIjoiVC1QUVhiZTFlMjBlZDRlLXZpZXdlcl90YSIsImZpbGVfbmFtZSI6IlBRWGJlMWUyMGVkNGUtdmlld2VyX3Rhc2suanBnIiwicHJvamVjdF9pZCI6IjdiNjQ1ZTkzLTZiZTAtNDc0MC1iNjQ4LWY0MjIxOTNkYWFiZSIsInByb2plY3RfbmFtZSI6IlBRWGJlMWUyMGVkNGUgc2hhcmVkIn1dLCJkYXRhc2V0cyI6W3siaWQiOiJkZGQ3YzYyMy0wNTMzLTQ4OTItYmYyNy01ZTkyMmFmNjg0MjMiLCJuYW1lIjoiUFFYYmUxZTIwZWQ0ZSBwdWJsaWMgZGF0YXNldCIsImRhdGFfdHlwZSI6ImltYWdlIn1dLCJtZW1iZXJzIjpbeyJpZCI6IjEzOTkzZGYyLTMwYzgtNDBlNy1iYmQ0LTNhYzcxYTJiNTA0MSIsIm5hbWUiOiJyZXZpZXdlciBQUVhiZTFlMjBlZDRlIiwiZW1haWwiOiJjb25zdW1lci1yZXZpZXdlci1iZTFlMjBlZDRlQGV4YW1wbGUudGVzdCIsInJvbGUiOiJlbXBsb3llZSJ9LHsiaWQiOiIyOWFkOTIxYi1mZjYxLTQ4ZjgtYjNmMy00YWY1N2QyMmU1Y2EiLCJuYW1lIjoicHJvamVjdF9hZG1pbiBQUVhiZTFlMjBlZDRlIiwiZW1haWwiOiJjb25zdW1lci1wcm9qZWN0X2FkbWluLWJlMWUyMGVkNGVAZXhhbXBsZS50ZXN0Iiwicm9sZSI6InByb2plY3RfYWRtaW4ifSx7ImlkIjoiZGNjN2U0MzYtY2M4ZS00MzE0LWE3ODYtMjE3NGIwYzYxODg5IiwibmFtZSI6InZpZXdlciBQUVhiZTFlMjBlZDRlIiwiZW1haWwiOiJjb25zdW1lci12aWV3ZXItYmUxZTIwZWQ0ZUBleGFtcGxlLnRlc3QiLCJyb2xlIjoidmlld2VyIn0seyJpZCI6ImVkNjRkZTg3LTk2NWYtNGU0Ni1hODFkLThhMmYyYjhkNzE0OCIsIm5hbWUiOiJlbXBsb3llZSBQUVhiZTFlMjBlZDRlIiwiZW1haWwiOiJjb25zdW1lci1lbXBsb3llZS1iZTFlMjBlZDRlQGV4YW1wbGUudGVzdCIsInJvbGUiOiJlbXBsb3llZSJ9XX0=",
+          "byte_length": 1385,
+          "sha256": "a512350caf0bf182e33a408aa62fdd2398f9766bf66a7f236f78d39c37991a95"
+        },
+        "status": 200
+      }
+    },
+    {
+      "activity": {
+        "commit_count": 0,
+        "read_table_mentions": {
+          "annotations": 2,
+          "datasets": 1,
+          "project_members": 3,
+          "projects": 3,
+          "task_batches": 1,
+          "tasks": 2,
+          "users": 1
+        },
+        "sql_by_kind": {
+          "select": 6
+        },
+        "sql_statement_count": 6,
+        "write_table_mentions": {}
+      },
+      "label": "global_search_viewer",
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "viewer",
+          "id": "$actor_viewer",
+          "role": "viewer"
+        },
+        "body": null,
+        "method": "GET",
+        "params": {
+          "limit": 20,
+          "q": "$search_marker"
+        },
+        "path": "/api/v1/search"
+      },
+      "response": {
+        "body": {
+          "datasets": [
+            {
+              "data_type": "image",
+              "id": "$dataset_search",
+              "name": "PQX$capture_suffix public dataset"
+            }
+          ],
+          "members": [
+            {
+              "email": "consumer-reviewer-$capture_suffix@example.test",
+              "id": "$actor_reviewer",
+              "name": "reviewer PQX$capture_suffix",
+              "role": "employee"
+            },
+            {
+              "email": "consumer-project_admin-$capture_suffix@example.test",
+              "id": "$actor_project_admin",
+              "name": "project_admin PQX$capture_suffix",
+              "role": "project_admin"
+            },
+            {
+              "email": "consumer-viewer-$capture_suffix@example.test",
+              "id": "$actor_viewer",
+              "name": "viewer PQX$capture_suffix",
+              "role": "viewer"
+            },
+            {
+              "email": "consumer-employee-$capture_suffix@example.test",
+              "id": "$actor_employee",
+              "name": "employee PQX$capture_suffix",
+              "role": "employee"
+            }
+          ],
+          "projects": [
+            {
+              "data_type": "image",
+              "display_id": "$display_search_shared",
+              "id": "$project_search_shared",
+              "name": "PQX$capture_suffix shared",
+              "type_key": "image-det",
+              "type_label": "Project consumer capture"
+            }
+          ],
+          "tasks": [
+            {
+              "display_id": "$display_task_viewer_task",
+              "file_name": "PQX$capture_suffix-viewer_task.jpg",
+              "id": "$task_viewer_task",
+              "project_id": "$project_search_shared",
+              "project_name": "PQX$capture_suffix shared"
+            }
+          ]
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "eyJwcm9qZWN0cyI6W3siaWQiOiI3YjY0NWU5My02YmUwLTQ3NDAtYjY0OC1mNDIyMTkzZGFhYmUiLCJkaXNwbGF5X2lkIjoiUC1FMkUtNjMzZTljIiwibmFtZSI6IlBRWGJlMWUyMGVkNGUgc2hhcmVkIiwidHlwZV9rZXkiOiJpbWFnZS1kZXQiLCJkYXRhX3R5cGUiOiJpbWFnZSIsInR5cGVfbGFiZWwiOiJQcm9qZWN0IGNvbnN1bWVyIGNhcHR1cmUifV0sInRhc2tzIjpbeyJpZCI6ImZmYjk4OTA4LTc0NTYtNGY0Yy05ZmY4LWQ4Y2Q3YjE2NTdmZSIsImRpc3BsYXlfaWQiOiJULVBRWGJlMWUyMGVkNGUtdmlld2VyX3RhIiwiZmlsZV9uYW1lIjoiUFFYYmUxZTIwZWQ0ZS12aWV3ZXJfdGFzay5qcGciLCJwcm9qZWN0X2lkIjoiN2I2NDVlOTMtNmJlMC00NzQwLWI2NDgtZjQyMjE5M2RhYWJlIiwicHJvamVjdF9uYW1lIjoiUFFYYmUxZTIwZWQ0ZSBzaGFyZWQifV0sImRhdGFzZXRzIjpbeyJpZCI6ImRkZDdjNjIzLTA1MzMtNDg5Mi1iZjI3LTVlOTIyYWY2ODQyMyIsIm5hbWUiOiJQUVhiZTFlMjBlZDRlIHB1YmxpYyBkYXRhc2V0IiwiZGF0YV90eXBlIjoiaW1hZ2UifV0sIm1lbWJlcnMiOlt7ImlkIjoiMTM5OTNkZjItMzBjOC00MGU3LWJiZDQtM2FjNzFhMmI1MDQxIiwibmFtZSI6InJldmlld2VyIFBRWGJlMWUyMGVkNGUiLCJlbWFpbCI6ImNvbnN1bWVyLXJldmlld2VyLWJlMWUyMGVkNGVAZXhhbXBsZS50ZXN0Iiwicm9sZSI6ImVtcGxveWVlIn0seyJpZCI6IjI5YWQ5MjFiLWZmNjEtNDhmOC1iM2YzLTRhZjU3ZDIyZTVjYSIsIm5hbWUiOiJwcm9qZWN0X2FkbWluIFBRWGJlMWUyMGVkNGUiLCJlbWFpbCI6ImNvbnN1bWVyLXByb2plY3RfYWRtaW4tYmUxZTIwZWQ0ZUBleGFtcGxlLnRlc3QiLCJyb2xlIjoicHJvamVjdF9hZG1pbiJ9LHsiaWQiOiJkY2M3ZTQzNi1jYzhlLTQzMTQtYTc4Ni0yMTc0YjBjNjE4ODkiLCJuYW1lIjoidmlld2VyIFBRWGJlMWUyMGVkNGUiLCJlbWFpbCI6ImNvbnN1bWVyLXZpZXdlci1iZTFlMjBlZDRlQGV4YW1wbGUudGVzdCIsInJvbGUiOiJ2aWV3ZXIifSx7ImlkIjoiZWQ2NGRlODctOTY1Zi00ZTQ2LWE4MWQtOGEyZjJiOGQ3MTQ4IiwibmFtZSI6ImVtcGxveWVlIFBRWGJlMWUyMGVkNGUiLCJlbWFpbCI6ImNvbnN1bWVyLWVtcGxveWVlLWJlMWUyMGVkNGVAZXhhbXBsZS50ZXN0Iiwicm9sZSI6ImVtcGxveWVlIn1dfQ==",
+          "byte_length": 1162,
+          "sha256": "e3a7c701b890a5133f679404f20241f23ab2951a517491115b1d16a7beb347f8"
+        },
+        "status": 200
+      }
+    },
+    {
+      "activity": {
+        "commit_count": 0,
+        "read_table_mentions": {
+          "annotations": 2,
+          "datasets": 1,
+          "project_members": 3,
+          "projects": 3,
+          "task_batches": 1,
+          "tasks": 2,
+          "users": 1
+        },
+        "sql_by_kind": {
+          "select": 6
+        },
+        "sql_statement_count": 6,
+        "write_table_mentions": {}
+      },
+      "label": "global_search_hidden_employee",
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "hidden_employee",
+          "id": "$actor_hidden_employee",
+          "role": "employee"
+        },
+        "body": null,
+        "method": "GET",
+        "params": {
+          "limit": 20,
+          "q": "$search_marker"
+        },
+        "path": "/api/v1/search"
+      },
+      "response": {
+        "body": {
+          "datasets": [
+            {
+              "data_type": "image",
+              "id": "$dataset_search",
+              "name": "PQX$capture_suffix public dataset"
+            }
+          ],
+          "members": [
+            {
+              "email": "consumer-hidden_employee-$capture_suffix@example.test",
+              "id": "$actor_hidden_employee",
+              "name": "hidden_employee PQX$capture_suffix",
+              "role": "employee"
+            }
+          ],
+          "projects": [
+            {
+              "data_type": "image",
+              "display_id": "$display_search_hidden",
+              "id": "$project_search_hidden",
+              "name": "PQX$capture_suffix hidden",
+              "type_key": "image-det",
+              "type_label": "Project consumer capture"
+            }
+          ],
+          "tasks": [
+            {
+              "display_id": "$display_task_hidden_task",
+              "file_name": "PQX$capture_suffix-hidden_task.jpg",
+              "id": "$task_hidden_task",
+              "project_id": "$project_search_hidden",
+              "project_name": "PQX$capture_suffix hidden"
+            }
+          ]
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "eyJwcm9qZWN0cyI6W3siaWQiOiJlZjVmN2IyOS00YmU4LTQ4OTUtYTNhNy03NjFhYjI5OTgyNzkiLCJkaXNwbGF5X2lkIjoiUC1FMkUtZDljMjMxIiwibmFtZSI6IlBRWGJlMWUyMGVkNGUgaGlkZGVuIiwidHlwZV9rZXkiOiJpbWFnZS1kZXQiLCJkYXRhX3R5cGUiOiJpbWFnZSIsInR5cGVfbGFiZWwiOiJQcm9qZWN0IGNvbnN1bWVyIGNhcHR1cmUifV0sInRhc2tzIjpbeyJpZCI6IjA3ZDAyYmQ2LTQ2NDAtNGI4Yy04NGM0LTdkMThjNmIzOTcxMCIsImRpc3BsYXlfaWQiOiJULVBRWGJlMWUyMGVkNGUtaGlkZGVuX3RhIiwiZmlsZV9uYW1lIjoiUFFYYmUxZTIwZWQ0ZS1oaWRkZW5fdGFzay5qcGciLCJwcm9qZWN0X2lkIjoiZWY1ZjdiMjktNGJlOC00ODk1LWEzYTctNzYxYWIyOTk4Mjc5IiwicHJvamVjdF9uYW1lIjoiUFFYYmUxZTIwZWQ0ZSBoaWRkZW4ifV0sImRhdGFzZXRzIjpbeyJpZCI6ImRkZDdjNjIzLTA1MzMtNDg5Mi1iZjI3LTVlOTIyYWY2ODQyMyIsIm5hbWUiOiJQUVhiZTFlMjBlZDRlIHB1YmxpYyBkYXRhc2V0IiwiZGF0YV90eXBlIjoiaW1hZ2UifV0sIm1lbWJlcnMiOlt7ImlkIjoiM2Q1YWRmNmEtMzZiYS00NjdkLWJhM2UtYjQyMWJkNzZlNzlmIiwibmFtZSI6ImhpZGRlbl9lbXBsb3llZSBQUVhiZTFlMjBlZDRlIiwiZW1haWwiOiJjb25zdW1lci1oaWRkZW5fZW1wbG95ZWUtYmUxZTIwZWQ0ZUBleGFtcGxlLnRlc3QiLCJyb2xlIjoiZW1wbG95ZWUifV19",
+          "byte_length": 723,
+          "sha256": "890c3c1dbb897d59097c28daa8cf3e0abec42029a7b8584f80fae41bbfe9cf3d"
+        },
+        "status": 200
+      }
+    },
+    {
+      "activity": {
+        "commit_count": 0,
+        "read_table_mentions": {
+          "annotations": 2,
+          "datasets": 1,
+          "project_members": 3,
+          "projects": 3,
+          "task_batches": 1,
+          "tasks": 2,
+          "users": 1
+        },
+        "sql_by_kind": {
+          "select": 6
+        },
+        "sql_statement_count": 6,
+        "write_table_mentions": {}
+      },
+      "label": "global_search_collaborative_video_project_admin",
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": {
+          "limit": 20,
+          "q": "$search_marker"
+        },
+        "path": "/api/v1/search"
+      },
+      "response": {
+        "body": {
+          "datasets": [
+            {
+              "data_type": "image",
+              "id": "$dataset_search",
+              "name": "PQX$capture_suffix public dataset"
+            }
+          ],
+          "members": [
+            {
+              "email": "consumer-reviewer-$capture_suffix@example.test",
+              "id": "$actor_reviewer",
+              "name": "reviewer PQX$capture_suffix",
+              "role": "employee"
+            },
+            {
+              "email": "consumer-project_admin-$capture_suffix@example.test",
+              "id": "$actor_project_admin",
+              "name": "project_admin PQX$capture_suffix",
+              "role": "project_admin"
+            },
+            {
+              "email": "consumer-viewer-$capture_suffix@example.test",
+              "id": "$actor_viewer",
+              "name": "viewer PQX$capture_suffix",
+              "role": "viewer"
+            },
+            {
+              "email": "consumer-employee-$capture_suffix@example.test",
+              "id": "$actor_employee",
+              "name": "employee PQX$capture_suffix",
+              "role": "employee"
+            }
+          ],
+          "projects": [
+            {
+              "data_type": "image",
+              "display_id": "$display_search_shared",
+              "id": "$project_search_shared",
+              "name": "PQX$capture_suffix shared",
+              "type_key": "image-det",
+              "type_label": "Project consumer capture"
+            },
+            {
+              "data_type": "image",
+              "display_id": "$display_search_owner",
+              "id": "$project_search_owner",
+              "name": "PQX$capture_suffix owned",
+              "type_key": "image-det",
+              "type_label": "Project consumer capture"
+            }
+          ],
+          "tasks": [
+            {
+              "display_id": "$display_task_owner_task",
+              "file_name": "PQX$capture_suffix-owner_task.jpg",
+              "id": "$task_owner_task",
+              "project_id": "$project_search_owner",
+              "project_name": "PQX$capture_suffix owned"
+            },
+            {
+              "display_id": "$display_collaborative_video",
+              "file_name": "PQX$capture_suffix-collaborative-video.mp4",
+              "id": "$task_collaborative_video",
+              "project_id": "$project_search_shared",
+              "project_name": "PQX$capture_suffix shared"
+            }
+          ]
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "eyJwcm9qZWN0cyI6W3siaWQiOiI3YjY0NWU5My02YmUwLTQ3NDAtYjY0OC1mNDIyMTkzZGFhYmUiLCJkaXNwbGF5X2lkIjoiUC1FMkUtNjMzZTljIiwibmFtZSI6IlBRWGJlMWUyMGVkNGUgc2hhcmVkIiwidHlwZV9rZXkiOiJpbWFnZS1kZXQiLCJkYXRhX3R5cGUiOiJpbWFnZSIsInR5cGVfbGFiZWwiOiJQcm9qZWN0IGNvbnN1bWVyIGNhcHR1cmUifSx7ImlkIjoiZjBkZTgzYzctYzNjMy00MmZhLThlNzctOTRiN2MyMzRhODRiIiwiZGlzcGxheV9pZCI6IlAtRTJFLTZlYjA3NiIsIm5hbWUiOiJQUVhiZTFlMjBlZDRlIG93bmVkIiwidHlwZV9rZXkiOiJpbWFnZS1kZXQiLCJkYXRhX3R5cGUiOiJpbWFnZSIsInR5cGVfbGFiZWwiOiJQcm9qZWN0IGNvbnN1bWVyIGNhcHR1cmUifV0sInRhc2tzIjpbeyJpZCI6ImYyNGU0Mzk1LTA4YWMtNGZhMC04OWM2LTgxOTc3NzQ5NzRhNyIsImRpc3BsYXlfaWQiOiJULVBRWGJlMWUyMGVkNGUtb3duZXJfdGFzIiwiZmlsZV9uYW1lIjoiUFFYYmUxZTIwZWQ0ZS1vd25lcl90YXNrLmpwZyIsInByb2plY3RfaWQiOiJmMGRlODNjNy1jM2MzLTQyZmEtOGU3Ny05NGI3YzIzNGE4NGIiLCJwcm9qZWN0X25hbWUiOiJQUVhiZTFlMjBlZDRlIG93bmVkIn0seyJpZCI6ImUwMTU1OWUxLWJkZWEtNGJhMC1hYTdkLTI5NzAwZmU2MmI3OCIsImRpc3BsYXlfaWQiOiJULVZJRC1iZTFlMjBlZDRlIiwiZmlsZV9uYW1lIjoiUFFYYmUxZTIwZWQ0ZS1jb2xsYWJvcmF0aXZlLXZpZGVvLm1wNCIsInByb2plY3RfaWQiOiI3YjY0NWU5My02YmUwLTQ3NDAtYjY0OC1mNDIyMTkzZGFhYmUiLCJwcm9qZWN0X25hbWUiOiJQUVhiZTFlMjBlZDRlIHNoYXJlZCJ9XSwiZGF0YXNldHMiOlt7ImlkIjoiZGRkN2M2MjMtMDUzMy00ODkyLWJmMjctNWU5MjJhZjY4NDIzIiwibmFtZSI6IlBRWGJlMWUyMGVkNGUgcHVibGljIGRhdGFzZXQiLCJkYXRhX3R5cGUiOiJpbWFnZSJ9XSwibWVtYmVycyI6W3siaWQiOiIxMzk5M2RmMi0zMGM4LTQwZTctYmJkNC0zYWM3MWEyYjUwNDEiLCJuYW1lIjoicmV2aWV3ZXIgUFFYYmUxZTIwZWQ0ZSIsImVtYWlsIjoiY29uc3VtZXItcmV2aWV3ZXItYmUxZTIwZWQ0ZUBleGFtcGxlLnRlc3QiLCJyb2xlIjoiZW1wbG95ZWUifSx7ImlkIjoiMjlhZDkyMWItZmY2MS00OGY4LWIzZjMtNGFmNTdkMjJlNWNhIiwibmFtZSI6InByb2plY3RfYWRtaW4gUFFYYmUxZTIwZWQ0ZSIsImVtYWlsIjoiY29uc3VtZXItcHJvamVjdF9hZG1pbi1iZTFlMjBlZDRlQGV4YW1wbGUudGVzdCIsInJvbGUiOiJwcm9qZWN0X2FkbWluIn0seyJpZCI6ImRjYzdlNDM2LWNjOGUtNDMxNC1hNzg2LTIxNzRiMGM2MTg4OSIsIm5hbWUiOiJ2aWV3ZXIgUFFYYmUxZTIwZWQ0ZSIsImVtYWlsIjoiY29uc3VtZXItdmlld2VyLWJlMWUyMGVkNGVAZXhhbXBsZS50ZXN0Iiwicm9sZSI6InZpZXdlciJ9LHsiaWQiOiJlZDY0ZGU4Ny05NjVmLTRlNDYtYTgxZC04YTJmMmI4ZDcxNDgiLCJuYW1lIjoiZW1wbG95ZWUgUFFYYmUxZTIwZWQ0ZSIsImVtYWlsIjoiY29uc3VtZXItZW1wbG95ZWUtYmUxZTIwZWQ0ZUBleGFtcGxlLnRlc3QiLCJyb2xlIjoiZW1wbG95ZWUifV19",
+          "byte_length": 1566,
+          "sha256": "6b49a47a56387633a42ab02d4cf07bb40c53c11ea1664ff1ff2e95b74d97ae0b"
+        },
+        "status": 200
+      }
+    },
+    {
+      "activity": {
+        "commit_count": 0,
+        "read_table_mentions": {
+          "annotations": 2,
+          "datasets": 1,
+          "project_members": 3,
+          "projects": 3,
+          "task_batches": 1,
+          "tasks": 2,
+          "users": 1
+        },
+        "sql_by_kind": {
+          "select": 6
+        },
+        "sql_statement_count": 6,
+        "write_table_mentions": {}
+      },
+      "label": "global_search_collaborative_video_employee",
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "employee",
+          "id": "$actor_employee",
+          "role": "employee"
+        },
+        "body": null,
+        "method": "GET",
+        "params": {
+          "limit": 20,
+          "q": "$search_marker"
+        },
+        "path": "/api/v1/search"
+      },
+      "response": {
+        "body": {
+          "datasets": [
+            {
+              "data_type": "image",
+              "id": "$dataset_search",
+              "name": "PQX$capture_suffix public dataset"
+            }
+          ],
+          "members": [
+            {
+              "email": "consumer-reviewer-$capture_suffix@example.test",
+              "id": "$actor_reviewer",
+              "name": "reviewer PQX$capture_suffix",
+              "role": "employee"
+            },
+            {
+              "email": "consumer-project_admin-$capture_suffix@example.test",
+              "id": "$actor_project_admin",
+              "name": "project_admin PQX$capture_suffix",
+              "role": "project_admin"
+            },
+            {
+              "email": "consumer-viewer-$capture_suffix@example.test",
+              "id": "$actor_viewer",
+              "name": "viewer PQX$capture_suffix",
+              "role": "viewer"
+            },
+            {
+              "email": "consumer-employee-$capture_suffix@example.test",
+              "id": "$actor_employee",
+              "name": "employee PQX$capture_suffix",
+              "role": "employee"
+            }
+          ],
+          "projects": [
+            {
+              "data_type": "image",
+              "display_id": "$display_search_shared",
+              "id": "$project_search_shared",
+              "name": "PQX$capture_suffix shared",
+              "type_key": "image-det",
+              "type_label": "Project consumer capture"
+            }
+          ],
+          "tasks": [
+            {
+              "display_id": "$display_task_employee_task",
+              "file_name": "PQX$capture_suffix-employee_task.jpg",
+              "id": "$task_employee_task",
+              "project_id": "$project_search_shared",
+              "project_name": "PQX$capture_suffix shared"
+            },
+            {
+              "display_id": "$display_collaborative_video",
+              "file_name": "PQX$capture_suffix-collaborative-video.mp4",
+              "id": "$task_collaborative_video",
+              "project_id": "$project_search_shared",
+              "project_name": "PQX$capture_suffix shared"
+            }
+          ]
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "eyJwcm9qZWN0cyI6W3siaWQiOiI3YjY0NWU5My02YmUwLTQ3NDAtYjY0OC1mNDIyMTkzZGFhYmUiLCJkaXNwbGF5X2lkIjoiUC1FMkUtNjMzZTljIiwibmFtZSI6IlBRWGJlMWUyMGVkNGUgc2hhcmVkIiwidHlwZV9rZXkiOiJpbWFnZS1kZXQiLCJkYXRhX3R5cGUiOiJpbWFnZSIsInR5cGVfbGFiZWwiOiJQcm9qZWN0IGNvbnN1bWVyIGNhcHR1cmUifV0sInRhc2tzIjpbeyJpZCI6IjgwNGI3Y2FlLTBhYmYtNGVmMi1hNGUzLWQ0NWFlOGEyNDU1ZSIsImRpc3BsYXlfaWQiOiJULVBRWGJlMWUyMGVkNGUtZW1wbG95ZWVfIiwiZmlsZV9uYW1lIjoiUFFYYmUxZTIwZWQ0ZS1lbXBsb3llZV90YXNrLmpwZyIsInByb2plY3RfaWQiOiI3YjY0NWU5My02YmUwLTQ3NDAtYjY0OC1mNDIyMTkzZGFhYmUiLCJwcm9qZWN0X25hbWUiOiJQUVhiZTFlMjBlZDRlIHNoYXJlZCJ9LHsiaWQiOiJlMDE1NTllMS1iZGVhLTRiYTAtYWE3ZC0yOTcwMGZlNjJiNzgiLCJkaXNwbGF5X2lkIjoiVC1WSUQtYmUxZTIwZWQ0ZSIsImZpbGVfbmFtZSI6IlBRWGJlMWUyMGVkNGUtY29sbGFib3JhdGl2ZS12aWRlby5tcDQiLCJwcm9qZWN0X2lkIjoiN2I2NDVlOTMtNmJlMC00NzQwLWI2NDgtZjQyMjE5M2RhYWJlIiwicHJvamVjdF9uYW1lIjoiUFFYYmUxZTIwZWQ0ZSBzaGFyZWQifV0sImRhdGFzZXRzIjpbeyJpZCI6ImRkZDdjNjIzLTA1MzMtNDg5Mi1iZjI3LTVlOTIyYWY2ODQyMyIsIm5hbWUiOiJQUVhiZTFlMjBlZDRlIHB1YmxpYyBkYXRhc2V0IiwiZGF0YV90eXBlIjoiaW1hZ2UifV0sIm1lbWJlcnMiOlt7ImlkIjoiMTM5OTNkZjItMzBjOC00MGU3LWJiZDQtM2FjNzFhMmI1MDQxIiwibmFtZSI6InJldmlld2VyIFBRWGJlMWUyMGVkNGUiLCJlbWFpbCI6ImNvbnN1bWVyLXJldmlld2VyLWJlMWUyMGVkNGVAZXhhbXBsZS50ZXN0Iiwicm9sZSI6ImVtcGxveWVlIn0seyJpZCI6IjI5YWQ5MjFiLWZmNjEtNDhmOC1iM2YzLTRhZjU3ZDIyZTVjYSIsIm5hbWUiOiJwcm9qZWN0X2FkbWluIFBRWGJlMWUyMGVkNGUiLCJlbWFpbCI6ImNvbnN1bWVyLXByb2plY3RfYWRtaW4tYmUxZTIwZWQ0ZUBleGFtcGxlLnRlc3QiLCJyb2xlIjoicHJvamVjdF9hZG1pbiJ9LHsiaWQiOiJkY2M3ZTQzNi1jYzhlLTQzMTQtYTc4Ni0yMTc0YjBjNjE4ODkiLCJuYW1lIjoidmlld2VyIFBRWGJlMWUyMGVkNGUiLCJlbWFpbCI6ImNvbnN1bWVyLXZpZXdlci1iZTFlMjBlZDRlQGV4YW1wbGUudGVzdCIsInJvbGUiOiJ2aWV3ZXIifSx7ImlkIjoiZWQ2NGRlODctOTY1Zi00ZTQ2LWE4MWQtOGEyZjJiOGQ3MTQ4IiwibmFtZSI6ImVtcGxveWVlIFBRWGJlMWUyMGVkNGUiLCJlbWFpbCI6ImNvbnN1bWVyLWVtcGxveWVlLWJlMWUyMGVkNGVAZXhhbXBsZS50ZXN0Iiwicm9sZSI6ImVtcGxveWVlIn1dfQ==",
+          "byte_length": 1384,
+          "sha256": "4562b3e74f51d0cd63f5dbafb7a833724a3fa4658c13d83a22c3c6a1d5667cdd"
+        },
+        "status": 200
+      }
+    },
+    {
+      "activity": {
+        "commit_count": 0,
+        "read_table_mentions": {
+          "annotations": 2,
+          "datasets": 1,
+          "project_members": 3,
+          "projects": 3,
+          "task_batches": 1,
+          "tasks": 2,
+          "users": 1
+        },
+        "sql_by_kind": {
+          "select": 6
+        },
+        "sql_statement_count": 6,
+        "write_table_mentions": {}
+      },
+      "label": "global_search_collaborative_video_viewer",
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "viewer",
+          "id": "$actor_viewer",
+          "role": "viewer"
+        },
+        "body": null,
+        "method": "GET",
+        "params": {
+          "limit": 20,
+          "q": "$search_marker"
+        },
+        "path": "/api/v1/search"
+      },
+      "response": {
+        "body": {
+          "datasets": [
+            {
+              "data_type": "image",
+              "id": "$dataset_search",
+              "name": "PQX$capture_suffix public dataset"
+            }
+          ],
+          "members": [
+            {
+              "email": "consumer-reviewer-$capture_suffix@example.test",
+              "id": "$actor_reviewer",
+              "name": "reviewer PQX$capture_suffix",
+              "role": "employee"
+            },
+            {
+              "email": "consumer-project_admin-$capture_suffix@example.test",
+              "id": "$actor_project_admin",
+              "name": "project_admin PQX$capture_suffix",
+              "role": "project_admin"
+            },
+            {
+              "email": "consumer-viewer-$capture_suffix@example.test",
+              "id": "$actor_viewer",
+              "name": "viewer PQX$capture_suffix",
+              "role": "viewer"
+            },
+            {
+              "email": "consumer-employee-$capture_suffix@example.test",
+              "id": "$actor_employee",
+              "name": "employee PQX$capture_suffix",
+              "role": "employee"
+            }
+          ],
+          "projects": [
+            {
+              "data_type": "image",
+              "display_id": "$display_search_shared",
+              "id": "$project_search_shared",
+              "name": "PQX$capture_suffix shared",
+              "type_key": "image-det",
+              "type_label": "Project consumer capture"
+            }
+          ],
+          "tasks": [
+            {
+              "display_id": "$display_task_viewer_task",
+              "file_name": "PQX$capture_suffix-viewer_task.jpg",
+              "id": "$task_viewer_task",
+              "project_id": "$project_search_shared",
+              "project_name": "PQX$capture_suffix shared"
+            },
+            {
+              "display_id": "$display_collaborative_video",
+              "file_name": "PQX$capture_suffix-collaborative-video.mp4",
+              "id": "$task_collaborative_video",
+              "project_id": "$project_search_shared",
+              "project_name": "PQX$capture_suffix shared"
+            }
+          ]
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "eyJwcm9qZWN0cyI6W3siaWQiOiI3YjY0NWU5My02YmUwLTQ3NDAtYjY0OC1mNDIyMTkzZGFhYmUiLCJkaXNwbGF5X2lkIjoiUC1FMkUtNjMzZTljIiwibmFtZSI6IlBRWGJlMWUyMGVkNGUgc2hhcmVkIiwidHlwZV9rZXkiOiJpbWFnZS1kZXQiLCJkYXRhX3R5cGUiOiJpbWFnZSIsInR5cGVfbGFiZWwiOiJQcm9qZWN0IGNvbnN1bWVyIGNhcHR1cmUifV0sInRhc2tzIjpbeyJpZCI6ImZmYjk4OTA4LTc0NTYtNGY0Yy05ZmY4LWQ4Y2Q3YjE2NTdmZSIsImRpc3BsYXlfaWQiOiJULVBRWGJlMWUyMGVkNGUtdmlld2VyX3RhIiwiZmlsZV9uYW1lIjoiUFFYYmUxZTIwZWQ0ZS12aWV3ZXJfdGFzay5qcGciLCJwcm9qZWN0X2lkIjoiN2I2NDVlOTMtNmJlMC00NzQwLWI2NDgtZjQyMjE5M2RhYWJlIiwicHJvamVjdF9uYW1lIjoiUFFYYmUxZTIwZWQ0ZSBzaGFyZWQifSx7ImlkIjoiZTAxNTU5ZTEtYmRlYS00YmEwLWFhN2QtMjk3MDBmZTYyYjc4IiwiZGlzcGxheV9pZCI6IlQtVklELWJlMWUyMGVkNGUiLCJmaWxlX25hbWUiOiJQUVhiZTFlMjBlZDRlLWNvbGxhYm9yYXRpdmUtdmlkZW8ubXA0IiwicHJvamVjdF9pZCI6IjdiNjQ1ZTkzLTZiZTAtNDc0MC1iNjQ4LWY0MjIxOTNkYWFiZSIsInByb2plY3RfbmFtZSI6IlBRWGJlMWUyMGVkNGUgc2hhcmVkIn1dLCJkYXRhc2V0cyI6W3siaWQiOiJkZGQ3YzYyMy0wNTMzLTQ4OTItYmYyNy01ZTkyMmFmNjg0MjMiLCJuYW1lIjoiUFFYYmUxZTIwZWQ0ZSBwdWJsaWMgZGF0YXNldCIsImRhdGFfdHlwZSI6ImltYWdlIn1dLCJtZW1iZXJzIjpbeyJpZCI6IjEzOTkzZGYyLTMwYzgtNDBlNy1iYmQ0LTNhYzcxYTJiNTA0MSIsIm5hbWUiOiJyZXZpZXdlciBQUVhiZTFlMjBlZDRlIiwiZW1haWwiOiJjb25zdW1lci1yZXZpZXdlci1iZTFlMjBlZDRlQGV4YW1wbGUudGVzdCIsInJvbGUiOiJlbXBsb3llZSJ9LHsiaWQiOiIyOWFkOTIxYi1mZjYxLTQ4ZjgtYjNmMy00YWY1N2QyMmU1Y2EiLCJuYW1lIjoicHJvamVjdF9hZG1pbiBQUVhiZTFlMjBlZDRlIiwiZW1haWwiOiJjb25zdW1lci1wcm9qZWN0X2FkbWluLWJlMWUyMGVkNGVAZXhhbXBsZS50ZXN0Iiwicm9sZSI6InByb2plY3RfYWRtaW4ifSx7ImlkIjoiZGNjN2U0MzYtY2M4ZS00MzE0LWE3ODYtMjE3NGIwYzYxODg5IiwibmFtZSI6InZpZXdlciBQUVhiZTFlMjBlZDRlIiwiZW1haWwiOiJjb25zdW1lci12aWV3ZXItYmUxZTIwZWQ0ZUBleGFtcGxlLnRlc3QiLCJyb2xlIjoidmlld2VyIn0seyJpZCI6ImVkNjRkZTg3LTk2NWYtNGU0Ni1hODFkLThhMmYyYjhkNzE0OCIsIm5hbWUiOiJlbXBsb3llZSBQUVhiZTFlMjBlZDRlIiwiZW1haWwiOiJjb25zdW1lci1lbXBsb3llZS1iZTFlMjBlZDRlQGV4YW1wbGUudGVzdCIsInJvbGUiOiJlbXBsb3llZSJ9XX0=",
+          "byte_length": 1382,
+          "sha256": "c83e365e9383679e555a9b97e69a6986acbb45bf4be50ad8f72fd7a5fae139a1"
+        },
+        "status": 200
+      }
+    },
+    {
+      "activity": {
+        "commit_count": 0,
+        "read_table_mentions": {
+          "annotations": 2,
+          "project_members": 2,
+          "projects": 2,
+          "task_batches": 1,
+          "tasks": 2
+        },
+        "sql_by_kind": {
+          "select": 4
+        },
+        "sql_statement_count": 4,
+        "write_table_mentions": {}
+      },
+      "label": "global_search_invalid_collaboration_employee",
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "employee",
+          "id": "$actor_employee",
+          "role": "employee"
+        },
+        "body": null,
+        "method": "GET",
+        "params": {
+          "limit": 20,
+          "q": "$search_marker"
+        },
+        "path": "/api/v1/search"
+      },
+      "response": {
+        "body": "Internal Server Error",
+        "headers": {
+          "content-type": "text/plain; charset=utf-8"
+        },
+        "raw_body": {
+          "base64": "SW50ZXJuYWwgU2VydmVyIEVycm9y",
+          "byte_length": 21,
+          "sha256": "e41656eb2ba6c6293bf6dd928e5a88cdbc50535cab661c1969e0f598e497ed62"
+        },
+        "status": 500
+      }
+    },
+    {
+      "activity": {
+        "commit_count": 0,
+        "read_table_mentions": {
+          "annotations": 2,
+          "datasets": 1,
+          "projects": 2,
+          "tasks": 2,
+          "users": 1
+        },
+        "sql_by_kind": {
+          "select": 6
+        },
+        "sql_statement_count": 6,
+        "write_table_mentions": {}
+      },
+      "label": "global_search_invalid_collaboration_super_admin",
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "super_admin",
+          "id": "$actor_super_admin",
+          "role": "super_admin"
+        },
+        "body": null,
+        "method": "GET",
+        "params": {
+          "limit": 20,
+          "q": "$search_marker"
+        },
+        "path": "/api/v1/search"
+      },
+      "response": {
+        "body": {
+          "datasets": [
+            {
+              "data_type": "image",
+              "id": "$dataset_search",
+              "name": "PQX$capture_suffix public dataset"
+            }
+          ],
+          "members": [
+            {
+              "email": "consumer-employee-$capture_suffix@example.test",
+              "id": "$actor_employee",
+              "name": "employee PQX$capture_suffix",
+              "role": "employee"
+            },
+            {
+              "email": "consumer-hidden_employee-$capture_suffix@example.test",
+              "id": "$actor_hidden_employee",
+              "name": "hidden_employee PQX$capture_suffix",
+              "role": "employee"
+            },
+            {
+              "email": "consumer-project_admin-$capture_suffix@example.test",
+              "id": "$actor_project_admin",
+              "name": "project_admin PQX$capture_suffix",
+              "role": "project_admin"
+            },
+            {
+              "email": "consumer-reviewer-$capture_suffix@example.test",
+              "id": "$actor_reviewer",
+              "name": "reviewer PQX$capture_suffix",
+              "role": "employee"
+            },
+            {
+              "email": "consumer-super_admin-$capture_suffix@example.test",
+              "id": "$actor_super_admin",
+              "name": "super_admin PQX$capture_suffix",
+              "role": "super_admin"
+            },
+            {
+              "email": "consumer-viewer-$capture_suffix@example.test",
+              "id": "$actor_viewer",
+              "name": "viewer PQX$capture_suffix",
+              "role": "viewer"
+            }
+          ],
+          "projects": [
+            {
+              "data_type": "image",
+              "display_id": "$display_search_shared",
+              "id": "$project_search_shared",
+              "name": "PQX$capture_suffix shared",
+              "type_key": "image-det",
+              "type_label": "Project consumer capture"
+            },
+            {
+              "data_type": "image",
+              "display_id": "$display_search_owner",
+              "id": "$project_search_owner",
+              "name": "PQX$capture_suffix owned",
+              "type_key": "image-det",
+              "type_label": "Project consumer capture"
+            },
+            {
+              "data_type": "image",
+              "display_id": "$display_search_hidden",
+              "id": "$project_search_hidden",
+              "name": "PQX$capture_suffix hidden",
+              "type_key": "image-det",
+              "type_label": "Project consumer capture"
+            }
+          ],
+          "tasks": [
+            {
+              "display_id": "$display_task_owner_task",
+              "file_name": "PQX$capture_suffix-owner_task.jpg",
+              "id": "$task_owner_task",
+              "project_id": "$project_search_owner",
+              "project_name": "PQX$capture_suffix owned"
+            },
+            {
+              "display_id": "$display_task_employee_task",
+              "file_name": "PQX$capture_suffix-employee_task.jpg",
+              "id": "$task_employee_task",
+              "project_id": "$project_search_shared",
+              "project_name": "PQX$capture_suffix shared"
+            },
+            {
+              "display_id": "$display_task_reviewer_task",
+              "file_name": "PQX$capture_suffix-reviewer_task.jpg",
+              "id": "$task_reviewer_task",
+              "project_id": "$project_search_shared",
+              "project_name": "PQX$capture_suffix shared"
+            },
+            {
+              "display_id": "$display_task_viewer_task",
+              "file_name": "PQX$capture_suffix-viewer_task.jpg",
+              "id": "$task_viewer_task",
+              "project_id": "$project_search_shared",
+              "project_name": "PQX$capture_suffix shared"
+            },
+            {
+              "display_id": "$display_task_unassigned_task",
+              "file_name": "PQX$capture_suffix-unassigned_task.jpg",
+              "id": "$task_unassigned_task",
+              "project_id": "$project_search_shared",
+              "project_name": "PQX$capture_suffix shared"
+            },
+            {
+              "display_id": "$display_task_hidden_task",
+              "file_name": "PQX$capture_suffix-hidden_task.jpg",
+              "id": "$task_hidden_task",
+              "project_id": "$project_search_hidden",
+              "project_name": "PQX$capture_suffix hidden"
+            },
+            {
+              "display_id": "$display_collaborative_video",
+              "file_name": "PQX$capture_suffix-collaborative-video.mp4",
+              "id": "$task_collaborative_video",
+              "project_id": "$project_search_shared",
+              "project_name": "PQX$capture_suffix shared"
+            }
+          ]
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "eyJwcm9qZWN0cyI6W3siaWQiOiI3YjY0NWU5My02YmUwLTQ3NDAtYjY0OC1mNDIyMTkzZGFhYmUiLCJkaXNwbGF5X2lkIjoiUC1FMkUtNjMzZTljIiwibmFtZSI6IlBRWGJlMWUyMGVkNGUgc2hhcmVkIiwidHlwZV9rZXkiOiJpbWFnZS1kZXQiLCJkYXRhX3R5cGUiOiJpbWFnZSIsInR5cGVfbGFiZWwiOiJQcm9qZWN0IGNvbnN1bWVyIGNhcHR1cmUifSx7ImlkIjoiZjBkZTgzYzctYzNjMy00MmZhLThlNzctOTRiN2MyMzRhODRiIiwiZGlzcGxheV9pZCI6IlAtRTJFLTZlYjA3NiIsIm5hbWUiOiJQUVhiZTFlMjBlZDRlIG93bmVkIiwidHlwZV9rZXkiOiJpbWFnZS1kZXQiLCJkYXRhX3R5cGUiOiJpbWFnZSIsInR5cGVfbGFiZWwiOiJQcm9qZWN0IGNvbnN1bWVyIGNhcHR1cmUifSx7ImlkIjoiZWY1ZjdiMjktNGJlOC00ODk1LWEzYTctNzYxYWIyOTk4Mjc5IiwiZGlzcGxheV9pZCI6IlAtRTJFLWQ5YzIzMSIsIm5hbWUiOiJQUVhiZTFlMjBlZDRlIGhpZGRlbiIsInR5cGVfa2V5IjoiaW1hZ2UtZGV0IiwiZGF0YV90eXBlIjoiaW1hZ2UiLCJ0eXBlX2xhYmVsIjoiUHJvamVjdCBjb25zdW1lciBjYXB0dXJlIn1dLCJ0YXNrcyI6W3siaWQiOiJmMjRlNDM5NS0wOGFjLTRmYTAtODljNi04MTk3Nzc0OTc0YTciLCJkaXNwbGF5X2lkIjoiVC1QUVhiZTFlMjBlZDRlLW93bmVyX3RhcyIsImZpbGVfbmFtZSI6IlBRWGJlMWUyMGVkNGUtb3duZXJfdGFzay5qcGciLCJwcm9qZWN0X2lkIjoiZjBkZTgzYzctYzNjMy00MmZhLThlNzctOTRiN2MyMzRhODRiIiwicHJvamVjdF9uYW1lIjoiUFFYYmUxZTIwZWQ0ZSBvd25lZCJ9LHsiaWQiOiI4MDRiN2NhZS0wYWJmLTRlZjItYTRlMy1kNDVhZThhMjQ1NWUiLCJkaXNwbGF5X2lkIjoiVC1QUVhiZTFlMjBlZDRlLWVtcGxveWVlXyIsImZpbGVfbmFtZSI6IlBRWGJlMWUyMGVkNGUtZW1wbG95ZWVfdGFzay5qcGciLCJwcm9qZWN0X2lkIjoiN2I2NDVlOTMtNmJlMC00NzQwLWI2NDgtZjQyMjE5M2RhYWJlIiwicHJvamVjdF9uYW1lIjoiUFFYYmUxZTIwZWQ0ZSBzaGFyZWQifSx7ImlkIjoiNjUzODdiYTItYWZiNC00NjkxLWI5YTItYWM4ZDUwNTNmMDJkIiwiZGlzcGxheV9pZCI6IlQtUFFYYmUxZTIwZWQ0ZS1yZXZpZXdlcl8iLCJmaWxlX25hbWUiOiJQUVhiZTFlMjBlZDRlLXJldmlld2VyX3Rhc2suanBnIiwicHJvamVjdF9pZCI6IjdiNjQ1ZTkzLTZiZTAtNDc0MC1iNjQ4LWY0MjIxOTNkYWFiZSIsInByb2plY3RfbmFtZSI6IlBRWGJlMWUyMGVkNGUgc2hhcmVkIn0seyJpZCI6ImZmYjk4OTA4LTc0NTYtNGY0Yy05ZmY4LWQ4Y2Q3YjE2NTdmZSIsImRpc3BsYXlfaWQiOiJULVBRWGJlMWUyMGVkNGUtdmlld2VyX3RhIiwiZmlsZV9uYW1lIjoiUFFYYmUxZTIwZWQ0ZS12aWV3ZXJfdGFzay5qcGciLCJwcm9qZWN0X2lkIjoiN2I2NDVlOTMtNmJlMC00NzQwLWI2NDgtZjQyMjE5M2RhYWJlIiwicHJvamVjdF9uYW1lIjoiUFFYYmUxZTIwZWQ0ZSBzaGFyZWQifSx7ImlkIjoiNDA3MTc0ZGUtMThkZC00YTQ4LWI4MDMtODhjODY0OGY4NWY1IiwiZGlzcGxheV9pZCI6IlQtUFFYYmUxZTIwZWQ0ZS11bmFzc2lnbmUiLCJmaWxlX25hbWUiOiJQUVhiZTFlMjBlZDRlLXVuYXNzaWduZWRfdGFzay5qcGciLCJwcm9qZWN0X2lkIjoiN2I2NDVlOTMtNmJlMC00NzQwLWI2NDgtZjQyMjE5M2RhYWJlIiwicHJvamVjdF9uYW1lIjoiUFFYYmUxZTIwZWQ0ZSBzaGFyZWQifSx7ImlkIjoiMDdkMDJiZDYtNDY0MC00YjhjLTg0YzQtN2QxOGM2YjM5NzEwIiwiZGlzcGxheV9pZCI6IlQtUFFYYmUxZTIwZWQ0ZS1oaWRkZW5fdGEiLCJmaWxlX25hbWUiOiJQUVhiZTFlMjBlZDRlLWhpZGRlbl90YXNrLmpwZyIsInByb2plY3RfaWQiOiJlZjVmN2IyOS00YmU4LTQ4OTUtYTNhNy03NjFhYjI5OTgyNzkiLCJwcm9qZWN0X25hbWUiOiJQUVhiZTFlMjBlZDRlIGhpZGRlbiJ9LHsiaWQiOiJlMDE1NTllMS1iZGVhLTRiYTAtYWE3ZC0yOTcwMGZlNjJiNzgiLCJkaXNwbGF5X2lkIjoiVC1WSUQtYmUxZTIwZWQ0ZSIsImZpbGVfbmFtZSI6IlBRWGJlMWUyMGVkNGUtY29sbGFib3JhdGl2ZS12aWRlby5tcDQiLCJwcm9qZWN0X2lkIjoiN2I2NDVlOTMtNmJlMC00NzQwLWI2NDgtZjQyMjE5M2RhYWJlIiwicHJvamVjdF9uYW1lIjoiUFFYYmUxZTIwZWQ0ZSBzaGFyZWQifV0sImRhdGFzZXRzIjpbeyJpZCI6ImRkZDdjNjIzLTA1MzMtNDg5Mi1iZjI3LTVlOTIyYWY2ODQyMyIsIm5hbWUiOiJQUVhiZTFlMjBlZDRlIHB1YmxpYyBkYXRhc2V0IiwiZGF0YV90eXBlIjoiaW1hZ2UifV0sIm1lbWJlcnMiOlt7ImlkIjoiZWQ2NGRlODctOTY1Zi00ZTQ2LWE4MWQtOGEyZjJiOGQ3MTQ4IiwibmFtZSI6ImVtcGxveWVlIFBRWGJlMWUyMGVkNGUiLCJlbWFpbCI6ImNvbnN1bWVyLWVtcGxveWVlLWJlMWUyMGVkNGVAZXhhbXBsZS50ZXN0Iiwicm9sZSI6ImVtcGxveWVlIn0seyJpZCI6IjNkNWFkZjZhLTM2YmEtNDY3ZC1iYTNlLWI0MjFiZDc2ZTc5ZiIsIm5hbWUiOiJoaWRkZW5fZW1wbG95ZWUgUFFYYmUxZTIwZWQ0ZSIsImVtYWlsIjoiY29uc3VtZXItaGlkZGVuX2VtcGxveWVlLWJlMWUyMGVkNGVAZXhhbXBsZS50ZXN0Iiwicm9sZSI6ImVtcGxveWVlIn0seyJpZCI6IjI5YWQ5MjFiLWZmNjEtNDhmOC1iM2YzLTRhZjU3ZDIyZTVjYSIsIm5hbWUiOiJwcm9qZWN0X2FkbWluIFBRWGJlMWUyMGVkNGUiLCJlbWFpbCI6ImNvbnN1bWVyLXByb2plY3RfYWRtaW4tYmUxZTIwZWQ0ZUBleGFtcGxlLnRlc3QiLCJyb2xlIjoicHJvamVjdF9hZG1pbiJ9LHsiaWQiOiIxMzk5M2RmMi0zMGM4LTQwZTctYmJkNC0zYWM3MWEyYjUwNDEiLCJuYW1lIjoicmV2aWV3ZXIgUFFYYmUxZTIwZWQ0ZSIsImVtYWlsIjoiY29uc3VtZXItcmV2aWV3ZXItYmUxZTIwZWQ0ZUBleGFtcGxlLnRlc3QiLCJyb2xlIjoiZW1wbG95ZWUifSx7ImlkIjoiYTVkMTRmZDYtNzQ1NC00MGRiLTk0OWMtZDczODdmZmQxZGU4IiwibmFtZSI6InN1cGVyX2FkbWluIFBRWGJlMWUyMGVkNGUiLCJlbWFpbCI6ImNvbnN1bWVyLXN1cGVyX2FkbWluLWJlMWUyMGVkNGVAZXhhbXBsZS50ZXN0Iiwicm9sZSI6InN1cGVyX2FkbWluIn0seyJpZCI6ImRjYzdlNDM2LWNjOGUtNDMxNC1hNzg2LTIxNzRiMGM2MTg4OSIsIm5hbWUiOiJ2aWV3ZXIgUFFYYmUxZTIwZWQ0ZSIsImVtYWlsIjoiY29uc3VtZXItdmlld2VyLWJlMWUyMGVkNGVAZXhhbXBsZS50ZXN0Iiwicm9sZSI6InZpZXdlciJ9XX0=",
+          "byte_length": 3185,
+          "sha256": "912ab0e33ff2c67e97575e157eba3adadecaca1c200f772f70a257454d96619c"
+        },
+        "status": 200
+      }
+    },
+    {
+      "activity": {
+        "commit_count": 0,
+        "read_table_mentions": {
+          "annotations": 4,
+          "project_members": 1,
+          "projects": 3,
+          "tasks": 3
+        },
+        "sql_by_kind": {
+          "select": 10
+        },
+        "sql_statement_count": 10,
+        "write_table_mentions": {}
+      },
+      "label": "class_rename_noop",
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": {
+          "new_name": "Car",
+          "old_name": "Car",
+          "tool_unit_id": "bbox"
+        },
+        "method": "POST",
+        "params": null,
+        "path": "/api/v1/projects/$project_rename/classes/rename"
+      },
+      "response": {
+        "body": {
+          "ai_completed_tasks": 0,
+          "ai_enabled": false,
+          "ai_interactive_enabled": true,
+          "annotation_guide": null,
+          "attribute_schema": {
+            "fields": []
+          },
+          "batch_summary": {
+            "assigned": 0,
+            "in_review": 0,
+            "total": 0
+          },
+          "box_threshold": 0.3499999940395355,
+          "capability_warnings": [],
+          "classes": [
+            "Car"
+          ],
+          "classes_config": {
+            "Car": {
+              "alias": null,
+              "color": null,
+              "order": 0
+            }
+          },
+          "completed_tasks": 0,
+          "created_at": "2026-01-15T12:00:00Z",
+          "data_type": "image",
+          "default_variants": {},
+          "display_id": "$display_rename",
+          "due_date": null,
+          "guide_assets": [],
+          "id": "$project_rename",
+          "in_progress_tasks": 0,
+          "iou_dedup_threshold": 0.7,
+          "label_config": {},
+          "mask_qc_config": {
+            "auto_run": "on_review_submit",
+            "blocking": false,
+            "config_revision": 1,
+            "enabled": true,
+            "schema_version": 1,
+            "severity_overrides": {},
+            "single_frame": {
+              "bbox_iou_min": 0.98,
+              "boundary_noise_ratio": 0.15,
+              "narrow_bridge_width": 2,
+              "near_empty_pixels": 16,
+              "overlap_pixels": 1,
+              "small_component_pixels": 32,
+              "small_component_ratio": 0.005,
+              "small_hole_pixels": 32
+            },
+            "temporal": {
+              "area_change_ratio": 0.5,
+              "centroid_shift_diagonal": 0.15,
+              "component_delta": 2,
+              "drift_min_consecutive": 3,
+              "flicker_max_frames": 2,
+              "iou_drop": 0.35,
+              "sample_step": 1
+            }
+          },
+          "maximum_annotations": 1,
+          "member_count": 0,
+          "ml_backend_id": null,
+          "model_version": null,
+          "my_project_role": null,
+          "name": "Class rename consumer",
+          "organization_id": null,
+          "owner_avatar_ref": null,
+          "owner_id": "$actor_project_admin",
+          "owner_name": "project_admin PQX$capture_suffix",
+          "point_cloud_quality_config": {
+            "class_thresholds": {},
+            "config_revision": 1,
+            "enabled": true,
+            "enabled_rules": [
+              "duplicate_track_member",
+              "ground_clearance",
+              "low_point_count",
+              "projection_residual",
+              "size_outlier",
+              "temporal_jump",
+              "track_gap",
+              "track_identity_drift"
+            ],
+            "governance": {
+              "maximum_false_positive_rate": 0.1,
+              "minimum_confirmed_retention": 0.9,
+              "minimum_reviewed_per_rule": 20
+            },
+            "schema_version": 2,
+            "severity_overrides": {},
+            "thresholds": {
+              "ground_float_m": 0.45,
+              "ground_margin_m": 0.75,
+              "ground_penetration_m": 0.2,
+              "ground_sample_min": 24,
+              "minimum_points": 5,
+              "projection_max_edge_residual_ratio": 0.025,
+              "projection_min_iou": 0.5,
+              "size_mad_z": 4.5,
+              "size_min_samples": 8,
+              "temporal_center_jump_m": 4.0,
+              "temporal_size_change_ratio": 0.6,
+              "temporal_yaw_jump_rad": 0.8
+            }
+          },
+          "preannotate_pipeline": null,
+          "prefer_same_scene_continuation": false,
+          "raster_mask_native_editing_enabled": true,
+          "rendering_config": {
+            "box3dDefaultSize": null,
+            "controlPointsSize": null,
+            "cssImageFilter": null,
+            "propagateOverwrite": null,
+            "smoothImage": null,
+            "snapToGrid": null,
+            "trackerDefaultModel": null
+          },
+          "review_tasks": 0,
+          "sampling": "sequence",
+          "scene_continuation_window_min": 30,
+          "scene_mode": false,
+          "show_overlap_first": false,
+          "status": "in_progress",
+          "task_lock_ttl_seconds": 300,
+          "text_threshold": 0.25,
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "alias": null,
+                  "alias_to": null,
+                  "color": null,
+                  "name": "Car",
+                  "order": 0
+                }
+              ],
+              "enabled": true,
+              "keypoint_schema": null,
+              "video_modes": null
+            },
+            "region": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "alias": null,
+                  "alias_to": null,
+                  "color": null,
+                  "name": "Car",
+                  "order": 0
+                }
+              ],
+              "enabled": true,
+              "keypoint_schema": null,
+              "video_modes": null
+            }
+          },
+          "total_tasks": 0,
+          "type_key": "image-det",
+          "type_label": "Project consumer capture",
+          "updated_at": "2026-01-15T12:00:00Z",
+          "video_collaboration": {
+            "enabled": false,
+            "overlap_frames": 0
+          },
+          "video_sampling": {
+            "frame_step": null,
+            "mode": "none",
+            "target_fps": null
+          }
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "eyJpZCI6IjgyZTg3MzYxLWQxMTUtNGZjMy1hODVmLWQ2MWRhNWVjODNmMCIsIm9yZ2FuaXphdGlvbl9pZCI6bnVsbCwiZGlzcGxheV9pZCI6IlAtRTJFLWJiYTI5MyIsIm5hbWUiOiJDbGFzcyByZW5hbWUgY29uc3VtZXIiLCJ0eXBlX2xhYmVsIjoiUHJvamVjdCBjb25zdW1lciBjYXB0dXJlIiwidHlwZV9rZXkiOiJpbWFnZS1kZXQiLCJkYXRhX3R5cGUiOiJpbWFnZSIsIm93bmVyX2lkIjoiMjlhZDkyMWItZmY2MS00OGY4LWIzZjMtNGFmNTdkMjJlNWNhIiwib3duZXJfbmFtZSI6InByb2plY3RfYWRtaW4gUFFYYmUxZTIwZWQ0ZSIsIm93bmVyX2F2YXRhcl9yZWYiOm51bGwsIm1lbWJlcl9jb3VudCI6MCwibXlfcHJvamVjdF9yb2xlIjpudWxsLCJzdGF0dXMiOiJpbl9wcm9ncmVzcyIsImFpX2VuYWJsZWQiOmZhbHNlLCJtbF9iYWNrZW5kX2lkIjpudWxsLCJjbGFzc2VzIjpbIkNhciJdLCJjbGFzc2VzX2NvbmZpZyI6eyJDYXIiOnsiY29sb3IiOm51bGwsIm9yZGVyIjowLCJhbGlhcyI6bnVsbH19LCJhdHRyaWJ1dGVfc2NoZW1hIjp7ImZpZWxkcyI6W119LCJ0b29sX2JpbmRpbmdzIjp7ImJib3giOnsiZW5hYmxlZCI6dHJ1ZSwiY2xhc3NlcyI6W3sibmFtZSI6IkNhciIsImNvbG9yIjpudWxsLCJvcmRlciI6MCwiYWxpYXMiOm51bGwsImFsaWFzX3RvIjpudWxsfV0sImF0dHJpYnV0ZV9zY2hlbWEiOnsiZmllbGRzIjpbXX0sImtleXBvaW50X3NjaGVtYSI6bnVsbCwidmlkZW9fbW9kZXMiOm51bGx9LCJyZWdpb24iOnsiZW5hYmxlZCI6dHJ1ZSwiY2xhc3NlcyI6W3sibmFtZSI6IkNhciIsImNvbG9yIjpudWxsLCJvcmRlciI6MCwiYWxpYXMiOm51bGwsImFsaWFzX3RvIjpudWxsfV0sImF0dHJpYnV0ZV9zY2hlbWEiOnsiZmllbGRzIjpbXX0sImtleXBvaW50X3NjaGVtYSI6bnVsbCwidmlkZW9fbW9kZXMiOm51bGx9fSwibGFiZWxfY29uZmlnIjp7fSwic2FtcGxpbmciOiJzZXF1ZW5jZSIsIm1heGltdW1fYW5ub3RhdGlvbnMiOjEsInNob3dfb3ZlcmxhcF9maXJzdCI6ZmFsc2UsImlvdV9kZWR1cF90aHJlc2hvbGQiOjAuNywiYm94X3RocmVzaG9sZCI6MC4zNDk5OTk5OTQwMzk1MzU1LCJ0ZXh0X3RocmVzaG9sZCI6MC4yNSwiYWlfaW50ZXJhY3RpdmVfZW5hYmxlZCI6dHJ1ZSwicmFzdGVyX21hc2tfbmF0aXZlX2VkaXRpbmdfZW5hYmxlZCI6dHJ1ZSwibWFza19xY19jb25maWciOnsic2NoZW1hX3ZlcnNpb24iOjEsImNvbmZpZ19yZXZpc2lvbiI6MSwiZW5hYmxlZCI6dHJ1ZSwiYmxvY2tpbmciOmZhbHNlLCJhdXRvX3J1biI6Im9uX3Jldmlld19zdWJtaXQiLCJzaW5nbGVfZnJhbWUiOnsibmVhcl9lbXB0eV9waXhlbHMiOjE2LCJzbWFsbF9jb21wb25lbnRfcGl4ZWxzIjozMiwic21hbGxfY29tcG9uZW50X3JhdGlvIjowLjAwNSwic21hbGxfaG9sZV9waXhlbHMiOjMyLCJuYXJyb3dfYnJpZGdlX3dpZHRoIjoyLCJib3VuZGFyeV9ub2lzZV9yYXRpbyI6MC4xNSwiYmJveF9pb3VfbWluIjowLjk4LCJvdmVybGFwX3BpeGVscyI6MX0sInRlbXBvcmFsIjp7InNhbXBsZV9zdGVwIjoxLCJpb3VfZHJvcCI6MC4zNSwiY2VudHJvaWRfc2hpZnRfZGlhZ29uYWwiOjAuMTUsImFyZWFfY2hhbmdlX3JhdGlvIjowLjUsImNvbXBvbmVudF9kZWx0YSI6MiwiZmxpY2tlcl9tYXhfZnJhbWVzIjoyLCJkcmlmdF9taW5fY29uc2VjdXRpdmUiOjN9LCJzZXZlcml0eV9vdmVycmlkZXMiOnt9fSwicG9pbnRfY2xvdWRfcXVhbGl0eV9jb25maWciOnsic2NoZW1hX3ZlcnNpb24iOjIsImNvbmZpZ19yZXZpc2lvbiI6MSwiZW5hYmxlZCI6dHJ1ZSwidGhyZXNob2xkcyI6eyJtaW5pbXVtX3BvaW50cyI6NSwiZ3JvdW5kX3NhbXBsZV9taW4iOjI0LCJncm91bmRfbWFyZ2luX20iOjAuNzUsImdyb3VuZF9wZW5ldHJhdGlvbl9tIjowLjIsImdyb3VuZF9mbG9hdF9tIjowLjQ1LCJzaXplX21pbl9zYW1wbGVzIjo4LCJzaXplX21hZF96Ijo0LjUsInRlbXBvcmFsX2NlbnRlcl9qdW1wX20iOjQuMCwidGVtcG9yYWxfc2l6ZV9jaGFuZ2VfcmF0aW8iOjAuNiwidGVtcG9yYWxfeWF3X2p1bXBfcmFkIjowLjgsInByb2plY3Rpb25fbWluX2lvdSI6MC41LCJwcm9qZWN0aW9uX21heF9lZGdlX3Jlc2lkdWFsX3JhdGlvIjowLjAyNX0sImVuYWJsZWRfcnVsZXMiOlsiZHVwbGljYXRlX3RyYWNrX21lbWJlciIsImdyb3VuZF9jbGVhcmFuY2UiLCJsb3dfcG9pbnRfY291bnQiLCJwcm9qZWN0aW9uX3Jlc2lkdWFsIiwic2l6ZV9vdXRsaWVyIiwidGVtcG9yYWxfanVtcCIsInRyYWNrX2dhcCIsInRyYWNrX2lkZW50aXR5X2RyaWZ0Il0sInNldmVyaXR5X292ZXJyaWRlcyI6e30sImNsYXNzX3RocmVzaG9sZHMiOnt9LCJnb3Zlcm5hbmNlIjp7Im1pbmltdW1fcmV2aWV3ZWRfcGVyX3J1bGUiOjIwLCJtYXhpbXVtX2ZhbHNlX3Bvc2l0aXZlX3JhdGUiOjAuMSwibWluaW11bV9jb25maXJtZWRfcmV0ZW50aW9uIjowLjl9fSwicmVuZGVyaW5nX2NvbmZpZyI6eyJzbW9vdGhJbWFnZSI6bnVsbCwiY3NzSW1hZ2VGaWx0ZXIiOm51bGwsImNvbnRyb2xQb2ludHNTaXplIjpudWxsLCJzbmFwVG9HcmlkIjpudWxsLCJib3gzZERlZmF1bHRTaXplIjpudWxsLCJwcm9wYWdhdGVPdmVyd3JpdGUiOm51bGwsInRyYWNrZXJEZWZhdWx0TW9kZWwiOm51bGx9LCJ2aWRlb19zYW1wbGluZyI6eyJtb2RlIjoibm9uZSIsInRhcmdldF9mcHMiOm51bGwsImZyYW1lX3N0ZXAiOm51bGx9LCJ2aWRlb19jb2xsYWJvcmF0aW9uIjp7ImVuYWJsZWQiOmZhbHNlLCJvdmVybGFwX2ZyYW1lcyI6MH0sInNjZW5lX21vZGUiOmZhbHNlLCJwcmVmZXJfc2FtZV9zY2VuZV9jb250aW51YXRpb24iOmZhbHNlLCJzY2VuZV9jb250aW51YXRpb25fd2luZG93X21pbiI6MzAsImRlZmF1bHRfdmFyaWFudHMiOnt9LCJwcmVhbm5vdGF0ZV9waXBlbGluZSI6bnVsbCwiY2FwYWJpbGl0eV93YXJuaW5ncyI6W10sImFubm90YXRpb25fZ3VpZGUiOm51bGwsImd1aWRlX2Fzc2V0cyI6W10sIm1vZGVsX3ZlcnNpb24iOm51bGwsInRhc2tfbG9ja190dGxfc2Vjb25kcyI6MzAwLCJ0b3RhbF90YXNrcyI6MCwiY29tcGxldGVkX3Rhc2tzIjowLCJyZXZpZXdfdGFza3MiOjAsImluX3Byb2dyZXNzX3Rhc2tzIjowLCJhaV9jb21wbGV0ZWRfdGFza3MiOjAsImJhdGNoX3N1bW1hcnkiOnsidG90YWwiOjAsImFzc2lnbmVkIjowLCJpbl9yZXZpZXciOjB9LCJkdWVfZGF0ZSI6bnVsbCwiY3JlYXRlZF9hdCI6IjIwMjYtMDEtMTVUMTI6MDA6MDBaIiwidXBkYXRlZF9hdCI6IjIwMjYtMDEtMTVUMTI6MDA6MDBaIn0=",
+          "byte_length": 3239,
+          "sha256": "b6303324ed587c799fce6a0e4dd6c38baf3e4bad3da962eada561119cf6ed417"
+        },
+        "status": 200
+      }
+    },
+    {
+      "activity": {
+        "commit_count": 1,
+        "read_table_mentions": {
+          "annotations": 6,
+          "project_members": 1,
+          "projects": 5,
+          "tasks": 5
+        },
+        "sql_by_kind": {
+          "select": 12,
+          "update": 2
+        },
+        "sql_statement_count": 14,
+        "write_table_mentions": {
+          "annotations": 1,
+          "projects": 1
+        }
+      },
+      "label": "class_rename_changed",
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": {
+          "new_name": "Truck",
+          "old_name": "Car",
+          "tool_unit_id": "bbox"
+        },
+        "method": "POST",
+        "params": null,
+        "path": "/api/v1/projects/$project_rename/classes/rename"
+      },
+      "response": {
+        "body": {
+          "ai_completed_tasks": 0,
+          "ai_enabled": false,
+          "ai_interactive_enabled": true,
+          "annotation_guide": null,
+          "attribute_schema": {
+            "fields": []
+          },
+          "batch_summary": {
+            "assigned": 0,
+            "in_review": 0,
+            "total": 0
+          },
+          "box_threshold": 0.3499999940395355,
+          "capability_warnings": [],
+          "classes": [
+            "Car",
+            "Truck"
+          ],
+          "classes_config": {
+            "Car": {
+              "alias": null,
+              "color": null,
+              "order": 0
+            },
+            "Truck": {
+              "alias": null,
+              "color": null,
+              "order": 0
+            }
+          },
+          "completed_tasks": 0,
+          "created_at": "2026-01-15T12:00:00Z",
+          "data_type": "image",
+          "default_variants": {},
+          "display_id": "$display_rename",
+          "due_date": null,
+          "guide_assets": [],
+          "id": "$project_rename",
+          "in_progress_tasks": 0,
+          "iou_dedup_threshold": 0.7,
+          "label_config": {},
+          "mask_qc_config": {
+            "auto_run": "on_review_submit",
+            "blocking": false,
+            "config_revision": 1,
+            "enabled": true,
+            "schema_version": 1,
+            "severity_overrides": {},
+            "single_frame": {
+              "bbox_iou_min": 0.98,
+              "boundary_noise_ratio": 0.15,
+              "narrow_bridge_width": 2,
+              "near_empty_pixels": 16,
+              "overlap_pixels": 1,
+              "small_component_pixels": 32,
+              "small_component_ratio": 0.005,
+              "small_hole_pixels": 32
+            },
+            "temporal": {
+              "area_change_ratio": 0.5,
+              "centroid_shift_diagonal": 0.15,
+              "component_delta": 2,
+              "drift_min_consecutive": 3,
+              "flicker_max_frames": 2,
+              "iou_drop": 0.35,
+              "sample_step": 1
+            }
+          },
+          "maximum_annotations": 1,
+          "member_count": 0,
+          "ml_backend_id": null,
+          "model_version": null,
+          "my_project_role": null,
+          "name": "Class rename consumer",
+          "organization_id": null,
+          "owner_avatar_ref": null,
+          "owner_id": "$actor_project_admin",
+          "owner_name": "project_admin PQX$capture_suffix",
+          "point_cloud_quality_config": {
+            "class_thresholds": {},
+            "config_revision": 1,
+            "enabled": true,
+            "enabled_rules": [
+              "duplicate_track_member",
+              "ground_clearance",
+              "low_point_count",
+              "projection_residual",
+              "size_outlier",
+              "temporal_jump",
+              "track_gap",
+              "track_identity_drift"
+            ],
+            "governance": {
+              "maximum_false_positive_rate": 0.1,
+              "minimum_confirmed_retention": 0.9,
+              "minimum_reviewed_per_rule": 20
+            },
+            "schema_version": 2,
+            "severity_overrides": {},
+            "thresholds": {
+              "ground_float_m": 0.45,
+              "ground_margin_m": 0.75,
+              "ground_penetration_m": 0.2,
+              "ground_sample_min": 24,
+              "minimum_points": 5,
+              "projection_max_edge_residual_ratio": 0.025,
+              "projection_min_iou": 0.5,
+              "size_mad_z": 4.5,
+              "size_min_samples": 8,
+              "temporal_center_jump_m": 4.0,
+              "temporal_size_change_ratio": 0.6,
+              "temporal_yaw_jump_rad": 0.8
+            }
+          },
+          "preannotate_pipeline": null,
+          "prefer_same_scene_continuation": false,
+          "raster_mask_native_editing_enabled": true,
+          "rendering_config": {
+            "box3dDefaultSize": null,
+            "controlPointsSize": null,
+            "cssImageFilter": null,
+            "propagateOverwrite": null,
+            "smoothImage": null,
+            "snapToGrid": null,
+            "trackerDefaultModel": null
+          },
+          "review_tasks": 0,
+          "sampling": "sequence",
+          "scene_continuation_window_min": 30,
+          "scene_mode": false,
+          "show_overlap_first": false,
+          "status": "in_progress",
+          "task_lock_ttl_seconds": 300,
+          "text_threshold": 0.25,
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "alias": null,
+                  "alias_to": null,
+                  "color": null,
+                  "name": "Truck",
+                  "order": 0
+                }
+              ],
+              "enabled": true,
+              "keypoint_schema": null,
+              "video_modes": null
+            },
+            "region": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "alias": null,
+                  "alias_to": null,
+                  "color": null,
+                  "name": "Car",
+                  "order": 0
+                }
+              ],
+              "enabled": true,
+              "keypoint_schema": null,
+              "video_modes": null
+            }
+          },
+          "total_tasks": 0,
+          "type_key": "image-det",
+          "type_label": "Project consumer capture",
+          "updated_at": "<timestamp>",
+          "video_collaboration": {
+            "enabled": false,
+            "overlap_frames": 0
+          },
+          "video_sampling": {
+            "frame_step": null,
+            "mode": "none",
+            "target_fps": null
+          }
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "eyJpZCI6IjgyZTg3MzYxLWQxMTUtNGZjMy1hODVmLWQ2MWRhNWVjODNmMCIsIm9yZ2FuaXphdGlvbl9pZCI6bnVsbCwiZGlzcGxheV9pZCI6IlAtRTJFLWJiYTI5MyIsIm5hbWUiOiJDbGFzcyByZW5hbWUgY29uc3VtZXIiLCJ0eXBlX2xhYmVsIjoiUHJvamVjdCBjb25zdW1lciBjYXB0dXJlIiwidHlwZV9rZXkiOiJpbWFnZS1kZXQiLCJkYXRhX3R5cGUiOiJpbWFnZSIsIm93bmVyX2lkIjoiMjlhZDkyMWItZmY2MS00OGY4LWIzZjMtNGFmNTdkMjJlNWNhIiwib3duZXJfbmFtZSI6InByb2plY3RfYWRtaW4gUFFYYmUxZTIwZWQ0ZSIsIm93bmVyX2F2YXRhcl9yZWYiOm51bGwsIm1lbWJlcl9jb3VudCI6MCwibXlfcHJvamVjdF9yb2xlIjpudWxsLCJzdGF0dXMiOiJpbl9wcm9ncmVzcyIsImFpX2VuYWJsZWQiOmZhbHNlLCJtbF9iYWNrZW5kX2lkIjpudWxsLCJjbGFzc2VzIjpbIkNhciIsIlRydWNrIl0sImNsYXNzZXNfY29uZmlnIjp7IlRydWNrIjp7ImNvbG9yIjpudWxsLCJvcmRlciI6MCwiYWxpYXMiOm51bGx9LCJDYXIiOnsiY29sb3IiOm51bGwsIm9yZGVyIjowLCJhbGlhcyI6bnVsbH19LCJhdHRyaWJ1dGVfc2NoZW1hIjp7ImZpZWxkcyI6W119LCJ0b29sX2JpbmRpbmdzIjp7ImJib3giOnsiZW5hYmxlZCI6dHJ1ZSwiY2xhc3NlcyI6W3sibmFtZSI6IlRydWNrIiwiY29sb3IiOm51bGwsIm9yZGVyIjowLCJhbGlhcyI6bnVsbCwiYWxpYXNfdG8iOm51bGx9XSwiYXR0cmlidXRlX3NjaGVtYSI6eyJmaWVsZHMiOltdfSwia2V5cG9pbnRfc2NoZW1hIjpudWxsLCJ2aWRlb19tb2RlcyI6bnVsbH0sInJlZ2lvbiI6eyJlbmFibGVkIjp0cnVlLCJjbGFzc2VzIjpbeyJuYW1lIjoiQ2FyIiwiY29sb3IiOm51bGwsIm9yZGVyIjowLCJhbGlhcyI6bnVsbCwiYWxpYXNfdG8iOm51bGx9XSwiYXR0cmlidXRlX3NjaGVtYSI6eyJmaWVsZHMiOltdfSwia2V5cG9pbnRfc2NoZW1hIjpudWxsLCJ2aWRlb19tb2RlcyI6bnVsbH19LCJsYWJlbF9jb25maWciOnt9LCJzYW1wbGluZyI6InNlcXVlbmNlIiwibWF4aW11bV9hbm5vdGF0aW9ucyI6MSwic2hvd19vdmVybGFwX2ZpcnN0IjpmYWxzZSwiaW91X2RlZHVwX3RocmVzaG9sZCI6MC43LCJib3hfdGhyZXNob2xkIjowLjM0OTk5OTk5NDAzOTUzNTUsInRleHRfdGhyZXNob2xkIjowLjI1LCJhaV9pbnRlcmFjdGl2ZV9lbmFibGVkIjp0cnVlLCJyYXN0ZXJfbWFza19uYXRpdmVfZWRpdGluZ19lbmFibGVkIjp0cnVlLCJtYXNrX3FjX2NvbmZpZyI6eyJzY2hlbWFfdmVyc2lvbiI6MSwiY29uZmlnX3JldmlzaW9uIjoxLCJlbmFibGVkIjp0cnVlLCJibG9ja2luZyI6ZmFsc2UsImF1dG9fcnVuIjoib25fcmV2aWV3X3N1Ym1pdCIsInNpbmdsZV9mcmFtZSI6eyJuZWFyX2VtcHR5X3BpeGVscyI6MTYsInNtYWxsX2NvbXBvbmVudF9waXhlbHMiOjMyLCJzbWFsbF9jb21wb25lbnRfcmF0aW8iOjAuMDA1LCJzbWFsbF9ob2xlX3BpeGVscyI6MzIsIm5hcnJvd19icmlkZ2Vfd2lkdGgiOjIsImJvdW5kYXJ5X25vaXNlX3JhdGlvIjowLjE1LCJiYm94X2lvdV9taW4iOjAuOTgsIm92ZXJsYXBfcGl4ZWxzIjoxfSwidGVtcG9yYWwiOnsic2FtcGxlX3N0ZXAiOjEsImlvdV9kcm9wIjowLjM1LCJjZW50cm9pZF9zaGlmdF9kaWFnb25hbCI6MC4xNSwiYXJlYV9jaGFuZ2VfcmF0aW8iOjAuNSwiY29tcG9uZW50X2RlbHRhIjoyLCJmbGlja2VyX21heF9mcmFtZXMiOjIsImRyaWZ0X21pbl9jb25zZWN1dGl2ZSI6M30sInNldmVyaXR5X292ZXJyaWRlcyI6e319LCJwb2ludF9jbG91ZF9xdWFsaXR5X2NvbmZpZyI6eyJzY2hlbWFfdmVyc2lvbiI6MiwiY29uZmlnX3JldmlzaW9uIjoxLCJlbmFibGVkIjp0cnVlLCJ0aHJlc2hvbGRzIjp7Im1pbmltdW1fcG9pbnRzIjo1LCJncm91bmRfc2FtcGxlX21pbiI6MjQsImdyb3VuZF9tYXJnaW5fbSI6MC43NSwiZ3JvdW5kX3BlbmV0cmF0aW9uX20iOjAuMiwiZ3JvdW5kX2Zsb2F0X20iOjAuNDUsInNpemVfbWluX3NhbXBsZXMiOjgsInNpemVfbWFkX3oiOjQuNSwidGVtcG9yYWxfY2VudGVyX2p1bXBfbSI6NC4wLCJ0ZW1wb3JhbF9zaXplX2NoYW5nZV9yYXRpbyI6MC42LCJ0ZW1wb3JhbF95YXdfanVtcF9yYWQiOjAuOCwicHJvamVjdGlvbl9taW5faW91IjowLjUsInByb2plY3Rpb25fbWF4X2VkZ2VfcmVzaWR1YWxfcmF0aW8iOjAuMDI1fSwiZW5hYmxlZF9ydWxlcyI6WyJkdXBsaWNhdGVfdHJhY2tfbWVtYmVyIiwiZ3JvdW5kX2NsZWFyYW5jZSIsImxvd19wb2ludF9jb3VudCIsInByb2plY3Rpb25fcmVzaWR1YWwiLCJzaXplX291dGxpZXIiLCJ0ZW1wb3JhbF9qdW1wIiwidHJhY2tfZ2FwIiwidHJhY2tfaWRlbnRpdHlfZHJpZnQiXSwic2V2ZXJpdHlfb3ZlcnJpZGVzIjp7fSwiY2xhc3NfdGhyZXNob2xkcyI6e30sImdvdmVybmFuY2UiOnsibWluaW11bV9yZXZpZXdlZF9wZXJfcnVsZSI6MjAsIm1heGltdW1fZmFsc2VfcG9zaXRpdmVfcmF0ZSI6MC4xLCJtaW5pbXVtX2NvbmZpcm1lZF9yZXRlbnRpb24iOjAuOX19LCJyZW5kZXJpbmdfY29uZmlnIjp7InNtb290aEltYWdlIjpudWxsLCJjc3NJbWFnZUZpbHRlciI6bnVsbCwiY29udHJvbFBvaW50c1NpemUiOm51bGwsInNuYXBUb0dyaWQiOm51bGwsImJveDNkRGVmYXVsdFNpemUiOm51bGwsInByb3BhZ2F0ZU92ZXJ3cml0ZSI6bnVsbCwidHJhY2tlckRlZmF1bHRNb2RlbCI6bnVsbH0sInZpZGVvX3NhbXBsaW5nIjp7Im1vZGUiOiJub25lIiwidGFyZ2V0X2ZwcyI6bnVsbCwiZnJhbWVfc3RlcCI6bnVsbH0sInZpZGVvX2NvbGxhYm9yYXRpb24iOnsiZW5hYmxlZCI6ZmFsc2UsIm92ZXJsYXBfZnJhbWVzIjowfSwic2NlbmVfbW9kZSI6ZmFsc2UsInByZWZlcl9zYW1lX3NjZW5lX2NvbnRpbnVhdGlvbiI6ZmFsc2UsInNjZW5lX2NvbnRpbnVhdGlvbl93aW5kb3dfbWluIjozMCwiZGVmYXVsdF92YXJpYW50cyI6e30sInByZWFubm90YXRlX3BpcGVsaW5lIjpudWxsLCJjYXBhYmlsaXR5X3dhcm5pbmdzIjpbXSwiYW5ub3RhdGlvbl9ndWlkZSI6bnVsbCwiZ3VpZGVfYXNzZXRzIjpbXSwibW9kZWxfdmVyc2lvbiI6bnVsbCwidGFza19sb2NrX3R0bF9zZWNvbmRzIjozMDAsInRvdGFsX3Rhc2tzIjowLCJjb21wbGV0ZWRfdGFza3MiOjAsInJldmlld190YXNrcyI6MCwiaW5fcHJvZ3Jlc3NfdGFza3MiOjAsImFpX2NvbXBsZXRlZF90YXNrcyI6MCwiYmF0Y2hfc3VtbWFyeSI6eyJ0b3RhbCI6MCwiYXNzaWduZWQiOjAsImluX3JldmlldyI6MH0sImR1ZV9kYXRlIjpudWxsLCJjcmVhdGVkX2F0IjoiMjAyNi0wMS0xNVQxMjowMDowMFoiLCJ1cGRhdGVkX2F0IjoiMjAyNi0xMC0yMVQwMToxODo1My42MDEwNzlaIn0=",
+          "byte_length": 3302,
+          "sha256": "b04f78c4183858d5415b24cdf5c3551892d86f7aa52492db59f41297558457e5"
+        },
+        "status": 200
+      }
+    },
+    {
+      "activity": {
+        "commit_count": 1,
+        "read_table_mentions": {
+          "annotations": 3,
+          "project_members": 1,
+          "projects": 2,
+          "tasks": 2
+        },
+        "sql_by_kind": {
+          "select": 9
+        },
+        "sql_statement_count": 9,
+        "write_table_mentions": {}
+      },
+      "label": "owner_transfer",
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "super_admin",
+          "id": "$actor_super_admin",
+          "role": "super_admin"
+        },
+        "body": {
+          "new_owner_id": "$actor_project_admin"
+        },
+        "method": "POST",
+        "params": null,
+        "path": "/api/v1/projects/$project_transfer/transfer"
+      },
+      "response": {
+        "body": {
+          "ai_completed_tasks": 0,
+          "ai_enabled": false,
+          "ai_interactive_enabled": true,
+          "annotation_guide": null,
+          "attribute_schema": {
+            "fields": []
+          },
+          "batch_summary": {
+            "assigned": 0,
+            "in_review": 0,
+            "total": 0
+          },
+          "box_threshold": 0.3499999940395355,
+          "capability_warnings": [],
+          "classes": [
+            "car",
+            "person"
+          ],
+          "classes_config": {
+            "car": {
+              "alias": null,
+              "color": null,
+              "order": 0
+            },
+            "person": {
+              "alias": null,
+              "color": null,
+              "order": 1
+            }
+          },
+          "completed_tasks": 0,
+          "created_at": "2026-01-15T12:00:00Z",
+          "data_type": "image",
+          "default_variants": {},
+          "display_id": "$display_transfer",
+          "due_date": null,
+          "guide_assets": [],
+          "id": "$project_transfer",
+          "in_progress_tasks": 0,
+          "iou_dedup_threshold": 0.7,
+          "label_config": {},
+          "mask_qc_config": {
+            "auto_run": "on_review_submit",
+            "blocking": false,
+            "config_revision": 1,
+            "enabled": true,
+            "schema_version": 1,
+            "severity_overrides": {},
+            "single_frame": {
+              "bbox_iou_min": 0.98,
+              "boundary_noise_ratio": 0.15,
+              "narrow_bridge_width": 2,
+              "near_empty_pixels": 16,
+              "overlap_pixels": 1,
+              "small_component_pixels": 32,
+              "small_component_ratio": 0.005,
+              "small_hole_pixels": 32
+            },
+            "temporal": {
+              "area_change_ratio": 0.5,
+              "centroid_shift_diagonal": 0.15,
+              "component_delta": 2,
+              "drift_min_consecutive": 3,
+              "flicker_max_frames": 2,
+              "iou_drop": 0.35,
+              "sample_step": 1
+            }
+          },
+          "maximum_annotations": 1,
+          "member_count": 0,
+          "ml_backend_id": null,
+          "model_version": null,
+          "my_project_role": null,
+          "name": "Owner transfer projection",
+          "organization_id": null,
+          "owner_avatar_ref": null,
+          "owner_id": "$actor_project_admin",
+          "owner_name": "project_admin PQX$capture_suffix",
+          "point_cloud_quality_config": {
+            "class_thresholds": {},
+            "config_revision": 1,
+            "enabled": true,
+            "enabled_rules": [
+              "duplicate_track_member",
+              "ground_clearance",
+              "low_point_count",
+              "projection_residual",
+              "size_outlier",
+              "temporal_jump",
+              "track_gap",
+              "track_identity_drift"
+            ],
+            "governance": {
+              "maximum_false_positive_rate": 0.1,
+              "minimum_confirmed_retention": 0.9,
+              "minimum_reviewed_per_rule": 20
+            },
+            "schema_version": 2,
+            "severity_overrides": {},
+            "thresholds": {
+              "ground_float_m": 0.45,
+              "ground_margin_m": 0.75,
+              "ground_penetration_m": 0.2,
+              "ground_sample_min": 24,
+              "minimum_points": 5,
+              "projection_max_edge_residual_ratio": 0.025,
+              "projection_min_iou": 0.5,
+              "size_mad_z": 4.5,
+              "size_min_samples": 8,
+              "temporal_center_jump_m": 4.0,
+              "temporal_size_change_ratio": 0.6,
+              "temporal_yaw_jump_rad": 0.8
+            }
+          },
+          "preannotate_pipeline": null,
+          "prefer_same_scene_continuation": false,
+          "raster_mask_native_editing_enabled": true,
+          "rendering_config": {
+            "box3dDefaultSize": null,
+            "controlPointsSize": null,
+            "cssImageFilter": null,
+            "propagateOverwrite": null,
+            "smoothImage": null,
+            "snapToGrid": null,
+            "trackerDefaultModel": null
+          },
+          "review_tasks": 0,
+          "sampling": "sequence",
+          "scene_continuation_window_min": 30,
+          "scene_mode": false,
+          "show_overlap_first": false,
+          "status": "in_progress",
+          "task_lock_ttl_seconds": 300,
+          "text_threshold": 0.25,
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "alias": null,
+                  "alias_to": null,
+                  "color": null,
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "alias": null,
+                  "alias_to": null,
+                  "color": null,
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true,
+              "keypoint_schema": null,
+              "video_modes": null
+            }
+          },
+          "total_tasks": 0,
+          "type_key": "image-det",
+          "type_label": "Project consumer capture",
+          "updated_at": "<timestamp>",
+          "video_collaboration": {
+            "enabled": false,
+            "overlap_frames": 0
+          },
+          "video_sampling": {
+            "frame_step": null,
+            "mode": "none",
+            "target_fps": null
+          }
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "eyJpZCI6ImI5ZjQzZWViLWU0M2QtNDAxYS05MzYyLWIxYTliOTA1ZDdlMSIsIm9yZ2FuaXphdGlvbl9pZCI6bnVsbCwiZGlzcGxheV9pZCI6IlAtRTJFLTNhNzA5OSIsIm5hbWUiOiJPd25lciB0cmFuc2ZlciBwcm9qZWN0aW9uIiwidHlwZV9sYWJlbCI6IlByb2plY3QgY29uc3VtZXIgY2FwdHVyZSIsInR5cGVfa2V5IjoiaW1hZ2UtZGV0IiwiZGF0YV90eXBlIjoiaW1hZ2UiLCJvd25lcl9pZCI6IjI5YWQ5MjFiLWZmNjEtNDhmOC1iM2YzLTRhZjU3ZDIyZTVjYSIsIm93bmVyX25hbWUiOiJwcm9qZWN0X2FkbWluIFBRWGJlMWUyMGVkNGUiLCJvd25lcl9hdmF0YXJfcmVmIjpudWxsLCJtZW1iZXJfY291bnQiOjAsIm15X3Byb2plY3Rfcm9sZSI6bnVsbCwic3RhdHVzIjoiaW5fcHJvZ3Jlc3MiLCJhaV9lbmFibGVkIjpmYWxzZSwibWxfYmFja2VuZF9pZCI6bnVsbCwiY2xhc3NlcyI6WyJjYXIiLCJwZXJzb24iXSwiY2xhc3Nlc19jb25maWciOnsiY2FyIjp7ImNvbG9yIjpudWxsLCJvcmRlciI6MCwiYWxpYXMiOm51bGx9LCJwZXJzb24iOnsiY29sb3IiOm51bGwsIm9yZGVyIjoxLCJhbGlhcyI6bnVsbH19LCJhdHRyaWJ1dGVfc2NoZW1hIjp7ImZpZWxkcyI6W119LCJ0b29sX2JpbmRpbmdzIjp7ImJib3giOnsiZW5hYmxlZCI6dHJ1ZSwiY2xhc3NlcyI6W3sibmFtZSI6ImNhciIsImNvbG9yIjpudWxsLCJvcmRlciI6MCwiYWxpYXMiOm51bGwsImFsaWFzX3RvIjpudWxsfSx7Im5hbWUiOiJwZXJzb24iLCJjb2xvciI6bnVsbCwib3JkZXIiOjEsImFsaWFzIjpudWxsLCJhbGlhc190byI6bnVsbH1dLCJhdHRyaWJ1dGVfc2NoZW1hIjp7ImZpZWxkcyI6W119LCJrZXlwb2ludF9zY2hlbWEiOm51bGwsInZpZGVvX21vZGVzIjpudWxsfX0sImxhYmVsX2NvbmZpZyI6e30sInNhbXBsaW5nIjoic2VxdWVuY2UiLCJtYXhpbXVtX2Fubm90YXRpb25zIjoxLCJzaG93X292ZXJsYXBfZmlyc3QiOmZhbHNlLCJpb3VfZGVkdXBfdGhyZXNob2xkIjowLjcsImJveF90aHJlc2hvbGQiOjAuMzQ5OTk5OTk0MDM5NTM1NSwidGV4dF90aHJlc2hvbGQiOjAuMjUsImFpX2ludGVyYWN0aXZlX2VuYWJsZWQiOnRydWUsInJhc3Rlcl9tYXNrX25hdGl2ZV9lZGl0aW5nX2VuYWJsZWQiOnRydWUsIm1hc2tfcWNfY29uZmlnIjp7InNjaGVtYV92ZXJzaW9uIjoxLCJjb25maWdfcmV2aXNpb24iOjEsImVuYWJsZWQiOnRydWUsImJsb2NraW5nIjpmYWxzZSwiYXV0b19ydW4iOiJvbl9yZXZpZXdfc3VibWl0Iiwic2luZ2xlX2ZyYW1lIjp7Im5lYXJfZW1wdHlfcGl4ZWxzIjoxNiwic21hbGxfY29tcG9uZW50X3BpeGVscyI6MzIsInNtYWxsX2NvbXBvbmVudF9yYXRpbyI6MC4wMDUsInNtYWxsX2hvbGVfcGl4ZWxzIjozMiwibmFycm93X2JyaWRnZV93aWR0aCI6MiwiYm91bmRhcnlfbm9pc2VfcmF0aW8iOjAuMTUsImJib3hfaW91X21pbiI6MC45OCwib3ZlcmxhcF9waXhlbHMiOjF9LCJ0ZW1wb3JhbCI6eyJzYW1wbGVfc3RlcCI6MSwiaW91X2Ryb3AiOjAuMzUsImNlbnRyb2lkX3NoaWZ0X2RpYWdvbmFsIjowLjE1LCJhcmVhX2NoYW5nZV9yYXRpbyI6MC41LCJjb21wb25lbnRfZGVsdGEiOjIsImZsaWNrZXJfbWF4X2ZyYW1lcyI6MiwiZHJpZnRfbWluX2NvbnNlY3V0aXZlIjozfSwic2V2ZXJpdHlfb3ZlcnJpZGVzIjp7fX0sInBvaW50X2Nsb3VkX3F1YWxpdHlfY29uZmlnIjp7InNjaGVtYV92ZXJzaW9uIjoyLCJjb25maWdfcmV2aXNpb24iOjEsImVuYWJsZWQiOnRydWUsInRocmVzaG9sZHMiOnsibWluaW11bV9wb2ludHMiOjUsImdyb3VuZF9zYW1wbGVfbWluIjoyNCwiZ3JvdW5kX21hcmdpbl9tIjowLjc1LCJncm91bmRfcGVuZXRyYXRpb25fbSI6MC4yLCJncm91bmRfZmxvYXRfbSI6MC40NSwic2l6ZV9taW5fc2FtcGxlcyI6OCwic2l6ZV9tYWRfeiI6NC41LCJ0ZW1wb3JhbF9jZW50ZXJfanVtcF9tIjo0LjAsInRlbXBvcmFsX3NpemVfY2hhbmdlX3JhdGlvIjowLjYsInRlbXBvcmFsX3lhd19qdW1wX3JhZCI6MC44LCJwcm9qZWN0aW9uX21pbl9pb3UiOjAuNSwicHJvamVjdGlvbl9tYXhfZWRnZV9yZXNpZHVhbF9yYXRpbyI6MC4wMjV9LCJlbmFibGVkX3J1bGVzIjpbImR1cGxpY2F0ZV90cmFja19tZW1iZXIiLCJncm91bmRfY2xlYXJhbmNlIiwibG93X3BvaW50X2NvdW50IiwicHJvamVjdGlvbl9yZXNpZHVhbCIsInNpemVfb3V0bGllciIsInRlbXBvcmFsX2p1bXAiLCJ0cmFja19nYXAiLCJ0cmFja19pZGVudGl0eV9kcmlmdCJdLCJzZXZlcml0eV9vdmVycmlkZXMiOnt9LCJjbGFzc190aHJlc2hvbGRzIjp7fSwiZ292ZXJuYW5jZSI6eyJtaW5pbXVtX3Jldmlld2VkX3Blcl9ydWxlIjoyMCwibWF4aW11bV9mYWxzZV9wb3NpdGl2ZV9yYXRlIjowLjEsIm1pbmltdW1fY29uZmlybWVkX3JldGVudGlvbiI6MC45fX0sInJlbmRlcmluZ19jb25maWciOnsic21vb3RoSW1hZ2UiOm51bGwsImNzc0ltYWdlRmlsdGVyIjpudWxsLCJjb250cm9sUG9pbnRzU2l6ZSI6bnVsbCwic25hcFRvR3JpZCI6bnVsbCwiYm94M2REZWZhdWx0U2l6ZSI6bnVsbCwicHJvcGFnYXRlT3ZlcndyaXRlIjpudWxsLCJ0cmFja2VyRGVmYXVsdE1vZGVsIjpudWxsfSwidmlkZW9fc2FtcGxpbmciOnsibW9kZSI6Im5vbmUiLCJ0YXJnZXRfZnBzIjpudWxsLCJmcmFtZV9zdGVwIjpudWxsfSwidmlkZW9fY29sbGFib3JhdGlvbiI6eyJlbmFibGVkIjpmYWxzZSwib3ZlcmxhcF9mcmFtZXMiOjB9LCJzY2VuZV9tb2RlIjpmYWxzZSwicHJlZmVyX3NhbWVfc2NlbmVfY29udGludWF0aW9uIjpmYWxzZSwic2NlbmVfY29udGludWF0aW9uX3dpbmRvd19taW4iOjMwLCJkZWZhdWx0X3ZhcmlhbnRzIjp7fSwicHJlYW5ub3RhdGVfcGlwZWxpbmUiOm51bGwsImNhcGFiaWxpdHlfd2FybmluZ3MiOltdLCJhbm5vdGF0aW9uX2d1aWRlIjpudWxsLCJndWlkZV9hc3NldHMiOltdLCJtb2RlbF92ZXJzaW9uIjpudWxsLCJ0YXNrX2xvY2tfdHRsX3NlY29uZHMiOjMwMCwidG90YWxfdGFza3MiOjAsImNvbXBsZXRlZF90YXNrcyI6MCwicmV2aWV3X3Rhc2tzIjowLCJpbl9wcm9ncmVzc190YXNrcyI6MCwiYWlfY29tcGxldGVkX3Rhc2tzIjowLCJiYXRjaF9zdW1tYXJ5Ijp7InRvdGFsIjowLCJhc3NpZ25lZCI6MCwiaW5fcmV2aWV3IjowfSwiZHVlX2RhdGUiOm51bGwsImNyZWF0ZWRfYXQiOiIyMDI2LTAxLTE1VDEyOjAwOjAwWiIsInVwZGF0ZWRfYXQiOiIyMDI2LTEwLTIxVDAxOjE4OjUzLjYyMDAxOVoifQ==",
+          "byte_length": 3196,
+          "sha256": "06263505cae77854ba0289dbcd57646e3eac76d35d908f9a500bb7cc9ff97ef3"
+        },
+        "status": 200
+      }
+    },
+    {
+      "activity": {
+        "commit_count": 1,
+        "read_table_mentions": {
+          "annotations": 4,
+          "project_members": 1,
+          "projects": 3,
+          "tasks": 3
+        },
+        "sql_by_kind": {
+          "select": 14
+        },
+        "sql_statement_count": 14,
+        "write_table_mentions": {}
+      },
+      "label": "configuration_update",
+      "request": {
+        "actor": {
+          "active": true,
+          "alias": "project_admin",
+          "id": "$actor_project_admin",
+          "role": "project_admin"
+        },
+        "body": {
+          "name": "Configuration projection updated PQX$capture_suffix"
+        },
+        "method": "PATCH",
+        "params": null,
+        "path": "/api/v1/projects/$project_configuration"
+      },
+      "response": {
+        "body": {
+          "ai_completed_tasks": 0,
+          "ai_enabled": false,
+          "ai_interactive_enabled": true,
+          "annotation_guide": null,
+          "attribute_schema": {
+            "fields": []
+          },
+          "batch_summary": {
+            "assigned": 0,
+            "in_review": 0,
+            "total": 0
+          },
+          "box_threshold": 0.3499999940395355,
+          "capability_warnings": [],
+          "classes": [
+            "car",
+            "person"
+          ],
+          "classes_config": {
+            "car": {
+              "alias": null,
+              "color": null,
+              "order": 0
+            },
+            "person": {
+              "alias": null,
+              "color": null,
+              "order": 1
+            }
+          },
+          "completed_tasks": 0,
+          "created_at": "2026-01-15T12:00:00Z",
+          "data_type": "image",
+          "default_variants": {},
+          "display_id": "$display_configuration",
+          "due_date": null,
+          "guide_assets": [],
+          "id": "$project_configuration",
+          "in_progress_tasks": 0,
+          "iou_dedup_threshold": 0.7,
+          "label_config": {},
+          "mask_qc_config": {
+            "auto_run": "on_review_submit",
+            "blocking": false,
+            "config_revision": 1,
+            "enabled": true,
+            "schema_version": 1,
+            "severity_overrides": {},
+            "single_frame": {
+              "bbox_iou_min": 0.98,
+              "boundary_noise_ratio": 0.15,
+              "narrow_bridge_width": 2,
+              "near_empty_pixels": 16,
+              "overlap_pixels": 1,
+              "small_component_pixels": 32,
+              "small_component_ratio": 0.005,
+              "small_hole_pixels": 32
+            },
+            "temporal": {
+              "area_change_ratio": 0.5,
+              "centroid_shift_diagonal": 0.15,
+              "component_delta": 2,
+              "drift_min_consecutive": 3,
+              "flicker_max_frames": 2,
+              "iou_drop": 0.35,
+              "sample_step": 1
+            }
+          },
+          "maximum_annotations": 1,
+          "member_count": 0,
+          "ml_backend_id": null,
+          "model_version": null,
+          "my_project_role": null,
+          "name": "Configuration projection updated PQX$capture_suffix",
+          "organization_id": null,
+          "owner_avatar_ref": null,
+          "owner_id": "$actor_project_admin",
+          "owner_name": "project_admin PQX$capture_suffix",
+          "point_cloud_quality_config": {
+            "class_thresholds": {},
+            "config_revision": 1,
+            "enabled": true,
+            "enabled_rules": [
+              "duplicate_track_member",
+              "ground_clearance",
+              "low_point_count",
+              "projection_residual",
+              "size_outlier",
+              "temporal_jump",
+              "track_gap",
+              "track_identity_drift"
+            ],
+            "governance": {
+              "maximum_false_positive_rate": 0.1,
+              "minimum_confirmed_retention": 0.9,
+              "minimum_reviewed_per_rule": 20
+            },
+            "schema_version": 2,
+            "severity_overrides": {},
+            "thresholds": {
+              "ground_float_m": 0.45,
+              "ground_margin_m": 0.75,
+              "ground_penetration_m": 0.2,
+              "ground_sample_min": 24,
+              "minimum_points": 5,
+              "projection_max_edge_residual_ratio": 0.025,
+              "projection_min_iou": 0.5,
+              "size_mad_z": 4.5,
+              "size_min_samples": 8,
+              "temporal_center_jump_m": 4.0,
+              "temporal_size_change_ratio": 0.6,
+              "temporal_yaw_jump_rad": 0.8
+            }
+          },
+          "preannotate_pipeline": null,
+          "prefer_same_scene_continuation": false,
+          "raster_mask_native_editing_enabled": true,
+          "rendering_config": {
+            "box3dDefaultSize": null,
+            "controlPointsSize": null,
+            "cssImageFilter": null,
+            "propagateOverwrite": null,
+            "smoothImage": null,
+            "snapToGrid": null,
+            "trackerDefaultModel": null
+          },
+          "review_tasks": 0,
+          "sampling": "sequence",
+          "scene_continuation_window_min": 30,
+          "scene_mode": false,
+          "show_overlap_first": false,
+          "status": "in_progress",
+          "task_lock_ttl_seconds": 300,
+          "text_threshold": 0.25,
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "alias": null,
+                  "alias_to": null,
+                  "color": null,
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "alias": null,
+                  "alias_to": null,
+                  "color": null,
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true,
+              "keypoint_schema": null,
+              "video_modes": null
+            }
+          },
+          "total_tasks": 0,
+          "type_key": "image-det",
+          "type_label": "Project consumer capture",
+          "updated_at": "<timestamp>",
+          "video_collaboration": {
+            "enabled": false,
+            "overlap_frames": 0
+          },
+          "video_sampling": {
+            "frame_step": null,
+            "mode": "none",
+            "target_fps": null
+          }
+        },
+        "headers": {
+          "content-type": "application/json"
+        },
+        "raw_body": {
+          "base64": "eyJpZCI6ImU1NWIxMDY1LTU2MTYtNDkyNS1hMGVmLWQ1Y2VjZDM4OTVhZCIsIm9yZ2FuaXphdGlvbl9pZCI6bnVsbCwiZGlzcGxheV9pZCI6IlAtRTJFLThhYTZmMyIsIm5hbWUiOiJDb25maWd1cmF0aW9uIHByb2plY3Rpb24gdXBkYXRlZCBQUVhiZTFlMjBlZDRlIiwidHlwZV9sYWJlbCI6IlByb2plY3QgY29uc3VtZXIgY2FwdHVyZSIsInR5cGVfa2V5IjoiaW1hZ2UtZGV0IiwiZGF0YV90eXBlIjoiaW1hZ2UiLCJvd25lcl9pZCI6IjI5YWQ5MjFiLWZmNjEtNDhmOC1iM2YzLTRhZjU3ZDIyZTVjYSIsIm93bmVyX25hbWUiOiJwcm9qZWN0X2FkbWluIFBRWGJlMWUyMGVkNGUiLCJvd25lcl9hdmF0YXJfcmVmIjpudWxsLCJtZW1iZXJfY291bnQiOjAsIm15X3Byb2plY3Rfcm9sZSI6bnVsbCwic3RhdHVzIjoiaW5fcHJvZ3Jlc3MiLCJhaV9lbmFibGVkIjpmYWxzZSwibWxfYmFja2VuZF9pZCI6bnVsbCwiY2xhc3NlcyI6WyJjYXIiLCJwZXJzb24iXSwiY2xhc3Nlc19jb25maWciOnsiY2FyIjp7ImNvbG9yIjpudWxsLCJvcmRlciI6MCwiYWxpYXMiOm51bGx9LCJwZXJzb24iOnsiY29sb3IiOm51bGwsIm9yZGVyIjoxLCJhbGlhcyI6bnVsbH19LCJhdHRyaWJ1dGVfc2NoZW1hIjp7ImZpZWxkcyI6W119LCJ0b29sX2JpbmRpbmdzIjp7ImJib3giOnsiZW5hYmxlZCI6dHJ1ZSwiY2xhc3NlcyI6W3sibmFtZSI6ImNhciIsImNvbG9yIjpudWxsLCJvcmRlciI6MCwiYWxpYXMiOm51bGwsImFsaWFzX3RvIjpudWxsfSx7Im5hbWUiOiJwZXJzb24iLCJjb2xvciI6bnVsbCwib3JkZXIiOjEsImFsaWFzIjpudWxsLCJhbGlhc190byI6bnVsbH1dLCJhdHRyaWJ1dGVfc2NoZW1hIjp7ImZpZWxkcyI6W119LCJrZXlwb2ludF9zY2hlbWEiOm51bGwsInZpZGVvX21vZGVzIjpudWxsfX0sImxhYmVsX2NvbmZpZyI6e30sInNhbXBsaW5nIjoic2VxdWVuY2UiLCJtYXhpbXVtX2Fubm90YXRpb25zIjoxLCJzaG93X292ZXJsYXBfZmlyc3QiOmZhbHNlLCJpb3VfZGVkdXBfdGhyZXNob2xkIjowLjcsImJveF90aHJlc2hvbGQiOjAuMzQ5OTk5OTk0MDM5NTM1NSwidGV4dF90aHJlc2hvbGQiOjAuMjUsImFpX2ludGVyYWN0aXZlX2VuYWJsZWQiOnRydWUsInJhc3Rlcl9tYXNrX25hdGl2ZV9lZGl0aW5nX2VuYWJsZWQiOnRydWUsIm1hc2tfcWNfY29uZmlnIjp7InNjaGVtYV92ZXJzaW9uIjoxLCJjb25maWdfcmV2aXNpb24iOjEsImVuYWJsZWQiOnRydWUsImJsb2NraW5nIjpmYWxzZSwiYXV0b19ydW4iOiJvbl9yZXZpZXdfc3VibWl0Iiwic2luZ2xlX2ZyYW1lIjp7Im5lYXJfZW1wdHlfcGl4ZWxzIjoxNiwic21hbGxfY29tcG9uZW50X3BpeGVscyI6MzIsInNtYWxsX2NvbXBvbmVudF9yYXRpbyI6MC4wMDUsInNtYWxsX2hvbGVfcGl4ZWxzIjozMiwibmFycm93X2JyaWRnZV93aWR0aCI6MiwiYm91bmRhcnlfbm9pc2VfcmF0aW8iOjAuMTUsImJib3hfaW91X21pbiI6MC45OCwib3ZlcmxhcF9waXhlbHMiOjF9LCJ0ZW1wb3JhbCI6eyJzYW1wbGVfc3RlcCI6MSwiaW91X2Ryb3AiOjAuMzUsImNlbnRyb2lkX3NoaWZ0X2RpYWdvbmFsIjowLjE1LCJhcmVhX2NoYW5nZV9yYXRpbyI6MC41LCJjb21wb25lbnRfZGVsdGEiOjIsImZsaWNrZXJfbWF4X2ZyYW1lcyI6MiwiZHJpZnRfbWluX2NvbnNlY3V0aXZlIjozfSwic2V2ZXJpdHlfb3ZlcnJpZGVzIjp7fX0sInBvaW50X2Nsb3VkX3F1YWxpdHlfY29uZmlnIjp7InNjaGVtYV92ZXJzaW9uIjoyLCJjb25maWdfcmV2aXNpb24iOjEsImVuYWJsZWQiOnRydWUsInRocmVzaG9sZHMiOnsibWluaW11bV9wb2ludHMiOjUsImdyb3VuZF9zYW1wbGVfbWluIjoyNCwiZ3JvdW5kX21hcmdpbl9tIjowLjc1LCJncm91bmRfcGVuZXRyYXRpb25fbSI6MC4yLCJncm91bmRfZmxvYXRfbSI6MC40NSwic2l6ZV9taW5fc2FtcGxlcyI6OCwic2l6ZV9tYWRfeiI6NC41LCJ0ZW1wb3JhbF9jZW50ZXJfanVtcF9tIjo0LjAsInRlbXBvcmFsX3NpemVfY2hhbmdlX3JhdGlvIjowLjYsInRlbXBvcmFsX3lhd19qdW1wX3JhZCI6MC44LCJwcm9qZWN0aW9uX21pbl9pb3UiOjAuNSwicHJvamVjdGlvbl9tYXhfZWRnZV9yZXNpZHVhbF9yYXRpbyI6MC4wMjV9LCJlbmFibGVkX3J1bGVzIjpbImR1cGxpY2F0ZV90cmFja19tZW1iZXIiLCJncm91bmRfY2xlYXJhbmNlIiwibG93X3BvaW50X2NvdW50IiwicHJvamVjdGlvbl9yZXNpZHVhbCIsInNpemVfb3V0bGllciIsInRlbXBvcmFsX2p1bXAiLCJ0cmFja19nYXAiLCJ0cmFja19pZGVudGl0eV9kcmlmdCJdLCJzZXZlcml0eV9vdmVycmlkZXMiOnt9LCJjbGFzc190aHJlc2hvbGRzIjp7fSwiZ292ZXJuYW5jZSI6eyJtaW5pbXVtX3Jldmlld2VkX3Blcl9ydWxlIjoyMCwibWF4aW11bV9mYWxzZV9wb3NpdGl2ZV9yYXRlIjowLjEsIm1pbmltdW1fY29uZmlybWVkX3JldGVudGlvbiI6MC45fX0sInJlbmRlcmluZ19jb25maWciOnsic21vb3RoSW1hZ2UiOm51bGwsImNzc0ltYWdlRmlsdGVyIjpudWxsLCJjb250cm9sUG9pbnRzU2l6ZSI6bnVsbCwic25hcFRvR3JpZCI6bnVsbCwiYm94M2REZWZhdWx0U2l6ZSI6bnVsbCwicHJvcGFnYXRlT3ZlcndyaXRlIjpudWxsLCJ0cmFja2VyRGVmYXVsdE1vZGVsIjpudWxsfSwidmlkZW9fc2FtcGxpbmciOnsibW9kZSI6Im5vbmUiLCJ0YXJnZXRfZnBzIjpudWxsLCJmcmFtZV9zdGVwIjpudWxsfSwidmlkZW9fY29sbGFib3JhdGlvbiI6eyJlbmFibGVkIjpmYWxzZSwib3ZlcmxhcF9mcmFtZXMiOjB9LCJzY2VuZV9tb2RlIjpmYWxzZSwicHJlZmVyX3NhbWVfc2NlbmVfY29udGludWF0aW9uIjpmYWxzZSwic2NlbmVfY29udGludWF0aW9uX3dpbmRvd19taW4iOjMwLCJkZWZhdWx0X3ZhcmlhbnRzIjp7fSwicHJlYW5ub3RhdGVfcGlwZWxpbmUiOm51bGwsImNhcGFiaWxpdHlfd2FybmluZ3MiOltdLCJhbm5vdGF0aW9uX2d1aWRlIjpudWxsLCJndWlkZV9hc3NldHMiOltdLCJtb2RlbF92ZXJzaW9uIjpudWxsLCJ0YXNrX2xvY2tfdHRsX3NlY29uZHMiOjMwMCwidG90YWxfdGFza3MiOjAsImNvbXBsZXRlZF90YXNrcyI6MCwicmV2aWV3X3Rhc2tzIjowLCJpbl9wcm9ncmVzc190YXNrcyI6MCwiYWlfY29tcGxldGVkX3Rhc2tzIjowLCJiYXRjaF9zdW1tYXJ5Ijp7InRvdGFsIjowLCJhc3NpZ25lZCI6MCwiaW5fcmV2aWV3IjowfSwiZHVlX2RhdGUiOm51bGwsImNyZWF0ZWRfYXQiOiIyMDI2LTAxLTE1VDEyOjAwOjAwWiIsInVwZGF0ZWRfYXQiOiIyMDI2LTEwLTIxVDAxOjE4OjUzLjYzOTMyM1oifQ==",
+          "byte_length": 3217,
+          "sha256": "7c92aacc701680d199162dbbda2d3b34da484ccc3fa95511c8d800ec9815be69"
+        },
+        "status": 200
+      }
+    }
+  ],
+  "source": {
+    "capture_driver_sha256": "1d41bd164bf610ad561f967a298992b7abac727191c74fb14e10618c68b3fe3d",
+    "captured_head": "2c49719087b72a59344e93fe94497afefd754b20",
+    "pre_extraction_base": "86f4ff527446a1932e585f6fda381520860161c9",
+    "runtime_source_sha256": {
+      "apps/_shared/workspace_contract/src/aap_workspace_contract/__init__.py": "2a4a9e416f5e570da9000d82d966a6a144c3cf86ce248d6e6e655f9a59e846fe",
+      "apps/api/alembic/sql/0254_workspace_owner_transfer.sql": "73fe2cf2eb148171c7a7ad65e1a8049e538412527c59afa145cd85dd9e36ce45",
+      "apps/api/alembic/sql/0257_workspace_configuration.sql": "42fcb12bf6db7a85baba9bb7b20bdbc0db8ec6d83c83942bf914728711948f11",
+      "apps/api/app/api/v1/projects.py": "42783392608fa03c75936e61b7a28f19d7998358773a301b42b9aa9025b23ff4",
+      "apps/api/app/api/v1/search.py": "cc8a0c8b77d5970716222b38b917cad20871c521aac6bda68e3fb068ec524290",
+      "apps/api/app/application/project_class_rename.py": "ffcbcccb2df0d261bc92420c3e747a8476e6dd573e16562cd1878c08eb79ffe0",
+      "apps/api/app/application/project_workspace.py": "8afd69b971598de5cc8a529f2aa8fe5fa231d706d6ddaa545327e92202ca8d66",
+      "apps/api/app/config.py": "80814dddaaed55e88905ec354956089b4be102675baac2915c89bb605e61d69f",
+      "apps/api/app/core/security.py": "70ca9d3325406f3128bcac0dc5048f6b1387cb1a795dfb1b76d6df29a2ac0b9b",
+      "apps/api/app/db/enums.py": "5341c4e4dafc0147bfc5d24a3dd44d128b875f004daa3493cc0e6dee091d424c",
+      "apps/api/app/db/models/annotation.py": "6d885eb2c0882192216e8cff7af77b7d72a77c4d2f320d862b261e9d77f256a9",
+      "apps/api/app/db/models/dataset.py": "d1f61572c68bbf2e1271b70ff12f22789a7d7ea7664f6d41ce7fd7641c89f8a7",
+      "apps/api/app/db/models/project.py": "b274f2a7765a14e1ec62b3f9e1253e09046f592edd94c0a769fedd6be7e31da4",
+      "apps/api/app/db/models/project_member.py": "55857f5fe62a1c591eae8357029e497a02ac3a04ac0bff1cd6d4b00feb96d107",
+      "apps/api/app/db/models/task.py": "c0b4fb92b0b7fc17d2ea8640de8b054d525a7826a7e5fd95ae3b4291a7615189",
+      "apps/api/app/db/models/task_batch.py": "880c1d7910ac043c9b2cb61f04f71aa9a398d7bb96bbc9c6b04a5ea935efa7db",
+      "apps/api/app/db/models/user.py": "ab646405f6960cee9dce564ca6caff5ea9a9676c4551f9af1b2a738251ded687",
+      "apps/api/app/deps.py": "fbb9af9ab07e6ca3adce3b8b170c2e5cc37fc8c17afea8a10fe341896a932168",
+      "apps/api/app/schemas/project.py": "f74d44920b7e8d632c02cae64ba92849272e36a06386acafb4d87e12e75a4cb8",
+      "apps/api/app/services/annotation.py": "3369216e922fd22fb2f447da3fd058f8c2f29b7c0765a7c80d0107602ff78168",
+      "apps/api/app/services/identity_account_lock_data.py": "4bea102159fb190d140767211734a9e9426e9b3c98006e98364204d68390bfe1",
+      "apps/api/app/services/identity_contracts.py": "39fc901226518dcfa6adb840992b70c2131b361beeb5ed7aadd915f06d595b3e",
+      "apps/api/app/services/identity_gateway.py": "a81f0b92875ff28e1248d3e26e573ca3a20ba172a911264ca100d12723f8b914",
+      "apps/api/app/services/project_access.py": "8a9d111b038e40070c17f2b6296f119855e26dc6f235bce613dc3eed08a1ab82",
+      "apps/api/app/services/project_workspace.py": "f61976e839f90826689f750b8c00b786dcc4b59f23477852cd692e6e74f84002",
+      "apps/api/app/services/scheduler.py": "2e5bc85db576a54a265e19c1b6c2b271785c71b586d096608fc1cb74ed4904d8",
+      "apps/api/app/services/workspace_configuration.py": "0dd4bdee23154f0d66f29f8e35fd65ddb296a143a392c28fa5087c37900745ad",
+      "apps/api/app/services/workspace_configuration_data.py": "4541fdd224e43588d92e9ff80d0d8ca1578de5506a551c547c58d3eb7fceefc3",
+      "apps/api/app/services/workspace_owner_transfer.py": "d51aa551ee8dad6f2076c82dd62567fa90a9f753dabb23f3dba0913decb5cada",
+      "apps/api/app/services/workspace_owner_transfer_data.py": "2096b9e901b18ede8a1a64ac2af63b04fed9c2bab0de0ac6d58b06c1d1137be2",
+      "apps/workspace/src/aap_workspace/configuration.py": "194c9abed85b089224032087bd83ae6330597f0176d609a440844f523640c054",
+      "apps/workspace/src/aap_workspace/configuration_contract.py": "ffd5de8f7b68227c1336fbe3e4c93a36e24748c06d6e83a9bc6acf98c7535892",
+      "apps/workspace/src/aap_workspace/configuration_requests.py": "ecb0c32bd3a40c6ebbaeee9406ec082e20c21702842b688b1000a41aee595055",
+      "apps/workspace/src/aap_workspace/configuration_values.py": "24d1c5ba51dd6356be56d34834b79195f08386d6d0b7fbef24f83cf40b6bd428"
+    }
+  }
+}
