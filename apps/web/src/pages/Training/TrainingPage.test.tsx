@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router-dom";
@@ -144,12 +144,126 @@ describe("training entry", () => {
     );
     const warehouse = screen.getByRole("heading", { name: "LibreYOLO" }).closest("article")!;
     expect(within(warehouse).queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: /基础模型/, hidden: true })).not.toBeInTheDocument();
+    expect(screen.queryByText("base")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "新建训练" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "进入项目" })[0]).toHaveAttribute(
       "href",
       "/projects/ready/learning?tab=training",
     );
     expect(screen.getByText(/训练仓库共用同一 GPU/)).toBeVisible();
+  });
+  it("groups model sizes in one row per family and task without losing any model", async () => {
+    const models = ["yolov8", "yolo11", "yolo26"].flatMap((family) =>
+      ["n", "s", "m", "l", "x"].flatMap((size) =>
+        ["detect", "segment"].map((task) => ({
+          id: `${family}${size}${task === "segment" ? "-seg" : ""}`,
+          filename: `${family}${size}.pt`,
+          sha256: "fixed",
+          model_family: family,
+          model_size: size,
+          task,
+        })),
+      ),
+    );
+    vi.mocked(trainingHubApi.catalog).mockResolvedValue({
+      ...catalog,
+      items: [
+        {
+          ...catalog.items[0],
+          base_models: models,
+          parameter_schemas: ["yolov8", "yolo11", "yolo26"].flatMap((family) =>
+            ["detect", "segment"].map((task) => ({
+              schema_id: `${family}:${task}`,
+              model_family: family,
+              task,
+              field_count: 114,
+              editable_count: task === "detect" ? 38 : 26,
+              compatible: task === "detect",
+            })),
+          ),
+        },
+      ],
+    } as never);
+    mount("/training?tab=warehouses");
+    const warehouse = (await screen.findByRole("heading", { name: "Ultralytics" })).closest(
+      "article",
+    )!;
+    expect(within(warehouse).getByText("30 个 · 6 组")).toBeVisible();
+    expect(within(warehouse).getAllByRole("list")).toHaveLength(1);
+    expect(within(warehouse).queryByText("Ultralytics 技术信息")).not.toBeInTheDocument();
+    const list = within(warehouse).getByRole("list", { name: "Ultralytics 基础模型" });
+    expect(list).toBeVisible();
+    const rows = within(list).getAllByRole("listitem");
+    expect(rows).toHaveLength(6);
+    for (const row of rows) {
+      expect(within(row).getAllByRole("button", { name: /基础权重哈希/ })).toHaveLength(5);
+      expect(within(row).getByText(/114 个原生参数/)).toBeVisible();
+    }
+    expect(rows[0]).toHaveTextContent("YOLOv8图片目标检测");
+    expect(rows[1]).toHaveTextContent("YOLOv8图片实例分割");
+    expect(within(list).getByLabelText("yolo26x-seg · 权重下载")).toBeVisible();
+    expect(within(list).getAllByText("支持模型回流")).toHaveLength(3);
+    expect(within(list).getAllByText("权重下载")).toHaveLength(3);
+    expect(within(list).getAllByText("已兼容")).toHaveLength(3);
+    expect(within(list).getAllByText("执行器需更新")).toHaveLength(3);
+  });
+  it("keeps per-size registration differences visible within a shared model row", async () => {
+    vi.mocked(trainingHubApi.catalog).mockResolvedValue({
+      ...catalog,
+      items: [
+        {
+          ...catalog.items[0],
+          base_models: [true, false].map((registration, index) => ({
+            id: `yolo11${index === 0 ? "n" : "s"}`,
+            filename: "model.pt",
+            sha256: "fixed",
+            model_size: index === 0 ? "n" : "s",
+            capabilities: { model_registration: registration },
+          })),
+        },
+      ],
+    } as never);
+    mount("/training?tab=warehouses");
+    const list = await screen.findByRole("list", { name: "Ultralytics 基础模型" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(list).getByLabelText("yolo11n · 支持模型回流")).toHaveTextContent("n可回流");
+    expect(within(list).getByLabelText("yolo11s · 权重下载")).toHaveTextContent("s下载");
+  });
+  it("shows an explicit empty model catalog", async () => {
+    vi.mocked(trainingHubApi.catalog).mockResolvedValue({
+      ...catalog,
+      items: [{ ...catalog.items[0], base_models: [] }],
+    } as never);
+    mount("/training?tab=warehouses");
+    expect(await screen.findByText("尚未配置基础模型")).toBeVisible();
+    expect(screen.queryByLabelText(/Ultralytics 基础模型/)).not.toBeInTheDocument();
+  });
+  it("preserves parameter contracts when no base weights are configured", async () => {
+    vi.mocked(trainingHubApi.catalog).mockResolvedValue({
+      ...catalog,
+      items: [
+        {
+          ...catalog.items[0],
+          base_models: [],
+          parameter_schemas: [
+            {
+              schema_id: "schema-only",
+              model_family: "yolo11",
+              task: "detect",
+              field_count: 114,
+              editable_count: 38,
+            },
+          ],
+        },
+      ],
+    } as never);
+    mount("/training?tab=warehouses");
+    const list = await screen.findByRole("list", { name: "Ultralytics 基础模型" });
+    expect(within(list).getByText("尚未配置基础模型")).toBeVisible();
+    expect(within(list).getByText(/114 个原生参数 \/ 38 个可编辑/)).toBeVisible();
+    expect(within(list).getByText("待执行器确认")).toBeVisible();
+    expect(within(list).queryByRole("button")).not.toBeInTheDocument();
   });
   it("separates queue, history and environment details with restorable URL tabs", async () => {
     const user = userEvent.setup();
@@ -291,7 +405,21 @@ describe("training entry", () => {
     expect(screen.getByRole("textbox", { name: "搜索训练项目" })).toHaveValue("");
     expect(await screen.findByRole("link", { name: "有数据的项目" })).toBeVisible();
   });
-  it("keeps hash copy actions collapsed until technical details are expanded", async () => {
+  it("copies image and base-weight hashes directly from the unified warehouse catalog", async () => {
+    vi.mocked(trainingHubApi.catalog).mockResolvedValue({
+      ...catalog,
+      items: [
+        {
+          ...catalog.items[0],
+          base_models: ["n", "s"].map((size) => ({
+            id: `yolo11${size}`,
+            model_size: size,
+            filename: `yolo11${size}.pt`,
+            sha256: `sha256:weight-${size}`,
+          })),
+        },
+      ],
+    } as never);
     const user = userEvent.setup();
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
     mount("/training?tab=warehouses");
@@ -299,16 +427,17 @@ describe("training entry", () => {
     const warehouse = heading.closest("article")!;
     const copyHash = within(warehouse).getByRole("button", {
       name: "复制容器镜像摘要",
-      hidden: true,
     });
-    expect(copyHash).not.toBeVisible();
-    const summary = within(warehouse).getByText("Ultralytics 技术信息");
-    summary.focus();
-    expect(summary).toHaveFocus();
-    await user.click(summary);
     expect(copyHash).toBeVisible();
     expect(within(warehouse).queryByText("sha256:fixed")).not.toBeInTheDocument();
     await user.click(copyHash);
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("sha256:fixed"));
+    const model = within(warehouse).getByRole("button", { name: "复制 yolo11s 基础权重哈希" });
+    act(() => model.focus());
+    expect(model).toHaveFocus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith("sha256:weight-s"));
+    await user.click(within(warehouse).getByRole("button", { name: "复制 yolo11n 基础权重哈希" }));
+    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith("sha256:weight-n"));
   });
 });

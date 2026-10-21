@@ -2,6 +2,27 @@ import type { TrainingEpochEvent, TrainingRunOut } from "@/api/trainingRuns";
 
 import { normalizeTask } from "@/api/generated/capabilityVocab.gen";
 
+export const trainingModelFamilyLabels: Record<string, string> = {
+  yolov8: "YOLOv8",
+  yolo11: "YOLO11",
+  yolo26: "YOLO26",
+  yolo9: "YOLO9",
+};
+
+export function trainingModelFamily(base: { id: string; model_family?: string | null }) {
+  if (base.model_family) return base.model_family;
+  const id = base.id.toLowerCase();
+  return id.startsWith("yolov8")
+    ? "yolov8"
+    : id.startsWith("libreyolo9")
+      ? "yolo9"
+      : id.startsWith("yolo26")
+        ? "yolo26"
+        : id.startsWith("yolo11")
+          ? "yolo11"
+          : base.id;
+}
+
 export const segmentationTask = "segment";
 export const trainingTaskLabel = (task?: unknown) => {
   const value = normalizeTask(typeof task === "string" ? task : "detect");

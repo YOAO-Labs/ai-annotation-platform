@@ -1,9 +1,53 @@
-import { Box, Check, ChevronDown } from "lucide-react";
+import { Box, Check } from "lucide-react";
 import type { TrainingHubCatalog } from "@/api/trainingHub";
 import { Badge } from "@/components/ui/Badge";
 import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { cn } from "@/lib/utils";
-import { trainingTaskLabel } from "./trainingPresentation";
+import {
+  trainingModelFamily,
+  trainingModelFamilyLabels,
+  trainingTaskLabel,
+} from "./trainingPresentation";
+
+type Warehouse = TrainingHubCatalog["items"][number];
+type BaseModel = Warehouse["base_models"][number];
+
+function supportsRegistration(model: BaseModel, warehouse: Warehouse) {
+  return (
+    model.capabilities?.model_registration ??
+    ((model.task ?? "detect") === "detect" && warehouse.capabilities.model_registration)
+  );
+}
+
+function groupModels(warehouse: Warehouse) {
+  const groups = new Map<
+    string,
+    {
+      family: string;
+      task: string;
+      models: BaseModel[];
+      schemas: NonNullable<Warehouse["parameter_schemas"]>;
+    }
+  >();
+  const getGroup = (family: string, task: string) => {
+    const key = `${family}:${task}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = { family, task, models: [], schemas: [] };
+      groups.set(key, group);
+    }
+    return group;
+  };
+  for (const model of warehouse.base_models) {
+    const family = trainingModelFamily(model);
+    const task = model.task ?? "detect";
+    getGroup(family, task).models.push(model);
+  }
+  for (const schema of warehouse.parameter_schemas ?? []) {
+    getGroup(schema.model_family, schema.task).schemas.push(schema);
+  }
+  return Array.from(groups.values());
+}
 
 export function TrainingWarehouseCards({
   catalog,
@@ -18,6 +62,7 @@ export function TrainingWarehouseCards({
     >
       {catalog.items.map((item) => {
         const name = item.framework === "libreyolo" ? "LibreYOLO" : "Ultralytics";
+        const modelGroups = compact ? [] : groupModels(item);
         return (
           <article
             key={item.framework}
@@ -31,7 +76,12 @@ export function TrainingWarehouseCards({
                 <Box aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
                 <div>
                   <h3 className="text-sm font-semibold">{name}</h3>
-                  <p className="mt-1 font-mono text-2xs text-muted-foreground">{item.version}</p>
+                  <div className="mt-1 flex items-center gap-1 font-mono text-2xs text-muted-foreground">
+                    <span>{item.version}</span>
+                    {!compact && (
+                      <CopyValueButton value={item.image_digest} label="复制容器镜像摘要" />
+                    )}
+                  </div>
                 </div>
               </div>
               <Badge
@@ -59,48 +109,105 @@ export function TrainingWarehouseCards({
                       : "离线 · 可排队"}
               </Badge>
             </div>
-            <ul className="mt-4 space-y-3" aria-label={`${name} 基础模型`}>
-              {item.base_models.map((model) => (
-                <li
-                  key={model.id}
-                  className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs"
-                >
-                  <div className="min-w-0">
-                    <p className="break-all font-mono font-medium">{model.id}</p>
-                    <p className="mt-1 text-muted-foreground">{trainingTaskLabel(model.task)}</p>
-                  </div>
-                  <span className="text-2xs text-muted-foreground">
-                    {(model.capabilities?.model_registration ??
-                    ((model.task ?? "detect") === "detect" && item.capabilities.model_registration))
-                      ? "支持模型回流"
-                      : "权重下载"}
-                  </span>
-                </li>
-              ))}
-            </ul>
             {!compact && (
               <>
-                {(item.parameter_schemas ?? []).length > 0 && (
-                  <dl className="mt-5 space-y-3 border-t border-border pt-4 text-xs">
-                    {item.parameter_schemas?.map((schema) => (
-                      <div key={schema.schema_id}>
-                        <dt className="font-medium">
-                          {schema.model_family} · {trainingTaskLabel(schema.task)}
-                        </dt>
-                        <dd className="mt-1 tabular-nums text-muted-foreground">
-                          {schema.field_count} 个原生参数 / {schema.editable_count} 个可编辑
-                        </dd>
-                        <dd className="mt-1 text-2xs text-muted-foreground">
-                          {schema.compatible === true
-                            ? "执行器支持此参数契约"
-                            : schema.compatible === false
-                              ? "执行器需更新后才能使用扩展参数"
-                              : "等待执行器上线确认"}{" "}
-                          · 完整目录位于项目内
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
+                {modelGroups.length > 0 ? (
+                  <div className="mt-4">
+                    <p className="mb-2 flex items-baseline gap-2 text-xs font-medium">
+                      基础模型与训练参数
+                      <span className="font-normal tabular-nums text-muted-foreground">
+                        {item.base_models.length} 个 · {modelGroups.length} 组
+                      </span>
+                    </p>
+                    <ul
+                      className="divide-y divide-border border-y border-border"
+                      aria-label={`${name} 基础模型`}
+                    >
+                      {modelGroups.map((group) => {
+                        const registrations = group.models.map((model) =>
+                          supportsRegistration(model, item),
+                        );
+                        const mixedCapabilities = new Set(registrations).size > 1;
+                        return (
+                          <li key={`${group.family}:${group.task}`} className="py-3 text-xs">
+                            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                              <p className="min-w-0 break-words font-medium">
+                                {trainingModelFamilyLabels[group.family] ?? group.family}
+                                <span className="ml-2 font-normal text-muted-foreground">
+                                  {trainingTaskLabel(group.task)}
+                                </span>
+                              </p>
+                              {group.models.length > 0 && !mixedCapabilities && (
+                                <span className="text-2xs text-muted-foreground">
+                                  {registrations[0] ? "支持模型回流" : "权重下载"}
+                                </span>
+                              )}
+                            </div>
+                            <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                              <div className="flex min-w-0 flex-wrap gap-1">
+                                {group.models.map((model, index) => {
+                                  const capability = registrations[index]
+                                    ? "支持模型回流"
+                                    : "权重下载";
+                                  return (
+                                    <span
+                                      key={model.id}
+                                      title={`${model.id} · ${capability}`}
+                                      aria-label={`${model.id} · ${capability}`}
+                                      className="inline-flex items-center gap-1 rounded bg-muted pl-1.5 text-2xs"
+                                    >
+                                      <span className="break-all font-mono" title={model.filename}>
+                                        {model.model_size ?? model.id}
+                                      </span>
+                                      {mixedCapabilities && (
+                                        <span className="text-muted-foreground">
+                                          {registrations[index] ? "可回流" : "下载"}
+                                        </span>
+                                      )}
+                                      <CopyValueButton
+                                        value={model.sha256}
+                                        label={`复制 ${model.id} 基础权重哈希`}
+                                      />
+                                    </span>
+                                  );
+                                })}
+                                {group.models.length === 0 && (
+                                  <span className="text-2xs text-muted-foreground">
+                                    尚未配置基础模型
+                                  </span>
+                                )}
+                              </div>
+                              {group.schemas.map((schema) => (
+                                <p
+                                  key={schema.schema_id}
+                                  className="text-2xs tabular-nums text-muted-foreground"
+                                >
+                                  {schema.field_count} 个原生参数 / {schema.editable_count} 个可编辑
+                                  <span
+                                    className={cn(
+                                      "ml-2",
+                                      schema.compatible === false && "text-status-danger",
+                                    )}
+                                  >
+                                    {schema.compatible === true
+                                      ? "已兼容"
+                                      : schema.compatible === false
+                                        ? "执行器需更新"
+                                        : "待执行器确认"}
+                                  </span>
+                                </p>
+                              ))}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    <p className="mt-3 text-2xs text-muted-foreground">
+                      规格旁可复制基础权重校验值，完整参数目录位于项目内。
+                    </p>
+                  </div>
+                ) : (
+                  <p className="mt-4 text-xs text-muted-foreground">尚未配置基础模型</p>
                 )}
                 {item.capabilities.resume && (
                   <p className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -108,34 +215,6 @@ export function TrainingWarehouseCards({
                     支持检查点续训
                   </p>
                 )}
-                <details className="group mt-4 border-t border-border pt-3">
-                  <summary className="flex cursor-pointer list-none items-center justify-between rounded-sm py-1 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-                    {name} 技术信息
-                    <ChevronDown
-                      aria-hidden="true"
-                      className="size-3.5 transition-transform group-open:rotate-180 motion-reduce:transition-none"
-                    />
-                  </summary>
-                  <dl className="mt-3 space-y-4 text-xs">
-                    <div className="flex items-center gap-1">
-                      <dt className="text-muted-foreground">容器镜像摘要</dt>
-                      <dd>
-                        <CopyValueButton value={item.image_digest} label="复制容器镜像摘要" />
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-muted-foreground">基础权重</dt>
-                      {item.base_models.map((model) => (
-                        <dd key={model.id} className="mt-2">
-                          <p className="flex min-w-0 items-center gap-1">
-                            <span className="break-all font-medium">{model.filename}</span>
-                            <CopyValueButton value={model.sha256} label="复制基础权重哈希" />
-                          </p>
-                        </dd>
-                      ))}
-                    </div>
-                  </dl>
-                </details>
               </>
             )}
             {item.compatible === false && (

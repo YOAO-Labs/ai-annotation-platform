@@ -55,7 +55,12 @@ import {
   useTrainingInitializationSource,
 } from "./TrainingInitializationSource";
 import type { TrainingDraft } from "./trainingDraftStorage";
-import { segmentationTask, trainingTaskLabel } from "./trainingPresentation";
+import {
+  segmentationTask,
+  trainingModelFamily as modelFamily,
+  trainingModelFamilyLabels as familyLabels,
+  trainingTaskLabel,
+} from "./trainingPresentation";
 import {
   collectOverrides,
   compatibleDrafts,
@@ -101,12 +106,6 @@ type DatasetHandoffPreview = {
   intentOwner: object;
 };
 const steps = ["数据与模型", "配置参数", "核对并开始"];
-const familyLabels: Record<string, string> = {
-  yolov8: "YOLOv8",
-  yolo11: "YOLO11",
-  yolo26: "YOLO26",
-  yolo9: "YOLO9",
-};
 const sizeLabels: Record<string, string> = {
   n: "Nano",
   t: "Tiny",
@@ -116,19 +115,6 @@ const sizeLabels: Record<string, string> = {
   x: "Extra large",
   c: "C 型",
 };
-function modelFamily(base: TrainingCatalogModel) {
-  if (base.model_family) return base.model_family;
-  const id = base.id.toLowerCase();
-  return id.startsWith("yolov8")
-    ? "yolov8"
-    : id.startsWith("libreyolo9")
-      ? "yolo9"
-      : id.startsWith("yolo26")
-        ? "yolo26"
-        : id.startsWith("yolo11")
-          ? "yolo11"
-          : base.id;
-}
 function modelSizeLabel(base: TrainingCatalogModel) {
   const size = base.model_size ?? /([ntsmlxc])(?:-seg)?$/.exec(base.id)?.[1];
   return size ? `${sizeLabels[size] ?? size} (${size})` : base.id;
