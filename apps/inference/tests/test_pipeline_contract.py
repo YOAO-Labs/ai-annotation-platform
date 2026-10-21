@@ -154,6 +154,14 @@ def test_projection_request_binds_full_command_actor_and_resource():
     with pytest.raises(PipelineInvalidRequest):
         pipeline_query_request(
             "get_pipeline_projection",
+            actor_id=actor_id,
+            actor_role="project_admin",
+            target_id=pipeline_id,
+            evidence=evidence,
+        )
+    with pytest.raises(PipelineInvalidRequest):
+        pipeline_query_request(
+            "get_pipeline_projection",
             actor_id=uuid.uuid4(),
             actor_role="employee",
             target_id=pipeline_id,
@@ -209,6 +217,9 @@ def test_command_reply_binds_actor_target_and_known_result_id():
     wrong_result["result"] = {"resource_id": str(uuid.uuid4())}
     with pytest.raises(PipelineUnavailable):
         decode_pipeline_reply(command, wrong_result)
+
+    with pytest.raises(PipelineUnavailable):
+        decode_pipeline_reply(command, dict(reply, ok=1))
 
     pending = dict(reply, commit_state="caller_pending")
     with pytest.raises(PipelineUnavailable):
@@ -271,11 +282,16 @@ def test_query_reply_decodes_raw_rows_and_binds_single_resource():
         target_id=pipeline_id,
     )
     row = _row_payload(row_id=pipeline_id)
-    reply = decode_pipeline_query_reply(request, _query_reply(request, row))
+    raw_reply = _query_reply(request, row)
+    reply = decode_pipeline_query_reply(request, raw_reply)
     assert reply.rows[0].id == pipeline_id
     assert reply.rows[0].scope == "historical-raw-scope"
     assert reply.rows[0].stages is None
     assert reply.rows[0].created_at == datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+    assert raw_reply["request_id"] == str(request.request_id)
+    assert raw_reply["actor_id"] == str(request.admitted_actor.id)
+    assert raw_reply["target_id"] == str(pipeline_id)
+    assert raw_reply["rows"][0]["id"] == str(pipeline_id)
 
     wrong_row = _row_payload(row_id=uuid.uuid4())
     with pytest.raises(PipelineUnavailable):

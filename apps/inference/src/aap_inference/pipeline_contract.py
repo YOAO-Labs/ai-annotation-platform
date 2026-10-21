@@ -221,18 +221,14 @@ def _decode(model, payload, failure):
 
 
 class _PipelineWireModel(ClosedModel):
-    @field_validator("ok", mode="before", check_fields=False)
-    @classmethod
-    def exact_json_boolean(cls, value):
-        if type(value) is not bool:
-            raise ValueError("ok must be a JSON boolean")
-        return value
-
     @model_validator(mode="before")
     @classmethod
     def declared_schema_field_only(cls, value):
-        if isinstance(value, dict) and "protocol" in value:
-            raise ValueError("Use only the declared wire field schema")
+        if isinstance(value, dict):
+            if "protocol" in value:
+                raise ValueError("Use only the declared wire field schema")
+            if "ok" in value and type(value["ok"]) is not bool:
+                raise ValueError("ok must be a JSON boolean")
         return value
 
 
@@ -312,8 +308,8 @@ class PipelineQueryRequest(_PipelineWireModel):
         evidence = self.evidence
         if evidence is None or evidence.operation == "delete_pipeline":
             raise ValueError("Pipeline projection requires non-delete command evidence")
-        if evidence.admitted_actor.id != self.admitted_actor.id:
-            raise ValueError("Pipeline projection actor does not match command evidence")
+        if evidence.admitted_actor != self.admitted_actor:
+            raise ValueError("Pipeline projection actor snapshot does not match command evidence")
         if evidence.operation == "update_pipeline" and evidence.target_id != self.target_id:
             raise ValueError("Pipeline projection target does not match update command")
         return self
@@ -855,7 +851,7 @@ def _query_rows_as_models(payload):
     elif isinstance(payload, BaseModel):
         raw = payload.model_dump(mode="python", by_alias=True)
     elif isinstance(payload, dict):
-        raw = payload
+        raw = dict(payload)
     else:
         raw = _json_object(payload)
     for field in ("request_id", "actor_id", "target_id"):
