@@ -191,11 +191,13 @@ async def test_project_query_functions_have_fixed_domain_owners_and_grants(test_
         assert row["volatility"] == "s"
         assert row["parallel_mode"] == "u"
         assert row["function_settings"] == ["search_path=pg_catalog, pg_temp"]
-        assert row["workspace_can_execute"] is True
         if row["signature"] == (
             "aap_assets_v1.workspace_project_query_dataset_item_ids(uuid[])"
         ):
+            assert row["workspace_can_execute"] is False
             assert row["labeling_can_execute"] is True
+        else:
+            assert row["workspace_can_execute"] is True
         assert row["public_can_execute"] is False
 
 
@@ -498,6 +500,18 @@ async def test_project_query_series_keep_twelve_input_ordered_bucket_boundaries(
                 """,
                 {"project_ids": [], "ends": ends},
             )
+            lower_bound_series = await _rows(
+                session,
+                """
+                SELECT bucket_index, total_data, completed, pending_review
+                FROM aap_labeling_v1.workspace_project_query_task_series(
+                    CAST(:project_ids AS uuid[]),
+                    array_fill(CAST(:last_end AS timestamptz), ARRAY[12], ARRAY[0])
+                )
+                ORDER BY bucket_index
+                """,
+                {"project_ids": [project_ids[0]], "last_end": ends[-1]},
+            )
 
         assert [row["bucket_index"] for row in task_series] == list(range(1, 13))
         assert [row["total_data"] for row in task_series] == [5] * 4 + [6] * 8
@@ -550,6 +564,15 @@ async def test_project_query_series_keep_twelve_input_ordered_bucket_boundaries(
             row["total_data"] == row["completed"] == row["pending_review"] == 0
             for row in empty_series
         )
+        assert lower_bound_series == [
+            {
+                "bucket_index": index,
+                "total_data": 6,
+                "completed": 2,
+                "pending_review": 1,
+            }
+            for index in range(1, 13)
+        ]
     finally:
         if project_ids:
             async with maker.begin() as session:
@@ -989,6 +1012,7 @@ async def test_project_query_rejects_null_and_malformed_inputs_with_22023(test_e
         "SELECT * FROM aap_labeling_v1.workspace_project_query_counters(NULL::uuid[])",
         "SELECT * FROM aap_labeling_v1.workspace_project_query_ai_counts(NULL::uuid[])",
         "SELECT aap_labeling_v1.workspace_project_query_annotation_count(NULL::uuid[], false)",
+        "SELECT aap_labeling_v1.workspace_project_query_annotation_count(ARRAY[]::uuid[], NULL::boolean)",
         "SELECT * FROM aap_labeling_v1.workspace_project_query_task_series(NULL::uuid[], array_fill(TIMESTAMPTZ '2025-01-01', ARRAY[12]))",
         "SELECT * FROM aap_labeling_v1.workspace_project_query_annotation_series(NULL::uuid[], array_fill(TIMESTAMPTZ '2025-01-01', ARRAY[12]))",
         "SELECT * FROM aap_assets_v1.workspace_project_query_dataset_ids(NULL::uuid)",

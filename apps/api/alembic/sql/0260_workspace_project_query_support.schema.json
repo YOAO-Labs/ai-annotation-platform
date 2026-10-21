@@ -45,7 +45,7 @@
         { "name": "p_ai_only", "type": "boolean" }
       ],
       "returns": { "kind": "scalar", "type": "bigint" },
-      "semantics": "Count active, non-cancelled annotations; true restricts to AI-derived annotations."
+      "semantics": "Count active, non-cancelled annotations; true restricts to AI-derived annotations and a null selector is rejected."
     },
     {
       "signature": "aap_labeling_v1.workspace_project_query_task_series(uuid[],timestamptz[])",

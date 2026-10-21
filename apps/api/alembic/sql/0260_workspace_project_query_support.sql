@@ -117,6 +117,11 @@ BEGIN
             ERRCODE = '22023',
             MESSAGE = 'invalid Workspace project query ids';
     END IF;
+    IF p_ai_only IS NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = '22023',
+            MESSAGE = 'invalid Workspace project annotation-count selector';
+    END IF;
 
     SELECT pg_catalog.count(*)::bigint
     INTO v_count
@@ -124,10 +129,7 @@ BEGIN
     WHERE annotation.project_id = ANY (p_project_ids)
       AND annotation.is_active IS TRUE
       AND annotation.was_cancelled IS FALSE
-      AND (
-          p_ai_only IS NOT TRUE
-          OR annotation.parent_prediction_id IS NOT NULL
-      );
+      AND (NOT p_ai_only OR annotation.parent_prediction_id IS NOT NULL);
 
     RETURN v_count;
 END;
@@ -153,6 +155,11 @@ PARALLEL UNSAFE
 SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $function$
+DECLARE
+    v_bucket_ends timestamptz[];
+    v_total_data bigint[];
+    v_completed bigint[];
+    v_pending_review bigint[];
 BEGIN
     IF p_project_ids IS NULL
        OR (
@@ -181,40 +188,189 @@ BEGIN
             MESSAGE = 'invalid Workspace project task-series buckets';
     END IF;
 
+    SELECT pg_catalog.array_agg(endpoint.value ORDER BY endpoint.ordinality)
+    INTO v_bucket_ends
+    FROM pg_catalog.unnest(p_bucket_ends) WITH ORDINALITY
+        AS endpoint(value, ordinality);
+
+    SELECT ARRAY[
+               pg_catalog.count(*) FILTER (WHERE task.created_at <= v_bucket_ends[1]),
+               pg_catalog.count(*) FILTER (WHERE task.created_at <= v_bucket_ends[2]),
+               pg_catalog.count(*) FILTER (WHERE task.created_at <= v_bucket_ends[3]),
+               pg_catalog.count(*) FILTER (WHERE task.created_at <= v_bucket_ends[4]),
+               pg_catalog.count(*) FILTER (WHERE task.created_at <= v_bucket_ends[5]),
+               pg_catalog.count(*) FILTER (WHERE task.created_at <= v_bucket_ends[6]),
+               pg_catalog.count(*) FILTER (WHERE task.created_at <= v_bucket_ends[7]),
+               pg_catalog.count(*) FILTER (WHERE task.created_at <= v_bucket_ends[8]),
+               pg_catalog.count(*) FILTER (WHERE task.created_at <= v_bucket_ends[9]),
+               pg_catalog.count(*) FILTER (WHERE task.created_at <= v_bucket_ends[10]),
+               pg_catalog.count(*) FILTER (WHERE task.created_at <= v_bucket_ends[11]),
+               pg_catalog.count(*) FILTER (WHERE task.created_at <= v_bucket_ends[12])
+           ]::bigint[],
+           ARRAY[
+               pg_catalog.count(*) FILTER (
+                   WHERE task.status = 'completed'
+                     AND (task.reviewed_at <= v_bucket_ends[1]
+                          OR (task.reviewed_at IS NULL
+                              AND task.updated_at <= v_bucket_ends[1]))
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE task.status = 'completed'
+                     AND (task.reviewed_at <= v_bucket_ends[2]
+                          OR (task.reviewed_at IS NULL
+                              AND task.updated_at <= v_bucket_ends[2]))
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE task.status = 'completed'
+                     AND (task.reviewed_at <= v_bucket_ends[3]
+                          OR (task.reviewed_at IS NULL
+                              AND task.updated_at <= v_bucket_ends[3]))
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE task.status = 'completed'
+                     AND (task.reviewed_at <= v_bucket_ends[4]
+                          OR (task.reviewed_at IS NULL
+                              AND task.updated_at <= v_bucket_ends[4]))
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE task.status = 'completed'
+                     AND (task.reviewed_at <= v_bucket_ends[5]
+                          OR (task.reviewed_at IS NULL
+                              AND task.updated_at <= v_bucket_ends[5]))
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE task.status = 'completed'
+                     AND (task.reviewed_at <= v_bucket_ends[6]
+                          OR (task.reviewed_at IS NULL
+                              AND task.updated_at <= v_bucket_ends[6]))
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE task.status = 'completed'
+                     AND (task.reviewed_at <= v_bucket_ends[7]
+                          OR (task.reviewed_at IS NULL
+                              AND task.updated_at <= v_bucket_ends[7]))
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE task.status = 'completed'
+                     AND (task.reviewed_at <= v_bucket_ends[8]
+                          OR (task.reviewed_at IS NULL
+                              AND task.updated_at <= v_bucket_ends[8]))
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE task.status = 'completed'
+                     AND (task.reviewed_at <= v_bucket_ends[9]
+                          OR (task.reviewed_at IS NULL
+                              AND task.updated_at <= v_bucket_ends[9]))
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE task.status = 'completed'
+                     AND (task.reviewed_at <= v_bucket_ends[10]
+                          OR (task.reviewed_at IS NULL
+                              AND task.updated_at <= v_bucket_ends[10]))
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE task.status = 'completed'
+                     AND (task.reviewed_at <= v_bucket_ends[11]
+                          OR (task.reviewed_at IS NULL
+                              AND task.updated_at <= v_bucket_ends[11]))
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE task.status = 'completed'
+                     AND (task.reviewed_at <= v_bucket_ends[12]
+                          OR (task.reviewed_at IS NULL
+                              AND task.updated_at <= v_bucket_ends[12]))
+               )
+           ]::bigint[],
+           ARRAY[
+               pg_catalog.count(*) FILTER (
+                   WHERE task.submitted_at IS NOT NULL
+                     AND task.submitted_at <= v_bucket_ends[1]
+                     AND (task.reviewed_at IS NULL
+                          OR task.reviewed_at > v_bucket_ends[1])
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE task.submitted_at IS NOT NULL
+                     AND task.submitted_at <= v_bucket_ends[2]
+                     AND (task.reviewed_at IS NULL
+                          OR task.reviewed_at > v_bucket_ends[2])
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE task.submitted_at IS NOT NULL
+                     AND task.submitted_at <= v_bucket_ends[3]
+                     AND (task.reviewed_at IS NULL
+                          OR task.reviewed_at > v_bucket_ends[3])
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE task.submitted_at IS NOT NULL
+                     AND task.submitted_at <= v_bucket_ends[4]
+                     AND (task.reviewed_at IS NULL
+                          OR task.reviewed_at > v_bucket_ends[4])
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE task.submitted_at IS NOT NULL
+                     AND task.submitted_at <= v_bucket_ends[5]
+                     AND (task.reviewed_at IS NULL
+                          OR task.reviewed_at > v_bucket_ends[5])
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE task.submitted_at IS NOT NULL
+                     AND task.submitted_at <= v_bucket_ends[6]
+                     AND (task.reviewed_at IS NULL
+                          OR task.reviewed_at > v_bucket_ends[6])
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE task.submitted_at IS NOT NULL
+                     AND task.submitted_at <= v_bucket_ends[7]
+                     AND (task.reviewed_at IS NULL
+                          OR task.reviewed_at > v_bucket_ends[7])
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE task.submitted_at IS NOT NULL
+                     AND task.submitted_at <= v_bucket_ends[8]
+                     AND (task.reviewed_at IS NULL
+                          OR task.reviewed_at > v_bucket_ends[8])
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE task.submitted_at IS NOT NULL
+                     AND task.submitted_at <= v_bucket_ends[9]
+                     AND (task.reviewed_at IS NULL
+                          OR task.reviewed_at > v_bucket_ends[9])
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE task.submitted_at IS NOT NULL
+                     AND task.submitted_at <= v_bucket_ends[10]
+                     AND (task.reviewed_at IS NULL
+                          OR task.reviewed_at > v_bucket_ends[10])
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE task.submitted_at IS NOT NULL
+                     AND task.submitted_at <= v_bucket_ends[11]
+                     AND (task.reviewed_at IS NULL
+                          OR task.reviewed_at > v_bucket_ends[11])
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE task.submitted_at IS NOT NULL
+                     AND task.submitted_at <= v_bucket_ends[12]
+                     AND (task.reviewed_at IS NULL
+                          OR task.reviewed_at > v_bucket_ends[12])
+               )
+           ]::bigint[]
+    INTO v_total_data, v_completed, v_pending_review
+    FROM public.tasks AS task
+    WHERE task.project_id = ANY (p_project_ids);
+
     RETURN QUERY
-    WITH buckets AS (
-        SELECT endpoint.value AS bucket_end,
-               endpoint.ordinality::integer AS bucket_index
-        FROM pg_catalog.unnest(p_bucket_ends) WITH ORDINALITY
-            AS endpoint(value, ordinality)
-    )
-    SELECT bucket.bucket_index,
-           pg_catalog.count(task.id) FILTER (
-               WHERE task.created_at <= bucket.bucket_end
-           )::bigint,
-           pg_catalog.count(task.id) FILTER (
-               WHERE task.status = 'completed'
-                 AND (
-                     task.reviewed_at <= bucket.bucket_end
-                     OR (
-                         task.reviewed_at IS NULL
-                         AND task.updated_at <= bucket.bucket_end
-                     )
-                 )
-           )::bigint,
-           pg_catalog.count(task.id) FILTER (
-               WHERE task.submitted_at IS NOT NULL
-                 AND task.submitted_at <= bucket.bucket_end
-                 AND (
-                     task.reviewed_at IS NULL
-                     OR task.reviewed_at > bucket.bucket_end
-                 )
-           )::bigint
-    FROM buckets AS bucket
-    LEFT JOIN public.tasks AS task
-      ON task.project_id = ANY (p_project_ids)
-    GROUP BY bucket.bucket_index, bucket.bucket_end
-    ORDER BY bucket.bucket_index;
+    SELECT total.ordinality::integer,
+           total.value,
+           completed.value,
+           pending.value
+    FROM pg_catalog.unnest(v_total_data) WITH ORDINALITY
+        AS total(value, ordinality)
+    JOIN pg_catalog.unnest(v_completed) WITH ORDINALITY
+        AS completed(value, ordinality) USING (ordinality)
+    JOIN pg_catalog.unnest(v_pending_review) WITH ORDINALITY
+        AS pending(value, ordinality) USING (ordinality)
+    ORDER BY total.ordinality;
 END;
 $function$;
 -- aap-statement-break
@@ -237,6 +393,10 @@ PARALLEL UNSAFE
 SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $function$
+DECLARE
+    v_bucket_ends timestamptz[];
+    v_total_annotations bigint[];
+    v_ai_annotations bigint[];
 BEGIN
     IF p_project_ids IS NULL
        OR (
@@ -265,28 +425,114 @@ BEGIN
             MESSAGE = 'invalid Workspace project annotation-series buckets';
     END IF;
 
+    SELECT pg_catalog.array_agg(endpoint.value ORDER BY endpoint.ordinality)
+    INTO v_bucket_ends
+    FROM pg_catalog.unnest(p_bucket_ends) WITH ORDINALITY
+        AS endpoint(value, ordinality);
+
+    SELECT ARRAY[
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[1]
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[2]
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[3]
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[4]
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[5]
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[6]
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[7]
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[8]
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[9]
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[10]
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[11]
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[12]
+               )
+           ]::bigint[],
+           ARRAY[
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[1]
+                     AND annotation.parent_prediction_id IS NOT NULL
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[2]
+                     AND annotation.parent_prediction_id IS NOT NULL
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[3]
+                     AND annotation.parent_prediction_id IS NOT NULL
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[4]
+                     AND annotation.parent_prediction_id IS NOT NULL
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[5]
+                     AND annotation.parent_prediction_id IS NOT NULL
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[6]
+                     AND annotation.parent_prediction_id IS NOT NULL
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[7]
+                     AND annotation.parent_prediction_id IS NOT NULL
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[8]
+                     AND annotation.parent_prediction_id IS NOT NULL
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[9]
+                     AND annotation.parent_prediction_id IS NOT NULL
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[10]
+                     AND annotation.parent_prediction_id IS NOT NULL
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[11]
+                     AND annotation.parent_prediction_id IS NOT NULL
+               ),
+               pg_catalog.count(*) FILTER (
+                   WHERE annotation.created_at <= v_bucket_ends[12]
+                     AND annotation.parent_prediction_id IS NOT NULL
+               )
+           ]::bigint[]
+    INTO v_total_annotations, v_ai_annotations
+    FROM public.annotations AS annotation
+    WHERE annotation.project_id = ANY (p_project_ids)
+      AND annotation.is_active IS TRUE
+      AND annotation.was_cancelled IS FALSE;
+
     RETURN QUERY
-    WITH buckets AS (
-        SELECT endpoint.value AS bucket_end,
-               endpoint.ordinality::integer AS bucket_index
-        FROM pg_catalog.unnest(p_bucket_ends) WITH ORDINALITY
-            AS endpoint(value, ordinality)
-    )
-    SELECT bucket.bucket_index,
-           pg_catalog.count(annotation.id) FILTER (
-               WHERE annotation.created_at <= bucket.bucket_end
-           )::bigint,
-           pg_catalog.count(annotation.id) FILTER (
-               WHERE annotation.created_at <= bucket.bucket_end
-                 AND annotation.parent_prediction_id IS NOT NULL
-           )::bigint
-    FROM buckets AS bucket
-    LEFT JOIN public.annotations AS annotation
-      ON annotation.project_id = ANY (p_project_ids)
-     AND annotation.is_active IS TRUE
-     AND annotation.was_cancelled IS FALSE
-    GROUP BY bucket.bucket_index, bucket.bucket_end
-    ORDER BY bucket.bucket_index;
+    SELECT total.ordinality::integer,
+           total.value,
+           ai.value
+    FROM pg_catalog.unnest(v_total_annotations) WITH ORDINALITY
+        AS total(value, ordinality)
+    JOIN pg_catalog.unnest(v_ai_annotations) WITH ORDINALITY
+        AS ai(value, ordinality) USING (ordinality)
+    ORDER BY total.ordinality;
 END;
 $function$;
 -- aap-statement-break
@@ -514,7 +760,7 @@ BEGIN
 
     RETURN QUERY
     SELECT batch.id,
-           batch.status,
+           batch.status::text,
            batch.annotator_id,
            batch.reviewer_id
     FROM public.task_batches AS batch
@@ -576,7 +822,7 @@ BEGIN
     END IF;
 
     RETURN QUERY
-    SELECT job.status,
+    SELECT job.status::text,
            pg_catalog.count(*)::bigint
     FROM public.async_jobs AS job
     WHERE job.project_id = p_project_id
@@ -607,7 +853,7 @@ BEGIN
     END IF;
 
     RETURN QUERY
-    SELECT job.status
+    SELECT job.status::text
     FROM public.async_jobs AS job
     WHERE job.project_id = p_project_id
       AND job.kind = 'create_tasks'
