@@ -1,6 +1,6 @@
 # 0146 — Independent Inference Named-Pipeline Owner
 
-- **Status:** Accepted; the scoped implementation is present and local qualification is in progress
+- **Status:** Accepted; implementation and baseline local checks are present, with deeper qualification in progress
 - **Date:** 2026-10-21
 - **Deciders:** Backend architecture team
 - **Supersedes:** None
@@ -143,9 +143,10 @@ Negative:
 - An `unknown` receipt cannot be presented as rollback. The request reports
   unavailable and a later public retry is a new operation, matching the absence
   of a public idempotency key.
-- Source implementation and deployment examples are present, but local
-  qualification is still in progress. No production capacity, SLO or primary
-  cutover is claimed.
+- Frozen API replays through borrowed, dedicated-DSN and HTTP bindings, the
+  installed HTTP owner, package checks and migration phases have passed locally.
+  Phase fences, uncertain-outcome recovery, restore and container qualification
+  remain in progress. No production capacity, SLO or primary cutover is claimed.
 
 ## Alternatives Considered
 

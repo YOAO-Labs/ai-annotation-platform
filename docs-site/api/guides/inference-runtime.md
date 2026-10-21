@@ -85,6 +85,6 @@ Pipeline 行 codec 会保留 `stages` 的 JSONB `null` 与标量，不提前改�
 
 ## 当前边界
 
-本页描述的代码与 opt-in 配置已经存在；本地 runtime、受限账号和并发/故障资格仍在推进。Compose 的 CPU/内存限制是配置值，不代表生产容量或 SLO 验收。生产配置没有在本页范围内变更。该切片只覆盖保存的命名编排，不表示完整 Inference 模块已经可以任意更换语言；已有 Go 月报实验仍是独立尝试。
+本页描述的代码与 opt-in 配置已经存在。借用事务、专用 DSN、HTTP 的冻结 API 回放，以及安装包和 migration 的本地检查已通过；更细的阶段围栏、歧义恢复、备份恢复和容器资格仍在进行。Compose 的 CPU/内存限制是配置值，不代表生产容量或 SLO 验收。生产配置没有在本页范围内变更。该切片只覆盖保存的命名编排，不表示完整 Inference 模块已经可以任意更换语言；已有 Go 月报实验仍是独立尝试。
 
 架构决策见 [ADR-0146](/dev/adr/0146-inference-named-pipeline-owner)。
