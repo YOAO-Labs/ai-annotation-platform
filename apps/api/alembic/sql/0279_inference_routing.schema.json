@@ -254,6 +254,7 @@
         "phase prepared|draining|completed|uncertain",
         "new_epoch uuid nullable",
         "retired_epoch uuid nullable",
+        "recovered_kind unload|reload nullable (only for recovered epoch controls)",
         "challenge text64",
         "backend_incarnation uuid nullable",
         "config_revision bigint",
@@ -262,7 +263,7 @@
         "created_at timestamptz",
         "updated_at timestamptz"
       ],
-      "semantics": "Prepared and uncertain rows remain exclusive management holds."
+      "semantics": "Prepared and uncertain rows remain exclusive management holds. An unresolved unload or reload may be recovered under its same control ID as an epoch hold; recovered_kind preserves the original operation."
     },
     {
       "name": "aap_inference_routing_v1.control_attempts",

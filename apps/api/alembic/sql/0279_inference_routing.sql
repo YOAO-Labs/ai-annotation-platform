@@ -108,6 +108,7 @@ CREATE TABLE aap_inference_routing_v1.controls (
     phase text NOT NULL CHECK (phase IN ('prepared', 'draining', 'completed', 'uncertain')),
     new_epoch uuid,
     retired_epoch uuid,
+    recovered_kind text CHECK (recovered_kind IN ('unload', 'reload')),
     challenge text NOT NULL CHECK (challenge COLLATE "C" ~ '^[0-9a-f]{64}$'),
     backend_incarnation uuid,
     config_revision bigint NOT NULL CHECK (config_revision >= 1),
@@ -117,7 +118,8 @@ CREATE TABLE aap_inference_routing_v1.controls (
     updated_at timestamptz NOT NULL DEFAULT pg_catalog.now(),
     CHECK ((kind = 'epoch' AND new_epoch IS NOT NULL)
         OR (kind <> 'epoch' AND new_epoch IS NULL)),
-    CHECK (kind = 'epoch' OR retired_epoch IS NULL)
+    CHECK (kind = 'epoch' OR retired_epoch IS NULL),
+    CHECK (recovered_kind IS NULL OR kind = 'epoch')
 );
 -- aap-statement-break
 CREATE UNIQUE INDEX uq_aap_routing_controls_open_registry
@@ -2786,7 +2788,7 @@ BEGIN
             PERFORM registry.id
             FROM public.ml_backend_registry AS registry
             WHERE registry.id = v_registry_id
-            FOR SHARE NOWAIT;
+            FOR UPDATE NOWAIT;
             IF NOT FOUND THEN
                 RETURN aap_inference_routing_v1._routing_rejected('pool_unavailable');
             END IF;
@@ -2921,7 +2923,7 @@ BEGIN
             PERFORM registry.id
             FROM public.ml_backend_registry AS registry
             WHERE registry.id = v_registry_id
-            FOR SHARE NOWAIT;
+            FOR UPDATE NOWAIT;
             IF NOT FOUND THEN
                 RETURN aap_inference_routing_v1._routing_rejected('pool_unavailable');
             END IF;
@@ -3086,92 +3088,124 @@ BEGIN
         END IF;
         v_control_id := aap_inference_routing_v1._routing_uuid(v_args ->> 'control_id');
         v_registry_id := aap_inference_routing_v1._routing_uuid(v_args ->> 'registry_id');
-        SELECT control.* INTO v_control
-        FROM aap_inference_routing_v1.controls AS control
-        WHERE control.id = v_control_id
-        FOR UPDATE;
-        IF FOUND THEN
-            IF v_control.registry_id IS DISTINCT FROM v_registry_id
-               OR v_control.kind IS DISTINCT FROM 'epoch' THEN
-                RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'routing control identity conflict';
-            END IF;
-            SELECT registry.* INTO v_registry
+        BEGIN
+            PERFORM registry.id
             FROM public.ml_backend_registry AS registry
-            WHERE registry.id = v_registry_id;
-            IF NOT FOUND OR v_control.config_revision IS DISTINCT FROM (
-                SELECT state.config_revision
-                FROM aap_inference_routing_v1.registry_state AS state
-                WHERE state.registry_id = v_registry_id
-            ) THEN
-                RETURN aap_inference_routing_v1._routing_rejected('transport_changed');
+            WHERE registry.id = v_registry_id
+            FOR UPDATE NOWAIT;
+            IF NOT FOUND THEN
+                RETURN aap_inference_routing_v1._routing_rejected('pool_unavailable');
             END IF;
-        ELSE
-            BEGIN
-                PERFORM registry.id
-                FROM public.ml_backend_registry AS registry
-                WHERE registry.id = v_registry_id
-                FOR SHARE NOWAIT;
+            SELECT member.id, member.pool_id
+            INTO v_member
+            FROM public.ml_backend_pool_members AS member
+            WHERE member.registry_id = v_registry_id;
+            IF FOUND THEN
+                v_pool_id := v_member.pool_id;
+                PERFORM pool.id
+                FROM public.ml_backend_service_pools AS pool
+                WHERE pool.id = v_pool_id
+                FOR UPDATE NOWAIT;
                 IF NOT FOUND THEN
                     RETURN aap_inference_routing_v1._routing_rejected('pool_unavailable');
                 END IF;
                 SELECT member.id, member.pool_id
                 INTO v_member
                 FROM public.ml_backend_pool_members AS member
-                WHERE member.registry_id = v_registry_id;
-                IF FOUND THEN
-                    v_pool_id := v_member.pool_id;
-                    PERFORM pool.id
-                    FROM public.ml_backend_service_pools AS pool
-                    WHERE pool.id = v_pool_id
-                    FOR UPDATE NOWAIT;
-                    IF NOT FOUND THEN
-                        RETURN aap_inference_routing_v1._routing_rejected('pool_unavailable');
-                    END IF;
-                    PERFORM member.id
-                    FROM public.ml_backend_pool_members AS member
-                    WHERE member.pool_id = v_pool_id
-                      AND member.registry_id = v_registry_id
-                    FOR SHARE NOWAIT;
-                    IF NOT FOUND THEN
-                        RETURN aap_inference_routing_v1._routing_rejected('generation_mismatch');
-                    END IF;
-                ELSE
-                    v_pool_id := NULL;
+                WHERE member.registry_id = v_registry_id
+                  AND member.pool_id = v_pool_id
+                FOR SHARE NOWAIT;
+                IF NOT FOUND THEN
+                    RETURN aap_inference_routing_v1._routing_rejected('generation_mismatch');
                 END IF;
-            EXCEPTION WHEN lock_not_available THEN
-                RETURN aap_inference_routing_v1._routing_rejected('management_busy');
-            END;
-            PERFORM aap_inference_routing_v1._routing_has_unresolved(v_registry_id);
-            IF EXISTS (
-                SELECT 1
-                FROM aap_inference_routing_v1.scopes AS scope
-                WHERE scope.registry_id = v_registry_id
-                  AND (scope.state = 'active'
-                       OR (scope.state = 'reserved'
-                           AND scope.heartbeat_deadline > pg_catalog.clock_timestamp())
-                       OR (scope.state = 'uncertain' AND NOT scope.closed))
-            ) THEN
-                RETURN aap_inference_routing_v1._routing_rejected('member_not_quiescent');
+            ELSE
+                v_pool_id := NULL;
             END IF;
-            IF aap_inference_routing_v1._routing_has_control(v_registry_id) THEN
-                RETURN aap_inference_routing_v1._routing_rejected('management_busy');
+        EXCEPTION WHEN lock_not_available THEN
+            RETURN aap_inference_routing_v1._routing_rejected('management_busy');
+        END;
+        SELECT registry.* INTO v_registry
+        FROM public.ml_backend_registry AS registry
+        WHERE registry.id = v_registry_id;
+        IF NOT FOUND THEN
+            RETURN aap_inference_routing_v1._routing_rejected('transport_changed');
+        END IF;
+        SELECT state.* INTO v_state
+        FROM aap_inference_routing_v1.registry_state AS state
+        WHERE state.registry_id = v_registry_id;
+        IF NOT FOUND
+           OR v_state.realm IS DISTINCT FROM aap_inference_routing_v1._routing_realm()
+           OR aap_inference_routing_v1._routing_secret() IS NULL THEN
+            RETURN aap_inference_routing_v1._routing_rejected('backend_not_ready');
+        END IF;
+        IF v_registry.auth_method IS DISTINCT FROM 'token'
+           OR v_registry.auth_token IS NULL
+           OR pg_catalog.char_length(v_registry.auth_token) NOT BETWEEN 1 AND 8192
+           OR v_registry.auth_token !~ '^[!-~]+$' THEN
+            RETURN aap_inference_routing_v1._routing_rejected('backend_not_ready');
+        END IF;
+
+        SELECT control.* INTO v_control
+        FROM aap_inference_routing_v1.controls AS control
+        WHERE control.id = v_control_id
+        FOR UPDATE;
+        v_found_candidate := FOUND;
+        IF v_found_candidate THEN
+            IF v_control.registry_id IS DISTINCT FROM v_registry_id THEN
+                RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'routing control identity conflict';
             END IF;
-            SELECT registry.* INTO v_registry
-            FROM public.ml_backend_registry AS registry
-            WHERE registry.id = v_registry_id;
-            SELECT state.* INTO v_state
-            FROM aap_inference_routing_v1.registry_state AS state
-            WHERE state.registry_id = v_registry_id;
-            IF NOT FOUND OR v_state.realm IS DISTINCT FROM aap_inference_routing_v1._routing_realm()
-               OR aap_inference_routing_v1._routing_secret() IS NULL THEN
-                RETURN aap_inference_routing_v1._routing_rejected('backend_not_ready');
+            IF v_control.phase = 'completed' THEN
+                RETURN aap_inference_routing_v1._routing_rejected('transport_changed');
             END IF;
-            IF v_registry.auth_method IS DISTINCT FROM 'token'
-               OR v_registry.auth_token IS NULL
-               OR pg_catalog.char_length(v_registry.auth_token) NOT BETWEEN 1 AND 8192
-               OR v_registry.auth_token !~ '^[!-~]+$' THEN
-                RETURN aap_inference_routing_v1._routing_rejected('backend_not_ready');
+            IF v_control.phase NOT IN ('prepared', 'draining', 'uncertain') THEN
+                RETURN aap_inference_routing_v1._routing_rejected('invalid_command');
             END IF;
+            IF v_control.kind NOT IN ('epoch', 'unload', 'reload') THEN
+                RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'routing control identity conflict';
+            END IF;
+            IF v_control.realm IS DISTINCT FROM v_state.realm
+               OR v_control.config_revision IS DISTINCT FROM v_state.config_revision THEN
+                RETURN aap_inference_routing_v1._routing_rejected('transport_changed');
+            END IF;
+        ELSIF aap_inference_routing_v1._routing_has_control(v_registry_id) THEN
+            RETURN aap_inference_routing_v1._routing_rejected('management_busy');
+        END IF;
+
+        IF EXISTS (
+            SELECT 1
+            FROM aap_inference_routing_v1.scopes AS scope
+            WHERE scope.registry_id = v_registry_id
+              AND (scope.state = 'active'
+                   OR (scope.state = 'reserved'
+                       AND scope.heartbeat_deadline > pg_catalog.clock_timestamp())
+                   OR (scope.state = 'uncertain' AND NOT scope.closed))
+        ) THEN
+            RETURN aap_inference_routing_v1._routing_rejected('member_not_quiescent');
+        END IF;
+
+        IF v_found_candidate THEN
+            IF v_control.kind IN ('unload', 'reload') THEN
+                v_new_epoch := public.gen_random_uuid();
+                v_retired_epoch := CASE WHEN v_state.continuity = 'ready'
+                                        THEN v_state.authority_epoch ELSE NULL END;
+                v_challenge := pg_catalog.encode(public.gen_random_bytes(32), 'hex');
+                UPDATE aap_inference_routing_v1.controls AS control
+                SET kind = 'epoch',
+                    recovered_kind = v_control.kind,
+                    phase = 'prepared',
+                    new_epoch = v_new_epoch,
+                    retired_epoch = v_retired_epoch,
+                    challenge = v_challenge,
+                    backend_incarnation = v_state.backend_incarnation,
+                    config_revision = v_state.config_revision,
+                    realm = v_state.realm,
+                    updated_at = pg_catalog.now()
+                WHERE control.id = v_control_id;
+                SELECT control.* INTO v_control
+                FROM aap_inference_routing_v1.controls AS control
+                WHERE control.id = v_control_id;
+            END IF;
+        ELSE
             v_new_epoch := public.gen_random_uuid();
             v_retired_epoch := CASE WHEN v_state.continuity = 'ready'
                                     THEN v_state.authority_epoch ELSE NULL END;
@@ -3351,6 +3385,12 @@ BEGIN
         WHERE scope.registry_id = v_control.registry_id
           AND scope.state = 'uncertain'
           AND scope.closed IS TRUE;
+        IF v_control.recovered_kind IS NOT NULL THEN
+            UPDATE aap_inference_routing_v1.control_attempts AS attempt
+            SET state = 'reconciled', updated_at = pg_catalog.now()
+            WHERE attempt.control_id = v_control_id
+              AND attempt.state IN ('active', 'uncertain');
+        END IF;
         UPDATE aap_inference_routing_v1.controls AS control
         SET phase = 'completed', backend_incarnation = v_reply_incarnation,
             updated_at = pg_catalog.now()
