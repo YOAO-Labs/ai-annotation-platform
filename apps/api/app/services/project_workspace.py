@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import uuid
 from typing import Any
-from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.project import Project
@@ -14,16 +13,6 @@ from app.db.models.project import Project
 
 def set_point_cloud_quality_config(*, project: Project, config: dict[str, Any]) -> None:
     project.point_cloud_quality_config = config
-
-
-async def clear_primary_backend_binding_for_pool(
-    db: AsyncSession, pool_id: UUID
-) -> None:
-    await db.execute(
-        update(Project)
-        .where(Project.ml_backend_pool_id == pool_id)
-        .values(ml_backend_pool_id=None)
-    )
 
 
 async def find_import_project(db: AsyncSession, display_id: str) -> Project | None:

@@ -6,7 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.ml_backend import MLBackendService
 from app.services.ml_routing.safety import require_registry_quiescent
-from app.services.project_workspace import clear_primary_backend_binding_for_pool
+from app.services.workspace_backend_bindings import (
+    clear_primary_backend_binding_for_pool,
+)
 
 
 async def delete_registry(db: AsyncSession, registry_id: uuid.UUID) -> bool:
