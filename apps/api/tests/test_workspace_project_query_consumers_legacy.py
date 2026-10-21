@@ -337,8 +337,10 @@ async def test_capture_legacy_project_query_consumers_and_postcommit_projections
     from app.api.v1 import projects as projects_api
     from app.config import settings
     from app.deps import get_db
+    from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 
     assert not _CAPTURE_PATH.exists(), f"refusing to overwrite {_CAPTURE_PATH}"
+    _verify_postgres(test_engine.url)
     runtime_url = _legacy_runtime_url(test_engine)
     owner_maker = async_sessionmaker(test_engine, expire_on_commit=False)
     runtime_engine = create_async_engine(runtime_url, hide_parameters=True)
