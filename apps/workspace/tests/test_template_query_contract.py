@@ -4,7 +4,7 @@ import json
 import math
 import uuid
 from datetime import UTC, datetime
-from pathlib import Path
+from importlib.resources import files
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
@@ -130,12 +130,7 @@ def test_checked_in_schema_matches_closed_query_request_reply_and_step_models():
     schema["$id"] = TEMPLATE_QUERY_PROTOCOL
     schema["x-template-row-columns"] = list(TEMPLATE_ROW_COLUMNS)
     schema["x-template-enrichment-columns"] = ["created_by_name"]
-    path = (
-        Path(__file__).parents[1]
-        / "src"
-        / "aap_workspace"
-        / "template_query_protocol.schema.json"
-    )
+    path = files("aap_workspace").joinpath("template_query_protocol.schema.json")
     assert json.loads(path.read_text()) == schema
 
 
