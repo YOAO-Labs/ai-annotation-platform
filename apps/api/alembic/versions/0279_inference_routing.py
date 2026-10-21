@@ -40,6 +40,7 @@ _FUNCTIONS = (
     "aap_inference_routing_v1._routing_transport_identity(uuid)",
     "aap_inference_routing_v1._routing_max_concurrency(uuid)",
     "aap_inference_routing_v1._routing_sign_admission(uuid, uuid, uuid, text, text, text)",
+    "aap_inference_routing_v1._routing_lock_admission_pool(uuid)",
     "aap_inference_routing_v1._routing_has_unresolved(uuid)",
     "aap_inference_routing_v1._routing_has_control(uuid)",
     "aap_inference_routing_v1._routing_registry_after_insert()",

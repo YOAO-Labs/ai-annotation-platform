@@ -1783,6 +1783,8 @@ ALTER FUNCTION aap_inference_routing_v1._routing_max_concurrency(uuid)
 ALTER FUNCTION aap_inference_routing_v1._routing_sign_admission(
     uuid, uuid, uuid, text, text, text
 ) OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1._routing_lock_admission_pool(uuid)
+    OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_routing_v1._routing_has_unresolved(uuid)
     OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_routing_v1._routing_has_control(uuid)

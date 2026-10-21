@@ -909,6 +909,33 @@ REVOKE ALL ON FUNCTION aap_inference_routing_v1._routing_sign_admission(
     uuid, uuid, uuid, text, text, text
 ) FROM PUBLIC;
 -- aap-statement-break
+CREATE OR REPLACE FUNCTION aap_inference_routing_v1._routing_lock_admission_pool(
+    p_pool_id uuid
+)
+RETURNS boolean
+LANGUAGE plpgsql
+VOLATILE
+PARALLEL UNSAFE
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone = 'UTC'
+SET DateStyle = 'ISO, YMD'
+SET extra_float_digits = 3
+SET lock_timeout = '250ms'
+AS $function$
+BEGIN
+    -- Queue short admissions fairly without conflicting with pending FK references.
+    PERFORM pool.id
+    FROM public.ml_backend_service_pools AS pool
+    WHERE pool.id = p_pool_id
+    FOR NO KEY UPDATE;
+    RETURN FOUND;
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_inference_routing_v1._routing_lock_admission_pool(uuid)
+FROM PUBLIC;
+-- aap-statement-break
 CREATE OR REPLACE FUNCTION aap_inference_routing_v1._routing_has_unresolved(
     p_registry_id uuid
 )
@@ -1807,12 +1834,12 @@ BEGIN
                 END IF;
             END LOOP;
             IF v_physical_pool_id IS NOT NULL THEN
+                PERFORM aap_inference_routing_v1._routing_lock_admission_pool(v_physical_pool_id);
                 SELECT pg_catalog.to_jsonb(pool), pool.enabled, pool.legacy_instance_id,
                        pool.routing_generation
                 INTO v_pool_row, v_pool_enabled, v_legacy_instance, v_generation
                 FROM public.ml_backend_service_pools AS pool
-                WHERE pool.id = v_physical_pool_id
-                FOR NO KEY UPDATE NOWAIT;
+                WHERE pool.id = v_physical_pool_id;
                 IF NOT FOUND THEN
                     RETURN aap_inference_routing_v1._routing_rejected('pool_unavailable');
                 END IF;
@@ -2118,11 +2145,11 @@ BEGIN
                 END IF;
             END LOOP;
             IF v_physical_pool_id IS NOT NULL THEN
+                PERFORM aap_inference_routing_v1._routing_lock_admission_pool(v_physical_pool_id);
                 SELECT pool.routing_generation, pool.enabled, pool.legacy_instance_id
                 INTO v_generation, v_pool_enabled, v_legacy_instance
                 FROM public.ml_backend_service_pools AS pool
-                WHERE pool.id = v_physical_pool_id
-                FOR NO KEY UPDATE NOWAIT;
+                WHERE pool.id = v_physical_pool_id;
                 IF NOT FOUND THEN
                     RETURN aap_inference_routing_v1._routing_rejected('generation_mismatch');
                 END IF;
@@ -2483,10 +2510,9 @@ BEGIN
                     RETURN aap_inference_routing_v1._routing_rejected('transport_changed');
                 END IF;
                 IF v_scope.pool_id IS NOT NULL THEN
-                    PERFORM pool.id
-                    FROM public.ml_backend_service_pools AS pool
-                    WHERE pool.id = v_scope.pool_id
-                    FOR NO KEY UPDATE NOWAIT;
+                    PERFORM aap_inference_routing_v1._routing_lock_admission_pool(v_scope.pool_id);
+                    PERFORM pool.id FROM public.ml_backend_service_pools AS pool
+                    WHERE pool.id = v_scope.pool_id;
                     IF NOT FOUND THEN
                         RETURN aap_inference_routing_v1._routing_rejected('generation_mismatch');
                     END IF;
