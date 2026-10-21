@@ -21,8 +21,16 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic.json_schema import models_json_schema
 
+from .guide_asset_policy import (
+    MAX_GUIDE_ASSET_SIZE_BYTES,
+    assert_guide_asset_key,
+    assert_guide_asset_upload_target,
+    sanitize_guide_asset_filename,
+)
 from .access_contract import ProjectAccessPolicyFailure, project_manager_access
+from .configuration_policy import ConfigurationPolicyError
 from .contract import ClosedModel, _json_bytes, _reject_constant
 from .project_query_contract import (
     ProjectClassRenameEvidence,
@@ -43,6 +51,12 @@ LegacyConfigurationOperation: TypeAlias = Literal[
     "delete_template",
     "duplicate_template",
 ]
+ConfigurationGuideOperation: TypeAlias = Literal[
+    "guide_asset_upload_init",
+    "guide_asset_upload_complete",
+    "guide_asset_delete",
+    "guide_asset_sign",
+]
 ConfigurationOperation: TypeAlias = Literal[
     "create_project",
     "update_project",
@@ -51,7 +65,19 @@ ConfigurationOperation: TypeAlias = Literal[
     "delete_template",
     "duplicate_template",
     "rename_project_class",
+    "guide_asset_upload_init",
+    "guide_asset_upload_complete",
+    "guide_asset_delete",
+    "guide_asset_sign",
 ]
+GUIDE_OPERATIONS = frozenset(
+    {
+        "guide_asset_upload_init",
+        "guide_asset_upload_complete",
+        "guide_asset_delete",
+        "guide_asset_sign",
+    }
+)
 ConfigurationAction: TypeAlias = Literal[
     "begin",
     "backend",
@@ -76,6 +102,15 @@ ConfigurationAction: TypeAlias = Literal[
     "class_rename_member",
     "class_rename_lock",
     "class_rename_apply",
+    "guide_account_exists",
+    "guide_read_project",
+    "guide_actor_status",
+    "guide_read_member",
+    "guide_shared",
+    "guide_member",
+    "guide_lock",
+    "guide_apply",
+    "guide_refresh",
 ]
 ConfigurationStatusCode: TypeAlias = Annotated[StrictInt, Field(ge=400, le=599)]
 
@@ -124,6 +159,20 @@ class ConfigurationRequest(_ConfigurationModel):
         is_create = self.operation in {"create_project", "create_template"}
         if is_create != (self.target_id is None):
             raise ValueError("target_id must be null only for create operations")
+        if self.operation in GUIDE_OPERATIONS:
+            selectors = self.selectors
+            if self.target_id is None or (
+                selectors.source_project_id is not None
+                or selectors.template_id is not None
+                or selectors.ml_backend_source_id is not None
+                or selectors.ml_backend_id is not None
+                or selectors.ml_backend_present
+                or selectors.scope is not None
+                or selectors.scope_present
+                or selectors.organization_id is not None
+                or selectors.organization_present
+            ):
+                raise ValueError("Guide operations require a target and null selectors")
         return self
 
 
@@ -195,8 +244,91 @@ class ConfigurationRenameSuccess(_ConfigurationModel):
         return value
 
 
+GuideExpiresInUpload = Annotated[StrictInt, Field(ge=900, le=900)]
+GuideExpiresInDownload = Annotated[StrictInt, Field(ge=3600, le=3600)]
+GuideAssetSize = Annotated[
+    StrictInt,
+    Field(ge=1, le=MAX_GUIDE_ASSET_SIZE_BYTES),
+]
+GuideAssetUrl = Annotated[StrictStr, Field(min_length=1)]
+GuideUploadedAt = Annotated[StrictStr, Field(json_schema_extra={"format": "date-time"})]
+
+
+class ConfigurationGuideUploadInitData(_ConfigurationModel):
+    key: StrictStr
+    upload_url: GuideAssetUrl
+    expires_in: GuideExpiresInUpload
+
+
+class ConfigurationGuideUploadCompleteData(_ConfigurationModel):
+    key: StrictStr
+    original_name: StrictStr
+    content_type: StrictStr
+    size: GuideAssetSize
+    uploaded_at: GuideUploadedAt
+
+    @field_validator("uploaded_at")
+    @classmethod
+    def uploaded_at_is_aware_iso(cls, value: str) -> str:
+        try:
+            timestamp = datetime.fromisoformat(value)
+        except ValueError:
+            raise ValueError("uploaded_at must be an ISO datetime") from None
+        if timestamp.utcoffset() is None:
+            raise ValueError("uploaded_at must include a timezone")
+        return value
+
+
+class ConfigurationGuideDeleteData(_ConfigurationModel):
+    deleted: StrictStr
+
+
+class ConfigurationGuideSignData(_ConfigurationModel):
+    url: GuideAssetUrl
+    expires_in: GuideExpiresInDownload
+
+
+ConfigurationGuideData: TypeAlias = (
+    ConfigurationGuideUploadInitData
+    | ConfigurationGuideUploadCompleteData
+    | ConfigurationGuideDeleteData
+    | ConfigurationGuideSignData
+)
+
+
+class ConfigurationGuideResult(_ConfigurationModel):
+    resource_id: uuid.UUID
+    data_json: StrictStr
+    refreshed: StrictBool
+
+    @field_validator("data_json")
+    @classmethod
+    def data_json_is_ascii_without_raw_controls(cls, value: str) -> str:
+        if not value.isascii() or any(ord(char) < 0x20 for char in value):
+            raise ValueError("data_json must contain ASCII JSON without raw controls")
+        return value
+
+
+class ConfigurationGuideSuccess(_ConfigurationModel):
+    protocol: Literal["aap-workspace-configuration/v1"] = Field(alias="schema")
+    ok: Literal[True]
+    operation_id: uuid.UUID
+    operation: ConfigurationGuideOperation
+    result: ConfigurationGuideResult
+
+    @field_validator("ok", mode="before")
+    @classmethod
+    def exact_boolean(cls, value):
+        if type(value) is not bool:
+            raise ValueError("ok must be a JSON boolean")
+        return value
+
+
 ConfigurationReply: TypeAlias = (
-    ConfigurationSuccess | ConfigurationRenameSuccess | ConfigurationFailure
+    ConfigurationSuccess
+    | ConfigurationRenameSuccess
+    | ConfigurationGuideSuccess
+    | ConfigurationFailure
 )
 
 
@@ -419,6 +551,120 @@ def configuration_payload(request: ConfigurationRequest) -> dict[str, Any]:
         raise ConfigurationInvalidRequest() from None
 
 
+_GUIDE_PAYLOAD_KEYS = {
+    "guide_asset_upload_init": {"filename", "content_type", "size"},
+    "guide_asset_upload_complete": {"key", "original_name", "content_type"},
+    "guide_asset_delete": {"key"},
+    "guide_asset_sign": {"key"},
+}
+_GUIDE_DATA_MODELS: dict[str, type[_ConfigurationModel]] = {
+    "guide_asset_upload_init": ConfigurationGuideUploadInitData,
+    "guide_asset_upload_complete": ConfigurationGuideUploadCompleteData,
+    "guide_asset_delete": ConfigurationGuideDeleteData,
+    "guide_asset_sign": ConfigurationGuideSignData,
+}
+
+
+def configuration_guide_payload(request: ConfigurationRequest) -> dict[str, Any]:
+    """Decode exact guide keys after admission, without coercing their values."""
+    request = _validate_internal_request(request)
+    if request.operation not in GUIDE_OPERATIONS or request.target_id is None:
+        raise ConfigurationUnavailable()
+    try:
+        payload = configuration_payload(request)
+    except ConfigurationInvalidRequest:
+        raise ConfigurationUnavailable() from None
+    if (
+        type(payload) is not dict
+        or set(payload) != _GUIDE_PAYLOAD_KEYS[request.operation]
+    ):
+        raise ConfigurationUnavailable()
+    return payload
+
+
+def _canonical_guide_data(value: Any) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=True,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _parse_guide_data(
+    operation: ConfigurationGuideOperation, data_json: str
+) -> ConfigurationGuideData:
+    try:
+        value = json.loads(
+            data_json,
+            object_pairs_hook=_unique_object,
+            parse_constant=_reject_constant,
+        )
+        if type(value) is not dict or _canonical_guide_data(value) != data_json:
+            raise ValueError("Guide data is not canonical JSON")
+        return _GUIDE_DATA_MODELS[operation].model_validate(value)
+    except (ValidationError, ValueError, TypeError, UnicodeError, RecursionError):
+        raise ConfigurationUnavailable() from None
+
+
+def _bind_guide_data(
+    request: ConfigurationRequest, data: ConfigurationGuideData
+) -> None:
+    payload = configuration_guide_payload(request)
+    target_id = request.target_id
+    if target_id is None:
+        raise ConfigurationUnavailable()
+    try:
+        if isinstance(data, ConfigurationGuideUploadInitData):
+            assert_guide_asset_key(data.key, target_id)
+            assert_guide_asset_upload_target(
+                target_id, data.key, payload["content_type"]
+            )
+            filename = payload["filename"]
+            if type(filename) is not str or not data.key.endswith(
+                "-" + sanitize_guide_asset_filename(filename)
+            ):
+                raise ConfigurationUnavailable()
+        elif isinstance(data, ConfigurationGuideUploadCompleteData):
+            original_name = payload["original_name"]
+            assert_guide_asset_upload_target(
+                target_id, payload["key"], payload["content_type"]
+            )
+            if (
+                data.key != payload["key"]
+                or data.content_type != payload["content_type"]
+                or type(original_name) is not str
+                or data.original_name != sanitize_guide_asset_filename(original_name)
+            ):
+                raise ConfigurationUnavailable()
+        elif isinstance(data, ConfigurationGuideDeleteData):
+            assert_guide_asset_key(payload["key"], target_id)
+            if data.deleted != payload["key"]:
+                raise ConfigurationUnavailable()
+        elif isinstance(data, ConfigurationGuideSignData):
+            assert_guide_asset_key(payload["key"], target_id)
+        else:
+            raise ConfigurationUnavailable()
+    except ConfigurationPolicyError:
+        raise ConfigurationUnavailable() from None
+    except (AttributeError, TypeError, ValueError):
+        raise ConfigurationUnavailable() from None
+
+
+def configuration_guide_data(
+    reply: ConfigurationGuideSuccess,
+) -> ConfigurationGuideData:
+    """Decode the public result payload from a validated guide success envelope."""
+    try:
+        validated = ConfigurationGuideSuccess.model_validate(
+            reply.model_dump(mode="python", by_alias=True)
+        )
+    except (ValidationError, TypeError, ValueError):
+        raise ConfigurationUnavailable() from None
+    return _parse_guide_data(validated.operation, validated.result.data_json)
+
+
 def configuration_rename_payload(
     request: ConfigurationRequest,
 ) -> tuple[str, str, str | None]:
@@ -491,6 +737,45 @@ def configuration_success_reply(
         raise ConfigurationUnavailable() from None
 
 
+def configuration_guide_success_reply(
+    request: ConfigurationRequest,
+    *,
+    resource_id: uuid.UUID,
+    data: dict[str, Any],
+    refreshed: bool,
+) -> ConfigurationGuideSuccess:
+    request = _validate_internal_request(request)
+    if (
+        request.operation not in GUIDE_OPERATIONS
+        or request.target_id is None
+        or resource_id != request.target_id
+    ):
+        raise ConfigurationUnavailable()
+    try:
+        typed_data = _GUIDE_DATA_MODELS[request.operation].model_validate(data)
+        data_json = _canonical_guide_data(typed_data.model_dump(mode="json"))
+        reply = ConfigurationGuideSuccess(
+            schema=CONFIGURATION_PROTOCOL,
+            ok=True,
+            operation=request.operation,
+            operation_id=request.operation_id,
+            result=ConfigurationGuideResult(
+                resource_id=resource_id,
+                data_json=data_json,
+                refreshed=refreshed,
+            ),
+        )
+        _bind_guide_data(request, typed_data)
+        if (
+            request.operation in {"guide_asset_upload_init", "guide_asset_sign"}
+            and reply.result.refreshed
+        ):
+            raise ConfigurationUnavailable()
+        return reply
+    except (ValidationError, ValueError, TypeError, UnicodeError, RecursionError):
+        raise ConfigurationUnavailable() from None
+
+
 def configuration_rename_success_reply(
     request: ConfigurationRequest,
     *,
@@ -548,6 +833,19 @@ def decode_configuration_reply(
         )
         if reply.result.template_id != expected_template_id:
             raise ConfigurationUnavailable()
+    elif isinstance(reply, ConfigurationGuideSuccess):
+        if (
+            request.operation not in GUIDE_OPERATIONS
+            or request.target_id is None
+            or reply.result.resource_id != request.target_id
+            or (
+                request.operation in {"guide_asset_upload_init", "guide_asset_sign"}
+                and reply.result.refreshed
+            )
+        ):
+            raise ConfigurationUnavailable()
+        data = configuration_guide_data(reply)
+        _bind_guide_data(request, data)
     elif isinstance(reply, ConfigurationRenameSuccess):
         old_name, new_name, _tool_unit_id = configuration_rename_payload(request)
         expected_changed = bool(old_name and new_name and old_name != new_name)
@@ -667,4 +965,37 @@ def configuration_schema() -> dict[str, Any]:
     ).json_schema()
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     schema["$id"] = CONFIGURATION_PROTOCOL
+    _, guide_schema = models_json_schema(
+        [
+            (model, "validation")
+            for model in (
+                ConfigurationGuideUploadInitData,
+                ConfigurationGuideUploadCompleteData,
+                ConfigurationGuideDeleteData,
+                ConfigurationGuideSignData,
+            )
+        ]
+    )
+    schema["$defs"].update(guide_schema["$defs"])
+    schema["x-guide-asset-data-json"] = {
+        "canonical_ascii_json": True,
+        "operations": {
+            "guide_asset_upload_init": {
+                "payload_fields": ["filename", "content_type", "size"],
+                "data_schema": "#/$defs/ConfigurationGuideUploadInitData",
+            },
+            "guide_asset_upload_complete": {
+                "payload_fields": ["key", "original_name", "content_type"],
+                "data_schema": "#/$defs/ConfigurationGuideUploadCompleteData",
+            },
+            "guide_asset_delete": {
+                "payload_fields": ["key"],
+                "data_schema": "#/$defs/ConfigurationGuideDeleteData",
+            },
+            "guide_asset_sign": {
+                "payload_fields": ["key"],
+                "data_schema": "#/$defs/ConfigurationGuideSignData",
+            },
+        },
+    }
     return schema

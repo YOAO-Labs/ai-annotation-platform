@@ -54,7 +54,11 @@
             "update_template",
             "delete_template",
             "duplicate_template",
-            "rename_project_class"
+            "rename_project_class",
+            "guide_asset_upload_init",
+            "guide_asset_upload_complete",
+            "guide_asset_delete",
+            "guide_asset_sign"
           ],
           "title": "Operation",
           "type": "string"
@@ -72,6 +76,148 @@
       },
       "required": ["schema", "ok", "operation_id", "operation", "error"],
       "title": "ConfigurationFailure",
+      "type": "object"
+    },
+    "ConfigurationGuideDeleteData": {
+      "additionalProperties": false,
+      "properties": {
+        "deleted": {
+          "title": "Deleted",
+          "type": "string"
+        }
+      },
+      "required": ["deleted"],
+      "title": "ConfigurationGuideDeleteData",
+      "type": "object"
+    },
+    "ConfigurationGuideResult": {
+      "additionalProperties": false,
+      "properties": {
+        "data_json": {
+          "title": "Data Json",
+          "type": "string"
+        },
+        "refreshed": {
+          "title": "Refreshed",
+          "type": "boolean"
+        },
+        "resource_id": {
+          "format": "uuid",
+          "title": "Resource Id",
+          "type": "string"
+        }
+      },
+      "required": ["resource_id", "data_json", "refreshed"],
+      "title": "ConfigurationGuideResult",
+      "type": "object"
+    },
+    "ConfigurationGuideSignData": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_in": {
+          "maximum": 3600,
+          "minimum": 3600,
+          "title": "Expires In",
+          "type": "integer"
+        },
+        "url": {
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": ["url", "expires_in"],
+      "title": "ConfigurationGuideSignData",
+      "type": "object"
+    },
+    "ConfigurationGuideSuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "enum": [
+            "guide_asset_upload_init",
+            "guide_asset_upload_complete",
+            "guide_asset_delete",
+            "guide_asset_sign"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "result": {
+          "$ref": "#/$defs/ConfigurationGuideResult"
+        },
+        "schema": {
+          "const": "aap-workspace-configuration/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "operation", "result"],
+      "title": "ConfigurationGuideSuccess",
+      "type": "object"
+    },
+    "ConfigurationGuideUploadCompleteData": {
+      "additionalProperties": false,
+      "properties": {
+        "content_type": {
+          "title": "Content Type",
+          "type": "string"
+        },
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "original_name": {
+          "title": "Original Name",
+          "type": "string"
+        },
+        "size": {
+          "maximum": 5242880,
+          "minimum": 1,
+          "title": "Size",
+          "type": "integer"
+        },
+        "uploaded_at": {
+          "format": "date-time",
+          "title": "Uploaded At",
+          "type": "string"
+        }
+      },
+      "required": ["key", "original_name", "content_type", "size", "uploaded_at"],
+      "title": "ConfigurationGuideUploadCompleteData",
+      "type": "object"
+    },
+    "ConfigurationGuideUploadInitData": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_in": {
+          "maximum": 900,
+          "minimum": 900,
+          "title": "Expires In",
+          "type": "integer"
+        },
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "upload_url": {
+          "minLength": 1,
+          "title": "Upload Url",
+          "type": "string"
+        }
+      },
+      "required": ["key", "upload_url", "expires_in"],
+      "title": "ConfigurationGuideUploadInitData",
       "type": "object"
     },
     "ConfigurationPolicy": {
@@ -164,7 +310,11 @@
             "update_template",
             "delete_template",
             "duplicate_template",
-            "rename_project_class"
+            "rename_project_class",
+            "guide_asset_upload_init",
+            "guide_asset_upload_complete",
+            "guide_asset_delete",
+            "guide_asset_sign"
           ],
           "title": "Operation",
           "type": "string"
@@ -364,7 +514,16 @@
             "class_rename_prepare",
             "class_rename_member",
             "class_rename_lock",
-            "class_rename_apply"
+            "class_rename_apply",
+            "guide_account_exists",
+            "guide_read_project",
+            "guide_actor_status",
+            "guide_read_member",
+            "guide_shared",
+            "guide_member",
+            "guide_lock",
+            "guide_apply",
+            "guide_refresh"
           ],
           "title": "Action",
           "type": "string"
@@ -385,7 +544,11 @@
             "update_template",
             "delete_template",
             "duplicate_template",
-            "rename_project_class"
+            "rename_project_class",
+            "guide_asset_upload_init",
+            "guide_asset_upload_complete",
+            "guide_asset_delete",
+            "guide_asset_sign"
           ],
           "title": "Operation",
           "type": "string"
@@ -432,7 +595,16 @@
             "class_rename_prepare",
             "class_rename_member",
             "class_rename_lock",
-            "class_rename_apply"
+            "class_rename_apply",
+            "guide_account_exists",
+            "guide_read_project",
+            "guide_actor_status",
+            "guide_read_member",
+            "guide_shared",
+            "guide_member",
+            "guide_lock",
+            "guide_apply",
+            "guide_refresh"
           ],
           "title": "Action",
           "type": "string"
@@ -455,7 +627,11 @@
             "update_template",
             "delete_template",
             "duplicate_template",
-            "rename_project_class"
+            "rename_project_class",
+            "guide_asset_upload_init",
+            "guide_asset_upload_complete",
+            "guide_asset_delete",
+            "guide_asset_sign"
           ],
           "title": "Operation",
           "type": "string"
@@ -800,6 +976,9 @@
       "$ref": "#/$defs/ConfigurationRenameSuccess"
     },
     {
+      "$ref": "#/$defs/ConfigurationGuideSuccess"
+    },
+    {
       "$ref": "#/$defs/ConfigurationFailure"
     },
     {
@@ -808,5 +987,26 @@
     {
       "$ref": "#/$defs/ConfigurationStepFailure"
     }
-  ]
+  ],
+  "x-guide-asset-data-json": {
+    "canonical_ascii_json": true,
+    "operations": {
+      "guide_asset_delete": {
+        "data_schema": "#/$defs/ConfigurationGuideDeleteData",
+        "payload_fields": ["key"]
+      },
+      "guide_asset_sign": {
+        "data_schema": "#/$defs/ConfigurationGuideSignData",
+        "payload_fields": ["key"]
+      },
+      "guide_asset_upload_complete": {
+        "data_schema": "#/$defs/ConfigurationGuideUploadCompleteData",
+        "payload_fields": ["key", "original_name", "content_type"]
+      },
+      "guide_asset_upload_init": {
+        "data_schema": "#/$defs/ConfigurationGuideUploadInitData",
+        "payload_fields": ["filename", "content_type", "size"]
+      }
+    }
+  }
 }
