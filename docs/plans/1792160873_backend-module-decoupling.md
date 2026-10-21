@@ -4231,3 +4231,35 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   lock/decode phases. `project_pipelines` stays Inference-owned, and embedded
   `projects.preannotate_pipeline` stays Workspace-owned. No public API, worker,
   production runtime or language provider has been switched by this baseline.
+
+### Named pipelines: full old HTTP/data matrix frozen and replayed
+
+- Seventy actual HTTP/database observations cover all six public entries,
+  private/organization/public visibility, create-only role restrictions, scope
+  and stage error precedence, explicit null versus omission, default moves,
+  same-value updates, source/copy independence, backend enablement and retained
+  inactive-creator names. They are preserved unchanged in
+  `apps/api/tests/fixtures/named_pipeline_legacy/samples.json`, SHA-256
+  `ad101350892c423af8041151bbab1b56a52e2023c088474761903f35e48a2db0`.
+  A fresh owned run independently replays all seventy. The existing lock oracle
+  remains unchanged at SHA-256
+  `4317025325d702dfa56bc0c1b07e359da325fc5f3844b71f82aab7d8cea0e511`.
+- Actual sampling corrected two driver assumptions without production changes:
+  a visible nonmanager needs a seeded Project membership to exercise 403, and
+  JSONB `stages=None` writes JSON null, commits and only then returns 500 from
+  response validation. Scalar name/default null failures roll back instead.
+  The fixture records the committed null before restoring only that seeded row
+  for the following independent cases. Future raw-row contracts must permit this
+  value through visibility and preserve the existing response/commit phases.
+- Diagnostic database snapshots use random UUID tie-breakers when equal names
+  are copied. Replay compares those snapshot rows by stable logical aliases;
+  public response array order remains exact. Frozen bytes are not rewritten.
+  The exact capture driver is retained separately at its recorded hash, and this
+  fixture directory joins the existing immutable-history formatter exclusions.
+- Eleven distinct selected old-behavior DB cases pass with no valid skips: eight
+  existing API cases, one lock capture, one seventy-sample capture and one
+  separate replay. The 72 observations are not 72 test cases, and no Guide cases
+  are added. Canonical evidence is
+  `.worktree/named-pipeline-legacy-baseline-qualification.json`; failed attempts
+  and cleanup reports remain. Inference runtime, new data capabilities,
+  independent artifacts, recovery and language replacement are still pending.

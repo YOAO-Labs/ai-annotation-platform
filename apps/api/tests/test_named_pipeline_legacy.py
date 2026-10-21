@@ -23,7 +23,7 @@ from app.db.models.organization import Organization, OrganizationMember
 from app.db.models.project import Project
 from app.db.models.user import User
 from tests.conftest import create_registry_with_pool
-from tests.factory import create_project, create_user
+from tests.factory import create_membership, create_project, create_user
 from tests.labeling_class_query_helpers import (
     api_db_binding,
     clear_local_identity,
@@ -34,9 +34,7 @@ from tests.test_labeling_class_usage_reads_legacy import _legacy_runtime_url
 
 _ROOT = Path(__file__).resolve().parents[3]
 _BASE_COMMIT = "6dee1a78753a302c5cd04c24a63c40f7e6040b6e"
-_FIXTURE_PATH = (
-    Path(__file__).parent / "fixtures/named_pipeline_legacy/samples.json"
-)
+_FIXTURE_PATH = Path(__file__).parent / "fixtures/named_pipeline_legacy/samples.json"
 _HEADERS = ("content-type", "location", "www-authenticate", "retry-after")
 _TIMESTAMP_FIELDS = {"created_at", "updated_at", "joined_at"}
 _MISSING = object()
@@ -373,6 +371,14 @@ async def _seed_world(test_engine) -> dict:
             world["project_ids"].append(project.id)
             world["aliases"][str(project.id)] = f"$project_{project_alias}"
 
+        await create_membership(
+            db,
+            project_id=projects["main"].id,
+            user_id=actors["org_member"].id,
+            role="annotator",
+            assigned_by=actors["owner"].id,
+        )
+
         organization = Organization(
             id=uuid.uuid4(),
             name=f"{prefix} organization",
@@ -469,9 +475,9 @@ async def _cleanup_world(test_engine, world: dict) -> None:
                 "name_prefix": world["prefix"] + "%",
             },
         )
-        pipeline_ids = {
-            uuid.UUID(str(row[0])) for row in discovered.all()
-        } | set(world["pipeline_ids"])
+        pipeline_ids = {uuid.UUID(str(row[0])) for row in discovered.all()} | set(
+            world["pipeline_ids"]
+        )
         if pipeline_ids:
             await db.execute(
                 text(
@@ -515,7 +521,9 @@ async def _cleanup_world(test_engine, world: dict) -> None:
                 )
             )
         if world["project_ids"]:
-            await db.execute(delete(Project).where(Project.id.in_(world["project_ids"])))
+            await db.execute(
+                delete(Project).where(Project.id.in_(world["project_ids"]))
+            )
         if world["organization_ids"]:
             await db.execute(
                 delete(Organization).where(
@@ -1134,10 +1142,31 @@ async def _run_scenarios(client, maker, world) -> list[dict]:
             path=f"/api/v1/project-pipelines/{private_main}",
             actor="owner",
             body=body,
-            expected_status=(400, 599),
+            expected_status=500,
         )
         sample = world["samples"][-1]
-        assert sample["database_before"] == sample["database_after"]
+        if "stages" in body:
+            changed = next(
+                row
+                for row in sample["database_after"]
+                if row["id"] == "$pipeline_private_main"
+            )
+            assert changed["stages"] is None
+            assert sample["database_before"] != sample["database_after"]
+            # JSONB None commits JSON null; restore only this seeded row for
+            # the following independent invalid-field observations.
+            async with maker.begin() as db:
+                await db.execute(
+                    text(
+                        "UPDATE public.project_pipelines SET stages=CAST(:stages AS jsonb) WHERE id=:id"
+                    ),
+                    {
+                        "id": private_main,
+                        "stages": json.dumps(_canonical_stages(missing_backend)),
+                    },
+                )
+        else:
+            assert sample["database_before"] == sample["database_after"]
 
     await _request(
         client,
@@ -1315,9 +1344,10 @@ async def _run_scenarios(client, maker, world) -> list[dict]:
         expected_status=422,
     )
     assert unenabled["detail"]["unenabled_backends"] == [str(missing_backend)]
-    assert world["samples"][-1]["database_before"] == world["samples"][-1][
-        "database_after"
-    ]
+    assert (
+        world["samples"][-1]["database_before"]
+        == world["samples"][-1]["database_after"]
+    )
 
     apply_default_sample_index = len(world["samples"])
     _, apply_copy = await _request(
@@ -1669,7 +1699,9 @@ EXPECTED_SAMPLE_LABELS = [
 ]
 
 
-async def _exercise_owned_http(test_engine, app_module, monkeypatch, *, application_name):
+async def _exercise_owned_http(
+    test_engine, app_module, monkeypatch, *, application_name
+):
     owner_maker = async_sessionmaker(test_engine, expire_on_commit=False)
     world = None
     runtime_engine = None
@@ -1799,7 +1831,9 @@ async def test_replay_legacy_named_pipeline_http_and_database(
     )
     expected_samples = fixture.get("samples")
     assert isinstance(expected_samples, list)
-    assert [sample.get("label") for sample in expected_samples] == EXPECTED_SAMPLE_LABELS
+    assert [
+        sample.get("label") for sample in expected_samples
+    ] == EXPECTED_SAMPLE_LABELS
     assert fixture["source"].get("pre_extraction_base") == _BASE_COMMIT
 
     live = await _exercise_owned_http(
@@ -1808,4 +1842,16 @@ async def test_replay_legacy_named_pipeline_http_and_database(
         monkeypatch,
         application_name="named-pipeline-legacy-replay",
     )
-    assert live["samples"] == expected_samples
+    for observed, expected in zip(live["samples"], expected_samples, strict=True):
+        # Snapshot SQL uses random UUID tie-breakers; only this diagnostic row
+        # ordering is normalized. Public response array order remains exact.
+        def view(sample):
+            return {
+                **sample,
+                **{
+                    key: sorted(sample[key], key=lambda row: (row["name"], row["id"]))
+                    for key in ("database_before", "database_after")
+                },
+            }
+
+        assert view(observed) == view(expected), observed["label"]
