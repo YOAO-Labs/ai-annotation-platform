@@ -1,0 +1,729 @@
+{
+  "$id": "aap-inference-registry-ingress-native/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Inference Registry ingress data and environment-sync receipts",
+  "$comment": "Fixed caller-transaction Native functions for environment Registry sync and screenshot seed ingress. No HTTP, probe, capability or project-binding policy is accepted as a write boolean.",
+  "$defs": {},
+  "type": "object",
+  "function_defaults": {
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"],
+    "time_zone": "UTC",
+    "date_style": "ISO, YMD",
+    "extra_float_digits": 3
+  },
+  "tables": [
+    {
+      "name": "aap_inference_registry_ingress_v1.env_sync_receipts",
+      "columns": [
+        {
+          "name": "request_id",
+          "type": "uuid",
+          "nullable": false,
+          "primary_key": true
+        },
+        {
+          "name": "command_sha256",
+          "type": "text",
+          "nullable": false,
+          "check": "^[0-9a-f]{64}$"
+        },
+        {
+          "name": "observed_urls",
+          "type": "integer",
+          "nullable": false,
+          "check": "observed_urls >= 0"
+        },
+        {
+          "name": "created_xid",
+          "type": "xid8",
+          "nullable": false
+        },
+        {
+          "name": "created_at",
+          "type": "timestamptz",
+          "nullable": false,
+          "default": "clock_timestamp()"
+        }
+      ],
+      "semantics": "Immutable id/hash/count receipt. It stores no request body, URL, endpoint credential, or backend result."
+    }
+  ],
+  "functions": [
+    {
+      "signature": "aap_inference_registry_ingress_v1.registry_ingress_policy()",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [],
+      "returns": {
+        "kind": "jsonb",
+        "shape": {
+          "schema": "aap-inference-registry-ingress-native/v1",
+          "data_protocol": "aap-inference-registry-ingress/v1",
+          "transaction": "caller_owned",
+          "functions": [
+            "aap_inference_registry_ingress_v1.registry_ingress_policy()",
+            "aap_inference_registry_ingress_v1.registry_by_url(text)",
+            "aap_inference_registry_ingress_v1.registry_candidates(text)",
+            "aap_inference_registry_ingress_v1.create_registry(uuid,text,text,text,boolean,text)",
+            "aap_inference_registry_ingress_v1.singleton_pool(uuid)",
+            "aap_inference_registry_ingress_v1.create_singleton_pool(uuid,uuid,uuid,text,text,text)",
+            "aap_inference_registry_ingress_v1.apply_observation(uuid,text,text,text,boolean,text,timestamptz,text,boolean,text)",
+            "aap_inference_registry_ingress_v1.disconnect_env_registry(uuid,text)",
+            "aap_inference_registry_ingress_v1.tag_seed_registry(uuid,text)",
+            "aap_inference_registry_ingress_v1.sync_result(uuid,text)",
+            "aap_inference_registry_ingress_v1.record_sync_result(uuid,text,integer)"
+          ],
+          "ready": true
+        }
+      },
+      "semantics": "Secret-free metadata for exactly eleven fixed functions."
+    },
+    {
+      "signature": "aap_inference_registry_ingress_v1.registry_by_url(text)",
+      "language": "plpgsql",
+      "volatility": "STABLE",
+      "arguments": [
+        {
+          "name": "p_url",
+          "type": "text",
+          "nullable": false
+        }
+      ],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          {
+            "name": "id",
+            "type": "uuid"
+          },
+          {
+            "name": "name",
+            "type": "text"
+          },
+          {
+            "name": "url",
+            "type": "text"
+          },
+          {
+            "name": "state",
+            "type": "text"
+          },
+          {
+            "name": "is_interactive",
+            "type": "boolean"
+          },
+          {
+            "name": "auth_method",
+            "type": "text"
+          },
+          {
+            "name": "auth_token",
+            "type": "text"
+          },
+          {
+            "name": "extra_params",
+            "type": "jsonb"
+          },
+          {
+            "name": "gpu_resource_id",
+            "type": "text"
+          },
+          {
+            "name": "vram_budget_mb",
+            "type": "integer"
+          },
+          {
+            "name": "eviction_priority",
+            "type": "integer"
+          },
+          {
+            "name": "health_meta",
+            "type": "jsonb"
+          },
+          {
+            "name": "source",
+            "type": "text"
+          },
+          {
+            "name": "error_message",
+            "type": "text"
+          },
+          {
+            "name": "last_checked_at",
+            "type": "timestamptz"
+          },
+          {
+            "name": "created_at",
+            "type": "timestamptz"
+          },
+          {
+            "name": "updated_at",
+            "type": "timestamptz"
+          }
+        ]
+      },
+      "semantics": "Plain lookup by exact URL with no lock or early refresh. Missing rows return zero records."
+    },
+    {
+      "signature": "aap_inference_registry_ingress_v1.registry_candidates(text)",
+      "language": "plpgsql",
+      "volatility": "STABLE",
+      "arguments": [
+        {
+          "name": "p_profile",
+          "type": "text",
+          "nullable": false,
+          "enum": ["env", "live"]
+        }
+      ],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          {
+            "name": "id",
+            "type": "uuid"
+          },
+          {
+            "name": "name",
+            "type": "text"
+          },
+          {
+            "name": "url",
+            "type": "text"
+          },
+          {
+            "name": "state",
+            "type": "text"
+          },
+          {
+            "name": "is_interactive",
+            "type": "boolean"
+          },
+          {
+            "name": "auth_method",
+            "type": "text"
+          },
+          {
+            "name": "auth_token",
+            "type": "text"
+          },
+          {
+            "name": "extra_params",
+            "type": "jsonb"
+          },
+          {
+            "name": "gpu_resource_id",
+            "type": "text"
+          },
+          {
+            "name": "vram_budget_mb",
+            "type": "integer"
+          },
+          {
+            "name": "eviction_priority",
+            "type": "integer"
+          },
+          {
+            "name": "health_meta",
+            "type": "jsonb"
+          },
+          {
+            "name": "source",
+            "type": "text"
+          },
+          {
+            "name": "error_message",
+            "type": "text"
+          },
+          {
+            "name": "last_checked_at",
+            "type": "timestamptz"
+          },
+          {
+            "name": "created_at",
+            "type": "timestamptz"
+          },
+          {
+            "name": "updated_at",
+            "type": "timestamptz"
+          }
+        ]
+      },
+      "semantics": "env selects only source=env; live selects source<>seed. No added order, locking or owned-stub exclusion."
+    },
+    {
+      "signature": "aap_inference_registry_ingress_v1.create_registry(uuid,text,text,text,boolean,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        {
+          "name": "p_registry_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "p_name",
+          "type": "text",
+          "nullable": true,
+          "description": "Passed through to the Registry NOT NULL constraint without early normalization."
+        },
+        {
+          "name": "p_url",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "p_source",
+          "type": "text",
+          "nullable": false,
+          "enum": ["env", "seed"]
+        },
+        {
+          "name": "p_is_interactive",
+          "type": "boolean",
+          "nullable": false
+        },
+        {
+          "name": "p_extra_params_json",
+          "type": "text",
+          "nullable": false,
+          "description": "JSON object cast only in the Registry INSERT."
+        }
+      ],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          {
+            "name": "id",
+            "type": "uuid"
+          },
+          {
+            "name": "name",
+            "type": "text"
+          },
+          {
+            "name": "url",
+            "type": "text"
+          },
+          {
+            "name": "state",
+            "type": "text"
+          },
+          {
+            "name": "is_interactive",
+            "type": "boolean"
+          },
+          {
+            "name": "auth_method",
+            "type": "text"
+          },
+          {
+            "name": "auth_token",
+            "type": "text"
+          },
+          {
+            "name": "extra_params",
+            "type": "jsonb"
+          },
+          {
+            "name": "gpu_resource_id",
+            "type": "text"
+          },
+          {
+            "name": "vram_budget_mb",
+            "type": "integer"
+          },
+          {
+            "name": "eviction_priority",
+            "type": "integer"
+          },
+          {
+            "name": "health_meta",
+            "type": "jsonb"
+          },
+          {
+            "name": "source",
+            "type": "text"
+          },
+          {
+            "name": "error_message",
+            "type": "text"
+          },
+          {
+            "name": "last_checked_at",
+            "type": "timestamptz"
+          },
+          {
+            "name": "created_at",
+            "type": "timestamptz"
+          },
+          {
+            "name": "updated_at",
+            "type": "timestamptz"
+          }
+        ]
+      },
+      "semantics": "Inserts a disconnected Registry with auth_method=none, null token/GPU/health/error/check time and eviction_priority=0. Does not create the singleton Pool or Member."
+    },
+    {
+      "signature": "aap_inference_registry_ingress_v1.singleton_pool(uuid)",
+      "language": "plpgsql",
+      "volatility": "STABLE",
+      "arguments": [
+        {
+          "name": "p_registry_id",
+          "type": "uuid",
+          "nullable": false
+        }
+      ],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          {
+            "name": "id",
+            "type": "uuid"
+          },
+          {
+            "name": "name",
+            "type": "text"
+          },
+          {
+            "name": "enabled",
+            "type": "boolean"
+          },
+          {
+            "name": "routing_policy",
+            "type": "text"
+          },
+          {
+            "name": "legacy_instance_id",
+            "type": "uuid"
+          },
+          {
+            "name": "routing_generation",
+            "type": "bigint"
+          },
+          {
+            "name": "capability_fingerprint",
+            "type": "text"
+          },
+          {
+            "name": "capability_snapshot",
+            "type": "jsonb"
+          },
+          {
+            "name": "created_at",
+            "type": "timestamptz"
+          },
+          {
+            "name": "updated_at",
+            "type": "timestamptz"
+          }
+        ]
+      },
+      "semantics": "Unordered plain Member-to-Pool lookup, returning the first matching existing Pool as the legacy ORM lookup did."
+    },
+    {
+      "signature": "aap_inference_registry_ingress_v1.create_singleton_pool(uuid,uuid,uuid,text,text,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        {
+          "name": "p_registry_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "p_pool_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "p_member_id",
+          "type": "uuid",
+          "nullable": true
+        },
+        {
+          "name": "p_name",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "p_snapshot_json",
+          "type": "text",
+          "nullable": true,
+          "description": "SQL NULL and the JSON text null remain distinct capability_snapshot values."
+        },
+        {
+          "name": "p_fingerprint",
+          "type": "text",
+          "nullable": true,
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      ],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          {
+            "name": "id",
+            "type": "uuid"
+          },
+          {
+            "name": "name",
+            "type": "text"
+          },
+          {
+            "name": "enabled",
+            "type": "boolean"
+          },
+          {
+            "name": "routing_policy",
+            "type": "text"
+          },
+          {
+            "name": "legacy_instance_id",
+            "type": "uuid"
+          },
+          {
+            "name": "routing_generation",
+            "type": "bigint"
+          },
+          {
+            "name": "capability_fingerprint",
+            "type": "text"
+          },
+          {
+            "name": "capability_snapshot",
+            "type": "jsonb"
+          },
+          {
+            "name": "created_at",
+            "type": "timestamptz"
+          },
+          {
+            "name": "updated_at",
+            "type": "timestamptz"
+          }
+        ]
+      },
+      "semantics": "Locks Registry KEY SHARE first. If a Member already exists, returns its actual Pool before validating or parsing create-only inputs. Otherwise inserts a disabled smooth_weighted_round_robin Pool and active weight-one Member with generation one. It performs no health reconciliation."
+    },
+    {
+      "signature": "aap_inference_registry_ingress_v1.apply_observation(uuid,text,text,text,boolean,text,timestamptz,text,boolean,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        {
+          "name": "p_registry_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "p_profile",
+          "type": "text",
+          "nullable": false,
+          "enum": ["env", "seed"]
+        },
+        {
+          "name": "p_state",
+          "type": "text",
+          "nullable": false,
+          "enum": ["connected", "error"]
+        },
+        {
+          "name": "p_name",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "p_is_interactive",
+          "type": "boolean",
+          "nullable": true
+        },
+        {
+          "name": "p_health_meta_json",
+          "type": "text",
+          "nullable": true,
+          "description": "Cast to JSONB only in the selected apply branch."
+        },
+        {
+          "name": "p_checked_at",
+          "type": "timestamptz",
+          "nullable": false
+        },
+        {
+          "name": "p_error_message",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "p_usable_caps",
+          "type": "boolean",
+          "nullable": false
+        },
+        {
+          "name": "p_expected_snapshot_json",
+          "type": "text",
+          "nullable": false,
+          "description": "Exact five-key URL/auth/GPU/source snapshot captured before observation."
+        }
+      ],
+      "returns": {
+        "kind": "scalar",
+        "type": "timestamptz"
+      },
+      "semantics": "Locks Registry FOR UPDATE, compares the exact current five-key endpoint/source snapshot, and raises sanitized 40001 on missing or changed ownership/snapshot. env always updates name/state/interactivity/health/check time but preserves error_message. seed success updates those fields and clears error_message; seed failure updates only state/error/check time, retaining name/interactivity/health. updated_at uses now()."
+    },
+    {
+      "signature": "aap_inference_registry_ingress_v1.disconnect_env_registry(uuid,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        {
+          "name": "p_registry_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "p_expected_url",
+          "type": "text",
+          "nullable": false
+        }
+      ],
+      "returns": {
+        "kind": "scalar",
+        "type": "timestamptz"
+      },
+      "semantics": "Locks Registry FOR UPDATE and requires the exact env source and URL, otherwise raises sanitized 40001. Changes only state=disconnected and updated_at when state actually changes."
+    },
+    {
+      "signature": "aap_inference_registry_ingress_v1.tag_seed_registry(uuid,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        {
+          "name": "p_registry_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "p_marker_json",
+          "type": "text",
+          "nullable": false,
+          "description": "Exact screenshots ownership marker object."
+        }
+      ],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          {
+            "name": "extra_params",
+            "type": "jsonb"
+          },
+          {
+            "name": "updated_at",
+            "type": "timestamptz"
+          }
+        ]
+      },
+      "semantics": "Locks Registry FOR UPDATE and merges only the fixed seed marker, preserving other object keys. SQL NULL, JSON null, false, numeric zero including 0.0, empty string and empty array follow the old Python value-or-empty mapping behavior; truthy nonobjects fail. An unchanged mapping does not synthesize an updated_at write."
+    },
+    {
+      "signature": "aap_inference_registry_ingress_v1.sync_result(uuid,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        {
+          "name": "p_request_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "p_command_sha256",
+          "type": "text",
+          "nullable": false,
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      ],
+      "returns": {
+        "kind": "scalar",
+        "type": "jsonb",
+        "nullable": true,
+        "shape": {
+          "schema": "aap-inference-registry-env-sync-result/v1",
+          "request_id": "uuid-string",
+          "command_sha256": "64-lowercase-hex",
+          "state": ["caller_pending", "committed"],
+          "observed_urls": "nonnegative integer"
+        }
+      },
+      "semantics": "Takes the transaction advisory lock in the fixed env-sync namespace. Returns SQL NULL when no receipt exists. Matching receipt state is caller_pending only for the creating current xid, otherwise committed; digest reuse mismatch raises 22023."
+    },
+    {
+      "signature": "aap_inference_registry_ingress_v1.record_sync_result(uuid,text,integer)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        {
+          "name": "p_request_id",
+          "type": "uuid",
+          "nullable": false
+        },
+        {
+          "name": "p_command_sha256",
+          "type": "text",
+          "nullable": false,
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        {
+          "name": "p_observed_urls",
+          "type": "integer",
+          "nullable": false,
+          "minimum": 0
+        }
+      ],
+      "returns": {
+        "kind": "scalar",
+        "type": "jsonb",
+        "shape": {
+          "schema": "aap-inference-registry-env-sync-result/v1",
+          "request_id": "uuid-string",
+          "command_sha256": "64-lowercase-hex",
+          "state": ["caller_pending", "committed"],
+          "observed_urls": "nonnegative integer"
+        }
+      },
+      "semantics": "Takes the same transaction advisory lock. Inserts one immutable request/hash/count receipt in the caller transaction or returns an identical existing receipt. Reusing an id with different digest or count raises 22023."
+    }
+  ],
+  "x-postgresql-functions": [
+    "aap_inference_registry_ingress_v1.registry_ingress_policy()",
+    "aap_inference_registry_ingress_v1.registry_by_url(text)",
+    "aap_inference_registry_ingress_v1.registry_candidates(text)",
+    "aap_inference_registry_ingress_v1.create_registry(uuid,text,text,text,boolean,text)",
+    "aap_inference_registry_ingress_v1.singleton_pool(uuid)",
+    "aap_inference_registry_ingress_v1.create_singleton_pool(uuid,uuid,uuid,text,text,text)",
+    "aap_inference_registry_ingress_v1.apply_observation(uuid,text,text,text,boolean,text,timestamptz,text,boolean,text)",
+    "aap_inference_registry_ingress_v1.disconnect_env_registry(uuid,text)",
+    "aap_inference_registry_ingress_v1.tag_seed_registry(uuid,text)",
+    "aap_inference_registry_ingress_v1.sync_result(uuid,text)",
+    "aap_inference_registry_ingress_v1.record_sync_result(uuid,text,integer)"
+  ],
+  "x-postgresql-private-tables": ["aap_inference_registry_ingress_v1.env_sync_receipts"],
+  "x-postgresql-errors": {
+    "invalid_request": {
+      "sqlstate": "22023",
+      "message": "invalid Registry ingress request"
+    },
+    "observation_changed": {
+      "sqlstate": "40001",
+      "message": "registry ingress observation changed"
+    },
+    "receipt_identity_reused": {
+      "sqlstate": "22023",
+      "message": "Registry environment sync request identity reused"
+    }
+  }
+}
