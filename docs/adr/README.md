@@ -195,3 +195,4 @@
 - [0147 — Inference Pool Policy and Workspace Backend Bindings](0147-inference-pool-policy-and-workspace-bindings.md)
 - [0148 — Inference Backend Transport and Deletion Dependencies](0148-inference-backend-transport-and-deletion-dependencies.md)
 - [0149 — Credential-owning Workspace Backend Probe](0149-credential-owning-workspace-backend-probe.md)
+- [0150 — Portable Backend Health Coordination](0150-portable-backend-health-coordination.md)

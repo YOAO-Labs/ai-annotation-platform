@@ -109,6 +109,18 @@ Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事�
 非 Python 提供方或生产容量已完成。部署和边界见
 [运行指南](/api/guides/inference-runtime)及[ADR-0146](/dev/adr/0146-inference-named-pipeline-owner)。
 
+## Backend 健康协调的单一实现
+
+完整健康检查和服务池能力对账策略由 `aap_inference.health` 提供；项目／全局探活、
+能力漂移接受、周期 worker 和 GPU 冷启动刷新均经现有入口调用它。API 适配器继续借用
+原 Session，保留全行 JSON 物化、无锁 HTTP、数据库观察时间、配置／代次围栏、能力指纹
+和调用方提交顺序。它尚未形成独立的 Native／HTTP 健康服务，不增加部署 selector。
+
+旧实现已冻结24组真实 HTTP／SQL 相位观测，覆盖两种自动刷新设置和原有错误阶段。
+健康对账与成员变更之间仍有相反的行锁顺序，须单独统一并做并发验收；当前不宣称完整
+控制面具备争用安全性。私有凭据快照、带真实性约束的观察结果和同事务 Native apply
+仍是后续工作。详见 [ADR-0150](/dev/adr/0150-portable-backend-health-coordination)。
+
 ## Workspace 后端能力探测
 
 Workspace 配置路径只持有 registry ID 和不透明事务快照；Inference 独立持有凭据并执行

@@ -551,6 +551,16 @@ DOMAIN_PACKAGES = (
     ),
     DomainSpec(package="workspace_configuration_data", legacy_facades=()),
     DomainSpec(
+        package="inference_health_data",
+        legacy_facades=(),
+        allowed_app_imports=(
+            "app.db.models.gpu_backend_membership",
+            "app.db.models.ml_backend_pool",
+            "app.db.models.ml_backend_registry",
+        ),
+        allowed_framework_imports=("sqlalchemy",),
+    ),
+    DomainSpec(
         package="inference_backend_probe",
         legacy_facades=(),
         allowed_app_imports=("app.config",),
@@ -1259,3 +1269,49 @@ def test_services_graph_has_no_cycle() -> None:
         )
         details.append(f"SCC {component!r}: {edges!r}")
     assert not offenders, "\n".join(details)
+
+
+def test_backend_health_coordinator_has_one_portable_policy_owner() -> None:
+    """Health and reconciliation use the owner with a borrowed data binding."""
+    api = ast.parse((_SERVICES_DIR / "ml_backend.py").read_text())
+    service = next(
+        node
+        for node in api.body
+        if isinstance(node, ast.ClassDef) and node.name == "MLBackendService"
+    )
+    methods = {
+        node.name: node
+        for node in service.body
+        if isinstance(node, ast.AsyncFunctionDef)
+    }
+    for name, port in (
+        ("check_health", "BackendHealthCoordinator"),
+        ("_reconcile_pool_capability", "reconcile_pool_capability"),
+    ):
+        method = methods[name]
+        imports = {
+            alias.name
+            for node in ast.walk(method)
+            if isinstance(node, ast.ImportFrom)
+            and node.module == "aap_inference.health"
+            for alias in node.names
+        }
+        assert port in imports
+        assert not any(
+            isinstance(node, ast.Name)
+            and node.id
+            in {"select", "update", "canonicalize_capability", "capability_fingerprint"}
+            for node in ast.walk(method)
+        )
+    owner = _REPO_ROOT / "apps/inference/src/aap_inference/health.py"
+    tree = ast.parse(owner.read_text())
+    imported = [name for name, _local in _collect_imports(tree, "aap_inference.health")]
+    forbidden = {"app", "sqlalchemy", "fastapi", "celery", "redis", "boto3"}
+    assert not [name for name in imported if name.split(".", 1)[0] in forbidden]
+    binding = ast.parse((_SERVICES_DIR / "inference_health_data.py").read_text())
+    assert not [
+        node.attr
+        for node in ast.walk(binding)
+        if isinstance(node, ast.Attribute)
+        and node.attr in {"commit", "rollback", "close", "begin", "begin_nested"}
+    ]

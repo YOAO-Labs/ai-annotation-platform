@@ -85,3 +85,12 @@ failures remain a bound sanitized error. Requests16 MiB/replies4 KiB are metadat
 bounds only. The single-attempt client rejects compression and redirects. Completed
 origin transaction subjects cannot be reopened; already accepted I/O is not cancelled
 retroactively. See ADR-0149 for transaction, backup and remaining module boundaries.
+
+The complete backend-health coordinator and capability-pool reconciliation policy
+live in `aap_inference.health`. Typed borrowed data and explicit client/limits
+factories preserve full-row materialization, database clocks, unlocked backend I/O,
+GPU proof/fences and caller commit boundaries. The API binding still uses its
+injected Session; these mutable row ports are transitional, not an independent
+health wire protocol. Native/authenticated observation work and the preexisting
+member/pool lock-order inversion remain required before full-owner qualification.
+See ADR-0150 for exact scope and the immutable real HTTP/SQL baseline.
