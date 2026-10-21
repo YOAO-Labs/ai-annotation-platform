@@ -129,7 +129,7 @@ Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事�
 
 健康观察另有176项去重选定检查通过，三绑定各匹配24组旧健康相位；完整迁移、非空恢复、独立安装与受限容器实际公开 API 链路通过。安装包核对55／277个文件，API冷检查核对1,250项输入及 Native head276；容器重启与停止后不回退均验证。有限并发样本不代表生产容量。这批证据对应观察阶段；后续同事务健康数据能力独立记录，整个模块继续推进。
 
-健康数据适配器使用11项固定 Native 函数，后端健康写入与服务池 seed／disable 对账继续由原事务持有。独立 `HealthDataPostgresData` 可借用已开启的 asyncpg 事务，不依赖 API／ORM；API 绑定保留原对象身份、自动刷新与其他待提交对象。专用数据 LOGIN 没有原表权限，观察 LOGIN 不增加写权。此切片不代表完整健康远程协调、全部 Registry／Pool writers 或路由／GPU已完成。见 [ADR-0153](/dev/adr/0153-caller-owned-native-health-data)。
+健康数据适配器使用11项固定 Native 函数，后端健康写入与服务池 seed／disable 对账继续由原事务持有。独立 `HealthDataPostgresData` 可借用已开启的 asyncpg 事务，不依赖 API／ORM；API 绑定保留原对象身份、自动刷新与其他待提交对象。专用数据 LOGIN 没有原表权限，观察 LOGIN 不增加写权。本地153项去重选定检查通过，源码213项、独立安装 Inference／Workspace 213／530项通过；完整迁移、非空恢复、受限镜像与实际公开 API 链路分别验证。独立端口拒绝已结束或已更换事务的旧绑定。此切片不代表完整健康远程协调、全部 Registry／Pool writers 或路由／GPU已完成。见 [ADR-0153](/dev/adr/0153-caller-owned-native-health-data)。
 
 ## Workspace 后端能力探测
 

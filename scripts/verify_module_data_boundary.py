@@ -321,6 +321,9 @@ SCHEMA_ARTIFACTS = (
     "0277_inference_health_data.schema.json",
 )
 TEST_FILES = (
+    "tests/test_inference_health_data_native.py",
+    "tests/test_inference_health_data_binding.py",
+    "tests/test_inference_health_data_postgres.py",
     "tests/test_inference_backend_probe_native.py",
     "tests/test_inference_backend_probe_bindings.py",
     "tests/test_inference_backend_probe_restore.py",
