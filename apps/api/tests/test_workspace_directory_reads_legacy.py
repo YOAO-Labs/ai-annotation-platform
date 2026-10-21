@@ -253,6 +253,7 @@ async def _request(
             "active": actor.is_active,
         },
     }
+    normalized_body = _normalise(raw_body, aliases)
     sample["response"] = {
         "status": response.status_code,
         "headers": {
@@ -260,7 +261,7 @@ async def _request(
             for name in _HEADERS
             if name in response.headers
         },
-        "body": _normalise(raw_body, aliases),
+        "body": normalized_body,
         "raw_body": {
             "byte_length": len(response.content),
             "sha256": hashlib.sha256(response.content).hexdigest(),
@@ -268,7 +269,7 @@ async def _request(
         },
     }
     capture["samples"].append(sample)
-    return response, raw_body, sample
+    return response, normalized_body, sample
 
 
 def _ids(rows: list[dict]) -> list[str]:
