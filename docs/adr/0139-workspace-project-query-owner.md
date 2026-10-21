@@ -1,6 +1,6 @@
 # 0139 — Workspace Project Query Owner
 
-- **Status:** Accepted design; Native, API and runtime integration in progress
+- **Status:** Accepted; selected Project query capability locally qualified
 - **Date:** 2026-10-21
 - **Deciders:** Backend architecture team
 - **Supersedes:** None
@@ -8,8 +8,8 @@
 ## Context
 
 The [Project read foundation](0138-workspace-project-read-foundation.md) exposes
-typed foreign facts and portable access values. Ordinary Project reads still
-execute API SQL and serialization. Extracting them requires preserving authority,
+typed foreign facts and portable access values. Before this extraction, ordinary
+Project reads executed API SQL and serialization. The owner preserves authority,
 per-statement snapshots, postcommit responses and selected Identity profiles.
 
 ## Decision
@@ -39,8 +39,8 @@ JSONB columns travel as their exact JSON text, distinguishing SQL NULL from JSON
 null without prematurely applying public DTO validation. This also preserves
 arbitrary JSON integers and finite JSON numbers that overflow Python floats.
 Float columns are promoted to double precision before round-trippable text
-encoding, preserving the original binary driver's float32-to-Python value. The codec retains the original driver
-failure phase for finite temporal values outside Python's range. True date
+encoding, preserving the original binary driver's float32-to-Python value. The
+codec retains the original driver failure phase for finite temporal values outside Python's range. True date
 infinities become date extrema; timestamp infinities become naive datetime
 extrema, while ordinary finite timestamps remain UTC-aware.
 
@@ -124,10 +124,27 @@ The legacy observer seam is adapted inside tests; production retains no facade.
 Together with the original 27, this verifies 50 distinct HTTP observations on
 each binding without replacing the immutable legacy evidence.
 
+Restricted owner and API images match 178 and 180 installed package files;
+the API also matches 190 application/Native inputs, unchanged OpenAPI and head0261.
+The offline probes use nonroot users, read-only filesystems, no network, dropped
+capabilities and explicit CPU/memory/PID limits. A live owner container uses only
+three read-only credential files and loopback publication; public create/readback,
+restart and 16 requests at concurrency four pass within 1 CPU/256 MiB. The
+database and API caller are outside that budget. This is a local connectivity
+and concurrency sample, not production capacity or an SLO.
+
+Real backup/restore preserves all seven Project query operations through the
+function-only Project credential and separate Identity Briefs credential, with
+read-only transactions. Accepted configuration projection still succeeds after
+the actor becomes inactive. The full migration validator passes fresh261,
+173down/base/up, the87-step reversible suffix, historical forward conversion and
+pre-conversion restore. Its four derived databases and dump are removed.
+
 Static review found no actionable issue in the provider, data/profile adapters,
-runtime assembly or Project/search callers. Full backup/restore and restricted
-image qualification remain open. No production cutover, capacity qualification
-or full Workspace qualification is claimed.
+runtime assembly or Project/search callers. These gates qualify this selected
+query capability locally. Member/mention/access responses, adjacent writers and
+cross-domain Project consumers remain outside it; full Workspace, other modules,
+production capacity and primary cutover remain open.
 
 The full all-module deployment/language-replacement objective remains active.
 Shared PostgreSQL and the trusted coordinator are explicit current constraints.

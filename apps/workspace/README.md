@@ -37,7 +37,7 @@ owner transfer. Public API callers use the same owner with a borrowed session
 by default; the old configuration ORM writers are removed. These six commands
 passed bounded local package, restricted database, process, container, restart,
 restore and concurrency qualification. See ADR-0136 for evidence and scope.
-Project read projections, adjacent writers and the full Workspace module remain open.
+Directory reads, adjacent writers and the full Workspace module remain open.
 
 Template list/detail and receipt-bound response projection now have a portable
 query contract, policy manager and raw scalar materializer. Public callers now
@@ -69,5 +69,8 @@ bindings. Native0261 and its function-only credential pass owned database checks
 the standalone runtime resolves Identity Briefs through its explicit public
 client dependency. Fifty frozen HTTP observations match all three bindings;
 noneditable package manifests and bounded process-failure/restart checks pass.
-Restricted images and full backup/restore qualification remain open.
+Restricted owner/API images, real container response projection and restart,
+backup/restore and full migration261 pass. The bounded local concurrency sample
+does not establish production capacity. Directory reads, adjacent writes and the
+remaining cross-domain Project consumers still prevent full Workspace qualification.
 See ADR-0139 for authority phases and the current acceptance boundary.

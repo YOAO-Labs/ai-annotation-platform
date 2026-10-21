@@ -135,7 +135,7 @@ archived
 
 如果你改的是「标注长什么样」, 十有八九要从 project.tool_bindings 入手, 而不是 task。
 
-写入路径由 `projects.py` 保留 HTTP 请求、提交与响应；六项项目／模板配置命令通过 `services/workspace_configuration.py` 进入同一个 Workspace owner。`apps/workspace/src/aap_workspace` 持有配置编排、值、旧扁平类别/属性规范化、kind、克隆与模板策略；Native 执行当前权限围栏、跨 owner 类型化调用及固定列写入。默认适配器借用调用方 Session，不自行提交或回滚；独立 DSN／HTTP 只拥有各自的业务事务，显式失败不回退。原配置 API 工作流与 ORM 行命令已删除；模板列表／详情和提交后的响应投影通过 `services/workspace_template_query.py` 进入读取 owner；API 附带成功命令回执读取当前行，再校验公开响应。原模板 ORM 读取适配器已删除；命名流水线复用 Identity 的窄组织事实能力。项目内嵌与命名流水线共用 `aap_inference.pipeline.validate_saved_pipeline`。`ProjectOut` 继续消费共享 Workspace 纯投影。六项命令已完成限定本地包、进程、镜像与恢复验收；项目普通读取和相邻写入仍待迁移，见 [配置命令 ADR](/dev/adr/0136-workspace-configuration-command-owner)。
+写入路径由 `projects.py` 保留 HTTP 请求、提交与响应；六项项目／模板配置命令通过 `services/workspace_configuration.py` 进入同一个 Workspace owner。`apps/workspace/src/aap_workspace` 持有配置编排、值、旧扁平类别/属性规范化、kind、克隆与模板策略；Native 执行当前权限围栏、跨 owner 类型化调用及固定列写入。默认适配器借用调用方 Session，不自行提交或回滚；独立 DSN／HTTP 只拥有各自的业务事务，显式失败不回退。原配置 API 工作流与 ORM 行命令已删除；模板列表／详情和提交后的响应投影通过 `services/workspace_template_query.py` 进入读取 owner；API 附带成功命令回执读取当前行，再校验公开响应。原模板 ORM 读取适配器已删除；命名流水线复用 Identity 的窄组织事实能力。项目内嵌与命名流水线共用 `aap_inference.pipeline.validate_saved_pipeline`。`ProjectOut` 继续消费共享 Workspace 纯投影。六项命令已完成限定本地包、进程、镜像与恢复验收；项目普通读取已由查询 owner 提供，成员／mention／access 与相邻写入仍待迁移，见 [配置命令 ADR](/dev/adr/0136-workspace-configuration-command-owner)。
 
 前端项目设置的归属：`基本信息` 只维护名称、状态、截止日期和类型展示；`类别与属性` 是 `tool_bindings` 的唯一编辑入口，同一个工具单位 tab 下同时维护类别、关键点骨骼模板与属性 schema。
 
@@ -303,7 +303,7 @@ Project 模型本身保留了多种聚合字段：
 原 API 值模块已删除。当前 SQL 权限解析、锁与最终写入检查仍由原适配器执行；
 这些值本身不是跨进程授权凭据。
 
-项目普通读取仍在 API。为继续迁移，0260提供了15项固定 PostgreSQL 读取能力：
+项目普通读取由独立 Workspace 查询 owner 提供，0260提供了15项固定 PostgreSQL 读取能力：
 Labeling 持有物化计数、AI／时间序列及任务／批次事实，Assets 持有数据集和素材事实，
 Jobs 持有建题作业计数与最新状态，Inference 持有主池的 legacy instance 映射。
 Workspace 只获显式函数权限，不直接读取这些所有者的原表。
@@ -311,5 +311,8 @@ Workspace 只获显式函数权限，不直接读取这些所有者的原表。
 实际旧行为已冻结27项 HTTP 观测、两项调用方事务探针，以及日期编码与43个物理字段；
 原 SQL 读取、授权时点和配置提交后的响应失败行为仍保留。补充采集已冻结有限极端日期、
 搜索、重命名和移交／配置提交后降权的读回行为。独立包内已实现 Project 查询协议、
-原始值编码与分阶段纯策略，Native、API 和运行时接入继续实施；当前 API 入口尚未切换。
+原始值编码与分阶段策略；API 已选择借用事务、专用只读连接或 HTTP 运行时，显式失败不回退。
+50 项冻结 HTTP 观测在三路径通过，独立包、受限镜像、故障／重启、真实备份恢复和完整迁移均已限定本地验证。
+负责人转移保留提交前解码和提交后重新读行两个阶段；公开 DTO 仍在 API 验证。
+成员／mention／access、相邻写入和其他跨域消费者仍未完成。
 详见 [Project 查询 owner ADR](/dev/adr/0139-workspace-project-query-owner)。

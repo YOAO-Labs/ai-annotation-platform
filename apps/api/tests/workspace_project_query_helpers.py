@@ -18,7 +18,7 @@ from tests.test_module_data_roles import _role_url
 ROOT = Path(__file__).resolve().parents[3]
 
 
-def _dsn(test_engine, variable, role):
+def _dsn(test_engine, variable, role, database=None):
     parsed = make_url(_role_url(variable, role))
     assert parsed.username == role
     assert (parsed.host, parsed.port, parsed.database) == (
@@ -28,20 +28,27 @@ def _dsn(test_engine, variable, role):
     )
     assert parsed.database and parsed.database.endswith("_test")
     _verify_postgres(parsed)
+    if database is not None:
+        assert database.endswith("_test")
+        parsed = parsed.set(database=database)
     return parsed.set(drivername="postgresql").render_as_string(hide_password=False)
 
 
-def project_query_dsn(test_engine):
+def project_query_dsn(test_engine, database=None):
     return _dsn(
         test_engine,
         "AAP_MODULE_DATA_WORKSPACE_PROJECT_QUERY_URL",
         "workspace_project_query_client",
+        database,
     )
 
 
-def project_query_briefs_dsn(test_engine):
+def project_query_briefs_dsn(test_engine, database=None):
     return _dsn(
-        test_engine, "AAP_MODULE_DATA_IDENTITY_BRIEFS_URL", "identity_briefs_client"
+        test_engine,
+        "AAP_MODULE_DATA_IDENTITY_BRIEFS_URL",
+        "identity_briefs_client",
+        database,
     )
 
 

@@ -16,6 +16,11 @@ from aap_workspace.configuration_postgres import ConfigurationPostgresData
 from aap_workspace.template_queries import TemplateQueryManager
 from aap_workspace.template_query_contract import template_query_request
 from aap_workspace.template_query_postgres import TemplateQueryPostgresData
+from aap_workspace.config import RuntimeSettings
+from aap_workspace.project_queries import ProjectQueryManager
+from aap_workspace.project_query_contract import project_query_request
+from aap_workspace.project_query_postgres import ProjectQueryPostgresData
+from aap_workspace.project_query_profiles import ProjectQueryIdentityProfiles
 from app.db.models.project import Project
 from app.db.models.project_template import ProjectTemplate
 from app.db.models.user import User
@@ -24,6 +29,23 @@ from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_identity_recovery import _alembic, _postgres_tool
 from tests.workspace_configuration_helpers import configuration_dsn
 from tests.workspace_template_query_helpers import template_query_dsn
+from tests.workspace_project_query_helpers import (
+    project_query_briefs_dsn,
+    project_query_dsn,
+)
+
+
+def _project_reader(test_engine, database=None):
+    return ProjectQueryManager(
+        ProjectQueryPostgresData(project_query_dsn(test_engine, database)),
+        ProjectQueryIdentityProfiles(
+            RuntimeSettings(
+                project_query_identity_briefs_database_url=project_query_briefs_dsn(
+                    test_engine, database
+                )
+            )
+        ),
+    )
 
 
 async def _project_counter_facts(maker, project_id):
@@ -243,6 +265,56 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
             await TemplateQueryManager(query_data).execute(request)
             for request in query_requests
         ]
+        list_filters = dict.fromkeys(
+            (
+                "status",
+                "search",
+                "type_key",
+                "data_type",
+                "member_id",
+                "project_role",
+                "created_from",
+                "created_to",
+            )
+        )
+        project_actor = (actor_id, "project_admin")
+        project_requests = [
+            project_query_request(
+                "list_projects", *project_actor, filters=list_filters
+            ),
+            project_query_request(
+                "query_projects",
+                *project_actor,
+                filters=list_filters,
+                pagination={"page": "1", "page_size": 10},
+            ),
+            project_query_request("get_project", *project_actor, target_id=project_id),
+            project_query_request("project_stats", *project_actor),
+            project_query_request(
+                "project_readiness", *project_actor, target_id=project_id
+            ),
+            project_query_request(
+                "get_project_projection",
+                *project_actor,
+                target_id=project_id,
+                projection_evidence={
+                    "source": "configuration",
+                    "operation_id": operation_ids[4],
+                    "operation": "create_project",
+                },
+            ),
+            project_query_request(
+                "search_projects",
+                *project_actor,
+                filters={"q": "Workspace configuration restored project", "limit": 20},
+            ),
+        ]
+        original_project_reader = _project_reader(test_engine)
+        original_projects = [
+            await original_project_reader.execute(request)
+            for request in project_requests
+        ]
+        assert all(reply.ok for reply in original_projects)
 
         async with source_maker() as db:
             await _assert_receipt_set(db, operation_ids)
@@ -348,6 +420,17 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
         assert [
             await restored_query_manager.execute(request) for request in query_requests
         ] == original_queries
+        restored_project_reader = _project_reader(test_engine, clone)
+        await restored_project_reader.data.project_query_policy()
+        async with restored_project_reader.data.transaction() as transaction:
+            assert (
+                await transaction.connection.fetchval("SHOW transaction_read_only")
+                == "on"
+            )
+        assert [
+            await restored_project_reader.execute(request)
+            for request in project_requests
+        ] == original_projects
         async with restored_maker() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
@@ -401,6 +484,10 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
         assert (
             await restored_query_manager.execute(query_requests[2])
             == original_queries[2]
+        )
+        assert (
+            await restored_project_reader.execute(project_requests[5])
+            == original_projects[5]
         )
         async with restored_maker() as db:
             assert (await db.get(ProjectTemplate, template_id)).name == later_name

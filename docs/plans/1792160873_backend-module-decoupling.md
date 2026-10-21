@@ -3683,22 +3683,60 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   shared PostgreSQL and trusted coordinator constraints remain explicit.
   See [ADR-0138](../adr/0138-workspace-project-read-foundation.md).
 
-### Project query owner implementation
+### Project query owner: selected local qualification closed
 
-- The full objective remains active. Existing API Project readers have not switched
-  at this checkpoint. The portable query protocol, fixed raw row codec and ordered
-  policy now cover seven operations and 24 typed read actions. Twenty-four focused
-  pure cases pass; no provider/public integration claim is made for these checks.
-- Additional actual pre-port captures pass: 12 temporal expression probes/eight
-  HTTP reads and 15 search/rename/transfer/configuration HTTP observations. The
-  latter includes collaborative video and its late invalid-boolean failure,
-  no-op rename without commit and accepted postcommit projections after demotion.
-  Initial reviewer-scope fixture expectations were corrected to actual legacy
-  behavior; the failed run remains separate. Immutable fixtures are promoted under
-  workspace_project_queries_legacy. No production visibility rule changed.
-- Transfer's actual precommit row capture is preserved as an accepted-write
-  snapshot handed to the selected query provider after caller commit; enrichment
-  does not reread a newer Project row. Membership facts bind actual actor/project,
-  and missing configuration projection remains an internal failure.
-- Native, API/runtime wiring and three-path/fault/artifact qualification remain
-  in progress. See [ADR-0139](../adr/0139-workspace-project-query-owner.md).
+- The complete ten-module/seven-gate objective remains active. Project list,
+  pagination, detail, statistics, readiness, accepted-write projection and Project
+  search now execute the Workspace query owner. The API's former serializers and
+  Project list/visibility SQL helpers are removed; actual callers select borrowed,
+  function-only DSN or HTTP bindings. Global Search still composes multiple domains.
+- The portable contract has seven operations and24 typed actions. Requests/facts
+  bind exact arguments; bigint facts are decimal strings, JSONB travels as raw
+  JSON text, and float4 fields promote to float8 text before Python decoding.
+  Date filters carry normalized exact epoch-microsecond bounds. Native0261 keeps
+  the38 Workspace plus5 raw Labeling Project fields in one statement snapshot.
+- Transfer retains BOTH original reads: the caller's no-autoflush precommit read
+  and decode, followed by postcommit current-row hydration through the accepted
+  receipt. The abandoned snapshot-forwarding path is removed. Receipt-backed
+  configuration and raw locked class-rename evidence preserve accepted authority;
+  missing/undecodable postcommit rows stay internal failures, not new denials.
+- Fifty immutable HTTP observations (original27, supplemental15 consumers and8
+  temporal cases) match each of the three bindings. Caller pending-work probes
+  use only the default borrowed binding. Defined Search ordering is retained;
+  tests normalize only seeded timestamp ties and unordered non-SA member groups.
+  Thirty-five Native/API regressions, two installed process fault cases and four
+  actual transfer-phase cases pass without skips. Source Workspace214 and
+  noneditable Workspace214/Inference27/Identity-Briefs-client16 cases pass.
+- Source manifests match Workspace36, Identity121, Inference7 and shared14 files.
+  Restricted owner/API cold images match178/180 package files; the API also checks
+  190 application/Native inputs, exact OpenAPI and head0261. Nonroot/read-only,
+  no-network and explicit capability/PID/CPU/memory restrictions are verified.
+  The live owner uses only3 read-only secret files and loopback publication;
+  public create/readback, restart and16 requests at concurrency4 pass at1CPU/256MiB.
+  The database/API caller are outside that budget; this is no production SLO.
+- A real backup restore preserves all seven Project query operations through
+  separate function-only Project and Identity Briefs credentials, readonly
+  transactions and accepted configuration projection after actor deactivation.
+  Full migration261 passes fresh261,173down/base/up,87suffixdown/up, authentic
+  historical forward conversion and pre-conversion restore. Four derived
+  databases/dump are removed; all owned acceptance resources are cleaned.
+- This closes only the selected Project query capability. Directory reads
+  (members/mention/access), class rename command ownership, guide assets, named
+  pipeline persistence, import/registry/promotion writes and other cross-domain
+  Project consumers remain. Full Workspace, other modules, provider replacement,
+  production capacity and primary cutover are unfinished; Go stays experimental.
+  See [ADR-0139](../adr/0139-workspace-project-query-owner.md).
+
+### Next Workspace boundary: directory reads
+
+- Proceed with member-list and mention-candidate owner projections. Preserve the
+  member order, one batched profile lookup, empty/missing profile behavior and
+  final public DTO validation. Capture actual mention groups/order/precedence,
+  duplicates, inactive users and early404 before extraction.
+- Active owner/superadmin/member user facts belong to Identity; expose narrow
+  owned facts instead of giving Workspace raw User access. Keep accepted current
+  visibility phases and caller transaction/I/O boundaries intact.
+- Project access response has repeated resolution phases and stays separate until
+  captured. Class usage belongs to Labeling; named pipeline persistence needs an
+  ownership decision based on existing Inference responsibilities. Do not hide
+  those remaining surfaces behind the completed query slice.

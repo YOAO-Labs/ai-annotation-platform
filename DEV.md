@@ -575,7 +575,7 @@ Node conformance provider 只用于本地替换实验，Native 持有业务策�
 ### Workspace 配置命令
 
 配置命令的独立服务实现见 [ADR-0136](docs/adr/0136-workspace-configuration-command-owner.md)。
-六项公开配置路由已接入配置 owner，默认仍借用调用方事务；独立连接、进程、受限镜像、恢复与本地并发执行已完成限定验收。项目／模板读取投影和其他 Workspace 入口继续迁移。
+六项公开配置路由已接入配置 owner，默认仍借用调用方事务；独立连接、进程、受限镜像、恢复与本地并发执行已完成限定验收。项目／模板读取投影已由各自查询 owner 提供；其余 Workspace 入口继续迁移。
 私有端点为 `POST /v1/workspace/configuration/execute`；独立运行使用
 `WORKSPACE_CONFIGURATION_DATABASE_URL(_FILE)` 和共享 control token。
 `docker-compose.workspace-configuration.yml` 仅绑定本机端口8174，宿主 secret
@@ -624,8 +624,8 @@ Identity Briefs 依赖：`WORKSPACE_PROJECT_QUERY_IDENTITY_URL` 及独立 token/
 可选 `docker-compose.workspace-project-query.yml` 绑定本机8176，读取三份宿主 secret：
 `WORKSPACE_RUNTIME_PROJECT_QUERY_DATABASE_URL_FILE`、
 `WORKSPACE_RUNTIME_PROJECT_QUERY_BRIEFS_DATABASE_URL_FILE`、
-`WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE`。该组合仍在本地验收阶段，
-三路径响应对照、安装包、镜像及恢复的完成状态见
+`WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE`。选定查询能力已完成三路径响应对照、安装包、受限镜像、
+恢复和完整迁移的本地验收；有限容器采样不代表生产容量，具体范围见
 [ADR-0139](docs/adr/0139-workspace-project-query-owner.md)。
 
 ### 设计系统
