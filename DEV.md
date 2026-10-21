@@ -628,6 +628,27 @@ Identity Briefs 依赖：`WORKSPACE_PROJECT_QUERY_IDENTITY_URL` 及独立 token/
 恢复和完整迁移的本地验收；有限容器采样不代表生产容量，具体范围见
 [ADR-0139](docs/adr/0139-workspace-project-query-owner.md)。
 
+### Workspace 项目成员目录查询
+
+成员列表与讨论区提及候选使用 `aap-workspace-directory-query/v1`，公开接口不变。
+默认借用调用方事务，保留 autoflush／no_autoflush；可选
+`WORKSPACE_DIRECTORY_QUERY_DATABASE_URL(_FILE)` 或 `WORKSPACE_DIRECTORY_QUERY_URL`，
+两者不能同时配置。`WORKSPACE_DIRECTORY_QUERY_TIMEOUT_SECONDS` 默认30秒，
+只约束显式独立调用；失败不回退。
+
+私有入口是 `POST /v1/workspace/directory-queries/execute`，复用 Workspace control bearer。
+独立进程使用 `workspace_directory_query_client` 的两项函数权限和只读事务。
+非空成员列表需要既有 `WORKSPACE_PROJECT_QUERY_IDENTITY_*` 资料配置；提及候选使用
+Identity 的窄账号事实，不初始化 Briefs。空成员列表同样不访问 Briefs。
+
+`docker-compose.workspace-directory-query.yml` 只发布本机8177，读取
+`WORKSPACE_RUNTIME_DIRECTORY_QUERY_DATABASE_URL_FILE`、
+`WORKSPACE_RUNTIME_PROJECT_QUERY_BRIEFS_DATABASE_URL_FILE` 和
+`WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE`。先迁移到当前 head，再对同库应用
+`infra/docker/module-data-grants.sql` 与 `infra/docker/workspace-directory-query-grants.sql`。
+共享 PostgreSQL、独立连接的快照差异和剩余范围见
+[ADR-0140](docs/adr/0140-workspace-directory-query-owner.md)。
+
 ### 设计系统
 
 前端设计系统基于 Tailwind CSS + shadcn/ui。运行时主题 Token 定义在 `apps/web/src/styles/shadcn.css`：

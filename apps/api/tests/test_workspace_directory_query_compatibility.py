@@ -84,10 +84,11 @@ async def test_current_directory_owner_matches_frozen_samples_and_caller_probes(
         if binding == "dedicated":
             dsn = directory_query_dsn(test_engine)
         elif binding == "http":
-            dsn = directory_query_dsn(test_engine)
             briefs_dsn = project_query_briefs_dsn(test_engine)
             url = await stack.enter_async_context(
-                directory_query_provider(dsn, token, briefs_dsn)
+                directory_query_provider(
+                    directory_query_dsn(test_engine), token, briefs_dsn
+                )
             )
         await stack.enter_async_context(
             api_directory_query_binding(url=url, dsn=dsn, token=token)

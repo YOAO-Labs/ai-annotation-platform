@@ -1,9 +1,715 @@
 {
-  "$id": "aap-workspace-directory-query/v1",
+  "$defs": {
+    "DirectoryQueryError": {
+      "additionalProperties": false,
+      "properties": {
+        "status_code": {
+          "enum": [401, 403, 404, 503],
+          "title": "Status Code",
+          "type": "integer"
+        },
+        "detail": {
+          "enum": [
+            "账号已停用或不存在",
+            "账号角色无效，访问被拒绝",
+            "项目不存在",
+            "项目职责无效，访问被拒绝",
+            "账号平台角色与项目职责不兼容",
+            "身份资料服务暂不可用"
+          ],
+          "title": "Detail",
+          "type": "string"
+        },
+        "headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "const": "Bearer",
+                "type": "string"
+              },
+              "propertyNames": {
+                "const": "WWW-Authenticate"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Headers"
+        }
+      },
+      "required": ["status_code", "detail", "headers"],
+      "title": "DirectoryQueryError",
+      "type": "object"
+    },
+    "DirectoryQueryFailure": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-directory-query/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "request": {
+          "$ref": "#/$defs/DirectoryQueryRequest"
+        },
+        "error": {
+          "$ref": "#/$defs/DirectoryQueryError"
+        }
+      },
+      "required": ["schema", "ok", "request", "error"],
+      "title": "DirectoryQueryFailure",
+      "type": "object"
+    },
+    "DirectoryQueryMemberRowsFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "rows_json": {
+          "title": "Rows Json",
+          "type": "string"
+        }
+      },
+      "required": ["rows_json"],
+      "title": "DirectoryQueryMemberRowsFacts",
+      "type": "object"
+    },
+    "DirectoryQueryMentionOwnerAccount": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "email": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Email"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        }
+      },
+      "required": ["id", "name", "email", "is_active"],
+      "title": "DirectoryQueryMentionOwnerAccount",
+      "type": "object"
+    },
+    "DirectoryQueryMentionOwnerFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "user": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DirectoryQueryMentionOwnerAccount"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["user"],
+      "title": "DirectoryQueryMentionOwnerFacts",
+      "type": "object"
+    },
+    "DirectoryQueryMentionProfile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "email": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Email"
+        }
+      },
+      "required": ["id", "name", "email"],
+      "title": "DirectoryQueryMentionProfile",
+      "type": "object"
+    },
+    "DirectoryQueryMentionSuperadminsFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "accounts": {
+          "items": {
+            "$ref": "#/$defs/DirectoryQueryMentionProfile"
+          },
+          "title": "Accounts",
+          "type": "array"
+        }
+      },
+      "required": ["accounts"],
+      "title": "DirectoryQueryMentionSuperadminsFacts",
+      "type": "object"
+    },
+    "DirectoryQueryPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-directory-query/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema"],
+      "title": "DirectoryQueryPolicy",
+      "type": "object"
+    },
+    "DirectoryQueryProjectId": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": ["project_id"],
+      "title": "DirectoryQueryProjectId",
+      "type": "object"
+    },
+    "DirectoryQueryRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-directory-query/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "request_id": {
+          "format": "uuid",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "operation": {
+          "enum": ["list_members", "mention_candidates"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "target_id": {
+          "format": "uuid",
+          "title": "Target Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "request_id", "operation", "actor_id", "target_id"],
+      "title": "DirectoryQueryRequest",
+      "type": "object"
+    },
+    "DirectoryQueryRowFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "row_json": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Row Json"
+        }
+      },
+      "required": ["row_json"],
+      "title": "DirectoryQueryRowFacts",
+      "type": "object"
+    },
+    "DirectoryQueryStep": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-directory-query/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/DirectoryQueryRequest"
+        },
+        "action": {
+          "enum": [
+            "get_row",
+            "actor_status",
+            "member_access",
+            "member_rows",
+            "mention_owner",
+            "mention_superadmins",
+            "mention_members"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "parameters": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DirectoryQueryProjectId"
+            },
+            {
+              "$ref": "#/$defs/DirectoryQueryUserId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parameters"
+        },
+        "facts": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DirectoryQueryRowFacts"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryActorFacts"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryMemberFacts"
+            },
+            {
+              "$ref": "#/$defs/DirectoryQueryMemberRowsFacts"
+            },
+            {
+              "$ref": "#/$defs/DirectoryQueryMentionOwnerFacts"
+            },
+            {
+              "$ref": "#/$defs/DirectoryQueryMentionSuperadminsFacts"
+            }
+          ],
+          "title": "Facts"
+        }
+      },
+      "required": ["schema", "request", "action", "parameters", "facts"],
+      "title": "DirectoryQueryStep",
+      "type": "object",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "get_row"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "type": "null"
+              },
+              "facts": {
+                "$ref": "#/$defs/DirectoryQueryRowFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "actor_status"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "type": "null"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryActorFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "member_access"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "type": "null"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryMemberFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "member_rows"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/DirectoryQueryProjectId"
+              },
+              "facts": {
+                "$ref": "#/$defs/DirectoryQueryMemberRowsFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "mention_owner"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/DirectoryQueryUserId"
+              },
+              "facts": {
+                "$ref": "#/$defs/DirectoryQueryMentionOwnerFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "mention_superadmins"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "type": "null"
+              },
+              "facts": {
+                "$ref": "#/$defs/DirectoryQueryMentionSuperadminsFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "mention_members"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/DirectoryQueryProjectId"
+              },
+              "facts": {
+                "$ref": "#/$defs/DirectoryQueryMemberRowsFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "request": {
+                "properties": {
+                  "operation": {
+                    "const": "list_members"
+                  }
+                },
+                "required": ["operation"]
+              }
+            },
+            "required": ["request"]
+          },
+          "then": {
+            "properties": {
+              "action": {
+                "enum": ["actor_status", "get_row", "member_access", "member_rows"]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "request": {
+                "properties": {
+                  "operation": {
+                    "const": "mention_candidates"
+                  }
+                },
+                "required": ["operation"]
+              }
+            },
+            "required": ["request"]
+          },
+          "then": {
+            "properties": {
+              "action": {
+                "enum": [
+                  "actor_status",
+                  "get_row",
+                  "member_access",
+                  "mention_members",
+                  "mention_owner",
+                  "mention_superadmins"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "DirectoryQuerySuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-directory-query/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "request": {
+          "$ref": "#/$defs/DirectoryQueryRequest"
+        },
+        "data_json": {
+          "title": "Data Json",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "request", "data_json"],
+      "title": "DirectoryQuerySuccess",
+      "type": "object"
+    },
+    "DirectoryQueryUserId": {
+      "additionalProperties": false,
+      "properties": {
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": ["user_id"],
+      "title": "DirectoryQueryUserId",
+      "type": "object"
+    },
+    "ProjectQueryAccountStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "platform_role": {
+          "title": "Platform Role",
+          "type": "string"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        }
+      },
+      "required": ["actor_id", "platform_role", "is_active"],
+      "title": "ProjectQueryAccountStatus",
+      "type": "object"
+    },
+    "ProjectQueryActorFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectQueryAccountStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["actor"],
+      "title": "ProjectQueryActorFacts",
+      "type": "object"
+    },
+    "ProjectQueryMemberFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "member": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectQueryMembership"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["member"],
+      "title": "ProjectQueryMemberFacts",
+      "type": "object"
+    },
+    "ProjectQueryMembership": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Role"
+        }
+      },
+      "required": ["id", "project_id", "user_id", "role"],
+      "title": "ProjectQueryMembership",
+      "type": "object"
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/DirectoryQueryRequest"
+    },
+    {
+      "$ref": "#/$defs/DirectoryQueryPolicy"
+    },
+    {
+      "discriminator": {
+        "mapping": {
+          "False": "#/$defs/DirectoryQueryFailure",
+          "True": "#/$defs/DirectoryQuerySuccess"
+        },
+        "propertyName": "ok"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/DirectoryQuerySuccess"
+        },
+        {
+          "$ref": "#/$defs/DirectoryQueryFailure"
+        }
+      ]
+    },
+    {
+      "$ref": "#/$defs/DirectoryQueryStep"
+    }
+  ],
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Workspace Directory query native function inventory",
-  "$comment": "Static PostgreSQL function inventory for the Workspace-owned Directory query boundary. Canonical wire DTO definitions are maintained by the Workspace contract owner.",
-  "type": "object",
+  "$id": "aap-workspace-directory-query/v1",
+  "x-project-member-columns": [
+    "id",
+    "project_id",
+    "user_id",
+    "role",
+    "assigned_by",
+    "assigned_at",
+    "version",
+    "updated_at",
+    "weekly_target"
+  ],
+  "x-project-member-response-columns": [
+    "id",
+    "user_id",
+    "user_name",
+    "user_email",
+    "role",
+    "platform_role",
+    "version",
+    "assigned_at",
+    "updated_at",
+    "avatar_ref"
+  ],
+  "x-project-member-mention-columns": [
+    "id",
+    "project_id",
+    "user_id",
+    "role",
+    "assigned_by",
+    "assigned_at",
+    "version",
+    "updated_at",
+    "weekly_target",
+    "user_name",
+    "user_email"
+  ],
+  "x-mention-response-columns": ["user_id", "user_name", "user_email", "kind"],
+  "x-directory-query-codecs": {
+    "timestamp": "aap-workspace-project-query UTC timestamp text codec",
+    "rows_json": "fixed-column JSON text; duplicate keys rejected"
+  },
   "function_defaults": {
     "volatility": "STABLE",
     "parallel": "UNSAFE",
@@ -16,17 +722,32 @@
     {
       "signature": "aap_workspace_directory_query_v1.directory_query_policy()",
       "arguments": [],
-      "returns": { "kind": "scalar", "type": "jsonb" },
+      "returns": {
+        "kind": "scalar",
+        "type": "jsonb"
+      },
       "semantics": "Return exactly {\"schema\":\"aap-workspace-directory-query/v1\"}."
     },
     {
       "signature": "aap_workspace_directory_query_v1.directory_query_step(jsonb, text, jsonb)",
       "arguments": [
-        { "name": "p_request", "type": "jsonb" },
-        { "name": "p_action", "type": "text" },
-        { "name": "p_parameters", "type": "jsonb" }
+        {
+          "name": "p_request",
+          "type": "jsonb"
+        },
+        {
+          "name": "p_action",
+          "type": "text"
+        },
+        {
+          "name": "p_parameters",
+          "type": "jsonb"
+        }
       ],
-      "returns": { "kind": "scalar", "type": "jsonb" },
+      "returns": {
+        "kind": "scalar",
+        "type": "jsonb"
+      },
       "semantics": "Validate the closed Directory request and action bindings, delegate Project get_row/actor_status/member_access phases to the fixed Project query RPC, and return {schema,request,action,parameters,facts}. Directory reads are stable, read-only and scoped to the declared action parameters."
     }
   ],
@@ -37,9 +758,18 @@
       "returns": {
         "kind": "table",
         "columns": [
-          { "name": "id", "type": "uuid" },
-          { "name": "name", "type": "text" },
-          { "name": "email", "type": "text" }
+          {
+            "name": "id",
+            "type": "uuid"
+          },
+          {
+            "name": "name",
+            "type": "text"
+          },
+          {
+            "name": "email",
+            "type": "text"
+          }
         ]
       },
       "semantics": "Return active super-admin accounts ordered by name only; Identity owns this function and grants execution to WorkspaceCode."

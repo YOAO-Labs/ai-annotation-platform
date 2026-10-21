@@ -112,6 +112,7 @@ from app.application.project_pipeline import apply_saved_pipeline
 from app.services.workspace_configuration import execute_configuration
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.workspace_project_query import execute_project_query
+from app.services.workspace_directory_query import execute_directory_query
 
 router = APIRouter()
 logger = logging.getLogger("app.api.projects")
@@ -659,84 +660,30 @@ async def get_project_access(
 
 @router.get("/{project_id}/members", response_model=list[ProjectMemberOut])
 async def list_members(
-    project: Project = Depends(require_project_visible),
+    project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
-    members = (
-        await db.scalars(
-            select(ProjectMember)
-            .where(ProjectMember.project_id == project.id)
-            .order_by(ProjectMember.assigned_at.desc())
-        )
-    ).all()
-    briefs = await resolve_briefs(db, (member.user_id for member in members))
-    return [
-        _member_value(member, briefs[str(member.user_id)])
-        for member in members
-        if str(member.user_id) in briefs
-    ]
+    return await execute_directory_query(
+        db, operation="list_members", actor_id=actor_id, target_id=project_id
+    )
 
 
 @router.get(
     "/{project_id}/mention-candidates", response_model=list[MentionCandidateOut]
 )
 async def list_mention_candidates(
-    project: Project = Depends(require_project_visible),
+    project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    actor_id: uuid.UUID = Depends(get_current_user_id),
 ):
     """讨论区 @ 提及候选：项目负责人、启用的平台超管、项目成员，按 user_id 去重。
 
     顺序固定为 负责人 → 超管 → 成员，前端据此展示「项目负责人 / 超级管理员」标签。
     """
-    seen: set[uuid.UUID] = set()
-    out: list[MentionCandidateOut] = []
-
-    def add(user_id: uuid.UUID, name: str, email: str | None, kind: str) -> None:
-        if user_id in seen:
-            return
-        seen.add(user_id)
-        out.append(
-            MentionCandidateOut(
-                user_id=user_id, user_name=name, user_email=email, kind=kind
-            )
-        )
-
-    if project.owner_id is not None:
-        owner = (
-            await db.execute(
-                select(User.name, User.email, User.is_active).where(
-                    User.id == project.owner_id
-                )
-            )
-        ).first()
-        if owner is not None and owner.is_active:
-            add(project.owner_id, owner.name, owner.email, "owner")
-
-    super_admins = (
-        await db.execute(
-            select(User.id, User.name, User.email)
-            .where(
-                User.role == UserRole.SUPER_ADMIN.value,
-                User.is_active.is_(True),
-            )
-            .order_by(User.name)
-        )
-    ).all()
-    for user_id, name, email in super_admins:
-        add(user_id, name, email, "super_admin")
-
-    members = (
-        await db.execute(
-            select(ProjectMember, User.name, User.email)
-            .join(User, User.id == ProjectMember.user_id)
-            .where(ProjectMember.project_id == project.id)
-            .order_by(ProjectMember.assigned_at.desc())
-        )
-    ).all()
-    for member, user_name, user_email in members:
-        add(member.user_id, user_name, user_email, "member")
-
-    return out
+    return await execute_directory_query(
+        db, operation="mention_candidates", actor_id=actor_id, target_id=project_id
+    )
 
 
 def _member_value(member: ProjectMember | MembershipRecord, target) -> ProjectMemberOut:

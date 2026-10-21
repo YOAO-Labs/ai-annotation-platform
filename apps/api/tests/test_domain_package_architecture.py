@@ -558,6 +558,16 @@ DOMAIN_PACKAGES = (
         ),
     ),
     DomainSpec(package="workspace_project_query_data", legacy_facades=()),
+    DomainSpec(
+        package="workspace_directory_query",
+        legacy_facades=(),
+        allowed_app_imports=(
+            "app.config",
+            "app.services.workspace_directory_query_data",
+            "app.services.workspace_project_query",
+        ),
+    ),
+    DomainSpec(package="workspace_directory_query_data", legacy_facades=()),
     DomainSpec(package="identity_organization_scope", legacy_facades=()),
     DomainSpec(
         package="guide_asset_contracts", legacy_facades=(), allowed_app_imports=()

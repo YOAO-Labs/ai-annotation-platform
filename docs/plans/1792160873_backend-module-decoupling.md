@@ -3737,6 +3737,37 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   owned facts instead of giving Workspace raw User access. Keep accepted current
   visibility phases and caller transaction/I/O boundaries intact.
 - Project access response has repeated resolution phases and stays separate until
-  captured. Class usage belongs to Labeling; named pipeline persistence needs an
-  ownership decision based on existing Inference responsibilities. Do not hide
+  captured. Class usage belongs to Labeling; named pipeline persistence is already
+  Inference-owned and still needs its persistence boundary extracted. Do not hide
   those remaining surfaces behind the completed query slice.
+
+### Directory owner implementation and current local checks
+
+- The actual member/mention baseline is frozen as13 HTTP responses and2 caller
+  autoflush probes. API directory selectors now invoke the existing Workspace
+  package through the closed `aap-workspace-directory-query/v1` protocol. Old
+  API member-list and mention SQL is removed; member write projections retain
+  their actual helper. Project and Directory share one current-authority helper.
+- Additive0262 fixes a verified omission: the legacy authority read decoded both
+  membership timestamps, while0261 accepted out-of-range values. Two failures
+  were reproduced first; all3 temporal cases now pass. Deployed ACL downgrade
+  and upgrade run twice, preserving owner, runtime/client EXECUTE and grant
+  options while hiding the private implementation. Historical0261 stays frozen.
+- Native0263 and its restricted Directory role expose exactly2 RPCs. The owned
+  native/migration/temporal union has10 passing cases; the first run's fixture
+  argument error is retained separately and its corrected case passes. Actual
+  inactive membership joins, closed operation/parameter bindings and no raw
+  User/Project/member or TEMP access are verified.
+- All13 HTTP samples match borrowed, dedicated DSN and installed HTTP bindings;
+  caller probes remain borrowed. The same run includes2 installed fault/restart
+  cases and existing member/mention API regressions:15 tests pass, no skips.
+  Missing profiles retain their503; mentions/empty sets remain usable without
+  Briefs. Explicit remote failures never invoke the local manager.
+- Workspace source and noneditable suites each pass226 cases; all42 Workspace
+  files and the Identity/Inference/shared manifests match installed bytes.
+  Nine transport cases, exact OpenAPI and documentation build pass. The initial
+  omitted route description was restored before the passing OpenAPI check.
+- Directory-specific restricted owner/API images and backup/restore remain next
+  gates. No primary cutover, production capacity, full Workspace, other-module
+  completion or another-language provider is claimed. Go remains experimental.
+  See [ADR-0140](../adr/0140-workspace-directory-query-owner.md).

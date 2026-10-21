@@ -18,7 +18,7 @@ from sqlalchemy import event
 from app.api.v1 import projects
 from app.core.security import create_access_token
 from app.schemas.user import UserBrief
-from app.services import user_brief
+from app.services import user_brief, workspace_project_query
 from tests.factory import create_membership, create_project, create_user
 
 _FIXTURE = json.loads(
@@ -74,7 +74,7 @@ async def test_member_profiles_match_legacy_and_batch_once(
         if "aap_identity_briefs_v1.execute_briefs_command" in sql:
             native.append(1)
 
-    monkeypatch.setattr(projects, "resolve_briefs", resolve)
+    monkeypatch.setattr(workspace_project_query, "resolve_briefs", resolve)
     event.listen(db_session.bind.sync_engine, "before_cursor_execute", statement)
     try:
         response = await httpx_client.get(
@@ -100,7 +100,7 @@ async def test_member_list_keeps_employee_access_and_denies_outsider_before_prof
     owner, _ = project_admin
     project, members = await _seed(db_session, owner.id)
     resolver = AsyncMock(wraps=user_brief.resolve_briefs)
-    monkeypatch.setattr(projects, "resolve_briefs", resolver)
+    monkeypatch.setattr(workspace_project_query, "resolve_briefs", resolver)
     token = create_access_token(str(members[0].user_id), "employee")
     response = await httpx_client.get(
         f"/api/v1/projects/{project.id}/members",
@@ -146,7 +146,9 @@ async def test_member_list_omits_absent_profiles_like_the_old_inner_join(
     profiles = await user_brief.resolve_briefs(
         db_session, [member.user_id for member in members[:-1]]
     )
-    monkeypatch.setattr(projects, "resolve_briefs", AsyncMock(return_value=profiles))
+    monkeypatch.setattr(
+        workspace_project_query, "resolve_briefs", AsyncMock(return_value=profiles)
+    )
     response = await httpx_client.get(
         f"/api/v1/projects/{project.id}/members",
         headers={"Authorization": "Bearer " + token},

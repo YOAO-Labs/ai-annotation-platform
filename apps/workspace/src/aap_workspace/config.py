@@ -31,6 +31,8 @@ class RuntimeSettings(BaseSettings):
     template_query_database_url_file: str = ""
     project_query_database_url: SecretStr | None = Field(default=None, repr=False)
     project_query_database_url_file: str = ""
+    directory_query_database_url: SecretStr | None = Field(default=None, repr=False)
+    directory_query_database_url_file: str = ""
     project_query_identity_url: str = Field(default="", repr=False)
     project_query_identity_token: SecretStr | None = Field(default=None, repr=False)
     project_query_identity_token_file: str = ""
@@ -76,6 +78,11 @@ class RuntimeSettings(BaseSettings):
     def project_database_url(self) -> str:
         return secret_source(
             self.project_query_database_url, self.project_query_database_url_file
+        )
+
+    def directory_database_url(self) -> str:
+        return secret_source(
+            self.directory_query_database_url, self.directory_query_database_url_file
         )
 
     def control_token(self) -> str:

@@ -148,3 +148,11 @@ production capacity and primary cutover remain open.
 
 The full all-module deployment/language-replacement objective remains active.
 Shared PostgreSQL and the trusted coordinator are explicit current constraints.
+
+Subsequent directory extraction found that Native0261 did not reproduce the
+legacy membership timestamp decode during authority resolution. Additive0262
+restores both timestamp checks without changing the wire, owner or public RPC
+ACLs. The failing-before/passing-after cases and deployed-ACL downgrade/upgrade
+test are recorded in [ADR-0140](0140-workspace-directory-query-owner.md). The
+head0261 image qualification above remains evidence for that exact artifact,
+not qualification of the later directory build.

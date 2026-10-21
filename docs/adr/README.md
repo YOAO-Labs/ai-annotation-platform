@@ -53,6 +53,7 @@
 - [0137](0137-workspace-template-query-owner.md) — Workspace 模板读取与提交后响应投影（限定本地验收通过）
 - [0138](0138-workspace-project-read-foundation.md) — Project 读取的类型化外域依赖与 Workspace 权限值（基础实现已验证，查询 owner 接入中）
 - [0139](0139-workspace-project-query-owner.md) — Project 查询协议、原始值编码与分阶段读取策略（选定查询能力已完成限定本地验收）
+- [0140](0140-workspace-directory-query-owner.md) — 成员目录与提及候选的独立读取协议及成员时间戳权限边界
 
 ### 已采纳（Accepted，归档）
 

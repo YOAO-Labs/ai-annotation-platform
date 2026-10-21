@@ -746,7 +746,11 @@ last_reviewed: 2026-10-21
 | `WORKSPACE_PROJECT_QUERY_DATABASE_URL` | `—` | — |
 | `WORKSPACE_PROJECT_QUERY_DATABASE_URL_FILE` | `—` | — |
 | `WORKSPACE_PROJECT_QUERY_TIMEOUT_SECONDS` | `30` | — |
-| `WORKSPACE_PROJECT_QUERY_IDENTITY_URL` | `—` | Standalone Workspace profile dependency; evaluated only for nonempty owner IDs. HTTP takes precedence over the Briefs DSN; these credentials never enter query wire. |
+| `WORKSPACE_DIRECTORY_QUERY_URL` | `—` | Directory reads share the runtime Identity profile dependency below. |
+| `WORKSPACE_DIRECTORY_QUERY_DATABASE_URL` | `—` | — |
+| `WORKSPACE_DIRECTORY_QUERY_DATABASE_URL_FILE` | `—` | — |
+| `WORKSPACE_DIRECTORY_QUERY_TIMEOUT_SECONDS` | `30` | — |
+| `WORKSPACE_PROJECT_QUERY_IDENTITY_URL` | `—` | Standalone Workspace profile dependency; evaluated only for nonempty display IDs. HTTP takes precedence over the Briefs DSN; these credentials never enter query wire. |
 | `WORKSPACE_PROJECT_QUERY_IDENTITY_TOKEN` | `—` | — |
 | `WORKSPACE_PROJECT_QUERY_IDENTITY_TOKEN_FILE` | `—` | — |
 | `WORKSPACE_PROJECT_QUERY_IDENTITY_BRIEFS_DATABASE_URL` | `—` | — |
@@ -757,5 +761,6 @@ last_reviewed: 2026-10-21
 | `WORKSPACE_RUNTIME_CONFIGURATION_DATABASE_URL_FILE` | `—` | — |
 | `WORKSPACE_RUNTIME_TEMPLATE_QUERY_DATABASE_URL_FILE` | `—` | — |
 | `WORKSPACE_RUNTIME_PROJECT_QUERY_DATABASE_URL_FILE` | `—` | — |
+| `WORKSPACE_RUNTIME_DIRECTORY_QUERY_DATABASE_URL_FILE` | `—` | — |
 | `WORKSPACE_RUNTIME_PROJECT_QUERY_BRIEFS_DATABASE_URL_FILE` | `—` | — |
 | `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE` | `—` | — |

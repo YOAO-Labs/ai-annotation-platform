@@ -7,7 +7,6 @@ from contextlib import asynccontextmanager
 import os
 from pathlib import Path
 import tempfile
-from types import SimpleNamespace
 
 from sqlalchemy.engine import make_url
 
@@ -18,11 +17,7 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
 from tests.test_identity_admission_live import _port, _start
 from tests.factory import create_user
-from tests.workspace_project_query_helpers import (
-    ROOT,
-    _dsn,
-    project_query_briefs_dsn,
-)
+from tests.workspace_project_query_helpers import ROOT, _dsn
 
 
 def directory_query_dsn(test_engine, database=None):
@@ -67,14 +62,14 @@ async def directory_query_provider(dsn, token, briefs_dsn=None):
     _verify_postgres(parsed)
     interpreter = Path(os.environ["AAP_WORKSPACE_RUNTIME_PYTHON"])
     assert interpreter.is_file()
-    briefs = briefs_dsn or project_query_briefs_dsn(SimpleNamespace(url=parsed))
-    briefs_url = make_url(briefs)
-    assert briefs_url.username == "identity_briefs_client"
-    assert (briefs_url.host, briefs_url.port, briefs_url.database) == (
-        parsed.host,
-        parsed.port,
-        parsed.database,
-    )
+    if briefs_dsn is not None:
+        briefs_url = make_url(briefs_dsn)
+        assert briefs_url.username == "identity_briefs_client"
+        assert (briefs_url.host, briefs_url.port, briefs_url.database) == (
+            parsed.host,
+            parsed.port,
+            parsed.database,
+        )
 
     with tempfile.TemporaryDirectory(
         prefix="workspace-directory-query-", dir=ROOT / ".worktree"
@@ -87,15 +82,19 @@ async def directory_query_provider(dsn, token, briefs_dsn=None):
             "WORKSPACE_PORT": str(port),
             "WORKSPACE_TIMEOUT_SECONDS": "15",
         }
-        for variable, filename, value in (
+        secrets = [
             ("WORKSPACE_DIRECTORY_QUERY_DATABASE_URL_FILE", "directory-database", dsn),
-            (
-                "WORKSPACE_PROJECT_QUERY_IDENTITY_BRIEFS_DATABASE_URL_FILE",
-                "identity-briefs-database",
-                briefs,
-            ),
             ("WORKSPACE_MEMBERSHIP_CONTROL_TOKEN_FILE", "control-token", token),
-        ):
+        ]
+        if briefs_dsn is not None:
+            secrets.append(
+                (
+                    "WORKSPACE_PROJECT_QUERY_IDENTITY_BRIEFS_DATABASE_URL_FILE",
+                    "identity-briefs-database",
+                    briefs_dsn,
+                )
+            )
+        for variable, filename, value in secrets:
             secret = directory / filename
             secret.write_text(value, encoding="utf-8")
             secret.chmod(0o600)
@@ -119,7 +118,7 @@ async def directory_query_provider(dsn, token, briefs_dsn=None):
 async def capture_directory_scenario(
     test_engine, app_module, monkeypatch, *, member_ids_by_user_id
 ):
-    """Seed the frozen world and capture actual HTTP responses without writes."""
+    """Seed the frozen world and compare HTTP without recapturing legacy evidence."""
 
     from datetime import datetime, timezone
     from types import SimpleNamespace

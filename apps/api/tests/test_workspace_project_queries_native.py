@@ -510,6 +510,10 @@ async def test_workspace_project_query_login_exposes_only_fixed_step_rpcs(test_e
             "SELECT operation_id FROM public.workspace_configuration_operation_receipts LIMIT 1",
             "SELECT operation_id FROM public.workspace_owner_transfer_operation_receipts LIMIT 1",
             "SELECT aap_workspace_project_query_v1._has_exact_keys('{}'::jsonb, ARRAY[]::text[])",
+            "SELECT aap_workspace_project_query_v1._project_query_step_impl("
+            "NULL::jsonb,NULL::text,NULL::jsonb,NULL::text,NULL::text,"
+            "NULL::text[],NULL::text[],NULL::uuid,NULL::text,"
+            "NULL::timestamptz,NULL::timestamptz,NULL::bigint,NULL::integer)",
             "SELECT * FROM aap_workspace_project_query_v1.project_search_scope(NULL, 'employee')",
             "SELECT * FROM aap_workspace_project_query_v1.project_search_member_ids(NULL, 'employee')",
         )

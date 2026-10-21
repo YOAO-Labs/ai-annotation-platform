@@ -35,7 +35,7 @@ API 默认使用本地 caller Session；可选 `WORKSPACE_MEMBERSHIP_DATABASE_UR
 
 成员命令切片已通过独立安装包、受限 Native 权限、进程／镜像、真实 API、并发交接、重启重放和备份恢复的本地限定验收；计数与边界见 [ADR-0133](/dev/adr/0133-workspace-membership-lifecycle-owner)。命令 owner 只持有三项 RPC 权限，API 验收仍使用过渡期 `legacy_runtime` 装配。
 
-配置命令的当前接入与验收见本文后续说明。项目列表、mention 与其他 Workspace consumers 继续迁移。完整 Workspace、其余模块、完整 Identity、十模块／七门槛目标、完整模块的另一语言提供方、生产容量验证与 primary cutover 也仍未完成。Go 月报保持多语言架构实验，不构成该 owner 的语言提供方。
+配置、项目查询和成员目录的当前接入见本文后续说明。其余 Workspace consumers 继续迁移。完整 Workspace、其余模块、完整 Identity、十模块／七门槛目标、完整模块的另一语言提供方、生产容量验证与 primary cutover 也仍未完成。Go 月报保持多语言架构实验，不构成该 owner 的语言提供方。
 
 ## 项目负责人转移
 
@@ -69,7 +69,7 @@ Node conformance provider 以标准 PostgreSQL 协议调用相同的两项函数
 公开配置路由已接入同一个配置 owner，默认借用调用方事务，HTTP 保留提交与响应。
 专用 DSN／HTTP 通过 `WORKSPACE_CONFIGURATION_DATABASE_URL(_FILE)`／
 `WORKSPACE_CONFIGURATION_URL` 选择，不能同时配置；显式失败不回退。
-三条绑定路径各已对照106项原公开响应；独立进程的丢响应重试、重启重放及不可用不回退也已通过本地检查。失败事务、备份恢复、9项关联恢复及0257完整迁移验证均已通过。独立安装包、受限镜像与本地并发执行也已完成限定验收；项目普通读取仍在 API，模板读取与响应投影的接入状态见后文。这一步不代表完整
+三条绑定路径各已对照106项原公开响应；独立进程的丢响应重试、重启重放及不可用不回退也已通过本地检查。失败事务、备份恢复、9项关联恢复及0257完整迁移验证均已通过。独立安装包、受限镜像与本地并发执行也已完成限定验收；项目与模板读取的接入状态见后文。这一步不代表完整
 Workspace 已独立部署。状态与事务取舍见
 [ADR-0136](/dev/adr/0136-workspace-configuration-command-owner)。
 
@@ -95,3 +95,39 @@ HTTP 使用 `WORKSPACE_TEMPLATE_QUERY_URL`，二者互斥，显式失败不回�
 真实容器响应投影、故障恢复、备份恢复与0259完整迁移均已完成限定本地验收；
 16次详情读取在并发4下全部成功，无 OOM，该本地样本不代表生产容量。
 当前范围和信任边界见 [ADR-0137](/dev/adr/0137-workspace-template-query-owner)。
+
+## 项目查询
+
+项目列表、分页、详情、统计、就绪度、接受操作后的投影和项目搜索使用
+`aap-workspace-project-query/v1`。API 保留原公开 DTO；默认借用调用方事务，
+可用 `WORKSPACE_PROJECT_QUERY_DATABASE_URL(_FILE)` 或 `WORKSPACE_PROJECT_QUERY_URL`
+选择独立 owner。两种选择互斥，显式失败不回退。
+私有入口是 `POST /v1/workspace/project-queries/execute`。
+
+详情保留完整项目读取、当前账号、刷新项目、成员职责的原顺序；成员两个时间戳的
+有限值超出 Python 范围时同样保留原内部错误，真实无穷值仍按原驱动处理。
+非空响应的显示资料使用显式 `WORKSPACE_PROJECT_QUERY_IDENTITY_*` 配置；
+空页、统计和就绪度不访问 Briefs。限定本地验收与剩余边界见
+[ADR-0139](/dev/adr/0139-workspace-project-query-owner)。
+
+## 项目成员与提及候选
+
+`GET /api/v1/projects/{project_id}/members` 与 `/mention-candidates` 使用
+`aap-workspace-directory-query/v1`。成员先按 `assigned_at DESC` 读取完整成员记录，
+再批量查询全局 UserBrief；空集不查资料，缺失资料继续省略。
+提及候选按负责人、启用超管、成员三组分别读取，并按 UUID 保留第一个种类。
+成员组不额外过滤停用账号，不能把三组统一改成仅启用账号。
+
+默认绑定保留 caller autoflush／no*autoflush，不提交或回滚；专用连接与 HTTP 使用
+自己的只读事务，不能读取其他连接未提交的修改。API 可选
+`WORKSPACE_DIRECTORY_QUERY_DATABASE_URL(_FILE)` 或 `WORKSPACE_DIRECTORY_QUERY_URL`，
+两者互斥，独立调用使用 `WORKSPACE_DIRECTORY_QUERY_TIMEOUT_SECONDS`，失败不回退。
+私有 `POST /v1/workspace/directory-queries/execute` 复用 Workspace control bearer。
+非空成员列表复用 `WORKSPACE_PROJECT_QUERY_IDENTITY*\*` Briefs 配置；提及候选不依赖 Briefs。
+
+独立进程可只启用目录能力。`workspace_directory_query_client` 只有 policy 与 step
+两项函数权限；Identity 通过窄账号函数提供提及资料，不向 Workspace 授予 User 原表。
+可选 Compose 文件为 `docker-compose.workspace-directory-query.yml`，本机端口8177，
+三份只读 secret 的宿主选择器为 `WORKSPACE_RUNTIME_DIRECTORY_QUERY_DATABASE_URL_FILE`、
+`WORKSPACE_RUNTIME_PROJECT_QUERY_BRIEFS_DATABASE_URL_FILE` 和 `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE`。
+协议与验证范围见 [ADR-0140](/dev/adr/0140-workspace-directory-query-owner)。

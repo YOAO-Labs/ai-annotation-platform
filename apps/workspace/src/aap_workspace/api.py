@@ -45,6 +45,13 @@ from .project_query_contract import (
 )
 from .project_query_postgres import ProjectQueryPostgresData
 from .project_query_profiles import ProjectQueryIdentityProfiles
+from .directory_queries import DirectoryQueryManager
+from .directory_query_contract import (
+    DirectoryQueryInvalidRequest,
+    DirectoryQueryUnavailable,
+    decode_directory_query_request,
+)
+from .directory_query_postgres import DirectoryQueryPostgresData
 
 
 def create_app(
@@ -56,6 +63,8 @@ def create_app(
     template_query_data=None,
     project_query_data=None,
     project_query_profiles=None,
+    directory_query_data=None,
+    directory_query_profiles=None,
 ) -> FastAPI:
     settings = settings or RuntimeSettings()
     control = settings.control_token().encode("utf-8")
@@ -63,6 +72,7 @@ def create_app(
     config_dsn = settings.config_database_url()
     query_dsn = settings.query_database_url()
     project_dsn = settings.project_database_url()
+    directory_dsn = settings.directory_database_url()
     if owner_transfer_data is None and transfer_dsn:
         owner_transfer_data = OwnerTransferPostgresData(
             transfer_dsn, command_timeout=settings.timeout_seconds
@@ -81,6 +91,12 @@ def create_app(
         )
     if project_query_profiles is None:
         project_query_profiles = ProjectQueryIdentityProfiles(settings)
+    if directory_query_data is None and directory_dsn:
+        directory_query_data = DirectoryQueryPostgresData(
+            directory_dsn, command_timeout=settings.timeout_seconds
+        )
+    if directory_query_profiles is None:
+        directory_query_profiles = ProjectQueryIdentityProfiles(settings)
     if data is None and (
         settings.membership_database_url
         or settings.membership_database_url_file
@@ -89,6 +105,7 @@ def create_app(
             and configuration_data is None
             and template_query_data is None
             and project_query_data is None
+            and directory_query_data is None
         )
     ):
         data = MembershipPostgresData(
@@ -121,6 +138,8 @@ def create_app(
                         await template_query_data.template_query_policy()
                     if project_query_data is not None:
                         await project_query_data.project_query_policy()
+                    if directory_query_data is not None:
+                        await directory_query_data.directory_query_policy()
             return {"status": "ready"}
         except (
             MembershipUnavailable,
@@ -128,6 +147,7 @@ def create_app(
             ConfigurationUnavailable,
             TemplateQueryUnavailable,
             ProjectQueryUnavailable,
+            DirectoryQueryUnavailable,
             TimeoutError,
         ):
             return JSONResponse({"detail": "Workspace unavailable"}, status_code=503)
@@ -237,5 +257,14 @@ def create_app(
         ProjectQueryInvalidRequest,
         ProjectQueryUnavailable,
         "Project query",
+    )
+    register_command(
+        "/v1/workspace/directory-queries/execute",
+        decode_directory_query_request,
+        lambda binding: DirectoryQueryManager(binding, directory_query_profiles),
+        directory_query_data,
+        DirectoryQueryInvalidRequest,
+        DirectoryQueryUnavailable,
+        "directory query",
     )
     return app

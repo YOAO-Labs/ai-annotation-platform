@@ -297,6 +297,10 @@ class Settings(BaseSettings):
     workspace_project_query_database_url: str = Field(default="", repr=False)
     workspace_project_query_database_url_file: str = ""
     workspace_project_query_timeout_seconds: float = Field(default=30, gt=0, le=3600)
+    workspace_directory_query_url: str = ""
+    workspace_directory_query_database_url: str = Field(default="", repr=False)
+    workspace_directory_query_database_url_file: str = ""
+    workspace_directory_query_timeout_seconds: float = Field(default=30, gt=0, le=3600)
 
     media_probe_url: str = ""
     media_probe_token: str = Field(default="", repr=False)
