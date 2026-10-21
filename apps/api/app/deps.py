@@ -7,7 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from aap_identity.contract import Principal
 from app.db.base import async_session
 from app.db.models.project import Project
-from aap_workspace.access_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 from app.services.identity_contracts import (
     IdentityActorFacts,
     IdentityCredentialRejected,

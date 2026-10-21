@@ -130,7 +130,7 @@ services/
 
 `services/project_write_guard.py` 组合任务阶段规则与当前项目授权。`resolve_project_access(lock_membership=True)` 与 `lock_project_manager` 复用同一个 `lock_current_project_access()`：按账号→项目→成员持有当前权威，直到调用方提交或回滚，覆盖账号停用、所有权转移和成员撤销；异步 `lock_actor_scope` 同样覆盖项目行。资源/编辑锁、阶段证据与用例提交仍由对应写入所有者保留。训练、模型、评估不再导入 API 的旧 `lock_owner`；本地 ORM、Session 和 HTTP 错误仍不是可远程提取的协议。决策见 ADR-0088。
 
-独立 Workspace 包的 `aap_workspace.access_contract` 持有 `ProjectAccess`、能力枚举与标量角色规则，并为成员生命周期提供同一兼容规则。原 API 值模块已删除，schema/API/服务/worker 的实际调用方直接导入新所有者；冷加载不装配 API 或 SQL/FastAPI。`services/project_access.py` 保留当前权限解析、同事务锁和消费已加载 User/Project 的管理者谓词，不重导出旧纯符号。访问值不能跨事务代替最终授权，REST 身份依赖、JWT/API key 和 WebSocket 的现行语义也未因类型搬迁改变。
+独立共享契约包的 `aap_workspace_contract.access` 持有 `ProjectAccess`、能力枚举与标量角色规则，并为成员生命周期提供同一兼容规则。原 Workspace 值模块已删除，schema/API/服务/worker 的实际调用方直接导入共享契约所有者；冷加载不装配 Workspace、API、SQL 或 FastAPI。`services/project_access.py` 保留当前权限解析、同事务锁和消费已加载 User/Project 的管理者谓词，不重导出旧纯符号。访问值不能跨事务代替最终授权，REST 身份依赖、JWT/API key 和 WebSocket 的现行语义也未因类型搬迁改变。
 
 项目解析器、任务可见性/编辑性/审核证据 helper 及调度的主体参数统一为 `actor_id` UUID；HTTP、WebSocket、工作流与 worker 的真实消费者不再为这些入口传 User 或身份事实对象。`get_next_task` 在原 SQL Session 内复用认证缓存的 User，仅供原管理者谓词；批量清理同样保留锁后 User 的角色与审计投影。训练恢复/删除和模型部署的本地主体输入也只传 UUID。项目配置、实际锁定行和事务组合仍由原所有者持有，这不是可远程调用的授权协议。
 

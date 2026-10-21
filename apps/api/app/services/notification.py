@@ -40,7 +40,7 @@ from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
 from app.services.async_job_access import GLOBAL_ASYNC_JOB_KINDS
-from aap_workspace.access_contract import platform_role_is_manager
+from aap_workspace_contract.access import platform_role_is_manager
 from app.services.project_aggregates import valid_membership_conditions
 
 
@@ -589,7 +589,7 @@ class NotificationService:
         The membership SQL contract comes from
         :func:`app.services.project_aggregates.valid_membership_conditions` and
         the management predicate from
-        :func:`aap_workspace.access_contract.platform_role_is_manager`; this
+        :func:`aap_workspace_contract.access.platform_role_is_manager`; this
         helper only adapts them to the correlated text expression of the
         notification row.
         """

@@ -65,7 +65,7 @@ from .configuration_policy import (
     resolve_project_kind,
     scene_mode_allowed,
 )
-from .access_contract import (
+from aap_workspace_contract.access import (
     ProjectAccessPolicyFailure,
     project_manager_access,
     project_member_access,

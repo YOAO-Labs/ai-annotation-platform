@@ -21,7 +21,7 @@ from app.services.audit_origin_contract import AuditOriginContext
 from app.services.batch import BatchService
 from app.services.labeling_tasks import LabelingTaskService
 from app.services.notification import NotificationService
-from aap_workspace.access_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 
 
 class TaskLifecycleWorkflow:

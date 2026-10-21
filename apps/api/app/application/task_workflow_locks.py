@@ -12,7 +12,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.services import task_access
-from aap_workspace.access_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 from app.services.project_access import lock_current_project_access
 from app.services.identity_contracts import IdentityActorFacts
 

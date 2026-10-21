@@ -11,7 +11,7 @@ from app.application.mask_annotation_slices import (
     _MaskMutationSqlAdapter,
 )
 from app.services.audit_origin_contract import AuditOriginContext
-from aap_workspace.access_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 
 
 @pytest.mark.asyncio

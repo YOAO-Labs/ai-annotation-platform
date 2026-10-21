@@ -32,7 +32,7 @@ from app.services.audit import AuditAction, AuditService
 from app.services.audit_origin_contract import AuditOriginContext
 from app.services import task_access
 from app.services.task_lock import TaskLockService
-from aap_workspace.access_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 from app.services.identity_contracts import IdentityActorFacts
 
 

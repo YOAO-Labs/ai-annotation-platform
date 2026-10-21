@@ -24,7 +24,7 @@ from app.db.models.scene_track import (
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.deps import get_db, get_current_user
-from aap_workspace.access_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 from app.schemas.track_operation import (
     TrackOperationCandidatesResponse,
     TrackOperationExecuteRequest,

@@ -18,7 +18,7 @@ from aap_workspace.point_quality_configuration_values import (
     PointCloudQualityConfig as _PointCloudQualityConfig,
 )
 from app.db.enums import PlatformRole, ProjectRole
-from aap_workspace.access_contract import ProjectCapability
+from aap_workspace_contract.access import ProjectCapability
 
 
 class ProjectBatchSummary(BaseModel):

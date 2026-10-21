@@ -9,7 +9,7 @@ import re
 import uuid
 
 from .contract import _reject_constant, _unique_object
-from .access_contract import (
+from aap_workspace_contract.access import (
     ACCESS_KIND_MEMBER,
     ACCESS_KIND_OWNER,
     ACCESS_KIND_SUPER_ADMIN,

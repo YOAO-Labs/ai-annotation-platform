@@ -299,7 +299,7 @@ Project 模型本身保留了多种聚合字段：
 ## 项目读取的所有权基础
 
 权限上下文、能力与角色兼容规则已由独立 Workspace 包的
-`aap_workspace.access_contract` 持有，实际 API／服务／worker 调用方直接导入该所有者，
+`aap_workspace_contract.access` 持有，Workspace／API／服务／worker 调用方直接导入该所有者，
 原 API 值模块已删除。当前 SQL 权限解析、锁与最终写入检查仍由原适配器执行；
 这些值本身不是跨进程授权凭据。
 

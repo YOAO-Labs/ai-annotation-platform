@@ -7,7 +7,7 @@ import uuid
 
 import pytest
 
-from aap_workspace.access_contract import (
+from aap_workspace_contract.access import (
     ACCESS_KIND_MEMBER,
     ACCESS_KIND_OWNER,
     ACCESS_KIND_SUPER_ADMIN,

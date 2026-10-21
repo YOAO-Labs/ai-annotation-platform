@@ -77,7 +77,7 @@ from app.services.labeling_prediction_contract import (
     ApplyPredictionResultRequest,
 )
 from app.services.prediction import PredictionService, to_video_bbox_result
-from aap_workspace.access_contract import ProjectAccess, ProjectCapability
+from aap_workspace_contract.access import ProjectAccess, ProjectCapability
 from app.services.storage import StorageService
 from app.services.audit import AuditService
 from app.services.ai_mask_receipt import issue_ai_mask_receipt

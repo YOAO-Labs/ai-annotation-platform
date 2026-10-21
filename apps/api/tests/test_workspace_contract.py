@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from uuid import uuid4
 
-from aap_workspace.access_contract import (
+from aap_workspace_contract.access import (
     MANAGER_CAPABILITIES,
     ProjectAccess,
     ProjectCapability,
@@ -21,18 +21,21 @@ from aap_workspace.access_contract import (
 def test_workspace_contract_cold_imports_without_fastapi_or_sqlalchemy():
     api_root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(api_root.parent / "workspace" / "src")
+    env["PYTHONPATH"] = str(
+        api_root.parent / "_shared" / "workspace_contract" / "src"
+    )
     subprocess.run(
         [
             sys.executable,
             "-c",
             (
                 "import sys; "
-                "from aap_workspace.access_contract import ProjectAccess, ProjectCapability, "
+                "from aap_workspace_contract.access import ProjectAccess, ProjectCapability, "
                 "ProjectWritePolicyFailure, ProjectWritePolicyRequest, ProjectWritePolicyResolver; "
                 "assert ProjectAccess and ProjectCapability and ProjectWritePolicyFailure; "
                 "assert ProjectWritePolicyRequest and ProjectWritePolicyResolver; "
                 "assert not any(name == 'app' or name.startswith('app.') for name in sys.modules); "
+                "assert not any(name == 'aap_workspace' or name.startswith('aap_workspace.') for name in sys.modules); "
                 "assert 'fastapi' not in sys.modules; "
                 "assert 'sqlalchemy' not in sys.modules"
             ),

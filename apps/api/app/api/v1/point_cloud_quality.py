@@ -30,7 +30,7 @@ from app.deps import (
     require_project_visible,
     require_active_task_actor,
 )
-from aap_workspace.access_contract import (
+from aap_workspace_contract.access import (
     ProjectAccess,
     ProjectCapability,
 )

@@ -10,7 +10,7 @@ import uuid
 
 from aap_workspace_contract import derive_classes_list
 
-from .access_contract import (
+from aap_workspace_contract.access import (
     MANAGER_PLATFORM_ROLES,
     PROJECT_ROLES,
 )

@@ -14,7 +14,7 @@ from app.deps import (
     require_project_visible,
 )
 from app.db.models.task import Task
-from aap_workspace.access_contract import (
+from aap_workspace_contract.access import (
     ProjectAccess,
     ProjectCapability,
 )

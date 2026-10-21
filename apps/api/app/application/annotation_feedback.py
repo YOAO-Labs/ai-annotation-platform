@@ -38,7 +38,7 @@ from app.services.feedback import FeedbackService
 from app.services.mask_qc.service import effective_issue_status
 from app.services.notification import NotificationService
 from app.services.point_cloud_quality.service import refresh_issue_staleness
-from aap_workspace.access_contract import ProjectAccess
+from aap_workspace_contract.access import ProjectAccess
 from app.services.project_access import (
     lock_current_project_access,
     resolve_project_access_by_id,

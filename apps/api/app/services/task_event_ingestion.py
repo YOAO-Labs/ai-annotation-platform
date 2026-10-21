@@ -23,7 +23,7 @@ from app.db.models.task import Task
 from app.db.models.task_event import TaskEvent
 from app.db.models.user import User
 from app.schemas.task_event import TaskEventIn
-from aap_workspace.access_contract import ProjectCapability
+from aap_workspace_contract.access import ProjectCapability
 from app.services.project_access import resolve_project_access
 from app.services.identity_contracts import IdentityActorFacts
 

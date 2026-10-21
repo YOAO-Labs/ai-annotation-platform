@@ -10,7 +10,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_workspace.access_contract import (
+from aap_workspace_contract.access import (
     ProjectAccess as _ProjectAccess,
     ProjectAccessPolicyFailure,
     project_manager_access,

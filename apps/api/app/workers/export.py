@@ -478,7 +478,7 @@ async def _assert_export_task_scope(
     # Export is a fixed project capability: reviewer or legitimate manager.
     # Reauthorize against current membership so a revoked queued export fails
     # safely before any cache lookup, build or signed-URL issuance.
-    from aap_workspace.access_contract import ProjectCapability
+    from aap_workspace_contract.access import ProjectCapability
     from app.services.project_access import resolve_project_access
 
     try:

@@ -6,7 +6,7 @@ authority: the project role always comes from ``project_members`` and a
 missing/unknown membership fails closed.  Management is a super administrator
 or the project owner whose *platform* role is administrative, matching
 :func:`app.services.project_access.is_privileged_for_project` and
-:class:`aap_workspace.access_contract.ProjectAccess`.
+:class:`aap_workspace_contract.access.ProjectAccess`.
 
 Every helper returns a SQL predicate so one query can restrict a whole page of
 tasks, batches or jobs without an N+1 membership lookup per row.  Callers pass
@@ -28,7 +28,7 @@ from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.user import User
-from aap_workspace.access_contract import platform_role_is_manager
+from aap_workspace_contract.access import platform_role_is_manager
 from app.services.identity_contracts import IdentityActorFacts
 
 #: Platform roles allowed to open the personal annotator/reviewer dashboards.

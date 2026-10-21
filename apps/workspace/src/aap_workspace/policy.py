@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from .access_contract import (
+from aap_workspace_contract.access import (
     ANNOTATOR_ROLE,
     PROJECT_ROLES,
     REVIEWER_ROLE,

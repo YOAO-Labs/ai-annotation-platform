@@ -41,7 +41,7 @@ last_reviewed: 2026-10-21
 ## 2. 授权真值（唯一来源）
 
 - 平台身份与项目能力解析：`app/services/project_access.py`
-  纯访问值、能力与标量角色规则位于独立 Workspace 包 `aap_workspace/access_contract.py`；原 API 值模块已删除，解析和锁仍由本地 SQL 所有者持有。
+  纯访问值、能力与标量角色规则位于独立共享契约包 `aap_workspace_contract/access.py`；Workspace 与 API 直接导入该所有者，解析和锁仍由本地 SQL 所有者持有。
   `ProjectWritePolicyResolver` 为只需访问决策的管理围栏、预测导入和上传交付纯值；审核、生命周期和单题/整批送审命令使用 actor UUID，再从同事务锁定账号投影 `identity_contracts.IdentityActorFacts`，每个送审分块重新生成。
   - `resolve_project_access()` / `resolve_project_access_by_id()`：请求期真值，
     每次重读账号与项目，未知的平台/项目角色 fail closed。

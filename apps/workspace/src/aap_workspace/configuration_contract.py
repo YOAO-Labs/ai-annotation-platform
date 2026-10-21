@@ -29,7 +29,7 @@ from .guide_asset_policy import (
     assert_guide_asset_upload_target,
     sanitize_guide_asset_filename,
 )
-from .access_contract import ProjectAccessPolicyFailure, project_manager_access
+from aap_workspace_contract.access import ProjectAccessPolicyFailure, project_manager_access
 from .configuration_policy import ConfigurationPolicyError
 from .contract import ClosedModel, _json_bytes, _reject_constant
 from .project_query_contract import (
