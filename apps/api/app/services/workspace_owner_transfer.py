@@ -11,6 +11,7 @@ import httpx
 from aap_workspace.config import secret_source
 from aap_workspace.owner_transfer import OwnerTransferManager
 from aap_workspace.owner_transfer_contract import (
+    OwnerTransferSuccess,
     OwnerTransferUnavailable,
     decode_owner_transfer_reply,
     decode_owner_transfer_request,
@@ -20,7 +21,9 @@ from app.config import settings
 from app.services.workspace_owner_transfer_data import WorkspaceOwnerTransferData
 
 
-async def transfer_project_owner(db, *, actor_id, project_id, new_owner_id):
+async def transfer_project_owner(
+    db, *, actor_id, project_id, new_owner_id
+) -> OwnerTransferSuccess:
     request = decode_owner_transfer_request(
         {
             "schema": "aap-workspace-owner-transfer/v1",
@@ -75,7 +78,7 @@ async def transfer_project_owner(db, *, actor_id, project_id, new_owner_id):
             raise HTTPException(
                 status_code=reply.error.status_code, detail=reply.error.detail
             )
-        return reply.data
+        return reply
     except (
         OwnerTransferUnavailable,
         httpx.HTTPError,

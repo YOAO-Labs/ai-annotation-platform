@@ -27,6 +27,7 @@ from app.db.models.user import User
 from app.deps import get_db
 from app.main import app
 from app.application.project_workspace import transfer_project_owner
+from app.services.identity_contracts import IdentityActorFacts
 from tests.factory import create_project, create_user
 
 pytestmark = [
@@ -36,6 +37,16 @@ pytestmark = [
         reason="requires disposable module-data verifier state",
     ),
 ]
+
+
+def _actor_facts(user: User) -> IdentityActorFacts:
+    return IdentityActorFacts(
+        id=user.id,
+        name=user.name,
+        email=user.email,
+        role=user.role,
+        is_active=user.is_active,
+    )
 
 
 @pytest.mark.parametrize(
@@ -303,7 +314,7 @@ async def test_owner_transfer_matches_actual_legacy(test_engine, monkeypatch, bi
                     with pytest.raises(Exception) as rejected:
                         await transfer_project_owner(
                             caller,
-                            actor_id=users["actor"].id,
+                            actor=_actor_facts(users["actor"]),
                             project_id=projects["direct"].id,
                             new_owner_id=users["receiver"].id,
                         )
@@ -343,13 +354,14 @@ async def test_owner_transfer_matches_actual_legacy(test_engine, monkeypatch, bi
                         is_active=True,
                     )
                     caller.add(pending)
-                    project = await transfer_project_owner(
+                    evidence = await transfer_project_owner(
                         caller,
-                        actor_id=users["actor"].id,
+                        actor=_actor_facts(users["actor"]),
                         project_id=projects["direct"].id,
                         new_owner_id=users["receiver"].id,
                     )
-                    assert project.owner_id == users["receiver"].id
+                    assert evidence.project_id == projects["direct"].id
+                    assert evidence.new_owner_id == users["receiver"].id
                     state = {
                         "in_transaction": caller.in_transaction(),
                         "pending_unflushed": pending in caller.new,
@@ -360,13 +372,13 @@ async def test_owner_transfer_matches_actual_legacy(test_engine, monkeypatch, bi
                     }
                     async with maker() as observer:
                         assert (
-                            await observer.get(Project, project.id)
+                            await observer.get(Project, projects["direct"].id)
                         ).owner_id == users["old_owner"].id
                         assert await observer.get(User, pending_id) is None
                         for table, key in (
                             (User, users["actor"].id),
                             (User, users["receiver"].id),
-                            (Project, project.id),
+                            (Project, projects["direct"].id),
                         ):
                             with pytest.raises(DBAPIError) as held:
                                 await observer.scalar(

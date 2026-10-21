@@ -57,7 +57,7 @@ async def test_lost_response_retries_the_identical_private_operation(monkeypatch
     result = await commands.transfer_project_owner(
         None, actor_id=uuid.uuid4(), project_id=uuid.uuid4(), new_owner_id=uuid.uuid4()
     )
-    assert result.changed is True
+    assert result.data.changed is True
     assert len(calls) == 2 and calls[0] == calls[1]
 
 

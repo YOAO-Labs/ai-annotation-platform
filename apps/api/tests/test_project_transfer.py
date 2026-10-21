@@ -20,6 +20,7 @@ import pytest
 
 from app.core.security import create_access_token
 from app.db.models.project import Project
+from app.services.identity_contracts import IdentityActorFacts
 from tests.factory import create_project, create_user
 
 pytestmark = pytest.mark.asyncio
@@ -133,14 +134,20 @@ async def test_transfer_and_native_role_demotion_preserve_owner_lock_orders(
         async with maker.begin() as db:
             project = await project_workspace.transfer_project_owner(
                 db,
-                actor_id=transfer_actor.id,
+                actor=IdentityActorFacts(
+                    id=transfer_actor.id,
+                    name=transfer_actor.name,
+                    email=transfer_actor.email,
+                    role=transfer_actor.role,
+                    is_active=transfer_actor.is_active,
+                ),
                 project_id=project_id,
                 new_owner_id=new_owner_id,
             )
             if project_id == held_project_id:
                 project_lock_acquired.set()
                 await asyncio.wait_for(release_project_lock.wait(), timeout=15)
-            return project.owner_id
+            return project.new_owner_id
 
     try:
         async with maker.begin() as db:

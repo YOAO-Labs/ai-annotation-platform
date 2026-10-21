@@ -2,19 +2,14 @@
 
 from __future__ import annotations
 
-import ast
-import inspect
 import json
 import uuid
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import event
 
-from app.api.v1 import projects as routes
-from app.db.models.project import Project
 from app.services import user_brief
 from tests.factory import create_membership, create_project, create_user
 
@@ -54,17 +49,17 @@ async def test_owner_profiles_match_legacy_with_one_lookup_per_response(
     projects = await _seed(db_session)
     calls = []
     native = []
+    original_execute = user_brief.IdentityBriefsCommands.execute
 
-    async def resolve(db, ids):
-        ids = list(ids)
-        calls.append(set(ids))
-        return await user_brief.resolve_briefs(db, ids)
+    async def execute(commands, request):
+        calls.append(set(request.payload.user_ids))
+        return await original_execute(commands, request)
 
     def statement(_conn, _cursor, sql, *_args):
         if "aap_identity_briefs_v1.execute_briefs_command" in sql:
             native.append(1)
 
-    monkeypatch.setattr(routes, "resolve_briefs", resolve)
+    monkeypatch.setattr(user_brief.IdentityBriefsCommands, "execute", execute)
     event.listen(db_session.bind.sync_engine, "before_cursor_execute", statement)
     try:
         for phase, path, params, expected_owners in (
@@ -110,12 +105,13 @@ async def test_only_visible_returned_project_owners_are_requested(
     )
     calls = []
 
-    async def resolve(db, ids):
-        ids = list(ids)
-        calls.append(set(ids))
-        return await user_brief.resolve_briefs(db, ids)
+    original_execute = user_brief.IdentityBriefsCommands.execute
 
-    monkeypatch.setattr(routes, "resolve_briefs", resolve)
+    async def execute(commands, request):
+        calls.append(set(request.payload.user_ids))
+        return await original_execute(commands, request)
+
+    monkeypatch.setattr(user_brief.IdentityBriefsCommands, "execute", execute)
     visible = await httpx_client.get(
         "/api/v1/projects/query",
         params={"page_size": 1},
@@ -141,10 +137,10 @@ async def test_empty_and_out_of_range_pages_never_acquire_profile_owner(
     _, token = super_admin
     await _seed(db_session)
 
-    def forbid(*_args, **_kwargs):
+    async def forbid(*_args, **_kwargs):
         pytest.fail("An empty project page must not acquire the profile owner")
 
-    monkeypatch.setattr(user_brief, "IdentityBriefsCommands", forbid)
+    monkeypatch.setattr(user_brief.IdentityBriefsCommands, "execute", forbid)
     for path, params in (
         ("/api/v1/projects", {"search": "does-not-exist"}),
         ("/api/v1/projects/query", {"page": 3, "page_size": 2}),
@@ -155,49 +151,3 @@ async def test_empty_and_out_of_range_pages_never_acquire_profile_owner(
         assert response.status_code == 200, response.text
         body = response.json()
         assert (body if isinstance(body, list) else body["items"]) == []
-
-
-async def test_missing_profile_lookup_is_not_refetched_and_keeps_null_display(
-    db_session, monkeypatch
-):
-    resolver = AsyncMock(return_value={})
-    monkeypatch.setattr(routes, "resolve_briefs", resolver)
-    project = Project(id=uuid.uuid4(), owner_id=uuid.uuid4())
-    result = await routes._serialize_project(
-        db_session,
-        project,
-        ai_completed_lookup={},
-        batch_summary_lookup={},
-        owner_lookup={},
-    )
-    assert {key: result[key] for key in ("owner_name", "owner_avatar_ref")} == _FIXTURE[
-        "missing_owner_fields"
-    ]
-    resolver.assert_not_awaited()
-    result = await routes._serialize_project(
-        db_session, project, ai_completed_lookup={}, batch_summary_lookup={}
-    )
-    assert {key: result[key] for key in ("owner_name", "owner_avatar_ref")} == _FIXTURE[
-        "missing_owner_fields"
-    ]
-    resolver.assert_awaited_once_with(db_session, [project.owner_id])
-
-
-async def test_null_owner_does_not_trigger_profile_io(db_session, monkeypatch):
-    def forbid(*_args, **_kwargs):
-        pytest.fail("A missing owner ID must not acquire the profile owner")
-
-    monkeypatch.setattr(user_brief, "IdentityBriefsCommands", forbid)
-    project = Project(id=uuid.uuid4(), owner_id=None)
-    result = await routes._serialize_project(
-        db_session, project, ai_completed_lookup={}, batch_summary_lookup={}
-    )
-    assert result["owner_name"] is None and result["owner_avatar_ref"] is None
-
-
-def test_project_owner_serializers_do_not_read_user_orm():
-    for function in (routes._serialize_project, routes._serialize_project_list):
-        tree = ast.parse(inspect.getsource(function))
-        assert not any(
-            isinstance(node, ast.Name) and node.id == "User" for node in ast.walk(tree)
-        )

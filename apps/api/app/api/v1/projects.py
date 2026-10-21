@@ -3,10 +3,12 @@ from aap_inference.capability_registry import INPUT_BBOX_PROMPT, INPUT_CROP
 from aap_inference.pipeline import PipelineValidationError
 import aap_inference.preannotate as preannotate_schemas
 from aap_workspace.configuration_requests import ProjectCreate, ProjectUpdate
+from aap_workspace.project_query_contract import (
+    ProjectConfigurationEvidence,
+)
 import logging
 import uuid
 from collections import Counter
-from datetime import datetime, timedelta, timezone
 from app.application.preannotation_contract import (
     BatchPredictionDispatcher,
     BatchPredictionRequest,
@@ -18,7 +20,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_, and_
+from sqlalchemy import select, func
 from aap_assets_catalog.associations_contract import (
     ListProjectDatasetsRequest,
     ProjectDatasetSummary,
@@ -34,7 +36,6 @@ from app.deps import (
     get_batch_prediction_dispatcher,
 )
 from app.db.enums import (
-    PROJECT_ROLES,
     TaskStatus,
     UserRole,
     WORKBENCH_AI_EDITABLE_TASK_STATUSES,
@@ -49,12 +50,10 @@ from app.services.workspace_membership import (
 )
 from aap_workspace.contract import MembershipRecord
 from app.services.user_brief import resolve_briefs
-from app.schemas.user import UserBrief
 from app.db.models.user import User
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.project_pipeline import ProjectPipeline
-from app.db.models.dataset import DatasetItem, ProjectDataset
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.async_job import AsyncJob
@@ -112,13 +111,12 @@ from app.application.project_class_rename import rename_project_class
 from app.application.project_pipeline import apply_saved_pipeline
 from app.services.workspace_configuration import execute_configuration
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.workspace_project_query import execute_project_query
 
 router = APIRouter()
 logger = logging.getLogger("app.api.projects")
 
 _MANAGERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
-_STATS_SERIES_POINTS = 12
-_STATS_SERIES_STEP = timedelta(days=7)
 _VIDEO_INPUT_IMAGE_MARKERS = {
     "accepted_inputs_protocol",
     "accepted_input_ids",
@@ -272,357 +270,34 @@ async def _capture_video_input_manifest(
     return header
 
 
-def _visible_project_filter(user: User | IdentityActorFacts):
-    """构造按当前用户可见性过滤项目的子查询条件 (Project 主查询)。
-
-    统一口径：super_admin 全见；项目负责人见自有项目；其余账号见其成员项目。
-    平台 project_admin 若只是他人项目成员，按成员可见性处理（不获得管理权）。
-    """
-    if user.role == UserRole.SUPER_ADMIN:
-        return None  # 不过滤
-    # A legitimate owner must also hold an administrative platform role; an
-    # anomalous non-administrative owner is not implicitly visible.
-    if user.role == UserRole.PROJECT_ADMIN:
-        return or_(
-            Project.owner_id == user.id,
-            Project.id.in_(
-                select(ProjectMember.project_id).where(ProjectMember.user_id == user.id)
-            ),
-        )
-    return Project.id.in_(
-        select(ProjectMember.project_id).where(ProjectMember.user_id == user.id)
-    )
-
-
-async def _my_project_roles(
-    db: AsyncSession, user: User | IdentityActorFacts, projects: list[Project]
-) -> dict[uuid.UUID, str]:
-    """Membership role of the requesting account per project (managers: absent)."""
-
-    ids = [project.id for project in projects]
-    if not ids or user.role == UserRole.SUPER_ADMIN:
-        return {}
-    rows = await db.execute(
-        select(ProjectMember.project_id, ProjectMember.role).where(
-            ProjectMember.user_id == user.id,
-            ProjectMember.project_id.in_(ids),
-        )
-    )
-    return {project_id: role for project_id, role in rows.all()}
-
-
-def _attach_my_project_role(items: list[dict], roles: dict[uuid.UUID, str]) -> None:
-    for item in items:
-        item["my_project_role"] = roles.get(item["id"])
-
-
-def _stats_bucket_ends(now: datetime) -> list[datetime]:
-    return [
-        now - _STATS_SERIES_STEP * (_STATS_SERIES_POINTS - 1 - i)
-        for i in range(_STATS_SERIES_POINTS)
-    ]
-
-
-async def _build_project_stats_series(
-    db: AsyncSession,
-    visible_project_ids: list[uuid.UUID],
-) -> dict[str, list[int] | list[float]]:
-    from app.db.models.annotation import Annotation
-    from app.db.models.task import Task
-
-    bucket_ends = _stats_bucket_ends(datetime.now(timezone.utc))
-
-    # v0.12.1 · 12 桶 × 标量原本逐桶 sequential（48 次 round-trip）；改用
-    # count(*) FILTER (WHERE bucket) 把每个指标的 12 桶折叠进一条聚合：Task 3 指标
-    # 合 1 条、Annotation 2 指标合 1 条 = 共 2 次往返。AsyncSession 不允许同一
-    # session 并发查询，故走「减查询数」而非 asyncio.gather。
-    task_cols = (
-        [func.count().filter(Task.created_at <= be) for be in bucket_ends]
-        + [
-            func.count().filter(
-                and_(
-                    Task.status == "completed",
-                    or_(
-                        Task.reviewed_at <= be,
-                        and_(Task.reviewed_at.is_(None), Task.updated_at <= be),
-                    ),
-                )
-            )
-            for be in bucket_ends
-        ]
-        + [
-            func.count().filter(
-                and_(
-                    Task.submitted_at.isnot(None),
-                    Task.submitted_at <= be,
-                    or_(Task.reviewed_at.is_(None), Task.reviewed_at > be),
-                )
-            )
-            for be in bucket_ends
-        ]
-    )
-    task_row = (
-        await db.execute(
-            select(*task_cols)
-            .select_from(Task)
-            .where(Task.project_id.in_(visible_project_ids))
-        )
-    ).one()
-    n = _STATS_SERIES_POINTS
-    total_data_series = [int(v or 0) for v in task_row[0:n]]
-    completed_series = [int(v or 0) for v in task_row[n : 2 * n]]
-    pending_review_series = [int(v or 0) for v in task_row[2 * n : 3 * n]]
-
-    ann_base = (
-        Annotation.is_active.is_(True),
-        Annotation.was_cancelled.is_(False),
-        Annotation.project_id.in_(visible_project_ids),
-    )
-    ann_cols = [
-        func.count().filter(Annotation.created_at <= be) for be in bucket_ends
-    ] + [
-        func.count().filter(
-            and_(
-                Annotation.created_at <= be,
-                Annotation.parent_prediction_id.isnot(None),
-            )
-        )
-        for be in bucket_ends
-    ]
-    ann_row = (
-        await db.execute(select(*ann_cols).select_from(Annotation).where(*ann_base))
-    ).one()
-    total_ann_series = [int(v or 0) for v in ann_row[0:n]]
-    ai_ann_series = [int(v or 0) for v in ann_row[n : 2 * n]]
-    ai_rate_series = [
-        round(ai / total * 100, 1) if total else 0.0
-        for ai, total in zip(ai_ann_series, total_ann_series)
-    ]
-
-    return {
-        "total_data_series": total_data_series,
-        "completed_series": completed_series,
-        "pending_review_series": pending_review_series,
-        "ai_rate_series": ai_rate_series,
-    }
-
-
-async def _serialize_project(
-    db: AsyncSession,
-    project: Project,
-    *,
-    ai_completed_lookup: dict[uuid.UUID, int] | None = None,
-    batch_summary_lookup: dict[uuid.UUID, dict] | None = None,
-    owner_lookup: dict[str, UserBrief] | None = None,
-) -> dict:
-    """补齐 owner_name + member_count + ai_completed_tasks，转 dict 以喂给 ProjectOut。
-
-    v0.7.0：in_progress_tasks 已是持久化列（alembic 0028）；ai_completed_tasks 由调用方
-    通过 ai_completed_lookup 批量提供（list_projects 路径）或 fallback 单独查询。
-    """
-    if owner_lookup is None:
-        owner_lookup = await resolve_briefs(db, [project.owner_id])
-    owner = owner_lookup.get(str(project.owner_id))
-    owner_name = owner.name if owner is not None else None
-    owner_avatar_ref = owner.avatar_ref if owner is not None else None
-    count_row = await db.execute(
-        select(func.count())
-        .select_from(ProjectMember)
-        .where(ProjectMember.project_id == project.id)
-    )
-    member_count = count_row.scalar() or 0
-
-    if ai_completed_lookup is not None:
-        ai_completed = int(ai_completed_lookup.get(project.id, 0))
-    else:
-        from app.db.models.annotation import Annotation
-
-        ai_row = await db.execute(
-            select(func.count(func.distinct(Annotation.task_id))).where(
-                Annotation.project_id == project.id,
-                Annotation.parent_prediction_id.is_not(None),
-                Annotation.is_active.is_(True),
-            )
-        )
-        ai_completed = int(ai_row.scalar() or 0)
-
-    # v0.10.25 · 直接读物化列 batch_summary (迁移 0079 + _sync_project_counters 维护).
-    if batch_summary_lookup is not None:
-        batch_summary = batch_summary_lookup.get(
-            project.id, {"total": 0, "assigned": 0, "in_review": 0}
-        )
-    else:
-        batch_summary = project.batch_summary or {
-            "total": 0,
-            "assigned": 0,
-            "in_review": 0,
-        }
-
-    data = {c.name: getattr(project, c.name) for c in project.__table__.columns}
-    # v0.23.3 ADR-0050 · 公共 schema ProjectOut 仍暴露 ml_backend_id (registry id, 兼容前端);
-    # ORM 存的是 ml_backend_pool_id (pool id)。这里解析 pool 的 legacy instance 回 registry id。
-    # 前端完整池管理留给 v0.23.4; 本版本前端看到的仍是 singleton pool 的 legacy 实例。
-    ml_backend_id_for_response: uuid.UUID | None = None
-    if project.ml_backend_pool_id is not None:
-        from app.db.models.ml_backend_pool import MLBackendServicePool
-
-        pool = await db.get(MLBackendServicePool, project.ml_backend_pool_id)
-        ml_backend_id_for_response = (
-            pool.legacy_instance_id if pool is not None else None
-        )
-    data["ml_backend_id"] = ml_backend_id_for_response
-    data["owner_name"] = owner_name
-    data["owner_avatar_ref"] = owner_avatar_ref
-    data["member_count"] = member_count
-    data["ai_completed_tasks"] = ai_completed
-    data["batch_summary"] = batch_summary
-    return data
-
-
-def _project_filter_datetime(value: str | None, *, end_of_day: bool = False):
-    if not value:
-        return None
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=422, detail="创建日期须为 ISO 日期或时间"
-        ) from exc
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    if end_of_day and len(value) == 10:
-        parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
-    return parsed
-
-
-def _project_list_query(
-    user: User | IdentityActorFacts,
-    *,
-    status: str | None = None,
-    search: str | None = None,
-    type_key: list[str] | None = None,
-    data_type: list[str] | None = None,
-    member_id: uuid.UUID | None = None,
-    project_role: str | None = None,
-    created_from: str | None = None,
-    created_to: str | None = None,
-):
-    q = select(Project)
-    cond = _visible_project_filter(user)
-    if cond is not None:
-        q = q.where(cond)
-    if status:
-        q = q.where(Project.status == status)
-    if search:
-        q = q.where(Project.name.ilike(f"%{search}%"))
-    if type_key:
-        q = q.where(Project.type_key.in_(type_key))
-    if data_type:
-        q = q.where(Project.data_type.in_(data_type))
-    if member_id is not None:
-        q = q.where(
-            Project.id.in_(
-                select(ProjectMember.project_id).where(
-                    ProjectMember.user_id == member_id
-                )
-            )
-        )
-    if project_role:
-        if project_role not in PROJECT_ROLES:
-            raise HTTPException(status_code=422, detail="非法项目职责")
-        q = q.where(
-            Project.id.in_(
-                select(ProjectMember.project_id).where(
-                    ProjectMember.user_id == user.id,
-                    ProjectMember.role == project_role,
-                )
-            )
-        )
-    start = _project_filter_datetime(created_from)
-    end = _project_filter_datetime(created_to, end_of_day=True)
-    if start is not None and end is not None and start > end:
-        raise HTTPException(status_code=422, detail="创建开始日期不能晚于结束日期")
-    if start is not None:
-        q = q.where(Project.created_at >= start)
-    if end is not None:
-        q = q.where(Project.created_at <= end)
-    return q.order_by(Project.created_at.desc(), Project.id.desc())
-
-
-async def _serialize_project_list(
-    db: AsyncSession, projects: list[Project]
-) -> list[dict]:
-    # v0.7.0：批量预查 ai_completed_tasks 避免 N+1 — 单 GROUP BY 查询
-    from app.db.models.annotation import Annotation
-
-    project_ids = [p.id for p in projects]
-    ai_lookup: dict[uuid.UUID, int] = {}
-    # v0.10.25 · batch_summary 改读物化列 (迁移 0079), 直接从已加载的 project 取.
-    bs_lookup: dict[uuid.UUID, dict] = {
-        p.id: (p.batch_summary or {"total": 0, "assigned": 0, "in_review": 0})
-        for p in projects
-    }
-    if project_ids:
-        ai_rows = (
-            await db.execute(
-                select(
-                    Annotation.project_id,
-                    func.count(func.distinct(Annotation.task_id)).label("cnt"),
-                )
-                .where(
-                    Annotation.project_id.in_(project_ids),
-                    Annotation.parent_prediction_id.is_not(None),
-                    Annotation.is_active.is_(True),
-                )
-                .group_by(Annotation.project_id)
-            )
-        ).all()
-        ai_lookup = {row[0]: int(row[1]) for row in ai_rows}
-
-    owner_lookup = await resolve_briefs(db, {p.owner_id for p in projects})
-    return [
-        await _serialize_project(
-            db,
-            p,
-            ai_completed_lookup=ai_lookup,
-            batch_summary_lookup=bs_lookup,
-            owner_lookup=owner_lookup,
-        )
-        for p in projects
-    ]
-
-
 @router.get("", response_model=list[ProjectOut])
 async def list_projects(
     status: str | None = None,
     search: str | None = None,
-    # v0.7.2 · 高级筛选维度（FilterDrawer 对接）
     type_key: list[str] | None = Query(None),
-    # v0.10.28 · 媒体维度筛选 (image / video / lidar)
     data_type: list[str] | None = Query(None),
     member_id: uuid.UUID | None = None,
     project_role: str | None = None,
-    created_from: str | None = None,  # ISO date "2026-01-01"
+    created_from: str | None = None,
     created_to: str | None = None,
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ):
-    q = _project_list_query(
-        user,
-        status=status,
-        search=search,
-        type_key=type_key,
-        data_type=data_type,
-        member_id=member_id,
-        project_role=project_role,
-        created_from=created_from,
-        created_to=created_to,
+    return await execute_project_query(
+        db,
+        operation="list_projects",
+        actor=user,
+        filters={
+            "status": status,
+            "search": search,
+            "type_key": type_key,
+            "data_type": data_type,
+            "member_id": member_id,
+            "project_role": project_role,
+            "created_from": created_from,
+            "created_to": created_to,
+        },
     )
-    result = await db.execute(q)
-    projects = list(result.scalars().all())
-    items = await _serialize_project_list(db, projects)
-    _attach_my_project_role(items, await _my_project_roles(db, user, projects))
-    return items
 
 
 @router.get("/query", response_model=ProjectPage)
@@ -640,32 +315,22 @@ async def query_projects(
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ):
-    q = _project_list_query(
-        user,
-        status=status,
-        search=search,
-        type_key=type_key,
-        data_type=data_type,
-        member_id=member_id,
-        project_role=project_role,
-        created_from=created_from,
-        created_to=created_to,
+    return await execute_project_query(
+        db,
+        operation="query_projects",
+        actor=user,
+        filters={
+            "status": status,
+            "search": search,
+            "type_key": type_key,
+            "data_type": data_type,
+            "member_id": member_id,
+            "project_role": project_role,
+            "created_from": created_from,
+            "created_to": created_to,
+        },
+        pagination={"page": str(page), "page_size": page_size},
     )
-    total = int(
-        await db.scalar(select(func.count()).select_from(q.order_by(None).subquery()))
-        or 0
-    )
-    result = await db.execute(q.offset((page - 1) * page_size).limit(page_size))
-    projects = list(result.scalars().all())
-    items = await _serialize_project_list(db, projects)
-    _attach_my_project_role(items, await _my_project_roles(db, user, projects))
-    return {
-        "items": items,
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "pages": (total + page_size - 1) // page_size,
-    }
 
 
 @router.get("/stats", response_model=ProjectStats)
@@ -673,72 +338,10 @@ async def get_stats(
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ):
-    from app.db.models.annotation import Annotation
-
-    q = select(Project)
-    cond = _visible_project_filter(user)
-    if cond is not None:
-        q = q.where(cond)
-    result = await db.execute(q)
-    projects = result.scalars().all()
-    total = sum(p.total_tasks for p in projects)
-    completed = sum(p.completed_tasks for p in projects)
-    review = sum(p.review_tasks for p in projects)
-
-    visible_ids = [p.id for p in projects]
-
-    if not visible_ids:
-        return ProjectStats(
-            total_data=0,
-            completed=0,
-            ai_rate=0.0,
-            pending_review=0,
-            total_annotations=0,
-            ai_derived_annotations=0,
-            total_data_series=[0] * _STATS_SERIES_POINTS,
-            completed_series=[0] * _STATS_SERIES_POINTS,
-            ai_rate_series=[0.0] * _STATS_SERIES_POINTS,
-            pending_review_series=[0] * _STATS_SERIES_POINTS,
-        )
-
-    total_ann_result = await db.execute(
-        select(func.count())
-        .select_from(Annotation)
-        .where(
-            Annotation.is_active.is_(True),
-            Annotation.was_cancelled.is_(False),
-            Annotation.project_id.in_(visible_ids),
-        )
-    )
-    total_annotations = total_ann_result.scalar() or 0
-
-    ai_ann_result = await db.execute(
-        select(func.count())
-        .select_from(Annotation)
-        .where(
-            Annotation.is_active.is_(True),
-            Annotation.was_cancelled.is_(False),
-            Annotation.parent_prediction_id.isnot(None),
-            Annotation.project_id.in_(visible_ids),
-        )
-    )
-    ai_derived_annotations = ai_ann_result.scalar() or 0
-
-    ai_rate = (
-        round(ai_derived_annotations / total_annotations * 100, 1)
-        if total_annotations
-        else 0.0
-    )
-    series = await _build_project_stats_series(db, visible_ids)
-
-    return ProjectStats(
-        total_data=total,
-        completed=completed,
-        ai_rate=ai_rate,
-        pending_review=review,
-        total_annotations=total_annotations,
-        ai_derived_annotations=ai_derived_annotations,
-        **series,
+    return await execute_project_query(
+        db,
+        operation="project_stats",
+        actor=user,
     )
 
 
@@ -755,186 +358,44 @@ async def create_project(
         actor_id=current_user.id,
     )
     await db.commit()
-    project = await db.get(Project, result.resource_id, populate_existing=True)
-    if project is None:
-        raise RuntimeError("Created configuration project disappeared")
-    return await _serialize_project(db, project)
+    return await execute_project_query(
+        db,
+        operation="get_project_projection",
+        actor=current_user,
+        target_id=result.resource_id,
+        projection_evidence=ProjectConfigurationEvidence(
+            source="configuration",
+            operation_id=result.operation_id,
+            operation=result.operation,
+        ),
+    )
 
 
 @router.get("/{project_id}", response_model=ProjectOut)
 async def get_project(
-    project: Project = Depends(require_project_visible),
+    project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ):
-    out = await _serialize_project(db, project)
-    roles = await _my_project_roles(db, user, [project])
-    out["my_project_role"] = roles.get(project.id)
-    return out
+    return await execute_project_query(
+        db,
+        operation="get_project",
+        actor=user,
+        target_id=project_id,
+    )
 
 
 @router.get("/{project_id}/readiness", response_model=ProjectReadinessSummary)
 async def get_project_readiness(
-    project: Project = Depends(require_project_owner),
+    project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
-    """Return the owner-facing, server-observed project start conditions.
-
-    This endpoint intentionally reports task-creation jobs and active member
-    accounts together with counters.  The settings page can therefore explain
-    a pending or failed worker without treating a partially created project as
-    ready.
-    """
-    from aap_workspace_contract import derive_classes_list
-
-    dataset_ids = list(
-        (
-            await db.execute(
-                select(ProjectDataset.dataset_id).where(
-                    ProjectDataset.project_id == project.id
-                )
-            )
-        ).scalars()
-    )
-    linked_dataset_count = len(dataset_ids)
-
-    dataset_item_count = 0
-    linked_task_count = 0
-    if dataset_ids:
-        dataset_item_count = int(
-            (
-                await db.execute(
-                    select(func.count())
-                    .select_from(DatasetItem)
-                    .where(DatasetItem.dataset_id.in_(dataset_ids))
-                )
-            ).scalar()
-            or 0
-        )
-        linked_task_count = int(
-            (
-                await db.execute(
-                    select(func.count())
-                    .select_from(Task)
-                    .where(
-                        Task.project_id == project.id,
-                        Task.dataset_item_id.is_not(None),
-                        Task.status != "uploading",
-                        Task.dataset_item_id.in_(
-                            select(DatasetItem.id).where(
-                                DatasetItem.dataset_id.in_(dataset_ids)
-                            )
-                        ),
-                    )
-                )
-            ).scalar()
-            or 0
-        )
-
-    task_count = int(
-        (
-            await db.execute(
-                select(func.count())
-                .select_from(Task)
-                .where(Task.project_id == project.id, Task.status != "uploading")
-            )
-        ).scalar()
-        or 0
-    )
-
-    job_query = select(AsyncJob).where(
-        AsyncJob.project_id == project.id, AsyncJob.kind == "create_tasks"
-    )
-    job_counts = dict(
-        (
-            await db.execute(
-                select(AsyncJob.status, func.count())
-                .where(
-                    AsyncJob.project_id == project.id, AsyncJob.kind == "create_tasks"
-                )
-                .group_by(AsyncJob.status)
-            )
-        ).all()
-    )
-    latest_job = await db.scalar(
-        job_query.order_by(AsyncJob.created_at.desc(), AsyncJob.id.desc()).limit(1)
-    )
-    active_jobs = job_counts.get("pending", 0) + job_counts.get("running", 0)
-    failed_jobs = job_counts.get("failed", 0)
-
-    batch_rows = (
-        (
-            await db.execute(
-                select(TaskBatch).where(
-                    TaskBatch.project_id == project.id, TaskBatch.status != "archived"
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    task_counts = dict(
-        (
-            await db.execute(
-                select(Task.batch_id, func.count())
-                .where(Task.project_id == project.id, Task.status != "uploading")
-                .group_by(Task.batch_id)
-            )
-        ).all()
-    )
-    # Assignment validity includes the actual receiving account and membership,
-    # not merely the existence of some other active member with that role.
-    # Responsibility is project-scoped: the project role alone decides, never
-    # the account's platform role.
-    valid_members = (
-        await db.execute(
-            select(ProjectMember.user_id, ProjectMember.role)
-            .join(User, User.id == ProjectMember.user_id)
-            .where(
-                ProjectMember.project_id == project.id,
-                User.is_active.is_(True),
-            )
-        )
-    ).all()
-    annotators = {user_id for user_id, role in valid_members if role == "annotator"}
-    reviewers = {user_id for user_id, role in valid_members if role == "reviewer"}
-    executable_statuses = {
-        "active",
-        "pre_annotated",
-        "annotating",
-        "reviewing",
-        "rejected",
-    }
-    nonempty_batch_count = sum(task_counts.get(batch.id, 0) > 0 for batch in batch_rows)
-    executable_batch_count = sum(
-        batch.status in executable_statuses and task_counts.get(batch.id, 0) > 0
-        for batch in batch_rows
-    )
-    assigned_batch_count = sum(
-        batch.status in executable_statuses
-        and task_counts.get(batch.id, 0) > 0
-        and batch.annotator_id in annotators
-        and batch.reviewer_id in reviewers
-        for batch in batch_rows
-    )
-    return ProjectReadinessSummary(
-        project_id=project.id,
-        guide_ready=bool((project.annotation_guide or "").strip()),
-        classes_ready=bool(derive_classes_list(project.tool_bindings)),
-        linked_dataset_count=linked_dataset_count,
-        dataset_item_count=dataset_item_count,
-        task_count=task_count,
-        linked_task_count=linked_task_count,
-        task_creation_active_jobs=active_jobs,
-        task_creation_failed_jobs=failed_jobs,
-        latest_task_creation_status=latest_job.status if latest_job else None,
-        batch_count=len(batch_rows),
-        nonempty_batch_count=nonempty_batch_count,
-        executable_batch_count=executable_batch_count,
-        assigned_batch_count=assigned_batch_count,
-        active_annotator_count=len(annotators),
-        active_reviewer_count=len(reviewers),
-        activated_batch_count=executable_batch_count,
+    return await execute_project_query(
+        db,
+        operation="project_readiness",
+        actor=user,
+        target_id=project_id,
     )
 
 
@@ -945,7 +406,7 @@ async def update_project(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    await execute_configuration(
+    result = await execute_configuration(
         db,
         operation="update_project",
         target_id=project.id,
@@ -953,12 +414,21 @@ async def update_project(
         actor_id=current_user.id,
     )
     await db.commit()
-    await db.refresh(project)
-    result = await _serialize_project(db, project)
-    result["capability_warnings"] = await _compute_pipeline_capability_warnings(
-        db, project.preannotate_pipeline
+    projection = await execute_project_query(
+        db,
+        operation="get_project_projection",
+        actor=current_user,
+        target_id=project.id,
+        projection_evidence=ProjectConfigurationEvidence(
+            source="configuration",
+            operation_id=result.operation_id,
+            operation=result.operation,
+        ),
     )
-    return result
+    projection["capability_warnings"] = await _compute_pipeline_capability_warnings(
+        db, projection["preannotate_pipeline"]
+    )
+    return projection
 
 
 @router.post(
@@ -1043,20 +513,23 @@ async def rename_class(
       region / 旧 schema 残留留下"孤儿"标注: binding 已无该类, 但 annotation 仍引用)
     - 不动 predictions.result (alias 不变)
     """
-    changed = await rename_project_class(
+    changed, evidence = await rename_project_class(
         db,
-        actor_id=current_user.id,
+        actor=current_user,
         project_id=project.id,
         old_name=body.old_name,
         new_name=body.new_name,
         tool_unit_id=body.tool_unit_id,
     )
-    if not changed:
-        return await _serialize_project(db, project)
-
-    await db.commit()
-    await db.refresh(project)
-    return await _serialize_project(db, project)
+    if changed:
+        await db.commit()
+    return await execute_project_query(
+        db,
+        operation="get_project_projection",
+        actor=current_user,
+        target_id=project.id,
+        projection_evidence=evidence,
+    )
 
 
 @router.get("/{project_id}/class-usage", response_model=ProjectClassUsageOut)
@@ -1135,15 +608,20 @@ async def transfer_owner(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
-    project = await transfer_project_owner_workflow(
+    evidence = await transfer_project_owner_workflow(
         db,
-        actor_id=current_user.id,
+        actor=current_user,
         project_id=project_id,
         new_owner_id=body.new_owner_id,
     )
     await db.commit()
-    await db.refresh(project)
-    return await _serialize_project(db, project)
+    return await execute_project_query(
+        db,
+        operation="get_project_projection",
+        actor=current_user,
+        target_id=project_id,
+        projection_evidence=evidence,
+    )
 
 
 @router.get("/{project_id}/access", response_model=ProjectAccessOut)

@@ -17,6 +17,7 @@ from sqlalchemy.exc import DBAPIError
 
 from app.application.project_workspace import transfer_project_owner
 from app.services import workspace_owner_transfer as commands
+from app.services.identity_contracts import IdentityActorFacts
 from tests.test_workspace_owner_transfer_live import (
     _cleanup_world,
     _peer,
@@ -127,7 +128,13 @@ async def test_owner_failure_fences_rollback_partial_effects(
                 with pytest.raises(Exception) as rejected:
                     await transfer_project_owner(
                         caller,
-                        actor_id=actor.id,
+                        actor=IdentityActorFacts(
+                            id=actor.id,
+                            name=actor.name,
+                            email=actor.email,
+                            role=actor.role,
+                            is_active=actor.is_active,
+                        ),
                         project_id=project.id,
                         new_owner_id=first.id,
                     )

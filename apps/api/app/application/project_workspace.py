@@ -12,10 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.project import Project
 from app.db.models.user import User
 from aap_workspace.access_contract import ProjectAccess
+from aap_workspace.project_query_contract import ProjectOwnerTransferEvidence
 from app.services.project_access import (
     lock_current_project_access,
     resolve_project_access_by_id,
 )
+from app.services.identity_contracts import IdentityActorFacts
+from app.services.workspace_project_query import capture_transfer_projection
 from app.services.workspace_owner_transfer import (
     transfer_project_owner as execute_owner_transfer,
 )
@@ -72,31 +75,42 @@ async def lock_managed_project(
     project_id: uuid.UUID,
     exclusive: bool = True,
 ) -> Project:
-    _, project, access = await lock_current_project_access(
+    _, project, _ = await lock_managed_project_context(
+        db,
+        actor_id=actor_id,
+        project_id=project_id,
+        exclusive=exclusive,
+    )
+    return project
+
+
+async def lock_managed_project_context(
+    db: AsyncSession,
+    *,
+    actor_id: uuid.UUID,
+    project_id: uuid.UUID,
+    exclusive: bool = True,
+) -> tuple[IdentityActorFacts, Project, ProjectAccess]:
+    actor, project, access = await lock_current_project_access(
         db, actor_id=actor_id, project_id=project_id
     )
     _assert_project_manager(access)
     if exclusive:
         project = await lock_workspace_project(db, project_id)
-    return project
+    return actor, project, access
 
 
 async def transfer_project_owner(
     db: AsyncSession,
     *,
-    actor_id: uuid.UUID,
+    actor: IdentityActorFacts,
     project_id: uuid.UUID,
     new_owner_id: uuid.UUID,
-) -> Project:
-    await execute_owner_transfer(
-        db, actor_id=actor_id, project_id=project_id, new_owner_id=new_owner_id
+) -> ProjectOwnerTransferEvidence:
+    transfer = await execute_owner_transfer(
+        db,
+        actor_id=actor.id,
+        project_id=project_id,
+        new_owner_id=new_owner_id,
     )
-    with db.no_autoflush:
-        project = await db.scalar(
-            select(Project)
-            .where(Project.id == project_id)
-            .execution_options(populate_existing=True)
-        )
-    if project is None:
-        raise HTTPException(status_code=404, detail="项目不存在")
-    return project
+    return await capture_transfer_projection(db, actor=actor, transfer=transfer)

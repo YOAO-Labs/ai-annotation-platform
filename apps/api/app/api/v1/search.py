@@ -1,7 +1,7 @@
 """全局 ⌘K 搜索：跨实体快速联想（项目 / 任务 / 数据集 / 成员）。
 
-每类调用现有 service.search 或最小 SQL，统一遵守该用户的可见性边界
-（项目按 _visible_project_filter；任务复用分派/批次范围及协作视频例外；数据集是公开资源）。
+项目、任务、成员范围分别由 Workspace relational facts、Labeling assignment
+scope 和 Identity accounts 提供；数据集对所有登录用户可见。
 单次返回 limit×4 条，前端渲染 group + 键盘导航 + 跳转。
 """
 
@@ -16,12 +16,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.deps import get_current_user, get_db
 from app.db.enums import PlatformRole, ProjectRole
 from app.db.models.dataset import Dataset
-from app.db.models.project import Project
-from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
-from app.api.v1.projects import _visible_project_filter
+from app.services.workspace_project_query import execute_project_query
+from app.services.workspace_project_query_data import (
+    project_search_member_ids,
+    project_search_scope,
+)
 from app.services.scheduler import task_visibility_clause
 from app.services.identity_contracts import IdentityActorFacts
 
@@ -36,37 +38,18 @@ async def global_search(
     user: IdentityActorFacts = Depends(get_current_user),
 ) -> dict[str, list[dict[str, Any]]]:
     pattern = f"%{q}%"
-
-    # 项目（按 _visible_project_filter）
-    proj_q = select(Project).where(Project.name.ilike(pattern))
-    cond = _visible_project_filter(user)
-    if cond is not None:
-        proj_q = proj_q.where(cond)
-    projects = (
-        (await db.execute(proj_q.order_by(Project.updated_at.desc()).limit(limit)))
-        .scalars()
-        .all()
+    project_items = await execute_project_query(
+        db,
+        operation="search_projects",
+        actor=user,
+        filters={"q": q, "limit": limit},
     )
-    project_items = [
-        {
-            "id": str(p.id),
-            "display_id": p.display_id,
-            "name": p.name,
-            "type_key": p.type_key,
-            "data_type": p.data_type,
-            "type_label": p.type_label,
-        }
-        for p in projects
-    ]
 
     # Filter task authority before LIMIT so hidden matches cannot starve valid ones.
-    visible_proj_ids_q = select(Project.id)
-    if cond is not None:
-        visible_proj_ids_q = visible_proj_ids_q.where(cond)
+    project_scope = project_search_scope(user)
     tasks_q = (
-        select(Task, Project.name)
-        .join(Project, Task.project_id == Project.id)
-        .where(Task.project_id.in_(visible_proj_ids_q))
+        select(Task, project_scope.c.project_name)
+        .join(project_scope, Task.project_id == project_scope.c.project_id)
         .where(or_(Task.display_id.ilike(pattern), Task.file_name.ilike(pattern)))
         .order_by(Task.updated_at.desc())
         .limit(limit)
@@ -80,12 +63,12 @@ async def global_search(
         membership_scope = or_(
             *[
                 and_(
-                    ProjectMember.role == role,
+                    project_scope.c.member_role == role,
                     or_(
                         task_visibility_clause(user.id, project_role=role),
                         and_(
                             Task.file_type == "video",
-                            Project.video_collaboration["enabled"]
+                            project_scope.c.video_collaboration["enabled"]
                             .as_boolean()
                             .is_(True),
                         ),
@@ -94,22 +77,12 @@ async def global_search(
                 for role in roles
             ]
         )
-        tasks_q = (
-            tasks_q.outerjoin(TaskBatch, Task.batch_id == TaskBatch.id)
-            .outerjoin(
-                ProjectMember,
-                and_(
-                    ProjectMember.project_id == Project.id,
-                    ProjectMember.user_id == user.id,
-                ),
-            )
-            .where(
-                or_(
-                    Project.owner_id == user.id
-                    if user.role == PlatformRole.PROJECT_ADMIN.value
-                    else false(),
-                    membership_scope,
-                )
+        tasks_q = tasks_q.outerjoin(TaskBatch, Task.batch_id == TaskBatch.id).where(
+            or_(
+                project_scope.c.owner_id == user.id
+                if user.role == PlatformRole.PROJECT_ADMIN.value
+                else false(),
+                membership_scope,
             )
         )
     task_rows = (await db.execute(tasks_q)).all()
@@ -153,10 +126,10 @@ async def global_search(
         )
     else:
         # 仅返回当前用户共项目的成员
+        member_scope = project_search_member_ids(user)
         users_q = (
             select(User)
-            .join(ProjectMember, ProjectMember.user_id == User.id)
-            .where(ProjectMember.project_id.in_(visible_proj_ids_q))
+            .join(member_scope, member_scope.c.user_id == User.id)
             .where(or_(User.name.ilike(pattern), User.email.ilike(pattern)))
             .where(User.is_active.is_(True))
             .distinct()

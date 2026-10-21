@@ -438,6 +438,7 @@ async def test_workspace_transfer_holds_identity_account_locks_through_commit(
     test_engine,
 ):
     from app.application.project_workspace import transfer_project_owner
+    from app.services.identity_contracts import IdentityActorFacts
 
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     actor_id = uuid.uuid4()
@@ -466,11 +467,18 @@ async def test_workspace_transfer_holds_identity_account_locks_through_commit(
             await caller.begin()
             transferred = await transfer_project_owner(
                 caller,
-                actor_id=actor_id,
+                actor=IdentityActorFacts(
+                    id=actor.id,
+                    name=actor.name,
+                    email=actor.email,
+                    role=actor.role,
+                    is_active=actor.is_active,
+                ),
                 project_id=project_id,
                 new_owner_id=receiver_id,
             )
-            assert transferred.id == project_id
+            assert transferred.project_id == project_id
+            assert transferred.new_owner_id == receiver_id
             async with maker() as observer:
                 for table, key in (
                     (User, actor_id),
