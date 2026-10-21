@@ -85,6 +85,19 @@ GRANT EXECUTE ON FUNCTION aap_inference_health_observation_v1.health_observation
     aap_inference_health_observation_v1.seal_health_observation(text,uuid,uuid,text),
     aap_inference_health_observation_v1.verify_health_observation(text,uuid,uuid,text)
     TO :"application_role";
+GRANT USAGE ON SCHEMA aap_inference_health_data_v1 TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_inference_health_data_v1.health_data_policy(),
+    aap_inference_health_data_v1.backend_row(uuid,boolean),
+    aap_inference_health_data_v1.membership_row(uuid,text,boolean),
+    aap_inference_health_data_v1.observation_clock(),
+    aap_inference_health_data_v1.lock_resource(text),
+    aap_inference_health_data_v1.try_promotion(),
+    aap_inference_health_data_v1.write_backend(uuid,text,timestamp with time zone,text,boolean,boolean),
+    aap_inference_health_data_v1.member_pool(uuid),
+    aap_inference_health_data_v1.pool_row(uuid,uuid),
+    aap_inference_health_data_v1.member_row(uuid),
+    aap_inference_health_data_v1.apply_reconciliation(uuid,uuid,text,text,text,bigint,text,text)
+    TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_learning_v1.registry_evaluation_reference_exists(uuid),
     aap_jobs_v1.count_running_registry_predictions(uuid) TO :"application_role";
 -- Embedded Identity adapters use the same owner capabilities as isolated clients.

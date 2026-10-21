@@ -52,6 +52,26 @@ pytestmark = [
 
 def _phase(statement):
     s = " ".join(statement.lower().split())
+    if "aap_inference_health_data_v1." in s:
+        for function, phase in (
+            ("observation_clock()", "clock"),
+            ("lock_resource(", "resource_lock"),
+            ("try_promotion()", "promotion_try"),
+            ("write_backend(", "backend_write"),
+            ("member_pool(", "member_read"),
+            ("pool_row(", "pool_lock"),
+            ("member_row(", "member_lock"),
+        ):
+            if function in s:
+                return phase
+        for function, label in (
+            ("backend_row(", "backend"),
+            ("membership_row(", "membership"),
+        ):
+            if function in s:
+                return label + ("_lock" if ",true)" in s else "_read")
+        if "apply_reconciliation(" in s:
+            return ["member_write", "pool_write"] if "'disable'" in s else "pool_write"
     if "clock_timestamp()" in s:
         return "clock"
     if "aap:gpu-resource:" in s:
@@ -214,7 +234,7 @@ async def _observe(test_engine, monkeypatch):
                     ):
                         phase = _phase(statement)
                         if phase:
-                            trace.append(phase)
+                            trace.extend(phase if isinstance(phase, list) else [phase])
 
                     event.listen(
                         test_engine.sync_engine, "before_cursor_execute", observe

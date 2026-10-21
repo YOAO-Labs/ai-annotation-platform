@@ -816,6 +816,18 @@ GRANT UPDATE (
         scope, project_id, organization_id, name, stages, is_default,
         usage_count, updated_at
     ) ON public.project_pipelines TO :"inference_owner";
+-- Native health operations materialize full rows and hold caller-owned locks.
+GRANT SELECT ON public.ml_backend_registry, public.ml_backend_service_pools,
+    public.ml_backend_pool_members TO :"inference_owner";
+GRANT UPDATE (state, last_checked_at, health_meta, is_interactive, updated_at)
+    ON public.ml_backend_registry TO :"inference_owner";
+GRANT UPDATE (capability_snapshot, capability_fingerprint, enabled,
+    routing_generation, updated_at)
+    ON public.ml_backend_service_pools TO :"inference_owner";
+GRANT UPDATE (traffic_state, updated_at)
+    ON public.ml_backend_pool_members TO :"inference_owner";
+GRANT SELECT (backend_registry_id, gpu_resource_id, membership_epoch, state),
+    UPDATE (state) ON public.gpu_backend_memberships TO :"inference_owner";
 GRANT SELECT (registry_id, pool_id) ON public.ml_backend_pool_members
     TO :"inference_owner";
 GRANT SELECT (id, created_at, updated_at, capability_snapshot)
@@ -1638,6 +1650,21 @@ ALTER FUNCTION aap_inference_health_observation_v1.open_health_observation_subje
 ALTER FUNCTION aap_inference_health_observation_v1.seal_health_observation(text,uuid,uuid,text) OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_health_observation_v1.verify_health_observation(text,uuid,uuid,text) OWNER TO :"inference_owner";
 REVOKE CREATE ON SCHEMA aap_inference_health_observation_v1 FROM :"inference_owner";
+
+GRANT CREATE ON SCHEMA aap_inference_health_data_v1 TO :"inference_owner";
+ALTER SCHEMA aap_inference_health_data_v1 OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_health_data_v1.health_data_policy() OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_health_data_v1.backend_row(uuid,boolean) OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_health_data_v1.membership_row(uuid,text,boolean) OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_health_data_v1.observation_clock() OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_health_data_v1.lock_resource(text) OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_health_data_v1.try_promotion() OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_health_data_v1.write_backend(uuid,text,timestamp with time zone,text,boolean,boolean) OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_health_data_v1.member_pool(uuid) OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_health_data_v1.pool_row(uuid,uuid) OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_health_data_v1.member_row(uuid) OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_health_data_v1.apply_reconciliation(uuid,uuid,text,text,text,bigint,text,text) OWNER TO :"inference_owner";
+REVOKE CREATE ON SCHEMA aap_inference_health_data_v1 FROM :"inference_owner";
 ALTER FUNCTION aap_workspace_v1.lock_group_assignment_scope(uuid, uuid[], boolean)
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.invitation_projects(uuid[])

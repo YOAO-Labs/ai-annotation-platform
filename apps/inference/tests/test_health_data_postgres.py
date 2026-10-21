@@ -231,13 +231,13 @@ async def test_full_backend_rows_are_materialized_and_lock_refresh_keeps_identit
     data = await _bound(monkeypatch, connection)
 
     backend = await data.get_backend(_uuid_subclass(_REGISTRY_ID))
+    assert backend.health_meta == {"gpu_info": {"memory": 4}}
     locked = await data.lock_current_backend(_REGISTRY_ID)
 
     assert isinstance(backend, BackendHealthRow)
     assert locked is backend
     assert type(backend.id) is UUID
     assert backend.extra_params == {"max_concurrency": 4}
-    assert backend.health_meta == {"gpu_info": {"memory": 4}}
     assert backend.url == "http://locked.test"
     assert backend.health_meta == {"compute": {}}
     assert "synthetic-secret" not in repr(backend)
@@ -256,6 +256,7 @@ async def test_refresh_backend_reads_a_full_fresh_row_into_the_cached_object(
     connection.rows[_BACKEND_READ_SQL] = [
         _backend_row(),
         _backend_row(state="error", extra_params='["unexpected-shape"]'),
+        _backend_row(state="connected", extra_params="{}"),
     ]
     data = await _bound(monkeypatch, connection)
 
@@ -266,6 +267,7 @@ async def test_refresh_backend_reads_a_full_fresh_row_into_the_cached_object(
     assert backend.state == "error"
     assert backend.extra_params == ["unexpected-shape"]
     assert [call[1] for call in connection.calls if call[0] == "fetchrow"] == [
+        _BACKEND_READ_SQL,
         _BACKEND_READ_SQL,
         _BACKEND_READ_SQL,
     ]
@@ -395,6 +397,12 @@ async def test_pool_and_member_rows_stage_a_seed_until_native_flush(monkeypatch)
     )
     assert len(connection.calls) == calls_before_stage
     assert pool.updated_at == old_updated_at
+    # A later failed refresh must neither mutate nor discard the staged command.
+    snapshot["models"][0]["id"] = "caller-edited"
+    pool_sql = f"SELECT * FROM {_SCHEMA}.pool_row($1::uuid, $2::uuid)"
+    connection.rows[pool_sql] = [_pool_row(capability_snapshot="not-json")]
+    with pytest.raises(ValueError):
+        await data.load_pool(_POOL_ID, registry_id=_REGISTRY_ID)
 
     await data.flush()
 
@@ -511,3 +519,18 @@ async def test_bind_rejects_a_stale_or_malformed_native_policy(monkeypatch):
 
     with pytest.raises(HealthDataUnavailable):
         await HealthDataPostgresData.bind(connection)
+
+
+@pytest.mark.asyncio
+async def test_cached_identity_still_materializes_unused_database_json(monkeypatch):
+    connection = _Connection()
+    connection.rows[_BACKEND_READ_SQL] = [
+        _backend_row(),
+        _backend_row(health_meta="not-json"),
+    ]
+    data = await _bound(monkeypatch, connection)
+    backend = await data.get_backend(_REGISTRY_ID)
+    backend.url = "http://caller-pending.test"
+    with pytest.raises(ValueError):
+        await data.get_backend(_REGISTRY_ID)
+    assert backend.url == "http://caller-pending.test"

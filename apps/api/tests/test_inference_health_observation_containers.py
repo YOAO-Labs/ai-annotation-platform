@@ -68,11 +68,12 @@ def _origin(container_id):
 
 @asynccontextmanager
 async def _observer_container(dsn, token):
+    prefix = os.environ.get(
+        "AAP_HEALTH_OBSERVATION_QUALIFICATION_PREFIX", "inference-health-observation"
+    )
+    assert prefix in {"inference-health-observation", "inference-health-data"}
     artifact = json.loads(
-        (
-            ROOT
-            / ".worktree/inference-health-observation-inference-image-artifact.json"
-        ).read_text()
+        (ROOT / f".worktree/{prefix}-inference-image-artifact.json").read_text()
     )
     image = _inspect_docker(artifact["image_id"])
     assert image["Config"]["Labels"]["org.aap.acceptance-id"] == artifact["identity"]
@@ -173,19 +174,15 @@ async def _observer_container(dsn, token):
                 for secret in (connection, token, make_url(connection).password):
                     if secret:
                         log = log.replace(secret, "<redacted>")
-                log_path = (
-                    ROOT
-                    / f".worktree/inference-health-observation-runtime-{identity}.log"
-                )
+                log_path = ROOT / f".worktree/{prefix}-runtime-{identity}.log"
                 log_path.touch(mode=0o600)
                 log_path.write_text(log)
                 result["log_file"] = log_path.name
                 _stop_remove_container(container_id, identity)
                 result["container_removed"] = True
-                (
-                    ROOT
-                    / f".worktree/inference-health-observation-runtime-{identity}.json"
-                ).write_text(json.dumps(result, indent=2) + "\n")
+                (ROOT / f".worktree/{prefix}-runtime-{identity}.json").write_text(
+                    json.dumps(result, indent=2) + "\n"
+                )
 
 
 async def test_public_health_uses_observer_image_survives_restart_and_fails_without_fallback(

@@ -401,7 +401,7 @@ Workspace 的后端能力探测通过 Inference 私有协议返回模态，Works
 
 健康对账与服务池成员写入采用一致锁顺序；删除与成员移除会拒绝安全检查后的拓扑变化，项目绑定争用会完整回滚。接口冲突及重试见 [ML Backend API](./docs-site/api/guides/ml-backend.md#修改--删除)。
 
-健康检查的外部观察支持独立 Inference 进程，密封快照与回执绑定原事务；能力提取、GPU 围栏与写回仍在原调用方事务完成。配置见 [Inference 运行指南](./docs-site/api/guides/inference-runtime.md#健康观察与调用方写回)，完整健康控制面继续迁移。
+健康检查的外部观察支持独立 Inference 进程，密封快照与回执绑定原事务；能力提取、GPU 围栏与写回仍在原调用方事务完成。健康数据读写和能力对账使用固定 Native 函数，独立数据包可借用调用方事务。配置见 [Inference 运行指南](./docs-site/api/guides/inference-runtime.md#健康观察与调用方写回)，完整健康控制面继续迁移。
 
 类别与属性用量已接入 Labeling 读取边界，先核验当前项目管理权，保留原统计口径和两次顺序读取；独立安装包、三路径响应、语句间提交、受限镜像与备份恢复已完成限定本地验收，见 [Labeling 运行协议](./docs-site/api/guides/labeling-runtime.md)与 [统计 owner ADR](./docs/adr/0142-labeling-class-usage-query-owner.md)。
 

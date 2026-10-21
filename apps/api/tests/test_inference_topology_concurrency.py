@@ -37,10 +37,9 @@ class PoolGateSession(AsyncSession):
 
     async def _gate(self, statement):
         source = str(statement).lower()
-        if (
-            not self.gated
-            and "from ml_backend_service_pools" in source
-            and "for update" in source
+        if not self.gated and (
+            ("from ml_backend_service_pools" in source and "for update" in source)
+            or "aap_inference_health_data_v1.pool_row(" in source
         ):
             self.gated = True
             self.pool_locked.set()

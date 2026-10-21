@@ -196,3 +196,6 @@
 - [0148 — Inference Backend Transport and Deletion Dependencies](0148-inference-backend-transport-and-deletion-dependencies.md)
 - [0149 — Credential-owning Workspace Backend Probe](0149-credential-owning-workspace-backend-probe.md)
 - [0150 — Portable Backend Health Coordination](0150-portable-backend-health-coordination.md)
+- [0151 — Inference Topology Locking](0151-inference-topology-locking.md)
+- [0152 — Credential-owning Health Observations](0152-credential-owning-health-observations.md)
+- [0153 — Caller-owned Native Health Data](0153-caller-owned-native-health-data.md)

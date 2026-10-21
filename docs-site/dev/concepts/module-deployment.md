@@ -114,12 +114,12 @@ Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事�
 完整健康检查和服务池能力对账策略由 `aap_inference.health` 提供；项目／全局探活、
 能力漂移接受、周期 worker 和 GPU 冷启动刷新均经现有入口调用它。API 适配器继续借用
 原 Session，保留全行 JSON 物化、无锁 HTTP、数据库观察时间、配置／代次围栏、能力指纹
-和调用方提交顺序。它尚未形成独立的 Native／HTTP 健康服务，不增加部署 selector。
+和调用方提交顺序。健康数据读写现通过同事务的固定 Native 能力；API 保留 ORM 兼容绑定，不增加完整健康协调服务的部署 selector。
 
 旧实现已冻结24组真实 HTTP／SQL 相位观测，覆盖两种自动刷新设置和原有错误阶段。
 健康对账与 Registry／Pool／Member 变更已统一为 Registry → Pool → Member；需要多个池时按 UUID 排序，健康检查的外部 I/O 仍在持锁前完成。删除或移除成员在写锁内复核先前观察的成员身份、池、路由代次与接流状态，发生变化返回409。项目启用先通过 Workspace 固定能力锁项目再锁池，并在池锁内重验资格；Inference 不增加 Project 表权限。清理项目绑定遇争用时立即回滚整个实例或空池删除；项目配置等待池锁后也会重新核验所选成员。并发边界见 [ADR-0151](/dev/adr/0151-inference-topology-locking)。
 
-当前 Redis 检查仍只是一次在飞计数观察，尚未证明账本连续性、暂停路由候选的代次围栏或长请求租约持续有效；不能由一次零计数推导完整停流安全。外部观察已通过事务绑定的密封快照及受限提供方回执接入独立运行时，详见 [ADR-0152](/dev/adr/0152-credential-owning-health-observations)。它证明提供方来源与快照归属；同事务健康 Native apply 仍待实现。协调器提取见 [ADR-0150](/dev/adr/0150-portable-backend-health-coordination)。
+当前 Redis 检查仍只是一次在飞计数观察，尚未证明账本连续性、暂停路由候选的代次围栏或长请求租约持续有效；不能由一次零计数推导完整停流安全。外部观察已通过事务绑定的密封快照及受限提供方回执接入独立运行时，详见 [ADR-0152](/dev/adr/0152-credential-owning-health-observations)。它证明提供方来源与快照归属；同事务健康数据能力及延迟 apply 见 [ADR-0153](/dev/adr/0153-caller-owned-native-health-data)。协调器提取见 [ADR-0150](/dev/adr/0150-portable-backend-health-coordination)。
 
 本地197项去重选定检查通过，24组旧健康相位和38组既有服务池观测匹配。
 该协调器批次的独立安装 Inference／Workspace 分别通过132／449项；对应镜像的包及 API／Native
@@ -127,7 +127,9 @@ Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事�
 
 锁序修复另有151项去重选定检查通过，包含25项 PostgreSQL 并发与拓扑边界；完整迁移、非空恢复及独立安装通过。三项镜像的冷检查匹配50／272个包文件、1,246项 API 输入和 Native head275。最终组合批次的测试通过，外层清理首次失败后经归属核验重试完成，原失败及恢复回执均保留。此批次不作为独立健康服务、完整路由停流或生产容量资格。
 
-健康观察另有176项去重选定检查通过，三绑定各匹配24组旧健康相位；完整迁移、非空恢复、独立安装与受限容器实际公开 API 链路通过。安装包核对55／277个文件，API冷检查核对1,250项输入及 Native head276；容器重启与停止后不回退均验证。有限并发样本不代表生产容量。它仍是完整健康控制面的观察阶段，Native apply 与整个模块继续推进。
+健康观察另有176项去重选定检查通过，三绑定各匹配24组旧健康相位；完整迁移、非空恢复、独立安装与受限容器实际公开 API 链路通过。安装包核对55／277个文件，API冷检查核对1,250项输入及 Native head276；容器重启与停止后不回退均验证。有限并发样本不代表生产容量。这批证据对应观察阶段；后续同事务健康数据能力独立记录，整个模块继续推进。
+
+健康数据适配器使用11项固定 Native 函数，后端健康写入与服务池 seed／disable 对账继续由原事务持有。独立 `HealthDataPostgresData` 可借用已开启的 asyncpg 事务，不依赖 API／ORM；API 绑定保留原对象身份、自动刷新与其他待提交对象。专用数据 LOGIN 没有原表权限，观察 LOGIN 不增加写权。此切片不代表完整健康远程协调、全部 Registry／Pool writers 或路由／GPU已完成。见 [ADR-0153](/dev/adr/0153-caller-owned-native-health-data)。
 
 ## Workspace 后端能力探测
 

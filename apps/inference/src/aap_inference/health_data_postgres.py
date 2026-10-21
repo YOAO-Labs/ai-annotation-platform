@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field, fields
 import json
 from datetime import datetime
@@ -287,7 +288,7 @@ def _canonical_snapshot_json(snapshot: dict[str, Any]) -> str:
 
 
 class HealthDataPostgresData:
-    """Bind fixed Native health RPCs to an active caller-owned asyncpg transaction."""
+    """Borrow one active transaction; discard this binding when the caller ends it."""
 
     def __init__(self, connection: Any) -> None:
         self._connection = connection
@@ -338,12 +339,13 @@ class HealthDataPostgresData:
 
     async def get_backend(self, registry_id: UUID) -> BackendHealthRow | None:
         backend_id = _uuid(registry_id)
-        cached = self._backends.get(backend_id)
-        if cached is not None:
-            return cached
         row = await self._backend_row(backend_id, for_update=False)
         if row is None:
             return None
+        # ORM SELECT materializes the full row even when identity-map values win.
+        cached = self._backends.get(backend_id)
+        if cached is not None:
+            return cached
         return self._remember_backend(row)
 
     async def read_membership(
@@ -430,12 +432,12 @@ class HealthDataPostgresData:
 
     async def load_pool_member(self, registry_id: UUID) -> HealthPoolMemberRow | None:
         registry_id = _uuid(registry_id)
+        record = await self._connection.fetchrow(_MEMBER_SQL, registry_id)
+        row = None if record is None else _decode_member(record)
         if self._intent is not None and self._intent.member.registry_id == registry_id:
             self._intent = None
-        record = await self._connection.fetchrow(_MEMBER_SQL, registry_id)
-        if record is None:
+        if row is None:
             return None
-        row = _decode_member(record)
         existing = self._members.get(row.registry_id)
         if existing is None:
             self._members[row.registry_id] = row
@@ -450,16 +452,16 @@ class HealthDataPostgresData:
         registry_id: UUID,
     ) -> HealthServicePoolRow | None:
         pool_id = _uuid(pool_id)
-        if self._intent is not None and self._intent.pool.id == pool_id:
-            self._intent = None
         record = await self._connection.fetchrow(
             _POOL_SQL,
             pool_id,
             _uuid(registry_id),
         )
-        if record is None:
+        row = None if record is None else _decode_pool(record)
+        if self._intent is not None and self._intent.pool.id == pool_id:
+            self._intent = None
+        if row is None:
             return None
-        row = _decode_pool(record)
         existing = self._pools.get(row.id)
         if existing is None:
             self._pools[row.id] = row
@@ -489,7 +491,7 @@ class HealthDataPostgresData:
             pool=pool,
             member=member,
             operation=operation,
-            snapshot=snapshot,
+            snapshot=deepcopy(snapshot),
             fingerprint=fingerprint,
             expected_generation=expected_generation,
             expected_pool_fingerprint=expected_pool_fingerprint,

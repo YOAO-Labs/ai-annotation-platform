@@ -200,7 +200,7 @@ async def test_nonfinite_backend_metadata_keeps_original_post_clock_write_failur
                 def observe(conn, cursor, statement, parameters, context, many):
                     phase = _phase(statement)
                     if phase:
-                        trace.append(phase)
+                        trace.extend(phase if isinstance(phase, list) else [phase])
 
                 event.listen(test_engine.sync_engine, "before_cursor_execute", observe)
                 try:
@@ -272,7 +272,7 @@ async def test_null_health_json_keeps_legacy_type_error_before_clock(
                 def observe(conn, cursor, statement, parameters, context, many):
                     phase = _phase(statement)
                     if phase:
-                        trace.append(phase)
+                        trace.extend(phase if isinstance(phase, list) else [phase])
 
                 event.listen(test_engine.sync_engine, "before_cursor_execute", observe)
                 try:
