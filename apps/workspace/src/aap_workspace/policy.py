@@ -5,6 +5,13 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from .access_contract import (
+    ANNOTATOR_ROLE,
+    PROJECT_ROLES,
+    REVIEWER_ROLE,
+    VIEWER_ROLE,
+    membership_role_compatible,
+)
 from .contract import (
     MembershipAccountFacts,
     MembershipError,
@@ -18,10 +25,6 @@ from .contract import (
     membership_success_reply,
 )
 
-PROJECT_ROLES = frozenset({"annotator", "reviewer", "viewer"})
-ANNOTATOR_ROLE = "annotator"
-REVIEWER_ROLE = "reviewer"
-VIEWER_ROLE = "viewer"
 UNFINISHED_ANNOTATION_STATUSES = ("pending", "in_progress", "rejected")
 UNFINISHED_REVIEW_STATUSES = ("review",)
 _REMOVAL_IGNORED_BLOCKER_CODES = frozenset({"same_role", "target_role_incompatible"})
@@ -47,16 +50,6 @@ _INVALID_MEMBER_ROLE_DETAIL = (
     "账号平台角色与项目职责不兼容：员工可持有标注员/质检员/观察者，"
     "平台观察者仅可持有观察者，管理员通过项目负责人身份管理项目"
 )
-
-
-def membership_role_compatible(platform_role: str | None, project_role: str) -> bool:
-    """Keep the established platform-role to project-role compatibility rule."""
-
-    if project_role not in PROJECT_ROLES:
-        return False
-    if platform_role == "viewer":
-        return project_role == VIEWER_ROLE
-    return platform_role == "employee"
 
 
 def snapshot_token(snapshot: dict[str, Any]) -> str:
