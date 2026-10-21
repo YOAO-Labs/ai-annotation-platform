@@ -67,6 +67,12 @@ def _assert_denied(call, *, code=None):
         assert error.value.response["Error"]["Code"] == code
 
 
+def _require_private_value(condition: bool, message: str) -> None:
+    """Avoid assertion introspection exposing an actual signed URL on failure."""
+    if not condition:
+        raise AssertionError(message)
+
+
 @asynccontextmanager
 async def _installed_guide_process(
     tmp_path, *, endpoint, bucket, access_key, secret_key
@@ -279,13 +285,15 @@ async def test_guide_only_installed_process_scoped_s3_and_storage_failure(
                 )
                 assert signed.result.expires_in == 900
                 url = signed.result.url
-                assert url.startswith("/minio/" + bucket + "/projects/")
-                assert sorted(parse_qs(urlsplit(url).query)) == [
-                    "AWSAccessKeyId",
-                    "Expires",
-                    "Signature",
-                    "content-type",
-                ]
+                _require_private_value(
+                    url.startswith("/minio/" + bucket + "/projects/"),
+                    "Guide presign public prefix differs",
+                )
+                _require_private_value(
+                    sorted(parse_qs(urlsplit(url).query))
+                    == ["AWSAccessKeyId", "Expires", "Signature", "content-type"],
+                    "Guide presign query field names differ",
+                )
                 response = await http.put(
                     endpoint + url[len("/minio") :],
                     content=b"guide-live-object",
