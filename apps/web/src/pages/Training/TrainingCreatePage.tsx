@@ -1284,6 +1284,50 @@ function TrainingCreateContent({
       title="新建训练实验"
       width={1120}
       returnFocusRef={outlet?.createButtonRef ?? openerRef}
+      footer={
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs text-muted-foreground">
+            第 {step + 1} / 3 步{checking ? " · 正在检查" : ""}
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {step > 0 && (
+              <Button size="sm" disabled={studyBusy} onClick={() => setStep(step - 1)}>
+                上一步
+              </Button>
+            )}
+            {step < 2 ? (
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={!contextValid || locked}
+                onClick={() => setStep(step + 1)}
+              >
+                下一步
+              </Button>
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  disabled={!valid || locked || checking}
+                  onClick={() => void preflight()}
+                >
+                  {checking ? "检查中…" : "检查训练配置"}
+                </Button>
+                {!studyMode && (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    disabled={!valid || !reviewed || locked || checking}
+                    onClick={() => void create()}
+                  >
+                    {creating ? "提交中…" : "开始训练"}
+                  </Button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      }
     >
       <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -1996,48 +2040,6 @@ function TrainingCreateContent({
             使用固定验证集；取消后可从已保存的完整轮次续训。
           </p>
         </aside>
-      </div>
-      <div className="sticky bottom-0 z-popover -mx-4 -mb-4 mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-border bg-card/95 px-4 py-3 backdrop-blur-overlay">
-        <span className="text-xs text-muted-foreground">
-          第 {step + 1} / 3 步{checking ? " · 正在检查" : ""}
-        </span>
-        <div className="flex flex-wrap gap-2">
-          {step > 0 && (
-            <Button size="sm" disabled={studyBusy} onClick={() => setStep(step - 1)}>
-              上一步
-            </Button>
-          )}
-          {step < 2 ? (
-            <Button
-              size="sm"
-              variant="primary"
-              disabled={!contextValid || locked}
-              onClick={() => setStep(step + 1)}
-            >
-              下一步
-            </Button>
-          ) : (
-            <>
-              <Button
-                size="sm"
-                disabled={!valid || locked || checking}
-                onClick={() => void preflight()}
-              >
-                {checking ? "检查中…" : "检查训练配置"}
-              </Button>
-              {!studyMode && (
-                <Button
-                  size="sm"
-                  variant="primary"
-                  disabled={!valid || !reviewed || locked || checking}
-                  onClick={() => void create()}
-                >
-                  {creating ? "提交中…" : "开始训练"}
-                </Button>
-              )}
-            </>
-          )}
-        </div>
       </div>
       <Modal
         open={!!datasetHandoff && datasetHandoff.intentOwner === datasetIntentOwner}

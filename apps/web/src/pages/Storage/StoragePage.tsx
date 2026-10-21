@@ -333,7 +333,7 @@ export function StoragePage() {
       </div>
 
       {/* Stats */}
-      <div className="mb-5 grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard icon="db" label="存储后端" value="MinIO (S3)" />
         <StatCard icon="folder" label="存储桶" value={String(buckets.length)} />
         <StatCard icon="layers" label="数据集数量" value={String(totalDatasets)} />

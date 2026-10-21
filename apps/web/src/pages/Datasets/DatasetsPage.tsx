@@ -91,7 +91,7 @@ const ITEMS_TH_CLASS =
 const TD_CLASS = "border-b border-border p-3 align-middle whitespace-nowrap";
 const ITEM_TD_CLASS = "border-b border-border p-2 whitespace-nowrap";
 const DETAIL_TITLE_CLASS = "m-0 text-sm font-semibold text-foreground";
-const DETAIL_HEADER_CLASS = "mb-2.5 flex items-center justify-between";
+const DETAIL_HEADER_CLASS = "mb-2.5 flex flex-wrap items-center justify-between gap-2";
 
 function getErrorMessage(err: unknown) {
   return err instanceof Error ? err.message : "未知错误";
@@ -140,10 +140,10 @@ function DatasetRow({
   return (
     <tr
       id={`dataset-row-${ds.id}`}
-      className={`cursor-pointer ${isExpanded ? "bg-muted" : ""}`}
+      className={`grid cursor-pointer grid-cols-2 xl:table-row ${isExpanded ? "bg-muted" : ""}`}
       onClick={onToggle}
     >
-      <td className={`${TD_CLASS} pl-4`}>
+      <td className={`${TD_CLASS} col-span-2 min-w-0 pl-4`}>
         <div className="flex min-w-0 items-center gap-2.5">
           <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground">
             <Icon name={TYPE_ICONS[ds.data_type] || "layers"} size={14} />
@@ -175,17 +175,19 @@ function DatasetRow({
           {ds.has_scenes ? "含 Scene" : "无 Scene"}
         </Badge>
       </td>
-      <td className={TD_CLASS}>
+      <td className={`${TD_CLASS} min-w-0`}>
+        <span className="mr-1.5 text-xs text-muted-foreground xl:hidden">文件</span>
         <span className="mono text-sm">{ds.file_count.toLocaleString()}</span>
       </td>
-      <td className={TD_CLASS}>
+      <td className={`${TD_CLASS} min-w-0`}>
+        <span className="mr-1.5 text-xs text-muted-foreground xl:hidden">关联项目</span>
         <span className="mono text-sm">{ds.project_count}</span>
       </td>
       <td className={TD_CLASS}>
         <span className="text-sm">{created}</span>
       </td>
       <td className={`${TD_CLASS} pr-4 text-right`}>
-        <Button size="sm">
+        <Button size="sm" aria-expanded={isExpanded}>
           {isExpanded ? "收起" : "展开"}{" "}
           <Icon name={isExpanded ? "chevDown" : "chevRight"} size={11} />
         </Button>
@@ -257,17 +259,17 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
   };
 
   return (
-    <tr>
-      <td colSpan={7} className="border-b border-border p-0 whitespace-normal">
-        <div className="bg-background px-5 py-4">
-          <div className="flex gap-4">
+    <tr className="block xl:table-row">
+      <td colSpan={7} className="block border-b border-border p-0! whitespace-normal xl:table-cell">
+        <div className="bg-background px-3 py-4 sm:px-5">
+          <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(220px,1fr)]">
             {/* 文件列表 */}
-            <div className="min-w-0 flex-[2]">
+            <div className="min-w-0">
               <div className={DETAIL_HEADER_CLASS}>
                 <h4 className={DETAIL_TITLE_CLASS}>
                   文件列表 <span className="font-normal text-muted-foreground">({totalItems})</span>
                 </h4>
-                <div className="flex gap-1.5">
+                <div className="flex flex-wrap gap-1.5">
                   <Button
                     size="sm"
                     onClick={() => {
@@ -433,7 +435,7 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
             </div>
 
             {/* 关联项目 */}
-            <div className="min-w-[220px] flex-1 border-l border-border pl-4">
+            <div className="min-w-0 border-t border-border pt-4 xl:border-t-0 xl:border-l xl:pt-0 xl:pl-4">
               <div className="mb-3.5 border-b border-border pb-3.5">
                 <div className={DETAIL_HEADER_CLASS}>
                   <h4 className={DETAIL_TITLE_CLASS}>Scene 信息</h4>
@@ -877,7 +879,7 @@ export function DatasetsPage() {
       ) : (
         <>
           {/* Stats */}
-          <div className="mb-5 grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
+          <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
             <StatCard icon="layers" label="数据集总数" value={total.toLocaleString()} />
             <StatCard icon="image" label="本页文件总量" value={totalFiles.toLocaleString()} />
             <StatCard icon="folder" label="本页已关联数据集" value={String(linkedCount)} />
@@ -909,8 +911,8 @@ export function DatasetsPage() {
               />
             </div>
             <div className="overflow-x-auto">
-              <table className={`${listStyles.table} min-w-[900px]`}>
-                <thead>
+              <table className={`${listStyles.table} block xl:table xl:min-w-[900px]`}>
+                <thead className="hidden xl:table-header-group">
                   <tr>
                     {["数据集", "类型", "Scene", "文件数", "关联项目", "创建时间", ""].map(
                       (h, i) => (
@@ -921,7 +923,7 @@ export function DatasetsPage() {
                     )}
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="block xl:table-row-group">
                   {isLoading && (
                     <tr>
                       <td

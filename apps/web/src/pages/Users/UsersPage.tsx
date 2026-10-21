@@ -320,8 +320,8 @@ function UsersPageContent() {
 
   return (
     <PageContainer>
-      <div className="mb-5 flex items-end justify-between gap-6">
-        <div>
+      <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0">
           <h1 className="mb-1 text-xl font-semibold">用户与权限</h1>
           <p className="text-sm text-muted-foreground">管理团队成员、角色权限与数据组分配</p>
           {!!issues.length && (
@@ -330,7 +330,7 @@ function UsersPageContent() {
             </div>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2">
           <Can permission="user.export">
             <Button onClick={handleExport} disabled={exporting}>
               <Icon name="download" size={13} />
@@ -338,7 +338,7 @@ function UsersPageContent() {
             </Button>
           </Can>
           <Can permission="user.invite">
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button onClick={() => setBulkInviteOpen(true)}>
                 <Icon name="users" size={13} />
                 批量邀请
@@ -352,7 +352,7 @@ function UsersPageContent() {
         </div>
       </div>
 
-      <div className="mb-5 grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard
           icon="users"
           label="团队成员"
@@ -371,14 +371,16 @@ function UsersPageContent() {
 
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-2.5">
-          <TabRow
-            tabs={tabLabels.map(([, l]) => l)}
-            active={activeLabel}
-            onChange={(t) => {
-              const found = tabLabels.find(([, l]) => l === t);
-              if (found) patch({ tab: found[0] }, { replace: false });
-            }}
-          />
+          <div className="max-w-full overflow-x-auto [&_button]:whitespace-nowrap">
+            <TabRow
+              tabs={tabLabels.map(([, l]) => l)}
+              active={activeLabel}
+              onChange={(t) => {
+                const found = tabLabels.find(([, l]) => l === t);
+                if (found) patch({ tab: found[0] }, { replace: false });
+              }}
+            />
+          </div>
           {tab === "members" && (
             <div className="flex flex-wrap items-center justify-end gap-2">
               <FilterGroup label="账号" hideLabel compact>

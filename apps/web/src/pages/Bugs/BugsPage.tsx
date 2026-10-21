@@ -274,61 +274,63 @@ export function BugsPage() {
 
       {/* List */}
       <div className={detailId ? styles.layoutWithDetail : styles.layout}>
-        <div>
+        <div className={`${listStyles.surface} min-w-0 self-start`}>
           {loading && <div className={styles.emptyState}>加载中...</div>}
           {!loading && items.length === 0 && <div className={styles.emptyState}>暂无反馈</div>}
-          <table className={`${styles.table} ${listStyles.table}`}>
-            <thead>
-              <tr className={styles.headerRow}>
-                <th className={styles.th}>ID</th>
-                <th className={styles.th}>标题</th>
-                <th className={styles.th}>严重度</th>
-                <th className={styles.th}>状态</th>
-                <th className={styles.th}>时间</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr
-                  key={item.id}
-                  onClick={() => loadDetail(item.id)}
-                  className={
-                    detailId === item.id
-                      ? `${styles.itemRow} ${styles.itemRowSelected}`
-                      : styles.itemRow
-                  }
-                >
-                  <td className={styles.idCell}>{item.display_id}</td>
-                  <td className={styles.titleCell}>
-                    {item.title.length > 40 ? item.title.slice(0, 40) + "..." : item.title}
-                  </td>
-                  <td className={styles.td}>
-                    <span className={`${styles.severity} ${severityClass[item.severity] ?? ""}`}>
-                      {item.severity}
-                    </span>
-                  </td>
-                  <td className={styles.td}>
-                    {statusLabel[item.status] ?? item.status}
-                    {item.reopen_count > 0 && (
-                      <span
-                        title={
-                          item.last_reopened_at
-                            ? `最近重开：${new Date(item.last_reopened_at).toLocaleString("zh-CN")}`
-                            : undefined
-                        }
-                        className={styles.reopenPill}
-                      >
-                        ↻{item.reopen_count}
-                      </span>
-                    )}
-                  </td>
-                  <td className={styles.dateCell}>
-                    {new Date(item.created_at).toLocaleDateString("zh-CN")}
-                  </td>
+          <div className={listStyles.scroll}>
+            <table className={`${listStyles.table} min-w-[540px]`}>
+              <thead>
+                <tr className={styles.headerRow}>
+                  <th>ID</th>
+                  <th>标题</th>
+                  <th>严重度</th>
+                  <th>状态</th>
+                  <th>时间</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {items.map((item) => (
+                  <tr
+                    key={item.id}
+                    onClick={() => loadDetail(item.id)}
+                    className={
+                      detailId === item.id
+                        ? `${styles.itemRow} ${styles.itemRowSelected}`
+                        : styles.itemRow
+                    }
+                  >
+                    <td className={styles.idCell}>{item.display_id}</td>
+                    <td className={styles.titleCell}>
+                      {item.title.length > 40 ? item.title.slice(0, 40) + "..." : item.title}
+                    </td>
+                    <td>
+                      <span className={`${styles.severity} ${severityClass[item.severity] ?? ""}`}>
+                        {item.severity}
+                      </span>
+                    </td>
+                    <td>
+                      {statusLabel[item.status] ?? item.status}
+                      {item.reopen_count > 0 && (
+                        <span
+                          title={
+                            item.last_reopened_at
+                              ? `最近重开：${new Date(item.last_reopened_at).toLocaleString("zh-CN")}`
+                              : undefined
+                          }
+                          className={styles.reopenPill}
+                        >
+                          ↻{item.reopen_count}
+                        </span>
+                      )}
+                    </td>
+                    <td className={styles.dateCell}>
+                      {new Date(item.created_at).toLocaleDateString("zh-CN")}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <ListPagination
             label="问题反馈"
             page={pagination.page}

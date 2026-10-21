@@ -369,7 +369,7 @@ export function AdminProjectsDashboard() {
         </div>
       </div>
 
-      <div className="mb-5 grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard
           icon="layers"
           label="任务总量"

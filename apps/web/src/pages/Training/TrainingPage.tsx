@@ -190,7 +190,7 @@ export function TrainingPage() {
                   {projects.data?.items.map((project) => (
                     <article
                       key={project.id}
-                      className="grid items-center gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:p-5"
+                      className="grid items-center gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto]"
                     >
                       <div className="flex min-w-0 items-start gap-3">
                         <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
@@ -203,15 +203,15 @@ export function TrainingPage() {
                           >
                             {project.name}
                           </Link>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {project.display_id} ·{" "}
-                            {project.data_type === "image"
-                              ? "图片项目"
-                              : project.data_type === "video"
-                                ? "视频项目"
-                                : "点云项目"}
-                          </p>
-                          <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs">
+                          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                            <span className="text-muted-foreground">
+                              {project.display_id} ·{" "}
+                              {project.data_type === "image"
+                                ? "图片项目"
+                                : project.data_type === "video"
+                                  ? "视频项目"
+                                  : "点云项目"}
+                            </span>
                             {project.ready_dataset_count > 0 ? (
                               <Badge variant="success">
                                 {project.ready_dataset_count} 个就绪版本

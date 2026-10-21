@@ -29,6 +29,8 @@ interface ModalProps {
   returnFocusRef?: RefObject<HTMLElement | null>;
   /** Optionally focus a specific field when the controlled dialog opens. */
   initialFocusRef?: RefObject<HTMLElement | null>;
+  /** Actions that remain visible outside the scrolling content. */
+  footer?: ReactNode;
   children: ReactNode;
 }
 
@@ -43,6 +45,7 @@ export function Modal({
   stopEscapePropagation = false,
   returnFocusRef,
   initialFocusRef,
+  footer,
   children,
 }: ModalProps) {
   const contentRef = useElementStyle<HTMLDivElement>({ width });
@@ -99,7 +102,7 @@ export function Modal({
           className="fixed left-1/2 top-1/2 z-modal flex max-h-[calc(100vh-48px)] w-full max-w-[calc(100%-48px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-lg outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
         >
           {title !== undefined ? (
-            <div className="flex items-center justify-between border-b border-border px-4 py-3.5">
+            <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3.5">
               <DialogPrimitive.Title className="text-sm font-semibold text-foreground">
                 {title}
               </DialogPrimitive.Title>
@@ -113,7 +116,10 @@ export function Modal({
           ) : (
             <DialogPrimitive.Title className="sr-only">对话框</DialogPrimitive.Title>
           )}
-          <div className="overflow-y-auto px-4 py-4">{children}</div>
+          <div className="min-h-0 overflow-y-auto px-4 py-4">{children}</div>
+          {footer != null && (
+            <div className="shrink-0 border-t border-border bg-card px-4 py-3">{footer}</div>
+          )}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
