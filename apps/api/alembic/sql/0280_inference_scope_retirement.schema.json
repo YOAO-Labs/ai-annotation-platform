@@ -1,0 +1,179 @@
+{
+  "$id": "aap-inference-scope-retirement-native/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Inference Native scope retirement",
+  "$comment": "Migration 0280 adds an immutable backend scope-retirement intent. The Native transaction closes one admission scope before a separate bounded HTTP exchange, then reconciles only that scope after a reply from the exact bound backend incarnation proves retired with zero tracked requests.",
+  "$defs": {},
+  "type": "object",
+  "function_defaults": {
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"],
+    "time_zone": "UTC",
+    "date_style": "ISO, YMD",
+    "extra_float_digits": 3
+  },
+  "public_functions": [
+    {
+      "signature": "aap_inference_routing_v1.scope_retirement_step(text,text)",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_action", "type": "text", "nullable": false },
+        { "name": "p_arguments", "type": "text", "nullable": false }
+      ],
+      "returns": {
+        "kind": "jsonb",
+        "data_schema": "aap-inference-scope-retirement-data/v1",
+        "status": ["ok", "rejected"],
+        "rejected_fields": ["schema", "status", "reason"],
+        "reasons": [
+          "scope_unavailable",
+          "backend_not_ready",
+          "transport_changed",
+          "management_busy",
+          "invalid_command",
+          "retirement_conflict"
+        ],
+        "ok_shapes": {
+          "policy": ["schema", "status", "ready", "functions"],
+          "non_policy": ["schema", "status", "retirement", "context"]
+        }
+      }
+    }
+  ],
+  "private_functions": [
+    "aap_inference_routing_v1._routing_sign_admission(uuid,uuid,uuid,text,text,text)",
+    "aap_inference_routing_v1._routing_has_unresolved(uuid)",
+    "aap_inference_routing_v1._routing_scope_retirement_guard_state()",
+    "aap_inference_routing_v1._routing_scope_retirement_guard_control()",
+    "aap_inference_routing_v1._scope_retirement_result(text,jsonb)",
+    "aap_inference_routing_v1._scope_retirement_rejected(text)",
+    "aap_inference_routing_v1._scope_retirement_view(uuid)",
+    "aap_inference_routing_v1._scope_retirement_context(uuid)"
+  ],
+  "triggers": [
+    "aap_route_scope_retirement_guard_state",
+    "aap_route_scope_retirement_guard_control"
+  ],
+  "policy": {
+    "action": "policy",
+    "arguments": {},
+    "functions": [
+      "aap_inference_routing_v1.routing_policy()",
+      "aap_inference_routing_v1.routing_step(text,text)",
+      "aap_inference_routing_v1.scope_retirement_step(text,text)"
+    ],
+    "ready": "database-local routing authority secret is available"
+  },
+  "actions": [
+    {
+      "name": "prepare",
+      "keys": ["retirement_id", "scope_id", "capability"],
+      "success": {
+        "retirement": [
+          "retirement_id",
+          "scope_id",
+          "registry_id",
+          "authority_epoch",
+          "backend_incarnation",
+          "phase",
+          "closed"
+        ],
+        "context": [
+          "retirement_id",
+          "scope_id",
+          "registry_id",
+          "authority_epoch",
+          "backend_incarnation",
+          "challenge",
+          "fence_until",
+          "endpoint"
+        ]
+      },
+      "semantics": "Validates the current realm, scope capability, committed transport and bound epoch/incarnation. It serializes against begin_attempt using the scope row lock, closes admission, and persists a replayable immutable intent before HTTP is sent. Same-ID replay returns that intent; another ID for the same scope conflicts."
+    },
+    {
+      "name": "status",
+      "keys": ["retirement_id", "scope_id", "capability"],
+      "success": {
+        "retirement": [
+          "retirement_id",
+          "scope_id",
+          "registry_id",
+          "authority_epoch",
+          "backend_incarnation",
+          "phase",
+          "closed"
+        ],
+        "context": null
+      },
+      "semantics": "Read-only; requires the original realm-bound scope capability and never returns endpoint credentials."
+    },
+    {
+      "name": "finish",
+      "keys": ["retirement_id", "scope_id", "capability", "reply"],
+      "reply_keys": [
+        "schema",
+        "retirement_id",
+        "registry_id",
+        "scope_id",
+        "authority_epoch",
+        "backend_incarnation",
+        "challenge",
+        "phase",
+        "active_requests"
+      ],
+      "reply_schema": "aap-backend-scope-retirement-reply/v1",
+      "reply_phases": ["draining", "retired"],
+      "semantics": "Requires the exact pinned retirement identity and a still-current transport/epoch/incarnation. Draining remains unresolved. Only retired with active_requests=0 reconciles active or uncertain attempts in this scope; response rows and all other scopes remain unchanged."
+    }
+  ],
+  "private_tables": [
+    {
+      "name": "aap_inference_routing_v1.scope_retirements",
+      "columns": [
+        "retirement_id uuid primary key",
+        "scope_id uuid unique references scopes(id)",
+        "registry_id uuid",
+        "authority_epoch uuid",
+        "backend_incarnation uuid",
+        "challenge lowercase hex64",
+        "fence_until nonnegative epoch second",
+        "admission_expires_at timestamptz",
+        "transport_identity_sha256 lowercase hex64",
+        "config_revision positive bigint",
+        "realm text",
+        "phase prepared|draining|completed",
+        "closed true",
+        "created_at timestamptz",
+        "updated_at timestamptz"
+      ],
+      "semantics": "Unique scope identity makes retirement ID immutable for that scope. The full transport identity hash and config revision pin Registry state without storing another bearer copy; guarded prepare/finish calls derive endpoint credentials from the current Registry row only in private context. Credentials never enter command receipts or public retirement views."
+    }
+  ],
+  "scope_columns": {
+    "aap_inference_routing_v1.scopes.admission_expires_at": {
+      "type": "timestamptz not null",
+      "semantics": "High-water for every exact admission JWT exp. Existing 0279 scopes are conservatively fenced until migration time plus 300 seconds because their prior exact expiries were not stored; new scopes start at epoch and the signer records each actual exp atomically."
+    }
+  },
+  "guards": [
+    "Open retirements count as unresolved work for Registry and management admission.",
+    "Management control preparation and epoch/incarnation changes are fenced while a retirement is open.",
+    "Lock order is Registry SHARE, registry_state, scope, retirement; begin_attempt uses the same scope serialization plus compatible Registry SHARE. Contended Native locks return management_busy without HTTP in the transaction.",
+    "A timeout, lost reply, replacement incarnation, or zero count from a different incarnation never completes retirement or reconciles attempts.",
+    "Downgrade refuses open retirements and restores the 0279 admission signer before dropping the high-water column."
+  ],
+  "x-postgresql-functions": ["aap_inference_routing_v1.scope_retirement_step(text,text)"],
+  "x-postgresql-private-functions": [
+    "aap_inference_routing_v1._routing_sign_admission(uuid,uuid,uuid,text,text,text)",
+    "aap_inference_routing_v1._routing_has_unresolved(uuid)",
+    "aap_inference_routing_v1._routing_scope_retirement_guard_state()",
+    "aap_inference_routing_v1._routing_scope_retirement_guard_control()",
+    "aap_inference_routing_v1._scope_retirement_result(text,jsonb)",
+    "aap_inference_routing_v1._scope_retirement_rejected(text)",
+    "aap_inference_routing_v1._scope_retirement_view(uuid)",
+    "aap_inference_routing_v1._scope_retirement_context(uuid)"
+  ],
+  "x-postgresql-private-tables": ["aap_inference_routing_v1.scope_retirements"]
+}

@@ -18,17 +18,17 @@ ML Backend 是平台对接外部推理服务的契约层。注册表是**全局*
 
 ![注册表单全貌含 max_concurrency/extra_params](../images/superadmin/ml-backend/register-form.png)
 
-| 字段         | 含义                                     | 约束                                                                                                                    |
-| ------------ | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| 名称         | 显示名                                   | 无全局唯一性约束（`ml_backends` 表无 UNIQUE 索引）                                                                      |
-| URL          | Backend HTTP 入口                        | **全局唯一**（同一 URL 只能注册一次）；**不能填 loopback**（详见下）                                                    |
-| 交互式       | 是否支持工作台一键推理                   | 布尔开关，默认关                                                                                                        |
-| API Key      | 可选，header `Authorization: Bearer ...` | —                                                                                                                       |
-| GPU 物理资源 | 稳定 `gpu_resource_id`                   | 从运维显式配置的逐卡资源中选择；留空不等于已确认 CPU                                                                    |
-| 显存预算     | `vram_budget_mb`                         | 与 GPU 资源成对填写，正整数 MiB，不得超过该卡 `allocatable_mb`                                                          |
-| 驱逐优先级   | `eviction_priority`                      | 数值越大越难被驱逐，可为负数，不是请求队列优先级                                                                        |
-| 最大并发     | `max_concurrency`                        | 1–32；始终作为单进程 / 事件循环的本地背压；`ML_BACKEND_ROUTER_MODE=enforce` 时还作为 Redis route lease 的跨进程实例上限 |
-| 额外参数     | JSON 扩展字段                            | 不得与上述强类型字段冲突                                                                                                |
+| 字段         | 含义                                     | 约束                                                                                                             |
+| ------------ | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 名称         | 显示名                                   | 无全局唯一性约束（`ml_backends` 表无 UNIQUE 索引）                                                               |
+| URL          | Backend HTTP 入口                        | **全局唯一**（同一 URL 只能注册一次）；**不能填 loopback**（详见下）                                             |
+| 交互式       | 是否支持工作台一键推理                   | 布尔开关，默认关                                                                                                 |
+| API Key      | 可选，header `Authorization: Bearer ...` | —                                                                                                                |
+| GPU 物理资源 | 稳定 `gpu_resource_id`                   | 从运维显式配置的逐卡资源中选择；留空不等于已确认 CPU                                                             |
+| 显存预算     | `vram_budget_mb`                         | 与 GPU 资源成对填写，正整数 MiB，不得超过该卡 `allocatable_mb`                                                   |
+| 驱逐优先级   | `eviction_priority`                      | 数值越大越难被驱逐，可为负数，不是请求队列优先级                                                                 |
+| 最大并发     | `max_concurrency`                        | 1–32；始终作为单进程 / 事件循环的本地背压；`ML_BACKEND_ROUTER_MODE=enforce` 时还作为持久路由准入的跨进程实例上限 |
+| 额外参数     | JSON 扩展字段                            | 不得与上述强类型字段冲突                                                                                         |
 
 > **已删除的虚构字段**：`type`（类型选择器）、默认 prompt、默认阈值均**不是**注册表单的真实字段。backend 类型由 backend 自身通过 `/setup` 声明，不在注册时指定。`max_concurrency` 由表单单独填写后保存到 `extra_params` JSONB；其他扩展参数仍在高级 JSON 中编辑。
 
@@ -99,7 +99,7 @@ POST   /admin/ml-integrations/service-pools/:pool_id/members/:registry_id/capabi
 
 **drain / resume 语义**：
 
-- **drain**：成员 `traffic_state` 从 `active` 切到 `draining`，停止接收**新** route lease；已在飞的请求继续完成。幂等。
+- **drain**：成员 `traffic_state` 从 `active` 切到 `draining`，停止接收新的执行；已在飞的请求继续完成。幂等。
 - **resume**：`draining` 切回 `active`，恢复接流。幂等。`disabled` 成员不能直接 resume；这类状态需要先审核能力变更。
 - drain / resume **只影响路由接流**，不触发模型权重卸载（那是 GPU 仲裁的 residency drain，独立）。
 - off／observe 模式仍使用 legacy 实例，但该成员进入 `draining` 后也不再接受新的执行。已经开始并固定实例的跟踪作业可以完成既有工作。
@@ -157,7 +157,7 @@ GPU 自动驱逐在卸载回包丢失后仍会复查健康状态。只有新鲜�
 - **观测（observe）**：`GET /admin/ml-integrations/observe` 直连 env 配的 ML Backend 容器，不需要项目注册即可看健康 / 变体目录。
 - **试启动（smoke-test）**：`POST /admin/ml-integrations/observe/smoke-test`，只有新协议 residency 能严格证明所有 pool / builder / borrower 已空时才预热指定变体并自动还原；旧协议会同时保守检查图像池、视频池与活跃会话。
 - **GPU 资源诊断**：超管可查看逐卡容量、静态预算、desired → effective mode 及配置 blocker。`observe` 仅记录影子决策，不会拒绝、排队或驱逐请求。
-- **`max_concurrency`**：写入 `extra_params.max_concurrency`；本地 semaphore 始终生效，`ML_BACKEND_ROUTER_MODE=enforce` 时再由 Redis route lease 把 API 与多个 Celery worker 收口到同一实例上限。GPU 仲裁的逐资源 effective mode 管显存准入与驱逐，是另一条独立门禁。
+- **`max_concurrency`**：写入 `extra_params.max_concurrency`；本地 semaphore 始终生效，`ML_BACKEND_ROUTER_MODE=enforce` 时再由持久路由 owner 把 API 与多个 Celery worker 收口到同一实例上限。GPU 仲裁的逐资源 effective mode 管显存准入与驱逐，是另一条独立门禁。
 
 ## 相关
 

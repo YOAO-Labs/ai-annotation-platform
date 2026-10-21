@@ -1740,9 +1740,24 @@ ALTER TABLE aap_inference_routing_v1.weights OWNER TO :"inference_owner";
 ALTER TABLE aap_inference_routing_v1.controls OWNER TO :"inference_owner";
 ALTER TABLE aap_inference_routing_v1.control_attempts OWNER TO :"inference_owner";
 ALTER TABLE aap_inference_routing_v1.command_receipts OWNER TO :"inference_owner";
+ALTER TABLE aap_inference_routing_v1.scope_retirements OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_routing_v1.routing_policy()
     OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_routing_v1.routing_step(text, text)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1.scope_retirement_step(text, text)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1._scope_retirement_result(text, jsonb)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1._scope_retirement_rejected(text)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1._scope_retirement_view(uuid)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1._scope_retirement_context(uuid)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1._routing_scope_retirement_guard_state()
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1._routing_scope_retirement_guard_control()
     OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_routing_v1._routing_exact_keys(jsonb, text[])
     OWNER TO :"inference_owner";

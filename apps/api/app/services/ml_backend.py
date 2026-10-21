@@ -370,7 +370,7 @@ class MLBackendService:
             traffic_state=member.traffic_state if member is not None else None,
         )
         if current != expected:
-            from app.services.ml_routing.safety import MLBackendQuiescenceError
+            from app.services.ml_routing.contracts import MLBackendQuiescenceError
 
             raise MLBackendQuiescenceError(
                 "ml_backend_topology_changed",
@@ -954,7 +954,7 @@ class MLBackendService:
         owning_pool = next((pool for pool in pools if pool.id == pool_id), None)
         self._check_topology(expected_topology, registry_id, member, owning_pool)
         if member is not None and member.pool_id != pool_id:
-            from app.services.ml_routing.safety import MLBackendQuiescenceError
+            from app.services.ml_routing.contracts import MLBackendQuiescenceError
 
             raise MLBackendQuiescenceError(
                 "ml_backend_topology_changed",

@@ -22,6 +22,14 @@ from aap_inference_contract.routing import (
     routing_runtime_result_bytes,
 )
 from aap_inference_contract.routing_client import RoutingHttpClient
+from aap_inference_contract.scope_retirement import (
+    SCOPE_RETIREMENT_RESULT_PROTOCOL,
+    ScopeRetirementResult,
+    ScopeRetirementView,
+    make_scope_retirement_request,
+    scope_retirement_request_bytes,
+    scope_retirement_result_bytes,
+)
 
 _REQUEST_ID = uuid.UUID("9c4097c8-2b9a-4191-bb48-44b247465172")
 _SCOPE_ID = uuid.UUID("560f02f7-1378-4708-b3a7-6992047c1fb6")
@@ -313,3 +321,116 @@ def test_client_rejects_invalid_provider_configuration() -> None:
     ):
         with pytest.raises(RoutingUnavailable):
             RoutingHttpClient(base_url, token, timeout_seconds=timeout)
+
+
+def _retirement_request():
+    return make_scope_retirement_request(
+        "6f1a1afd-80f4-4e7d-a7bc-f2d13e392f56",
+        "560f02f7-1378-4708-b3a7-6992047c1fb6",
+        "private-scope-capability",
+    )
+
+
+def _retirement_result(request, *, phase="draining"):
+    return ScopeRetirementResult(
+        schema=SCOPE_RETIREMENT_RESULT_PROTOCOL,
+        retirement_id=request.retirement_id,
+        scope_id=request.scope_id,
+        state="committed",
+        result=ScopeRetirementView(
+            retirement_id=request.retirement_id,
+            scope_id=request.scope_id,
+            registry_id=_REGISTRY_ID,
+            authority_epoch=_EPOCH_ID,
+            backend_incarnation=uuid.UUID("be189eb2-2e7d-4c36-94b0-20ad78d68147"),
+            phase=phase,
+            closed=True,
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_retire_scope_uses_selected_bearer_and_bound_result(monkeypatch):
+    request = _retirement_request()
+    calls = []
+
+    async def handle(http_request: httpx.Request) -> httpx.Response:
+        calls.append(http_request)
+        assert http_request.url.path == "/base/v1/routes/retire"
+        assert http_request.headers["authorization"] == "Bearer private-routing-token"
+        assert await http_request.aread() == scope_retirement_request_bytes(request)
+        return httpx.Response(
+            200,
+            content=scope_retirement_result_bytes(_retirement_result(request)),
+            headers={"content-type": "application/json"},
+        )
+
+    _install_mock_transport(monkeypatch, httpx.MockTransport(handle))
+    client = RoutingHttpClient(
+        "http://routing-owner.local/base", "private-routing-token"
+    )
+
+    result = await client.retire_scope(request)
+
+    assert result.result.phase == "draining"
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_retire_scope_lost_ack_uses_one_read_and_never_reposts(monkeypatch):
+    request = _retirement_request()
+    paths = []
+
+    async def handle(http_request: httpx.Request) -> httpx.Response:
+        paths.append(http_request.url.path)
+        if http_request.url.path.endswith("/retire"):
+            raise httpx.ReadError(
+                "retirement acknowledgement lost", request=http_request
+            )
+        assert http_request.url.path.endswith("/retirement-status")
+        return httpx.Response(
+            200,
+            content=scope_retirement_result_bytes(
+                _retirement_result(request, phase="completed")
+            ),
+            headers={"content-type": "application/json"},
+        )
+
+    _install_mock_transport(monkeypatch, httpx.MockTransport(handle))
+    client = RoutingHttpClient("http://routing-owner.local", "private-token")
+
+    result = await client.retire_scope(request)
+
+    assert result.result.phase == "completed"
+    assert paths == ["/v1/routes/retire", "/v1/routes/retirement-status"]
+
+
+@pytest.mark.asyncio
+async def test_scope_retirement_status_is_one_read_only_request(monkeypatch):
+    request = _retirement_request()
+    calls = []
+
+    async def handle(http_request: httpx.Request) -> httpx.Response:
+        calls.append(http_request.url.path)
+        assert http_request.url.path == "/v1/routes/retirement-status"
+        return httpx.Response(
+            200,
+            content=scope_retirement_result_bytes(
+                ScopeRetirementResult(
+                    schema=SCOPE_RETIREMENT_RESULT_PROTOCOL,
+                    retirement_id=request.retirement_id,
+                    scope_id=request.scope_id,
+                    state="unknown",
+                    result=None,
+                )
+            ),
+            headers={"content-type": "application/json"},
+        )
+
+    _install_mock_transport(monkeypatch, httpx.MockTransport(handle))
+    client = RoutingHttpClient("http://routing-owner.local", "private-token")
+
+    result = await client.scope_retirement_status(request)
+
+    assert result.state == "unknown"
+    assert calls == ["/v1/routes/retirement-status"]

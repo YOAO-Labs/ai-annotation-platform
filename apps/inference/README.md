@@ -129,3 +129,15 @@ receipts distinguish pending, committed and unknown; clients recover ambiguous
 acknowledgements through status without reposting. See ADR-0154 and
 `docker-compose.inference-registry.yml`. Full Registry/Pool/routing ownership and
 whole-module deployment qualification remain separate work.
+
+Durable routing includes per-scope retirement through the existing listener:
+`POST /v1/routes/retire` creates or resumes an immutable intent, and
+`POST /v1/routes/retirement-status` only reads its durable phase. The same routing
+bearer and explicit data source apply. The function-only routing LOGIN has the
+two core RPCs plus `scope_retirement_step(text,text)`; no raw table grants are
+needed. Native closes admission before authenticated backend control, and only
+the original bound backend's zero-work retirement proof reconciles that scope.
+Background futures must be registered before the handler finishes. Unregistered
+work is outside that proof and disqualifies a provider. This enables a handoff
+prerequisite; durable video execution claims, checkpoints and writer fencing are
+still separate work. See ADR-0156 and the Inference runtime guide.

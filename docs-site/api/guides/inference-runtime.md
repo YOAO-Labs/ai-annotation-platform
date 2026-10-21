@@ -210,7 +210,8 @@ HTTP 采用 `INFERENCE_ROUTING_TOKEN(_FILE)` 和 `INFERENCE_ROUTING_TIMEOUT_SECO
 `INFERENCE_ROUTING_TOKEN(_FILE)`，并配置 `INFERENCE_ROUTING_HEALTH_MAX_AGE_SECONDS`
 和 `INFERENCE_ROUTING_LEASE_TTL_SECONDS`。应用当前迁移后，依次应用
 `module-data-grants.sql` 和 `inference-routing-grants.sql`，将
-`inference_routing_client` 限定为两项固定函数；不要为此角色授予原表或临时对象权限。
+`inference_routing_client` 限定为 core policy、core step 与定向退役 step 三项固定函数；
+不要为此角色授予原表或临时对象权限。
 
 后端进程配置 `AAP_ROUTE_CONTROL_TOKEN(_FILE)`，其值与 Registry 中保存的 token 一致。
 可用 `AAP_ROUTE_REGISTRY_ID` 固定身份；一个物理端点对应一个控制器进程。
@@ -246,3 +247,27 @@ GPU 驻留驱逐使用独立的执行 scope，与既有 GPU 签名凭据共同�
 检查失败或无法证明已卸载时保留未决状态。
 发送前被路由拒绝的普通 GPU 请求可撤回自己的租约／冷加载预留；驱逐已经推进代次后
 不能据此回退或清除预算，持续故障后的完整恢复仍在实施。日常及生产环境尚未切换。
+
+### 单个执行范围的退役
+
+独立 owner 的内部接口沿用 `INFERENCE_ROUTING_TOKEN(_FILE)`、请求字节上限和显式
+连接来源，不增加部署 selector：
+
+| 接口                                | 行为                                                        |
+| ----------------------------------- | ----------------------------------------------------------- |
+| `POST /v1/routes/retire`            | 创建或继续同一个 scope 的持久退役，联系实际后端确认工作结束 |
+| `POST /v1/routes/retirement-status` | 只读取已持久化阶段，不发送后端控制或推理请求                |
+
+请求包含 `schema: "aap-inference-scope-retirement/v1"`、固定的 `retirement_id`、
+`scope_id` 和原 scope 的私有 `capability`。调用方保存退役 ID 后再发起命令；同一 ID
+不能改用于另一个 scope，capability 不应写入日志、事件或业务响应。
+
+退役先关闭旧准入，再在后端屏蔽旧 scope 的延迟 token，等待该范围的真实请求及已登记
+后台工作结束。其他 scope 不必一起排空。只有与原后端身份匹配的证明才能进入
+`completed`；`draining` 或 `state: "unknown"` 均不能当作旧工作已结束。退役不代表
+丢失的推理结果成功，也不能据此重发模型写请求。
+
+该能力已通过限定本地验收，覆盖实际 TCP、三种 API 连接方式、独立安装进程的停止／
+重启与克隆恢复隔离；尚未接入视频作业的完整崩溃交接。执行代次、持久路由
+绑定、窗口检查点和结果写入围栏仍需逐项完成，边界见
+[ADR-0156](/dev/adr/0156-scoped-inference-retirement)。

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 
 import pytest
 from sqlalchemy import select
@@ -792,8 +793,11 @@ async def test_capability_drift_api_rejects_failed_fresh_probe(
 
 @pytest.mark.asyncio
 async def test_remove_managed_member_requires_real_drain(
-    httpx_client, db_session, super_admin, monkeypatch
+    httpx_client, db_session, super_admin, monkeypatch, savepoint_routing_owner
 ) -> None:
+    from app.services.ml_routing import authority, safety
+
+    monkeypatch.setattr(safety, "RoutingAuthority", authority.RoutingAuthority)
     _, token = super_admin
     backend, pool = await create_registry_with_pool(
         db_session,
@@ -813,17 +817,21 @@ async def test_remove_managed_member_requires_real_drain(
 
 
 @pytest.mark.asyncio
-async def test_remove_fails_closed_when_router_ledger_is_unavailable(
+async def test_remove_fails_closed_when_routing_owner_is_unavailable(
     httpx_client, db_session, super_admin, monkeypatch
 ) -> None:
     from app.services.ml_routing import safety
 
-    class UnavailableLedger:
-        async def healthcheck(self) -> None:
-            raise ConnectionError("redis unavailable")
+    class UnavailableAuthority:
+        def __init__(self, _engine):
+            pass
 
-        async def aclose(self) -> None:
-            return None
+        @asynccontextmanager
+        async def data_transaction(self):
+            yield self
+
+        async def step(self, _action, _arguments):
+            raise ConnectionError("routing owner unavailable")
 
     _, token = super_admin
     backend, pool = await create_registry_with_pool(
@@ -838,7 +846,7 @@ async def test_remove_fails_closed_when_router_ledger_is_unavailable(
     member.traffic_state = "draining"
     await db_session.commit()
     monkeypatch.setattr(settings, "ml_backend_router_mode", "enforce")
-    monkeypatch.setattr(safety, "make_ledger_from_settings", UnavailableLedger)
+    monkeypatch.setattr(safety, "RoutingAuthority", UnavailableAuthority)
 
     response = await httpx_client.delete(
         f"/api/v1/admin/ml-integrations/service-pools/{pool.id}/members/{backend.id}",

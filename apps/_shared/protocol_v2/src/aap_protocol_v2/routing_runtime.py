@@ -33,6 +33,12 @@ from aap_protocol_v2.routing import (
     decode_backend_route_control_command,
     decode_route_admission_token,
 )
+from aap_protocol_v2.scope_retirement import (
+    SCOPE_RETIREMENT_PATH,
+    BackendScopeRetirementCommand,
+    BackendScopeRetirementReply,
+    decode_backend_scope_retirement_command,
+)
 
 _TOKEN_ENV = "AAP_ROUTE_CONTROL_TOKEN"
 _TOKEN_FILE_ENV = "AAP_ROUTE_CONTROL_TOKEN_FILE"
@@ -40,6 +46,7 @@ _LEGACY_ENV = "AAP_ROUTE_ALLOW_LEGACY_EXECUTION"
 _REGISTRY_ENV = "AAP_ROUTE_REGISTRY_ID"
 _MAX_SECRET_BYTES = 8192
 _REPLAY_SKEW_SECONDS = 30
+_SCOPE_RETIREMENT_SKEW_SECONDS = 30
 _JSON_HEADERS = [
     (b"content-type", b"application/json"),
     (b"cache-control", b"no-store"),
@@ -125,13 +132,22 @@ class _RequestLease:
         *,
         management: bool,
         attempt_id: str | None = None,
+        scope_id: str | None = None,
+        authority_epoch: str | None = None,
+        scope_counter: StrongWorkCounter | None = None,
+        scope_ticket: _WorkTicket | None = None,
     ) -> None:
         self.controller = controller
         self.ticket = ticket
         self.management = management
         self.attempt_id = attempt_id
+        self.scope_id = scope_id
+        self.authority_epoch = authority_epoch
+        self.scope_counter = scope_counter
+        self.scope_ticket = scope_ticket
         self.lock = threading.Lock()
         self.pending_futures: set[asyncio.Future[Any]] = set()
+        self.tracked_futures: set[asyncio.Future[Any]] = set()
         self.closing = False
         self.closed = False
 
@@ -160,6 +176,14 @@ class _AcceptedControl:
         )
 
 
+class _AcceptedScopeRetirement:
+    def __init__(self, command: BackendScopeRetirementCommand) -> None:
+        self.command = command
+
+    def matches(self, command: BackendScopeRetirementCommand) -> bool:
+        return self.command == command
+
+
 class BackendRoutingController:
     """Process-local enforcement for tokens and the authenticated drain/bind exchange."""
 
@@ -180,6 +204,11 @@ class BackendRoutingController:
         self._used_attempts: dict[str, int] = {}
         self._active_attempts: set[str] = set()
         self._management_active = False
+        self._scope_counters: dict[str, StrongWorkCounter] = {}
+        self._scope_retirements: dict[str, _AcceptedScopeRetirement] = {}
+        self._scope_retirements_by_id: dict[str, _AcceptedScopeRetirement] = {}
+        self._scope_retirement_ids_by_scope: dict[str, str] = {}
+        self._scope_tracking_errors: set[str] = set()
 
     @property
     def management_available(self) -> bool:
@@ -191,13 +220,16 @@ class BackendRoutingController:
 
     @property
     def phase(self) -> str:
-        if not self.management_available:
-            return "legacy"
-        if self._accepted_control is None:
-            return "unbound"
-        if self._accepted_control.phase == "draining" and self.active_requests == 0:
-            return "drained"
-        return self._accepted_control.phase
+        with self._control_lock:
+            if not self.management_available:
+                return "legacy"
+            if self._scope_tracking_errors:
+                return "unbound"
+            if self._accepted_control is None:
+                return "unbound"
+            if self._accepted_control.phase == "draining" and self.active_requests == 0:
+                return "drained"
+            return self._accepted_control.phase
 
     def authenticate_management(self, authorization_values: list[bytes]) -> bool:
         expected = self._control_token
@@ -235,6 +267,7 @@ class BackendRoutingController:
                 raise RouteAuthorizationError
             now = int(time.time())
             self._prune_attempts(now)
+            self._prune_scope_retirements(now)
             if control.phase != "bound":
                 raise RouteAuthorizationError
             if len(admission_values) != 1:
@@ -250,6 +283,14 @@ class BackendRoutingController:
                 or claims.authority_epoch != self._authority_epoch
                 or claims.method != method
                 or claims.path != path
+            ):
+                raise RouteAuthorizationError
+            # Scope admission and retirement share this lock, so each request is
+            # either counted before retirement observes it or rejected afterward.
+            if (
+                self._scope_tracking_errors
+                or claims.scope_id in self._scope_retirement_ids_by_scope
+                or claims.scope_id in self._scope_retirements
             ):
                 raise RouteAuthorizationError
 
@@ -284,15 +325,28 @@ class BackendRoutingController:
             self._active_attempts.add(claims.attempt_id)
             if management:
                 self._management_active = True
+            scope_counter = self._scope_counters.get(claims.scope_id)
+            if scope_counter is None:
+                scope_counter = StrongWorkCounter()
+                self._scope_counters[claims.scope_id] = scope_counter
             return _RequestLease(
                 self,
                 self._counter.acquire(),
                 management=management,
                 attempt_id=claims.attempt_id,
+                scope_id=claims.scope_id,
+                authority_epoch=claims.authority_epoch,
+                scope_counter=scope_counter,
+                scope_ticket=scope_counter.acquire(),
             )
 
     def track_background_future(self, future: asyncio.Future[Any] | None) -> bool:
-        """Keep the request lease open if tracked backend work outlives its handler."""
+        """Register work that may outlive its handler.
+
+        Callers must register futures before the ASGI handler completes. A late
+        registration is still counted, but crossing a retirement or epoch proof
+        latches the controller closed because unseen work cannot be ruled out.
+        """
         lease = _CURRENT_REQUEST.get()
         if (
             future is None
@@ -302,12 +356,53 @@ class BackendRoutingController:
         ):
             return False
         with lease.lock:
-            if lease.closed:
-                ticket = self._counter.acquire()
-                future.add_done_callback(lambda _done: ticket.release())
+            if future in lease.tracked_futures:
                 return True
-            lease.pending_futures.add(future)
-        return True
+            lease.tracked_futures.add(future)
+            if not lease.closed:
+                lease.pending_futures.add(future)
+                return True
+
+        # A task can register work after the ASGI lease closes. Serialize this
+        # late accounting with retirement, using the current counter for that
+        # scope instead of a possibly-pruned counter held by the old lease.
+        with self._control_lock:
+            ticket = self._counter.acquire()
+            scope_ticket = None
+            if lease.scope_id is not None:
+                accepted_control = self._accepted_control
+                crosses_proof = (
+                    lease.scope_id in self._scope_retirement_ids_by_scope
+                    or lease.scope_id in self._scope_retirements
+                    or accepted_control is None
+                    or accepted_control.phase != "bound"
+                    or lease.authority_epoch != self._authority_epoch
+                )
+                if lease.scope_counter is None:
+                    crosses_proof = True
+                if crosses_proof:
+                    self._scope_tracking_errors.add(lease.scope_id)
+                current_counter = self._scope_counters.get(lease.scope_id)
+                if current_counter is None:
+                    current_counter = StrongWorkCounter()
+                    self._scope_counters[lease.scope_id] = current_counter
+                scope_ticket = current_counter.acquire()
+            else:
+                crosses_proof = False
+        try:
+            future.add_done_callback(
+                lambda _done: self._release_background_work(
+                    lease.scope_id,
+                    ticket,
+                    scope_ticket,
+                )
+            )
+        except Exception:
+            if lease.scope_id is not None:
+                with self._control_lock:
+                    self._scope_tracking_errors.add(lease.scope_id)
+            raise
+        return not crosses_proof
 
     async def finish_request(self, lease: _RequestLease) -> None:
         with self._control_lock:
@@ -325,11 +420,27 @@ class BackendRoutingController:
                     break
             await asyncio.wait(pending, return_when=asyncio.ALL_COMPLETED)
         with self._control_lock:
-            lease.ticket.release()
+            if lease.scope_id is not None:
+                if lease.scope_ticket is None:
+                    self._scope_tracking_errors.add(lease.scope_id)
+                    raise RouteControlConflict
+                try:
+                    lease.scope_ticket.release()
+                except RuntimeError:
+                    self._scope_tracking_errors.add(lease.scope_id)
+                    raise
+            try:
+                lease.ticket.release()
+            except RuntimeError:
+                if lease.scope_id is not None:
+                    self._scope_tracking_errors.add(lease.scope_id)
+                raise
             if lease.attempt_id is not None:
                 self._active_attempts.discard(lease.attempt_id)
             if lease.management:
                 self._management_active = False
+            self._prune_scope_retirements(int(time.time()))
+            self._prune_idle_scope_counters()
 
     async def apply_control(
         self, command: BackendRouteControlCommand
@@ -337,6 +448,8 @@ class BackendRoutingController:
         if self._control_token is None:
             raise RouteControlUnavailable
         with self._control_lock:
+            if self._scope_tracking_errors:
+                raise RouteControlConflict
             if self.registry_id is not None and self.registry_id != command.registry_id:
                 raise RouteControlConflict
 
@@ -379,6 +492,7 @@ class BackendRoutingController:
                 accepted.phase not in {"draining", "drained"}
                 or self._counter.active
                 or self._active_attempts
+                or self._scope_tracking_errors
             ):
                 raise RouteControlConflict
             if command.signing_key is None:
@@ -387,12 +501,20 @@ class BackendRoutingController:
             self._signing_key = command.signing_key
             self._authority_epoch = accepted.authority_epoch
             self._used_attempts.clear()
+            # A completed epoch replacement invalidates every old admission
+            # token, so it is the safe point to clear scope retirement state.
+            self._scope_retirements.clear()
+            self._scope_retirements_by_id.clear()
+            self._scope_retirement_ids_by_scope.clear()
+            self._scope_counters.clear()
             return self._control_reply(accepted)
 
     async def control_status(self) -> BackendRouteControlReply:
         if self._control_token is None:
             raise RouteControlUnavailable
         with self._control_lock:
+            if self._scope_tracking_errors:
+                raise RouteControlConflict
             accepted = self._accepted_control
             if accepted is None:
                 raise RouteControlUnavailable
@@ -400,7 +522,121 @@ class BackendRoutingController:
                 accepted.phase = "drained"
             return self._control_reply(accepted)
 
+    async def retire_scope(
+        self, command: BackendScopeRetirementCommand
+    ) -> BackendScopeRetirementReply:
+        """Fence new admission for a scope and report tracked work still active."""
+        if self._control_token is None:
+            raise RouteControlUnavailable
+        with self._control_lock:
+            accepted_control = self._accepted_control
+            if accepted_control is None or accepted_control.phase != "bound":
+                raise RouteControlUnavailable
+            if (
+                self.registry_id != command.registry_id
+                or accepted_control.registry_id != command.registry_id
+                or self._authority_epoch != command.authority_epoch
+                or self.backend_incarnation != command.backend_incarnation
+            ):
+                raise RouteControlConflict
+
+            now = int(time.time())
+            self._prune_scope_retirements(now)
+            accepted = self._scope_retirements_by_id.get(command.retirement_id)
+            if accepted is not None and not accepted.matches(command):
+                raise RouteControlConflict
+            retirement_id_for_scope = self._scope_retirement_ids_by_scope.get(
+                command.scope_id
+            )
+            if (
+                retirement_id_for_scope is not None
+                and retirement_id_for_scope != command.retirement_id
+            ):
+                raise RouteControlConflict
+            by_scope = self._scope_retirements.get(command.scope_id)
+            if by_scope is not None and not by_scope.matches(command):
+                raise RouteControlConflict
+            if accepted is None:
+                accepted = _AcceptedScopeRetirement(command)
+                self._scope_retirements_by_id[command.retirement_id] = accepted
+            self._scope_retirement_ids_by_scope[command.scope_id] = (
+                command.retirement_id
+            )
+            active_requests = self._scope_active_requests(command.scope_id)
+            if active_requests < 0:
+                # A broken counter must never be represented as quiescence.
+                self._scope_tracking_errors.add(command.scope_id)
+                self._scope_retirements[command.scope_id] = accepted
+                raise RouteControlConflict
+            # Keep the admission tombstone through the token high-water plus
+            # replay skew, and through any already-counted work. Immutable ID
+            # identity remains until the epoch changes, even after pruning.
+            if (
+                active_requests
+                or command.scope_id in self._scope_tracking_errors
+                or now <= command.fence_until + _SCOPE_RETIREMENT_SKEW_SECONDS
+            ):
+                self._scope_retirements[command.scope_id] = accepted
+            if command.scope_id in self._scope_tracking_errors:
+                raise RouteControlConflict
+            phase = "draining" if active_requests else "retired"
+            return BackendScopeRetirementReply(
+                retirement_id=command.retirement_id,
+                registry_id=command.registry_id,
+                scope_id=command.scope_id,
+                authority_epoch=command.authority_epoch,
+                backend_incarnation=command.backend_incarnation,
+                challenge=command.challenge,
+                phase=phase,
+                active_requests=active_requests,
+            )
+
+    def _scope_active_requests(self, scope_id: str) -> int:
+        counter = self._scope_counters.get(scope_id)
+        return 0 if counter is None else counter.active
+
+    def _release_background_work(
+        self,
+        scope_id: str | None,
+        ticket: _WorkTicket,
+        scope_ticket: _WorkTicket | None,
+    ) -> None:
+        with self._control_lock:
+            if scope_id is not None:
+                if scope_ticket is None:
+                    self._scope_tracking_errors.add(scope_id)
+                    return
+                try:
+                    scope_ticket.release()
+                except RuntimeError:
+                    self._scope_tracking_errors.add(scope_id)
+                    return
+            try:
+                ticket.release()
+            except RuntimeError:
+                if scope_id is not None:
+                    self._scope_tracking_errors.add(scope_id)
+                return
+            self._prune_scope_retirements(int(time.time()))
+            self._prune_idle_scope_counters()
+
+    def _prune_scope_retirements(self, now: int) -> None:
+        for scope_id, accepted in list(self._scope_retirements.items()):
+            if self._scope_active_requests(scope_id) != 0:
+                continue
+            if now <= accepted.command.fence_until + _SCOPE_RETIREMENT_SKEW_SECONDS:
+                continue
+            del self._scope_retirements[scope_id]
+        self._prune_idle_scope_counters()
+
+    def _prune_idle_scope_counters(self) -> None:
+        for scope_id, counter in list(self._scope_counters.items()):
+            if scope_id not in self._scope_retirements and counter.active == 0:
+                del self._scope_counters[scope_id]
+
     def _control_reply(self, accepted: _AcceptedControl) -> BackendRouteControlReply:
+        if self._scope_tracking_errors:
+            raise RouteControlConflict
         phase = accepted.phase
         if phase == "draining" and self._counter.active == 0:
             phase = "drained"
@@ -574,7 +810,7 @@ class BackendRoutingMiddleware:
 
         method = str(scope.get("method", "")).upper()
         path = str(scope.get("path", ""))
-        if path in {ROUTE_CONTROL_PATH, ROUTE_STATUS_PATH}:
+        if path in {ROUTE_CONTROL_PATH, ROUTE_STATUS_PATH, SCOPE_RETIREMENT_PATH}:
             await self._management_endpoint(method, path, scope, receive, send)
             return
         if _readonly_get(method, path):
@@ -691,7 +927,22 @@ class BackendRoutingMiddleware:
             except RouteControlUnavailable:
                 await _send_json(send, 503, {"detail": "route control is unbound"})
                 return
+            except RouteControlConflict:
+                await _send_json(send, 409, {"detail": "route control conflict"})
+                return
             await _send_json(send, 200, reply.as_dict())
+            return
+        if path == SCOPE_RETIREMENT_PATH and method != "POST":
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 405,
+                    "headers": [(b"allow", b"POST"), *_JSON_HEADERS],
+                }
+            )
+            await send(
+                {"type": "http.response.body", "body": b"{}", "more_body": False}
+            )
             return
         if method != "POST":
             await send(
@@ -707,16 +958,31 @@ class BackendRoutingMiddleware:
             return
         try:
             raw_body = await _read_control_body(receive, scope)
+            if path == SCOPE_RETIREMENT_PATH:
+                command = decode_backend_scope_retirement_command(raw_body)
+                reply = await self.controller.retire_scope(command)
+                await _send_json(send, 200, reply.as_dict())
+                return
             command = decode_backend_route_control_command(raw_body)
             reply = await self.controller.apply_control(command)
         except RoutingProtocolError:
-            await _send_json(send, 400, {"detail": "invalid route control request"})
+            detail = (
+                "invalid scope retirement request"
+                if path == SCOPE_RETIREMENT_PATH
+                else "invalid route control request"
+            )
+            await _send_json(send, 400, {"detail": detail})
             return
         except RouteControlUnavailable:
             await _send_json(send, 503, {"detail": "route management unavailable"})
             return
         except RouteControlConflict:
-            await _send_json(send, 409, {"detail": "route control conflict"})
+            detail = (
+                "scope retirement conflict"
+                if path == SCOPE_RETIREMENT_PATH
+                else "route control conflict"
+            )
+            await _send_json(send, 409, {"detail": detail})
             return
         await _send_json(send, 200, reply.as_dict())
 

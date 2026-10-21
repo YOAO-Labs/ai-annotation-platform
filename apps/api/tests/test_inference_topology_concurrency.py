@@ -295,10 +295,8 @@ async def test_destructive_write_rejects_changed_topology_after_quiescence(
     test_engine, monkeypatch, change, operation
 ):
     from app.config import settings
-    from app.services.ml_routing.safety import (
-        MLBackendQuiescenceError,
-        require_registry_quiescent,
-    )
+    from app.services.ml_routing.contracts import MLBackendQuiescenceError
+    from app.services.ml_routing.safety import require_registry_quiescent
     from app.application.ml_registry_deletion import delete_registry
 
     await assert_owned_test_database(test_engine)

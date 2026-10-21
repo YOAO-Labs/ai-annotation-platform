@@ -24,6 +24,15 @@ from .routing import (
     routing_runtime_request_bytes,
     routing_status_request_bytes,
 )
+from .scope_retirement import (
+    SCOPE_RETIREMENT_REPLY_MAX_BYTES,
+    ScopeRetirementRequest,
+    ScopeRetirementResult,
+    ScopeRetirementUnavailable,
+    decode_scope_retirement_request,
+    decode_scope_retirement_result,
+    scope_retirement_request_bytes,
+)
 
 
 class _AmbiguousRoutingResponse(Exception):
@@ -72,7 +81,13 @@ class RoutingHttpClient:
         self._token = token
         self._timeout_seconds = float(timeout_seconds)
 
-    async def _post(self, path: str, body: bytes) -> bytes:
+    async def _post(
+        self,
+        path: str,
+        body: bytes,
+        *,
+        max_reply_bytes: int = ROUTING_REPLY_MAX_BYTES,
+    ) -> bytes:
         try:
             import httpx
         except ImportError:
@@ -120,7 +135,7 @@ class RoutingHttpClient:
                         ):
                             raise _AmbiguousRoutingResponse()
                         try:
-                            if int(declared_length) > ROUTING_REPLY_MAX_BYTES:
+                            if int(declared_length) > max_reply_bytes:
                                 raise _AmbiguousRoutingResponse()
                         except ValueError:
                             raise _AmbiguousRoutingResponse() from None
@@ -128,7 +143,7 @@ class RoutingHttpClient:
                     total_bytes = 0
                     async for chunk in response.aiter_bytes():
                         total_bytes += len(chunk)
-                        if total_bytes > ROUTING_REPLY_MAX_BYTES:
+                        if total_bytes > max_reply_bytes:
                             raise _AmbiguousRoutingResponse()
                         chunks.append(chunk)
                     return b"".join(chunks)
@@ -189,6 +204,43 @@ class RoutingHttpClient:
         except _AmbiguousRoutingResponse:
             # This is an observation only; unlike command receipts it has no
             # write to recover, so malformed or lost replies fail immediately.
+            raise RoutingUnavailable() from None
+
+    async def retire_scope(
+        self,
+        request: ScopeRetirementRequest | dict | bytes | str,
+    ) -> ScopeRetirementResult:
+        typed_request = decode_scope_retirement_request(request)
+        body = scope_retirement_request_bytes(typed_request)
+        try:
+            raw = await self._post(
+                "/v1/routes/retire",
+                body,
+                max_reply_bytes=SCOPE_RETIREMENT_REPLY_MAX_BYTES,
+            )
+            return decode_scope_retirement_result(typed_request, raw)
+        except ScopeRetirementUnavailable:
+            # The commit acknowledgement may have been lost. One read recovers
+            # the durable retirement by its immutable identity; the control is
+            # never reposted by this client.
+            return await self.scope_retirement_status(typed_request)
+        except _AmbiguousRoutingResponse:
+            return await self.scope_retirement_status(typed_request)
+
+    async def scope_retirement_status(
+        self,
+        request: ScopeRetirementRequest | dict | bytes | str,
+    ) -> ScopeRetirementResult:
+        typed_request = decode_scope_retirement_request(request)
+        body = scope_retirement_request_bytes(typed_request)
+        try:
+            raw = await self._post(
+                "/v1/routes/retirement-status",
+                body,
+                max_reply_bytes=SCOPE_RETIREMENT_REPLY_MAX_BYTES,
+            )
+            return decode_scope_retirement_result(typed_request, raw)
+        except (_AmbiguousRoutingResponse, ScopeRetirementUnavailable):
             raise RoutingUnavailable() from None
 
 

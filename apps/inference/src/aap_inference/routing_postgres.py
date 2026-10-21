@@ -15,15 +15,23 @@ from aap_inference_contract.routing import (
     RoutingUnavailable,
     routing_native_policy_ready,
 )
+from aap_inference_contract.scope_retirement import (
+    SCOPE_RETIREMENT_ACTIONS,
+    SCOPE_RETIREMENT_DATA_PROTOCOL,
+    SCOPE_RETIREMENT_REPLY_MAX_BYTES,
+    SCOPE_RETIREMENT_REQUEST_MAX_BYTES,
+)
 
 _SCHEMA = "aap_inference_routing_v1"
 _POLICY_SQL = f"SELECT {_SCHEMA}.routing_policy()"
 _STEP_SQL = f"SELECT {_SCHEMA}.routing_step($1::text,$2::text)"
+_RETIREMENT_STEP_SQL = f"SELECT {_SCHEMA}.scope_retirement_step($1::text,$2::text)"
 _BIND_TRANSACTION_SQL = "SELECT pg_catalog.pg_current_xact_id()::text"
 _TRANSACTION_SQL = "SELECT pg_catalog.pg_current_xact_id_if_assigned()::text"
 _FUNCTIONS = {
     ("routing_policy", ""),
     ("routing_step", "text, text"),
+    ("scope_retirement_step", "text, text"),
 }
 
 
@@ -175,6 +183,60 @@ class RoutingPostgresData:
             "ok",
             "rejected",
         }:
+            raise RoutingUnavailable()
+        return reply
+
+    async def retirement_step(
+        self, action: str, arguments: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Execute one fixed scope-retirement RPC in the bound transaction."""
+        if (
+            type(action) is not str
+            or action not in SCOPE_RETIREMENT_ACTIONS
+            or not isinstance(arguments, Mapping)
+            or any(type(key) is not str for key in arguments)
+        ):
+            raise RoutingUnavailable()
+        request_json = _json_text(arguments)
+        if len(request_json.encode("utf-8")) > SCOPE_RETIREMENT_REQUEST_MAX_BYTES:
+            raise RoutingUnavailable()
+        try:
+            await self._assert_transaction()
+            raw = await self._connection.fetchval(
+                _RETIREMENT_STEP_SQL, action, request_json
+            )
+            reply = _json_object(raw, max_bytes=SCOPE_RETIREMENT_REPLY_MAX_BYTES)
+        except RoutingUnavailable:
+            raise
+        except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:
+            raise RoutingUnavailable() from None
+        if (
+            reply.get("schema") != SCOPE_RETIREMENT_DATA_PROTOCOL
+            or type(reply.get("status")) is not str
+            or reply["status"] not in {"ok", "rejected"}
+        ):
+            raise RoutingUnavailable()
+        payload = {key for key in reply if key not in {"schema", "status"}}
+        if reply["status"] == "rejected":
+            if (
+                payload != {"reason"}
+                or type(reply.get("reason")) is not str
+                or reply["reason"]
+                not in {
+                    "scope_unavailable",
+                    "backend_not_ready",
+                    "transport_changed",
+                    "management_busy",
+                    "invalid_command",
+                    "retirement_conflict",
+                }
+            ):
+                raise RoutingUnavailable()
+        elif payload != (
+            {"ready", "functions"} if action == "policy" else {"retirement", "context"}
+        ):
             raise RoutingUnavailable()
         return reply
 

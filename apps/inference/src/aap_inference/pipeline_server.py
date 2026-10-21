@@ -49,6 +49,14 @@ from aap_inference_contract.routing import (
     routing_result_bytes,
     routing_runtime_result_bytes,
 )
+from aap_inference_contract.scope_retirement import (
+    SCOPE_RETIREMENT_REPLY_MAX_BYTES,
+    SCOPE_RETIREMENT_REQUEST_MAX_BYTES,
+    ScopeRetirementUnavailable,
+    decode_scope_retirement_request,
+    decode_scope_retirement_result,
+    scope_retirement_result_bytes,
+)
 
 from .pipeline_contract import (
     PIPELINE_REQUEST_BODY_MAX_BYTES,
@@ -84,6 +92,8 @@ _ROUTES = {
 _ROUTING_COMMAND_PATH = "/v1/routes/command"
 _ROUTING_STATUS_PATH = "/v1/routes/status"
 _ROUTING_RUNTIME_PATH = "/v1/routes/runtime"
+_ROUTING_RETIRE_PATH = "/v1/routes/retire"
+_ROUTING_RETIREMENT_STATUS_PATH = "/v1/routes/retirement-status"
 
 
 class _BadRequest(Exception):
@@ -145,6 +155,7 @@ class PipelineHttpServer:
         registry_ingress_control_token: str | None = None,
         routing_manager=None,
         routing_control_token: str | None = None,
+        scope_retirement_manager=None,
     ) -> None:
         if (
             type(host) is not str
@@ -288,6 +299,11 @@ class PipelineHttpServer:
         self.registry_ingress_control_token = registry_ingress_control_token
         self.routing_manager = routing_manager
         self.routing_control_token = routing_control_token
+        self.scope_retirement_manager = (
+            scope_retirement_manager
+            if scope_retirement_manager is not None
+            else getattr(routing_manager, "scope_retirement_manager", None)
+        )
         self.host = host
         self.port = port
         self.max_concurrency = max_concurrency
@@ -577,6 +593,10 @@ class PipelineHttpServer:
             return await self._dispatch_routing_status(headers, body)
         if method == "POST" and path == _ROUTING_RUNTIME_PATH:
             return await self._dispatch_routing_runtime(headers, body)
+        if method == "POST" and path == _ROUTING_RETIRE_PATH:
+            return await self._dispatch_scope_retirement(headers, body)
+        if method == "POST" and path == _ROUTING_RETIREMENT_STATUS_PATH:
+            return await self._dispatch_scope_retirement_status(headers, body)
         operation = _ROUTES.get(path)
         if method != "POST" or operation is None:
             return 404, _json_bytes({"detail": "Not Found"})
@@ -631,6 +651,11 @@ class PipelineHttpServer:
         if path in {"/v1/registry/env-sync", "/v1/registry/env-sync-status"}:
             return REGISTRY_ENV_SYNC_REQUEST_MAX_BYTES
         if path.split("?", 1)[0] in {
+            _ROUTING_RETIRE_PATH,
+            _ROUTING_RETIREMENT_STATUS_PATH,
+        }:
+            return SCOPE_RETIREMENT_REQUEST_MAX_BYTES
+        if path.split("?", 1)[0] in {
             _ROUTING_COMMAND_PATH,
             _ROUTING_STATUS_PATH,
             _ROUTING_RUNTIME_PATH,
@@ -643,6 +668,11 @@ class PipelineHttpServer:
             return HEALTH_OBSERVATION_REPLY_MAX_BYTES
         if path in {"/v1/registry/env-sync", "/v1/registry/env-sync-status"}:
             return REGISTRY_ENV_SYNC_REPLY_MAX_BYTES
+        if path.split("?", 1)[0] in {
+            _ROUTING_RETIRE_PATH,
+            _ROUTING_RETIREMENT_STATUS_PATH,
+        }:
+            return SCOPE_RETIREMENT_REPLY_MAX_BYTES
         if path.split("?", 1)[0] in {
             _ROUTING_COMMAND_PATH,
             _ROUTING_STATUS_PATH,
@@ -733,7 +763,9 @@ class PipelineHttpServer:
         return 200, encoded
 
     def _routing_authorized(self, headers) -> bool:
-        if self.routing_manager is None or self.routing_control_token is None:
+        if (
+            self.routing_manager is None and self.scope_retirement_manager is None
+        ) or self.routing_control_token is None:
             return False
         authorization = headers.get("authorization")
         expected = f"Bearer {self.routing_control_token}"
@@ -810,6 +842,68 @@ class PipelineHttpServer:
             return 503, _json_bytes({"detail": "Inference routing owner unavailable"})
         if len(encoded) > min(self.max_response_bytes, ROUTING_REPLY_MAX_BYTES):
             return 503, _json_bytes({"detail": "Inference routing owner unavailable"})
+        return 200, encoded
+
+    async def _dispatch_scope_retirement(
+        self, headers, body: bytes
+    ) -> tuple[int, bytes]:
+        if self.scope_retirement_manager is None or self.routing_control_token is None:
+            return 503, _json_bytes({"detail": "Inference routing owner unavailable"})
+        if not self._routing_authorized(headers):
+            return 401, _json_bytes({"detail": "Unauthorized"})
+        if len(body) > SCOPE_RETIREMENT_REQUEST_MAX_BYTES:
+            return 413, _json_bytes({"detail": "Request body too large"})
+        try:
+            request = decode_scope_retirement_request(body)
+        except ScopeRetirementUnavailable:
+            return 400, _json_bytes(
+                {"detail": "Invalid Inference scope-retirement request"}
+            )
+        try:
+            result = await self.scope_retirement_manager.execute(request)
+            encoded = scope_retirement_result_bytes(result)
+            decode_scope_retirement_result(request, encoded)
+        except ScopeRetirementUnavailable:
+            return 503, _json_bytes(
+                {"detail": "Inference scope-retirement owner unavailable"}
+            )
+        if len(encoded) > min(
+            self.max_response_bytes, SCOPE_RETIREMENT_REPLY_MAX_BYTES
+        ):
+            return 503, _json_bytes(
+                {"detail": "Inference scope-retirement owner unavailable"}
+            )
+        return 200, encoded
+
+    async def _dispatch_scope_retirement_status(
+        self, headers, body: bytes
+    ) -> tuple[int, bytes]:
+        if self.scope_retirement_manager is None or self.routing_control_token is None:
+            return 503, _json_bytes({"detail": "Inference routing owner unavailable"})
+        if not self._routing_authorized(headers):
+            return 401, _json_bytes({"detail": "Unauthorized"})
+        if len(body) > SCOPE_RETIREMENT_REQUEST_MAX_BYTES:
+            return 413, _json_bytes({"detail": "Request body too large"})
+        try:
+            request = decode_scope_retirement_request(body)
+        except ScopeRetirementUnavailable:
+            return 400, _json_bytes(
+                {"detail": "Invalid Inference scope-retirement status request"}
+            )
+        try:
+            result = await self.scope_retirement_manager.status(request)
+            encoded = scope_retirement_result_bytes(result)
+            decode_scope_retirement_result(request, encoded)
+        except ScopeRetirementUnavailable:
+            return 503, _json_bytes(
+                {"detail": "Inference scope-retirement owner unavailable"}
+            )
+        if len(encoded) > min(
+            self.max_response_bytes, SCOPE_RETIREMENT_REPLY_MAX_BYTES
+        ):
+            return 503, _json_bytes(
+                {"detail": "Inference scope-retirement owner unavailable"}
+            )
         return 200, encoded
 
     async def _dispatch_health_observation(

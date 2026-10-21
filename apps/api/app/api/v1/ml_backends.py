@@ -610,10 +610,8 @@ async def unload_ml_backend(
     平台管理员, 与前端「运行时观测」面板 (super_admin only) 及 admin observe/smoke-test 的
     运维基线一致; 不叠加 require_project_owner —— 全局操作按 backend_id 定位, 与 path 里的
     project 无归属关系。构造性的 /warmup 仍保留在 project_owner (见该端点注释)。"""
-    from app.services.ml_routing.safety import (
-        MLBackendQuiescenceError,
-        require_registry_quiescent,
-    )
+    from app.services.ml_routing.contracts import MLBackendQuiescenceError
+    from app.services.ml_routing.safety import require_registry_quiescent
 
     svc = MLBackendService(
         db,
@@ -670,7 +668,7 @@ async def reload_ml_backend(
     鉴权 super_admin only · /reload 会改写「全局 backend 常驻变体」(同 backend 被多项目共用),
     切变体等于换掉其他项目正在用的权重, 属破坏性驻留操作, 与 /unload 同基线收口到平台管理员
     (对齐 super_admin only 的「运行时观测」面板)。"""
-    from app.services.ml_routing.safety import MLBackendQuiescenceError
+    from app.services.ml_routing.contracts import MLBackendQuiescenceError
 
     svc = MLBackendService(
         db,

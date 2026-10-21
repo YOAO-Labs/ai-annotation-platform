@@ -4667,3 +4667,48 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   budget. The91-case dispatch suite passes, including those positive/negative
   regressions. This is live-call reconciliation, not expired-owner recovery; it
   does not extend token deadlines, add sends or change frozen eviction branches.
+
+### Scoped route retirement: video handoff prerequisite
+
+- The full ten-module/seven-gate goal stays active. Current video execution still
+  lacks a durable Jobs claim, pre-acquire identity, private scope binding, window
+  checkpoints and generation checks on every Labeling writer. This change closes
+  the scoped retirement prerequisite and does not relabel the runner resumable.
+- Native0280 records exact admission-token exp high-water, conservatively bounds
+  pre-migration tokens and persists a realm/transport/epoch/incarnation-bound
+  retirement intent. It closes the old scope before external I/O; only the exact
+  backend retirement proof reconciles that scope's active/uncertain attempts.
+  Response history, other scopes, GPU allocations and budgets are preserved.
+- The existing backend controller counts requests and registered futures by
+  scope, rejects delayed old tokens and lets unrelated scopes continue. Observed
+  accounting violations block admission, retirement and global drain/status;
+  the original epoch protocol does not publish a false zero. Providers must
+  register background work before handler completion. Arbitrary unseen work is
+  not proved and disqualifies a provider; model-specific conformance remains a
+  separate gate.
+- One adjacent fixed RPC adds policy/prepare/status/finish to the same narrow
+  routing LOGIN; the two core functions and nineteen core actions retain their
+  contract. No raw-table permissions, new selector, public API/SDK change or
+  primary/production action is introduced. Private status has no context or
+  credentials; ambiguous commits recover through one status read without a
+  model repost.
+- Four real TCP cases cover handler/future lifetimes, two live scopes, expired
+  ordinary TTL, lost backend replies, delayed-token refusal and a replacement
+  scope while the unrelated request remains active. API embedded, dedicated DSN
+  and HTTP bindings each run that actual flow. A fresh installed entrypoint
+  stops/restarts and reads the same completed intent without another control.
+- Nonempty backup restores cover both the prior management hold and the new
+  prepared retirement; private row/function/ACL fingerprints survive, copied
+  capabilities are rejected and neither source nor clone is mutated. Owned
+  migration checks cover downgrade0189, frozen SQL install/rollback and head0280
+  upgrade/grants. No safe restore rebind is implied.
+- Fresh noneditable Inference passes413 checks with77 exact package files and
+  API/ORM/Celery absent. Focused source, backend and API checks are overlapping
+  receipts, not additive qualification counts. Early fixture/codec/head failures
+  remain retained; selected passing cases are identified in the current ledger.
+- The service-cycle check found authority/safety depending on each other's error
+  definitions. The unchanged error class and mapping now live in the existing
+  pure contracts module; consumers import that owner and no cycle exemption is
+  added. Complete control/health/stats ownership, GPU deadline recovery, Jobs
+  handoff, restore rebind, restricted images and language replacement still
+  require their own evidence. Go remains experimental and unchanged.

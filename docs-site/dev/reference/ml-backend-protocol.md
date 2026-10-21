@@ -1756,7 +1756,7 @@ v0.14.15 是 protocol v2.1 minor bump，不是 v3。平台与内置 backend 保�
 
 ## 全局注册表与项目启用
 
-ML Backend 走全局注册表模型（ADR-0044）：一个物理 backend = 全局 `ml_backend_registry` 一行 = 一份能力快照和一份 `max_concurrency` 配置；项目侧只做「启用」。本地 semaphore 在所有模式下提供单进程背压；当 `ML_BACKEND_ROUTER_MODE=enforce` 时，路由 ledger 使用同一上限发放 Redis route lease，把 API 与多个 Celery worker 收口到跨进程实例上限。GPU 仲裁的 effective mode、request lease、release latch 与逐资源 rollout 另行负责显存准入和驱逐（[ADR-0049](/dev/adr/archive/0049-cross-backend-gpu-memory-arbitration)），不能与请求路由模式互相替代。两层职责：
+ML Backend 走全局注册表模型（ADR-0044）：一个物理 backend = 全局 `ml_backend_registry` 一行 = 一份能力快照和一份 `max_concurrency` 配置；项目侧只做「启用」。本地 semaphore 在所有模式下提供单进程背压；当 `ML_BACKEND_ROUTER_MODE=enforce` 时，持久路由 owner 使用同一上限限制跨进程实例准入。GPU 仲裁的 effective mode、request lease、release latch 与逐资源 rollout 另行负责显存准入和驱逐（[ADR-0049](/dev/adr/archive/0049-cross-backend-gpu-memory-arbitration)），不能与请求路由模式互相替代。两层职责：
 
 - **全局层（超管）**：`ml_backend_registry`。URL / 鉴权 / `auth_method` / `auth_token` / `extra_params`（含 `max_concurrency`）/ `is_interactive` / `state` 等端点固有属性写在这里，所有启用该 backend 的项目共享。env 配置的 backend 启动时自动 upsert 为 `source=env` 注册项；env 删项时对应行置 `disconnected` 而非删除，保留历史 prediction 溯源。
 - **项目层（项目管理员）**：`project_ml_backend_pool` 关联表，仅记「启用 / 停用」+ 项目级变体覆盖（`default_variants`，pool 级）。多阶段编排里选不同 backend 跑不同阶段时，先在「管理 backend」面板里勾选启用，再到编排卡里选用即可。
@@ -1768,13 +1768,30 @@ ML Backend 走全局注册表模型（ADR-0044）：一个物理 backend = 全�
 - **一个 registry 实例同时最多属于一个服务池**。每个现有 registry 经迁移自动得到一个 singleton 服务池（`legacy_instance_id` 指向该 registry，off mode 下解析回原实例，行为与之前完全一致）。
 - **身份边界**：项目启用、项目主绑定和请求 lineage 使用 pool id；`preannotate_pipeline` 、`projects.default_variants` 以及 `users.preferences.ai` 中按 backend 分桶的公共配置仍使用 registry id，与当前 API schema 和前端注册表索引一致。派发时由 registry 的唯一成员关系解析所属 pool，不会在这两种 UUID 之间猜测或混用。
 - **能力等价合同**：指纹以 `/setup` 派生的真实 `models[]` 目录为主，包含协议/模型/权重版本、task、modality、请求合法性参数、variant 轴与组合、tracker 及 batchable 等稳定合同字段，列表按确定规则排序后计算 SHA-256。URL、展示名、GPU / VRAM / residency、动态类别等实例态字段不参与。singleton 在首次有效探活时建立指纹；后续漂移的成员自动 disabled。
-- **跨进程原子路由 ledger**（Redis namespace `ml-router:v1`，独立于 GPU 仲裁 `gpu-arbiter:v1`）：平滑加权轮询（SWRR）+ per-instance 并发上限 + 被动熔断（仅 transport failure 触发）+ route lease acquire/heartbeat/finish/cancel。
+- **持久路由 owner**：PostgreSQL 保存平滑加权轮询状态、执行 scope、真实 HTTP attempt、管理占用和后端连续性。Redis 仅提供非权威诊断，不作为真实工作已结束的证据，见 [ADR-0155](/dev/adr/0155-durable-inference-routing-authority)。
 - **双 ID 溯源**：`Prediction` / `FailedPrediction` 同时记录 `ml_backend_id`（实际执行的 selected instance）和 `ml_backend_pool_id`（requested pool）。多阶段聚合的 stage-level lineage 存 `PredictionMeta.extra.pipeline`。
-- **灰度**：`ML_BACKEND_ROUTER_MODE=off|observe|enforce`。off/observe 保持 legacy 实例派发（observe 额外记录 would-select 诊断，不门控）；enforce 用 router 选中实例并在 Redis / topology 不确定时 fail-closed。
+- **模式**：`ML_BACKEND_ROUTER_MODE=off|observe|enforce`。off/observe 保持 legacy 实例选择，observe 另记 would-select 诊断；enforce 执行选择与并发准入。三种模式均保留持久执行计数和管理安全检查，选定 owner 或拓扑不可确认时拒绝执行。
 - **管理 API**：项目池绑定 `GET /projects/:id/ml-backends/pools/available` + `PUT /pools/:pool_id/enablement`；超管 pool/member CRUD + drain/resume `/admin/ml-integrations/service-pools/*`；读模型 `GET /admin/ml-integrations/{topology,runtime-snapshot}`。详见 [ADR-0050](/dev/adr/archive/0050-ml-backend-service-pools-and-request-routing)。
-- **破坏性操作门禁**：纳管实例只有在 `router_mode=enforce`、成员精确为 `draining`、Redis 路由账本可用且清理过期 lease 后的 exact `route_inflight=0` 时，才允许卸载、移除成员或物理删除 registry。缺失、过期或不可读值都是未知，不能当作零。
+- **管理操作门禁**：管理员卸载／重载、移除成员或删除实例要求精确停流状态、持久账本、后端连续性与控制状态复核。Redis 清空、超时或租约过期都不能代替真实工作完成证明；未决工作保持阻塞。GPU 自动驻留驱逐另用 GPU 授权与专用执行 scope，不要求手动停流服务池。
 
-**没有项目级数量上限**。旧的 `max_ml_backends_per_project` 与多阶段 DAG 需 ≥2 backend 直接冲突，已退役；全局行的 `max_concurrency` 同时作为本地 semaphore 配置与 `ML_BACKEND_ROUTER_MODE=enforce` 的 Redis route lease 上限。路由模式为 off/observe 时 API 与多个 Celery worker 的并发仍会叠加；路由 enforce 时才由 route ledger 收口为真正的跨进程实例上限。新建项目不再有「复用 backend = 克隆一行」语义，统一走「在新项目里勾选启用某个已注册 backend」。
+**没有项目级数量上限**。全局行的 `max_concurrency` 同时作为本地 semaphore 配置与 `ML_BACKEND_ROUTER_MODE=enforce` 的持久准入上限。off/observe 的本地并发仍可能跨进程叠加；enforce 才收口实例并发。项目复用同一注册项，不复制物理实例记录。
+
+### 后端执行范围的定向退役
+
+受管后端通过 `POST /v1/aap-routing/retire-scope` 接收定向退役，沿用管理 bearer。
+请求 schema 为 `aap-backend-scope-retirement/v1`，精确包含退役 ID、registry ID、scope ID、
+authority epoch、backend incarnation、challenge 与 `fence_until`。UUID 必须是规范小写，
+challenge 为64位小写十六进制；不接受重复或额外字段，消息上限8192字节。
+
+后端先屏蔽该 scope 的新准入及延迟 token，再返回 `draining` 与正活动数，或 `retired`
+与零活动数。回包 schema 为 `aap-backend-scope-retirement-reply/v1`，带回同一完整身份和
+challenge。其他 scope 继续运行。屏蔽记录覆盖 Native 记录的实际 token exp 上界及保留
+余量，不能按普通租约 TTL 提前移除；新的进程身份不能证明旧进程已经停止。
+
+提供方必须在 handler 完成前登记所有继续运行的 future，路由 middleware 会等待这些
+工作真正结束。退役／epoch 屏障后的迟到登记会封锁准入及后续静默证明；该保护不能
+追溯撤销旧证明。任意未登记工作不在协议可证明范围内，这类实现不能通过提供方资格。
+协议与当前本地验证边界见 [ADR-0156](/dev/adr/0156-scoped-inference-retirement)。
 
 平台 API 与 worker 直接消费共享 `aap-protocol-v2` lifecycle wire。`MLBackendClient` 已把 predict、交互预测、warmup、reload 与 unload 收口到同一个派发 context：预测先取得当前 event loop 的本地 semaphore，再进入 context，context 退出后才释放本地许可；health/setup 保持只读，不进入该边界。
 
@@ -1796,7 +1813,8 @@ victim 驱逐均已接入惰性 authority。cold 请求收到完整响应后会�
 并按优先级、LRU 与 backend id 稳定排序。一个或多个 victim 依次完成受签 `/drain`、
 严格 ACK + 新鲜空闲证明、受签 `/unload` 与全空驻留证明后，才释放预算并以新
 challenge 重读 target cold subject。任一 phase 不确定即保守收口 Unknown 并停止继续驱逐；
-同路由响应丢失只做 exact owner/generation/phase/token 重放。FIFO 已接入；新 residency 只在首次可信
+同路由响应丢失只做 exact owner/generation/phase/token 重放。卸载回包丢失后仍获取新鲜
+健康证据，只有严格匹配的已卸载状态才能回收预算。FIFO 已接入；新 residency 只在首次可信
 Loading→Resident CAS 中按 Redis `TIME` 写入 `not_evict_before_ms`；proof reset 重建 Resident 时以固定
 `prepared_at_ms + cooldown` 保守恢复窗口。Python 快照选择与 Lua 原子选择都会排除未到期 victim，
 以上精确重放和 Resident 快路均不续期。cold authority 会继续持有 exact card ticket，

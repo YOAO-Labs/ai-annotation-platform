@@ -1031,7 +1031,7 @@ async def delete_registry(
     projects.ml_backend_pool_id / project_ml_backend_pool (CASCADE) / 历史 prediction (SET NULL)。
     v0.23.3 ADR-0050 · 删除前须先 drain + inflight=0 + GPU retirement + 成员移除
     (legacy_instance_id FK RESTRICT + member FK RESTRICT)。"""
-    from app.services.ml_routing.safety import MLBackendQuiescenceError
+    from app.services.ml_routing.contracts import MLBackendQuiescenceError
 
     admin = await IdentityCommandService(db).lock_platform_super_admin(
         admin.id, nowait=False
@@ -1109,10 +1109,8 @@ async def unload_registry_backend(
 ) -> MLBackendUnloadResponse:
     """全局卸载 backend，不要求它已被任一项目启用。"""
 
-    from app.services.ml_routing.safety import (
-        MLBackendQuiescenceError,
-        require_registry_quiescent,
-    )
+    from app.services.ml_routing.contracts import MLBackendQuiescenceError
+    from app.services.ml_routing.safety import require_registry_quiescent
 
     svc = MLBackendService(
         db,
@@ -1952,10 +1950,8 @@ async def remove_pool_member(
     db: AsyncSession = Depends(get_db),
     admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> ServicePoolAdminItem:
-    from app.services.ml_routing.safety import (
-        MLBackendQuiescenceError,
-        require_registry_quiescent,
-    )
+    from app.services.ml_routing.contracts import MLBackendQuiescenceError
+    from app.services.ml_routing.safety import require_registry_quiescent
 
     svc = MLBackendService(db)
     try:

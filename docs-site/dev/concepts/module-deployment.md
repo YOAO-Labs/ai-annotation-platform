@@ -135,6 +135,13 @@ Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事�
 
 持久路由执行权正在实施：独立账本记录实际 HTTP attempt，视频作业固定实例，卸载和重载持有跨网络调用的管理占用。真实后端 drain/bind 才能建立连续性，超时或 Redis 丢失不能据此清除工作。修改前四项实际竞态已记录；受限 Native、实际 HTTP、控制超时后的排空恢复、调用方 Prediction 回滚与非空恢复隔离已有本地证据。运行状态端点在三种模式均读取持久账本，Redis 丢失仍保留未决计数，owner 故障保持未知。GPU 驱逐已组合独立路由与 GPU 签名校验，普通 GPU 请求的发送前拒绝可精确撤回；驱逐 deadline 后的持久恢复、视频执行权崩溃交接、恢复后重绑定、完整独立工件与跨语言资格仍待完成。该进展不表示完整 Inference 或十模块目标完成，见 [ADR-0155](/dev/adr/0155-durable-inference-routing-authority)。
 
+单个 scope 的定向退役已作为交接前置能力提供：Native 先关闭旧准入，实际后端只等待
+该 scope 的请求及已登记 future，其他 scope 继续运行。三种 API 连接方式、受限数据库
+账户、真实 TCP、独立安装入口的停止／重启和非空克隆隔离已通过限定本地验收。
+安装工件通过413项检查，77个包文件与源码一致。视频 Jobs 的执行代次、持久路由绑定、窗口
+检查点及 Labeling 全部写入围栏仍未实施，退役不代表完整视频崩溃续跑或 GPU 预算清理。
+后台登记时机是提供方合同的硬前置条件，见 [ADR-0156](/dev/adr/0156-scoped-inference-retirement)。
+
 ## Workspace 后端能力探测
 
 Workspace 配置路径只持有 registry ID 和不透明事务快照；Inference 独立持有凭据并执行

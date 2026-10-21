@@ -209,7 +209,7 @@ async def _identity_hash(owner, registry_id: uuid.UUID) -> str:
     )
 
 
-async def test_routing_policy_and_client_have_only_the_two_fixed_functions(test_engine):
+async def test_routing_core_policy_keeps_its_two_fixed_functions(test_engine):
     await assert_owned_test_database(test_engine)
     connection = await _connect(test_engine, role=_ROLE)
     transaction = connection.transaction()

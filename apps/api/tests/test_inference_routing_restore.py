@@ -104,6 +104,11 @@ async def _routing_snapshot(engine, world: dict, receipt_ids: list[uuid.UUID]) -
                 f"pg_catalog.convert_to(pg_catalog.to_jsonb(row_data)::text, 'UTF8'), 'sha256'), 'hex') AS fingerprint "
                 f"FROM (SELECT * FROM {_SCHEMA}.scopes WHERE registry_id=$1) AS row_data"
             ),
+            "scope_retirements": (
+                f"SELECT retirement_id::text AS id, pg_catalog.encode(public.digest("
+                f"pg_catalog.convert_to(pg_catalog.to_jsonb(row_data)::text, 'UTF8'), 'sha256'), 'hex') AS fingerprint "
+                f"FROM (SELECT * FROM {_SCHEMA}.scope_retirements WHERE registry_id=$1) AS row_data"
+            ),
             "attempts": (
                 f"SELECT row_data.id::text AS id, pg_catalog.encode(public.digest("
                 f"pg_catalog.convert_to(pg_catalog.to_jsonb(row_data)::text, 'UTF8'), 'sha256'), 'hex') AS fingerprint "
@@ -151,7 +156,9 @@ async def _routing_snapshot(engine, world: dict, receipt_ids: list[uuid.UUID]) -
         await owner.close()
 
 
-async def _seed_nonempty_routing_state(test_engine, owner, world: dict) -> dict:
+async def _seed_nonempty_routing_state(
+    test_engine, owner, world: dict, *, include_retirement: bool = False
+) -> dict:
     registry_id = world["registry_id"]
     async with owner.transaction():
         await owner.execute(
@@ -379,6 +386,43 @@ async def _seed_nonempty_routing_state(test_engine, owner, world: dict) -> dict:
             "unresolved_control_id": unresolved_control_id,
         }
     )
+    if include_retirement:
+        from tests.test_inference_scope_retirement_native import _retirement_step
+
+        client = await _connect(test_engine, role=_ROLE)
+        retirement_id = uuid.uuid4()
+        try:
+            async with client.transaction():
+                prepared = await _retirement_step(
+                    client,
+                    "prepare",
+                    {
+                        "retirement_id": str(retirement_id),
+                        "scope_id": str(world["scope_id"]),
+                        "capability": world["scope_capability"],
+                    },
+                )
+                assert prepared["status"] == "ok"
+        finally:
+            await client.close()
+        world["retirement_id"] = retirement_id
+        world["retirement_reply"] = {
+            **{
+                key: prepared["retirement"][key]
+                for key in (
+                    "retirement_id",
+                    "scope_id",
+                    "registry_id",
+                    "authority_epoch",
+                    "backend_incarnation",
+                )
+            },
+            "schema": "aap-backend-scope-retirement-reply/v1",
+            "challenge": prepared["context"]["challenge"],
+            "phase": "retired",
+            "active_requests": 0,
+        }
+        return world
     await owner.execute(
         f"""INSERT INTO {_SCHEMA}.controls (
                 id, registry_id, kind, phase, new_epoch, retired_epoch, challenge,
@@ -421,8 +465,9 @@ def _clone_role_dsn(test_engine, clone: str) -> str:
     )
 
 
+@pytest.mark.parametrize("include_retirement", (False, True))
 async def test_restored_routing_authority_is_quarantined_in_owned_clone(
-    test_engine, tmp_path
+    test_engine, tmp_path, include_retirement
 ):
     await assert_owned_test_database(test_engine)
     source_head = await _database_head(test_engine)
@@ -455,7 +500,9 @@ async def test_restored_routing_authority_is_quarantined_in_owned_clone(
         raise AssertionError("restored routing must not call private backend control")
 
     try:
-        await _seed_nonempty_routing_state(test_engine, owner, world)
+        await _seed_nonempty_routing_state(
+            test_engine, owner, world, include_retirement=include_retirement
+        )
         source_before = await _routing_snapshot(
             test_engine, world, world["receipt_ids"]
         )
@@ -468,8 +515,15 @@ async def test_restored_routing_authority_is_quarantined_in_owned_clone(
         assert source_before["public_rows"]["member"]
         assert len(source_before["private_rows"]["scopes"]) == 1
         assert len(source_before["private_rows"]["attempts"]) == 1
-        assert len(source_before["private_rows"]["controls"]) == 2
-        assert len(source_before["private_rows"]["control_attempts"]) == 1
+        assert len(source_before["private_rows"]["controls"]) == (
+            1 if include_retirement else 2
+        )
+        assert len(source_before["private_rows"]["control_attempts"]) == (
+            0 if include_retirement else 1
+        )
+        assert len(source_before["private_rows"]["scope_retirements"]) == (
+            1 if include_retirement else 0
+        )
         assert len(source_before["receipts"]) == 2
         assert all(
             row["owner"] == "inference_code" for row in source_before["functions"]
@@ -574,8 +628,7 @@ async def test_restored_routing_authority_is_quarantined_in_owned_clone(
         await clone_transaction.start()
         with pytest.raises(RoutingUnavailable):
             await RoutingPostgresData.bind(clone_connection)
-        # The two fixed Native capabilities still allow an operator to inspect
-        # quarantine; they never expose source receipts or permit mutation.
+        # Core Native reads allow inspection without exposing copied receipts.
         for source_command in (world["begin_command"], world["acquire_command"]):
             status = await _step(
                 clone_connection,
@@ -600,7 +653,32 @@ async def test_restored_routing_authority_is_quarantined_in_owned_clone(
         assert quarantined["open_scopes"] == 1
         assert quarantined["active_attempts"] == 1
         assert quarantined["uncertain_attempts"] == 0
-        assert quarantined["control_id"] == str(world["unresolved_control_id"])
+        assert quarantined["control_id"] == (
+            None if include_retirement else str(world["unresolved_control_id"])
+        )
+        if include_retirement:
+            from tests.test_inference_scope_retirement_native import _retirement_step
+
+            arguments = {
+                "retirement_id": str(world["retirement_id"]),
+                "scope_id": str(world["scope_id"]),
+                "capability": world["scope_capability"],
+            }
+            for action in ("prepare", "status", "finish"):
+                request = {
+                    **arguments,
+                    **(
+                        {"reply": world["retirement_reply"]}
+                        if action == "finish"
+                        else {}
+                    ),
+                }
+                denied = await _retirement_step(clone_connection, action, request)
+                assert denied == {
+                    "schema": "aap-inference-scope-retirement-data/v1",
+                    "status": "rejected",
+                    "reason": "scope_unavailable",
+                }
 
         class CloneNative:
             async def step(self, action, arguments):
@@ -690,6 +768,10 @@ async def test_restored_routing_authority_is_quarantined_in_owned_clone(
             try:
                 cleanup_owner = await _connect(test_engine)
                 try:
+                    await cleanup_owner.execute(
+                        f"DELETE FROM {_SCHEMA}.scope_retirements WHERE registry_id=$1",
+                        world["registry_id"],
+                    )
                     await cleanup_owner.execute(
                         f"DELETE FROM {_SCHEMA}.command_receipts WHERE id=ANY($1::uuid[])",
                         world["receipt_ids"],

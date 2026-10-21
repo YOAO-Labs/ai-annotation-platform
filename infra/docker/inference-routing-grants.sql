@@ -1,4 +1,4 @@
--- Grant the routing LOGIN only its two fixed Native capabilities.
+-- Grant the routing LOGIN only its three fixed Native capabilities.
 -- Apply module-data-grants.sql first in the same explicitly named database.
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v inference_owner=inference_code
@@ -57,7 +57,7 @@ DECLARE
     actual_tables text[];
     expected_tables text[] := ARRAY[
         'attempts', 'authority_secret', 'command_receipts', 'control_attempts',
-        'controls', 'registry_state', 'scopes', 'weights'
+        'controls', 'registry_state', 'scope_retirements', 'scopes', 'weights'
     ];
     bad_function text;
     required record;
@@ -67,7 +67,9 @@ BEGIN
         WHERE nspname = 'aap_inference_routing_v1') IS DISTINCT FROM owner_oid THEN
         RAISE EXCEPTION 'Routing schema has unexpected owner';
     END IF;
-    SELECT COALESCE(pg_catalog.array_agg(relation.relname ORDER BY relation.relname),
+    SELECT COALESCE(pg_catalog.array_agg(
+                        relation.relname ORDER BY relation.relname COLLATE "C"
+                    ),
                     ARRAY[]::text[])
       INTO actual_tables
       FROM pg_catalog.pg_class AS relation
@@ -107,7 +109,8 @@ BEGIN
     END IF;
     FOR required IN SELECT * FROM (VALUES
         ('aap_inference_routing_v1.routing_policy()','jsonb'),
-        ('aap_inference_routing_v1.routing_step(text,text)','jsonb')
+        ('aap_inference_routing_v1.routing_step(text,text)','jsonb'),
+        ('aap_inference_routing_v1.scope_retirement_step(text,text)','jsonb')
     ) AS capability(signature,result_type)
     LOOP
         function_oid := pg_catalog.to_regprocedure(required.signature)::oid;
@@ -149,7 +152,8 @@ GRANT USAGE ON SCHEMA aap_inference_routing_v1
     TO :"inference_routing_role";
 GRANT EXECUTE ON FUNCTION
     aap_inference_routing_v1.routing_policy(),
-    aap_inference_routing_v1.routing_step(text,text)
+    aap_inference_routing_v1.routing_step(text,text),
+    aap_inference_routing_v1.scope_retirement_step(text,text)
     TO :"inference_routing_role";
 
 DO $$
@@ -161,7 +165,8 @@ DECLARE
     actual_functions text[];
     expected_functions text[] := ARRAY[
         'aap_inference_routing_v1.routing_policy()',
-        'aap_inference_routing_v1.routing_step(text, text)'
+        'aap_inference_routing_v1.routing_step(text, text)',
+        'aap_inference_routing_v1.scope_retirement_step(text, text)'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(

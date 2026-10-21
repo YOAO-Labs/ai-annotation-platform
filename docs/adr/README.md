@@ -40,6 +40,7 @@
 
 ### 待决（Proposed / Draft）
 
+- [0156](0156-scoped-inference-retirement.md) — 推理执行范围的定向退役与作业交接边界（定向退役通过限定本地验收）
 - [0009](0009-task-events-table-and-partition.md) — task_events 表与按月分区方案
 - [0025](0025-webhook-event-envelope-versioning.md) — Webhook 事件信封与版本化（草案，未实现）
 - [0034](0034-lidar-axis-convention.md) — 点云数据集 lidar 坐标系约定：dataset 级声明 + 加载侧归一化

@@ -52,6 +52,8 @@ class _Connection:
             return self.transaction_id
         if ".routing_step(" in statement:
             return self.reply
+        if ".scope_retirement_step(" in statement:
+            return self.reply
         raise AssertionError(statement)
 
 
@@ -71,7 +73,11 @@ async def _bind(monkeypatch, connection):
         (
             connection,
             "aap_inference_routing_v1",
-            {("routing_policy", ""), ("routing_step", "text, text")},
+            {
+                ("routing_policy", ""),
+                ("routing_step", "text, text"),
+                ("scope_retirement_step", "text, text"),
+            },
         )
     ]
     return data
@@ -148,6 +154,37 @@ async def test_step_rejects_malformed_or_oversized_native_replies(monkeypatch):
     )
     with pytest.raises(RoutingUnavailable):
         await data.step("command_status", {})
+
+
+@pytest.mark.asyncio
+async def test_retirement_step_uses_only_the_fixed_adjacent_rpc(monkeypatch):
+    connection = _Connection()
+    data = await _bind(monkeypatch, connection)
+    connection.reply = {
+        "schema": "aap-inference-scope-retirement-data/v1",
+        "status": "ok",
+        "retirement": None,
+        "context": None,
+    }
+
+    reply = await data.retirement_step(
+        "status",
+        {
+            "retirement_id": "e469fa57-ff59-42ae-9fe7-366f895931f7",
+            "scope_id": "c864b2a8-83f3-4f6a-bb40-f4ef8f0512bf",
+            "capability": "private-scope-token",
+        },
+    )
+
+    assert reply["status"] == "ok"
+    statement, args = connection.calls[-1]
+    assert statement == (
+        "SELECT aap_inference_routing_v1.scope_retirement_step($1::text,$2::text)"
+    )
+    assert args[0] == "status"
+    assert json.loads(args[1])["capability"] == "private-scope-token"
+    with pytest.raises(RoutingUnavailable):
+        await data.retirement_step("arbitrary_sql", {})
 
     connection.reply = " " * (1024 * 1024 + 1)
     with pytest.raises(RoutingUnavailable):

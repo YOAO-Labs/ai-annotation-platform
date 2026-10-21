@@ -1822,7 +1822,10 @@ HTTP begin 的配置 subject 仍由 API 本地短事务签发，不携带后端�
 独立 owner 进程使用 `INFERENCE_ROUTING_DATABASE_URL(_FILE)` 与独立的
 `INFERENCE_ROUTING_TOKEN(_FILE)`；准入参数为
 `INFERENCE_ROUTING_HEALTH_MAX_AGE_SECONDS` 与 `INFERENCE_ROUTING_LEASE_TTL_SECONDS`。
-`inference_routing_client` 只允许两项固定 Native 能力，不能授予原表权限。
+`inference_routing_client` 仅可执行 core policy、core step 和
+`scope_retirement_step(text,text)` 三项固定 Native 能力，不能授予原表权限。
+定向退役沿用相同进程、端口与控制认证，接口为 `/v1/routes/retire` 与
+`/v1/routes/retirement-status`；调用前保存退役 ID，状态查询不发送后端控制。
 
 五个内置后端共享路由控制器。设置 `AAP_ROUTE_CONTROL_TOKEN(_FILE)` 后启动为未绑定，
 可选 `AAP_ROUTE_REGISTRY_ID` 固定实例身份；否则第一次认证管理交换固定身份。

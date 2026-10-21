@@ -21,6 +21,17 @@ from aap_inference_contract.routing import (
     routing_native_policy_ready,
 )
 from aap_inference_contract.routing_client import RoutingHttpClient
+from aap_inference_contract.scope_retirement import (
+    SCOPE_RETIREMENT_ACTIONS,
+    SCOPE_RETIREMENT_DATA_PROTOCOL,
+    SCOPE_RETIREMENT_REPLY_MAX_BYTES,
+    SCOPE_RETIREMENT_REQUEST_MAX_BYTES,
+    ScopeRetirementRequest,
+    ScopeRetirementResult,
+    ScopeRetirementUnavailable,
+    decode_scope_retirement_request,
+    decode_scope_retirement_result,
+)
 from aap_workspace.config import secret_source
 from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, async_object_session
@@ -69,6 +80,94 @@ class _SqlAlchemyData:
             },
         )
         return json.loads(result) if isinstance(result, str) else result
+
+    async def retirement_step(self, action, arguments):
+        if (
+            type(action) is not str
+            or action not in SCOPE_RETIREMENT_ACTIONS
+            or not isinstance(arguments, dict)
+            or any(type(key) is not str for key in arguments)
+        ):
+            raise RoutingUnavailable()
+        xid = await self.connection.scalar(
+            text("SELECT pg_catalog.pg_current_xact_id_if_assigned()::text")
+        )
+        if xid != self.xid or not self.connection.in_transaction():
+            raise RoutingUnavailable()
+        try:
+            encoded = json.dumps(
+                arguments, allow_nan=False, separators=(",", ":")
+            ).encode("utf-8")
+        except (TypeError, ValueError, UnicodeError, RecursionError, OverflowError):
+            raise RoutingUnavailable() from None
+        if len(encoded) > SCOPE_RETIREMENT_REQUEST_MAX_BYTES:
+            raise RoutingUnavailable()
+        result = await self.connection.scalar(
+            text(
+                "SELECT aap_inference_routing_v1.scope_retirement_step(:action,:arguments)"
+            ),
+            {"action": action, "arguments": encoded.decode("utf-8")},
+        )
+
+        def unique_object(pairs):
+            parsed = {}
+            for key, value in pairs:
+                if key in parsed:
+                    raise ValueError("Duplicate scope-retirement field")
+                parsed[key] = value
+            return parsed
+
+        def reject_constant(value):
+            raise ValueError(f"Invalid JSON number: {value}")
+
+        try:
+            if type(result) is str:
+                raw = result.encode("utf-8", errors="strict")
+            elif isinstance(result, dict):
+                raw = json.dumps(result, allow_nan=False, separators=(",", ":")).encode(
+                    "utf-8"
+                )
+            else:
+                raise RoutingUnavailable()
+            if len(raw) > SCOPE_RETIREMENT_REPLY_MAX_BYTES:
+                raise RoutingUnavailable()
+            result = json.loads(
+                raw.decode("utf-8", errors="strict"),
+                object_pairs_hook=unique_object,
+                parse_constant=reject_constant,
+            )
+        except RoutingUnavailable:
+            raise
+        except (UnicodeError, TypeError, ValueError, RecursionError, OverflowError):
+            raise RoutingUnavailable() from None
+        if (
+            not isinstance(result, dict)
+            or result.get("schema") != SCOPE_RETIREMENT_DATA_PROTOCOL
+            or type(result.get("status")) is not str
+            or result["status"] not in {"ok", "rejected"}
+        ):
+            raise RoutingUnavailable()
+        payload_keys = set(result) - {"schema", "status"}
+        if result["status"] == "rejected":
+            if (
+                payload_keys != {"reason"}
+                or type(result.get("reason")) is not str
+                or result["reason"]
+                not in {
+                    "scope_unavailable",
+                    "backend_not_ready",
+                    "transport_changed",
+                    "management_busy",
+                    "invalid_command",
+                    "retirement_conflict",
+                }
+            ):
+                raise RoutingUnavailable()
+        elif payload_keys != (
+            {"ready", "functions"} if action == "policy" else {"retirement", "context"}
+        ):
+            raise RoutingUnavailable()
+        return result
 
 
 class RoutingAuthority:
@@ -246,6 +345,62 @@ class RoutingAuthority:
         except Exception:
             raise RoutingUnavailable() from None
 
+    async def retire_scope(
+        self,
+        request: ScopeRetirementRequest | dict | bytes | str,
+    ) -> ScopeRetirementResult:
+        return await self._scope_retirement_call(request, status=False)
+
+    async def scope_retirement_status(
+        self,
+        request: ScopeRetirementRequest | dict | bytes | str,
+    ) -> ScopeRetirementResult:
+        return await self._scope_retirement_call(request, status=True)
+
+    async def _scope_retirement_call(self, request, *, status: bool):
+        try:
+            typed_request = decode_scope_retirement_request(request)
+            url = settings.inference_routing_url
+            if url:
+                if secret_source(
+                    settings.inference_routing_database_url,
+                    settings.inference_routing_database_url_file,
+                ):
+                    raise ScopeRetirementUnavailable()
+                client = RoutingHttpClient(
+                    url,
+                    secret_source(
+                        settings.inference_routing_token,
+                        settings.inference_routing_token_file,
+                    ),
+                    timeout_seconds=settings.inference_routing_timeout_seconds,
+                )
+                reply = (
+                    await client.scope_retirement_status(typed_request)
+                    if status
+                    else await client.retire_scope(typed_request)
+                )
+            else:
+                from aap_inference.scope_retirement_manager import (
+                    ScopeRetirementManager,
+                )
+                from aap_inference.scope_retirement_transport import (
+                    execute_backend_scope_retirement,
+                )
+
+                manager = ScopeRetirementManager(
+                    self.data_transaction,
+                    backend_retirement=execute_backend_scope_retirement,
+                )
+                reply = (
+                    await manager.status(typed_request)
+                    if status
+                    else await manager.execute(typed_request)
+                )
+            return decode_scope_retirement_result(typed_request, reply)
+        except (ValueError, OSError, ScopeRetirementUnavailable):
+            raise RoutingUnavailable() from None
+
     async def close(self, scope, outcome="success"):
         return await self.execute(
             "close",
@@ -298,7 +453,7 @@ async def control_binding(authority, control):
 @asynccontextmanager
 async def lifecycle_control(db, registry_id, kind, *, expected_topology=None):
     from dataclasses import asdict
-    from .safety import quiescence_error, MLBackendQuiescenceError
+    from .contracts import quiescence_error, MLBackendQuiescenceError
 
     authority = RoutingAuthority(db.bind)
     topology = asdict(expected_topology) if expected_topology is not None else None

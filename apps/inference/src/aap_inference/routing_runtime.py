@@ -16,10 +16,17 @@ from aap_inference_contract.routing import (
     RoutingStatusRequest,
     RoutingUnavailable,
 )
+from aap_inference_contract.scope_retirement import (
+    ScopeRetirementRequest,
+    ScopeRetirementUnavailable,
+    decode_scope_retirement_request,
+)
 
 from .routing import RoutingManager
 from .routing_backend_control import execute_backend_control
 from .routing_postgres import RoutingPostgresData
+from .scope_retirement_manager import ScopeRetirementManager
+from .scope_retirement_transport import execute_backend_scope_retirement
 
 _logger = logging.getLogger(__name__)
 
@@ -39,6 +46,8 @@ class RoutingRuntime:
         health_max_age_seconds: int = 90,
         lease_ttl_ms: int = 120_000,
         backend_control: Callable[[Mapping[str, Any]], Awaitable[object]] | None = None,
+        backend_retirement: Callable[[Mapping[str, Any]], Awaitable[object]]
+        | None = None,
         transport_subject_opener=None,
         connect_timeout_seconds: float = 5.0,
         command_timeout_seconds: float = 30.0,
@@ -58,6 +67,7 @@ class RoutingRuntime:
             or not math.isfinite(float(command_timeout_seconds))
             or command_timeout_seconds <= 0
             or (backend_control is not None and not callable(backend_control))
+            or (backend_retirement is not None and not callable(backend_retirement))
             or (
                 transport_subject_opener is not None
                 and not callable(transport_subject_opener)
@@ -76,6 +86,17 @@ class RoutingRuntime:
             ),
             transport_subject_opener=transport_subject_opener,
         )
+        self.scope_retirement_manager = ScopeRetirementManager(
+            self._transaction,
+            backend_retirement=(
+                execute_backend_scope_retirement
+                if backend_retirement is None
+                else backend_retirement
+            ),
+        )
+        # The HTTP server may receive the lower-level routing manager directly;
+        # keep both owner APIs attached to the same configured runtime.
+        self.manager.scope_retirement_manager = self.scope_retirement_manager
 
     async def execute(self, command: RoutingCommand | dict | bytes | str):
         return await self.manager.execute(command)
@@ -90,6 +111,19 @@ class RoutingRuntime:
 
     async def readiness(self) -> bool:
         return await self.manager.readiness()
+
+    async def retire_scope(self, request: ScopeRetirementRequest | dict | bytes | str):
+        typed_request = decode_scope_retirement_request(request)
+        try:
+            return await self.scope_retirement_manager.execute(typed_request)
+        except ScopeRetirementUnavailable:
+            raise
+
+    async def scope_retirement_status(
+        self, request: ScopeRetirementRequest | dict | bytes | str
+    ):
+        typed_request = decode_scope_retirement_request(request)
+        return await self.scope_retirement_manager.status(typed_request)
 
     async def close(self) -> None:
         await self.manager.close()

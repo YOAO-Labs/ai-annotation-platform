@@ -113,8 +113,9 @@ async def _stop_uvicorn(server, task, listener) -> None:
 class _OwnerHttpProxy:
     """Forward real owner HTTP and drop one selected command acknowledgement."""
 
-    def __init__(self, target_port: int) -> None:
+    def __init__(self, target_port: int, *, drop_path: str = _COMMAND_PATH) -> None:
         self.target_port = target_port
+        self.drop_path = drop_path
         self.counts: Counter[str] = Counter()
         self.errors: list[str] = []
         self.drop_next_command_ack = False
@@ -158,10 +159,16 @@ class _OwnerHttpProxy:
             upstream_reader, upstream_writer = await asyncio.open_connection(
                 "127.0.0.1", self.target_port
             )
-            upstream_writer.write(head + body)
+            forwarded = [
+                line
+                for line in lines
+                if line and not line.lower().startswith(b"connection:")
+            ]
+            forwarded.extend((b"Connection: close", b"", b""))
+            upstream_writer.write(b"\r\n".join(forwarded) + body)
             await upstream_writer.drain()
             response = await asyncio.wait_for(upstream_reader.read(), timeout=15)
-            if path_text == _COMMAND_PATH and self.drop_next_command_ack:
+            if path_text == self.drop_path and self.drop_next_command_ack:
                 self.drop_next_command_ack = False
             else:
                 writer.write(response)

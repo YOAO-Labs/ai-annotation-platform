@@ -236,6 +236,7 @@ SQL_ARTIFACTS = (
     "0277_inference_health_data.sql",
     "0278_inference_registry_ingress.sql",
     "0279_inference_routing.sql",
+    "0280_inference_scope_retirement.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -327,8 +328,12 @@ SCHEMA_ARTIFACTS = (
     "0277_inference_health_data.schema.json",
     "0278_inference_registry_ingress.schema.json",
     "0279_inference_routing.schema.json",
+    "0280_inference_scope_retirement.schema.json",
 )
 TEST_FILES = (
+    "tests/test_inference_scope_retirement_native.py",
+    "tests/test_inference_scope_retirement_live.py",
+    "tests/test_inference_scope_retirement_bindings.py",
     "tests/test_inference_routing_native.py",
     "tests/test_inference_registry_ingress_native.py",
     "tests/test_inference_registry_ingress_binding.py",
@@ -2186,6 +2191,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regclass('aap_inference_routing_v1.command_receipts') IS NULL "
             "AND to_regprocedure('aap_inference_routing_v1.routing_policy()') IS NULL "
             "AND to_regprocedure('aap_inference_routing_v1.routing_step(text,text)') IS NULL "
+            "AND to_regprocedure('aap_inference_routing_v1.scope_retirement_step(text,text)') IS NULL "
             "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger "
             "WHERE tgname IN ('aap_route_registry_after_insert', 'aap_route_registry_before_change', "
             "'aap_route_pool_before_change', 'aap_route_pool_after_generation', "
@@ -2735,8 +2741,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0279"]:
-            raise RuntimeError("module-data acceptance requires migration head 0279")
+        if heads != ["0280"]:
+            raise RuntimeError("module-data acceptance requires migration head 0280")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
