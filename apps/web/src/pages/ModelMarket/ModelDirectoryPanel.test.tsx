@@ -89,26 +89,36 @@ describe("模型目录分组与详情", () => {
     ).toHaveLength(2);
   });
 
-  it("切换型号同时更新类别与精确模型链接，详情在 Sheet 中打开并支持 Escape 返回焦点", async () => {
+  it("列表规格只读，详情中切换型号更新类别与精确模型链接，关闭后返回焦点", async () => {
     const user = userEvent.setup();
     renderPanel();
     const table = await screen.findByRole("table");
     expect(within(table).getAllByRole("row")).toHaveLength(2);
     expect(screen.getByText("1 组模型")).toBeInTheDocument();
-    await user.click(within(table).getByRole("button", { name: "s" }));
-    expect(within(table).getByRole("button", { name: "s" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    expect(within(table).getByRole("link", { name: "用于预标注 / 管线" })).toHaveAttribute(
-      "href",
-      "/ai-pre?project=project&catalog_model=small",
-    );
+    const variants = within(table).getByRole("list", { name: "YOLO 目标检测 yolo11 型号规格" });
+    expect(
+      within(variants)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual(["n", "s"]);
+    expect(within(variants).queryByRole("button")).not.toBeInTheDocument();
+    expect(
+      within(table).queryByRole("link", { name: "用于预标注 / 管线" }),
+    ).not.toBeInTheDocument();
     const trigger = within(table).getByRole("button", { name: "查看详情" });
     await user.click(trigger);
     const dialog = screen.getByRole("dialog", { name: "YOLO 目标检测" });
     expect(dialog).toHaveAttribute("data-slot", "sheet-content");
+    await user.click(within(dialog).getByRole("button", { name: "s" }));
+    expect(within(dialog).getByRole("button", { name: "s" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     expect(within(dialog).getByText("0 · s-class")).toBeInTheDocument();
+    expect(within(dialog).getByRole("link", { name: "用于预标注 / 管线" })).toHaveAttribute(
+      "href",
+      "/ai-pre?project=project&catalog_model=small",
+    );
     await user.click(within(dialog).getByRole("button", { name: "n" }));
     expect(within(dialog).getByText("0 · n-class")).toBeInTheDocument();
     expect(within(dialog).getByRole("link", { name: "用于预标注 / 管线" })).toHaveAttribute(
@@ -128,7 +138,7 @@ describe("模型目录分组与详情", () => {
     });
     renderPanel();
     await screen.findByText("1 组模型");
-    expect(screen.getByRole("button", { name: "last" })).toBeInTheDocument();
+    expect(within(screen.getByRole("table")).getByText("last")).toBeInTheDocument();
     expect(screen.getByText(/201 个规格/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "下一页" })).toBeDisabled();
     expect(modelCatalogApi.list).toHaveBeenCalledWith(
@@ -138,21 +148,59 @@ describe("模型目录分组与详情", () => {
     );
   });
 
-  it("切换到不可用型号时移除使用入口并显示该型号的原因", async () => {
+  it("不同规格的类别与状态在列表中提示差异，详情显示所选型号的原因", async () => {
     vi.mocked(modelCatalogApi.list).mockResolvedValue(
       response([
         entry("nano"),
         entry("small", "s", {
+          capabilities: {
+            ...entry("small").capabilities,
+            classes: [
+              { index: 0, name: "class-a" },
+              { index: 1, name: "class-b" },
+            ],
+          },
           operations: { preannotate: { allowed: false, reason: "实例离线" } },
         }),
       ]),
     );
     const user = userEvent.setup();
     renderPanel();
-    await screen.findByRole("table");
-    await user.click(screen.getByRole("button", { name: "s" }));
-    expect(screen.getByText("实例离线")).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "用于预标注 / 管线" })).not.toBeInTheDocument();
+    const table = await screen.findByRole("table");
+    expect(within(table).getByText("类别因规格而异")).toBeInTheDocument();
+    expect(within(table).getByText("使用状态因规格而异")).toBeInTheDocument();
+    await user.click(within(table).getByRole("button", { name: "查看详情" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("link", { name: "用于预标注 / 管线" })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "s" }));
+    expect(within(dialog).getByText("实例离线")).toBeInTheDocument();
+    expect(within(dialog).getByText("原生类别（2）")).toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("link", { name: "用于预标注 / 管线" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("单一规格在列表与详情中均为静态标签，保留明确的直接使用入口", async () => {
+    vi.mocked(modelCatalogApi.list).mockResolvedValue(
+      response([entry("only", "n", { model_variants: {} })]),
+    );
+    const user = userEvent.setup();
+    renderPanel();
+    const table = await screen.findByRole("table");
+    expect(within(table).getByText("默认")).toBeInTheDocument();
+    expect(within(table).queryByRole("button", { name: "默认" })).not.toBeInTheDocument();
+    expect(within(table).getByRole("link", { name: "用于预标注 / 管线" })).toHaveAttribute(
+      "href",
+      "/ai-pre?project=project&catalog_model=only",
+    );
+    await user.click(within(table).getByRole("button", { name: "查看详情" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("默认")).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "默认" })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("link", { name: "用于预标注 / 管线" })).toHaveAttribute(
+      "href",
+      "/ai-pre?project=project&catalog_model=only",
+    );
   });
 
   it("空结果与失败状态保持可见", async () => {
@@ -187,6 +235,8 @@ describe("模型目录分组与详情", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "每页模型目录数" }), "10");
     expect(screen.getByRole("button", { name: "上一页" })).toBeDisabled();
     expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(11);
-    expect(screen.getByRole("button", { name: "s" })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("list", { name: "模型 0 series-0 型号规格" })).getByText("s"),
+    ).toBeInTheDocument();
   });
 });

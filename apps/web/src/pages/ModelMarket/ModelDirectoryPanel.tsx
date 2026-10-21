@@ -83,7 +83,7 @@ export function ModelDirectoryPanel() {
   return (
     <section aria-label="模型目录" className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        同一系列的型号合并展示。选择规格后查看类别、可用状态，或进入项目使用。
+        同一系列的型号合并展示。在详情中选择具体规格，查看类别、可用状态并进入项目使用。
       </p>
       <div className="flex flex-wrap items-end gap-2">
         <label className="min-w-48 flex-1 text-xs text-muted-foreground">
@@ -173,7 +173,7 @@ export function ModelDirectoryPanel() {
               <strong className="font-medium text-foreground">{groups.length} 组模型</strong> ·{" "}
               {catalog.data.items.length} 个规格 / 版本
             </span>
-            <span>类别与状态对应当前选中的规格</span>
+            <span>各规格信息不同时，请在详情中查看</span>
           </div>
           <div className={listStyles.surface}>
             <div className={listStyles.scroll}>
@@ -191,7 +191,7 @@ export function ModelDirectoryPanel() {
                 </thead>
                 <tbody>
                   {groups.slice((page - 1) * pageSize, page * pageSize).map((group) => {
-                    const entry = selected(group);
+                    const entry = group.entries[0];
                     return (
                       <tr key={group.id} className="align-top">
                         <td className="min-w-44 px-3 py-3">
@@ -212,21 +212,35 @@ export function ModelDirectoryPanel() {
                           </p>
                         </td>
                         <td className="min-w-40 px-3 py-3">
-                          <VariantOptions
-                            group={group}
-                            entry={entry}
-                            onSelect={(id) => selectVariant(group, id)}
-                          />
+                          <VariantLabels group={group} />
                         </td>
                         <td className="whitespace-nowrap px-3 py-3">{taskLabel(entry.task)}</td>
                         <td className="min-w-32 px-3 py-3">
-                          <ClassSummary entry={entry} />
+                          {group.entries.every(
+                            (item) =>
+                              classCountLabel(item) === classCountLabel(entry) &&
+                              classSourceLabel(item) === classSourceLabel(entry),
+                          ) ? (
+                            <ClassSummary entry={entry} />
+                          ) : (
+                            <p className="text-muted-foreground">类别因规格而异</p>
+                          )}
                         </td>
                         <td className="min-w-40 px-3 py-3">
-                          <UsageSummary entry={entry} />
+                          {group.entries.every(
+                            (item) =>
+                              item.operations.preannotate.allowed ===
+                                entry.operations.preannotate.allowed &&
+                              usageLabel(item) === usageLabel(entry) &&
+                              deploymentLabel(item) === deploymentLabel(entry),
+                          ) ? (
+                            <UsageSummary entry={entry} />
+                          ) : (
+                            <p className="text-muted-foreground">使用状态因规格而异</p>
+                          )}
                         </td>
                         <td className="min-w-28 px-3 py-3">
-                          <div className="flex flex-col items-start gap-2">
+                          <div className="flex flex-col items-start gap-2 whitespace-nowrap">
                             <button
                               type="button"
                               onClick={(event) => showDetail(group, event.currentTarget)}
@@ -234,7 +248,9 @@ export function ModelDirectoryPanel() {
                             >
                               查看详情
                             </button>
-                            <ModelActions entry={entry} projectId={projectId} />
+                            {group.entries.length === 1 && (
+                              <ModelActions entry={entry} projectId={projectId} />
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -367,6 +383,21 @@ export function ModelDirectoryPanel() {
   );
 }
 
+function VariantLabels({ group }: { group: ModelDirectoryGroup }) {
+  return (
+    <ul aria-label={`${group.name} ${group.series} 型号规格`} className="flex flex-wrap gap-1.5">
+      {group.entries.map((variant) => (
+        <li
+          key={variant.id}
+          className="rounded bg-muted px-2 py-1 font-mono text-xs text-muted-foreground"
+        >
+          {variantLabel(variant)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function VariantOptions({
   group,
   entry,
@@ -376,6 +407,8 @@ function VariantOptions({
   entry: CatalogEntry;
   onSelect: (id: string) => void;
 }) {
+  if (group.entries.length === 1) return <VariantLabels group={group} />;
+
   return (
     <div
       role="group"
@@ -405,14 +438,25 @@ function VariantOptions({
 function ClassSummary({ entry }: { entry: CatalogEntry }) {
   return (
     <>
-      <p>
-        {entry.class_metadata.class_source === "request_prompt"
-          ? "按提示确定"
-          : `${entry.capabilities.classes?.length ?? 0} 类`}
-      </p>
+      <p>{classCountLabel(entry)}</p>
       <p className="mt-1 text-muted-foreground">{classSourceLabel(entry)}</p>
     </>
   );
+}
+
+function classCountLabel(entry: CatalogEntry) {
+  return entry.class_metadata.class_source === "request_prompt"
+    ? "按提示确定"
+    : `${entry.capabilities.classes?.length ?? 0} 类`;
+}
+
+function usageLabel(entry: CatalogEntry) {
+  const usage = entry.operations.preannotate;
+  return usage.allowed ? "可用于预标注 / 管线" : (usage.reason ?? "当前不可用");
+}
+
+function deploymentLabel(entry: CatalogEntry) {
+  return (entry.placements ?? []).map((placement) => placement.name).join("、") || "尚无部署实例";
 }
 
 function UsageSummary({ entry }: { entry: CatalogEntry }) {
@@ -425,11 +469,9 @@ function UsageSummary({ entry }: { entry: CatalogEntry }) {
         </Badge>
       )}
       <p className={usage.allowed ? "text-status-positive" : "text-muted-foreground"}>
-        {usage.allowed ? "可用于预标注 / 管线" : (usage.reason ?? "当前不可用")}
+        {usageLabel(entry)}
       </p>
-      <p className="mt-1 text-muted-foreground">
-        {(entry.placements ?? []).map((p) => p.name).join("、") || "尚无部署实例"}
-      </p>
+      <p className="mt-1 text-muted-foreground">{deploymentLabel(entry)}</p>
     </>
   );
 }
