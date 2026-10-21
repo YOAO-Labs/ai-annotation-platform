@@ -87,9 +87,17 @@ class BackendProbeHttpClient:
                         "Authorization": f"Bearer {self._token}",
                         "Content-Type": "application/json",
                         "Accept": "application/json",
+                        "Accept-Encoding": "identity",
                     },
                 ) as response:
                     if response.status_code != 200:
+                        raise BackendProbeUnavailable()
+                    if (
+                        response.headers.get("content-encoding", "identity")
+                        .strip()
+                        .lower()
+                        != "identity"
+                    ):
                         raise BackendProbeUnavailable()
                     content_type = (
                         response.headers.get("content-type", "")

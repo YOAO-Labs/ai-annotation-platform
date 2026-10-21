@@ -5,9 +5,9 @@ import uuid
 import httpx
 import pytest
 
+from aap_inference_contract.capabilities import CapabilityLimits
 from aap_inference import (
     BackendSetupLocator,
-    CapabilityLimits,
     fetch_backend_setup,
     probe_backend_capabilities,
 )

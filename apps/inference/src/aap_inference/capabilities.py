@@ -17,7 +17,7 @@ v0.14.9 · 能力声明协议 v2 (多模型目录 + infra):
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from aap_inference_contract.capabilities import CapabilityLimits
 
 from aap_task_contract import normalize_task
 
@@ -44,18 +44,11 @@ from .capability_registry import (
 from .model_capability import ModelCapability
 
 
-@dataclass(frozen=True)
-class CapabilityLimits:
-    video_tracker_window_size_frames: int = 300
-    video_tracker_sam3_window_size_frames: int = 16
-
-
 __all__ = [
     "INFRA_VALUES",
     "TASK_VALUES",
     "GEOMETRY_VALUES",
     "INPUT_VALUES",
-    "CapabilityLimits",
     "ModelCapability",
     "extract_capabilities",
     "derive_modalities",

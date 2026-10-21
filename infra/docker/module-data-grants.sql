@@ -1619,6 +1619,15 @@ ALTER FUNCTION aap_workspace_v1.project_access_step(uuid, uuid, text)
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.clear_primary_backend_bindings(uuid)
     OWNER TO :"workspace_owner";
+
+GRANT CREATE ON SCHEMA aap_inference_backend_probe_v1 TO :"inference_owner";
+ALTER SCHEMA aap_inference_backend_probe_v1 OWNER TO :"inference_owner";
+ALTER TABLE aap_inference_backend_probe_v1.probe_secret OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_backend_probe_v1.backend_probe_policy()
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_backend_probe_v1.open_backend_probe_subject(text, uuid)
+    OWNER TO :"inference_owner";
+REVOKE CREATE ON SCHEMA aap_inference_backend_probe_v1 FROM :"inference_owner";
 ALTER FUNCTION aap_workspace_v1.lock_group_assignment_scope(uuid, uuid[], boolean)
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.invitation_projects(uuid[])

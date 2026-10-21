@@ -1,0 +1,31 @@
+services:
+  inference-probe:
+    image: aap-inference:local
+    build:
+      context: .
+      dockerfile: apps/inference/Dockerfile
+    environment:
+      INFERENCE_HOST: 0.0.0.0
+      INFERENCE_PORT: 8768
+      INFERENCE_MAX_CONCURRENCY: ${INFERENCE_MAX_CONCURRENCY:-8}
+      INFERENCE_BACKEND_PROBE_DATABASE_URL_FILE: /run/secrets/inference_backend_probe_database_url
+      INFERENCE_BACKEND_PROBE_CONTROL_TOKEN_FILE: /run/secrets/inference_backend_probe_control_token
+    secrets:
+      - inference_backend_probe_database_url
+      - inference_backend_probe_control_token
+    ports:
+      - "127.0.0.1:8768:8768"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1
+
+secrets:
+  inference_backend_probe_database_url:
+    file: ${INFERENCE_RUNTIME_BACKEND_PROBE_DATABASE_URL_FILE:?Set Inference backend probe function-only DSN file}
+  inference_backend_probe_control_token:
+    file: ${INFERENCE_RUNTIME_BACKEND_PROBE_CONTROL_TOKEN_FILE:?Set Inference dedicated probe bearer file}

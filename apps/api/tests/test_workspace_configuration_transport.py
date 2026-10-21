@@ -39,7 +39,9 @@ async def test_borrowed_configuration_keeps_raw_business_value_error(monkeypatch
         async def execute(self, request):
             raise ValueError("Backend pool missing")
 
-    monkeypatch.setattr(commands, "configuration_manager", lambda data: Manager())
+    monkeypatch.setattr(
+        commands, "configuration_manager", lambda data, **kwargs: Manager()
+    )
     with pytest.raises(ValueError, match="Backend pool missing"):
         await commands.execute_configuration(
             object(), operation="create_project", actor_id=uuid.uuid4(), payload={}
@@ -75,7 +77,7 @@ async def test_remote_transport_retry_reuses_uuid_and_never_calls_local_writer(
         lambda **kwargs: client_type(transport=httpx.MockTransport(handle), **kwargs),
     )
 
-    def forbidden(data):
+    def forbidden(data, **kwargs):
         raise AssertionError("Selected HTTP owner must not invoke the local writer")
 
     monkeypatch.setattr(commands, "configuration_manager", forbidden)
@@ -134,7 +136,8 @@ async def test_direct_dsn_rename_uses_full_project_query_reply_callback(monkeypa
     )
     monkeypatch.setattr(commands, "_select_project_query_reply", select_reply)
 
-    def manager(data, *, noop_projection=None):
+    def manager(data, *, noop_projection=None, **kwargs):
+        assert kwargs["db"] is db
         assert noop_projection is not None
 
         class BoundManager:

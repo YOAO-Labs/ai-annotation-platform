@@ -70,3 +70,28 @@ async def test_readiness_close_error_is_unavailable(monkeypatch):
     with pytest.raises(ConfigurationUnavailable):
         await data.configuration_policy()
     assert connection.terminated
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "action,expected", [("backend", "unavailable"), ("finish", "database")]
+)
+async def test_missing_probe_key_maps_only_backend_action_to_unavailable(
+    action, expected
+):
+    import asyncpg
+    from aap_workspace.configuration_postgres import ConfigurationPostgresTransaction
+
+    class Connection:
+        async def fetchval(self, *args):
+            raise asyncpg.ObjectNotInPrerequisiteStateError(
+                "synthetic missing probe key"
+            )
+
+    exception = (
+        ConfigurationUnavailable if expected == "unavailable" else asyncpg.PostgresError
+    )
+    with pytest.raises(exception):
+        await ConfigurationPostgresTransaction(Connection()).step(
+            {}, action, {}, [], []
+        )

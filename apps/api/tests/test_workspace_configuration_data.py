@@ -122,3 +122,24 @@ async def test_preliminary_flush_busy_mapping_matches_account_read_kind(
             )
     session.scalar.assert_not_awaited()
     session.rollback.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "action,expected", [("backend", "unavailable"), ("finish", "database")]
+)
+async def test_missing_probe_key_is_unavailable_only_for_backend_action(
+    action, expected
+):
+    from aap_workspace.configuration_contract import ConfigurationUnavailable
+
+    class MissingKeyError(Exception):
+        sqlstate = "55000"
+
+    session = Session(False)
+    session.scalar.side_effect = DBAPIError("native step", {}, MissingKeyError())
+    exception = ConfigurationUnavailable if expected == "unavailable" else DBAPIError
+    with pytest.raises(exception):
+        await WorkspaceConfigurationData(session).step({}, action, {}, [], [])
+    session.flush.assert_not_awaited()
+    session.commit.assert_not_awaited()
+    session.rollback.assert_not_awaited()

@@ -68,6 +68,8 @@ class ConfigurationPostgresTransaction:
                 values,
             )
         except asyncpg.PostgresError as error:
+            if action == "backend" and error.sqlstate == "55000":
+                raise ConfigurationUnavailable() from None
             mapped = configuration_busy_error(error.sqlstate, error.hint)
             if mapped is not None:
                 raise ConfigurationCommandFailure(mapped) from error

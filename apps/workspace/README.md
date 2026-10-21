@@ -6,7 +6,7 @@ and six project/template configuration commands. The core package
 uses Pydantic, the shared Workspace projection contract and Inference's portable
 configuration validation. Inference transitively imports shared protocol FastAPI
 error helpers and lifecycle crypto. Runtime and PostgreSQL bindings are optional;
-the PostgreSQL extra includes HTTP dependencies for existing backend setup probes.
+the PostgreSQL extra includes HTTP dependencies for the credential-owning Inference probe.
 
 The manager accepts a small data port that owns transaction boundaries and
 executes the Workspace native prepare/apply capabilities. It contains no API,
@@ -75,3 +75,12 @@ migration261 pass. The bounded local concurrency sample does not establish
 production capacity. Directory reads, adjacent writes and the remaining
 cross-domain Project consumers still prevent full Workspace qualification.
 See ADR-0139 for authority phases and the current acceptance boundary.
+
+Configuration managers no longer read backend URL/auth/token/extra_params or execute
+setup HTTP directly. The backend fact is exactly `{id, probe_subject}`; the injected
+Inference probe returns only modalities. Standalone configuration uses
+`WORKSPACE_INFERENCE_PROBE_URL`, `WORKSPACE_INFERENCE_PROBE_TOKEN(_FILE)` and
+`WORKSPACE_INFERENCE_PROBE_TIMEOUT_SECONDS`. It has no credential fallback; missing
+provider is unavailable only when a backend modality probe is needed. Backend
+setup failure keeps legacy fail-open behavior; internal provider failure aborts,
+and legacy materialization failure retains generic500/rollback. See ADR-0149.

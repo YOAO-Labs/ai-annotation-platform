@@ -8,6 +8,7 @@ import pytest
 from aap_inference_contract import client as backend_probe_client_module
 from aap_inference_contract.capabilities import CapabilityLimits
 from aap_inference_contract.probe import (
+    BackendProbeInvalidRequest,
     BackendProbeLegacyFailure,
     BackendProbeUnavailable,
 )
@@ -283,18 +284,20 @@ async def test_backend_probe_modality_mismatch_keeps_legacy_422_phase_and_detail
     async def backend_probe(*_args, **_kwargs):
         return ["image"]
 
-    with pytest.raises(ConfigurationPolicyError) as caught:
-        await ConfigurationManager(
-            FakeData(transaction), backend_probe=backend_probe
-        ).execute(_probe_request())
+    reply = await ConfigurationManager(
+        FakeData(transaction), backend_probe=backend_probe
+    ).execute(_probe_request())
 
-    assert caught.value.status_code == 422
-    assert caught.value.detail == (
+    assert reply.ok is False
+    assert reply.error.status_code == 422
+    assert reply.error.detail == (
         "该 ML Backend 不支持「video」模态 (检测到: ['image']); "
         "视频项目需绑定自报 supported_trackers 的 backend."
     )
     assert [call[0] for call in transaction.calls] == ["begin", "backend"]
-    assert transaction.caught is caught.value
+    assert isinstance(transaction.caught.__cause__, ConfigurationPolicyError)
+    assert transaction.caught.error.status_code == reply.error.status_code
+    assert transaction.caught.error.detail == reply.error.detail
 
 
 @pytest.mark.asyncio
@@ -349,11 +352,14 @@ async def test_legacy_or_misbound_backend_facts_fail_closed(backend_facts):
 
 
 @pytest.mark.asyncio
-async def test_backend_probe_unavailable_maps_to_configuration_unavailable():
+@pytest.mark.parametrize(
+    "failure", [BackendProbeUnavailable(), BackendProbeInvalidRequest()]
+)
+async def test_backend_probe_unavailable_maps_to_configuration_unavailable(failure):
     transaction = BackendProbeTransaction(_safe_backend_facts())
 
     async def backend_probe(*_args, **_kwargs):
-        raise BackendProbeUnavailable()
+        raise failure
 
     with pytest.raises(ConfigurationUnavailable):
         await ConfigurationManager(

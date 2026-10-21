@@ -5,6 +5,7 @@ requires-python = ">=3.11"
 dependencies = [
     "aap-identity[postgres]",
     "aap-inference",
+    "aap-inference-contract[client]",
     "aap-mail-transport",
     "aap-assets-catalog",
     "aap-assets-media[client,runtime]",
@@ -61,6 +62,7 @@ dependencies = [
 aap-owner-data = { path = "../_shared/owner_data", editable = true }
 aap-identity = { path = "../identity", editable = true }
 aap-inference = { path = "../inference", editable = true }
+aap-inference-contract = { path = "../_shared/inference_contract", editable = true }
 aap-mail-transport = { path = "../_shared/mail_transport", editable = true }
 aap-assets-catalog = { path = "../assets-catalog", editable = true }
 aap-assets-media = { path = "../assets-media", editable = true }

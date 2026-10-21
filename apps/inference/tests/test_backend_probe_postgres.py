@@ -75,7 +75,8 @@ def _fake_runtime(monkeypatch, connection):
     async def connect(*args, **kwargs):
         assert args == ("postgresql://probe-role@localhost/annotation_test",)
         assert kwargs["server_settings"] == {
-            "application_name": "aap-inference-backend-probe"
+            "application_name": "aap-inference-backend-probe",
+            "default_transaction_read_only": "on",
         }
         return connection
 

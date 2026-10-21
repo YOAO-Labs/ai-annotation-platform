@@ -3,6 +3,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Inference Backend transaction-bound setup probe",
   "$comment": "The encrypted subject preserves the original Workspace transaction snapshot. Only the fixed policy and open RPCs are granted to the dedicated probe client; credentials and the database-local key are never returned to Workspace.",
+  "$defs": {},
   "type": "object",
   "function_defaults": {
     "parallel": "UNSAFE",

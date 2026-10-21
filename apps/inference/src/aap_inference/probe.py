@@ -4,14 +4,15 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
-from .capabilities import CapabilityLimits, extract_capabilities
+from aap_inference_contract.capabilities import CapabilityLimits
+from .capabilities import extract_capabilities
 
 
 @dataclass(frozen=True)
 class BackendSetupLocator:
     id: UUID
     url: str
-    auth_method: str
+    auth_method: str | None
     auth_token: str | None
     extra_params: dict[str, Any] = field(default_factory=dict)
 

@@ -750,6 +750,10 @@ last_reviewed: 2026-10-21
 | `WORKSPACE_CONFIGURATION_DATABASE_URL` | `—` | — |
 | `WORKSPACE_CONFIGURATION_DATABASE_URL_FILE` | `—` | — |
 | `WORKSPACE_CONFIGURATION_TIMEOUT_SECONDS` | `30` | — |
+| `WORKSPACE_INFERENCE_PROBE_URL` | `—` | Standalone Workspace calls the credential-owning Inference probe for backend modalities. These are independent-runtime settings; API probe selectors are below. |
+| `WORKSPACE_INFERENCE_PROBE_TOKEN` | `—` | — |
+| `WORKSPACE_INFERENCE_PROBE_TOKEN_FILE` | `—` | — |
+| `WORKSPACE_INFERENCE_PROBE_TIMEOUT_SECONDS` | `30` | — |
 | `WORKSPACE_GUIDE_OBJECTS_URL` | `—` | Guide byte capability consumed by the API binding and the Workspace owner. In the independent owner, use the existing Assets Source Guide endpoint. |
 | `WORKSPACE_GUIDE_OBJECTS_TOKEN` | `—` | — |
 | `WORKSPACE_GUIDE_OBJECTS_TOKEN_FILE` | `—` | — |
@@ -785,6 +789,7 @@ last_reviewed: 2026-10-21
 | `WORKSPACE_RUNTIME_DIRECTORY_QUERY_DATABASE_URL_FILE` | `—` | — |
 | `WORKSPACE_RUNTIME_PROJECT_QUERY_BRIEFS_DATABASE_URL_FILE` | `—` | — |
 | `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE` | `—` | — |
+| `WORKSPACE_RUNTIME_INFERENCE_PROBE_TOKEN_FILE` | `—` | — |
 
 ## Labeling class usage: API first checks current Workspace management authority.
 
@@ -819,3 +824,18 @@ last_reviewed: 2026-10-21
 | `INFERENCE_CONTROL_TOKEN_FILE` | `—` | — |
 | `INFERENCE_RUNTIME_PIPELINES_DATABASE_URL_FILE` | `—` | Host paths mapped to the container's read-only secret files. |
 | `INFERENCE_RUNTIME_CONTROL_TOKEN_FILE` | `—` | — |
+
+## Workspace backend setup probe: empty selectors borrow the caller transaction.
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `INFERENCE_BACKEND_PROBE_URL` | `—` | Select URL or DSN, never both; explicit provider failure has no fallback. |
+| `INFERENCE_BACKEND_PROBE_TOKEN` | `—` | — |
+| `INFERENCE_BACKEND_PROBE_TOKEN_FILE` | `—` | — |
+| `INFERENCE_BACKEND_PROBE_DATABASE_URL` | `—` | — |
+| `INFERENCE_BACKEND_PROBE_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_BACKEND_PROBE_TIMEOUT_SECONDS` | `30` | — |
+| `INFERENCE_BACKEND_PROBE_CONTROL_TOKEN` | `—` | Standalone Inference probe uses the same DATABASE_URL selectors and its own bearer. Never reuse the pipeline bearer; the two routes reject each other's token. |
+| `INFERENCE_BACKEND_PROBE_CONTROL_TOKEN_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_BACKEND_PROBE_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_BACKEND_PROBE_CONTROL_TOKEN_FILE` | `—` | — |

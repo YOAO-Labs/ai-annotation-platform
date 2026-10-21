@@ -350,7 +350,7 @@ async def test_labeling_configuration_reads_keep_persisted_count_and_phase_facts
                     await session.execute(delete(User).where(User.id == user_id))
 
 
-async def test_inference_configuration_reads_pool_and_complete_registry_facts(
+async def test_inference_configuration_reads_pool_and_opaque_registry_snapshot(
     test_engine,
 ):
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
@@ -426,15 +426,11 @@ async def test_inference_configuration_reads_pool_and_complete_registry_facts(
         assert missing_pool["legacy_registry_id"] is None
         assert backend["registry_id"] == str(registry_id)
         assert backend["backend"]["id"] == str(registry_id)
-        assert backend["backend"]["url"] == registry.url
-        assert backend["backend"]["auth_method"] == "bearer"
-        assert backend["backend"]["auth_token"] == (
-            "workspace-configuration-test-token"
-        )
-        assert backend["backend"]["extra_params"] == {
-            "max_concurrency": 7,
-            "owner_test": True,
-        }
+        assert set(backend["backend"]) == {"id", "probe_subject"}
+        subject = backend["backend"]["probe_subject"]
+        assert subject.startswith("v1.")
+        assert registry.url not in subject
+        assert registry.auth_token not in subject
         assert missing_backend["backend"] is None
     finally:
         if pool_id is not None or registry_id is not None:

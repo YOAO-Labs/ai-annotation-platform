@@ -5,9 +5,9 @@ status: stable
 last_reviewed: 2026-10-21
 ---
 
-# Inference 命名编排运行配置
+# Inference 私有运行配置
 
-本页说明保存的命名预标编排如何选择数据 owner，以及如何在本地启用可选的 Inference HTTP runtime。该进程只承载命名编排的私有读写协议，不执行模型推理或 Celery 预测任务。它描述 API 与 owner 之间的私有边界，不新增终端用户 API。
+本页说明保存的命名预标编排如何选择数据 owner，以及如何在本地启用可选的 Inference HTTP runtime。同一进程可独立承载命名编排协议、Workspace 后端能力探测，或同时启用两者；不执行模型推理或 Celery 预测任务。它描述 API 与 owner 之间的私有边界，不新增终端用户 API。
 
 命名 `ProjectPipeline` 与 Project 内嵌的旧 `preannotate_pipeline` 是两个不同能力：前者由 Inference 承担；后者继续由 Workspace 管理。六个公开命名编排路由与 DTO 保持不变：
 
@@ -88,3 +88,51 @@ Pipeline 行 codec 会保留 `stages` 的 JSONB `null` 与标量，不提前改�
 本页描述的代码与 opt-in 配置已经存在。借用事务、专用 DSN、HTTP 的冻结 API 回放、真实权限锁冲突、丢响应恢复、重启、非空备份恢复、独立安装包、受限容器和完整 migration 均已通过限定本地验收。Compose 的 CPU/内存限制是配置值，不代表生产容量或 SLO 验收。生产配置没有在本页范围内变更。该切片只覆盖保存的命名编排，不表示完整 Inference 模块已经可以任意更换语言；已有 Go 月报实验仍是独立尝试。
 
 架构决策见 [ADR-0146](/dev/adr/0146-inference-named-pipeline-owner)。
+
+## Workspace 的后端能力探测
+
+`POST /v1/backends/probe` 接收 `aap-inference-backend-probe/v1` 请求：
+`request_id`、`registry_id`、不透明 `probe_subject`、`timeout_seconds` 和两项
+`CapabilityLimits`。成功回复只含绑定信息及 `modalities`；后端 URL、auth token 和
+extra_params 不进入 Workspace。JSON Schema 随 `aap-inference-contract` 工件发布。
+
+API 的 `INFERENCE_BACKEND_PROBE_URL` 与 `INFERENCE_BACKEND_PROBE_DATABASE_URL(_FILE)`
+互斥，均留空时借用 caller connection；HTTP 使用
+`INFERENCE_BACKEND_PROBE_TOKEN(_FILE)`，默认超时30秒。
+独立 Workspace 设置 `WORKSPACE_INFERENCE_PROBE_URL`、
+`WORKSPACE_INFERENCE_PROBE_TOKEN(_FILE)` 和 `WORKSPACE_INFERENCE_PROBE_TIMEOUT_SECONDS`。
+任何显式提供方失败都不选择另一个提供方。缺少内部能力返回503；实际后端 setup 失败保持
+旧的 fail-open 行为，返回 null modalities；旧 JSON 数值物化失败仍导致配置事务回滚和500。
+
+Inference 可以只设置 `INFERENCE_BACKEND_PROBE_DATABASE_URL(_FILE)` 与
+`INFERENCE_BACKEND_PROBE_CONTROL_TOKEN(_FILE)` 启动 probe-only 进程。
+专用 `inference_backend_probe_client` 只有私有 policy/open 两项函数权限；迁移后依次应用
+`module-data-grants.sql` 和 `inference-backend-probe-grants.sql`。它不能读 registry、
+数据库私钥表或其他 owner 原表。Probe bearer 与 pipeline bearer 必须不同，不能互相调用。
+
+```dotenv
+# API on host
+INFERENCE_BACKEND_PROBE_URL=http://127.0.0.1:8768
+INFERENCE_BACKEND_PROBE_TOKEN_FILE=/absolute/path/to/probe-token
+# Compose secret-file selectors
+INFERENCE_RUNTIME_BACKEND_PROBE_DATABASE_URL_FILE=/absolute/path/to/probe-client-dsn
+INFERENCE_RUNTIME_BACKEND_PROBE_CONTROL_TOKEN_FILE=/absolute/path/to/probe-token
+# Independent Workspace on the same Compose network
+WORKSPACE_INFERENCE_PROBE_URL=http://inference-probe:8768
+WORKSPACE_RUNTIME_INFERENCE_PROBE_TOKEN_FILE=/absolute/path/to/probe-token
+```
+
+```sh
+docker compose -f docker-compose.inference-probe.yml -f docker-compose.workspace-configuration.yml -f docker-compose.workspace-inference-probe.yml up -d --build inference-probe workspace-configuration
+```
+
+Workspace 还需要原有配置 DSN 和 control token 文件。Probe 示例与 pipeline 示例都发布宿主
+8768，分别启动时只能选择其一；需要双能力时在同一 Inference 服务中显式提供两组凭据。
+沿用 UID10008、只读根、1 CPU／256 MiB 等限制，它们是开发配置，不是生产容量结论。
+
+Subject 由调用方事务内的固定 Native 函数加密生成，绑定数据库、registry 和仍在进行的
+完整事务 ID，保留未提交后端及轮换前快照。它不新增业务提交或外部 I/O 前的 registry
+行锁；事务结束后不能重新打开。请求上限16 MiB、回复上限4 KiB；压缩回复被拒绝，客户端
+单次请求、不跟随重定向、不重试。此大小边界只适用于探测元数据，不适用于预测数据，
+也不证明无限大历史 extra_params 的兼容性。详见
+[ADR-0149](/dev/adr/0149-credential-owning-workspace-backend-probe)。

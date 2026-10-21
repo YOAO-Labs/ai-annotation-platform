@@ -20,6 +20,7 @@ from app.config import settings
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_identity_admission_live import _port, _start
 from tests.test_module_data_roles import _role_url
+from tests.inference_backend_probe_helpers import probe_provider
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -175,59 +176,65 @@ async def provider_url(
     assert parsed.database and parsed.database.endswith("_test")
     assert os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1"
     _verify_postgres(parsed)
-    with tempfile.TemporaryDirectory(
-        prefix="workspace-configuration-", dir=ROOT / ".worktree"
-    ) as temporary:
-        directory = Path(temporary)
-        dsn_file = directory / "configuration-database"
-        token_file = directory / "membership-control"
-        for path, value in ((dsn_file, dsn), (token_file, token)):
-            path.write_text(value, encoding="utf-8")
-            path.chmod(0o600)
-        port = _port()
-        environment = {
-            "PATH": os.environ.get("PATH", ""),
-            "WORKSPACE_HOST": "127.0.0.1",
-            "WORKSPACE_PORT": str(port),
-            "WORKSPACE_CONFIGURATION_DATABASE_URL_FILE": str(dsn_file),
-            "WORKSPACE_MEMBERSHIP_CONTROL_TOKEN_FILE": str(token_file),
-            "WORKSPACE_CONFIGURATION_VIDEO_SEGMENT_SIZE_FRAMES": str(
-                video_segment_size_frames
-            ),
-            "WORKSPACE_CONFIGURATION_VIDEO_TRACKER_WINDOW_SIZE_FRAMES": "300",
-            "WORKSPACE_CONFIGURATION_VIDEO_TRACKER_SAM3_WINDOW_SIZE_FRAMES": "16",
-            "WORKSPACE_CONFIGURATION_SETUP_TIMEOUT_SECONDS": str(setup_timeout),
-            "WORKSPACE_TIMEOUT_SECONDS": "15",
-        }
-        assert not {
-            "WORKSPACE_MEMBERSHIP_DATABASE_URL",
-            "WORKSPACE_MEMBERSHIP_DATABASE_URL_FILE",
-            "WORKSPACE_OWNER_TRANSFER_DATABASE_URL",
-            "WORKSPACE_OWNER_TRANSFER_DATABASE_URL_FILE",
-        }.intersection(environment)
-        owner = None
-        relay = None
-        try:
-            owner = await asyncio.to_thread(
-                _start,
-                [sys.executable, "-m", "aap_workspace"],
-                environment,
-                directory,
-                directory / "workspace-owner.log",
-                port,
-                "/ready",
-            )
-            origin = owner.origin
-            if drop_operation_id is not None:
-                relay = _DropOnceRelay(origin, str(drop_operation_id))
-                origin = relay.start()
-            yield origin
-        finally:
-            if relay is not None:
-                try:
-                    relay.stop()
-                finally:
-                    if owner is not None:
-                        owner.stop()
-            elif owner is not None:
-                owner.stop()
+    async with probe_provider(dsn) as (probe_url, probe_token):
+        with tempfile.TemporaryDirectory(
+            prefix="workspace-configuration-", dir=ROOT / ".worktree"
+        ) as temporary:
+            directory = Path(temporary)
+            dsn_file = directory / "configuration-database"
+            token_file = directory / "membership-control"
+            for path, value in ((dsn_file, dsn), (token_file, token)):
+                path.write_text(value, encoding="utf-8")
+                path.chmod(0o600)
+            probe_token_file = directory / "inference-probe-control"
+            probe_token_file.touch(mode=0o600)
+            probe_token_file.write_text(probe_token, encoding="utf-8")
+            port = _port()
+            environment = {
+                "PATH": os.environ.get("PATH", ""),
+                "WORKSPACE_HOST": "127.0.0.1",
+                "WORKSPACE_PORT": str(port),
+                "WORKSPACE_CONFIGURATION_DATABASE_URL_FILE": str(dsn_file),
+                "WORKSPACE_MEMBERSHIP_CONTROL_TOKEN_FILE": str(token_file),
+                "WORKSPACE_CONFIGURATION_VIDEO_SEGMENT_SIZE_FRAMES": str(
+                    video_segment_size_frames
+                ),
+                "WORKSPACE_CONFIGURATION_VIDEO_TRACKER_WINDOW_SIZE_FRAMES": "300",
+                "WORKSPACE_CONFIGURATION_VIDEO_TRACKER_SAM3_WINDOW_SIZE_FRAMES": "16",
+                "WORKSPACE_CONFIGURATION_SETUP_TIMEOUT_SECONDS": str(setup_timeout),
+                "WORKSPACE_TIMEOUT_SECONDS": "15",
+                "WORKSPACE_INFERENCE_PROBE_URL": probe_url,
+                "WORKSPACE_INFERENCE_PROBE_TOKEN_FILE": str(probe_token_file),
+            }
+            assert not {
+                "WORKSPACE_MEMBERSHIP_DATABASE_URL",
+                "WORKSPACE_MEMBERSHIP_DATABASE_URL_FILE",
+                "WORKSPACE_OWNER_TRANSFER_DATABASE_URL",
+                "WORKSPACE_OWNER_TRANSFER_DATABASE_URL_FILE",
+            }.intersection(environment)
+            owner = None
+            relay = None
+            try:
+                owner = await asyncio.to_thread(
+                    _start,
+                    [sys.executable, "-m", "aap_workspace"],
+                    environment,
+                    directory,
+                    directory / "workspace-owner.log",
+                    port,
+                    "/ready",
+                )
+                origin = owner.origin
+                if drop_operation_id is not None:
+                    relay = _DropOnceRelay(origin, str(drop_operation_id))
+                    origin = relay.start()
+                yield origin
+            finally:
+                if relay is not None:
+                    try:
+                        relay.stop()
+                    finally:
+                        if owner is not None:
+                            owner.stop()
+                elif owner is not None:
+                    owner.stop()

@@ -233,3 +233,23 @@ def test_client_rejects_invalid_provider_configuration_without_io() -> None:
     ):
         with pytest.raises(BackendProbeUnavailable):
             BackendProbeHttpClient(base_url, token, timeout_seconds=timeout)
+
+
+@pytest.mark.asyncio
+async def test_client_rejects_compressed_reply_before_consuming_body(monkeypatch):
+    class ForbiddenBody(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            raise AssertionError("Compressed provider body must not be decompressed")
+            yield b""
+
+    async def handle(request):
+        assert request.headers["accept-encoding"] == "identity"
+        return httpx.Response(
+            200,
+            stream=ForbiddenBody(),
+            headers={"content-type": "application/json", "content-encoding": "gzip"},
+        )
+
+    _install_mock_transport(monkeypatch, httpx.MockTransport(handle))
+    with pytest.raises(BackendProbeUnavailable):
+        await BackendProbeHttpClient("http://owner.local", "token").execute(_request())

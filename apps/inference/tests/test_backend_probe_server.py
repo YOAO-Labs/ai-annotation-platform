@@ -21,9 +21,7 @@ from aap_inference.pipeline_server import PipelineHttpServer
 
 
 _REGISTRY_ID = UUID("764c1509-a323-4b89-8cc3-991cb3a0f72f")
-_SUBJECT = "v1." + base64.urlsafe_b64encode(b"opaque probe subject").decode().rstrip(
-    "="
-)
+_SUBJECT = "v1." + base64.b64encode(b"opaque probe subject").decode("ascii")
 
 
 def _request():

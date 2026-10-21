@@ -9,7 +9,10 @@ from typing import Any, AsyncContextManager, Protocol
 from uuid import UUID
 
 from aap_inference_contract.capabilities import CapabilityLimits
-from aap_inference_contract.probe import BackendProbeUnavailable
+from aap_inference_contract.probe import (
+    BackendProbeInvalidRequest,
+    BackendProbeUnavailable,
+)
 from aap_inference import (
     PipelineValidationError,
     validate_saved_pipeline,
@@ -1637,7 +1640,7 @@ class ConfigurationManager:
                 timeout=self.setup_timeout,
                 limits=self.capability_limits,
             )
-        except BackendProbeUnavailable:
+        except (BackendProbeInvalidRequest, BackendProbeUnavailable):
             raise ConfigurationUnavailable() from None
         if modalities is None or not modalities:
             return

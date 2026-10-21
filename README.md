@@ -397,6 +397,8 @@ Identity 准入、API key、核心会话、自助账户、注册恢复／邮件�
 
 命名流水线的列表、详情、创建、更新、删除和应用已接入 Inference owner，支持借用调用方事务、专用数据库连接及独立 HTTP 进程。公开接口保留原样；嵌入项目的预标注配置继续由 Workspace 持有。三路径、独立工件、受限容器、并发与恢复已通过限定本地验收，配置见 [Inference 运行指南](./docs-site/api/guides/inference-runtime.md)。
 
+Workspace 的后端能力探测通过 Inference 私有协议返回模态，Workspace 只持有事务绑定的不透明快照；API 的借用连接、专用 DSN 和 HTTP 以及独立 Workspace 均使用同一能力。配置与边界见 [Inference 运行指南](./docs-site/api/guides/inference-runtime.md#workspace-的后端能力探测)；完整模块与语言替换仍按部署台账推进。
+
 类别与属性用量已接入 Labeling 读取边界，先核验当前项目管理权，保留原统计口径和两次顺序读取；独立安装包、三路径响应、语句间提交、受限镜像与备份恢复已完成限定本地验收，见 [Labeling 运行协议](./docs-site/api/guides/labeling-runtime.md)与 [统计 owner ADR](./docs/adr/0142-labeling-class-usage-query-owner.md)。
 
 项目与批次维护、数据回填、成员绩效、搜索、指引资源及预测／标注导入见 [项目、批次与数据运维](./docs-site/dev/sdk/project-workflows.md)。分派绑定原预览版本，项目范围约束先于查询限制，批次导出与项目导出使用相同能力检查。

@@ -21,9 +21,7 @@ from aap_inference.backend_probe_manager import BackendProbeManager
 
 
 _REGISTRY_ID = UUID("764c1509-a323-4b89-8cc3-991cb3a0f72f")
-_SUBJECT = "v1." + base64.urlsafe_b64encode(b"opaque snapshot payload").decode().rstrip(
-    "="
-)
+_SUBJECT = "v1." + base64.b64encode(b"opaque snapshot payload").decode("ascii")
 
 
 class _Data:
@@ -93,8 +91,9 @@ async def test_manager_opens_bound_snapshot_and_reuses_existing_probe(monkeypatc
     assert locator.auth_token == "synthetic-endpoint-token"
     assert locator.extra_params == {"opaque": [1, None]}
     assert timeout == 2.5
-    assert limits == request.limits
-    assert reply.schema == BACKEND_PROBE_PROTOCOL
+    assert limits == CapabilityLimits()
+    assert type(limits) is CapabilityLimits
+    assert reply.model_dump(by_alias=True)["schema"] == BACKEND_PROBE_PROTOCOL
     assert reply.ok is True
     assert reply.modalities == ["image", "video"]
     assert reply.request_id == request.request_id
@@ -125,7 +124,7 @@ async def test_manager_materialization_failure_is_bound_and_secret_free(monkeypa
     reply = await manager.execute(request)
 
     assert isinstance(reply, BackendProbeFailure)
-    assert reply.schema == BACKEND_PROBE_PROTOCOL
+    assert reply.model_dump(by_alias=True)["schema"] == BACKEND_PROBE_PROTOCOL
     assert reply.ok is False
     assert reply.error == "legacy_materialization_failure"
     assert reply.request_id == request.request_id
@@ -158,7 +157,7 @@ async def test_backend_probe_failures_remain_fail_open_but_subject_open_is_requi
             _REGISTRY_ID,
             _SUBJECT,
             timeout=2.5,
-            limits=request.limits,
+            limits=CapabilityLimits(),
         )
         is None
     )
@@ -167,3 +166,23 @@ async def test_backend_probe_failures_remain_fail_open_but_subject_open_is_requi
     broken = BackendProbeManager(_Data(error=unavailable))
     with pytest.raises(BackendProbeUnavailable):
         await broken.execute(request)
+
+
+@pytest.mark.asyncio
+async def test_nullable_auth_method_keeps_the_existing_unauthenticated_probe(
+    monkeypatch,
+):
+    endpoint = json.loads(_raw_backend_json())
+    endpoint["auth_method"] = None
+    endpoint["auth_token"] = None
+    observed = []
+
+    async def probe(locator, **kwargs):
+        observed.append(locator)
+        return {"supported_prompts": ["bbox"]}
+
+    monkeypatch.setattr(manager_module, "probe_backend_capabilities", probe)
+    reply = await BackendProbeManager(_Data(json.dumps(endpoint))).execute(_request())
+    assert reply.ok is True and reply.modalities == ["image"]
+    assert len(observed) == 1
+    assert observed[0].auth_method is None and observed[0].auth_token is None

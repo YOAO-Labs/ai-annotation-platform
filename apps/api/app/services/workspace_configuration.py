@@ -46,7 +46,9 @@ class ConfigurationExecution:
     guide_request: ConfigurationRequest | None = None
 
 
-def configuration_manager(data, *, noop_projection=None, guide_objects=None):
+def configuration_manager(data, *, db=None, noop_projection=None, guide_objects=None):
+    from app.services.inference_backend_probe import backend_probe
+
     options = {"noop_projection": noop_projection}
     if guide_objects is not None:
         options["guide_objects"] = guide_objects
@@ -55,6 +57,7 @@ def configuration_manager(data, *, noop_projection=None, guide_objects=None):
         capability_limits=capability_limits_from_settings(),
         video_segment_size_frames=settings.video_segment_size_frames,
         setup_timeout=settings.ml_health_timeout,
+        backend_probe=backend_probe(db),
         **options,
     )
 
@@ -89,9 +92,9 @@ async def execute_configuration(
             # Retain the existing blocking pool lock for borrowed transactions.
             data = WorkspaceConfigurationData(db)
             manager = (
-                configuration_manager(data, guide_objects=_guide_objects())
+                configuration_manager(data, db=db, guide_objects=_guide_objects())
                 if request.operation in GUIDE_OPERATIONS
-                else configuration_manager(data)
+                else configuration_manager(data, db=db)
             )
             reply = await manager.execute(request)
         else:
@@ -143,14 +146,14 @@ async def execute_configuration(
                     data = ConfigurationPostgresData(dsn, command_timeout=timeout)
                     if request.operation in GUIDE_OPERATIONS:
                         manager = configuration_manager(
-                            data, guide_objects=_guide_objects()
+                            data, db=db, guide_objects=_guide_objects()
                         )
                     elif request.operation == "rename_project_class":
                         manager = configuration_manager(
-                            data, noop_projection=noop_projection
+                            data, db=db, noop_projection=noop_projection
                         )
                     else:
-                        manager = configuration_manager(data)
+                        manager = configuration_manager(data, db=db)
                     reply = await manager.execute(request)
         if not reply.ok:
             raise HTTPException(

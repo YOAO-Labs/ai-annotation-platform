@@ -7,6 +7,7 @@ name = "aap-inference"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aap-inference-contract" },
     { name = "aap-owner-data" },
     { name = "aap-protocol-v2" },
     { name = "aap-task-contract" },
@@ -36,6 +37,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-inference-contract", editable = "../_shared/inference_contract" },
     { name = "aap-owner-data", editable = "../_shared/owner_data" },
     { name = "aap-protocol-v2", editable = "../_shared/protocol_v2" },
     { name = "aap-task-contract", editable = "../_shared/task_contract" },
@@ -51,6 +53,24 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24" },
 ]
 provides-extras = ["probe", "postgres", "client", "runtime", "test"]
+
+[[package]]
+name = "aap-inference-contract"
+version = "0.1.0"
+source = { editable = "../_shared/inference_contract" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.28.0" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
+]
+provides-extras = ["client", "test"]
 
 [[package]]
 name = "aap-owner-data"

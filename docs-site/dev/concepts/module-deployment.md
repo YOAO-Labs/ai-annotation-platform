@@ -109,6 +109,18 @@ Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事�
 非 Python 提供方或生产容量已完成。部署和边界见
 [运行指南](/api/guides/inference-runtime)及[ADR-0146](/dev/adr/0146-inference-named-pipeline-owner)。
 
+## Workspace 后端能力探测
+
+Workspace 配置路径只持有 registry ID 和不透明事务快照；Inference 独立持有凭据并执行
+setup。API 支持借用连接、专用 DSN 和 HTTP，独立 Workspace 使用同一私有 HTTP 协议。
+三种模式保持原读取时点、后端故障 fail-open、内部故障503与旧物化错误的回滚阶段；
+原事务结束后拒绝重新打开快照。没有额外业务提交或外部 I/O 前的 registry 行锁。
+
+`aap-inference-contract` 单独发布值、wire schema 和客户端；专用 probe LOGIN 只有两个
+固定能力，Workspace 不获得 key／registry 原表或凭据。此切片不收口 registry/pool 写入、
+health apply、路由/GPU、发布与部署等其余控制面，也不代表全模块语言替换。运行配置及
+限定验收见 [ADR-0149](/dev/adr/0149-credential-owning-workspace-backend-probe)。
+
 ## 指南素材命令与对象能力
 
 指南签名、HEAD 和普通删除已有独立字节合同，由既有 Assets Source 二进制提供。

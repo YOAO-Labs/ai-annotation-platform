@@ -1,4 +1,4 @@
-from aap_inference import CapabilityLimits
+from aap_inference_contract.capabilities import CapabilityLimits
 
 from app.config import settings
 

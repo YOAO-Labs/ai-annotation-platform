@@ -1,5 +1,4 @@
 from .capabilities import (
-    CapabilityLimits,
     derive_modalities,
     extract_capabilities,
     resolve_model_task,
@@ -30,7 +29,6 @@ from .probe import (
 
 __all__ = [
     "BackendSetupLocator",
-    "CapabilityLimits",
     "GEOMETRIES",
     "GEOMETRY_VALUES",
     "INFRAS",

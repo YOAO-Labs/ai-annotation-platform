@@ -96,9 +96,9 @@ async def _commit_and_refresh_if_needed(
         raise HTTPException(status_code=503, detail="项目配置服务暂不可用")
     await db.commit()
     if not execution.guide_result.result.refreshed:
-        await configuration_manager(WorkspaceConfigurationData(db)).refresh_guide(
-            execution.guide_request
-        )
+        await configuration_manager(
+            WorkspaceConfigurationData(db), db=db
+        ).refresh_guide(execution.guide_request)
 
 
 @router.post(

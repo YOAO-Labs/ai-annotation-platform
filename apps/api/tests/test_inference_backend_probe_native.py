@@ -277,7 +277,7 @@ async def test_probe_client_has_only_fixed_rpcs_and_no_secret_or_registry_access
         )
         assert [row["signature"] for row in signatures] == [
             "aap_inference_backend_probe_v1.backend_probe_policy()",
-            "aap_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)",
+            "aap_inference_backend_probe_v1.open_backend_probe_subject(text, uuid)",
         ]
         function_metadata = await connection.fetch(
             """SELECT namespace.nspname || '.' || function.proname || '(' ||

@@ -16,7 +16,7 @@ errors.
 uv run --project apps/inference --extra test pytest apps/inference/tests
 ```
 
-Tracker window limits are passed as `CapabilityLimits`; defaults match the API
+Tracker window limits are passed as `aap_inference_contract.capabilities.CapabilityLimits`; defaults match the API
 configuration, while application callers should pass their configured values.
 
 `backend_transport.BackendTransport` owns the existing backend HTTP operations,
@@ -68,3 +68,20 @@ configuration failures do not fall back to a local writer.
 This capability does not establish full Inference deployment, a second-language
 provider or production capacity. Local qualification is recorded separately
 from implementation and from the earlier frozen legacy observations.
+
+Workspace setup probing uses `BackendProbeManager` and the shared
+`aap-inference-backend-probe/v1` contract. Native encrypted subjects preserve the
+original caller snapshot, including uncommitted rows and pre-rotation credentials.
+Only Inference opens endpoint credentials; Workspace receives modalities. Configure
+`INFERENCE_BACKEND_PROBE_DATABASE_URL(_FILE)` and the dedicated
+`INFERENCE_BACKEND_PROBE_CONTROL_TOKEN(_FILE)` for probe-only startup. Combined
+startup must use a different pipeline bearer. Both capabilities share the existing
+listener; `/health` is ready when at least one configured capability is ready.
+
+The probe-only LOGIN executes exactly policy/open in `aap_inference_backend_probe_v1`
+and cannot read registry/key tables. Actual backend failures retain null modalities;
+internal capability failures are unavailable, while legacy JSON materialization
+failures remain a bound sanitized error. Requests16 MiB/replies4 KiB are metadata
+bounds only. The single-attempt client rejects compression and redirects. Completed
+origin transaction subjects cannot be reopened; already accepted I/O is not cancelled
+retroactively. See ADR-0149 for transaction, backup and remaining module boundaries.

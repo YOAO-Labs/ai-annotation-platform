@@ -123,6 +123,20 @@ kind 为 `batch_predict`、status 为 `running` 的作业数。两者分别返�
 部署先应用当前迁移，再应用 owner 和实际 API 角色的 grants。详见
 [传输与删除依赖边界](/dev/adr/0148-inference-backend-transport-and-deletion-dependencies)。
 
+## Workspace 后端快照探测
+
+`aap_inference_v1.workspace_configuration_backend(registry_id)` 保留原读取时点，
+只向 Workspace 返回 `{id, probe_subject}`；空 backend 仍为 null。Subject 使用数据库内
+私钥加密原后端快照，绑定数据库、registry 和仍在进行的原事务。Inference 的专用
+`backend_probe_policy()`／`open_backend_probe_subject(text,uuid)` 能力打开快照，
+不重新读取当前 registry；Workspace 角色没有开封或私钥表权限。
+
+这让独立 Inference 进程可以探测调用方尚未提交的后端，以及凭据轮换前已选定的配置，
+无需额外业务提交，也不在外部 HTTP 前锁 registry 行。事务提交或回滚后，重复开封失败；
+已经受理的外部请求不会被追溯取消。备份保留私钥；新克隆库须生成自己的新 subject，
+原数据库 subject 不能跨库使用。权限脚本和错误相位见
+[Inference 运行配置](/api/guides/inference-runtime#workspace-的后端能力探测)。
+
 ## 初始关联与分块建题
 
 新操作使用固定 `schema`、布尔 `ok` 和成功 `data` 或失败 `error.code`。

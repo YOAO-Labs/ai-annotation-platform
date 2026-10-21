@@ -74,6 +74,10 @@ GRANT EXECUTE ON FUNCTION aap_inference_pipelines_v1.pipeline_policy(),
     TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.clear_primary_backend_bindings(uuid)
     TO :"application_role";
+GRANT USAGE ON SCHEMA aap_inference_backend_probe_v1 TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_inference_backend_probe_v1.backend_probe_policy(),
+    aap_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)
+    TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_learning_v1.registry_evaluation_reference_exists(uuid),
     aap_jobs_v1.count_running_registry_predictions(uuid) TO :"application_role";
 -- Embedded Identity adapters use the same owner capabilities as isolated clients.

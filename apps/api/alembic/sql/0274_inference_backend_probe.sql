@@ -112,7 +112,7 @@ BEGIN
         v_backend_json := pg_catalog.substr(v_plaintext, v_header_end + 1);
 
         IF pg_catalog.jsonb_typeof(v_header) IS DISTINCT FROM 'object'
-           OR pg_catalog.jsonb_object_length(v_header) <> 5
+           OR (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(v_header)) <> 5
            OR NOT (v_header ?& ARRAY[
                'schema', 'database', 'registry_id', 'origin_xid', 'backend_chars'
            ]) THEN

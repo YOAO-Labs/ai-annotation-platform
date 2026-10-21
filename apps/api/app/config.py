@@ -320,6 +320,13 @@ class Settings(BaseSettings):
     inference_pipelines_database_url_file: str = ""
     inference_pipelines_timeout_seconds: float = Field(default=30, gt=0, le=3600)
 
+    inference_backend_probe_url: str = Field(default="", repr=False)
+    inference_backend_probe_token: str = Field(default="", repr=False)
+    inference_backend_probe_token_file: str = ""
+    inference_backend_probe_database_url: str = Field(default="", repr=False)
+    inference_backend_probe_database_url_file: str = ""
+    inference_backend_probe_timeout_seconds: float = Field(default=30, gt=0, le=3600)
+
     media_probe_url: str = ""
     media_probe_token: str = Field(default="", repr=False)
     media_probe_timeout_seconds: float = Field(default=90, gt=0, le=3600)

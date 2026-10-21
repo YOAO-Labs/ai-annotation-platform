@@ -726,6 +726,38 @@ Jobs 运行预测计数使用固定 Native 函数；应用当前迁移后需重�
 的精确权限，不能给 Inference 外域原表权限。范围见
 [ADR-0148](docs/adr/0148-inference-backend-transport-and-deletion-dependencies.md)。
 
+### Workspace 后端能力探测
+
+Workspace 的后端事实只包含 registry ID 和不透明 `probe_subject`；实际 `/setup` 请求由
+Inference 持有凭据并执行。API 默认在现有 caller connection 打开同一事务快照；可选
+`INFERENCE_BACKEND_PROBE_DATABASE_URL(_FILE)` 或 `INFERENCE_BACKEND_PROBE_URL`，两者互斥。
+HTTP 使用 `INFERENCE_BACKEND_PROBE_TOKEN(_FILE)` 和默认30秒的
+`INFERENCE_BACKEND_PROBE_TIMEOUT_SECONDS`。显式选择的提供方失败不回退。
+
+独立 Workspace 配置进程使用 `WORKSPACE_INFERENCE_PROBE_URL`、
+`WORKSPACE_INFERENCE_PROBE_TOKEN(_FILE)` 与 `WORKSPACE_INFERENCE_PROBE_TIMEOUT_SECONDS`。
+它不接收后端 URL 或 token。独立 Inference 进程可以只启用 probe，使用
+`INFERENCE_BACKEND_PROBE_DATABASE_URL(_FILE)` 和独立的
+`INFERENCE_BACKEND_PROBE_CONTROL_TOKEN(_FILE)`；不可复用 pipeline bearer。
+先应用当前迁移和 `module-data-grants.sql`，再安装
+`infra/docker/inference-backend-probe-grants.sql`，指定专用 `inference_backend_probe_client`。
+该 LOGIN 只能执行 policy/open 两项能力，没有 registry、私钥表或其他 owner 原表权限。
+
+`docker-compose.inference-probe.yml` 发布本机8768，宿主 selector 为
+`INFERENCE_RUNTIME_BACKEND_PROBE_DATABASE_URL_FILE` 与
+`INFERENCE_RUNTIME_BACKEND_PROBE_CONTROL_TOKEN_FILE`。它与已有流水线 Compose 示例共用
+宿主端口，分别启动时只能选择其一；同一二进制也支持双能力和两个不同 bearer。
+Workspace 配置服务叠加 `docker-compose.workspace-inference-probe.yml`，使用
+`WORKSPACE_RUNTIME_INFERENCE_PROBE_TOKEN_FILE` 并设置同网络 URL。
+所有 secret 文件保持只读挂载；示例不切换日常或生产环境。
+
+Subject 绑定原数据库、registry 和仍在进行的原事务。它保留未提交后端和配置轮换前的事实，
+不新增业务提交，不在外部 I/O 前持 registry 行锁。事务结束后不能再次打开；已经接受的
+外部请求不会被这一检查追溯取消。后端不可达仍按既有行为允许继续；内部提供方不可用返回
+503，旧 JSON 数值无法物化仍在原阶段失败。请求16 MiB／回复4 KiB 是此元数据协议的边界，
+不用于预测请求，也不声称覆盖无限大的历史 extra_params。见
+[ADR-0149](docs/adr/0149-credential-owning-workspace-backend-probe.md)。
+
 ### 设计系统
 
 前端设计系统基于 Tailwind CSS + shadcn/ui。运行时主题 Token 定义在 `apps/web/src/styles/shadcn.css`：

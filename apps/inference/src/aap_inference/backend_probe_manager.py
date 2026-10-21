@@ -57,7 +57,9 @@ def _setup_locator(request: BackendProbeRequest, raw_json: str) -> BackendSetupL
     backend_id = UUID(raw_id)
     if backend_id != request.registry_id:
         raise ValueError("backend snapshot identity does not match the request")
-    if type(endpoint["url"]) is not str or type(endpoint["auth_method"]) is not str:
+    if type(endpoint["url"]) is not str or (
+        endpoint["auth_method"] is not None and type(endpoint["auth_method"]) is not str
+    ):
         raise ValueError("backend snapshot endpoint fields are invalid")
     if endpoint["auth_token"] is not None and type(endpoint["auth_token"]) is not str:
         raise ValueError("backend snapshot credential is invalid")
@@ -100,7 +102,7 @@ class BackendProbeManager:
         capabilities = await probe_backend_capabilities(
             locator,
             timeout=request.timeout_seconds,
-            limits=request.limits,
+            limits=CapabilityLimits(**request.limits.model_dump()),
         )
         try:
             modalities = (

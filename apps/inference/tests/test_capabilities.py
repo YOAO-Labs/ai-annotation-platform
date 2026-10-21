@@ -3,8 +3,8 @@ from __future__ import annotations
 from aap_protocol_v2 import vocab
 from aap_protocol_v2.lifecycle import ManagedLifecycleCapabilities
 
+from aap_inference_contract.capabilities import CapabilityLimits
 from aap_inference import (
-    CapabilityLimits,
     ModelCapability,
     derive_modalities,
     extract_capabilities,

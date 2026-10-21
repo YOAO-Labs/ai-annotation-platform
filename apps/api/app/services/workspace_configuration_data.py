@@ -110,6 +110,8 @@ class WorkspaceConfigurationData:
                     },
                 )
         except DBAPIError as error:
+            if action == "backend" and _diagnostic(error)[0] == "55000":
+                raise ConfigurationUnavailable() from None
             mapped = configuration_busy_error(*_diagnostic(error))
             if mapped is not None:
                 raise ConfigurationCommandFailure(mapped) from error

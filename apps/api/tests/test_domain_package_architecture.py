@@ -543,12 +543,19 @@ DOMAIN_PACKAGES = (
         allowed_app_imports=(
             "app.config",
             "app.services.inference_limits",
+            "app.services.inference_backend_probe",
             "app.services.workspace_configuration_data",
             "app.services.workspace_project_query",
             "app.services.workspace_guide_objects",
         ),
     ),
     DomainSpec(package="workspace_configuration_data", legacy_facades=()),
+    DomainSpec(
+        package="inference_backend_probe",
+        legacy_facades=(),
+        allowed_app_imports=("app.config",),
+        allowed_framework_imports=("sqlalchemy",),
+    ),
     DomainSpec(
         package="workspace_template_query",
         legacy_facades=(),

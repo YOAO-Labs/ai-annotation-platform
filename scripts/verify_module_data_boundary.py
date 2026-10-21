@@ -67,6 +67,7 @@ IDENTITY_CLIENT_ROLES = {
     "WORKSPACE_DIRECTORY_QUERY": "workspace_directory_query_client",
     "LABELING_CLASS_QUERY": "labeling_class_query_client",
     "INFERENCE_PIPELINES": "inference_pipelines_client",
+    "INFERENCE_BACKEND_PROBE": "inference_backend_probe_client",
 }
 MODULE_ROLES = (
     "identity_code",
@@ -222,6 +223,7 @@ SQL_ARTIFACTS = (
     "0271_inference_pipelines.sql",
     "0272_workspace_backend_bindings.sql",
     "0273_inference_backend_dependency_reads.sql",
+    "0274_inference_backend_probe.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -307,8 +309,12 @@ SCHEMA_ARTIFACTS = (
     "0271_inference_pipelines.schema.json",
     "0272_workspace_backend_bindings.schema.json",
     "0273_inference_backend_dependency_reads.schema.json",
+    "0274_inference_backend_probe.schema.json",
 )
 TEST_FILES = (
+    "tests/test_inference_backend_probe_native.py",
+    "tests/test_inference_backend_probe_bindings.py",
+    "tests/test_inference_backend_probe_restore.py",
     "tests/test_inference_backend_dependency_reads_native.py",
     "tests/test_inference_backend_dependency_reads_restore.py",
     "tests/test_workspace_backend_bindings_native.py",
@@ -2135,6 +2141,8 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_workspace_template_query_v1') IS NULL "
             "AND to_regnamespace('aap_workspace_project_query_v1') IS NULL "
             "AND to_regnamespace('aap_inference_pipelines_v1') IS NULL "
+            "AND to_regnamespace('aap_inference_backend_probe_v1') IS NULL "
+            "AND to_regclass('aap_inference_backend_probe_v1.probe_secret') IS NULL "
             "AND to_regprocedure('aap_workspace_v1.clear_primary_backend_bindings(uuid)') IS NULL "
             "AND to_regprocedure('aap_learning_v1.registry_evaluation_reference_exists(uuid)') IS NULL "
             "AND to_regprocedure('aap_jobs_v1.count_running_registry_predictions(uuid)') IS NULL "
@@ -2381,6 +2389,9 @@ def main(argv: list[str] | None = None) -> int:
         inference_pipelines_grants_path = (
             ROOT / "infra/docker/inference-pipelines-grants.sql"
         )
+        inference_backend_probe_grants_path = (
+            ROOT / "infra/docker/inference-backend-probe-grants.sql"
+        )
         identity_deactivation_grants_path = (
             ROOT / "infra/docker/identity-deactivation-grants.sql"
         )
@@ -2425,6 +2436,7 @@ def main(argv: list[str] | None = None) -> int:
             or not workspace_directory_query_grants_path.is_file()
             or not labeling_class_query_grants_path.is_file()
             or not inference_pipelines_grants_path.is_file()
+            or not inference_backend_probe_grants_path.is_file()
             or not identity_account_grants_path.is_file()
             or not identity_recovery_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
@@ -2503,6 +2515,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         inference_pipelines_grant_sql = inference_pipelines_grants_path.read_text(
             encoding="utf-8"
+        )
+        inference_backend_probe_grant_sql = (
+            inference_backend_probe_grants_path.read_text(encoding="utf-8")
         )
         workspace_project_query_grant_sql = (
             workspace_project_query_grants_path.read_text(encoding="utf-8")
@@ -2621,8 +2636,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0273"]:
-            raise RuntimeError("module-data acceptance requires migration head 0273")
+        if heads != ["0274"]:
+            raise RuntimeError("module-data acceptance requires migration head 0274")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -3193,6 +3208,22 @@ def main(argv: list[str] | None = None) -> int:
                 "workspace_owner": "workspace_code",
                 "inference_owner": "inference_code",
                 "inference_pipelines_role": "inference_pipelines_client",
+            },
+        )
+        phase = "install-inference-backend-probe-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=inference_backend_probe_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "inference_owner": "inference_code",
+                "inference_backend_probe_role": "inference_backend_probe_client",
             },
         )
         phase = "install-workspace-template-query-grants"
