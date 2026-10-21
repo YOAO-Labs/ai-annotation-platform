@@ -172,7 +172,11 @@ async def test_query_image_public_projection_restart_and_local_concurrency(
             async with api_template_query_binding(url=origin, token=token):
                 created = await httpx_client.post(
                     "/api/v1/project-templates",
-                    json={"name": "Image response projection", "type_label": "Image"},
+                    json={
+                        "name": "Image response projection",
+                        "type_label": "Image",
+                        "type_key": "image-det",
+                    },
                     headers=headers,
                 )
                 assert created.status_code == 201, created.text
