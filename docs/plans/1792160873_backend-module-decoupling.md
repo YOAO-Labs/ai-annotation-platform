@@ -4449,3 +4449,53 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   constraints roll back, while nullable fields may commit before public DTO
   validation returns500. Controlled health probes and synthetic GPU guard setup
   are explicit fixture boundaries, not backend/GPU runtime qualification.
+
+### Backend control: policy and binding prerequisites qualified locally
+
+- Pure capability policy now belongs to `aap_inference.pool_capability`; the old
+  API module is removed and every live import uses the canonical owner. Original
+  function/class AST and the15 normalization/fingerprint plus five diff vectors
+  are unchanged. Source and fresh noneditable installation each pass92 tests.
+  Five packages/forty source and protocol files match the current source manifest;
+  API/ORM/Celery/Workspace runtime are absent from the installed owner. The existing
+  protocol dependency still brings FastAPI transitively.
+- Native0272 adds one fixed Workspace command to clear matching Project primary
+  backend-pool bindings in the caller transaction. It preserves transaction-time
+  timestamps, autoflush/no-autoflush and outer rollback. Workspace retains function
+  ownership; Inference gets only exact EXECUTE, with no Project raw grants. The
+  transitional API coordinator's actual role gets the same fixed execution right.
+  General Alembic remains deployment-role agnostic. No LOGIN, URL/DSN or pipeline
+  client permission was added. The old ORM cleanup implementation is removed.
+- Forty-two distinct selected acceptance cases pass:15 named cases from the mixed
+  prerequisite run,26 pool lifecycle/regression cases, and one full-migration
+  validator case. These include41 DB/process cases and one static schema case.
+  The first mixed run remains failed because pool removal returned
+  the success response instead of the frozen intermittent error; it is not relabeled
+  green. The later pool replay explicitly permits exactly the intended500-to200
+  response delta, retaining all38 old table/Audit/probe/lease observations. Registry
+  replay matches all58 old observations. Counts do not add observations, retries,
+  source/installed repetitions or older named-pipeline qualification.
+- The response defect is now fixed separately atafd864341: four member mutation
+  routes explicitly refresh the committed pool before projection. A retained
+  identity-map object reproduces MissingGreenlet before the fix and succeeds for
+  upsert/drain/resume/remove afterward. Each mutation has one business Audit and
+  one generation change; repeated removal returns404 without another mutation or
+  business Audit. Neither production write retries nor public idempotency were added.
+- Native match/no-match, owner/ACL/raw denial, caller rollback, real API deletion
+  compatibility and nonempty dump/restore pass. Migration0272 passes all five full
+  validation phases; temporary databases are removed. API policy/architecture has
+  34 passing selected cases; one parameterized lazy-root rule is structurally
+  inapplicable to this single-file adapter and is recorded separately.
+- New owner/API images are built fromafd864341, with40 package files in each and
+  1,235 API/Native inputs verified in the API image. Both pass offline, read-only,
+  no-network cold imports with exact UID/resource/security restrictions and removed
+  legacy paths; public OpenAPI remains unchanged. These are artifact checks, not
+  full Backend control runtime or load qualification. Earlier pipeline images
+  remain historical artifacts of their own closed slice.
+- Four clean patch-equivalent children are removed; their source branches remain.
+  Canonical current evidence is
+  `.worktree/inference-backend-prerequisites-qualification.json`; scope is ADR0147.
+  Complete registry/pool command ownership, health observations, routing/Redis leases,
+  GPU lifecycle and all actual consumers remain open. Do not count these prerequisites
+  as a completed Inference module or ten-module/seven-gate goal; primary/production
+  stay unchanged and Go remains experimental.

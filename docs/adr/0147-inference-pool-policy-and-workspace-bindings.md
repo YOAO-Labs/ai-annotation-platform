@@ -58,6 +58,23 @@ and nonempty dump/restore. Pure source and noneditable installed package checks
 verify capability vectors and package isolation. Full migration validation remains
 required for every new Native head; failed attempts stay in separate receipts.
 
+The local prerequisite ledger selects42 distinct passing acceptance cases:41 DB/process and one static schema case. The
+mixed initial run stays failed; its15 named successful cases are selected, while
+the failed pool replay has a later successful result after the explicit response
+fix. The old error was intermittent because ORM identity-map retention can determine
+whether get() reloads the expired field. Four member mutation routes now explicitly
+refresh after commit; a retained-object regression reproduces the old failure and
+checks all four successful projections, one Audit, and repeated-remove404.
+
+Source and fresh noneditable Inference each pass92 cases. Five packages/forty files
+match the installed and image manifests. Both new owner/API images pass restricted
+offline cold imports; the API also matches1,235 API/Native inputs, public OpenAPI
+and migration head0272. The existing protocol dependency retains transitive
+FastAPI. Native0272 passes five full migration phases with exact derived-database
+cleanup. These checks use macOS ARM64 and local Linux ARM64 containers; they do
+not measure Backend control production capacity. Canonical local evidence is
+`.worktree/inference-backend-prerequisites-qualification.json`.
+
 This does not establish a complete independent Backend control runtime, independent
 database, GPU lifecycle owner, non-Python replacement or production capacity. The
 named-pipeline owner keeps its two-RPC contract. Primary and production cutover
