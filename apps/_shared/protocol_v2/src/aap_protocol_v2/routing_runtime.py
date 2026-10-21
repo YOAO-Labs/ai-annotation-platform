@@ -16,6 +16,12 @@ from uuid import UUID, uuid4
 from fastapi import FastAPI
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from aap_protocol_v2.lifecycle import (
+    GPU_ADMISSION_TOKEN_HEADER,
+    GPU_GENERATION_HEADER,
+    validate_canonical_positive_int64,
+)
+
 from aap_protocol_v2.routing import (
     BackendRouteControlCommand,
     BackendRouteControlReply,
@@ -211,6 +217,8 @@ class BackendRoutingController:
         method: str,
         path: str,
         admission_values: list[bytes],
+        *,
+        gpu_transition_headers: bool = False,
     ) -> _RequestLease:
         with self._control_lock:
             if self._control_token is None:
@@ -247,13 +255,24 @@ class BackendRoutingController:
 
             management_operation = _MANAGEMENT_OPERATIONS.get(path)
             if management_operation is not None:
-                if claims.operation != management_operation or self._management_active:
+                gpu_unload = (
+                    path == "/unload"
+                    and method == "POST"
+                    and claims.operation == "gpu:unload"
+                    and gpu_transition_headers
+                )
+                if (
+                    claims.operation != management_operation and not gpu_unload
+                ) or self._management_active:
                     raise RouteAuthorizationError
                 if self._counter.active != 0:
                     raise RouteControlConflict
                 management = True
             else:
-                if claims.operation.startswith("control:") or self._management_active:
+                if (
+                    claims.operation.startswith(("control:", "gpu:"))
+                    or self._management_active
+                ):
                     raise RouteAuthorizationError
                 management = False
 
@@ -450,6 +469,20 @@ def _header_values(scope: Scope, name: bytes) -> list[bytes]:
     return [value for key, value in scope.get("headers", []) if key.lower() == name]
 
 
+def _gpu_transition_headers(scope: Scope) -> bool:
+    generation = _header_values(scope, GPU_GENERATION_HEADER.lower().encode("ascii"))
+    token = _header_values(scope, GPU_ADMISSION_TOKEN_HEADER.lower().encode("ascii"))
+    if len(generation) != 1 or len(token) != 1:
+        return False
+    try:
+        validate_canonical_positive_int64(generation[0].decode("ascii"))
+    except (UnicodeDecodeError, ValueError):
+        return False
+    # These headers force the managed endpoint branch. Its GPU owner still
+    # verifies signature, identity, generation, scope, owner and drain state.
+    return 0 < len(token[0]) <= 16384 and all(33 <= byte <= 126 for byte in token[0])
+
+
 def _readonly_get(method: str, path: str) -> bool:
     if method != "GET":
         return False
@@ -553,6 +586,7 @@ class BackendRoutingMiddleware:
                 method,
                 path,
                 _admission_values(scope),
+                gpu_transition_headers=_gpu_transition_headers(scope),
             )
         except RouteControlConflict:
             await _send_json(send, 409, {"detail": "route control is active"})

@@ -168,6 +168,34 @@ def test_dispatch_outcome_channel_defaults_missing_result_to_uncertain() -> None
     assert channel.outcome.reason == "request_aborted"
 
 
+def test_proven_not_sent_is_one_shot_and_cannot_replace_an_observed_outcome():
+    grant = GPUDispatchGrant("1", "signed-token")
+    assert grant.report_not_sent() is True
+    assert grant.outcome.kind == "not_sent"
+    assert grant.report_uncertain_if_missing("request_aborted") is False
+    assert grant.report_response(200) is False
+    for report in (
+        lambda channel: channel.report_response(503),
+        lambda channel: channel.report_uncertain_if_missing("request_aborted"),
+    ):
+        channel = GPUDispatchOutcomeChannel()
+        report(channel)
+        assert channel.report_not_sent() is False
+
+
+def test_dispatch_start_fences_late_no_send_and_grant_reuse():
+    grant = GPUDispatchGrant("1", "signed-token")
+    grant.request_started()
+    assert grant.report_not_sent() is False
+    with pytest.raises(ValueError, match="already used"):
+        grant.request_started()
+    assert grant.report_uncertain_if_missing("request_aborted")
+    not_sent = GPUDispatchGrant("1", "other-token")
+    assert not_sent.report_not_sent()
+    with pytest.raises(ValueError, match="already used"):
+        not_sent.request_started()
+
+
 @pytest.mark.parametrize("status_code", [True, 99, 600])
 def test_dispatch_outcome_channel_rejects_invalid_http_status(
     status_code: object,

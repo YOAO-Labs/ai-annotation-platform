@@ -1138,6 +1138,94 @@ async def test_dispatch_reports_response_before_json_parsing(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("interactive", [False, True])
+@pytest.mark.parametrize("failure", ["size_limit", "read_error"])
+async def test_response_headers_do_not_release_gpu_work_before_stream_completion(
+    monkeypatch,
+    enforce_dispatch_mode,
+    interactive,
+    failure,
+):
+    outcomes = []
+
+    @asynccontextmanager
+    async def dispatch(_request):
+        grant = GPUDispatchGrant("1", "signed-token")
+        try:
+            yield grant
+        finally:
+            outcomes.append(grant.outcome)
+
+    class Body(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b"{" * 16
+            if failure == "read_error":
+                raise httpx.ReadError("response body interrupted")
+            yield b"}"
+
+    async def handler(_request):
+        return httpx.Response(200, stream=Body())
+
+    _patch_async_client(monkeypatch, httpx.MockTransport(handler))
+    client = MLBackendClient(_backend(), dispatch_context_factory=dispatch)
+    budget = 4 if failure == "size_limit" else 1024
+    expected = HTTPException if failure == "size_limit" else httpx.ReadError
+    with pytest.raises(expected):
+        if interactive:
+            await client.predict_interactive(
+                {"id": "t1"}, {}, max_response_bytes=budget
+            )
+        else:
+            await client.predict([{"id": "t1"}], max_response_bytes=budget)
+    assert len(outcomes) == 1
+    assert outcomes[0].kind == "uncertain"
+    assert outcomes[0].status_code is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("interactive", [False, True])
+async def test_consumed_bounded_response_still_settles_gpu_request(
+    monkeypatch,
+    enforce_dispatch_mode,
+    interactive,
+):
+    outcomes = []
+
+    @asynccontextmanager
+    async def dispatch(_request):
+        grant = GPUDispatchGrant("1", "signed-token")
+        try:
+            yield grant
+        finally:
+            outcomes.append(grant.outcome)
+
+    class Body(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            data = (
+                {"result": []}
+                if interactive
+                else {"results": [{"task": "t1", "result": []}]}
+            )
+            body = json.dumps(data).encode()
+            yield body[:10]
+            yield body[10:]
+
+    async def handler(_request):
+        return httpx.Response(200, stream=Body())
+
+    _patch_async_client(monkeypatch, httpx.MockTransport(handler))
+    client = MLBackendClient(_backend(), dispatch_context_factory=dispatch)
+    if interactive:
+        assert (
+            await client.predict_interactive({"id": "t1"}, {}, max_response_bytes=1024)
+        ).result == []
+    else:
+        assert len(await client.predict([{"id": "t1"}], max_response_bytes=1024)) == 1
+    assert outcomes[0].kind == "response_received"
+    assert outcomes[0].status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_dispatch_missing_response_report_is_uncertain(
     monkeypatch, enforce_dispatch_mode
 ) -> None:

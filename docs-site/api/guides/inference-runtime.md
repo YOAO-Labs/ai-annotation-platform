@@ -239,3 +239,8 @@ HTTP 采用 `INFERENCE_ROUTING_TOKEN(_FILE)` 和 `INFERENCE_ROUTING_TIMEOUT_SECO
 
 配置、解绑和删除继续由既有授权入口负责；Actor、Task、标注版本、业务审计和最终提交
 仍属于原业务事务。接口和当前验证边界见 [ADR-0155](/dev/adr/0155-durable-inference-routing-authority)。
+
+GPU 驻留驱逐使用独立的执行 scope，与既有 GPU 签名凭据共同授权卸载；不要求先在
+服务池界面手动停流。成员激活、rollout 和取消排空沿用当前环境的连接来源。
+发送前被路由拒绝的普通 GPU 请求可撤回自己的租约／冷加载预留；驱逐已经推进代次后
+不能据此回退或清除预算，持续故障后的完整恢复仍在实施。日常及生产环境尚未切换。

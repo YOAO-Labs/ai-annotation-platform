@@ -34,7 +34,7 @@ from aap_protocol_v2.lifecycle import (
     parse_managed_unload_response_json,
 )
 from .capabilities import resolve_model_task
-from .request_tracking import RequestContext, http_client
+from .request_tracking import GPU_UNLOAD_ROUTE_EXTENSION, RequestContext, http_client
 
 # BUG B-17 · per-backend asyncio.Semaphore 限速. 受 backend extra_params.max_concurrency
 # 控制 (默认 4, 匹配现有 celery worker --concurrency=4 不破坏既有行为). 改 extra_params 后需 worker
@@ -98,6 +98,10 @@ class BackendDispatchGrant(Protocol):
     admission_token: str
 
     def report_response(self, status_code: int) -> bool | None: ...
+
+    def report_not_sent(self) -> bool | None: ...
+
+    def request_started(self) -> None: ...
 
     def report_uncertain_if_missing(self, reason: str) -> bool | None: ...
 
@@ -265,8 +269,15 @@ class BackendTransport:
             extra.get("max_concurrency", _DEFAULT_MAX_CONCURRENCY)
         )
 
-    def _http_client(self, **kwargs):
-        return http_client(self._request_context, **kwargs)
+    def _http_client(self, *, dispatch_grant=None, **kwargs):
+        return http_client(
+            self._request_context,
+            on_not_sent=(lambda: dispatch_grant.report_not_sent())
+            if dispatch_grant is not None
+            else None,
+            on_send=getattr(dispatch_grant, "request_started", None),
+            **kwargs,
+        )
 
     def _predict_context(self, context: dict) -> dict:
         normalized = normalize_context_task(context)
@@ -477,7 +488,7 @@ class BackendTransport:
                     "predict", AdmissionScope.PREDICT
                 ) as grant:
                     async with self._http_client(
-                        timeout=self.options.ml_predict_timeout
+                        timeout=self.options.ml_predict_timeout, dispatch_grant=grant
                     ) as client:
                         if max_response_bytes is None:
                             resp = await client.post(
@@ -492,8 +503,6 @@ class BackendTransport:
                                 json=payload,
                                 headers=self._headers(grant),
                             ) as streamed:
-                                if grant is not None:
-                                    grant.report_response(streamed.status_code)
                                 resp = await self._bounded_stream_response(
                                     streamed,
                                     max_bytes=max_response_bytes,
@@ -557,7 +566,8 @@ class BackendTransport:
                         "predict_interactive", AdmissionScope.PREDICT
                     ) as grant:
                         async with self._http_client(
-                            timeout=self.options.ml_predict_timeout
+                            timeout=self.options.ml_predict_timeout,
+                            dispatch_grant=grant,
                         ) as client:
                             request_kwargs = {
                                 "json": {"task": task_data, "context": context},
@@ -574,13 +584,11 @@ class BackendTransport:
                                     f"{self.base_url}/predict",
                                     **request_kwargs,
                                 ) as streamed:
-                                    if grant is not None:
-                                        grant.report_response(streamed.status_code)
                                     resp = await self._bounded_stream_response(
                                         streamed,
                                         max_bytes=max_response_bytes,
                                     )
-                            if grant is not None and max_response_bytes is None:
+                            if grant is not None:
                                 grant.report_response(resp.status_code)
                             # 上游 4xx 原样透传, 5xx → 502 (见 _raise_for_backend_status)
                             self._raise_for_backend_status(resp)
@@ -635,7 +643,7 @@ class BackendTransport:
         """B-28+ · 让 backend 卸载模型释放显存. backend 必须实现 POST /unload."""
         async with self._dispatch_context("unload", AdmissionScope.UNLOAD) as grant:
             async with self._http_client(
-                timeout=self.options.ml_health_timeout
+                timeout=self.options.ml_health_timeout, dispatch_grant=grant
             ) as client:
                 request_kwargs: dict = {"headers": self._headers(grant)}
                 if grant is not None:
@@ -679,7 +687,7 @@ class BackendTransport:
             body[key] = semantic["modality"]
         async with self._dispatch_context("reload", AdmissionScope.RELOAD) as grant:
             async with self._http_client(
-                timeout=self.options.ml_predict_timeout
+                timeout=self.options.ml_predict_timeout, dispatch_grant=grant
             ) as client:
                 resp = await client.post(
                     f"{self.base_url}/reload",
@@ -775,12 +783,15 @@ class BackendTransport:
         request = GenerationTransitionRequest(generation=grant.generation)
         try:
             async with self._http_client(
-                timeout=self.options.ml_health_timeout
+                timeout=self.options.ml_health_timeout, dispatch_grant=grant
             ) as client:
                 response = await client.post(
                     f"{self.base_url}{endpoint}",
                     json=request.model_dump(mode="json"),
                     headers=self._headers(grant),
+                    extensions={GPU_UNLOAD_ROUTE_EXTENSION: True}
+                    if endpoint == "/unload"
+                    else None,
                 )
                 grant.report_response(response.status_code)
         except BaseException:
@@ -850,7 +861,7 @@ class BackendTransport:
             payload["task"] = task if revision == 1 else legacy_inference_task(task)
         async with self._dispatch_context("warmup", AdmissionScope.WARMUP) as grant:
             async with self._http_client(
-                timeout=self.options.ml_predict_timeout
+                timeout=self.options.ml_predict_timeout, dispatch_grant=grant
             ) as client:
                 resp = await client.post(
                     f"{self.base_url}/warmup",

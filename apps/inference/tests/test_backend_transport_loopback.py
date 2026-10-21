@@ -346,11 +346,9 @@ async def test_backend_transport_uses_real_loopback_tcp_for_health_setup_and_pre
     assert [event[:3] for event in events] == [
         ("dispatch.enter", "predict", AdmissionScope.PREDICT),
         ("grant.response", 200),
-        ("grant.response", 200),
         ("dispatch.exit", "predict"),
         ("observe", "loopback-backend-23", "success"),
         ("dispatch.enter", "predict", AdmissionScope.PREDICT),
-        ("grant.response", 503),
         ("grant.response", 503),
         ("dispatch.exit_error", "predict"),
         ("observe", "loopback-backend-23", "error"),
@@ -358,4 +356,4 @@ async def test_backend_transport_uses_real_loopback_tcp_for_health_setup_and_pre
         ("grant.response", 503),
         ("dispatch.exit_error", "warmup"),
     ]
-    assert events[4][3] >= 0 and events[9][3] >= 0
+    assert events[3][3] >= 0 and events[7][3] >= 0

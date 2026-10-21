@@ -42,6 +42,10 @@ class Authority:
 
     async def acquire(self, **kwargs):
         self.trace.append(("acquire", kwargs))
+        if kwargs.get("operation") == "gpu:unload":
+            return self.scope.model_copy(
+                update={"id": uuid.uuid4(), "operation": "gpu:unload"}
+            )
         registry_id = kwargs.get("registry_id", self.scope.registry_id)
         return (
             self.scope
@@ -262,3 +266,125 @@ async def test_detached_control_row_uses_explicit_session_source_before_http(
         "settle",
         "close",
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method",
+    [
+        "predict",
+        "predict_interactive",
+        "warmup",
+        "reload",
+        "unload",
+        "lifecycle_drain",
+        "lifecycle_cancel_drain",
+        "lifecycle_unload",
+    ],
+)
+async def test_gpu_grant_reports_not_sent_only_when_actual_request_admission_rejects(
+    monkeypatch,
+    method,
+):
+    from app.services.gpu_arbitration.contracts import GPUDispatchGrant
+
+    monkeypatch.setattr(settings, "gpu_arbiter_rollout_enabled", False)
+    monkeypatch.setattr(settings, "gpu_arbiter_mode", GPUArbiterMode.ENFORCE)
+    monkeypatch.setattr(
+        "app.services.ml_client.effective_gpu_arbiter_mode",
+        lambda _resource: GPUArbiterMode.ENFORCE,
+    )
+    monkeypatch.setattr(
+        settings,
+        "gpu_arbiter_resources_json",
+        '{"node-a/index:0":'
+        '{"node_id":"node-a","physical_device_token":"index:0",'
+        '"allocatable_mb":20000,"mode":"enforce"}}',
+    )
+    authority = Authority(uuid.uuid4(), reject=True)
+    gpu_grant = GPUDispatchGrant("7", "signed-gpu-token")
+
+    @asynccontextmanager
+    async def dispatch(_request):
+        yield gpu_grant
+
+    async def handler(_request):
+        pytest.fail("routing rejection must precede backend HTTP")
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kwargs: REAL_CLIENT(transport=httpx.MockTransport(handler), **kwargs),
+    )
+    backend = MLBackendRegistry(
+        id=authority.scope.registry_id,
+        name="GPU fixture",
+        url="http://backend.test/",
+        auth_method="token",
+        auth_token="secret",
+        gpu_resource_id="node-a/index:0",
+        vram_budget_mb=8000,
+        extra_params={"max_concurrency": 2},
+    )
+    transport = MLBackendClient(
+        backend, routing_authority=authority, dispatch_context_factory=dispatch
+    )
+    calls = {
+        "predict": lambda: transport.predict([{"id": "one", "data": {}}]),
+        "predict_interactive": lambda: transport.predict_interactive({"id": "one"}, {}),
+        "warmup": lambda: transport.warmup({}),
+        "reload": transport.reload,
+        "unload": transport.unload,
+        "lifecycle_drain": lambda: transport.lifecycle_drain(gpu_grant),
+        "lifecycle_cancel_drain": lambda: transport.lifecycle_cancel_drain(gpu_grant),
+        "lifecycle_unload": lambda: transport.lifecycle_unload(gpu_grant),
+    }
+    with pytest.raises(RoutingError) as error:
+        async with scope_binding(authority, authority.scope):
+            await calls[method]()
+    assert error.value.reason == RejectionReason.GENERATION_MISMATCH
+    assert gpu_grant.outcome.kind == "not_sent"
+    assert gpu_grant.outcome.status_code is None
+    if method == "lifecycle_unload":
+        acquire = next(body for op, body in authority.trace if op == "acquire")
+        assert acquire["operation"] == "gpu:unload"
+        begun = next(body for op, body in authority.trace if op == "begin")
+        assert begun["scope_id"] != str(authority.scope.id)
+
+
+@pytest.mark.asyncio
+async def test_managed_unload_preserves_uncertainty_after_request_hook_passed(
+    monkeypatch,
+):
+    from app.services.gpu_arbitration.contracts import GPUDispatchGrant
+
+    authority = Authority(uuid.uuid4())
+    grant = GPUDispatchGrant("7", "signed-gpu-token")
+
+    async def handler(_request):
+        raise httpx.ReadError("connection lost after send")
+
+    transport, _ = client(monkeypatch, authority=authority, handler=handler)
+    with pytest.raises(httpx.ReadError):
+        await transport.lifecycle_unload(grant)
+    assert grant.outcome.kind == "uncertain"
+
+
+@pytest.mark.asyncio
+async def test_proven_unsent_gpu_grant_cannot_be_reused_to_send_later(monkeypatch):
+    from app.services.gpu_arbitration.contracts import GPUDispatchGrant
+
+    authority = Authority(uuid.uuid4(), reject=True)
+    grant = GPUDispatchGrant("7", "signed-gpu-token")
+
+    async def handler(_request):
+        pytest.fail("a settled not-sent grant cannot authorize a later send")
+
+    transport, _ = client(monkeypatch, authority=authority, handler=handler)
+    with pytest.raises(RoutingError):
+        await transport.lifecycle_drain(grant)
+    assert grant.outcome.kind == "not_sent"
+    authority.reject = False
+    with pytest.raises(ValueError, match="already used"):
+        await transport.lifecycle_drain(grant)
+    assert grant.outcome.kind == "not_sent"

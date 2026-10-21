@@ -507,3 +507,77 @@ def test_installer_rejects_legacy_bypass_even_after_restart():
                 "AAP_ROUTE_ALLOW_LEGACY_EXECUTION": "1",
             },
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "headers,accepted",
+    [
+        (
+            [
+                (b"x-aap-gpu-generation", b"7"),
+                (b"x-aap-gpu-admission-token", b"signed-token"),
+            ],
+            True,
+        ),
+        ([], False),
+        ([(b"x-aap-gpu-generation", b"7")], False),
+        (
+            [
+                (b"x-aap-gpu-generation", b"01"),
+                (b"x-aap-gpu-admission-token", b"signed-token"),
+            ],
+            False,
+        ),
+        (
+            [
+                (b"x-aap-gpu-generation", b"7"),
+                (b"x-aap-gpu-admission-token", b"one"),
+                (b"x-aap-gpu-admission-token", b"two"),
+            ],
+            False,
+        ),
+    ],
+)
+async def test_gpu_unload_route_requires_managed_headers_before_endpoint_dispatch(
+    headers, accepted
+):
+    controller = BackendRoutingController(control_token="secret")
+    key = await _bind(controller)
+    token = _claims(controller, key, path="/unload", operation="gpu:unload")
+    status, _, _ = await _asgi_call(
+        BackendRoutingMiddleware(_app_response, controller),
+        path="/unload",
+        headers=[(b"x-aap-route-admission", token.encode()), *headers],
+    )
+    # The real lifecycle endpoint separately verifies the GPU signature and scope.
+    assert status == (200 if accepted else 401)
+    assert controller.active_requests == 0
+
+
+@pytest.mark.asyncio
+async def test_gpu_unload_is_exclusive_and_cannot_authorize_other_paths():
+    controller = BackendRoutingController(control_token="secret")
+    key = await _bind(controller)
+    held = await controller.begin_request(
+        "POST", "/predict", [_claims(controller, key).encode()]
+    )
+    headers = [
+        (b"x-aap-gpu-generation", b"7"),
+        (b"x-aap-gpu-admission-token", b"signed-token"),
+    ]
+    token = _claims(controller, key, path="/unload", operation="gpu:unload")
+    status, _, _ = await _asgi_call(
+        BackendRoutingMiddleware(_app_response, controller),
+        path="/unload",
+        headers=[(b"x-aap-route-admission", token.encode()), *headers],
+    )
+    assert status == 409
+    await controller.finish_request(held)
+    wrong_path = _claims(controller, key, path="/predict", operation="gpu:unload")
+    status, _, _ = await _asgi_call(
+        BackendRoutingMiddleware(_app_response, controller),
+        path="/predict",
+        headers=[(b"x-aap-route-admission", wrong_path.encode()), *headers],
+    )
+    assert status == 401

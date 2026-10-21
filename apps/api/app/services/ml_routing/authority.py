@@ -392,19 +392,28 @@ def backend_request_context(backend, identity, *, authority=None, session_factor
 
     @asynccontextmanager
     async def request_context(request):
+        from aap_inference.request_tracking import GPU_UNLOAD_ROUTE_EXTENSION
+
         if request.method in {"GET", "HEAD", "OPTIONS"}:
             yield _ReadGrant()
             return
         source_binding = _SCOPE.get()
         source_control = _CONTROL.get()
+        gpu_unload = request.extensions.get(GPU_UNLOAD_ROUTE_EXTENSION) is True
+        if gpu_unload and (request.method != "POST" or request.url.path != "/unload"):
+            raise RoutingUnavailable()
         binding = (
             source_binding
-            if source_binding and source_binding.scope.registry_id == registry_id
+            if source_binding
+            and source_binding.scope.registry_id == registry_id
+            and not gpu_unload
             else None
         )
         control = (
             source_control
-            if source_control and source_control.control.registry_id == registry_id
+            if source_control
+            and source_control.control.registry_id == registry_id
+            and not gpu_unload
             else None
         )
         owned_scope = None
@@ -429,7 +438,8 @@ def backend_request_context(backend, identity, *, authority=None, session_factor
         parent = control.control if control else binding.scope if binding else None
         if parent is None:
             owned_scope = parent = await current_authority.acquire(
-                registry_id=registry_id
+                registry_id=registry_id,
+                operation="gpu:unload" if gpu_unload else "backend_http",
             )
         if parent.registry_id != registry_id:
             raise RoutingUnavailable()

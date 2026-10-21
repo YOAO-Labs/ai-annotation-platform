@@ -4624,3 +4624,40 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   handoff/window checkpoints, restore rebind, complete control/health/stats
   consumers, current restricted images and cross-language qualification remain.
   Primary/production cutover is not performed; Go remains a separate experiment.
+
+### GPU routing composition and unsent-request accounting checkpoint
+
+- The transport reports `not_sent` only when its final request admission hook
+  rejects before any send can start. A grant fences request start and cannot be
+  reused after start or settlement; redirect failure cannot erase an earlier
+  send. Public exceptions are preserved; ambiguous sends stay unresolved.
+  Bounded batch/interactive responses settle GPU work only after the body is
+  consumed; size-limit and interrupted-stream checks pass73 plus2 positive
+  completion checks, with no release from response headers alone.
+- Resident leases release by exact lease/owner/generation after proven no-send.
+  Cold loading uses the existing exact reservation rollback, keeping grant
+  exposure and network-send facts distinct. The existing Redis CAS enforces
+  ownership; no SQL action or broader credential is added.
+- GPU eviction's explicit internal request marker obtains a separate
+  `gpu:unload` scope. The route controller requires the exact unload path, paired
+  GPU headers and zero other active requests; the real lifecycle still verifies
+  its signature, identity, generation, transition owner and drain state. It does
+  not acquire an administrative service-pool drain hold.
+- Eviction, busy-drain cancellation, membership activation and rollout clients
+  receive their explicit current session source. Tests retain the injected
+  one-argument client factory contract, and the default path is also exercised.
+- The combined API/Native/Redis/HTTP run passes227. Focused source transport and
+  controller checks pass33; later targeted cold, grant-reuse and default-client
+  checks pass7/15/2. These overlapping runs are not added together. Fresh
+  noneditable Inference plus shared routing-protocol checks pass375, with72
+  package files matching current source and API/ORM/Celery absent.
+- The actual TCP composition uses the real YOLO lifecycle with an in-memory
+  model and test-issued GPU signatures. A wrong signature cannot unload; a valid
+  one unloads while the service-pool member remains active and no admin unload
+  hold is invented. This does not qualify physical GPU, the full GPU arbiter
+  owner, production capacity, restricted images or a replacement language.
+- Persistent recovery after an eviction deadline is still open: the database
+  fence may already have advanced, so local rollback or budget clearing from a
+  no-send outcome is unsafe. Durable video handoff/window checkpoints, restore
+  rebind and the other ten-module/seven-gate requirements remain active. No
+  primary/production cutover, push or Go expansion is performed.

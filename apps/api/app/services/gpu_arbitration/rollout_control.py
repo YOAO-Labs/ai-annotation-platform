@@ -262,10 +262,15 @@ async def advance_gpu_backend_rollout_control(
             reason="control_token_signing_failed",
         )
 
-    client_builder = client_factory or MLBackendClient
     try:
         async with asyncio.timeout(timeout_seconds):
-            client = client_builder(preparation.backend)
+            client = (
+                client_factory(preparation.backend)
+                if client_factory is not None
+                else MLBackendClient(
+                    preparation.backend, shadow_session_factory=session_factory
+                )
+            )
             if preparation.operation == "reset":
                 response = await client.lifecycle_reset(
                     LifecycleResetRequest(

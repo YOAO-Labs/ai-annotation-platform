@@ -914,6 +914,7 @@ async def _finalize_cold_runtime(
     intent_may_exist: bool,
     lease_may_exist: bool,
     grant_exposed: bool,
+    request_not_sent: bool,
     response_received: bool,
     prepared_subject: GPUPreparedColdRuntimeSubject | None,
     heartbeat_task: asyncio.Task[None] | None,
@@ -925,7 +926,7 @@ async def _finalize_cold_runtime(
         target_state = GPUAllocationState.UNLOADED
         terminal_confirmed = False
         terminal_result: GPUColdTerminalCommitResult | None = None
-        if grant_exposed and prepared_subject is not None:
+        if grant_exposed and not request_not_sent and prepared_subject is not None:
             challenge = None
             if response_received:
                 challenge = await _refresh_cold_terminal_health(
@@ -970,7 +971,7 @@ async def _finalize_cold_runtime(
         else:
             target_state = (
                 GPUAllocationState.UNKNOWN
-                if grant_exposed
+                if grant_exposed and not request_not_sent
                 else GPUAllocationState.UNLOADED
             )
             try:
@@ -1703,7 +1704,7 @@ async def _cancel_busy_eviction(
         )
         return None, None
 
-    client = MLBackendClient(subject.backend)
+    client = MLBackendClient(subject.backend, shadow_session_factory=session_factory)
     cancel_response, _ = await _call_eviction_lifecycle(
         client.lifecycle_cancel_drain,
         generation=cancel_subject.generation,
@@ -2165,7 +2166,9 @@ async def _evict_one_idle_victim(
             ),
             name=f"gpu-eviction-heartbeat:{owner_id}",
         )
-        client = MLBackendClient(prepared.backend)
+        client = MLBackendClient(
+            prepared.backend, shadow_session_factory=session_factory
+        )
         drain_response, _ = await _call_eviction_lifecycle(
             client.lifecycle_drain,
             generation=prepared.generation,
@@ -2843,6 +2846,11 @@ async def _dispatch_cold_runtime(
                 intent_may_exist=intent_may_exist,
                 lease_may_exist=lease_may_exist,
                 grant_exposed=grant_exposed,
+                request_not_sent=(
+                    grant is not None
+                    and grant.outcome is not None
+                    and grant.outcome.kind == "not_sent"
+                ),
                 response_received=(
                     grant is not None
                     and grant.outcome is not None
@@ -3143,7 +3151,7 @@ def build_gpu_dispatch_context_factory(
                 if grant_exposed and (
                     grant is None
                     or grant.outcome is None
-                    or grant.outcome.kind != "response_received"
+                    or grant.outcome.kind not in {"response_received", "not_sent"}
                 ):
                     action = "uncertain"
             await _await_cancellation_safe(

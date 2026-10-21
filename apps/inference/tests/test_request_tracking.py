@@ -91,7 +91,9 @@ async def test_incomplete_requests_remain_uncertain_once(failure):
 
     async def request():
         async with http_client(
-            context(trace), transport=httpx.MockTransport(handler)
+            context(trace),
+            transport=httpx.MockTransport(handler),
+            on_not_sent=lambda: trace.append("not_sent"),
         ) as client:
             async with client.stream(
                 "POST", "https://example.test/predict"
@@ -116,6 +118,7 @@ async def test_incomplete_requests_remain_uncertain_once(failure):
     )
     assert not any(isinstance(item, tuple) and item[0] == "response" for item in trace)
     assert trace.count("context.close") == 1
+    assert "not_sent" not in trace
 
 
 @pytest.mark.asyncio
@@ -152,7 +155,36 @@ async def test_failed_admission_never_sends_http():
 
     with pytest.raises(RuntimeError, match="scope revoked"):
         async with http_client(
-            denied, transport=httpx.MockTransport(handler)
+            denied,
+            transport=httpx.MockTransport(handler),
+            on_not_sent=lambda: trace.append("not_sent"),
         ) as client:
             await client.post("https://example.test/predict")
-    assert trace == []
+    assert trace == ["not_sent"]
+
+
+@pytest.mark.asyncio
+async def test_rejected_redirect_cannot_claim_the_initial_request_was_not_sent():
+    trace = []
+
+    @asynccontextmanager
+    async def admit(request):
+        if request.url.path != "/predict":
+            raise RuntimeError("redirect denied")
+        async with context(trace)(request) as grant:
+            yield grant
+
+    async def handler(_request):
+        trace.append("send")
+        return httpx.Response(307, headers={"Location": "/redirect"})
+
+    with pytest.raises(RuntimeError, match="redirect denied"):
+        async with http_client(
+            admit,
+            transport=httpx.MockTransport(handler),
+            follow_redirects=True,
+            on_not_sent=lambda: trace.append("not_sent"),
+        ) as client:
+            await client.post("https://example.test/predict")
+    assert trace.count("send") == 1
+    assert "not_sent" not in trace

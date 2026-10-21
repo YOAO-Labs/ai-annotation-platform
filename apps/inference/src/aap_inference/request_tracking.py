@@ -11,6 +11,7 @@ from typing import Protocol
 import httpx
 
 logger = logging.getLogger(__name__)
+GPU_UNLOAD_ROUTE_EXTENSION = "aap.gpu_unload_route"
 
 
 class BackendRequestGrant(Protocol):
@@ -81,8 +82,18 @@ class _TrackedStream(httpx.AsyncByteStream):
 class TrackedHttpClient:
     """Normal AsyncClient configuration, with one grant per actual HTTP send."""
 
-    def __init__(self, request_context: RequestContext, **kwargs):
+    def __init__(
+        self,
+        request_context: RequestContext,
+        *,
+        on_not_sent=None,
+        on_send=None,
+        **kwargs,
+    ):
         self.request_context = request_context
+        self.on_not_sent = on_not_sent
+        self.on_send = on_send
+        self.admission_passed = False
         self.attempts: dict[httpx.Request, _Attempt] = {}
         hooks = dict(kwargs.pop("event_hooks", {}) or {})
         # Admission comes last so the final request method/path is authenticated.
@@ -91,15 +102,26 @@ class TrackedHttpClient:
         self.client = httpx.AsyncClient(event_hooks=hooks, **kwargs)
 
     async def _before_request(self, request):
-        context = self.request_context(request)
-        grant = await context.__aenter__()
-        attempt = _Attempt(context, grant)
-        self.attempts[request] = attempt
+        attempt = None
         try:
+            context = self.request_context(request)
+            grant = await context.__aenter__()
+            attempt = _Attempt(context, grant)
+            self.attempts[request] = attempt
             request.headers.update(grant.headers)
+            if self.on_send is not None:
+                self.on_send()
         except BaseException:
-            await attempt.finish(reason="invalid_admission_headers")
+            if not self.admission_passed and self.on_not_sent is not None:
+                try:
+                    self.on_not_sent()
+                except Exception:
+                    logger.warning("backend_route_no_send_unacknowledged")
+            if attempt is not None:
+                await attempt.finish(reason="invalid_admission_headers")
             raise
+        # A later rejected redirect cannot prove that this dispatch never sent.
+        self.admission_passed = True
 
     async def _after_response(self, response):
         attempt = self.attempts.get(response.request)
@@ -126,7 +148,15 @@ class TrackedHttpClient:
                 )
 
 
-def http_client(request_context: RequestContext | None = None, **kwargs):
+def http_client(
+    request_context: RequestContext | None = None,
+    *,
+    on_not_sent=None,
+    on_send=None,
+    **kwargs,
+):
     if request_context is None:
         return httpx.AsyncClient(**kwargs)
-    return TrackedHttpClient(request_context, **kwargs)
+    return TrackedHttpClient(
+        request_context, on_not_sent=on_not_sent, on_send=on_send, **kwargs
+    )
