@@ -100,6 +100,13 @@ async def _assert_inference_scope(engine, world) -> None:
     owner_connection = await asyncpg.connect(_owner_dsn(engine))
     inference = None
     try:
+        assert (
+            await owner_connection.fetchval(
+                "SELECT pg_catalog.pg_has_role("
+                "'inference_code', 'workspace_code', 'MEMBER')"
+            )
+            is False
+        )
         rows = await owner_connection.fetch(
             """SELECT namespace.nspname || '.' || function.proname || '(' ||
                          pg_catalog.replace(
@@ -145,8 +152,6 @@ async def _assert_inference_scope(engine, world) -> None:
         for statement in private_calls:
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 await inference.fetchval(statement)
-        with pytest.raises(asyncpg.InsufficientPrivilegeError):
-            await inference.execute("SET ROLE workspace_code")
     finally:
         try:
             if inference is not None:
