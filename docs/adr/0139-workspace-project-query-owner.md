@@ -115,9 +115,19 @@ cases verify precommit decode failure leaves the borrowed write uncommitted, and
 postcommit rename/deletion/temporal failure remain observable after the admitted
 actor is demoted. Accepted receipts remain committed after response failure.
 
-The supplemental 15 consumer and eight temporal HTTP observations still need
-current-provider replay. Full restore and restricted image qualification also
-remain open. No production cutover or full Workspace qualification is claimed.
+The supplemental 15 consumer and eight temporal HTTP observations also match
+all three current bindings. This includes collaborative video, invalid boolean
+failure, no-op/change rename and postcommit projection after actor demotion.
+Search comparison retains defined ordering while normalizing only seeded
+Project/Task timestamp ties and the unordered non-administrator member group.
+The legacy observer seam is adapted inside tests; production retains no facade.
+Together with the original 27, this verifies 50 distinct HTTP observations on
+each binding without replacing the immutable legacy evidence.
+
+Static review found no actionable issue in the provider, data/profile adapters,
+runtime assembly or Project/search callers. Full backup/restore and restricted
+image qualification remain open. No production cutover, capacity qualification
+or full Workspace qualification is claimed.
 
 The full all-module deployment/language-replacement objective remains active.
 Shared PostgreSQL and the trusted coordinator are explicit current constraints.

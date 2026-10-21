@@ -67,6 +67,7 @@ implemented in `project_query_contract`, `project_query_values` and
 `project_queries`. API callers select borrowed, dedicated PostgreSQL or HTTP
 bindings. Native0261 and its function-only credential pass owned database checks;
 the standalone runtime resolves Identity Briefs through its explicit public
-client dependency. Source checks and public regression verification are separate
-from the still-open three-path, package/image, fault and restore qualification.
+client dependency. Fifty frozen HTTP observations match all three bindings;
+noneditable package manifests and bounded process-failure/restart checks pass.
+Restricted images and full backup/restore qualification remain open.
 See ADR-0139 for authority phases and the current acceptance boundary.
