@@ -54,6 +54,7 @@
 - [0138](0138-workspace-project-read-foundation.md) — Project 读取的类型化外域依赖与 Workspace 权限值（基础实现已验证，查询 owner 接入中）
 - [0139](0139-workspace-project-query-owner.md) — Project 查询协议、原始值编码与分阶段读取策略（选定查询能力已完成限定本地验收）
 - [0140](0140-workspace-directory-query-owner.md) — 成员目录与提及候选的独立读取协议及成员时间戳权限边界
+- [0141](0141-workspace-project-access-query.md) — Project 访问上下文的两轮当前权威读取、成员版本与共享权限策略
 
 ### 已采纳（Accepted，归档）
 

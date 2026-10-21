@@ -270,6 +270,8 @@ Identity 自助注销、传统管理员停用／删除与版本化离职仍保�
 
 成员列表与提及候选由 `aap_workspace.directory_queries` 持有，API 不再直接选择目录成员或读取 User 表。两项读取复用 Project query 的分阶段当前权限流程；完整成员行和时间戳先解码，成员列表再单次批量消费 UserBrief。提及候选分别读取负责人、启用超管和成员，按 UUID 保留首次种类；成员 JOIN 不过滤停用账号，其 Workspace 与 Identity 事实仍在同一 SQL 语句快照内。独立目录进程、专用两函数角色和 API 默认借用事务使用相同协议，显式远程错误不回退。Project `/access`、相邻写入和完整模块资格继续推进，见 [目录 owner ADR](/dev/adr/0140-workspace-directory-query-owner)。
 
+项目访问上下文 `GET /projects/{id}/access` 由 Project Query 的 `get_project_access` 提供，仍先完成可见性依赖对应的完整读取，再从当前账号开始重读项目与完整成员记录；最终职责、成员 ID 与版本来自同一次成员读取。API 锁定／非锁定解析器继续保留原 I/O 和锁序，管理者／成员的纯权限判断改为复用 Workspace 单一实现。它不访问显示资料、不新建部署配置，其他调用方尚未整体迁入独立 owner；见 [访问上下文 ADR](/dev/adr/0141-workspace-project-access-query)。
+
 点云评估晋升也由 `application/point_cloud_quality_promotion.py::promote_point_cloud_quality_evaluation` 组合：HTTP 先复核当前 `project.manage` 权威，工作流保留阻塞式项目 `FOR UPDATE` 与评估项目归属检查，不复用普通配置 PATCH 的 NOWAIT 锁。quality 的 `prepare_evaluation_promotion` 持有已晋升、gate、基线 revision＋digest 校验及下一配置修订；workspace 的 `set_point_cloud_quality_config` 只写项目配置，quality 的 `record_evaluation_promotion` 只写评估晋升元数据。原 flush、审计和 HTTP commit 仍在同一调用者事务内，所有者命令不另行提交；本地 ORM 参数不是跨进程契约。
 
 `application/project_guide_assets.py::ProjectGuideAssetWorkflow` 显式绑定 storage transport 与 workspace 的 key、登记及移除规则；MIME/大小词表在纯标准库 `guide_asset_contracts`，不由 HTTP schema 拥有。完成的 HEAD 不持有行锁，返回后重取当前管理权威和项目排他锁，再追加最新 JSON；无效对象清理也在最终授权之后。显式 DELETE 则在围栏内执行，保留存储失败仍删登记的现有语义；签名读取使用当前项目可见性及共享项目围栏。对象存储与 SQL 没有跨资源原子性，已签发 URL 的时效不变。

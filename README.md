@@ -387,6 +387,8 @@ Identity 准入、API key、核心会话、自助账户、注册恢复／邮件�
 
 成员列表与提及候选的目录 owner 已通过三路径响应对照、独立安装包、受限镜像、故障与备份恢复的限定本地验收；现有权限、成员排序和停用账号展示规则保留。完整 Workspace 的 `/access`、相邻命令和其他模块继续推进，见 [目录读取 ADR](./docs/adr/0140-workspace-directory-query-owner.md)。
 
+项目访问上下文 `/access` 也已接入现有 Project Query owner，沿用同一部署配置，保留两轮当前权限读取与最终成员版本；安装包、三路径对照和权限回归已通过，受限工件验收继续推进，见 [访问上下文 ADR](./docs/adr/0141-workspace-project-access-query.md)。
+
 项目与批次维护、数据回填、成员绩效、搜索、指引资源及预测／标注导入见 [项目、批次与数据运维](./docs-site/dev/sdk/project-workflows.md)。分派绑定原预览版本，项目范围约束先于查询限制，批次导出与项目导出使用相同能力检查。
 
 | 角色 / 任务                | 入口                                                                                                                            |

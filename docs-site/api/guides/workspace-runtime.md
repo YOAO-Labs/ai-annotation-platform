@@ -98,7 +98,7 @@ HTTP 使用 `WORKSPACE_TEMPLATE_QUERY_URL`，二者互斥，显式失败不回�
 
 ## 项目查询
 
-项目列表、分页、详情、统计、就绪度、接受操作后的投影和项目搜索使用
+项目列表、分页、详情、统计、就绪度、访问上下文、接受操作后的投影和项目搜索使用
 `aap-workspace-project-query/v1`。API 保留原公开 DTO；默认借用调用方事务，
 可用 `WORKSPACE_PROJECT_QUERY_DATABASE_URL(_FILE)` 或 `WORKSPACE_PROJECT_QUERY_URL`
 选择独立 owner。两种选择互斥，显式失败不回退。
@@ -109,6 +109,12 @@ HTTP 使用 `WORKSPACE_TEMPLATE_QUERY_URL`，二者互斥，显式失败不回�
 非空响应的显示资料使用显式 `WORKSPACE_PROJECT_QUERY_IDENTITY_*` 配置；
 空页、统计和就绪度不访问 Briefs。限定本地验收与剩余边界见
 [ADR-0139](/dev/adr/0139-workspace-project-query-owner)。
+
+访问上下文的 `get_project_access` 复用同一端点和凭据，返回原有成员 ID、版本与能力字段。
+第一轮保留初始项目、当前账号、刷新项目和成员读取，第二轮从当前账号开始再查项目与成员；
+最终职责和版本来自同一次成员读取。该操作不需要 Briefs，不增加权限锁或更强事务快照。
+原本地锁定解析器的 I/O 和锁序保留，共享纯权限策略；扩展的当前验证范围见
+[ADR-0141](/dev/adr/0141-workspace-project-access-query)。
 
 ## 项目成员与提及候选
 

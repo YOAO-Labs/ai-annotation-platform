@@ -609,7 +609,7 @@ Node conformance provider 只用于本地替换实验，Native 持有业务策�
 
 ### Workspace 项目查询
 
-项目列表、分页、详情、统计、就绪度、写入后的响应投影及项目搜索使用
+项目列表、分页、详情、统计、就绪度、访问上下文、写入后的响应投影及项目搜索使用
 `aap-workspace-project-query/v1`。默认借用调用方事务；
 `WORKSPACE_PROJECT_QUERY_DATABASE_URL(_FILE)` 和 `WORKSPACE_PROJECT_QUERY_URL`
 分别选择专用连接与 HTTP owner，不能同时配置。显式失败不回退，远程截止时间由
@@ -627,6 +627,13 @@ Identity Briefs 依赖：`WORKSPACE_PROJECT_QUERY_IDENTITY_URL` 及独立 token/
 `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE`。选定查询能力已完成三路径响应对照、安装包、受限镜像、
 恢复和完整迁移的本地验收；有限容器采样不代表生产容量，具体范围见
 [ADR-0139](docs/adr/0139-workspace-project-query-owner.md)。
+
+`GET /api/v1/projects/{project_id}/access` 使用同一个查询配置，保留可见性检查后
+第二轮当前账号／项目／成员读取，最终成员职责与版本来自同一条成员记录。
+该操作不访问显示资料，独立进程无需为它配置 Identity Briefs。
+原本地读写解析器仍供其他工作流使用，只复用 Workspace 的纯权限策略，锁序不变。
+部署此扩展时先应用当前迁移，再刷新 Workspace owner/API 工件；旧服务不支持新操作时显式失败，不回退。
+访问上下文扩展的验证状态见 [ADR-0141](docs/adr/0141-workspace-project-access-query.md)。
 
 ### Workspace 项目成员目录查询
 

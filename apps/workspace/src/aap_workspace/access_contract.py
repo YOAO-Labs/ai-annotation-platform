@@ -126,7 +126,7 @@ class ProjectWritePolicyFailure(Exception):
 
 
 class ProjectAccessPolicyFailure(Exception):
-    """Expected read-policy failure facts, independent of HTTP and persistence."""
+    """Expected authority-policy failure facts, independent of HTTP and persistence."""
 
     def __init__(self, status_code: int, detail: str) -> None:
         super().__init__(detail)

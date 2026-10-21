@@ -29,6 +29,10 @@ GET /api/v1/projects/query?page=1&page_size=20
 
 ## 成员与提及候选
 
+`GET /api/v1/projects/{project_id}/access` 返回当前平台角色、项目职责、成员 ID／版本和能力列表。
+管理者的成员字段可以为 null；普通成员的职责和版本使用最终同一次权限读取。
+能力列表按名称排序，既有字段和 SDK 用法保持不变。
+
 `GET /api/v1/projects/{project_id}/members` 按成员加入时间倒序返回项目职责和全局用户资料；
 空项目返回空数组，缺失用户资料的成员继续省略。`GET /api/v1/projects/{project_id}/mention-candidates`
 按负责人、启用超级管理员、成员的顺序返回，重复用户保留首次出现的种类。

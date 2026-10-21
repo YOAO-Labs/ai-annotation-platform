@@ -11,23 +11,18 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aap_workspace.access_contract import (
-    ACCESS_KIND_MEMBER as _ACCESS_KIND_MEMBER,
-    ACCESS_KIND_OWNER as _ACCESS_KIND_OWNER,
-    ACCESS_KIND_SUPER_ADMIN as _ACCESS_KIND_SUPER_ADMIN,
-    MANAGER_CAPABILITIES as _MANAGER_CAPABILITIES,
     ProjectAccess as _ProjectAccess,
+    ProjectAccessPolicyFailure,
+    project_manager_access,
+    project_member_access,
     ProjectWritePolicyFailure,
     ProjectWritePolicyRequest,
     ProjectWritePolicyResolver,
     membership_role_compatible as _membership_role_compatible,
     platform_role_is_manager as _platform_role_is_manager,
-    project_role_capabilities as _project_role_capabilities,
 )
 from app.db.enums import (
-    PLATFORM_ROLES,
-    PROJECT_ROLES,
     PlatformRole,
-    ProjectRole,
 )
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
@@ -68,29 +63,6 @@ def assert_membership_role_compatible(platform_role: str, project_role: str) -> 
             "账号平台角色与项目职责不兼容：员工可持有标注员/质检员/观察者，"
             "平台观察者仅可持有观察者，管理员通过项目负责人身份管理项目"
         ),
-    )
-
-
-def _manager_access(
-    *,
-    user: IdentityActorFacts | IdentityActorStatus,
-    project: Project,
-    access_kind: str,
-    is_super_admin: bool,
-    is_owner: bool,
-) -> _ProjectAccess:
-    return _ProjectAccess(
-        user_id=user.id,
-        project_id=project.id,
-        platform_role=user.role,
-        project_role=None,
-        membership_id=None,
-        membership_version=None,
-        access_kind=access_kind,
-        capabilities=_MANAGER_CAPABILITIES,
-        is_super_admin=is_super_admin,
-        is_owner=is_owner,
-        is_manager=True,
     )
 
 
@@ -159,79 +131,43 @@ async def _resolve_current_project_access(
     lock_membership: bool,
     nowait: bool = False,
 ) -> _ProjectAccess:
-    platform_role = user.role
-    if platform_role not in PLATFORM_ROLES:
-        # Unknown or legacy account roles fail closed; they are not a live
-        # authorization source.
+    try:
+        manager = project_manager_access(
+            actor_id=user.id,
+            platform_role=user.role,
+            project_id=project.id,
+            owner_id=project.owner_id,
+        )
+        if manager is not None:
+            return manager
+
+        # Retain the caller's refreshed row and optional lock before pure policy.
+        stmt = (
+            select(ProjectMember)
+            .where(
+                ProjectMember.project_id == project.id,
+                ProjectMember.user_id == user.id,
+            )
+            .execution_options(populate_existing=True)
+        )
+        if lock_membership:
+            stmt = stmt.with_for_update(read=True, nowait=nowait)
+        if nowait:
+            member = await _locked_access_row(db, stmt, busy_reason="membership_busy")
+        else:
+            member = (await db.execute(stmt)).scalar_one_or_none()
+        return project_member_access(
+            actor_id=user.id,
+            platform_role=user.role,
+            project_id=project.id,
+            membership_id=member.id if member is not None else None,
+            project_role=member.role if member is not None else None,
+            membership_version=member.version if member is not None else None,
+        )
+    except ProjectAccessPolicyFailure as failure:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="账号角色无效，访问被拒绝"
-        )
-
-    if platform_role == PlatformRole.SUPER_ADMIN.value:
-        return _manager_access(
-            user=user,
-            project=project,
-            access_kind=_ACCESS_KIND_SUPER_ADMIN,
-            is_super_admin=True,
-            is_owner=project.owner_id == user.id,
-        )
-
-    if project.owner_id == user.id and _platform_role_is_manager(platform_role):
-        return _manager_access(
-            user=user,
-            project=project,
-            access_kind=_ACCESS_KIND_OWNER,
-            is_super_admin=False,
-            is_owner=True,
-        )
-
-    # Every other platform role, including an anomalous non-administrative
-    # owner, needs a valid membership.  Ownership alone never grants visibility
-    # or authority.
-    # Always refresh the row: an identity-map entry cached before a role change
-    # or membership removal must never remain authoritative.  Under FOR SHARE
-    # the refreshed role/version is the locked, current value.
-    stmt = (
-        select(ProjectMember)
-        .where(
-            ProjectMember.project_id == project.id,
-            ProjectMember.user_id == user.id,
-        )
-        .execution_options(populate_existing=True)
-    )
-    if lock_membership:
-        stmt = stmt.with_for_update(read=True, nowait=nowait)
-    if nowait:
-        member = await _locked_access_row(db, stmt, busy_reason="membership_busy")
-    else:
-        member = (await db.execute(stmt)).scalar_one_or_none()
-    if member is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
-
-    project_role = member.role
-    if project_role not in PROJECT_ROLES:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="项目职责无效，访问被拒绝"
-        )
-    if (
-        platform_role == PlatformRole.VIEWER.value
-        and project_role != ProjectRole.VIEWER.value
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="账号平台角色与项目职责不兼容"
-        )
-
-    return _ProjectAccess(
-        user_id=user.id,
-        project_id=project.id,
-        platform_role=platform_role,
-        project_role=project_role,
-        membership_id=member.id,
-        membership_version=member.version,
-        access_kind=_ACCESS_KIND_MEMBER,
-        capabilities=_project_role_capabilities(project_role),
-        is_manager=False,
-    )
+            status_code=failure.status_code, detail=failure.detail
+        ) from failure
 
 
 async def _locked_access_row(db: AsyncSession, statement, *, busy_reason: str):

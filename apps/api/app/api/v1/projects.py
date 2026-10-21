@@ -41,7 +41,6 @@ from app.db.enums import (
     WORKBENCH_AI_EDITABLE_TASK_STATUSES,
 )
 from aap_workspace.access_contract import ProjectCapability
-from app.services.project_access import resolve_project_access
 from app.services.workspace_membership import (
     add_member as add_project_member,
     change_role as change_project_member_role,
@@ -634,7 +633,7 @@ async def transfer_owner(
 
 @router.get("/{project_id}/access", response_model=ProjectAccessOut)
 async def get_project_access(
-    project: Project = Depends(require_project_visible),
+    project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
@@ -644,17 +643,8 @@ async def get_project_access(
     membership identity/version and fixed capability set.
     """
 
-    access = await resolve_project_access(db, actor_id=current_user.id, project=project)
-    return ProjectAccessOut(
-        project_id=access.project_id,
-        user_id=access.user_id,
-        platform_role=access.platform_role,
-        project_role=access.project_role,
-        membership_id=access.membership_id,
-        membership_version=access.membership_version,
-        access_kind=access.access_kind,
-        is_manager=access.is_manager,
-        capabilities=sorted(access.capabilities),
+    return await execute_project_query(
+        db, operation="get_project_access", actor=current_user, target_id=project_id
     )
 
 

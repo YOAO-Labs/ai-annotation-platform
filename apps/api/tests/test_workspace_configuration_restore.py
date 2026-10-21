@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import json
 import uuid
 
 import pytest
@@ -163,7 +164,7 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
     source_maker = async_sessionmaker(test_engine, expire_on_commit=False)
     suffix = uuid.uuid4().hex[:12]
     operation_ids = [uuid.uuid4() for _ in range(5)]
-    actor_id = template_id = deleted_template_id = project_id = None
+    actor_id = member_actor_id = template_id = deleted_template_id = project_id = None
     clone = f"aap_workspace_configuration_restore_{uuid.uuid4().hex[:10]}_test"
     ownership = f"workspace-configuration-restore:{uuid.uuid4()}"
     snapshot = tmp_path / "workspace-configuration.dump"
@@ -328,6 +329,13 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
             ),
         ]
         async with source_maker.begin() as db:
+            member_actor = await create_user(
+                db,
+                "employee",
+                f"workspace-access-restore-{suffix}@example.test",
+                "Restored member",
+            )
+            member_actor_id = member_actor.id
             db.add(
                 ProjectMember(
                     project_id=project_id,
@@ -336,12 +344,37 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
                     role="annotator",
                 )
             )
+            db.add(
+                ProjectMember(
+                    project_id=project_id,
+                    user_id=member_actor_id,
+                    assigned_by=actor_id,
+                    role="reviewer",
+                    version=37,
+                )
+            )
+        project_requests.extend(
+            [
+                project_query_request(
+                    "get_project_access", *project_actor, target_id=project_id
+                ),
+                project_query_request(
+                    "get_project_access",
+                    member_actor_id,
+                    "employee",
+                    target_id=project_id,
+                ),
+            ]
+        )
         original_project_reader = _project_reader(test_engine)
         original_projects = [
             await original_project_reader.execute(request)
             for request in project_requests
         ]
         assert all(reply.ok for reply in original_projects)
+        member_access = json.loads(original_projects[-1].data_json)
+        assert member_access["membership_version"] == 37
+        assert member_access["project_role"] == "reviewer"
 
         directory_requests = [
             directory_query_request(operation, actor_id, project_id)
@@ -378,7 +411,7 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
         async with source_maker() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0263"
+                == "0264"
             )
             assert await db.scalar(
                 text(
@@ -481,7 +514,7 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
         async with restored_maker() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0263"
+                == "0264"
             )
             template = await db.get(ProjectTemplate, template_id)
             project = await db.get(Project, project_id)
@@ -569,4 +602,7 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
         await admin.dispose()
         if actor_id is not None:
             await _cleanup_source(test_engine, actor_id, operation_ids)
+        if member_actor_id is not None:
+            async with source_maker.begin() as db:
+                await db.execute(delete(User).where(User.id == member_actor_id))
         snapshot.unlink(missing_ok=True)

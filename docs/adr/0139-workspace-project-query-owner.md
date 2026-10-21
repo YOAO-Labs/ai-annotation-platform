@@ -15,9 +15,10 @@ per-statement snapshots, postcommit responses and selected Identity profiles.
 ## Decision
 
 The Workspace package owns a closed Project query protocol, raw row codecs and
-ordered query policy. Its seven operations cover list, pagination, detail,
-statistics, readiness, accepted-command projection and Project search hits.
-Twenty-four fixed read actions expose typed facts, echoing the request and their
+ordered query policy. Its eight operations cover list, pagination, detail,
+statistics, readiness, accepted-command projection, Project search hits and the
+two-phase access response in [ADR-0141](0141-workspace-project-access-query.md).
+Twenty-five fixed read actions expose typed facts, echoing the request and their
 exact parameters. Schema conditionals bind each action to its argument/fact
 types and permitted operations. No arbitrary SQL or caller-supplied visibility
 boolean is accepted.

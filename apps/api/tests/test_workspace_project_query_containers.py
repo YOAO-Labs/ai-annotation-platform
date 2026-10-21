@@ -67,9 +67,12 @@ async def _committed_api_client(app, maker):
 
 
 @asynccontextmanager
-async def _query_container(test_engine, directory, token, *, query_kind="project"):
-    assert query_kind in {"project", "directory"}
-    variable_prefix = f"AAP_WORKSPACE_{query_kind.upper()}_QUERY"
+async def _query_container(
+    test_engine, directory, token, *, query_kind="project", profiles=True
+):
+    assert query_kind in {"project", "directory", "project-access"}
+    variable_prefix = f"AAP_WORKSPACE_{query_kind.upper().replace('-', '_')}_QUERY"
+    capability = "DIRECTORY" if query_kind == "directory" else "PROJECT"
     port = 8177 if query_kind == "directory" else 8176
     image = _inspect_docker(os.environ[f"{variable_prefix}_IMAGE"])
     labels = image["Config"]["Labels"]
@@ -91,17 +94,23 @@ async def _query_container(test_engine, directory, token, *, query_kind="project
     dsn_file, token_file = directory / "query-database", directory / "control"
     briefs_file = directory / "briefs-database"
     briefs_dsn = (
-        make_url(project_query_briefs_dsn(test_engine))
-        .set(host="host.docker.internal")
-        .render_as_string(hide_password=False)
+        (
+            make_url(project_query_briefs_dsn(test_engine))
+            .set(host="host.docker.internal")
+            .render_as_string(hide_password=False)
+        )
+        if profiles
+        else None
     )
     container = None
     try:
-        for path, value in (
+        secret_files = [
             (dsn_file, container_dsn),
             (token_file, token),
-            (briefs_file, briefs_dsn),
-        ):
+        ]
+        if profiles:
+            secret_files.append((briefs_file, briefs_dsn))
+        for path, value in secret_files:
             path.write_text(value)
             path.chmod(0o444)
         container = _docker(
@@ -128,16 +137,28 @@ async def _query_container(test_engine, directory, token, *, query_kind="project
             f"type=bind,src={dsn_file},dst=/run/secrets/query,readonly",
             "--mount",
             f"type=bind,src={token_file},dst=/run/secrets/control,readonly",
-            "--mount",
-            f"type=bind,src={briefs_file},dst=/run/secrets/briefs,readonly",
+            *(
+                [
+                    "--mount",
+                    f"type=bind,src={briefs_file},dst=/run/secrets/briefs,readonly",
+                ]
+                if profiles
+                else []
+            ),
             "--env",
             "WORKSPACE_HOST=0.0.0.0",
             "--env",
             f"WORKSPACE_PORT={port}",
             "--env",
-            f"WORKSPACE_{query_kind.upper()}_QUERY_DATABASE_URL_FILE=/run/secrets/query",
-            "--env",
-            "WORKSPACE_PROJECT_QUERY_IDENTITY_BRIEFS_DATABASE_URL_FILE=/run/secrets/briefs",
+            f"WORKSPACE_{capability}_QUERY_DATABASE_URL_FILE=/run/secrets/query",
+            *(
+                [
+                    "--env",
+                    "WORKSPACE_PROJECT_QUERY_IDENTITY_BRIEFS_DATABASE_URL_FILE=/run/secrets/briefs",
+                ]
+                if profiles
+                else []
+            ),
             "--env",
             "WORKSPACE_MEMBERSHIP_CONTROL_TOKEN_FILE=/run/secrets/control",
             image["Id"],
@@ -157,12 +178,18 @@ async def _query_container(test_engine, directory, token, *, query_kind="project
             value in host["Tmpfs"]["/tmp"] for value in ("size=32m", "size=33554432")
         )
         mounts = [entry for entry in metadata["Mounts"] if entry["Type"] == "bind"]
-        assert len(mounts) == 3 and all(not entry["RW"] for entry in mounts)
-        assert {entry["Destination"]: Path(entry["Source"]) for entry in mounts} == {
+        assert len(mounts) == len(secret_files) and all(
+            not entry["RW"] for entry in mounts
+        )
+        expected_mounts = {
             "/run/secrets/query": dsn_file.resolve(),
             "/run/secrets/control": token_file.resolve(),
-            "/run/secrets/briefs": briefs_file.resolve(),
         }
+        if profiles:
+            expected_mounts["/run/secrets/briefs"] = briefs_file.resolve()
+        assert {
+            entry["Destination"]: Path(entry["Source"]) for entry in mounts
+        } == expected_mounts
         published = metadata["NetworkSettings"]["Ports"][f"{port}/tcp"]
         assert len(published) == 1 and published[0]["HostIp"] == "127.0.0.1"
         origin = f"http://127.0.0.1:{published[0]['HostPort']}"

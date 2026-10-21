@@ -15,6 +15,7 @@ from aap_workspace.access_contract import (
     ProjectAccessPolicyFailure,
     project_manager_access,
     project_member_access,
+    project_role_capabilities,
 )
 from aap_workspace.project_queries import ProjectQueryManager
 from aap_workspace.project_query_contract import (
@@ -22,6 +23,7 @@ from aap_workspace.project_query_contract import (
     PROJECT_ROW_COLUMNS,
     ProjectQueryUnavailable,
     decode_project_query_step,
+    decode_project_query_reply,
     project_query_request,
     project_query_schema,
 )
@@ -369,3 +371,41 @@ def test_project_access_protocol_schema_matches_published_file():
         "actor_status",
         "get_row",
     ]
+
+
+@pytest.mark.parametrize(
+    "platform_role,kind,project_role",
+    [
+        ("super_admin", "owner", None),
+        ("super_admin", "member", "viewer"),
+        ("viewer", "member", "annotator"),
+    ],
+)
+def test_access_reply_rejects_inconsistent_platform_role_and_access_kind(
+    platform_role, kind, project_role
+):
+    command = request()
+    member = kind == "member"
+    data = {
+        "project_id": str(PROJECT),
+        "user_id": str(ACTOR),
+        "platform_role": platform_role,
+        "project_role": project_role,
+        "membership_id": str(MEMBERSHIP_1) if member else None,
+        "membership_version": 1 if member else None,
+        "access_kind": kind,
+        "is_manager": not member,
+        "capabilities": sorted(project_role_capabilities(project_role))
+        if member
+        else sorted(MANAGER_CAPABILITIES),
+    }
+    with pytest.raises(ProjectQueryUnavailable):
+        decode_project_query_reply(
+            command,
+            {
+                "schema": PROJECT_QUERY_PROTOCOL,
+                "ok": True,
+                "request": command.model_dump(mode="json", by_alias=True),
+                "data_json": json.dumps(data),
+            },
+        )

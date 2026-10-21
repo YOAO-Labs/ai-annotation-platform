@@ -389,7 +389,7 @@ def validate_project_query_data(request, data_json):
                 )
                 or (
                     value["access_kind"] == ACCESS_KIND_OWNER
-                    and value["platform_role"] not in MANAGER_PLATFORM_ROLES
+                    and value["platform_role"] != "project_admin"
                 )
             ):
                 raise ProjectQueryUnavailable()
@@ -399,6 +399,11 @@ def validate_project_query_data(request, data_json):
                 or value["project_role"] not in PROJECT_ROLES
                 or type(value["membership_id"]) is not str
                 or type(value["membership_version"]) is not int
+                or value["platform_role"] == "super_admin"
+                or (
+                    value["platform_role"] == "viewer"
+                    and value["project_role"] != "viewer"
+                )
                 or value["is_manager"]
                 or value["capabilities"]
                 != sorted(project_role_capabilities(value["project_role"]))

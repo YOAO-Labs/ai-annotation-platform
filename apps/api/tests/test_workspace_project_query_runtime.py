@@ -124,6 +124,7 @@ async def test_installed_owner_isolates_profile_failure_grants_and_restart(
                     for operation, target in (
                         ("project_stats", None),
                         ("project_readiness", project_id),
+                        ("get_project_access", project_id),
                     ):
                         assert await workspace_project_query.execute_project_query(
                             object(),

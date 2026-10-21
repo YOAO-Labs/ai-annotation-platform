@@ -3813,3 +3813,39 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   targets `/access` without changing its production behavior. Full Workspace,
   other modules, another-language provider, primary cutover and production
   capacity remain open. Go stays experimental.
+
+### Project access response: implementation and current checks
+
+- Actual legacy capture freezes16 HTTP observations and2 direct resolver probes.
+  The first stale-role-token401 assumption is corrected to actual404 without
+  production edits. The fixture SHA is
+  `d5d579a4ac384bc04891d9d7378eebdf01a01397351c7aa2d33d23154270603d`.
+- `get_project_access` extends the existing Project Query owner and selectors;
+  there is no new secret/runtime family. The initial visibility phase and final
+  status/Project/member phase stay distinct. `access_member_rows` returns full9
+  scoped columns; final role/id/version come from the same final read. It never
+  initializes display profiles. Old actions and Directory behavior retain their
+  former read phases.
+- Manager/member policy is canonical in Workspace and reused by the API's
+  existing locked/nonlocked resolver. Old pure API manager construction is
+  removed; account/Project/member I/O, NOWAIT and lock order remain unchanged.
+  The complete member codec moves to a shared leaf with domain error translation.
+- Native0264 replaces the existing function body without changing signature,
+  OID, owner or privilege chains. Downgrade reuses the frozen0262 wrapper body.
+  Full facts, malformed binds and deployed-ACL cycles pass3 selected DB cases.
+  Paired real legacy/new phase changes and authority/lock regressions pass49.
+  Initial fault-test adapter argument errors are retained separately and fixed.
+- Project50 + Directory13 + Access16 frozen HTTP observations match every
+  borrowed/DSN/installed-HTTP binding. The19-test run also exercises four process
+  fault/restart cases; default resolver probes are separate. Source/installed
+  suites each pass239, all43 Workspace files match, and nine transport checks plus exact OpenAPI
+  remain green. Three private role/kind inconsistency failures are
+  reproduced and corrected before the passing source/installed suites.
+- Real restore preserves both manager/member access, member version37 and all
+  prior query/Directory operations; the old0262 grant-chain regression passes.
+  Full264 migration passes fresh264,173down/base/up,90suffixdown/up, authentic
+  conversion and pre-conversion restore; four derived databases and dump are
+  removed. Current restricted images and container execution remain next gates.
+  Complete Workspace, other modules, language replacement, primary
+  cutover and production capacity remain open; Go stays experimental.
+  See [ADR-0141](../adr/0141-workspace-project-access-query.md).
