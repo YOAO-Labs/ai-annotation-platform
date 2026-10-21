@@ -98,6 +98,27 @@ validation passes fresh260,173 reversible downgrades to base,86 suffix downgrade
 to0174, forward migration and restore. All four derived databases are removed
 without cleanup errors or leftovers.
 
+The first independent install exposed a stale cached wheel: it still contained
+the previous membership policy and omitted the new access module. uv's default
+local-project cache checks do not cover arbitrary source-only changes; the
+package now declares keys for metadata, README and Python/schema sources.
+See the [uv cache-key semantics](https://docs.astral.sh/uv/concepts/cache/#dynamic-metadata).
+Installed source hashes, rather than environment creation alone, remain the
+delivery gate.
+
+A warm-cache removal probe also found an obsolete module in setuptools'
+incremental `build/lib` directory after its source file had been deleted. The
+wheel was rebuilt but still shipped that staging file. Workspace now reuses the
+repository's Hatchling backend with explicit
+[package selection](https://hatch.pypa.io/latest/config/build/#packages) from
+`src/aap_workspace`. Artifact checks must reject unexpected source/schema files,
+not merely verify hashes for files they expected to find.
+
+An isolated warm-cache probe passes five consecutive phases: initial install,
+Python addition, Python modification, Python removal and schema modification.
+Package metadata stays unchanged between phases and no forced refresh/reinstall
+is used. Its copied source, environment and cache are removed after verification.
+
 ## Remaining work and limits
 
 This establishes data and value ownership foundations. Project query handlers and

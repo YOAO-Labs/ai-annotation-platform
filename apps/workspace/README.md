@@ -56,3 +56,9 @@ authority resolution and locks remain with their existing adapters. Fifteen
 typed foreign read capabilities support the next Project query extraction;
 ordinary Project queries still execute in the API. See ADR-0138 for the frozen
 baseline and remaining integration boundaries.
+
+uv build-cache keys include package Python/schema sources and README metadata,
+so source-only changes also invalidate a noneditable cached wheel. Independent
+artifact verification compares installed files against the source manifest.
+Hatchling packages the current source directory directly, preventing an old
+setuptools staging directory from retaining removed modules in a later wheel.

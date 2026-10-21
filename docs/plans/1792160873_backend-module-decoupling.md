@@ -3663,6 +3663,13 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   executed as Workspace before/after real backup restore. Full migration260
   passes fresh260,173down/base,86suffixdown,forward and restore; its4derived
   databases are removed without cleanup errors or leftovers.
+- Independent installation exposed a stale uv wheel; a warm-cache removal probe
+  then exposed deleted modules retained by setuptools staging. Workspace now
+  declares metadata/Python/schema cache keys and reuses the repository's
+  Hatchling backend. Five consecutive warm-cache phases pass: initial install,
+  Python addition/modification/removal and schema modification, with unchanged
+  metadata and no forced refresh. Copied source, environment and cache are removed.
+  Artifact gates now also reject unexpected Python/schema files.
 - Next: complete query wire/policy/data bindings with lazy Identity Briefs,
   search Workspace facts and scoped configuration/transfer/class-rename readback
   evidence, then perform provider/fault/package/image qualification. Current
