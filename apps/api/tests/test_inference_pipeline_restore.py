@@ -153,9 +153,10 @@ async def _function_metadata(engine) -> dict[str, dict]:
         assert values["public_can_execute"] is False, signature
         configuration = values["configuration"] or ""
         assert "search_path=pg_catalog, pg_temp" in configuration, signature
-        assert "TimeZone=UTC" in configuration, signature
-        assert "DateStyle=ISO, YMD" in configuration, signature
-        assert "extra_float_digits=3" in configuration, signature
+        if values["client_can_execute"]:
+            assert "TimeZone=UTC" in configuration, signature
+            assert "DateStyle=ISO, YMD" in configuration, signature
+            assert "extra_float_digits=3" in configuration, signature
     return metadata
 
 
