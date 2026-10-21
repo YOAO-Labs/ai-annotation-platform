@@ -1,4 +1,4 @@
-"""Bounded stdlib HTTP server for the independent Inference pipeline owner."""
+"""Bounded stdlib HTTP server for independent Inference owner capabilities."""
 
 from __future__ import annotations
 
@@ -7,6 +7,16 @@ import hmac
 import json
 import math
 from typing import Any
+
+from aap_inference_contract.probe import (
+    BACKEND_PROBE_REQUEST_MAX_BYTES,
+    BACKEND_PROBE_REPLY_MAX_BYTES,
+    BackendProbeInvalidRequest,
+    BackendProbeUnavailable,
+    backend_probe_reply_bytes,
+    decode_backend_probe_reply,
+    decode_backend_probe_request,
+)
 
 from .pipeline_contract import (
     PIPELINE_REQUEST_BODY_MAX_BYTES,
@@ -78,7 +88,7 @@ def _model_bytes(reply: Any) -> bytes:
 
 
 class PipelineHttpServer:
-    """Run the three authenticated owner routes with bounded active requests."""
+    """Run the authenticated pipeline and backend-probe routes with bounded work."""
 
     def __init__(
         self,
@@ -92,6 +102,8 @@ class PipelineHttpServer:
         max_request_bytes: int = PIPELINE_REQUEST_BODY_MAX_BYTES,
         max_response_bytes: int = PIPELINE_RESPONSE_BODY_MAX_BYTES,
         read_timeout_seconds: float = _READ_TIMEOUT_SECONDS,
+        backend_probe_manager=None,
+        backend_probe_control_token: str | None = None,
     ) -> None:
         if (
             type(host) is not str
@@ -116,11 +128,29 @@ class PipelineHttpServer:
                     or any(character.isspace() for character in control_token)
                 )
             )
+            or (
+                backend_probe_control_token is not None
+                and (
+                    type(backend_probe_control_token) is not str
+                    or not backend_probe_control_token.isascii()
+                    or not backend_probe_control_token
+                    or any(
+                        character.isspace() for character in backend_probe_control_token
+                    )
+                )
+            )
+            or (
+                control_token is not None
+                and backend_probe_control_token is not None
+                and hmac.compare_digest(control_token, backend_probe_control_token)
+            )
         ):
             raise ValueError("Invalid Inference pipeline HTTP server settings")
         self.manager = manager
         self.data = data
         self.control_token = control_token
+        self.backend_probe_manager = backend_probe_manager
+        self.backend_probe_control_token = backend_probe_control_token
         self.host = host
         self.port = port
         self.max_concurrency = max_concurrency
@@ -310,15 +340,38 @@ class PipelineHttpServer:
 
     async def _dispatch(self, method: str, path: str, headers, body: bytes):
         if method == "GET" and path == "/health":
-            ready = (
+            pipeline_configured = (
                 self.control_token is not None
                 and self.manager is not None
                 and self.data is not None
-                and await self.data.readiness()
             )
+            probe_configured = (
+                self.backend_probe_control_token is not None
+                and self.backend_probe_manager is not None
+            )
+            if not probe_configured:
+                # Preserve the pipeline-only readiness phase and response.
+                pipeline_ready = (
+                    await self.data.readiness() if pipeline_configured else False
+                )
+                probe_ready = False
+            else:
+                pipeline_ready = False
+                if pipeline_configured:
+                    try:
+                        pipeline_ready = await self.data.readiness()
+                    except Exception:
+                        pipeline_ready = False
+                try:
+                    probe_ready = await self.backend_probe_manager.readiness()
+                except Exception:
+                    probe_ready = False
+            ready = pipeline_ready or probe_ready
             return (200 if ready else 503), _json_bytes(
                 {"status": "ready" if ready else "not_ready"}
             )
+        if method == "POST" and path == "/v1/backends/probe":
+            return await self._dispatch_backend_probe(headers, body)
         operation = _ROUTES.get(path)
         if method != "POST" or operation is None:
             return 404, _json_bytes({"detail": "Not Found"})
@@ -366,6 +419,59 @@ class PipelineHttpServer:
         except PipelinePostCommitFailure:
             return 500, _json_bytes({"detail": "Internal Server Error"})
         return 200, _model_bytes(reply)
+
+    async def _dispatch_backend_probe(self, headers, body: bytes) -> tuple[int, bytes]:
+        if (
+            self.backend_probe_control_token is None
+            or self.backend_probe_manager is None
+        ):
+            return 503, _json_bytes(
+                {"detail": "Inference backend probe owner unavailable"}
+            )
+        authorization = headers.get("authorization")
+        expected = f"Bearer {self.backend_probe_control_token}"
+        if authorization is None or not hmac.compare_digest(
+            authorization.encode("utf-8"), expected.encode("utf-8")
+        ):
+            return 401, _json_bytes({"detail": "Unauthorized"})
+        if len(body) > min(self.max_request_bytes, BACKEND_PROBE_REQUEST_MAX_BYTES):
+            return 413, _json_bytes({"detail": "Request body too large"})
+        try:
+            request = decode_backend_probe_request(body)
+        except (
+            BackendProbeInvalidRequest,
+            BackendProbeUnavailable,
+            ValueError,
+            TypeError,
+            UnicodeError,
+            RecursionError,
+        ):
+            return 400, _json_bytes(
+                {"detail": "Invalid Inference backend probe request"}
+            )
+        try:
+            reply = await self.backend_probe_manager.execute(request)
+            encoded = backend_probe_reply_bytes(reply)
+            decode_backend_probe_reply(request, encoded)
+        except BackendProbeUnavailable:
+            return 503, _json_bytes(
+                {"detail": "Inference backend probe owner unavailable"}
+            )
+        except (
+            BackendProbeInvalidRequest,
+            ValueError,
+            TypeError,
+            UnicodeError,
+            RecursionError,
+        ):
+            return 503, _json_bytes(
+                {"detail": "Inference backend probe owner unavailable"}
+            )
+        if len(encoded) > min(self.max_response_bytes, BACKEND_PROBE_REPLY_MAX_BYTES):
+            return 503, _json_bytes(
+                {"detail": "Inference backend probe owner unavailable"}
+            )
+        return 200, encoded
 
     async def _write_json(
         self, writer: asyncio.StreamWriter, status: int, payload
