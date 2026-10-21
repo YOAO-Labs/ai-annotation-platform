@@ -1690,6 +1690,20 @@ ALTER FUNCTION aap_workspace_project_query_v1.project_query_step(
     jsonb, text, jsonb, text, text, text[], text[], uuid, text,
     timestamptz, timestamptz, bigint, integer
 ) OWNER TO :"workspace_owner";
+DO $$
+DECLARE
+    implementation regprocedure := pg_catalog.to_regprocedure(
+        'aap_workspace_project_query_v1._project_query_step_impl(jsonb, text, jsonb, text, text, text[], text[], uuid, text, timestamptz, timestamptz, bigint, integer)'
+    );
+BEGIN
+    IF implementation IS NOT NULL THEN
+        EXECUTE pg_catalog.format(
+            'ALTER FUNCTION %s OWNER TO %I',
+            implementation,
+            current_setting('aap.workspace_owner')
+        );
+    END IF;
+END $$;
 ALTER FUNCTION aap_workspace_project_query_v1.project_search_scope(uuid, text)
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_project_query_v1.project_search_member_ids(uuid, text)
