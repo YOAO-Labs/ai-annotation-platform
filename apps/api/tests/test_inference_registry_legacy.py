@@ -32,6 +32,7 @@ from app.services.ml_backend import MLBackendService
 from tests.factory import create_membership, create_project, create_user
 from tests.labeling_class_query_helpers import (
     api_db_binding,
+    assert_owned_test_database,
     clear_local_identity,
     make_request_runtime,
 )
@@ -39,6 +40,9 @@ from tests.test_labeling_class_usage_reads_legacy import _legacy_runtime_url
 
 _ROOT = Path(__file__).resolve().parents[3]
 _BASE_COMMIT = "653b4e142f683c1441874d3e356f334ef60f3da6"
+_FIXTURE_PATH = (
+    Path(__file__).parent / "fixtures/inference_registry_legacy/samples.json"
+)
 _RESPONSE_HEADERS = ("content-type", "location", "www-authenticate", "retry-after")
 _TIMESTAMP_FIELDS = {"created_at", "updated_at", "last_checked_at", "started_at"}
 _SECRET_FIELDS = {"auth_token", "access_token", "password", "password_hash"}
@@ -728,7 +732,9 @@ async def _seed_world(test_engine) -> dict:
 
 async def _cleanup_world(test_engine, world: dict) -> None:
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    await assert_owned_test_database(test_engine)
     async with maker.begin() as db:
+        await db.execute(text("SET LOCAL app.allow_audit_update='true'"))
         if world["actor_ids"]:
             await db.execute(
                 delete(AuditLog).where(AuditLog.actor_id.in_(world["actor_ids"]))
@@ -1537,7 +1543,13 @@ async def _exercise_scenarios(client, maker, world, monkeypatch) -> None:
     ), "global registry removal should leave the project-pool association row"
 
 
-async def _exercise_owned_http(test_engine, app_module, monkeypatch) -> dict:
+async def _exercise_owned_http(
+    test_engine,
+    app_module,
+    monkeypatch,
+    *,
+    application_name: str = "inference-registry-legacy-capture",
+) -> dict:
     owner_maker = async_sessionmaker(test_engine, expire_on_commit=False)
     world = None
     runtime_engine = None
@@ -1548,7 +1560,7 @@ async def _exercise_owned_http(test_engine, app_module, monkeypatch) -> dict:
     try:
         world = await _seed_world(test_engine)
         runtime_engine, runtime_maker = await make_request_runtime(
-            test_engine, application_name="inference-registry-legacy-capture"
+            test_engine, application_name=application_name
         )
         async with runtime_engine.connect() as connection:
             role, database = (
@@ -1607,19 +1619,8 @@ async def _exercise_owned_http(test_engine, app_module, monkeypatch) -> dict:
     return result
 
 
-@pytest.mark.asyncio
-@pytest.mark.skipif(
-    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1"
-    or os.environ.get("AAP_INFERENCE_REGISTRY_LEGACY_CAPTURE") != "1",
-    reason="requires an explicit owned legacy Inference registry capture",
-)
-async def test_capture_legacy_inference_registry_http_and_database(
-    test_engine, app_module, monkeypatch
-):
-    output_path = _capture_path()
-    source = _source_metadata()
-    assert test_engine.url.database and test_engine.url.database.endswith("_test")
-    live = await _exercise_owned_http(test_engine, app_module, monkeypatch)
+def _validate_and_enrich_public_responses(live: dict) -> None:
+    """Check credential handling and annotate the supplied-token validation case."""
     for sample in live["samples"]:
         response = sample["response"]
         if sample["metadata"].get("synthetic_auth_token_in_request"):
@@ -1641,6 +1642,22 @@ async def test_capture_legacy_inference_registry_http_and_database(
             secret.encode("utf-8") not in response_bytes
             for secret in (*live["tokens"], *live["secret_values"])
         ), f"a public response leaked a synthetic credential: {sample['label']}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1"
+    or os.environ.get("AAP_INFERENCE_REGISTRY_LEGACY_CAPTURE") != "1",
+    reason="requires an explicit owned legacy Inference registry capture",
+)
+async def test_capture_legacy_inference_registry_http_and_database(
+    test_engine, app_module, monkeypatch
+):
+    output_path = _capture_path()
+    source = _source_metadata()
+    assert test_engine.url.database and test_engine.url.database.endswith("_test")
+    live = await _exercise_owned_http(test_engine, app_module, monkeypatch)
+    _validate_and_enrich_public_responses(live)
     capture = {
         "capture_kind": "actual-legacy-inference-registry-http-database-audit",
         "source": source,
@@ -1666,6 +1683,84 @@ async def test_capture_legacy_inference_registry_http_and_database(
     assert all(secret not in serialized for secret in live["secret_values"])
     for marker in ("password_hash", "authorization", "bearer "):
         assert marker not in serialized.casefold()
-    with output_path.open("x", encoding="utf-8") as output:
-        output.write(json.dumps(capture, ensure_ascii=False, indent=2, sort_keys=True))
-        output.write("\n")
+    descriptor = os.open(output_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            descriptor = -1
+            output.write(
+                json.dumps(capture, ensure_ascii=False, indent=2, sort_keys=True)
+            )
+            output.write("\n")
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _read_frozen_fixture() -> dict:
+    raw = _FIXTURE_PATH.read_bytes()
+    expected_sha = _required_env("AAP_INFERENCE_REGISTRY_LEGACY_SHA256")
+    assert len(expected_sha) == 64 and all(
+        character in "0123456789abcdef" for character in expected_sha
+    ), "AAP_INFERENCE_REGISTRY_LEGACY_SHA256 must be a lowercase SHA-256 hex digest"
+    assert hashlib.sha256(raw).hexdigest() == expected_sha
+    fixture = json.loads(raw)
+    assert fixture.get("capture_kind") == (
+        "actual-legacy-inference-registry-http-database-audit"
+    )
+    assert fixture.get("source", {}).get("pre_extraction_base") == _BASE_COMMIT
+    assert isinstance(fixture.get("samples"), list) and fixture["samples"]
+    return fixture
+
+
+_REPLAY_TRANSPORT_ARTIFACTS = {
+    "body_bytes_base64",
+    "body_length",
+    "body_sha256",
+    "raw_headers",
+    "raw_headers_sha256",
+}
+
+
+def _replay_semantics(sample: dict) -> dict:
+    response = sample["response"]
+    return {
+        "label": sample["label"],
+        "request": sample["request"],
+        "response": {
+            key: value
+            for key, value in response.items()
+            if key not in _REPLAY_TRANSPORT_ARTIFACTS
+        },
+        "database_before": sample["database_before"],
+        "database_after": sample["database_after"],
+        "metadata": sample["metadata"],
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1"
+    or not _FIXTURE_PATH.is_file(),
+    reason=(
+        "requires an explicit owned acceptance run and a frozen actual-legacy "
+        "Inference registry fixture"
+    ),
+)
+async def test_replay_legacy_inference_registry_http_and_database(
+    test_engine, app_module, monkeypatch
+):
+    fixture = _read_frozen_fixture()
+    live = await _exercise_owned_http(
+        test_engine,
+        app_module,
+        monkeypatch,
+        application_name="inference-registry-legacy-replay",
+    )
+    _validate_and_enrich_public_responses(live)
+    expected_samples = fixture["samples"]
+    assert len(live["samples"]) == len(expected_samples)
+    for observed, expected in zip(live["samples"], expected_samples, strict=True):
+        assert _replay_semantics(observed) == _replay_semantics(expected), observed[
+            "label"
+        ]
