@@ -576,12 +576,12 @@ Node conformance provider 只用于本地替换实验，Native 持有业务策�
 
 配置命令的独立服务实现见 [ADR-0136](docs/adr/0136-workspace-configuration-command-owner.md)。
 六项公开配置路由已接入配置 owner，默认仍借用调用方事务；独立连接、进程、受限镜像、恢复与本地并发执行已完成限定验收。项目／模板读取投影已由各自查询 owner 提供；其余 Workspace 入口继续迁移。
-类别改名正接入同一端点；独立提供方的同名操作需要在持锁事务内完成项目投影，
+类别改名已接入同一端点；独立提供方的同名操作需要在持锁事务内完成项目投影，
 使用原 Compose 加 `-f docker-compose.workspace-class-rename.yml`，补充现有的
 `WORKSPACE_RUNTIME_PROJECT_QUERY_DATABASE_URL_FILE` 与
 `WORKSPACE_RUNTIME_PROJECT_QUERY_BRIEFS_DATABASE_URL_FILE` 两份 secret。
 该操作没有持久回执，传输失败不自动重发；原六种操作保留既有重试。
-集成与验收状态见 [ADR-0143](docs/adr/0143-workspace-project-class-rename-owner.md)。
+三路径、独立安装包、受限镜像、重启、恢复与完整迁移已通过限定本地验收，见 [ADR-0143](docs/adr/0143-workspace-project-class-rename-owner.md)。
 私有端点为 `POST /v1/workspace/configuration/execute`；独立运行使用
 `WORKSPACE_CONFIGURATION_DATABASE_URL(_FILE)` 和共享 control token。
 `docker-compose.workspace-configuration.yml` 仅绑定本机端口8174，宿主 secret

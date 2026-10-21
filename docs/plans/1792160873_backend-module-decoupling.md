@@ -4073,3 +4073,41 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - Current owner/API images, current-head restore and full 268 migration validation
   remain pending. Earlier primitive and class-query evidence is separate; this
   does not complete Workspace, Labeling or the ten-module/seven-gate objective.
+
+### Project class rename: selected local qualification closed
+
+- Current production inputs are committed at 54cd17288. Workspace source and fresh
+  noneditable installation each pass 273 tests; API pure/architecture/exact OpenAPI
+  checks have 364 passes and 143 existing inapplicable skips. No public DTO or SDK
+  change, production facade, push, release or primary cutover was introduced.
+- The latest selected database/process union is 47 distinct passing cases with no
+  unresolved failure/skip: the earlier 33 plus one full migration validator, eleven
+  existing current-head restores, one new source/clone restore and one current
+  restricted-container case. Earlier primitive 15 and class-query 41 counts remain
+  separate; the 21 HTTP samples/five lock scenarios are sample inventories inside
+  those cases, not extra test totals.
+- The source and restored clone each match 21 frozen HTTP responses through three
+  bindings, including borrowed rollback. Four Native function owner/ACL/security/
+  definition sets survive; the client retains exactly its two Configuration RPCs.
+  Clone-only disable returns 401 while source remains active and accepts NoOp.
+- Current Workspace/API linux/arm64 offline immutable non-root proofs match 187
+  Workspace files, 197 API package files and 214 API/Native inputs, exact OpenAPI and
+  head 0268. The real owner uses four read-only secrets, private PG + owner bridge, one CPU / 256 MiB,
+  capability drop / no new privileges / read-only root. Full 21 / five-lock replay, restart with freshly
+  inspected port (50309->50439), persisted rename and NoOp projection pass. Sixteen
+  distinct-project NoOps at concurrency four all succeed with zero API commits and no OOM; API
+  and PG are outside this budget, with no production capacity/SLO claim.
+- Full 268 migration validation passes fresh 268, 173-prefix down/base/up, 94-suffix
+  down/up, forward conversion and authentic preconversion restore; no owned derived
+  database remains. Both final actual tests passed after test-only corrections:
+  the profile wrongly omitted public DTO null defaults, and the clone name exceeded
+  PG's 63-byte identifier limit. Every concurrent request now settles before test
+  cleanup; the shorter clone retains an ownership comment and exact drop guard.
+  Images and production bytes were unchanged; failed attempts remain archived.
+- All owned acceptance runs report empty cleanup errors and destroyed runtime
+  resources. Canonical evidence is `.worktree/project-class-rename-owner-qualification.json`;
+  current artifact manifests and runtime observation are retained for inspection.
+  The full ten-module/seven-gate objective remains active. Guide Assets baseline 11
+  remains frozen for the next write/byte-owner slice; full Workspace/Labeling,
+  language replacement and production capacity are still incomplete. Go stays an
+  optional experiment, and the protected primary/shared runtime is unchanged.

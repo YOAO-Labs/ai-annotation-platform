@@ -1,6 +1,6 @@
 # 0143 — Workspace Project Class Rename Owner
 
-- **Status:** Accepted; integrated implementation, local qualification in progress
+- **Status:** Accepted; selected local qualification complete
 - **Date:** 2026-10-21
 - **Deciders:** Backend architecture team
 - **Supersedes:** None
@@ -114,7 +114,7 @@ Both frozen files now match through borrowed, dedicated and fresh installed HTTP
 bindings: 21 public responses and five actual competing-lock scenarios per mode.
 Actual callback blocking confirms account and Project fences remain held while
 NoOp projection runs; a competing disable commits only after release and later
-requests return 401. The selected database/process union has 33 distinct passing
+requests return 401. The initial functional group has 33 distinct passing
 cases, including caller rollback, Labeling-before-Project failure rollback,
 field preservation, OID/ACL replacement, full-row temporal-error precedence and
 old Configuration behavior. Failed attempts are retained: two temporal seeds
@@ -129,10 +129,41 @@ was absent, then passed on the owned disposable database; it is counted only in
 the database union. The architecture inventory now permits the explicit same-owner
 Project Query selector used by the new Configuration callback.
 
-Current-schema restore, full migration reversal and restricted current owner/API
-image gates remain open. These tests do not establish production capacity or a
-production cutover. Baseline evidence, the primitive's earlier checks and the
-completed class-query qualification remain separate and must not be recounted.
+Current owner/API images match the committed production inputs at `54cd17288`.
+Both are linux/arm64; offline, network-disabled, read-only non-root proofs verify
+187 Workspace package files and 197 API package files plus 214 API/Native inputs,
+current Native inventory/head and exact OpenAPI. The actual owner container uses
+four read-only secrets, a private bridge containing only the owned PostgreSQL
+and owner, one CPU, 256 MiB, no extra capabilities and no new privileges. It matches
+all 21 HTTP and five lock samples. A real restart changes its mapped host port;
+the test re-inspects and verifies persisted renamed data and a successful NoOp
+using the new origin. Sixteen distinct-project NoOps at concurrency four succeed
+without API commits or OOM. The API and database are outside that owner budget;
+this bounded local observation is not a production capacity or SLO qualification.
+
+Source and restored clone each match all 21 frozen responses through three real
+bindings, including borrowed rollback. Native function ownership/ACL/security
+and definitions are preserved; the Configuration client retains exactly its two
+RPCs and no raw-table/Labeling effect access. Clone-only actor revocation returns
+401 while the original source still accepts its NoOp. All eleven existing
+Identity/Workspace/Labeling current-head restore cases pass.
+
+Full 268 migration validation passes: fresh 268, 173-prefix down/base/up, 94-suffix
+down/up, forward conversion and authentic preconversion restore. No owned
+derived database remains. The selected database/process union now has 47 distinct
+passing cases and no unresolved failure or skip. First-attempt test errors are
+retained: the container profile omitted public DTO null defaults, and the clone
+name exceeded PostgreSQL's 63-byte identifier limit. The corrected profile waits
+for every concurrent request before cleanup; the bounded clone name retains its
+ownership comment and exact cleanup guard. No production implementation change
+or image rebuild was required for those driver corrections.
+
+All owned runtime validation resources are removed; evidence is in
+`.worktree/project-class-rename-owner-qualification.json`. Baseline evidence, the
+primitive's earlier checks and completed class-query qualification remain separate
+and are not added to these 47 cases. Primary and production are unchanged; AMD64,
+full-module capacity, complete Workspace/Labeling and the whole architecture goal
+are not qualified by this selected slice.
 
 This does not complete Workspace, Labeling or the ten-module/seven-gate goal.
 Primary runtime and production remain unchanged. Go remains an optional experiment.

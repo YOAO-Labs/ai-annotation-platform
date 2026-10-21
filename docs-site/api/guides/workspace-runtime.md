@@ -61,7 +61,7 @@ Node conformance provider 以标准 PostgreSQL 协议调用相同的两项函数
 `WORKSPACE_CONFIGURATION_DATABASE_URL(_FILE)`，复用 control token；本地 Compose
 文件为 `docker-compose.workspace-configuration.yml`，端口8174。
 
-配置服务保存不可变成功回执，在同一事务中执行分阶段写入和当前权限围栏。
+上述六种配置命令保存不可变成功回执，在同一事务中执行分阶段写入和当前权限围栏。
 默认 API 数据端口借用调用方事务；独立连接只持有自己的业务事务，不提交 API
 连接上的无关 pending work。后端探测超时及视频参数需要与 API 保持一致，具体变量见
 [环境变量参考](/dev/reference/env-vars)。
@@ -94,7 +94,7 @@ Workspace 已独立部署。状态与事务取舍见
 `WORKSPACE_RUNTIME_PROJECT_QUERY_DATABASE_URL_FILE` 和
 `WORKSPACE_RUNTIME_PROJECT_QUERY_BRIEFS_DATABASE_URL_FILE` 指定。
 不增加服务或对外端口；原六种配置操作仍可使用原来的两份 secret 部署。
-此切片的集成与验收仍在推进，范围见
+此切片的三路径、独立安装包、受限镜像、重启、恢复和完整迁移已通过限定本地验收，范围见
 [ADR-0143](/dev/adr/0143-workspace-project-class-rename-owner)。
 
 ## 模板列表、详情与响应投影

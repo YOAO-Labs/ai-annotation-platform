@@ -383,7 +383,7 @@ Identity 准入、API key、核心会话、自助账户、注册恢复／邮件�
 
 项目／模板配置模型与纯策略已移到 Workspace 包，预标注值与能力归一化由 Inference 包持有。六项公开配置调用已接入配置 owner，默认保留调用方事务；独立安装包、进程、受限镜像与本地并发执行已完成限定验收，见 [配置命令 ADR](./docs/adr/0136-workspace-configuration-command-owner.md)。
 
-类别重命名正在接入同一个配置 owner，在单一事务内组合项目绑定和 Labeling 类名写入；同名请求由独立提供方持锁完成投影。基础能力已验证，完整命令的集成与验收见 [类别改名 ADR](./docs/adr/0143-workspace-project-class-rename-owner.md)。
+类别重命名已接入同一个配置 owner，在单一事务内组合项目绑定和 Labeling 类名写入；同名请求由独立提供方持锁完成投影。三路径、独立安装包、受限镜像、重启、恢复与完整迁移已通过限定本地验收，见 [类别改名 ADR](./docs/adr/0143-workspace-project-class-rename-owner.md)。
 
 模板列表、详情和写入后的响应投影也已接入同一个读取 owner，默认借用调用方事务，可选专用 DSN／HTTP；三条路径的旧响应对照、独立安装包、受限镜像、故障恢复与完整迁移均已完成限定本地验收，见 [模板查询 ADR](./docs/adr/0137-workspace-template-query-owner.md)。
 

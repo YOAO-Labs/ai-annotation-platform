@@ -72,11 +72,12 @@ Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事�
 
 ## Workspace 类别重命名
 
-类别重命名正在接入同一个 Configuration owner，使用独立的无状态命令分支，
+类别重命名已接入同一个 Configuration owner，使用独立的无状态命令分支，
 在一个事务内组合 Workspace 绑定策略和 Labeling 的窄类名写入。
 同名操作的独立提供方在权限锁释放前完成项目投影，不额外写入成功回执；
-改名传输不自动重发。基础写入能力已通过本地检查，完整命令的三路径、
-故障与恢复、当前工件验收仍在推进，见
+改名传输不自动重发。47 个去重选定数据库／进程检查已通过，包括三路径、
+当前受限镜像、真实撤权竞争、重启、源库及克隆恢复和完整迁移。
+源码与非 editable 安装各通过 273 项 Workspace 检查；本地并发样本不代表生产容量。见
 [ADR-0143](/dev/adr/0143-workspace-project-class-rename-owner)。
 
 ## Workspace 项目成员生命周期命令
