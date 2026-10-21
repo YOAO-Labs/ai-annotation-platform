@@ -1,0 +1,90 @@
+{
+  "$id": "aap-inference-backend-probe-native/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Inference Backend transaction-bound setup probe",
+  "$comment": "The encrypted subject preserves the original Workspace transaction snapshot. Only the fixed policy and open RPCs are granted to the dedicated probe client; credentials and the database-local key are never returned to Workspace.",
+  "type": "object",
+  "function_defaults": {
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"],
+    "time_zone": "UTC",
+    "date_style": "ISO, YMD",
+    "extra_float_digits": 3
+  },
+  "tables": [
+    {
+      "name": "aap_inference_backend_probe_v1.probe_secret",
+      "columns": [
+        {
+          "name": "singleton",
+          "type": "boolean",
+          "nullable": false,
+          "primary_key": true,
+          "check": "singleton IS TRUE"
+        },
+        {
+          "name": "secret",
+          "type": "bytea",
+          "nullable": false,
+          "check": "octet_length(secret) = 32"
+        }
+      ],
+      "semantics": "One database-local random 32-byte key. No client or Workspace role receives direct table privileges; there is no rotation or per-probe state."
+    }
+  ],
+  "functions": [
+    {
+      "signature": "aap_inference_backend_probe_v1.backend_probe_policy()",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [],
+      "returns": {
+        "kind": "jsonb",
+        "shape": {
+          "schema": "aap-inference-backend-probe-native/v1",
+          "probe_protocol": "aap-inference-backend-probe/v1",
+          "subject_protocol": "aap-inference-backend-probe-subject/v1",
+          "origin_transaction": "in_progress",
+          "functions": [
+            "aap_inference_backend_probe_v1.backend_probe_policy()",
+            "aap_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)"
+          ],
+          "ready": "boolean"
+        }
+      },
+      "semantics": "Secret-free readiness metadata. ready is true only when the singleton 32-byte key exists."
+    },
+    {
+      "signature": "aap_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_subject", "type": "text", "nullable": false },
+        { "name": "p_registry_id", "type": "uuid", "nullable": false }
+      ],
+      "returns": {
+        "kind": "scalar",
+        "type": "text",
+        "description": "The exact encrypted snapshot's original Backend JSON text, including endpoint credentials; never a current registry reread."
+      },
+      "semantics": "Accepts only v1.<contiguous-base64> PGP-authenticated AES256 subjects bound to the requested registry, current database, and an originating full XID whose status is still in progress. The subject also works from its originating caller transaction. Committed, aborted, tampered, oversized, or foreign-database subjects fail with one generic invalid-subject error."
+    }
+  ],
+  "x-postgresql-functions": [
+    "aap_inference_backend_probe_v1.backend_probe_policy()",
+    "aap_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)"
+  ],
+  "x-postgresql-private-tables": ["aap_inference_backend_probe_v1.probe_secret"],
+  "x-postgresql-replaced-functions": ["aap_inference_v1.workspace_configuration_backend(uuid)"],
+  "x-postgresql-errors": {
+    "invalid_subject": {
+      "sqlstate": "22023",
+      "message": "invalid backend probe subject"
+    },
+    "capability_unavailable": {
+      "sqlstate": "55000",
+      "message": "backend probe capability is unavailable"
+    }
+  }
+}
