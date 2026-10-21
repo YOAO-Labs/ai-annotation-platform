@@ -298,18 +298,15 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .taskRow {
-  border: 1px solid var(--sc-border);
-  border-radius: var(--radius-md);
-  background: var(--sc-card);
-  margin-bottom: 8px;
   display: grid;
   grid-template-columns: 48px 1fr 140px 100px 100px;
   align-items: center;
   gap: 12px;
-  padding: 10px 14px;
   cursor: pointer;
 }
 
@@ -358,4 +355,29 @@
 
 .actionCell {
   text-align: right;
+}
+
+@media (max-width: 900px) {
+  .taskRow {
+    grid-template-columns: 40px minmax(0, 1fr) 80px;
+    gap: 6px 8px;
+  }
+
+  .taskRow > :first-child {
+    grid-row: 1 / span 2;
+  }
+
+  .taskStatus {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .lockCell {
+    display: none;
+  }
+
+  .actionCell {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
 }

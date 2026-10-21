@@ -380,10 +380,11 @@ export const taskViewsApi = {
     taskId: string,
     filterJson: Record<string, unknown>,
     init?: RequestInit,
+    pagination = { limit: 100, offset: 0 },
   ) =>
     apiClient.post<DataManagerMatchesResponse>(
       `/projects/${projectId}/tasks/${taskId}/data-manager/matches`,
-      { filter_json: filterJson, limit: 100, offset: 0 },
+      { filter_json: filterJson, ...pagination },
       init,
     ),
 

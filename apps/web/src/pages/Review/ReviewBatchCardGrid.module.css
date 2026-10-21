@@ -33,7 +33,7 @@
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
   gap: 12px;
 }
 
@@ -54,9 +54,12 @@
 }
 
 .card:hover {
-  border-color: var(--sc-brand);
-  background: color-mix(in srgb, var(--sc-brand) 6%, var(--sc-card));
-  transform: translateY(-1px);
+  background: color-mix(in oklab, var(--sc-muted) 40%, var(--sc-card));
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--sc-ring);
+  outline-offset: 2px;
 }
 
 .cover {

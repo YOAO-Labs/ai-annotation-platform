@@ -1,3 +1,6 @@
+import { listStyles } from "@/components/ui/listStyles";
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPagination } from "@/hooks/useListPagination";
 import { useMemo } from "react";
 import type { CSSProperties } from "react";
 import { Badge } from "@/components/ui/Badge";
@@ -96,82 +99,102 @@ export function BatchCardGrid({ batches, onSelect }: Props) {
     return arr;
   }, [batches]);
 
+  const pagination = useListPagination(
+    groups.flatMap((group) => group.items),
+    batches.map((batch) => batch.batch_id).join(","),
+  );
+  const visibleIds = new Set(pagination.items.map((batch) => batch.batch_id));
   return (
-    <div className={styles.root}>
-      {groups.map((g) => (
-        <div key={g.project_id} className={styles.projectSection}>
-          <div className={styles.projectHeader}>
-            <span className={styles.projectName}>{g.project_name}</span>
-            {g.remaining > 0 && (
-              <span className={styles.remainingBadge}>
-                <Badge variant="accent">待标 {g.remaining}</Badge>
-              </span>
-            )}
-          </div>
-          <div className={styles.grid}>
-            {g.items.map((b) => {
-              const total = b.total_tasks;
-              // 与工作台进度卡一致的三档累计口径。
-              const startedDone = (b.in_progress_tasks ?? 0) + b.review_tasks + b.completed_tasks;
-              const reviewDone = b.review_tasks + b.completed_tasks;
-              const approvedDone = b.completed_tasks;
-              const pctOf = (n: number) => (total ? Math.round((n / total) * 1000) / 10 : 0);
-              const s = STATUS[b.status] ?? { label: b.status, variant: "outline" as const };
-              return (
-                <button
-                  key={b.batch_id}
-                  type="button"
-                  className={styles.card}
-                  onClick={() => onSelect(b)}
-                >
-                  <div className={styles.cover}>
-                    <Thumbnail
-                      src={b.thumbnail_url ?? undefined}
-                      blurhash={b.cover_blurhash ?? undefined}
-                      width={88}
-                      height={88}
-                    />
-                  </div>
-                  <div className={styles.body}>
-                    <div className={styles.cardTop}>
-                      <span className={`mono ${styles.cardId}`}>{b.batch_display_id}</span>
-                      <span className={styles.cardStatus}>
-                        <Badge variant={s.variant} dot>
-                          {s.label}
-                        </Badge>
-                      </span>
-                    </div>
-                    <div className={styles.cardName}>{b.batch_name}</div>
-                    <div className={styles.progress}>
-                      <ProgressRow
-                        label="标注中"
-                        count={startedDone}
-                        total={total}
-                        pct={pctOf(startedDone)}
-                        color="var(--sc-brand)"
-                      />
-                      <ProgressRow
-                        label="送审"
-                        count={reviewDone}
-                        total={total}
-                        pct={pctOf(reviewDone)}
-                        color="var(--sc-caution)"
-                      />
-                      <ProgressRow
-                        label="通过"
-                        count={approvedDone}
-                        total={total}
-                        pct={pctOf(approvedDone)}
-                        color="var(--sc-positive)"
-                      />
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ))}
-    </div>
+    <section aria-label="标注批次列表" className={listStyles.surface}>
+      <div className={`${styles.root} p-4`}>
+        {groups
+          .filter((group) => group.items.some((batch) => visibleIds.has(batch.batch_id)))
+          .map((g) => (
+            <div key={g.project_id} className={styles.projectSection}>
+              <div className={styles.projectHeader}>
+                <span className={styles.projectName}>{g.project_name}</span>
+                {g.remaining > 0 && (
+                  <span className={styles.remainingBadge}>
+                    <Badge variant="accent">待标 {g.remaining}</Badge>
+                  </span>
+                )}
+              </div>
+              <div className={styles.grid}>
+                {g.items
+                  .filter((batch) => visibleIds.has(batch.batch_id))
+                  .map((b) => {
+                    const total = b.total_tasks;
+                    // 与工作台进度卡一致的三档累计口径。
+                    const startedDone =
+                      (b.in_progress_tasks ?? 0) + b.review_tasks + b.completed_tasks;
+                    const reviewDone = b.review_tasks + b.completed_tasks;
+                    const approvedDone = b.completed_tasks;
+                    const pctOf = (n: number) => (total ? Math.round((n / total) * 1000) / 10 : 0);
+                    const s = STATUS[b.status] ?? { label: b.status, variant: "outline" as const };
+                    return (
+                      <button
+                        key={b.batch_id}
+                        type="button"
+                        className={styles.card}
+                        onClick={() => onSelect(b)}
+                      >
+                        <div className={styles.cover}>
+                          <Thumbnail
+                            src={b.thumbnail_url ?? undefined}
+                            blurhash={b.cover_blurhash ?? undefined}
+                            width={88}
+                            height={88}
+                          />
+                        </div>
+                        <div className={styles.body}>
+                          <div className={styles.cardTop}>
+                            <span className={`mono ${styles.cardId}`}>{b.batch_display_id}</span>
+                            <span className={styles.cardStatus}>
+                              <Badge variant={s.variant} dot>
+                                {s.label}
+                              </Badge>
+                            </span>
+                          </div>
+                          <div className={styles.cardName}>{b.batch_name}</div>
+                          <div className={styles.progress}>
+                            <ProgressRow
+                              label="标注中"
+                              count={startedDone}
+                              total={total}
+                              pct={pctOf(startedDone)}
+                              color="var(--sc-brand)"
+                            />
+                            <ProgressRow
+                              label="送审"
+                              count={reviewDone}
+                              total={total}
+                              pct={pctOf(reviewDone)}
+                              color="var(--sc-caution)"
+                            />
+                            <ProgressRow
+                              label="通过"
+                              count={approvedDone}
+                              total={total}
+                              pct={pctOf(approvedDone)}
+                              color="var(--sc-positive)"
+                            />
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+              </div>
+            </div>
+          ))}
+      </div>
+      <ListPagination
+        label="批次"
+        page={pagination.page}
+        pageSize={pagination.pageSize}
+        total={pagination.total}
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+      />
+    </section>
   );
 }

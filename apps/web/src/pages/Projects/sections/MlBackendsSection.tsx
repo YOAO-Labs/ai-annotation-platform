@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useListPagination } from "@/hooks/useListPagination";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
@@ -124,6 +127,7 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
   const { data, isLoading, isError, error } = useAvailableMLBackends(project.id);
   const items = data?.items ?? [];
   const enabledItems = items.filter((it) => it.enabled);
+  const pagination = useListPagination(enabledItems, project.id);
   const enabledBackends = enabledItems.map((it) => it.backend);
 
   const setEnablement = useSetMLBackendEnablement(project.id);
@@ -382,7 +386,7 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
         )}
         {!isLoading && !isError && enabledItems.length > 0 && (
           <div className="w-full overflow-x-auto">
-            <table className="w-full min-w-[920px] border-separate border-spacing-0 text-sm">
+            <table className={cn(listStyles.table, "min-w-[920px]")}>
               <thead>
                 <tr>
                   {["名称", "URL", "类型", "能力", "状态", "操作"].map((h) => (
@@ -393,7 +397,7 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
                 </tr>
               </thead>
               <tbody>
-                {enabledItems.map((item) => {
+                {pagination.items.map((item) => {
                   const b = item.backend;
                   const capQ = capById.get(b.id);
                   const cap = capQ?.data as MLBackendCapability | undefined;
@@ -482,6 +486,15 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
         )}
       </div>
 
+      <ListPagination
+        label="推理服务"
+        page={pagination.page}
+        pageSize={pagination.pageSize}
+        total={pagination.total}
+        loading={isLoading}
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+      />
       <ManageBackendsPanel
         open={manageOpen}
         onClose={() => setManageOpen(false)}

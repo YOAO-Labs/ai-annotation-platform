@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useListPagination } from "@/hooks/useListPagination";
 import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -25,6 +28,7 @@ const TABLE_CELL = "whitespace-nowrap px-3 py-2.5 align-middle";
 export function DatasetsSection({ project }: { project: ProjectResponse }) {
   const pushToast = useToastStore((s) => s.push);
   const { data: linked = [], isLoading } = useProjectDatasets(project.id);
+  const pagination = useListPagination(linked, project.id);
   const { data: allDatasetsRes } = useDatasets();
   const allDatasets = allDatasetsRes?.items ?? [];
 
@@ -64,7 +68,7 @@ export function DatasetsSection({ project }: { project: ProjectResponse }) {
 
         {!isLoading && linked.length > 0 && (
           <div className="w-full overflow-x-auto">
-            <table className="w-full min-w-[840px] border-collapse text-sm">
+            <table className={cn(listStyles.table, "min-w-[840px]")}>
               <thead>
                 <tr className="border-b border-border">
                   {["数据集", "类型", "原数据集条目", "本项目任务", "关联时间", "操作"].map((h) => (
@@ -75,7 +79,7 @@ export function DatasetsSection({ project }: { project: ProjectResponse }) {
                 </tr>
               </thead>
               <tbody>
-                {linked.map((d) => (
+                {pagination.items.map((d) => (
                   <tr key={d.id} className="border-b border-border">
                     <td className={TABLE_CELL}>
                       <div className="max-w-[240px] truncate font-medium" title={d.name}>
@@ -107,6 +111,15 @@ export function DatasetsSection({ project }: { project: ProjectResponse }) {
             </table>
           </div>
         )}
+        <ListPagination
+          label="关联数据集"
+          page={pagination.page}
+          pageSize={pagination.pageSize}
+          total={pagination.total}
+          loading={isLoading}
+          onPageChange={pagination.setPage}
+          onPageSizeChange={pagination.setPageSize}
+        />
       </Card>
 
       {linkOpen && (

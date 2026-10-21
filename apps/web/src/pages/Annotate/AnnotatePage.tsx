@@ -1,3 +1,8 @@
+import { listStyles } from "@/components/ui/listStyles";
+import { useAuthStore } from "@/stores/authStore";
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPageState } from "@/hooks/useListPageState";
+import { useInfiniteListPagination } from "@/hooks/useInfiniteListPagination";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterToggle } from "@/components/filters/FilterControls";
 import { useEffect, useMemo, useState } from "react";
@@ -9,7 +14,7 @@ import { confirmDialog } from "@/components/ui/decisionDialog";
 import { useToastStore } from "@/components/ui/Toast";
 import { Thumbnail } from "@/components/Thumbnail";
 import { useElementStyle } from "@/components/ui/useElementStyle";
-import { flattenTaskPages, useTaskList } from "@/hooks/useTasks";
+import { useTaskList } from "@/hooks/useTasks";
 import { useMyBatches } from "@/hooks/useDashboard";
 import { useSubmitBatch } from "@/hooks/useBatches";
 import { ApiError } from "@/api/client";
@@ -76,7 +81,7 @@ function TaskRow({ task, onOpen }: { task: TaskResponse; onOpen: () => void }) {
               : ("outline" as const);
 
   return (
-    <div onClick={onOpen} className={styles.taskRow}>
+    <div onClick={onOpen} className={`${styles.taskRow} ${listStyles.row}`}>
       <Thumbnail src={task.thumbnail_url} blurhash={task.blurhash} width={40} height={40} />
       <div className={styles.taskMain}>
         <div className={styles.taskTitleRow}>
@@ -204,12 +209,21 @@ export function AnnotatePage() {
   );
 
   const projectId = selectedBatch?.project_id;
+  const authOwnerKey = useAuthStore(
+    (state) => `${state.user?.id ?? "anonymous"}:${state.token ?? "none"}`,
+  );
+  const paginationScope = JSON.stringify([authOwnerKey, projectId, selectedBatchId, rejectedOnly]);
+  const pageState = useListPageState(paginationScope);
   const taskListParams = useMemo(
     () =>
       selectedBatchId
-        ? { batch_id: selectedBatchId, ...(rejectedOnly ? { status: "rejected" } : {}) }
+        ? {
+            batch_id: selectedBatchId,
+            limit: pageState.pageSize,
+            ...(rejectedOnly ? { status: "rejected" } : {}),
+          }
         : undefined,
-    [selectedBatchId, rejectedOnly],
+    [selectedBatchId, rejectedOnly, pageState.pageSize],
   );
   const taskListQuery = useTaskList(projectId, taskListParams);
   const taskListData = taskListQuery.data;
@@ -224,7 +238,8 @@ export function AnnotatePage() {
       setLoadMoreRequested(false);
     }
   }, [taskListPaused, taskListQuery.isFetchingNextPage]);
-  const tasks = useMemo(() => flattenTaskPages(taskListData?.pages), [taskListData?.pages]);
+  const pagination = useInfiniteListPagination(paginationScope, taskListQuery, pageState);
+  const tasks = pagination.items;
   const total = taskListData?.pages[0]?.total ?? tasks.length;
 
   const submitBatchMut = useSubmitBatch(projectId ?? "");
@@ -512,41 +527,49 @@ export function AnnotatePage() {
             onRetry={() => void taskListQuery.refetch()}
           />
         ) : tasks.length === 0 ? (
-          <div className={styles.emptyState}>
-            <Icon name="inbox" size={40} className={styles.emptyIcon} />
-            <div className={styles.emptyTitle}>
-              {rejectedOnly ? "该批次没有待重做任务" : "该批次暂无任务"}
+          <>
+            <div className={styles.emptyState}>
+              <Icon name="inbox" size={40} className={styles.emptyIcon} />
+              <div className={styles.emptyTitle}>
+                {rejectedOnly ? "该批次没有待重做任务" : "该批次暂无任务"}
+              </div>
             </div>
-          </div>
+            <ListPagination
+              label="任务"
+              page={pagination.page}
+              pageSize={pagination.pageSize}
+              total={pagination.total}
+              count={0}
+              hasNext={pagination.hasNext}
+              onPageChange={pagination.onPageChange}
+              onPageSizeChange={pagination.setPageSize}
+            />
+          </>
         ) : (
           <>
             <div className={styles.taskListSummary}>
-              <span>
-                共 {total} 个任务{tasks.length < total && `（已加载 ${tasks.length}）`}
-              </span>
+              <span>共 {total} 个任务</span>
               <span className={styles.taskListHint}>点击行打开画布 · 进度自动保存</span>
             </div>
-            {tasks.map((t) => (
-              <TaskRow key={t.id} task={t} onOpen={() => openWorkbench(t.id)} />
-            ))}
-            {taskListQuery.hasNextPage && (
-              <div className={styles.loadMore}>
-                <span className={styles.loadMoreText}>
-                  已加载 {tasks.length}
-                  {typeof total === "number" ? ` / ${total}` : ""} 个任务
-                </span>
-                <Button
-                  size="sm"
-                  disabled={taskListQuery.isFetchingNextPage}
-                  onClick={() => {
-                    setLoadMoreRequested(true);
-                    void Promise.resolve(taskListQuery.fetchNextPage()).catch(() => undefined);
-                  }}
-                >
-                  {taskListQuery.isFetchingNextPage ? "加载中…" : "加载更多"}
-                </Button>
-              </div>
-            )}
+            <div className={listStyles.surface}>
+              {tasks.map((t) => (
+                <TaskRow key={t.id} task={t} onOpen={() => openWorkbench(t.id)} />
+              ))}
+              <ListPagination
+                label="任务"
+                page={pagination.page}
+                pageSize={pagination.pageSize}
+                total={pagination.total}
+                count={tasks.length}
+                hasNext={pagination.hasNext}
+                loading={taskListQuery.isFetchingNextPage || tasksLoading}
+                onPageChange={(page) => {
+                  setLoadMoreRequested(page > pagination.page);
+                  void pagination.onPageChange(page);
+                }}
+                onPageSizeChange={pagination.setPageSize}
+              />
+            </div>
           </>
         )}
       </section>

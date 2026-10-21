@@ -1,3 +1,7 @@
+import { cn } from "@/lib/utils";
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useListPagination } from "@/hooks/useListPagination";
 import { useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -20,6 +24,7 @@ const HEAD_CELL_BASE =
 export function MembersSection({ project }: { project: ProjectResponse }) {
   const pushToast = useToastStore((s) => s.push);
   const { data: members = [], isLoading } = useProjectMembers(project.id);
+  const pagination = useListPagination(members, project.id);
   const remove = useRemoveProjectMember(project.id);
   const [assignOpen, setAssignOpen] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<ProjectMemberResponse | null>(null);
@@ -54,7 +59,7 @@ export function MembersSection({ project }: { project: ProjectResponse }) {
         )}
         {!isLoading && members.length > 0 && (
           <div className="w-full overflow-x-auto">
-            <table className="w-full min-w-[620px] border-separate border-spacing-0 text-sm">
+            <table className={cn(listStyles.table, "min-w-[620px]")}>
               <thead>
                 <tr>
                   {["成员", "角色", "加入时间", ""].map((h, i) => (
@@ -68,7 +73,7 @@ export function MembersSection({ project }: { project: ProjectResponse }) {
                 </tr>
               </thead>
               <tbody>
-                {members.map((m) => (
+                {pagination.items.map((m) => (
                   <tr key={m.id}>
                     <td className="w-[42%] border-b border-border py-2.5 pr-3 pl-4">
                       <div className="flex min-w-0 items-center gap-2.5">
@@ -133,6 +138,15 @@ export function MembersSection({ project }: { project: ProjectResponse }) {
             </table>
           </div>
         )}
+        <ListPagination
+          label="成员"
+          page={pagination.page}
+          pageSize={pagination.pageSize}
+          total={pagination.total}
+          loading={isLoading}
+          onPageChange={pagination.setPage}
+          onPageSizeChange={pagination.setPageSize}
+        />
       </Card>
 
       {assignOpen && (

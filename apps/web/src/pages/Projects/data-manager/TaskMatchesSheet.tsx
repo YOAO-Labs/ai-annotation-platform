@@ -1,3 +1,5 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPageState } from "@/hooks/useListPageState";
 import { Suspense, lazy } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -44,7 +46,11 @@ export function TaskMatchesSheet({
   onOpenChange,
 }: TaskMatchesSheetProps) {
   const navigate = useNavigate();
-  const matchesQ = useDataManagerMatches(projectId, task?.id ?? null, filterJson, open);
+  const pagination = useListPageState(JSON.stringify([projectId, task?.id, filterJson]));
+  const matchesQ = useDataManagerMatches(projectId, task?.id ?? null, filterJson, open, {
+    limit: pagination.pageSize,
+    offset: pagination.page * pagination.pageSize,
+  });
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -117,6 +123,15 @@ export function TaskMatchesSheet({
             )}
           </div>
         </ScrollArea>
+        <ListPagination
+          label="匹配对象"
+          page={pagination.page}
+          pageSize={pagination.pageSize}
+          total={matchesQ.data?.total ?? 0}
+          loading={matchesQ.isFetching}
+          onPageChange={pagination.setPage}
+          onPageSizeChange={pagination.setPageSize}
+        />
         <SheetFooter>
           <Button
             variant="primary"

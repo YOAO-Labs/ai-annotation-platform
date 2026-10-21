@@ -41,7 +41,7 @@ export function useTaskList(projectId: string | undefined, params?: TaskListPara
     queryFn: ({ pageParam, signal }: { pageParam: string | undefined; signal: AbortSignal }) =>
       tasksApi.listByProject(
         projectId!,
-        { ...params, limit: TASK_PAGE_SIZE, cursor: pageParam },
+        { ...params, limit: params?.limit ?? TASK_PAGE_SIZE, cursor: pageParam },
         { signal },
       ),
     initialPageParam: undefined as string | undefined,
