@@ -395,6 +395,8 @@ Identity 准入、API key、核心会话、自助账户、注册恢复／邮件�
 
 项目访问纯规则与行解码位于共享契约包；Workspace 新增分阶段锁定事实接口，供 Inference 在同一事务内组合原有权限围栏。它是命名流水线独立 owner 的前置能力，范围见 [项目访问事实 ADR](./docs/adr/0145-workspace-project-access-facts.md)。
 
+命名流水线的列表、详情、创建、更新、删除和应用已接入 Inference owner，支持借用调用方事务、专用数据库连接及独立 HTTP 进程。公开接口保留原样；嵌入项目的预标注配置继续由 Workspace 持有。本地独立工件、并发与恢复验收仍在推进，配置见 [Inference 运行指南](./docs-site/api/guides/inference-runtime.md)。
+
 类别与属性用量已接入 Labeling 读取边界，先核验当前项目管理权，保留原统计口径和两次顺序读取；独立安装包、三路径响应、语句间提交、受限镜像与备份恢复已完成限定本地验收，见 [Labeling 运行协议](./docs-site/api/guides/labeling-runtime.md)与 [统计 owner ADR](./docs/adr/0142-labeling-class-usage-query-owner.md)。
 
 项目与批次维护、数据回填、成员绩效、搜索、指引资源及预测／标注导入见 [项目、批次与数据运维](./docs-site/dev/sdk/project-workflows.md)。分派绑定原预览版本，项目范围约束先于查询限制，批次导出与项目导出使用相同能力检查。

@@ -77,7 +77,7 @@ API 先用现有 Identity 认证构造 actor ID 与严格字符串 role 快照�
 
 Apply 的公开 `require_project_owner` 检查仍在读取源编排之前执行。之后 Inference 按原顺序读取来源、校验 stages、查询 backend registry/pool/project enablement，再通过 Workspace 的固定能力按账号、项目、必要时成员的顺序重新读取当前权威并持锁到事务结束。Native 的每个阶段仍是单独语句，保留 READ COMMITTED 快照；Workspace facts 与最终 pipeline 写入共享一个 PostgreSQL 事务。
 
-借用模式中，manager 返回 `caller_pending`；API 随即提交一次，再按完整原命令回执读取新的项目行投影，并通过 Identity UserBrief 取创建者显示名。专用 DSN 和 HTTP owner 只有在自己的提交完成后返回 `committed`，API 不重复提交。apply 响应仍返回 `created_by_name: null`。回执绑定投影本身不要求外层事务已经提交；如果在调用方外层事务或 savepoint 中读取，它只证明当前事务可见的结果，不代表数据库已提交。
+借用模式中，manager 返回 `caller_pending`；API 随即提交一次，再按完整原命令回执读取新的流水线行投影，并通过 Identity UserBrief 取创建者显示名。专用 DSN 和 HTTP owner 只有在自己的提交完成后返回 `committed`，API 不重复提交。apply 响应仍返回 `created_by_name: null`。回执绑定投影本身不要求外层事务已经提交；如果在调用方外层事务或 savepoint 中读取，它只证明当前事务可见的结果，不代表数据库已提交。
 
 HTTP 执行收到含糊确认时，`PipelineHttpClient` 最多发送一次同命令 status 查询，不会重新发送写命令。status 只把其他已提交事务的回执报告为 `committed`；当前创建事务中的未提交回执为 `unknown`，这不等于确认回滚。未知结果返回 unavailable。公开重试会生成新操作 UUID，本 API 没有新增公开幂等键。
 

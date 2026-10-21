@@ -64,6 +64,7 @@ REVOKE ALL ON TABLE aap_inference_pipelines_v1.operation_attempts FROM PUBLIC;
 -- aap-statement-break
 CREATE TABLE aap_inference_pipelines_v1.operation_receipts (
     operation_id uuid PRIMARY KEY,
+    transaction_id bigint NOT NULL,
     actor_id uuid NOT NULL,
     operation text NOT NULL CHECK (operation IN (
         'create_pipeline', 'update_pipeline', 'delete_pipeline', 'apply_pipeline'
@@ -200,7 +201,7 @@ AS $function$
           OR (p_request->>'request_id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
           OR pg_catalog.jsonb_typeof(p_request->'operation') IS DISTINCT FROM 'string'
           OR p_request->>'operation' NOT IN (
-              'list_pipelines', 'get_pipeline', 'get_project_projection'
+              'list_pipelines', 'get_pipeline', 'get_pipeline_projection'
           )
           OR NOT aap_inference_pipelines_v1._actor_is_valid(p_request->'admitted_actor')
           OR pg_catalog.jsonb_typeof(p_request->'target_id') NOT IN ('null', 'string')
@@ -422,6 +423,9 @@ STABLE
 PARALLEL SAFE
 SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
+SET TimeZone TO 'UTC'
+SET DateStyle TO 'ISO, YMD'
+SET extra_float_digits TO 3
 AS $function$
     SELECT pg_catalog.jsonb_build_object(
         'schema', 'aap-inference-pipelines-policy/v1',
@@ -470,7 +474,7 @@ VOLATILE
 PARALLEL UNSAFE
 SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
-SET timezone TO 'UTC'
+SET TimeZone TO 'UTC'
 SET DateStyle TO 'ISO, YMD'
 SET extra_float_digits TO 3
 AS $function$
@@ -609,7 +613,9 @@ BEGIN
           AND receipt.operation = v_operation
           AND receipt.target_id IS NOT DISTINCT FROM v_target_id
           AND receipt.request_hash = v_request_hash
-          AND receipt.request = v_command;
+          AND receipt.request = v_command
+          AND receipt.transaction_id IS DISTINCT FROM
+              pg_catalog.txid_current_if_assigned();
         v_facts := pg_catalog.jsonb_build_object(
             'state', CASE WHEN FOUND THEN 'committed' ELSE 'unknown' END,
             'resource_id', CASE WHEN FOUND THEN pg_catalog.to_jsonb(v_receipt.resource_id) ELSE NULL END
@@ -781,7 +787,7 @@ BEGIN
                         RAISE EXCEPTION USING ERRCODE = '22023',
                             MESSAGE = 'unbound Inference pipeline detail read';
                     END IF;
-                ELSIF v_operation = 'get_project_projection' THEN
+                ELSIF v_operation = 'get_pipeline_projection' THEN
                     v_evidence := p_request->'evidence';
                     SELECT receipt.*
                     INTO v_receipt
@@ -1474,27 +1480,12 @@ BEGIN
                        SELECT 1
                        FROM pg_catalog.generate_series(1, v_i - 1) AS prior(i)
                        WHERE p_column_names[prior.i] = v_column
-                   )
-                   OR (
-                       v_i > 1
-                       AND v_position <= CASE p_column_names[v_i - 1]
-                           WHEN 'scope' THEN 1
-                           WHEN 'project_id' THEN 2
-                           WHEN 'organization_id' THEN 3
-                           WHEN 'name' THEN 4
-                           WHEN 'stages' THEN 5
-                           WHEN 'is_default' THEN 6
-                           ELSE 0
-                       END
                    ) THEN
                     RAISE EXCEPTION USING ERRCODE = '22023',
-                        MESSAGE = 'invalid Inference pipeline update column order';
+                        MESSAGE = 'invalid Inference pipeline update columns';
                 END IF;
-                IF (v_column = 'scope' AND v_value IS NULL)
-                   OR (v_column = 'name' AND v_value IS NULL)
-                   OR (v_column = 'stages' AND v_value IS NULL)
-                   OR (v_column = 'is_default'
-                       AND (v_value IS NULL OR v_value NOT IN ('true', 'false')))
+                IF (v_column = 'is_default'
+                       AND v_value IS NOT NULL AND v_value NOT IN ('true', 'false'))
                    OR (v_column IN ('project_id', 'organization_id')
                        AND v_value IS NOT NULL
                        AND v_value !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') THEN
@@ -1596,11 +1587,6 @@ BEGIN
             ) ON CONFLICT (transaction_id, operation_id) DO NOTHING;
             DELETE FROM public.project_pipelines AS pipeline
             WHERE pipeline.id = v_target_id;
-            GET DIAGNOSTICS v_rows = ROW_COUNT;
-            IF v_rows <> 1 THEN
-                RAISE EXCEPTION USING ERRCODE = 'XX000',
-                    MESSAGE = 'Inference pipeline delete target disappeared';
-            END IF;
             UPDATE aap_inference_pipelines_v1.operation_states AS state
             SET resource_id = v_target_id,
                 delete_seen = true,
@@ -1691,10 +1677,10 @@ BEGIN
                 v_state.transaction_id, v_request_id, v_request_hash
             ) ON CONFLICT (transaction_id, operation_id) DO NOTHING;
             INSERT INTO aap_inference_pipelines_v1.operation_receipts (
-                operation_id, actor_id, operation, target_id, request_hash,
+                operation_id, transaction_id, actor_id, operation, target_id, request_hash,
                 request, resource_id
             ) VALUES (
-                v_request_id, v_actor_id, v_operation, v_target_id,
+                v_request_id, v_state.transaction_id, v_actor_id, v_operation, v_target_id,
                 v_request_hash, v_command, v_resource_id
             );
             DELETE FROM aap_inference_pipelines_v1.operation_attempts AS attempt

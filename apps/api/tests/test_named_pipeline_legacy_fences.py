@@ -16,7 +16,6 @@ import pytest
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.application import project_pipeline as application
 from app.core.security import create_access_token
 from app.db.models.project import Project
 from app.db.models.project_pipeline import ProjectPipeline
@@ -169,6 +168,8 @@ async def _settle(task, release):
 
 
 async def _capture(engine, app_module, monkeypatch, *, reject_insert):
+    from app.application import project_pipeline as application
+
     maker, actor, project_id, source_id, default_id = await _seed(engine)
     aliases = {
         str(actor.id): "$actor",

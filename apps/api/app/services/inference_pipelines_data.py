@@ -6,6 +6,9 @@ from contextlib import asynccontextmanager
 import json
 
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
+
+from aap_inference.pipeline_contract import PipelineRejected
 
 PIPELINE_SCHEMA = "aap_inference_pipelines_v1"
 
@@ -87,12 +90,28 @@ class InferencePipelinesData:
             "request": _json_text(request),
             "action": action,
             "args": _json_text({} if args is None else args),
-            "columns": list(columns)
-            if action in {"pipeline_insert", "pipeline_update"}
-            else None,
-            "values": list(values)
-            if action in {"pipeline_insert", "pipeline_update"}
-            else None,
+            "columns": list(columns),
+            "values": list(values),
         }
         with self.db.no_autoflush:
-            return await self.db.scalar(_STEP, parameters)
+            try:
+                return await self.db.scalar(_STEP, parameters)
+            except DBAPIError as error:
+                sqlstate = getattr(error.orig, "sqlstate", None) or getattr(
+                    error.orig, "pgcode", None
+                )
+                phase = (args or {}).get("phase")
+                reason = {
+                    "lock_actor_share": "account_busy",
+                    "lock_project_key_share": "project_busy",
+                    "lock_member_share": "membership_busy",
+                }.get(phase)
+                if (
+                    action == "project_access"
+                    and reason is not None
+                    and sqlstate in {"55P03", "40001", "40P01"}
+                ):
+                    raise PipelineRejected(
+                        409, {"reason": reason}, rollback=True
+                    ) from None
+                raise

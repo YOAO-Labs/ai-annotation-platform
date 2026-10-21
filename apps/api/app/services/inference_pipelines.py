@@ -120,7 +120,6 @@ async def _invoke(owner: _Owner, db, operation: str, request):
 
     data = PipelinePostgresData(owner.dsn, command_timeout=owner.timeout)
     try:
-        await data.connect()
         manager = PipelineManager(data)
         if operation == "execute":
             reply = await manager.execute(request)

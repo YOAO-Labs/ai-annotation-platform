@@ -66,6 +66,7 @@ IDENTITY_CLIENT_ROLES = {
     "WORKSPACE_PROJECT_QUERY": "workspace_project_query_client",
     "WORKSPACE_DIRECTORY_QUERY": "workspace_directory_query_client",
     "LABELING_CLASS_QUERY": "labeling_class_query_client",
+    "INFERENCE_PIPELINES": "inference_pipelines_client",
 }
 MODULE_ROLES = (
     "identity_code",
@@ -218,6 +219,7 @@ SQL_ARTIFACTS = (
     "0268_workspace_class_rename.sql",
     "0269_workspace_guide_assets.sql",
     "0270_workspace_project_access_step.sql",
+    "0271_inference_pipelines.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -300,8 +302,10 @@ SCHEMA_ARTIFACTS = (
     "0268_workspace_class_rename.schema.json",
     "0269_workspace_guide_assets.schema.json",
     "0270_workspace_project_access_step.schema.json",
+    "0271_inference_pipelines.schema.json",
 )
 TEST_FILES = (
+    "tests/test_inference_pipeline_native.py",
     "tests/test_workspace_project_access_step_native.py",
     "tests/test_workspace_project_access_step_restore.py",
     "tests/test_workspace_class_rename_native.py",
@@ -2122,6 +2126,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_workspace_owner_transfer_v1') IS NULL "
             "AND to_regnamespace('aap_workspace_template_query_v1') IS NULL "
             "AND to_regnamespace('aap_workspace_project_query_v1') IS NULL "
+            "AND to_regnamespace('aap_inference_pipelines_v1') IS NULL "
             "AND to_regnamespace('aap_workspace_directory_query_v1') IS NULL "
             "AND to_regprocedure('aap_labeling_v1.workspace_project_query_counters(uuid[])') IS NULL "
             "AND to_regprocedure('aap_assets_v1.workspace_project_query_dataset_ids(uuid)') IS NULL "
@@ -2362,6 +2367,9 @@ def main(argv: list[str] | None = None) -> int:
         labeling_class_query_grants_path = (
             ROOT / "infra/docker/labeling-class-query-grants.sql"
         )
+        inference_pipelines_grants_path = (
+            ROOT / "infra/docker/inference-pipelines-grants.sql"
+        )
         identity_deactivation_grants_path = (
             ROOT / "infra/docker/identity-deactivation-grants.sql"
         )
@@ -2405,6 +2413,7 @@ def main(argv: list[str] | None = None) -> int:
             or not workspace_project_query_grants_path.is_file()
             or not workspace_directory_query_grants_path.is_file()
             or not labeling_class_query_grants_path.is_file()
+            or not inference_pipelines_grants_path.is_file()
             or not identity_account_grants_path.is_file()
             or not identity_recovery_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
@@ -2479,6 +2488,9 @@ def main(argv: list[str] | None = None) -> int:
             workspace_directory_query_grants_path.read_text(encoding="utf-8")
         )
         labeling_class_query_grant_sql = labeling_class_query_grants_path.read_text(
+            encoding="utf-8"
+        )
+        inference_pipelines_grant_sql = inference_pipelines_grants_path.read_text(
             encoding="utf-8"
         )
         workspace_project_query_grant_sql = (
@@ -2598,8 +2610,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0270"]:
-            raise RuntimeError("module-data acceptance requires migration head 0270")
+        if heads != ["0271"]:
+            raise RuntimeError("module-data acceptance requires migration head 0271")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -3154,6 +3166,24 @@ def main(argv: list[str] | None = None) -> int:
                 "workspace_configuration_role": "workspace_configuration_client",
             },
         )
+        phase = "install-inference-pipelines-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=inference_pipelines_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "inference_owner": "inference_code",
+                "inference_pipelines_role": "inference_pipelines_client",
+            },
+        )
         phase = "install-workspace-template-query-grants"
         _psql(
             container_id,
@@ -3226,7 +3256,7 @@ def main(argv: list[str] | None = None) -> int:
             {
                 (
                     f"AAP_MODULE_DATA_{kind}_URL"
-                    if kind.startswith(("WORKSPACE_", "LABELING_"))
+                    if kind.startswith(("WORKSPACE_", "LABELING_", "INFERENCE_"))
                     else f"AAP_MODULE_DATA_IDENTITY_{kind}_URL"
                 ): URL.create(
                     "postgresql+asyncpg",

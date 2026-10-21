@@ -4301,3 +4301,36 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   private runtime, API assembly and complete three-binding qualification remain
   the next coherent slice. Full ten-module/seven-gate completion, production
   capacity and language replacement remain open; Go stays experimental.
+
+### Named pipelines: independent owner integrated, qualification in progress
+
+- All six public named-pipeline entries now use the portable Inference manager,
+  closed command/query/status contract and Native0271. The old ORM workflow and
+  application command module are removed, with no forwarding facade. Project
+  embedded pipeline configuration remains Workspace-owned. API admission and
+  creator-profile assembly retain their existing owners.
+- Borrowed caller transactions retain their commit boundary; dedicated DSN and
+  independent HTTP owners commit their own transaction. The public API commits
+  before reading the receipt-bound current row. A projection itself makes no
+  global-commit claim, so caller-owned outer transactions/savepoints still work.
+  Status excludes a receipt created in the same uncommitted transaction.
+- Final apply locks compose the published Workspace facts on the same connection.
+  Backend registry, first pool and project association remain separate statement
+  snapshots. JSONB null commits before public response validation; scalar SQL
+  constraint failures roll back. Concurrent disappearance after a visible DELETE
+  snapshot remains successful, while a dirty UPDATE still requires its row.
+- The three actual API bindings independently replay all seventy immutable old
+  HTTP/database observations. These are three selected cases, not 210 cases;
+  failed setup attempts and corrected test-only ORM-cache assumptions remain in
+  separate evidence. Native receipt/status and concurrent deletion cases pass.
+- A fresh noneditable Inference artifact passes ninety tests with no skips and
+  matches five packages/thirty-nine files. Its 37,887-byte wire schema is installed
+  as package data. A cold import first exposed stale uv wheel reuse after the
+  shared timestamp helper rename; explicit source/schema cache keys now rebuild
+  the shared contract. The current artifact has no API/ORM/Celery/Workspace-runtime
+  dependencies; the existing protocol package still brings FastAPI transitively.
+- Qualification is still in progress for real lock observations across bindings,
+  lost acknowledgments and restart, nonempty dump/restore, current restricted
+  containers and Native0271 full migration validation. No primary or production
+  runtime has been switched. Full ten-module/seven-gate work and replacement
+  language qualification remain open; Go stays an experiment.

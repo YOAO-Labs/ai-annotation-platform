@@ -1,0 +1,1598 @@
+{
+  "$defs": {
+    "JsonValue": {},
+    "PipelineActor": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": ["id", "role"],
+      "title": "PipelineActor",
+      "type": "object"
+    },
+    "PipelineAffectedCountFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "affected_count": {
+          "title": "Affected Count",
+          "type": "integer"
+        }
+      },
+      "required": ["affected_count"],
+      "title": "PipelineAffectedCountFacts",
+      "type": "object"
+    },
+    "PipelineBeginFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "replay": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PipelineBeginReplay"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["replay"],
+      "title": "PipelineBeginFacts",
+      "type": "object"
+    },
+    "PipelineBeginReplay": {
+      "additionalProperties": false,
+      "properties": {
+        "resource_id": {
+          "format": "uuid",
+          "title": "Resource Id",
+          "type": "string"
+        }
+      },
+      "required": ["resource_id"],
+      "title": "PipelineBeginReplay",
+      "type": "object"
+    },
+    "PipelineCommandRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-inference-pipelines/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "operation": {
+          "enum": ["create_pipeline", "update_pipeline", "delete_pipeline", "apply_pipeline"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "admitted_actor": {
+          "$ref": "#/$defs/PipelineActor"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Id"
+        },
+        "payload_ascii": {
+          "title": "Payload Ascii",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "operation",
+        "admitted_actor",
+        "target_id",
+        "payload_ascii"
+      ],
+      "title": "PipelineCommandRequest",
+      "type": "object"
+    },
+    "PipelineErrorDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "status_code": {
+          "enum": [400, 401, 403, 404, 409, 422, 500, 503],
+          "title": "Status Code",
+          "type": "integer"
+        },
+        "detail": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Headers"
+        },
+        "rollback": {
+          "title": "Rollback",
+          "type": "boolean"
+        }
+      },
+      "required": ["status_code", "detail", "headers", "rollback"],
+      "title": "PipelineErrorDetails",
+      "type": "object"
+    },
+    "PipelineFailure": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-inference-pipelines/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "operation": {
+          "enum": ["create_pipeline", "update_pipeline", "delete_pipeline", "apply_pipeline"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Id"
+        },
+        "error": {
+          "$ref": "#/$defs/PipelineErrorDetails"
+        },
+        "commit_state": {
+          "enum": ["not_started", "rolled_back", "unknown", "caller_pending"],
+          "title": "Commit State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "ok",
+        "operation_id",
+        "operation",
+        "actor_id",
+        "target_id",
+        "error",
+        "commit_state"
+      ],
+      "title": "PipelineFailure",
+      "type": "object"
+    },
+    "PipelineFilters": {
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "anyOf": [
+            {
+              "enum": ["private", "organization", "public"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scope"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "organization_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Organization Id"
+        }
+      },
+      "required": ["scope", "project_id", "organization_id"],
+      "title": "PipelineFilters",
+      "type": "object"
+    },
+    "PipelineOrganizationIdsFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "organization_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Organization Ids",
+          "type": "array"
+        }
+      },
+      "required": ["organization_ids"],
+      "title": "PipelineOrganizationIdsFacts",
+      "type": "object"
+    },
+    "PipelinePolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-inference-pipelines-policy/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "request_schema": {
+          "const": "aap-inference-pipelines/v1",
+          "title": "Request Schema",
+          "type": "string"
+        },
+        "step_schema": {
+          "const": "aap-inference-pipelines-step/v1",
+          "title": "Step Schema",
+          "type": "string"
+        },
+        "request_body_max_bytes": {
+          "title": "Request Body Max Bytes",
+          "type": "integer"
+        },
+        "response_body_max_bytes": {
+          "title": "Response Body Max Bytes",
+          "type": "integer"
+        },
+        "pipeline_columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Pipeline Columns",
+          "type": "array"
+        },
+        "insert_columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Insert Columns",
+          "type": "array"
+        },
+        "update_columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Update Columns",
+          "type": "array"
+        },
+        "actions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Actions",
+          "type": "array"
+        },
+        "serialization": {
+          "$ref": "#/$defs/PipelineSerialization"
+        }
+      },
+      "required": [
+        "schema",
+        "request_schema",
+        "step_schema",
+        "request_body_max_bytes",
+        "response_body_max_bytes",
+        "pipeline_columns",
+        "insert_columns",
+        "update_columns",
+        "actions",
+        "serialization"
+      ],
+      "title": "PipelinePolicy",
+      "type": "object"
+    },
+    "PipelineQueryFailure": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-inference-pipelines/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "request_id": {
+          "format": "uuid",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "operation": {
+          "enum": ["list_pipelines", "get_pipeline", "get_pipeline_projection"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Id"
+        },
+        "error": {
+          "$ref": "#/$defs/PipelineErrorDetails"
+        }
+      },
+      "required": ["schema", "ok", "request_id", "operation", "actor_id", "target_id", "error"],
+      "title": "PipelineQueryFailure",
+      "type": "object"
+    },
+    "PipelineQueryRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-inference-pipelines/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "request_id": {
+          "format": "uuid",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "operation": {
+          "enum": ["list_pipelines", "get_pipeline", "get_pipeline_projection"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "admitted_actor": {
+          "$ref": "#/$defs/PipelineActor"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Id"
+        },
+        "filters": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PipelineFilters"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PipelineCommandRequest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schema",
+        "request_id",
+        "operation",
+        "admitted_actor",
+        "target_id",
+        "filters",
+        "evidence"
+      ],
+      "title": "PipelineQueryRequest",
+      "type": "object"
+    },
+    "PipelineQuerySuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-inference-pipelines/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "request_id": {
+          "format": "uuid",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "operation": {
+          "enum": ["list_pipelines", "get_pipeline", "get_pipeline_projection"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Id"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/PipelineRow"
+          },
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "ok", "request_id", "operation", "actor_id", "target_id", "rows"],
+      "title": "PipelineQuerySuccess",
+      "type": "object"
+    },
+    "PipelineResourceIdFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "resource_id": {
+          "format": "uuid",
+          "title": "Resource Id",
+          "type": "string"
+        }
+      },
+      "required": ["resource_id"],
+      "title": "PipelineResourceIdFacts",
+      "type": "object"
+    },
+    "PipelineResult": {
+      "additionalProperties": false,
+      "properties": {
+        "resource_id": {
+          "format": "uuid",
+          "title": "Resource Id",
+          "type": "string"
+        }
+      },
+      "required": ["resource_id"],
+      "title": "PipelineResult",
+      "type": "object"
+    },
+    "PipelineRow": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "scope": {
+          "title": "Scope",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "organization_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Organization Id"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "stages": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "is_default": {
+          "title": "Is Default",
+          "type": "boolean"
+        },
+        "created_by": {
+          "format": "uuid",
+          "title": "Created By",
+          "type": "string"
+        },
+        "usage_count": {
+          "title": "Usage Count",
+          "type": "integer"
+        },
+        "created_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "infinity",
+                "-infinity",
+                "9999-12-31T23:59:59.999999",
+                "0001-01-01T00:00:00"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created At"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "enum": [
+                "infinity",
+                "-infinity",
+                "9999-12-31T23:59:59.999999",
+                "0001-01-01T00:00:00"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Updated At"
+        }
+      },
+      "required": [
+        "id",
+        "scope",
+        "project_id",
+        "organization_id",
+        "name",
+        "stages",
+        "is_default",
+        "created_by",
+        "usage_count",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "PipelineRow",
+      "type": "object"
+    },
+    "PipelineRowJsonFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "row_json": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Row Json"
+        }
+      },
+      "required": ["row_json"],
+      "title": "PipelineRowJsonFacts",
+      "type": "object"
+    },
+    "PipelineRowsJsonFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "rows_json": {
+          "title": "Rows Json",
+          "type": "string"
+        }
+      },
+      "required": ["rows_json"],
+      "title": "PipelineRowsJsonFacts",
+      "type": "object"
+    },
+    "PipelineSerialization": {
+      "additionalProperties": false,
+      "properties": {
+        "timezone": {
+          "const": "UTC",
+          "title": "Timezone",
+          "type": "string"
+        },
+        "date_style": {
+          "const": "ISO,YMD",
+          "title": "Date Style",
+          "type": "string"
+        },
+        "extra_float_digits": {
+          "title": "Extra Float Digits",
+          "type": "integer"
+        }
+      },
+      "required": ["timezone", "date_style", "extra_float_digits"],
+      "title": "PipelineSerialization",
+      "type": "object"
+    },
+    "PipelineStatusFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "enum": ["committed", "unknown"],
+          "title": "State",
+          "type": "string"
+        },
+        "resource_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Resource Id"
+        }
+      },
+      "required": ["state", "resource_id"],
+      "title": "PipelineStatusFacts",
+      "type": "object"
+    },
+    "PipelineStatusFailure": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-inference-pipelines/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "request_id": {
+          "format": "uuid",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "get_operation_status",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "command_operation": {
+          "enum": ["create_pipeline", "update_pipeline", "delete_pipeline", "apply_pipeline"],
+          "title": "Command Operation",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Id"
+        },
+        "error": {
+          "$ref": "#/$defs/PipelineErrorDetails"
+        }
+      },
+      "required": [
+        "schema",
+        "ok",
+        "request_id",
+        "operation",
+        "operation_id",
+        "command_operation",
+        "actor_id",
+        "target_id",
+        "error"
+      ],
+      "title": "PipelineStatusFailure",
+      "type": "object"
+    },
+    "PipelineStatusRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-inference-pipelines/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "request_id": {
+          "format": "uuid",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "get_operation_status",
+          "title": "Operation",
+          "type": "string"
+        },
+        "command": {
+          "$ref": "#/$defs/PipelineCommandRequest"
+        }
+      },
+      "required": ["schema", "request_id", "operation", "command"],
+      "title": "PipelineStatusRequest",
+      "type": "object"
+    },
+    "PipelineStatusSuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-inference-pipelines/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "request_id": {
+          "format": "uuid",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "get_operation_status",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "command_operation": {
+          "enum": ["create_pipeline", "update_pipeline", "delete_pipeline", "apply_pipeline"],
+          "title": "Command Operation",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Id"
+        },
+        "state": {
+          "enum": ["committed", "unknown"],
+          "title": "State",
+          "type": "string"
+        },
+        "resource_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Resource Id"
+        }
+      },
+      "required": [
+        "schema",
+        "ok",
+        "request_id",
+        "operation",
+        "operation_id",
+        "command_operation",
+        "actor_id",
+        "target_id",
+        "state",
+        "resource_id"
+      ],
+      "title": "PipelineStatusSuccess",
+      "type": "object"
+    },
+    "PipelineStepFailure": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-inference-pipelines-step/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "request_id": {
+          "format": "uuid",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "operation": {
+          "anyOf": [
+            {
+              "enum": ["create_pipeline", "update_pipeline", "delete_pipeline", "apply_pipeline"],
+              "type": "string"
+            },
+            {
+              "enum": ["list_pipelines", "get_pipeline", "get_pipeline_projection"],
+              "type": "string"
+            },
+            {
+              "const": "get_operation_status",
+              "type": "string"
+            }
+          ],
+          "title": "Operation"
+        },
+        "action": {
+          "enum": [
+            "begin",
+            "status",
+            "organization_ids",
+            "pipeline_get",
+            "pipeline_list",
+            "backend_get",
+            "backend_pool",
+            "backend_enabled",
+            "project_query",
+            "project_access",
+            "default_clear",
+            "pipeline_insert",
+            "pipeline_update",
+            "pipeline_delete",
+            "source_usage_increment",
+            "finish"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Id"
+        },
+        "error": {
+          "$ref": "#/$defs/PipelineErrorDetails"
+        }
+      },
+      "required": [
+        "schema",
+        "ok",
+        "request_id",
+        "operation",
+        "action",
+        "actor_id",
+        "target_id",
+        "error"
+      ],
+      "title": "PipelineStepFailure",
+      "type": "object"
+    },
+    "PipelineStepSuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-inference-pipelines-step/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "request_id": {
+          "format": "uuid",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "operation": {
+          "anyOf": [
+            {
+              "enum": ["create_pipeline", "update_pipeline", "delete_pipeline", "apply_pipeline"],
+              "type": "string"
+            },
+            {
+              "enum": ["list_pipelines", "get_pipeline", "get_pipeline_projection"],
+              "type": "string"
+            },
+            {
+              "const": "get_operation_status",
+              "type": "string"
+            }
+          ],
+          "title": "Operation"
+        },
+        "action": {
+          "enum": [
+            "begin",
+            "status",
+            "organization_ids",
+            "pipeline_get",
+            "pipeline_list",
+            "backend_get",
+            "backend_pool",
+            "backend_enabled",
+            "project_query",
+            "project_access",
+            "default_clear",
+            "pipeline_insert",
+            "pipeline_update",
+            "pipeline_delete",
+            "source_usage_increment",
+            "finish"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Id"
+        },
+        "facts": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PipelineBeginFacts"
+            },
+            {
+              "$ref": "#/$defs/PipelineStatusFacts"
+            },
+            {
+              "$ref": "#/$defs/PipelineOrganizationIdsFacts"
+            },
+            {
+              "$ref": "#/$defs/PipelineRowJsonFacts"
+            },
+            {
+              "$ref": "#/$defs/PipelineRowsJsonFacts"
+            },
+            {
+              "$ref": "#/$defs/PipelineWorkspaceReplyFacts"
+            },
+            {
+              "$ref": "#/$defs/PipelineAffectedCountFacts"
+            },
+            {
+              "$ref": "#/$defs/PipelineResourceIdFacts"
+            }
+          ],
+          "title": "Facts"
+        }
+      },
+      "required": [
+        "schema",
+        "ok",
+        "request_id",
+        "operation",
+        "action",
+        "actor_id",
+        "target_id",
+        "facts"
+      ],
+      "title": "PipelineStepSuccess",
+      "type": "object",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "begin"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "facts": {
+                "$ref": "#/$defs/PipelineBeginFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "status"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "facts": {
+                "$ref": "#/$defs/PipelineStatusFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "organization_ids"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "facts": {
+                "$ref": "#/$defs/PipelineOrganizationIdsFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "pipeline_get"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "facts": {
+                "$ref": "#/$defs/PipelineRowJsonFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "pipeline_list"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "facts": {
+                "$ref": "#/$defs/PipelineRowsJsonFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "backend_get"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "facts": {
+                "$ref": "#/$defs/PipelineRowJsonFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "backend_pool"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "facts": {
+                "$ref": "#/$defs/PipelineRowsJsonFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "backend_enabled"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "facts": {
+                "$ref": "#/$defs/PipelineRowJsonFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "project_query"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "facts": {
+                "$ref": "#/$defs/PipelineWorkspaceReplyFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "project_access"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "facts": {
+                "$ref": "#/$defs/PipelineWorkspaceReplyFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "default_clear"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "facts": {
+                "$ref": "#/$defs/PipelineAffectedCountFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "pipeline_insert"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "facts": {
+                "$ref": "#/$defs/PipelineResourceIdFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "pipeline_update"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "facts": {
+                "$ref": "#/$defs/PipelineResourceIdFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "pipeline_delete"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "facts": {
+                "$ref": "#/$defs/PipelineResourceIdFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "source_usage_increment"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "facts": {
+                "$ref": "#/$defs/PipelineAffectedCountFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "finish"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "facts": {
+                "$ref": "#/$defs/PipelineResourceIdFacts"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "PipelineSuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-inference-pipelines/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "operation": {
+          "enum": ["create_pipeline", "update_pipeline", "delete_pipeline", "apply_pipeline"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Id"
+        },
+        "result": {
+          "$ref": "#/$defs/PipelineResult"
+        },
+        "commit_state": {
+          "enum": ["caller_pending", "committed"],
+          "title": "Commit State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "ok",
+        "operation_id",
+        "operation",
+        "actor_id",
+        "target_id",
+        "result",
+        "commit_state"
+      ],
+      "title": "PipelineSuccess",
+      "type": "object"
+    },
+    "PipelineWorkspaceReplyFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "workspace_reply": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Workspace Reply",
+          "type": "object"
+        }
+      },
+      "required": ["workspace_reply"],
+      "title": "PipelineWorkspaceReplyFacts",
+      "type": "object"
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/PipelineCommandRequest"
+    },
+    {
+      "$ref": "#/$defs/PipelineQueryRequest"
+    },
+    {
+      "$ref": "#/$defs/PipelineStatusRequest"
+    },
+    {
+      "discriminator": {
+        "mapping": {
+          "False": "#/$defs/PipelineFailure",
+          "True": "#/$defs/PipelineSuccess"
+        },
+        "propertyName": "ok"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/PipelineSuccess"
+        },
+        {
+          "$ref": "#/$defs/PipelineFailure"
+        }
+      ]
+    },
+    {
+      "discriminator": {
+        "mapping": {
+          "False": "#/$defs/PipelineQueryFailure",
+          "True": "#/$defs/PipelineQuerySuccess"
+        },
+        "propertyName": "ok"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/PipelineQuerySuccess"
+        },
+        {
+          "$ref": "#/$defs/PipelineQueryFailure"
+        }
+      ]
+    },
+    {
+      "discriminator": {
+        "mapping": {
+          "False": "#/$defs/PipelineStatusFailure",
+          "True": "#/$defs/PipelineStatusSuccess"
+        },
+        "propertyName": "ok"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/PipelineStatusSuccess"
+        },
+        {
+          "$ref": "#/$defs/PipelineStatusFailure"
+        }
+      ]
+    },
+    {
+      "discriminator": {
+        "mapping": {
+          "False": "#/$defs/PipelineStepFailure",
+          "True": "#/$defs/PipelineStepSuccess"
+        },
+        "propertyName": "ok"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/PipelineStepSuccess"
+        },
+        {
+          "$ref": "#/$defs/PipelineStepFailure"
+        }
+      ]
+    },
+    {
+      "$ref": "#/$defs/PipelinePolicy"
+    }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-inference-pipelines/v1",
+  "x-pipeline-row-columns": [
+    "id",
+    "scope",
+    "project_id",
+    "organization_id",
+    "name",
+    "stages",
+    "is_default",
+    "created_by",
+    "usage_count",
+    "created_at",
+    "updated_at"
+  ],
+  "x-pipeline-insert-columns": [
+    "id",
+    "scope",
+    "project_id",
+    "organization_id",
+    "name",
+    "stages",
+    "is_default",
+    "created_by"
+  ],
+  "x-pipeline-update-columns": [
+    "scope",
+    "project_id",
+    "organization_id",
+    "name",
+    "stages",
+    "is_default"
+  ],
+  "x-pipeline-actions": [
+    "begin",
+    "status",
+    "organization_ids",
+    "pipeline_get",
+    "pipeline_list",
+    "backend_get",
+    "backend_pool",
+    "backend_enabled",
+    "project_query",
+    "project_access",
+    "default_clear",
+    "pipeline_insert",
+    "pipeline_update",
+    "pipeline_delete",
+    "source_usage_increment",
+    "finish"
+  ],
+  "x-request-body-max-bytes": 16777216,
+  "x-response-body-max-bytes": 16777216
+}

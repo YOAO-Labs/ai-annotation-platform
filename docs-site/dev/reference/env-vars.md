@@ -801,3 +801,21 @@ last_reviewed: 2026-10-21
 | `LABELING_CLASS_QUERY_MAX_CONCURRENCY` | `8` | — |
 | `LABELING_RUNTIME_CLASS_QUERY_DATABASE_URL_FILE` | `—` | Host paths mapped to the standalone container's read-only secret files. |
 | `LABELING_RUNTIME_CLASS_QUERY_CONTROL_TOKEN_FILE` | `—` | — |
+
+## Named pipelines: empty selectors borrow the API transaction; select DSN or HTTP.
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `INFERENCE_PIPELINES_URL` | `—` | — |
+| `INFERENCE_PIPELINES_TOKEN` | `—` | — |
+| `INFERENCE_PIPELINES_TOKEN_FILE` | `—` | — |
+| `INFERENCE_PIPELINES_DATABASE_URL` | `—` | — |
+| `INFERENCE_PIPELINES_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_PIPELINES_TIMEOUT_SECONDS` | `30` | — |
+| `INFERENCE_HOST` | `127.0.0.1` | Standalone Inference runtime; only its own two-function LOGIN and private bearer. |
+| `INFERENCE_PORT` | `8768` | — |
+| `INFERENCE_MAX_CONCURRENCY` | `8` | — |
+| `INFERENCE_CONTROL_TOKEN` | `—` | — |
+| `INFERENCE_CONTROL_TOKEN_FILE` | `—` | — |
+| `INFERENCE_RUNTIME_PIPELINES_DATABASE_URL_FILE` | `—` | Host paths mapped to the container's read-only secret files. |
+| `INFERENCE_RUNTIME_CONTROL_TOKEN_FILE` | `—` | — |

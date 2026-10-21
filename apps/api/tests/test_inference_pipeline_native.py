@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.db.models.project_pipeline import ProjectPipeline
 from app.db.models.user import User
 from tests.factory import create_user
 from tests.labeling_class_query_helpers import assert_owned_test_database
@@ -169,7 +170,8 @@ async def test_inference_pipeline_owner_receipts_projection_and_closed_actions(
                     separators=(",", ":"),
                 ),
             }
-            await connection.execute("BEGIN")
+            transaction = connection.transaction()
+            await transaction.start()
             started = await _step(connection, command, "begin", {})
             assert started["ok"] is True
             assert started["facts"] == {"replay": None}
@@ -179,9 +181,10 @@ async def test_inference_pipeline_owner_receipts_projection_and_closed_actions(
             assert duplicate["error"]["status_code"] == 409
             assert duplicate["error"]["detail"] == {"reason": "operation_busy"}
             assert duplicate["error"]["rollback"] is True
-            await connection.execute("ROLLBACK")
+            await transaction.rollback()
 
-            await connection.execute("BEGIN")
+            transaction = connection.transaction()
+            await transaction.start()
             started = await _step(connection, command, "begin", {})
             assert started["ok"] is True
             assert started["facts"] == {"replay": None}
@@ -220,7 +223,38 @@ async def test_inference_pipeline_owner_receipts_projection_and_closed_actions(
                 {"resource_id": str(pipeline_id)},
             )
             assert finished["facts"] == {"resource_id": str(pipeline_id)}
-            await connection.execute("COMMIT")
+            pending_status = await _step(
+                connection,
+                {
+                    "schema": "aap-inference-pipelines/v1",
+                    "request_id": str(uuid.uuid4()),
+                    "operation": "get_operation_status",
+                    "command": command,
+                },
+                "status",
+                {},
+            )
+            assert pending_status["facts"] == {"state": "unknown", "resource_id": None}
+            pending_projection = await _step(
+                connection,
+                {
+                    "schema": "aap-inference-pipelines/v1",
+                    "request_id": str(uuid.uuid4()),
+                    "operation": "get_pipeline_projection",
+                    "admitted_actor": command["admitted_actor"],
+                    "target_id": str(pipeline_id),
+                    "filters": None,
+                    "evidence": command,
+                },
+                "pipeline_get",
+                {"pipeline_id": str(pipeline_id)},
+            )
+            # Receipt-bound reads retain caller-owned/savepoint transactions;
+            # unlike status, a projection does not claim global commit.
+            assert json.loads(pending_projection["facts"]["row_json"])["id"] == str(
+                pipeline_id
+            )
+            await transaction.commit()
         finally:
             await connection.close()
 
@@ -251,7 +285,7 @@ async def test_inference_pipeline_owner_receipts_projection_and_closed_actions(
                 projection = {
                     "schema": "aap-inference-pipelines/v1",
                     "request_id": str(uuid.uuid4()),
-                    "operation": "get_project_projection",
+                    "operation": "get_pipeline_projection",
                     "admitted_actor": command["admitted_actor"],
                     "target_id": str(pipeline_id),
                     "filters": None,
@@ -285,5 +319,106 @@ async def test_inference_pipeline_owner_receipts_projection_and_closed_actions(
         finally:
             await cleanup.close()
         async with maker.begin() as db:
+            if actor_id is not None:
+                await db.execute(delete(User).where(User.id == actor_id))
+
+
+async def test_inference_pipeline_delete_retains_success_after_selected_row_disappears(
+    test_engine,
+):
+    await assert_owned_test_database(test_engine)
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    operation_id = uuid.uuid4()
+    pipeline_id = uuid.uuid4()
+    actor_id = None
+    try:
+        async with maker.begin() as db:
+            actor = await create_user(
+                db,
+                "super_admin",
+                f"inference-delete-{uuid.uuid4().hex}@example.test",
+                "Inference delete owner",
+            )
+            actor_id = actor.id
+            db.add(
+                ProjectPipeline(
+                    id=pipeline_id,
+                    scope="public",
+                    name="Concurrently deleted pipeline",
+                    stages=[],
+                    created_by=actor_id,
+                )
+            )
+
+        command = {
+            "schema": "aap-inference-pipelines/v1",
+            "operation_id": str(operation_id),
+            "operation": "delete_pipeline",
+            "admitted_actor": {"id": str(actor_id), "role": "super_admin"},
+            "target_id": str(pipeline_id),
+            "payload_ascii": "{}",
+        }
+        connection = await _connect_inference(test_engine)
+        try:
+            async with connection.transaction():
+                assert (await _step(connection, command, "begin", {}))["ok"] is True
+                selected = await _step(
+                    connection,
+                    command,
+                    "pipeline_get",
+                    {"pipeline_id": str(pipeline_id)},
+                )
+                assert json.loads(selected["facts"]["row_json"])["id"] == str(
+                    pipeline_id
+                )
+                # The legacy ORM DELETE accepts zero matched rows after its
+                # visibility snapshot; READ COMMITTED retains that outcome.
+                async with maker.begin() as db:
+                    await db.execute(
+                        delete(ProjectPipeline).where(ProjectPipeline.id == pipeline_id)
+                    )
+                deleted = await _step(
+                    connection,
+                    command,
+                    "pipeline_delete",
+                    {"pipeline_id": str(pipeline_id)},
+                )
+                assert deleted["facts"] == {"resource_id": str(pipeline_id)}
+                finished = await _step(
+                    connection, command, "finish", {"resource_id": str(pipeline_id)}
+                )
+                assert finished["facts"] == {"resource_id": str(pipeline_id)}
+
+            status = await _step(
+                connection,
+                {
+                    "schema": "aap-inference-pipelines/v1",
+                    "request_id": str(uuid.uuid4()),
+                    "operation": "get_operation_status",
+                    "command": command,
+                },
+                "status",
+                {},
+            )
+            assert status["facts"] == {
+                "state": "committed",
+                "resource_id": str(pipeline_id),
+            }
+        finally:
+            await connection.close()
+    finally:
+        cleanup = await _connect_inference(test_engine)
+        try:
+            await cleanup.execute(
+                "DELETE FROM aap_inference_pipelines_v1.operation_receipts "
+                "WHERE operation_id = $1::uuid",
+                operation_id,
+            )
+        finally:
+            await cleanup.close()
+        async with maker.begin() as db:
+            await db.execute(
+                delete(ProjectPipeline).where(ProjectPipeline.id == pipeline_id)
+            )
             if actor_id is not None:
                 await db.execute(delete(User).where(User.id == actor_id))

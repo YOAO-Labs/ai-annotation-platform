@@ -5,20 +5,36 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aap-inference"
 version = "0.1.0"
-description = "Portable inference request values and backend capability normalization"
+description = "Portable inference values, pipeline ownership and standalone runtime"
 requires-python = ">=3.11"
-dependencies = ["aap-task-contract", "aap-protocol-v2", "pydantic>=2.10.0"]
+dependencies = ["aap-task-contract", "aap-protocol-v2", "aap-owner-data", "aap-workspace-contract", "pydantic>=2.10.0"]
 
 [project.optional-dependencies]
 probe = ["httpx>=0.28.0"]
+postgres = ["asyncpg>=0.29"]
+client = ["httpx>=0.28.0"]
+runtime = ["asyncpg>=0.29", "httpx>=0.28.0"]
 test = ["pytest>=8.3.0", "pytest-asyncio>=0.24", "httpx>=0.28.0"]
 
 [tool.uv.sources]
 aap-task-contract = { path = "../_shared/task_contract", editable = true }
 aap-protocol-v2 = { path = "../_shared/protocol_v2", editable = true }
+aap-owner-data = { path = "../_shared/owner_data", editable = true }
+aap-workspace-contract = { path = "../_shared/workspace_contract", editable = true }
+
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "README.md" },
+    { file = "src/**/*.py" },
+    { file = "src/**/*.json" },
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+aap_inference = ["*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

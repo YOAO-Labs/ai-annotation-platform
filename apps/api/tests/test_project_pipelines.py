@@ -325,7 +325,14 @@ async def test_read_update_delete_saved_pipeline_and_rejects_invalid_options(
         f"/api/v1/project-pipelines/{pipeline_id}", headers=_auth(token)
     )
     assert deleted.status_code == 204
-    assert await db_session.get(ProjectPipeline, uuid.UUID(pipeline_id)) is None
+    assert (
+        await db_session.scalar(
+            select(ProjectPipeline.id).where(
+                ProjectPipeline.id == uuid.UUID(pipeline_id)
+            )
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio

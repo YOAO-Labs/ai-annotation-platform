@@ -684,6 +684,27 @@ Identity 的窄账号事实，不初始化 Briefs。空成员列表同样不访�
 命令、权限和范围见[内部运行协议](docs-site/api/guides/labeling-runtime.md)及
 [ADR-0142](docs/adr/0142-labeling-class-usage-query-owner.md)。
 
+### Inference 命名流水线
+
+命名流水线默认借用 API 的调用方事务。显式配置
+`INFERENCE_PIPELINES_DATABASE_URL(_FILE)` 可改为独立事务连接，或配置
+`INFERENCE_PIPELINES_URL` 和 `INFERENCE_PIPELINES_TOKEN(_FILE)` 选择独立进程。
+URL 与 DSN 不能同时配置；`INFERENCE_PIPELINES_TIMEOUT_SECONDS` 默认30秒，
+显式配置失败不回退。账号资料投影仍复用 API 现有的 Identity Briefs。
+
+独立进程运行 `uv run --project apps/inference --locked --extra runtime python -m aap_inference`，
+需要 `inference_pipelines_client` 的 `INFERENCE_PIPELINES_DATABASE_URL(_FILE)` 及
+`INFERENCE_CONTROL_TOKEN(_FILE)`。默认监听 `127.0.0.1:8768`，
+`INFERENCE_MAX_CONCURRENCY` 默认8；请求及响应上限均为16 MiB，超限不截断。
+先迁移当前 head，再对同一数据库安装 `infra/docker/module-data-grants.sql` 和
+`infra/docker/inference-pipelines-grants.sql`；后者要求显式指定数据库与 owner／client 角色。
+
+`docker-compose.inference.yml` 只发布本机8768，宿主 secret 文件选择器为
+`INFERENCE_RUNTIME_PIPELINES_DATABASE_URL_FILE` 与 `INFERENCE_RUNTIME_CONTROL_TOKEN_FILE`。
+容器使用 UID10008、只读文件系统及1 CPU／256 MiB 预算；这是开发运行配置，
+容量资格须由实际验收记录确认。它不替换日常服务或生产部署。
+合同、事务及故障恢复见 [Inference 运行指南](docs-site/api/guides/inference-runtime.md)。
+
 ### 设计系统
 
 前端设计系统基于 Tailwind CSS + shadcn/ui。运行时主题 Token 定义在 `apps/web/src/styles/shadcn.css`：

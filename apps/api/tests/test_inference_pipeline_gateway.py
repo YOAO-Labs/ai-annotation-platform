@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import uuid
 
 import pytest
+from sqlalchemy.exc import DBAPIError
 
 from aap_inference.pipeline_contract import (
     PIPELINE_PROTOCOL,
@@ -16,6 +17,7 @@ from aap_inference.pipeline_contract import (
     PipelineQuerySuccess,
     PipelineRow,
     PipelineResult,
+    PipelineRejected,
     PipelineStatusSuccess,
     PipelineSuccess,
     PipelineUnavailable,
@@ -148,6 +150,37 @@ def test_borrowed_adapter_preserves_flush_boundaries():
     import asyncio
 
     asyncio.run(check())
+
+
+@pytest.mark.parametrize(
+    ("phase", "sqlstate", "reason"),
+    [
+        ("lock_actor_share", "55P03", "account_busy"),
+        ("lock_project_key_share", "40001", "project_busy"),
+        ("lock_member_share", "40P01", "membership_busy"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_borrowed_authority_contention_retains_phase_conflict(
+    phase, sqlstate, reason
+):
+    class DriverError(Exception):
+        pass
+
+    class BusySession(_BorrowedSession):
+        async def scalar(self, _statement, _parameters):
+            error = DriverError("private driver diagnostics")
+            error.sqlstate = sqlstate
+            raise DBAPIError(None, None, error)
+
+    request = _command(_actor())
+    with pytest.raises(PipelineRejected) as caught:
+        await InferencePipelinesData(BusySession()).step(
+            request, "project_access", {"phase": phase}
+        )
+    assert caught.value.status_code == 409
+    assert caught.value.detail == {"reason": reason}
+    assert caught.value.rollback is True
 
 
 def test_borrowed_command_commits_once_and_uses_receipt_bound_projection(monkeypatch):
@@ -316,14 +349,11 @@ def test_direct_database_ambiguous_commit_probes_status_once(monkeypatch):
         actor = _actor()
         request = _command(actor)
         result_id = uuid.uuid4()
-        observed = {"execute": 0, "status": 0, "connect": 0, "close": 0}
+        observed = {"execute": 0, "status": 0, "close": 0}
 
         class _Data:
             def __init__(self, _dsn, *, command_timeout):
                 assert command_timeout > 0
-
-            async def connect(self):
-                observed["connect"] += 1
 
             async def close(self):
                 observed["close"] += 1
@@ -377,7 +407,7 @@ def test_direct_database_ambiguous_commit_probes_status_once(monkeypatch):
 
         assert reply.ok is True
         assert reply.result.resource_id == result_id
-        assert observed == {"execute": 1, "status": 1, "connect": 1, "close": 1}
+        assert observed == {"execute": 1, "status": 1, "close": 1}
 
     import asyncio
 

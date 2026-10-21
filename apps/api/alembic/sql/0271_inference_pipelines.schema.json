@@ -77,7 +77,7 @@
       "properties": {
         "schema": { "const": "aap-inference-pipelines/v1" },
         "request_id": { "$ref": "#/$defs/Uuid" },
-        "operation": { "enum": ["list_pipelines", "get_pipeline", "get_project_projection"] },
+        "operation": { "enum": ["list_pipelines", "get_pipeline", "get_pipeline_projection"] },
         "admitted_actor": { "$ref": "#/$defs/PipelineActor" },
         "target_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/Uuid" }] },
         "filters": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/PipelineFilters" }] },

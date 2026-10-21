@@ -136,7 +136,8 @@ def test_authentication_rejects_wrong_bearer_before_manager_call():
     assert manager.calls == []
 
 
-def test_oversized_request_is_rejected_before_body_read():
+@pytest.mark.asyncio
+async def test_oversized_request_is_rejected_before_body_read():
     server = PipelineHttpServer(
         None,
         None,
@@ -151,4 +152,4 @@ def test_oversized_request_is_rejected_before_body_read():
     )
 
     with pytest.raises(_PayloadTooLarge):
-        asyncio.run(server._read_request(reader))
+        await server._read_request(reader)

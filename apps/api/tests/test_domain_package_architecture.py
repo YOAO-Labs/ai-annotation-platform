@@ -1009,7 +1009,7 @@ def test_inference_pipeline_gateways_use_the_portable_inference_owner() -> None:
         path = _SERVICES_DIR / f"{package}.py"
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         imported = {
-            name
+            ".".join(name.split(".")[:2])
             for name, _local in _collect_imports(tree, f"app.services.{package}")
             if name == "aap_inference" or name.startswith("aap_inference.")
         }
