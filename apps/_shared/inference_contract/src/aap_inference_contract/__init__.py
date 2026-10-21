@@ -1,7 +1,26 @@
-"""Portable contracts for backend setup probes."""
+"""Portable Inference wire contracts."""
 
 from .capabilities import CapabilityLimits
-from .client import BackendProbeHttpClient
+from .client import BackendHealthObservationHttpClient, BackendProbeHttpClient
+from .health_observation import (
+    HEALTH_OBSERVATION_EVIDENCE_PROTOCOL,
+    HEALTH_OBSERVATION_NATIVE_FUNCTIONS,
+    HEALTH_OBSERVATION_NATIVE_POLICY_SCHEMA,
+    HEALTH_OBSERVATION_PROTOCOL,
+    HEALTH_OBSERVATION_REPLY_MAX_BYTES,
+    HEALTH_OBSERVATION_REQUEST_MAX_BYTES,
+    HEALTH_OBSERVATION_SUBJECT_PROTOCOL,
+    BackendHealthObservationInvalidRequest,
+    BackendHealthObservationReply,
+    BackendHealthObservationRequest,
+    BackendHealthObservationUnavailable,
+    decode_health_observation_reply,
+    decode_health_observation_request,
+    health_observation_policy_ready,
+    health_observation_reply_bytes,
+    health_observation_request_bytes,
+    make_health_observation_request,
+)
 from .probe import (
     BACKEND_PROBE_NATIVE_FUNCTIONS,
     BACKEND_PROBE_NATIVE_POLICY_SCHEMA,
@@ -32,6 +51,11 @@ __all__ = [
     "BACKEND_PROBE_REPLY_MAX_BYTES",
     "BACKEND_PROBE_REQUEST_MAX_BYTES",
     "BACKEND_PROBE_SUBJECT_PROTOCOL",
+    "BackendHealthObservationHttpClient",
+    "BackendHealthObservationInvalidRequest",
+    "BackendHealthObservationReply",
+    "BackendHealthObservationRequest",
+    "BackendHealthObservationUnavailable",
     "BackendProbeFailure",
     "BackendProbeHttpClient",
     "BackendProbeInvalidRequest",
@@ -41,11 +65,24 @@ __all__ = [
     "BackendProbeSuccess",
     "BackendProbeUnavailable",
     "CapabilityLimits",
+    "HEALTH_OBSERVATION_EVIDENCE_PROTOCOL",
+    "HEALTH_OBSERVATION_NATIVE_FUNCTIONS",
+    "HEALTH_OBSERVATION_NATIVE_POLICY_SCHEMA",
+    "HEALTH_OBSERVATION_PROTOCOL",
+    "HEALTH_OBSERVATION_REPLY_MAX_BYTES",
+    "HEALTH_OBSERVATION_REQUEST_MAX_BYTES",
+    "HEALTH_OBSERVATION_SUBJECT_PROTOCOL",
     "backend_probe_policy_ready",
     "backend_probe_reply_bytes",
     "backend_probe_request_bytes",
     "decode_backend_probe_reply",
     "decode_backend_probe_request",
+    "decode_health_observation_reply",
+    "decode_health_observation_request",
+    "health_observation_policy_ready",
+    "health_observation_reply_bytes",
+    "health_observation_request_bytes",
     "make_backend_probe_request",
+    "make_health_observation_request",
     "reply_modalities",
 ]

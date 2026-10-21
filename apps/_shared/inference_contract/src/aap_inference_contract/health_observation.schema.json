@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-inference-health-observation/v1",
+  "title": "Inference backend health observation wire",
+  "oneOf": [
+    { "$ref": "#/$defs/BackendHealthObservationRequest" },
+    { "$ref": "#/$defs/BackendHealthObservationReply" }
+  ],
+  "$defs": {
+    "BackendHealthObservationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "request_id", "registry_id", "subject"],
+      "properties": {
+        "schema": { "const": "aap-inference-health-observation/v1" },
+        "request_id": { "type": "string", "format": "uuid" },
+        "registry_id": { "type": "string", "format": "uuid" },
+        "subject": {
+          "type": "string",
+          "minLength": 7,
+          "pattern": "^v1\\.(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+          "writeOnly": true,
+          "description": "Opaque encrypted Native subject; never plaintext credentials."
+        }
+      }
+    },
+    "BackendHealthObservationReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "request_id", "registry_id", "subject_sha256", "evidence"],
+      "properties": {
+        "schema": { "const": "aap-inference-health-observation/v1" },
+        "request_id": { "type": "string", "format": "uuid" },
+        "registry_id": { "type": "string", "format": "uuid" },
+        "subject_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "evidence": {
+          "type": "string",
+          "minLength": 7,
+          "pattern": "^v1\\.(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+          "description": "Opaque encrypted Native evidence; never observation plaintext."
+        }
+      }
+    },
+    "BackendHealthObservationNativePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "observation_protocol", "subject_protocol", "evidence_protocol", "origin_transaction", "evidence_protection", "functions", "ready"],
+      "properties": {
+        "schema": { "const": "aap-inference-health-observation-native/v1" },
+        "observation_protocol": { "const": "aap-inference-health-observation/v1" },
+        "subject_protocol": { "const": "aap-inference-health-observation-subject/v1" },
+        "evidence_protocol": { "const": "aap-inference-health-observation-evidence/v1" },
+        "origin_transaction": { "const": "in_progress" },
+        "evidence_protection": { "const": "pgcrypto-pgp-aes256-mdc" },
+        "functions": {
+          "const": [
+            "aap_inference_health_observation_v1.health_observation_policy()",
+            "aap_inference_health_observation_v1.capture_health_observation_subject(uuid,uuid,text,text,double precision)",
+            "aap_inference_health_observation_v1.open_health_observation_subject(text,uuid,uuid)",
+            "aap_inference_health_observation_v1.seal_health_observation(text,uuid,uuid,text)",
+            "aap_inference_health_observation_v1.verify_health_observation(text,uuid,uuid,text)"
+          ]
+        },
+        "ready": { "type": "boolean" }
+      }
+    }
+  },
+  "x-request-max-bytes": 25165824,
+  "x-reply-max-bytes": 25165824
+}
