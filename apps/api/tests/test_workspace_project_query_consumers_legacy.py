@@ -714,7 +714,7 @@ async def test_capture_legacy_project_query_consumers_and_postcommit_projections
                 },
                 "reviewer": {
                     "projects": {"search_shared"},
-                    "tasks": {"reviewer_task"},
+                    "tasks": {"reviewer_task", "viewer_task"},
                     "members": {"project_admin", "employee", "reviewer", "viewer"},
                 },
                 "viewer": {
@@ -768,6 +768,62 @@ async def test_capture_legacy_project_query_consumers_and_postcommit_projections
                     "activity": _activity_summary(activity),
                 }
             capture["observations"]["global_search_scopes"] = global_search
+
+            async with owner_maker.begin() as db:
+                shared = await db.get(Project, projects["search_shared"].id)
+                shared.video_collaboration = {"enabled": True}
+                video = await create_task(
+                    db, project_id=shared.id, display_id=f"T-VID-{suffix}"
+                )
+                video.file_type = "video"
+                video.file_name = f"{marker}-collaborative-video.mp4"
+                video.created_at = video.updated_at = _FIXED_TIME
+                task_ids.append(video.id)
+                aliases[str(video.id)] = "$task_collaborative_video"
+                aliases[video.display_id] = "$display_collaborative_video"
+                video_id = video.id
+            collaborative = {}
+            for actor_alias in ("project_admin", "employee", "viewer"):
+                response, body, activity = await call(
+                    actor_alias,
+                    "GET",
+                    _SEARCH_PATH,
+                    label=f"global_search_collaborative_video_{actor_alias}",
+                    params={"q": marker, "limit": 20},
+                )
+                assert response.status_code == 200, response.text
+                assert str(video_id) in {item["id"] for item in body["tasks"]}
+                collaborative[actor_alias] = _activity_summary(activity)
+
+            async with owner_maker.begin() as db:
+                shared = await db.get(Project, projects["search_shared"].id)
+                shared.video_collaboration = {"enabled": "invalid-boolean"}
+            response, _body, invalid_activity = await call(
+                "employee",
+                "GET",
+                _SEARCH_PATH,
+                label="global_search_invalid_collaboration_employee",
+                params={"q": marker, "limit": 20},
+            )
+            assert response.status_code == 500, response.text
+            invalid_summary = _activity_summary(invalid_activity)
+            assert invalid_summary["read_table_mentions"].get("datasets", 0) == 0
+            response, _body, privileged_activity = await call(
+                "super_admin",
+                "GET",
+                _SEARCH_PATH,
+                label="global_search_invalid_collaboration_super_admin",
+                params={"q": marker, "limit": 20},
+            )
+            assert response.status_code == 200, response.text
+            capture["observations"]["collaborative_video"] = {
+                "visible_unassigned_video": collaborative,
+                "invalid_boolean_employee": invalid_summary,
+                "invalid_boolean_super_admin": _activity_summary(privileged_activity),
+            }
+            async with owner_maker.begin() as db:
+                shared = await db.get(Project, projects["search_shared"].id)
+                shared.video_collaboration = {}
 
             class_path = f"/api/v1/projects/{projects['rename'].id}/classes/rename"
             response, body, noop_activity = await call(
