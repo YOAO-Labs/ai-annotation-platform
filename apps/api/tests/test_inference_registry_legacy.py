@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 from datetime import date, datetime
 import hashlib
+from ipaddress import IPv4Address, IPv6Address
 import json
 import os
 from pathlib import Path
@@ -176,6 +177,8 @@ def _redact_secret_text(value: str, world: dict) -> str:
 
 
 def _normalise(value, aliases: dict[str, str], *, field: str | None = None):
+    if isinstance(value, (IPv4Address, IPv6Address)):
+        return str(value)
     if field in _SECRET_FIELDS:
         return "<redacted>" if value is not None else None
     if field in _TIMESTAMP_FIELDS and value is not None:
@@ -567,13 +570,13 @@ async def _request(
     return response, payload
 
 
-async def _drain_registry_member(db, registry_id: uuid.UUID) -> uuid.UUID:
-    service = MLBackendService(db)
-    pool = await service._pool_for_registry(registry_id)
-    assert pool is not None
-    await service.drain_pool_member(pool.id, registry_id)
-    await db.commit()
-    return pool.id
+async def _drain_registry_member(maker, registry_id: uuid.UUID) -> uuid.UUID:
+    async with maker.begin() as db:
+        service = MLBackendService(db)
+        pool = await service._pool_for_registry(registry_id)
+        assert pool is not None
+        await service.drain_pool_member(pool.id, registry_id)
+        return pool.id
 
 
 async def _insert_managed_fence(maker, world: dict, registry_id: uuid.UUID) -> None:
@@ -588,10 +591,26 @@ async def _insert_managed_fence(maker, world: dict, registry_id: uuid.UUID) -> N
 
 
 async def _remove_managed_fence(maker, world: dict, registry_id: uuid.UUID) -> None:
+    await assert_owned_test_database(world["test_engine"])
+    assert registry_id in world["fence_registry_ids"]
     async with maker.begin() as db:
+        # Reset only synthetic fixture state; rollback also restores this exact
+        # trigger if any cleanup statement fails.
+        await db.execute(
+            text(
+                "ALTER TABLE public.gpu_backend_fences DISABLE TRIGGER "
+                "trg_validate_gpu_backend_fence_delete"
+            )
+        )
         await db.execute(
             delete(GPUBackendFence).where(
                 GPUBackendFence.backend_registry_id == registry_id
+            )
+        )
+        await db.execute(
+            text(
+                "ALTER TABLE public.gpu_backend_fences ENABLE TRIGGER "
+                "trg_validate_gpu_backend_fence_delete"
             )
         )
     world["fence_registry_ids"].discard(registry_id)
@@ -642,6 +661,7 @@ async def _seed_world(test_engine) -> dict:
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     prefix = f"inference-registry-{uuid.uuid4().hex[:10]}"
     world = {
+        "test_engine": test_engine,
         "prefix": prefix,
         "aliases": {prefix: "$run"},
         "actors": {},
@@ -735,6 +755,8 @@ async def _seed_world(test_engine) -> dict:
 async def _cleanup_world(test_engine, world: dict) -> None:
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     await assert_owned_test_database(test_engine)
+    for registry_id in tuple(world["fence_registry_ids"]):
+        await _remove_managed_fence(maker, world, registry_id)
     async with maker.begin() as db:
         await db.execute(text("SET LOCAL app.allow_audit_update='true'"))
         if world["actor_ids"]:
@@ -744,12 +766,6 @@ async def _cleanup_world(test_engine, world: dict) -> None:
         if world["async_job_ids"]:
             await db.execute(
                 delete(AsyncJob).where(AsyncJob.id.in_(world["async_job_ids"]))
-            )
-        if world["fence_registry_ids"]:
-            await db.execute(
-                delete(GPUBackendFence).where(
-                    GPUBackendFence.backend_registry_id.in_(world["fence_registry_ids"])
-                )
             )
         if world["project_ids"] or world["pool_ids"]:
             await db.execute(
@@ -1532,7 +1548,7 @@ async def _exercise_scenarios(client, maker, world, monkeypatch) -> None:
     assert final_snapshot["project_primary_bindings"] == [
         {
             "id": "$project_main",
-            "name": f"{prefix}-project",
+            "name": "$run-project",
             "owner_id": "$actor_project_owner",
             "ml_backend_pool_id": None,
             "default_variants": {},
@@ -1726,7 +1742,7 @@ _REPLAY_TRANSPORT_ARTIFACTS = {
 
 def _replay_semantics(sample: dict) -> dict:
     response = sample["response"]
-    return {
+    semantics = {
         "label": sample["label"],
         "request": sample["request"],
         "response": {
@@ -1738,6 +1754,27 @@ def _replay_semantics(sample: dict) -> dict:
         "database_after": sample["database_after"],
         "metadata": sample["metadata"],
     }
+    missing_targets = {
+        "project_backend_detail_missing": "$missing_registry",
+        "registry_enablement_missing_backend": "$missing_registry",
+        "pool_enablement_missing_pool": "$missing_pool",
+    }
+    if sample["label"] in missing_targets:
+        assert response["status"] == 404
+        identifiers = []
+        for segment in sample["request"]["path"].split("/"):
+            try:
+                identifier = uuid.UUID(segment)
+            except ValueError:
+                continue
+            assert str(identifier) == segment
+            identifiers.append(segment)
+        assert len(identifiers) == 1
+        missing = identifiers[0]
+        for snapshot in (sample["database_before"], sample["database_after"]):
+            assert missing not in json.dumps(snapshot)
+        return _normalise(semantics, {missing: missing_targets[sample["label"]]})
+    return semantics
 
 
 @pytest.mark.asyncio

@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextvars
 from datetime import datetime, timezone
 import hashlib
+from ipaddress import IPv4Address, IPv6Address
 import json
 import os
 from pathlib import Path
@@ -135,6 +136,8 @@ def _replace_actual(value: str, aliases: dict[str, str]) -> str:
 
 
 def _normalise(value, aliases: dict[str, str], *, field: str | None = None):
+    if isinstance(value, (IPv4Address, IPv6Address)):
+        return str(value)
     if field in _TIMESTAMP_FIELDS and value is not None:
         return "<dynamic-timestamp>"
     if field == "request_id" and value is not None:
@@ -1197,16 +1200,17 @@ async def _run_scenarios(client, maker, world, monkeypatch) -> list[dict]:
 
         _ledger_identity()
         removed = await request(
-            "real_owned_redis_proves_quiescent_legacy_removal",
+            "real_owned_redis_legacy_removal_commits_before_response_500",
             "DELETE",
             f"{seed_path}/members/{seed_registry}",
-            expected_status=200,
+            expected_status=500,
             ledger_factory=lambda: _TracingRedisLedger(world),
         )
-        assert removed["legacy_instance_id"] is None
-        assert removed["enabled"] is False
+        assert removed == "Internal Server Error"
         last = world["samples"][-1]["tables_after"]["ml_backend_service_pools"]
         owned_seed = next(row for row in last if row["id"] == "$pool_seed")
+        assert owned_seed["legacy_instance_id"] is None
+        assert owned_seed["enabled"] is False
         prior = world["samples"][-1]["tables_before"]["ml_backend_service_pools"]
         prior_seed = next(row for row in prior if row["id"] == "$pool_seed")
         assert owned_seed["routing_generation"] == prior_seed["routing_generation"] + 1
@@ -1217,6 +1221,13 @@ async def _run_scenarios(client, maker, world, monkeypatch) -> list[dict]:
             "project_ml_backend_pool"
         ]
         assert after_association == before_association
+        removal_sample = world["samples"][-1]
+        assert len(removal_sample["tables_after"]["business_audit"]) == (
+            len(removal_sample["tables_before"]["business_audit"]) + 1
+        )
+        assert removal_sample["tables_after"]["business_audit"][-1]["action"] == (
+            "ml_service_pool.member_removed"
+        )
         assert world["routing_trace"][-7:] == [
             {"event": "ledger_created", "kind": "unavailable-ledger"},
             {"event": "healthcheck", "result": "error"},
@@ -1231,6 +1242,16 @@ async def _run_scenarios(client, maker, world, monkeypatch) -> list[dict]:
             },
             {"event": "aclose"},
         ]
+
+        readback = await request(
+            "fresh_get_confirms_removal_committed_despite_response_failure",
+            "GET",
+            seed_path,
+            expected_status=200,
+        )
+        assert readback["legacy_instance_id"] is None
+        assert readback["enabled"] is False
+        assert readback["routing_generation"] == owned_seed["routing_generation"]
 
         await request(
             "delete_empty_pool_succeeds",

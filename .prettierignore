@@ -65,3 +65,5 @@ apps/api/tests/fixtures/project_class_rename_legacy/*.json
 apps/api/tests/fixtures/project_guide_assets_legacy/*.json
 apps/api/tests/fixtures/named_pipeline_legacy/*.json
 apps/inference/tests/fixtures/pool_capability_legacy.json
+apps/api/tests/fixtures/inference_pool_lifecycle_legacy/*.json
+apps/api/tests/fixtures/inference_registry_legacy/*.json

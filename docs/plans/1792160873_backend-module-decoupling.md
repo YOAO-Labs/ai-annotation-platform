@@ -4420,3 +4420,32 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   live Redis quiescence, revocation, generation/lease completion and cross-owner
   transaction producers remain separate gates. No new module completion or
   language-replacement qualification is claimed by this baseline work.
+
+### Backend control: immutable legacy HTTP/data baseline
+
+- The old implementation now has two frozen corpora from source653b4e142: 58
+  registry/project observations and 38 pool/member observations. Both independently
+  replay against fresh owned PostgreSQL/Redis resources using real ASGI routes,
+  the verified legacy runtime role and separate owner-session data/Audit observers.
+  These are two selected replay cases, not 96 test cases. Public array order stays
+  significant. Only transport artifacts, exact synthetic identities and the three
+  generated missing-target UUIDs are normalized; missing-target responses must
+  remain404 and the UUID must be absent from both data snapshots.
+- Registry corpus SHA-256 is
+  5f3032f5212d8434078821e004cf802af77685ba67810b310f1efb6f548f93fd;
+  pool corpus SHA-256 is
+  fcb2381b82ce0f2cbebbf97aef501f34d770c01bf290ef4bcca7f753f01c29f7.
+  Accepted evidence is .worktree/inference-pool-replay-and-registry-capture.json
+  and .worktree/inference-registry-legacy-replay-missing-alias-fixed.json. Capture
+  retries and failed setup/normalization receipts remain separate and unchanged.
+- The pool baseline exposes an existing postcommit response defect: removing a
+  quiescent legacy member commits the deletion, generation and business Audit,
+  then returns500 while projecting an expired updated_at field. A fresh GET200
+  confirms the commit. The immutable sample preserves this behavior; the later
+  explicit fix must qualify the intended500-to200 response delta without changing
+  committed data/Audit or retrying an ambiguous write. Four member-mutation routes
+  share the missing-refresh risk.
+- Null registry updates also retain their actual failure phases: invalid SQL
+  constraints roll back, while nullable fields may commit before public DTO
+  validation returns500. Controlled health probes and synthetic GPU guard setup
+  are explicit fixture boundaries, not backend/GPU runtime qualification.
