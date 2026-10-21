@@ -269,7 +269,7 @@ describe("training entry", () => {
     const user = userEvent.setup();
     mount("/training?tab=queue&state=finished&framework=libreyolo");
     await waitFor(() =>
-      expect(trainingHubApi.runs).toHaveBeenCalledWith("finished", 0, "libreyolo"),
+      expect(trainingHubApi.runs).toHaveBeenCalledWith("finished", 0, "libreyolo", 20),
     );
     expect(screen.queryByRole("heading", { name: "可训练项目" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "训练仓库" }));
@@ -316,15 +316,17 @@ describe("training entry", () => {
     const user = userEvent.setup();
     mount("/training?tab=queue");
     await user.click(await screen.findByRole("button", { name: "下一页" }));
-    await waitFor(() => expect(trainingHubApi.runs).toHaveBeenCalledWith("active", 20, ""));
-    await waitFor(() => expect(trainingHubApi.runs).toHaveBeenLastCalledWith("active", 0, ""));
+    await waitFor(() => expect(trainingHubApi.runs).toHaveBeenCalledWith("active", 20, "", 20));
+    await waitFor(() => expect(trainingHubApi.runs).toHaveBeenLastCalledWith("active", 0, "", 20));
     expect(await screen.findByRole("link", { name: /仍在排队/ })).toBeVisible();
   });
   it("shows loading feedback without claiming the queue is empty", async () => {
     vi.mocked(trainingHubApi.runs).mockReturnValue(new Promise(() => {}));
     mount("/training?tab=queue");
     expect(
-      await within(screen.getByRole("tabpanel", { name: "队列与历史" })).findByRole("status"),
+      await within(screen.getByRole("tabpanel", { name: "队列与历史" })).findByText(
+        "正在加载训练队列…",
+      ),
     ).toHaveTextContent("正在加载训练队列");
     expect(screen.queryByText("当前没有进行中的训练")).not.toBeInTheDocument();
   });
@@ -370,7 +372,7 @@ describe("training entry", () => {
     const user = userEvent.setup();
     mount("/training?tab=queue&state=failed&framework=libreyolo");
     await user.click(await screen.findByRole("button", { name: "重置筛选" }));
-    await waitFor(() => expect(trainingHubApi.runs).toHaveBeenLastCalledWith("all", 0, ""));
+    await waitFor(() => expect(trainingHubApi.runs).toHaveBeenLastCalledWith("all", 0, "", 20));
     expect(screen.getByRole("combobox", { name: "筛选训练器" })).toHaveValue("");
     expect(screen.getByRole("button", { name: "全部实验" })).toHaveAttribute(
       "aria-pressed",
@@ -387,10 +389,10 @@ describe("training entry", () => {
     const user = userEvent.setup();
     mount("/training?tab=queue");
     await user.click(await screen.findByRole("button", { name: "下一页" }));
-    await waitFor(() => expect(trainingHubApi.runs).toHaveBeenLastCalledWith("active", 20, ""));
+    await waitFor(() => expect(trainingHubApi.runs).toHaveBeenLastCalledWith("active", 20, "", 20));
     await user.selectOptions(screen.getByRole("combobox", { name: "筛选训练器" }), "libreyolo");
     await waitFor(() =>
-      expect(trainingHubApi.runs).toHaveBeenLastCalledWith("active", 0, "libreyolo"),
+      expect(trainingHubApi.runs).toHaveBeenLastCalledWith("active", 0, "libreyolo", 20),
     );
     expect(screen.getByRole("button", { name: "上一页" })).toBeDisabled();
   });
@@ -439,5 +441,23 @@ describe("training entry", () => {
     await waitFor(() => expect(writeText).toHaveBeenLastCalledWith("sha256:weight-s"));
     await user.click(within(warehouse).getByRole("button", { name: "复制 yolo11n 基础权重哈希" }));
     await waitFor(() => expect(writeText).toHaveBeenLastCalledWith("sha256:weight-n"));
+  });
+  it("uses the selected row count for server offsets and starts at page one after a size change", async () => {
+    vi.mocked(trainingHubApi.projects).mockResolvedValue({ items: projects, total: 65 } as never);
+    const user = userEvent.setup();
+    mount();
+    const size = await screen.findByRole("combobox", { name: "每页项目数" });
+    await waitFor(() => expect(size).toBeEnabled());
+    await user.selectOptions(size, "10");
+    await waitFor(() => expect(trainingHubApi.projects).toHaveBeenLastCalledWith("", 0, 10));
+    await waitFor(() => expect(screen.getByRole("button", { name: "下一页" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "下一页" }));
+    await waitFor(() => expect(trainingHubApi.projects).toHaveBeenLastCalledWith("", 10, 10));
+    await waitFor(() => expect(size).toBeEnabled());
+    await user.selectOptions(size, "50");
+    await waitFor(() => expect(trainingHubApi.projects).toHaveBeenLastCalledWith("", 0, 50));
+    expect(
+      within(screen.getByRole("navigation", { name: "项目分页" })).getByRole("status"),
+    ).toHaveTextContent("第 1 / 2 页");
   });
 });

@@ -19,6 +19,8 @@ import {
 import { useProject } from "@/hooks/useProjects";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Button } from "@/components/ui/Button";
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
 import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Modal } from "@/components/ui/Modal";
 import { confirmDialog } from "@/components/ui/decisionDialog";
@@ -198,6 +200,7 @@ function ProjectLearningContent({
   );
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [diagnosticsPage, setDiagnosticsPage] = useState(0);
+  const [diagnosticsPageSize, setDiagnosticsPageSize] = useState(20);
   const taskChosen = useRef(params.has("data_task") || params.has("dataset"));
   const [mode, setMode] = useState<"reviewed" | "manager_confirmed">(
     initialBody?.mode ?? "reviewed",
@@ -208,7 +211,7 @@ function ProjectLearningContent({
   const [negatives, setNegatives] = useState<string[]>(initialBody?.confirmed_negative_ids ?? []);
   const [taskPage, setTaskPage] = useState(0);
   const datasetList = useTrainingListFilters("data_list");
-  const { page, setPage } = datasetList;
+  const { page, setPage, pageSize, setPageSize } = datasetList;
   const datasetSearch = useDebouncedValue(datasetList.filters.q);
   const [parentPage, setParentPage] = useState(0);
   const setDetailId = (value: string) => {
@@ -287,6 +290,7 @@ function ProjectLearningContent({
       scope,
       browseTask,
       page,
+      pageSize,
       datasetSearch,
       datasetList.filters.status,
       datasetList.filters.created_from,
@@ -295,7 +299,7 @@ function ProjectLearningContent({
     queryFn: ({ signal }) =>
       trainingDatasetsApi.list(
         projectId,
-        page * 20,
+        page * pageSize,
         undefined,
         { signal },
         {
@@ -307,6 +311,7 @@ function ProjectLearningContent({
           }),
           ...(datasetList.filters.created_to && { created_to: datasetList.filters.created_to }),
         },
+        pageSize,
       ),
     enabled: tab === "data",
     refetchInterval: (query) =>
@@ -328,9 +333,14 @@ function ProjectLearningContent({
         : false,
   });
   const diagnostics = useQuery({
-    queryKey: ["task-dataset-diagnostics", projectId, scope, diagnosticsPage],
+    queryKey: ["task-dataset-diagnostics", projectId, scope, diagnosticsPage, diagnosticsPageSize],
     queryFn: ({ signal }) =>
-      trainingDatasetsApi.unrecognizedVersions(projectId, diagnosticsPage * 20, { signal }),
+      trainingDatasetsApi.unrecognizedVersions(
+        projectId,
+        diagnosticsPage * diagnosticsPageSize,
+        { signal },
+        diagnosticsPageSize,
+      ),
     enabled: tab === "data" && diagnosticsOpen,
     retry: false,
   });
@@ -900,13 +910,13 @@ function ProjectLearningContent({
                     />
                   )}
                   {diagnostics.data?.items.map((item, index) => (
-                    <div key={item.id} className="rounded-md bg-muted p-3">
+                    <div key={item.id} className={listStyles.row}>
                       <p className="flex min-w-0 items-center gap-1 font-medium">
                         <span className="min-w-0 truncate" title={item.name}>
                           {item.name}
                         </span>
                         <span className="shrink-0 text-xs font-normal text-muted-foreground">
-                          记录 {diagnosticsPage * 20 + index + 1}
+                          记录 {diagnosticsPage * diagnosticsPageSize + index + 1}
                         </span>
                         <CopyValueButton value={item.id} kind="id" label="复制历史数据版本 ID" />
                       </p>
@@ -915,25 +925,20 @@ function ProjectLearningContent({
                       </p>
                     </div>
                   ))}
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      size="sm"
-                      disabled={!diagnosticsPage || diagnostics.isFetching}
-                      onClick={() => setDiagnosticsPage((value) => value - 1)}
-                    >
-                      上一页诊断
-                    </Button>
-                    <Button
-                      size="sm"
-                      disabled={
-                        (diagnosticsPage + 1) * 20 >= (diagnostics.data?.total ?? 0) ||
-                        diagnostics.isFetching
-                      }
-                      onClick={() => setDiagnosticsPage((value) => value + 1)}
-                    >
-                      下一页诊断
-                    </Button>
-                  </div>
+                  <ListPagination
+                    label="历史版本诊断"
+                    page={diagnosticsPage}
+                    pageSize={diagnosticsPageSize}
+                    total={diagnostics.data?.total ?? 0}
+                    loading={diagnostics.isFetching}
+                    previousLabel="上一页诊断"
+                    nextLabel="下一页诊断"
+                    onPageChange={setDiagnosticsPage}
+                    onPageSizeChange={(size) => {
+                      setDiagnosticsPageSize(size);
+                      setDiagnosticsPage(0);
+                    }}
+                  />
                 </div>
               )}
             </section>
@@ -950,6 +955,8 @@ function ProjectLearningContent({
             pending={action.isPending}
             page={page}
             onPage={setPage}
+            pageSize={pageSize}
+            onPageSize={setPageSize}
             onRetry={() => void versions.refetch()}
             href={(id) => trainingRecordPath(projectId, "data", id, params)}
             onAction={(kind, version) => action.mutate({ kind, version })}

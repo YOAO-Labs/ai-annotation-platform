@@ -402,7 +402,7 @@ class EvaluationSamplePage(StrictModel):
     spec_digest: Hash
     total: Index
     offset: Index
-    limit: Annotated[int, Field(ge=1, le=32, strict=True)]
+    limit: Annotated[int, Field(ge=1, le=100, strict=True)]
     items: list[EvaluationSampleResult] = Field(max_length=32)
 
 

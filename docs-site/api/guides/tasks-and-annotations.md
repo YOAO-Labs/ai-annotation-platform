@@ -10,6 +10,8 @@ last_reviewed: 2026-09-12
 
 ## 任务模型
 
+批次操作历史通过 `GET /api/v1/projects/{project_id}/batches/{batch_id}/audit-logs` 读取，支持 `limit`（默认 50，1–200）与 `offset`（默认 0），按时间及记录 ID 倒序稳定分页，返回数组。接口要求项目可见，并按当前项目和批次 ID 限定范围；分页不改变历史操作或批次状态。
+
 `tasks` 表的每行代表一条待标数据，可以是一张图片、一个视频任务，或其它项目类型的数据。它属于一个 batch，batch 属于 project。任务状态以 `pending / in_progress / completed / review` 为主，批次状态负责更高层的生产推进。
 
 ```

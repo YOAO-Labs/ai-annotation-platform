@@ -1,3 +1,4 @@
+import { listStyles } from "@/components/ui/listStyles";
 import { cn } from "@/lib/utils";
 import { metricLabel } from "./trainingPresentation";
 import {
@@ -53,7 +54,7 @@ export function TrainingComparisonMetricTable({
         tabIndex={0}
         className="overflow-x-auto rounded-lg border border-border bg-card focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <table className="w-full min-w-xl text-left text-xs [&_th]:px-3 [&_th]:py-3 [&_th]:font-medium [&_td]:px-3 [&_td]:py-3 [&_td]:align-top [&_tr]:border-b [&_tr]:border-border">
+        <table className={cn(listStyles.table, "min-w-xl")}>
           <caption className="sr-only">{label} 指标与同行最优差距</caption>
           <thead className="bg-muted">
             <tr>

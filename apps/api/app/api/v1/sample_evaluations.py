@@ -379,7 +379,7 @@ async def samples(
     confidence_min: float | None = Query(None, ge=0, le=1),
     confidence_max: float | None = Query(None, ge=0, le=1),
     offset: int = Query(0, ge=0),
-    limit: int = Query(12, ge=1, le=32),
+    limit: int = Query(12, ge=1, le=100),
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
 ):

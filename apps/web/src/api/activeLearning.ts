@@ -187,9 +187,9 @@ export const activeLearningApi = {
     apiClient.post<Preview>(`${base(projectId)}:preview`, body),
   create: (projectId: string, body: CreateRound) =>
     apiClient.post<ActiveRound>(base(projectId), body),
-  list: (projectId: string, offset = 0, options?: RequestInit, task?: SelectionTask) =>
+  list: (projectId: string, offset = 0, options?: RequestInit, task?: SelectionTask, limit = 20) =>
     apiClient.get<{ items: ActiveRound[]; total: number }>(
-      `${base(projectId)}?limit=20&offset=${offset}${task ? `&task=${task}` : ""}`,
+      `${base(projectId)}?limit=${limit}&offset=${offset}${task ? `&task=${task}` : ""}`,
       options,
     ),
   get: (projectId: string, id: string, options?: RequestInit) =>
@@ -204,12 +204,18 @@ export const activeLearningApi = {
     apiClient.post<ActiveRound>(`${base(projectId)}/${id}/cancel`),
   retry: (projectId: string, id: string) =>
     apiClient.post<ActiveRound>(`${base(projectId)}/${id}/retry`),
-  decisions: (projectId: string, id: string, options?: RequestInit) =>
-    apiClient.get<{ items: Decision[] }>(`${base(projectId)}/${id}/decisions?limit=100`, options),
+  decisions: (projectId: string, id: string, options?: RequestInit, offset = 0, limit = 20) =>
+    apiClient.get<{ items: Decision[]; total: number }>(
+      `${base(projectId)}/${id}/decisions?limit=${limit}&offset=${offset}`,
+      options,
+    ),
   decide: (projectId: string, id: string, body: DecisionInput) =>
     apiClient.post<Decision>(`${base(projectId)}/${id}/decisions`, body),
-  feedback: (projectId: string, id: string, options?: RequestInit) =>
-    apiClient.get<{ items: Feedback[] }>(`${base(projectId)}/${id}/feedback`, options),
+  feedback: (projectId: string, id: string, options?: RequestInit, offset = 0, limit = 20) =>
+    apiClient.get<{ items: Feedback[]; total: number }>(
+      `${base(projectId)}/${id}/feedback?limit=${limit}&offset=${offset}`,
+      options,
+    ),
   recordFeedback: (projectId: string, id: string, body: FeedbackInput) =>
     apiClient.post<Feedback>(`${base(projectId)}/${id}/feedback`, body),
 };

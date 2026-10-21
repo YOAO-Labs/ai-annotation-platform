@@ -1,6 +1,7 @@
 import { randomId } from "@/utils/id";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo, useState } from "react";
+import { ListPagination } from "@/components/ui/ListPagination";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Check, Plus } from "lucide-react";
@@ -597,13 +598,32 @@ export function PickerPage({
   pageSize = 20,
   onChange,
   label,
+  onPageSizeChange,
+  loading,
 }: {
   page: number;
   total: number;
   pageSize?: number;
   onChange: (page: number) => void;
   label: string;
+  onPageSizeChange?: (size: number) => void;
+  loading?: boolean;
 }) {
+  if (onPageSizeChange) {
+    return (
+      <ListPagination
+        label={label}
+        page={page}
+        pageSize={pageSize}
+        total={total}
+        loading={loading}
+        onPageChange={onChange}
+        onPageSizeChange={onPageSizeChange}
+        previousLabel={`${label}上一页`}
+        nextLabel={`${label}下一页`}
+      />
+    );
+  }
   if (total <= pageSize && page === 0) return null;
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">

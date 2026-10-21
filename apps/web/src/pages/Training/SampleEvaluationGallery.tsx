@@ -202,7 +202,11 @@ export function SampleEvaluationGallery({
               )}
               <PickerPage
                 page={state.page}
-                pageSize={12}
+                pageSize={state.filters.limit}
+                loading={samples.isFetching}
+                onPageSizeChange={(size) =>
+                  update({ page_size: String(size), page: undefined, sample: undefined })
+                }
                 total={samples.data.total}
                 label="误差样本"
                 onChange={(page) => update({ page: String(page), sample: undefined })}

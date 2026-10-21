@@ -719,6 +719,7 @@ it("loads a deep-linked archived candidate independently of the list page and pr
     expect.objectContaining({ signal: expect.any(AbortSignal) }),
     "only",
     expect.objectContaining({ q: "" }),
+    20,
   );
   expect(screen.getByRole("tab", { name: "来源与使用" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "返回模型列表" })).toHaveAttribute(
@@ -752,6 +753,7 @@ it("unifies row details, publication, usage records and model notes without leav
       "releases",
       undefined,
       expect.anything(),
+      20,
     ),
   );
   await user.click(screen.getByRole("tab", { name: "标记与备注" }));
@@ -790,6 +792,7 @@ it("opens an old model lineage link in the unified page and preserves its return
     "releases",
     undefined,
     expect.anything(),
+    20,
   );
 });
 
@@ -944,6 +947,7 @@ it("preserves model filters and pagination through detail navigation", async () 
       created_from: "2026-10-14",
       created_to: "",
     },
+    20,
   );
   await user.click(link);
   await screen.findByLabelText("模型版本详情");
@@ -966,6 +970,7 @@ it("resets pagination when filtering and clears archive together with model filt
       expect.any(Object),
       "only",
       expect.objectContaining({ framework: "libreyolo" }),
+      20,
     ),
   );
   expect(screen.getByTestId("location").textContent).not.toContain("model_page");
@@ -1211,8 +1216,9 @@ it("isolates task release generations, resets pagination and ignores a late dete
     expect.any(Object),
     "exclude",
     expect.objectContaining({ task: "segment" }),
+    20,
   );
-  expect(trainedModelsApi.releases).toHaveBeenLastCalledWith("project-1", 0, "segment");
+  expect(trainedModelsApi.releases).toHaveBeenLastCalledWith("project-1", 0, "segment", 20);
   const row = screen.getByRole("link", { name: "分割候选" }).closest("tr")!;
   expect(within(row).getByText("默认预标")).toBeInTheDocument();
   expect(within(row).getByText("实例分割")).toBeInTheDocument();
@@ -1235,7 +1241,7 @@ it("loads the model's actual task for a direct detail URL before allowing public
   const user = userEvent.setup();
   mount("/projects/project-1/learning/models/model-1");
   await screen.findByLabelText("模型版本详情");
-  expect(trainedModelsApi.releases).toHaveBeenCalledWith("project-1", 0, "segment");
+  expect(trainedModelsApi.releases).toHaveBeenCalledWith("project-1", 0, "segment", 20);
   expect(trainedModelsApi.releases).not.toHaveBeenCalledWith("project-1", 0, "detect");
   fireEvent.load(screen.getByAltText("冻结样本与逐实例掩码"));
   await waitFor(() =>

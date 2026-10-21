@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useListPagination } from "@/hooks/useListPagination";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -94,6 +97,7 @@ export function TrainingRunMonitor({
     | { effective_values?: { evaluate_train?: boolean } }
     | undefined;
   const points = epochPoints(events, framework);
+  const epochPage = useListPagination([...points].reverse(), `${run.id}:${selectedAttemptId}`);
   const keys = [
     ...new Set(points.flatMap((point) => Object.keys(point).filter((key) => key !== "epoch"))),
   ];
@@ -477,7 +481,7 @@ export function TrainingRunMonitor({
                   逐轮指标表 · {points.length} 轮
                 </summary>
                 <div className="mt-2 overflow-x-auto">
-                  <table className="w-full text-left tabular-nums">
+                  <table className={listStyles.table}>
                     <thead>
                       <tr className="border-b border-border">
                         <th className="whitespace-nowrap py-2 pr-3">轮次</th>
@@ -492,7 +496,7 @@ export function TrainingRunMonitor({
                       </tr>
                     </thead>
                     <tbody>
-                      {[...points].reverse().map((point, index) => (
+                      {epochPage.items.map((point, index) => (
                         <tr key={`${point.epoch}-${index}`} className="border-b border-border">
                           <td className="py-2 pr-3">{point.epoch}</td>
                           {keys.map((key) => (
@@ -505,6 +509,14 @@ export function TrainingRunMonitor({
                     </tbody>
                   </table>
                 </div>
+                <ListPagination
+                  label="训练轮次"
+                  page={epochPage.page}
+                  pageSize={epochPage.pageSize}
+                  total={epochPage.total}
+                  onPageChange={epochPage.setPage}
+                  onPageSizeChange={epochPage.setPageSize}
+                />
               </details>
             )}
           </TabsContent>

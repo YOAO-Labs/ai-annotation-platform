@@ -113,7 +113,7 @@ export function BugsPage() {
   }, [listQuery.data, listQuery.isFetching, total, pagination]);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<BugReportDetail | null>(null);
-  const comments = useListPagination(detail?.comments ?? [], detailId);
+  const comments = useListPagination(detail?.comments ?? [], detailId ?? "");
   const [commentText, setCommentText] = useState("");
   const [postingComment, setPostingComment] = useState(false);
   const detailRequestRef = useRef(0);

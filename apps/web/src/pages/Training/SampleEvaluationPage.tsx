@@ -27,6 +27,9 @@ import { evaluationReportOptions, evaluationTask } from "./useSampleEvaluation";
 import { useTrainingSessionRevision, useTrainingViewOwner } from "./trainingViewOwner";
 import { SampleEvaluationGallery } from "./SampleEvaluationGallery";
 import { PickerPage } from "./SampleEvaluationCreate";
+import { listPageSize } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useListPagination } from "@/hooks/useListPagination";
 
 export function SampleEvaluationPage() {
   const { id = "", evaluationId } = useParams();
@@ -79,11 +82,17 @@ function EvaluationContent({
   const client = useQueryClient();
   const navigate = useNavigate();
   const listPage = evaluationId ? pickerPage : parsedState.page;
+  const pageSize = listPageSize(params.get("page_size"));
   const list = useQuery({
-    queryKey: ["sample-evaluations", projectId, scope, listPage],
+    queryKey: ["sample-evaluations", projectId, scope, listPage, pageSize],
     queryFn: async ({ signal }) => {
       assert(signal);
-      const result = await sampleEvaluationsApi.list(projectId, listPage * 20, { signal });
+      const result = await sampleEvaluationsApi.list(
+        projectId,
+        listPage * pageSize,
+        { signal },
+        pageSize,
+      );
       assert(signal);
       if (result.items.some((item) => item.project_id !== projectId))
         throw new Error("评估列表所属项目不符");
@@ -318,6 +327,9 @@ function EvaluationContent({
                 page={state.page}
                 total={list.data.total}
                 label="评估历史"
+                pageSize={pageSize}
+                loading={list.isFetching}
+                onPageSizeChange={(size) => update({ page_size: String(size), page: undefined })}
                 onChange={(page) => update({ page: String(page) })}
               />
             </>
@@ -596,6 +608,7 @@ function EvaluationContent({
                   page={pickerPage}
                   total={list.data?.total ?? 0}
                   label="比较候选"
+                  pageSize={pageSize}
                   onChange={setPickerPage}
                 />
                 {list.error && (
@@ -731,6 +744,7 @@ function aggregateValue(aggregate: EvaluationAggregate | null | undefined, key: 
   return aggregate?.[key];
 }
 function AggregateMetrics({ aggregate }: { aggregate: EvaluationAggregate }) {
+  const classes = useListPagination(aggregate.per_class);
   return (
     <section className="mt-5 rounded-lg border border-border bg-card p-4" aria-label="完整评估指标">
       <dl className="grid grid-cols-3 gap-4 sm:grid-cols-6">
@@ -794,8 +808,8 @@ function AggregateMetrics({ aggregate }: { aggregate: EvaluationAggregate }) {
       )}
       <details className="mt-4 text-xs">
         <summary className="cursor-pointer text-muted-foreground">按类别统计与诊断</summary>
-        <div className="mt-3 max-h-80 overflow-auto">
-          <table className="w-full text-xs">
+        <div className="mt-3 overflow-auto">
+          <table className={listStyles.table}>
             <thead>
               <tr className="text-muted-foreground">
                 <th className="py-2 text-left">类别</th>
@@ -807,7 +821,7 @@ function AggregateMetrics({ aggregate }: { aggregate: EvaluationAggregate }) {
               </tr>
             </thead>
             <tbody>
-              {aggregate.per_class.map((item) => (
+              {classes.items.map((item) => (
                 <tr key={item.class_index} className="border-t border-border">
                   <td className="py-2">{item.name}</td>
                   {metrics.map(([key, , fraction]) => (
@@ -820,6 +834,14 @@ function AggregateMetrics({ aggregate }: { aggregate: EvaluationAggregate }) {
             </tbody>
           </table>
         </div>
+        <PickerPage
+          label="评估类别"
+          page={classes.page}
+          pageSize={classes.pageSize}
+          total={classes.total}
+          onChange={classes.setPage}
+          onPageSizeChange={classes.setPageSize}
+        />
         <p className="mt-3 text-muted-foreground">
           混淆 {aggregate.diagnostics.confusion ?? 0} · 定位偏差{" "}
           {aggregate.diagnostics.localization ?? 0}。诊断不重复计数。
@@ -865,7 +887,7 @@ function ComparisonResults({
         </p>
       )}
       <div className="overflow-auto">
-        <table className="w-full text-xs">
+        <table className={listStyles.table}>
           <thead>
             <tr className="text-muted-foreground">
               <th className="py-2 text-left font-normal">指标</th>

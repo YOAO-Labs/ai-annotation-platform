@@ -1,3 +1,4 @@
+import { ListPagination, listPageSize } from "@/components/ui/ListPagination";
 import { randomId } from "@/utils/id";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo, useRef, useState } from "react";
@@ -18,6 +19,17 @@ import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { useTrainingSessionRevision, useTrainingViewOwner } from "./trainingViewOwner";
 import { trainingInputClass } from "./TrainingParameterField";
 import { trainingRecordPath } from "./TrainingListControls";
+
+function pageTrail(raw: string | null): string[] {
+  try {
+    const value: unknown = JSON.parse(raw ?? "[]");
+    return Array.isArray(value) && value.every((item) => typeof item === "string")
+      ? value.slice(-100)
+      : [];
+  } catch {
+    return [];
+  }
+}
 
 const kindNames: Record<NodeKind, string> = {
   dataset: "数据版本",
@@ -239,6 +251,10 @@ function LineageContent({
   const relation = contentView === "notes" ? undefined : params.get("relation") || undefined;
   const cursor = contentView === "notes" ? undefined : params.get("cursor") || undefined;
   const before = Number(params.get("before")) > 0 ? Number(params.get("before")) : undefined;
+  const recordsTrail = pageTrail(params.get("record_pages"));
+  const notesTrail = pageTrail(params.get("note_pages"));
+  const recordsPageSize = listPageSize(params.get("record_page_size"));
+  const notesPageSize = listPageSize(params.get("note_page_size"));
   const back = embedded
     ? location.pathname + location.search
     : lineageReturn(projectId, params.get("returnTo"));
@@ -251,15 +267,24 @@ function LineageContent({
       Object.entries(values).forEach(([key, value]) =>
         value === undefined ? next.delete(key) : next.set(key, value),
       );
+      if ("relation" in values) next.delete("record_pages");
+      if ("before" in values && values.before === undefined && !("note_pages" in values))
+        next.delete("note_pages");
       return next;
     });
   const query = useQuery({
-    queryKey: ["model-lineage", projectId, scope, kind, nodeId, relation, cursor],
+    queryKey: ["model-lineage", projectId, scope, kind, nodeId, relation, cursor, recordsPageSize],
     queryFn: async ({ signal }) => {
       session.assert(signal);
-      const result = await modelLineageApi.get(projectId, kind, nodeId, relation, cursor, {
-        signal,
-      });
+      const result = await modelLineageApi.get(
+        projectId,
+        kind,
+        nodeId,
+        relation,
+        cursor,
+        { signal },
+        recordsPageSize,
+      );
       session.assert(signal);
       if (result.node.id !== nodeId || result.node.kind !== kind)
         throw new Error("返回的来源记录与当前页面不一致，请重新打开");
@@ -268,10 +293,16 @@ function LineageContent({
     retry: false,
   });
   const history = useQuery({
-    queryKey: ["model-decisions", projectId, scope, nodeId, before],
+    queryKey: ["model-decisions", projectId, scope, nodeId, before, notesPageSize],
     queryFn: async ({ signal }) => {
       session.assert(signal);
-      const result = await modelLineageApi.decisions(projectId, nodeId, before, { signal });
+      const result = await modelLineageApi.decisions(
+        projectId,
+        nodeId,
+        before,
+        { signal },
+        notesPageSize,
+      );
       session.assert(signal);
       if (
         result.items.some(
@@ -476,7 +507,7 @@ function LineageContent({
               </div>
               {!relation && (
                 <p className="mt-3 text-xs text-muted-foreground">
-                  选择一类记录加载，每页最多 20 条。
+                  选择一类记录，按页查看来源和使用记录。
                 </p>
               )}
               {relation && (
@@ -510,22 +541,39 @@ function LineageContent({
                       <p className="mt-3 text-xs text-muted-foreground">没有可用相关记录。</p>
                     )
                   )}
-                  <div className="mt-3 flex gap-2">
-                    <Button
-                      size="sm"
-                      disabled={!cursor}
-                      onClick={() => update({ cursor: undefined })}
-                    >
-                      回到首批记录
-                    </Button>
-                    <Button
-                      size="sm"
-                      disabled={!query.data.next_cursor}
-                      onClick={() => update({ cursor: query.data?.next_cursor ?? undefined })}
-                    >
-                      下一批相关记录
-                    </Button>
-                  </div>
+                  <ListPagination
+                    label="相关记录"
+                    page={recordsTrail.length || (cursor ? 1 : 0)}
+                    pageSize={recordsPageSize}
+                    count={query.data.items?.length ?? 0}
+                    hasNext={!!query.data.next_cursor}
+                    loading={query.isFetching}
+                    previousLabel="上一页相关记录"
+                    nextLabel="下一页相关记录"
+                    onPageChange={(nextPage) => {
+                      const currentPage = recordsTrail.length || (cursor ? 1 : 0);
+                      if (nextPage < currentPage)
+                        update({
+                          cursor: recordsTrail[recordsTrail.length - 1] || undefined,
+                          record_pages: JSON.stringify(recordsTrail.slice(0, -1)),
+                        });
+                      else
+                        update({
+                          cursor: query.data?.next_cursor ?? undefined,
+                          record_pages: JSON.stringify([
+                            ...(recordsTrail.length ? recordsTrail : cursor ? [""] : []),
+                            cursor ?? "",
+                          ]),
+                        });
+                    }}
+                    onPageSizeChange={(size) =>
+                      update({
+                        record_page_size: String(size),
+                        cursor: undefined,
+                        record_pages: undefined,
+                      })
+                    }
+                  />
                 </>
               )}
             </section>
@@ -628,18 +676,35 @@ function LineageContent({
           {history.data?.items.length === 0 && (
             <p className="mt-3 text-xs text-muted-foreground">还没有模型标记或备注。</p>
           )}
-          <div className="mt-3 flex gap-2">
-            <Button size="sm" disabled={!before} onClick={() => update({ before: undefined })}>
-              最新记录
-            </Button>
-            <Button
-              size="sm"
-              disabled={!history.data?.next_before}
-              onClick={() => update({ before: String(history.data?.next_before) })}
-            >
-              更早记录
-            </Button>
-          </div>
+          <ListPagination
+            label="模型标记"
+            page={notesTrail.length || (before ? 1 : 0)}
+            pageSize={notesPageSize}
+            count={history.data?.items.length ?? 0}
+            hasNext={!!history.data?.next_before}
+            loading={history.isFetching}
+            previousLabel="上一页标记"
+            nextLabel="下一页标记"
+            onPageChange={(nextPage) => {
+              const currentPage = notesTrail.length || (before ? 1 : 0);
+              if (nextPage < currentPage)
+                update({
+                  before: notesTrail[notesTrail.length - 1] || undefined,
+                  note_pages: JSON.stringify(notesTrail.slice(0, -1)),
+                });
+              else
+                update({
+                  before: String(history.data?.next_before),
+                  note_pages: JSON.stringify([
+                    ...(notesTrail.length ? notesTrail : before ? [""] : []),
+                    before ? String(before) : "",
+                  ]),
+                });
+            }}
+            onPageSizeChange={(size) =>
+              update({ note_page_size: String(size), before: undefined, note_pages: undefined })
+            }
+          />
         </section>
       )}
     </Container>

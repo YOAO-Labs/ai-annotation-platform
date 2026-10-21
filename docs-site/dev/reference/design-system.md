@@ -144,6 +144,10 @@ Web 应用的暗色模式由 `<html data-theme="dark">` 驱动。`shadcn.css` �
 
 <span id="icon-semantics" aria-hidden="true"></span>
 
+## 业务列表
+
+表格与列表行复用 `components/ui/listStyles`：语义卡片背景、统一边框与分隔线、弱化表头、紧凑行间距和悬停状态。数值列可按业务需要右对齐，宽表格在容器内横向滚动，不撑宽整页。列表末尾使用 `ListPagination`，默认 20 行，提供 10／20／50／100 行和上一页／下一页；空结果保留控件，读取中禁用操作。分页、计数及筛选依赖见[筛选状态与结果范围](./filtering.md#数量与操作范围)。
+
 ## 下拉菜单的提示与选项
 
 原生 `select` 中的「请选择」「加载中」「暂无可用项」使用 `<option disabled hidden>`，保留当前字段的提示显示，但不进入可选列表。共享主题根据被选中的 `disabled hidden` 选项自动应用 `--sc-muted-foreground`；真实选项恢复 `--sc-foreground`，禁用选项保持弱化。此规则同样适用于保留非空执行 ID 的临时提示，不依赖提示文案或空字符串判断。

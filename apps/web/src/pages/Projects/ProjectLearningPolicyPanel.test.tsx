@@ -243,7 +243,7 @@ describe("ProjectLearningPolicyPanel", () => {
     mount("/?policy_task=segment");
     await user.click(await screen.findByRole("button", { name: "配置自动策略" }));
     expect(learningPoliciesApi.get).toHaveBeenCalledWith("project", "segment");
-    expect(learningPoliciesApi.triggers).toHaveBeenCalledWith("project", 0, "segment");
+    expect(learningPoliciesApi.triggers).toHaveBeenCalledWith("project", 0, "segment", 20);
     expect(trainingDatasetsApi.list).toHaveBeenCalledWith("project", 0, undefined, undefined, {
       task: "segment",
     });
@@ -330,6 +330,30 @@ describe("ProjectLearningPolicyPanel", () => {
     expect(screen.getByRole("button", { name: "保存自动策略" })).toBeDisabled();
     expect(learningPoliciesApi.save).not.toHaveBeenCalled();
   });
+  it("uses the trigger history capacity for offsets and resets the page after changing it", async () => {
+    vi.mocked(learningPoliciesApi.triggers).mockResolvedValue({ total: 65, items: [] });
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByText("自动触发记录（65）"));
+    const size = screen.getByLabelText("每页自动触发记录数");
+    await waitFor(() => expect(size).toBeEnabled());
+    await user.selectOptions(size, "10");
+    await waitFor(() =>
+      expect(learningPoliciesApi.triggers).toHaveBeenLastCalledWith("project", 0, "detect", 10),
+    );
+    const next = screen.getByRole("button", { name: "下一页触发记录" });
+    await waitFor(() => expect(next).toBeEnabled());
+    await user.click(next);
+    await waitFor(() =>
+      expect(learningPoliciesApi.triggers).toHaveBeenLastCalledWith("project", 10, "detect", 10),
+    );
+    await waitFor(() => expect(size).toBeEnabled());
+    await user.selectOptions(size, "50");
+    await waitFor(() =>
+      expect(learningPoliciesApi.triggers).toHaveBeenLastCalledWith("project", 0, "detect", 50),
+    );
+    expect(screen.getByRole("button", { name: "上一页触发记录" })).toBeDisabled();
+  });
   it("resets drafts and paginated requests when changing task and ignores late trigger history", async () => {
     const late: { resolve?: (value: never) => void } = {};
     vi.mocked(learningPoliciesApi.get).mockResolvedValue(policy as never);
@@ -347,12 +371,14 @@ describe("ProjectLearningPolicyPanel", () => {
     await user.type(screen.getByLabelText("变化样本门槛"), "99");
     await user.click(screen.getByText("自动触发记录（21）"));
     await user.click(screen.getByRole("button", { name: "下一页触发记录" }));
-    await waitFor(() => expect(learningPoliciesApi.triggers).toHaveBeenCalledWith("project", 20));
+    await waitFor(() =>
+      expect(learningPoliciesApi.triggers).toHaveBeenCalledWith("project", 20, "detect", 20),
+    );
     vi.mocked(learningPoliciesApi.get).mockResolvedValue(null);
     prepareSegment();
     await user.selectOptions(screen.getByLabelText("自动训练任务"), "segment");
     await waitFor(() =>
-      expect(learningPoliciesApi.triggers).toHaveBeenCalledWith("project", 0, "segment"),
+      expect(learningPoliciesApi.triggers).toHaveBeenCalledWith("project", 0, "segment", 20),
     );
     await user.click(await screen.findByRole("button", { name: "配置自动策略" }));
     expect(screen.getByLabelText("变化样本门槛")).toHaveValue(null);

@@ -20,33 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/shadcn/ui
 import { TrainingWarehouseCards } from "./TrainingWarehouseCards";
 import { TrainingQueuePanel } from "./TrainingQueuePanel";
 import { TrainingError, TrainingLoading } from "./TrainingFeedback";
-
-function Pagination({
-  page,
-  total,
-  onChange,
-  label,
-}: {
-  page: number;
-  total: number;
-  onChange: (page: number) => void;
-  label: string;
-}) {
-  if (total <= 20 && page === 0) return null;
-  return (
-    <nav aria-label={`${label}分页`} className="mt-4 flex items-center justify-end gap-3">
-      <span className="text-xs text-muted-foreground">
-        第 {page + 1} / {Math.ceil(total / 20)} 页
-      </span>
-      <Button size="sm" disabled={page === 0} onClick={() => onChange(page - 1)}>
-        上一页
-      </Button>
-      <Button size="sm" disabled={(page + 1) * 20 >= total} onClick={() => onChange(page + 1)}>
-        下一页
-      </Button>
-    </nav>
-  );
-}
+import { ListPagination } from "@/components/ui/ListPagination";
 
 export function TrainingPage() {
   const [params, setParams] = useSearchParams();
@@ -64,6 +38,8 @@ export function TrainingPage() {
   const [search, setSearch] = useState("");
   const [projectPage, setProjectPage] = useState(0);
   const [queuePage, setQueuePage] = useState(0);
+  const [projectPageSize, setProjectPageSize] = useState(20);
+  const [queuePageSize, setQueuePageSize] = useState(20);
   const patch = (updates: Record<string, string>) =>
     setParams((previous) => {
       const next = new URLSearchParams(previous);
@@ -82,14 +58,14 @@ export function TrainingPage() {
     ? resourceId.slice(0, resourceId.lastIndexOf("/"))
     : null;
   const projects = useQuery({
-    queryKey: ["training-hub", "projects", search, projectPage],
-    queryFn: () => trainingHubApi.projects(search, projectPage * 20),
+    queryKey: ["training-hub", "projects", search, projectPage, projectPageSize],
+    queryFn: () => trainingHubApi.projects(search, projectPage * projectPageSize, projectPageSize),
     enabled: tab === "start",
     refetchInterval: tab === "start" ? 10000 : false,
   });
   const queue = useQuery({
-    queryKey: ["training-hub", "runs", state, queuePage, framework],
-    queryFn: () => trainingHubApi.runs(state, queuePage * 20, framework),
+    queryKey: ["training-hub", "runs", state, queuePage, queuePageSize, framework],
+    queryFn: () => trainingHubApi.runs(state, queuePage * queuePageSize, framework, queuePageSize),
     enabled: tab === "queue",
     refetchInterval: tab === "queue" ? 3000 : false,
   });
@@ -97,15 +73,15 @@ export function TrainingPage() {
     setQueuePage(0);
   }, [state, framework]);
   useEffect(() => {
-    if (queue.data && queuePage > 0 && queuePage * 20 >= queue.data.total) {
-      setQueuePage(Math.max(0, Math.ceil(queue.data.total / 20) - 1));
+    if (queue.data && queuePage > 0 && queuePage * queuePageSize >= queue.data.total) {
+      setQueuePage(Math.max(0, Math.ceil(queue.data.total / queuePageSize) - 1));
     }
-  }, [queue.data, queuePage]);
+  }, [queue.data, queuePage, queuePageSize]);
   useEffect(() => {
-    if (projects.data && projectPage > 0 && projectPage * 20 >= projects.data.total) {
-      setProjectPage(Math.max(0, Math.ceil(projects.data.total / 20) - 1));
+    if (projects.data && projectPage > 0 && projectPage * projectPageSize >= projects.data.total) {
+      setProjectPage(Math.max(0, Math.ceil(projects.data.total / projectPageSize) - 1));
     }
-  }, [projects.data, projectPage]);
+  }, [projects.data, projectPage, projectPageSize]);
   return (
     <PageContainer>
       <header className="mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
@@ -318,10 +294,16 @@ export function TrainingPage() {
                   </div>
                 )}
               </div>
-              <Pagination
+              <ListPagination
                 page={projectPage}
                 total={projects.data?.total ?? 0}
-                onChange={setProjectPage}
+                onPageChange={setProjectPage}
+                pageSize={projectPageSize}
+                loading={projects.isFetching}
+                onPageSizeChange={(size) => {
+                  setProjectPageSize(size);
+                  setProjectPage(0);
+                }}
                 label="项目"
               />
             </section>
@@ -365,12 +347,20 @@ export function TrainingPage() {
               patch(updates);
             }}
             onStart={() => patch({ tab: "start" })}
-          />
-          <Pagination
-            page={queuePage}
-            total={queue.data?.total ?? 0}
-            onChange={setQueuePage}
-            label="训练队列"
+            pagination={
+              <ListPagination
+                page={queuePage}
+                total={queue.data?.total ?? 0}
+                onPageChange={setQueuePage}
+                pageSize={queuePageSize}
+                loading={queue.isFetching}
+                onPageSizeChange={(size) => {
+                  setQueuePageSize(size);
+                  setQueuePage(0);
+                }}
+                label="训练队列"
+              />
+            }
           />
         </TabsContent>
         <TabsContent value="warehouses" className="space-y-5">

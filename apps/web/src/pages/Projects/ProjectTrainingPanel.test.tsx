@@ -279,6 +279,7 @@ describe("managed project training", () => {
         0,
         expect.anything(),
         expect.objectContaining({ q: "分割", status: "succeeded" }),
+        20,
       ),
     );
     const list = screen.getByRole("table", { name: "训练实验列表" });
@@ -300,6 +301,7 @@ describe("managed project training", () => {
         20,
         expect.anything(),
         expect.objectContaining({ q: "分割", status: "succeeded" }),
+        20,
       ),
     );
     expect(trainingRunsApi.create).not.toHaveBeenCalled();

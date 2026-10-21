@@ -125,8 +125,8 @@ beforeEach(() => {
       evidence: { features, predictions: [] },
     })),
   });
-  vi.mocked(activeLearningApi.decisions).mockResolvedValue({ items: [] });
-  vi.mocked(activeLearningApi.feedback).mockResolvedValue({ items: [] });
+  vi.mocked(activeLearningApi.decisions).mockResolvedValue({ items: [], total: 0 });
+  vi.mocked(activeLearningApi.feedback).mockResolvedValue({ items: [], total: 0 });
 });
 afterEach(() => {
   cleanup();

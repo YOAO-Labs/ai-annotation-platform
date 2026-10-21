@@ -1,3 +1,6 @@
+import { listStyles } from "@/components/ui/listStyles";
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPagination } from "@/hooks/useListPagination";
 import { randomId } from "@/utils/id";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useState } from "react";
@@ -128,18 +131,52 @@ export function RoundContent({
     enabled: !!round,
     refetchInterval: round && runningStates.has(round.status) ? 3000 : false,
   });
+  const [decisionPage, setDecisionPage] = useState(0);
+  const [decisionPageSize, setDecisionPageSize] = useState(20);
+  const [feedbackPage, setFeedbackPage] = useState(0);
+  const [feedbackPageSize, setFeedbackPageSize] = useState(20);
   const decisions = useQuery({
-    queryKey: ["active-learning-decisions", projectId, scope, roundId],
+    queryKey: [
+      "active-learning-decisions",
+      projectId,
+      scope,
+      roundId,
+      decisionPage,
+      decisionPageSize,
+    ],
     retry: false,
     queryFn: ({ signal }) =>
-      guarded(signal, () => activeLearningApi.decisions(projectId, roundId, { signal })),
+      guarded(signal, () =>
+        activeLearningApi.decisions(
+          projectId,
+          roundId,
+          { signal },
+          decisionPage * decisionPageSize,
+          decisionPageSize,
+        ),
+      ),
     enabled: !!round,
   });
   const feedback = useQuery({
-    queryKey: ["active-learning-feedback", projectId, scope, roundId],
+    queryKey: [
+      "active-learning-feedback",
+      projectId,
+      scope,
+      roundId,
+      feedbackPage,
+      feedbackPageSize,
+    ],
     retry: false,
     queryFn: ({ signal }) =>
-      guarded(signal, () => activeLearningApi.feedback(projectId, roundId, { signal })),
+      guarded(signal, () =>
+        activeLearningApi.feedback(
+          projectId,
+          roundId,
+          { signal },
+          feedbackPage * feedbackPageSize,
+          feedbackPageSize,
+        ),
+      ),
     enabled: !!round,
   });
   const refresh = async () => {
@@ -250,6 +287,14 @@ export function RoundContent({
   };
   const candidateRows = rows.error ? [] : (rows.data?.items ?? []);
   const ranking = report.error ? [] : (report.data?.ranking ?? []);
+  const activePage = useListPagination(
+    ranking.filter((item) => item.arm === "active"),
+    roundId,
+  );
+  const controlPage = useListPagination(
+    ranking.filter((item) => item.arm === "random_control"),
+    roundId,
+  );
   const focus = candidateRows.find((item) => item.ordinal === focused);
   const sample = round?.spec.samples.find((item) => item.ordinal === focused);
   const canDecide =
@@ -407,65 +452,71 @@ export function RoundContent({
                       {armLabel[arm]} · 计划 {round.spec.batch_size} 张
                     </h2>
                     <div className="divide-y divide-border">
-                      {ranking
-                        .filter((item) => item.arm === arm)
-                        .map((item) => {
-                          const candidate = candidateRows.find(
-                            (row) => row.ordinal === item.ordinal,
-                          );
-                          return (
-                            <div key={item.ordinal} className="flex items-start gap-3 py-3 text-xs">
-                              <input
-                                className="mt-1"
-                                type="checkbox"
-                                aria-label={`选择${armLabel[arm]} ${item.rank}`}
-                                checked={selected.includes(item.ordinal)}
-                                disabled={!canDecide || locked || !!candidate?.disposition}
-                                onChange={(event) =>
-                                  setSelected((old) =>
-                                    event.target.checked
-                                      ? [...old, item.ordinal]
-                                      : old.filter((ordinal) => ordinal !== item.ordinal),
-                                  )
-                                }
-                              />
-                              <div className="min-w-0 flex-1">
-                                <div className="flex min-w-0 items-center gap-1">
-                                  <button
-                                    type="button"
-                                    className="text-left text-primary hover:underline"
-                                    onClick={() => setFocused(item.ordinal)}
-                                  >
-                                    #{item.rank} · {activeLearningReason(item.reason, task)}
-                                  </button>
-                                  <CopyValueButton
-                                    value={item.task_id}
-                                    kind="id"
-                                    label="复制样本任务 ID"
-                                  />
-                                  <span className="text-muted-foreground">
-                                    {item.recommended ? "计划内" : "备选"}
-                                    {candidate?.disposition === "accepted"
-                                      ? " · 已接纳"
-                                      : candidate?.disposition === "rejected"
-                                        ? " · 已拒绝"
-                                        : ""}
-                                  </span>
-                                </div>
-                                <p className="mb-0 mt-1 tabular-nums text-muted-foreground">
-                                  优先级{" "}
-                                  {item.features.priority === null
-                                    ? "未知"
-                                    : item.features.priority.toFixed(3)}{" "}
-                                  · {item.features.detections} 个
-                                  {task === "segment" ? "实例" : "检测"}
-                                  {item.features.possible_truncation ? " · 输出可能截断" : ""}
-                                </p>
+                      {(arm === "active" ? activePage.items : controlPage.items).map((item) => {
+                        const candidate = candidateRows.find((row) => row.ordinal === item.ordinal);
+                        return (
+                          <div key={item.ordinal} className="flex items-start gap-3 py-3 text-xs">
+                            <input
+                              className="mt-1"
+                              type="checkbox"
+                              aria-label={`选择${armLabel[arm]} ${item.rank}`}
+                              checked={selected.includes(item.ordinal)}
+                              disabled={!canDecide || locked || !!candidate?.disposition}
+                              onChange={(event) =>
+                                setSelected((old) =>
+                                  event.target.checked
+                                    ? [...old, item.ordinal]
+                                    : old.filter((ordinal) => ordinal !== item.ordinal),
+                                )
+                              }
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex min-w-0 items-center gap-1">
+                                <button
+                                  type="button"
+                                  className="text-left text-primary hover:underline"
+                                  onClick={() => setFocused(item.ordinal)}
+                                >
+                                  #{item.rank} · {activeLearningReason(item.reason, task)}
+                                </button>
+                                <CopyValueButton
+                                  value={item.task_id}
+                                  kind="id"
+                                  label="复制样本任务 ID"
+                                />
+                                <span className="text-muted-foreground">
+                                  {item.recommended ? "计划内" : "备选"}
+                                  {candidate?.disposition === "accepted"
+                                    ? " · 已接纳"
+                                    : candidate?.disposition === "rejected"
+                                      ? " · 已拒绝"
+                                      : ""}
+                                </span>
                               </div>
+                              <p className="mb-0 mt-1 tabular-nums text-muted-foreground">
+                                优先级{" "}
+                                {item.features.priority === null
+                                  ? "未知"
+                                  : item.features.priority.toFixed(3)}{" "}
+                                · {item.features.detections} 个
+                                {task === "segment" ? "实例" : "检测"}
+                                {item.features.possible_truncation ? " · 输出可能截断" : ""}
+                              </p>
                             </div>
-                          );
-                        })}
+                          </div>
+                        );
+                      })}
                     </div>
+                    <ListPagination
+                      label={armLabel[arm]}
+                      page={arm === "active" ? activePage.page : controlPage.page}
+                      pageSize={arm === "active" ? activePage.pageSize : controlPage.pageSize}
+                      total={arm === "active" ? activePage.total : controlPage.total}
+                      onPageChange={arm === "active" ? activePage.setPage : controlPage.setPage}
+                      onPageSizeChange={
+                        arm === "active" ? activePage.setPageSize : controlPage.setPageSize
+                      }
+                    />
                   </section>
                 ))}
               </div>
@@ -624,6 +675,24 @@ export function RoundContent({
                   </li>
                 ))}
             </ul>
+            <ListPagination
+              label="人工决策"
+              page={decisionPage}
+              pageSize={decisionPageSize}
+              total={decisions.data?.total}
+              count={decisions.data?.items.length}
+              hasNext={
+                decisions.data?.total == null
+                  ? decisions.data?.items.length === decisionPageSize
+                  : undefined
+              }
+              loading={decisions.isFetching}
+              onPageChange={setDecisionPage}
+              onPageSizeChange={(size) => {
+                setDecisionPageSize(size);
+                setDecisionPage(0);
+              }}
+            />
             <Link
               className="text-xs text-primary hover:underline"
               to={`/projects/${projectId}/settings?section=batches`}
@@ -707,7 +776,7 @@ export function RoundContent({
                       观察于 {new Date(item.snapshot.observed_at).toLocaleString()}
                     </p>
                     <div className="overflow-x-auto">
-                      <table className="w-full text-left">
+                      <table className={listStyles.table}>
                         <thead>
                           <tr>
                             <th className="py-2 pr-3">组别</th>
@@ -753,6 +822,24 @@ export function RoundContent({
                     </p>
                   </div>
                 ))}
+              <ListPagination
+                label="人工反馈"
+                page={feedbackPage}
+                pageSize={feedbackPageSize}
+                total={feedback.data?.total}
+                count={feedback.data?.items.length}
+                hasNext={
+                  feedback.data?.total == null
+                    ? feedback.data?.items.length === feedbackPageSize
+                    : undefined
+                }
+                loading={feedback.isFetching}
+                onPageChange={setFeedbackPage}
+                onPageSizeChange={(size) => {
+                  setFeedbackPageSize(size);
+                  setFeedbackPage(0);
+                }}
+              />
             </section>
           )}
         </>

@@ -1,5 +1,7 @@
 import { CopyableError } from "@/components/ui/CopyableError";
 import { randomId } from "@/utils/id";
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
 import { normalizeTask } from "@/api/generated/capabilityVocab.gen";
 import { useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -208,12 +210,10 @@ function ProjectLearningPolicyContent({
     refetchInterval: 3000,
   });
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
   const history = useQuery({
-    queryKey: ["learning-triggers", projectId, task, page, scope],
-    queryFn: () =>
-      task === "detect"
-        ? learningPoliciesApi.triggers(projectId, page * 20)
-        : learningPoliciesApi.triggers(projectId, page * 20, task),
+    queryKey: ["learning-triggers", projectId, task, page, pageSize, scope],
+    queryFn: () => learningPoliciesApi.triggers(projectId, page * pageSize, task, pageSize),
     refetchInterval: 3000,
   });
   const catalog = useQuery({
@@ -1027,7 +1027,7 @@ function ProjectLearningPolicyContent({
               </p>
             )}
             {history.data?.items.map((t) => (
-              <div className="space-y-2 rounded-lg border border-border p-3 text-xs" key={t.id}>
+              <div className={`${listStyles.row} space-y-2 text-xs`} key={t.id}>
                 <p>
                   策略 {t.policy_revision} · {labels[t.status] ?? t.status} · 变化{" "}
                   {t.changed_samples} 个
@@ -1045,24 +1045,20 @@ function ProjectLearningPolicyContent({
                 </p>
               </div>
             ))}
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={page === 0}
-                onClick={() => setPage((p) => p - 1)}
-              >
-                上一页触发记录
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={(page + 1) * 20 >= (history.data?.total ?? 0)}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                下一页触发记录
-              </Button>
-            </div>
+            <ListPagination
+              label="自动触发记录"
+              page={page}
+              pageSize={pageSize}
+              total={history.data?.total ?? 0}
+              loading={history.isFetching}
+              previousLabel="上一页触发记录"
+              nextLabel="下一页触发记录"
+              onPageChange={setPage}
+              onPageSizeChange={(size) => {
+                setPageSize(size);
+                setPage(0);
+              }}
+            />
           </div>
         </details>
       </div>

@@ -84,11 +84,23 @@ it("resets round pagination by task and ignores a late response from the prior f
   await waitFor(() => expect(screen.getByRole("button", { name: "选样轮次下一页" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "选样轮次下一页" }));
   await waitFor(() =>
-    expect(activeLearningApi.list).toHaveBeenCalledWith("p1", 20, expect.any(Object), undefined),
+    expect(activeLearningApi.list).toHaveBeenCalledWith(
+      "p1",
+      20,
+      expect.any(Object),
+      undefined,
+      20,
+    ),
   );
   fireEvent.change(screen.getByLabelText("选样任务"), { target: { value: "segment" } });
   expect(await screen.findByText("分割轮次")).toBeVisible();
-  expect(activeLearningApi.list).toHaveBeenLastCalledWith("p1", 0, expect.any(Object), "segment");
+  expect(activeLearningApi.list).toHaveBeenLastCalledWith(
+    "p1",
+    0,
+    expect.any(Object),
+    "segment",
+    20,
+  );
   await act(async () =>
     resolve?.({
       total: 21,
@@ -96,7 +108,7 @@ it("resets round pagination by task and ignores a late response from the prior f
     } as never),
   );
   expect(screen.queryByText("迟到旧轮次")).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "选样轮次上一页" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "选样轮次上一页" })).toBeDisabled();
   expect(screen.getByLabelText("选样任务")).toHaveValue("segment");
 });
 it("withholds a mismatched task response from a segmentation filter", async () => {

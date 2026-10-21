@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useListPagination } from "@/hooks/useListPagination";
 import { randomId } from "@/utils/id";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
@@ -62,6 +65,7 @@ function Evaluation({ model }: { model: TrainedModelOut }) {
   const perClass = Array.isArray(model.evaluation.per_class)
     ? model.evaluation.per_class.map(record)
     : [];
+  const classPage = useListPagination(perClass, model.id);
   const detectionColumns = [
     { key: "precision", label: "Precision" },
     { key: "recall", label: "Recall" },
@@ -104,7 +108,7 @@ function Evaluation({ model }: { model: TrainedModelOut }) {
             分类别结果（仅列出验证集中出现的类别）
           </summary>
           <div className="mt-2 overflow-x-auto">
-            <table className="w-full text-left">
+            <table className={listStyles.table}>
               <thead>
                 <tr>
                   <th className="px-4 py-3">类别</th>
@@ -116,7 +120,7 @@ function Evaluation({ model }: { model: TrainedModelOut }) {
                 </tr>
               </thead>
               <tbody>
-                {perClass.map((item, index) => (
+                {classPage.items.map((item, index) => (
                   <tr key={index} className="border-t border-border">
                     <td className="px-4 py-3">{String(item.name ?? item.index)}</td>
                     {perClassColumns.map((column) => (
@@ -129,6 +133,14 @@ function Evaluation({ model }: { model: TrainedModelOut }) {
               </tbody>
             </table>
           </div>
+          <ListPagination
+            label="模型类别"
+            page={classPage.page}
+            pageSize={classPage.pageSize}
+            total={classPage.total}
+            onPageChange={classPage.setPage}
+            onPageSizeChange={classPage.setPageSize}
+          />
         </details>
       )}
       <details>
@@ -305,7 +317,7 @@ function ModelsContent({
       : params.get("archive") === "include"
         ? "include"
         : "exclude";
-  const { filters, page, setPage, update } = useTrainingListFilters("model");
+  const { filters, page, pageSize, setPage, setPageSize, update } = useTrainingListFilters("model");
   const q = useDebouncedValue(filters.q, 250, projectId);
   const listFilters = {
     q,
@@ -333,6 +345,7 @@ function ModelsContent({
   const [bindings, setBindings] = useState<Record<number, string>>({});
   const [sourcePage, setSourcePage] = useState(0);
   const [historyPage, setHistoryPage] = useState(0);
+  const [historyPageSize, setHistoryPageSize] = useState(20);
   const [registryId, setRegistryId] = useState("");
   const [confirmed, setConfirmed] = useState<Record<string, boolean>>({});
   const [trialReady, setTrialReady] = useState<Record<string, boolean>>({});
@@ -389,13 +402,20 @@ function ModelsContent({
       : selectedTask;
   const classes = taskClasses?.[selectedTask] ?? fallbackClasses;
   const models = useQuery({
-    queryKey: ["trained-models", projectId, scope, modelTask, archive, page, listFilters],
+    queryKey: ["trained-models", projectId, scope, modelTask, archive, page, pageSize, listFilters],
     queryFn: ({ signal }) =>
       read(signal, () =>
-        trainedModelsApi.list(projectId, page * 20, { signal }, archive, {
-          ...listFilters,
-          task: modelTask,
-        }),
+        trainedModelsApi.list(
+          projectId,
+          page * pageSize,
+          { signal },
+          archive,
+          {
+            ...listFilters,
+            task: modelTask,
+          },
+          pageSize,
+        ),
       ),
     enabled: !!modelTask,
     refetchInterval: 5000,
@@ -407,9 +427,16 @@ function ModelsContent({
     refetchInterval: 10000,
   });
   const releases = useQuery({
-    queryKey: ["model-releases", projectId, scope, modelTask, historyPage],
+    queryKey: ["model-releases", projectId, scope, modelTask, historyPage, historyPageSize],
     queryFn: ({ signal }) =>
-      read(signal, () => trainedModelsApi.releases(projectId, historyPage * 20, modelTask)),
+      read(signal, () =>
+        trainedModelsApi.releases(
+          projectId,
+          historyPage * historyPageSize,
+          modelTask,
+          historyPageSize,
+        ),
+      ),
     enabled: !!modelTask,
     refetchInterval: 5000,
   });
@@ -743,6 +770,8 @@ function ModelsContent({
           onRetry={() => void models.refetch()}
           page={page}
           onPage={setPage}
+          pageSize={pageSize}
+          onPageSize={setPageSize}
           params={params}
           task={selectedTask}
           taskFilter={
@@ -975,22 +1004,20 @@ function ModelsContent({
                   </div>
                 ))}
               </div>
-              <div className="mt-3 flex justify-end gap-2">
-                <Button
-                  size="sm"
-                  disabled={!historyPage}
-                  onClick={() => setHistoryPage((p) => p - 1)}
-                >
-                  上一页记录
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={(historyPage + 1) * 20 >= (releases.data?.total ?? 0)}
-                  onClick={() => setHistoryPage((p) => p + 1)}
-                >
-                  下一页记录
-                </Button>
-              </div>
+              <ListPagination
+                label="发布记录"
+                page={historyPage}
+                pageSize={historyPageSize}
+                total={releases.data?.total ?? 0}
+                loading={releases.isFetching}
+                onPageChange={setHistoryPage}
+                onPageSizeChange={(size) => {
+                  setHistoryPageSize(size);
+                  setHistoryPage(0);
+                }}
+                previousLabel="上一页记录"
+                nextLabel="下一页记录"
+              />
             </details>
           )}
         </ProjectModelList>
@@ -1064,7 +1091,7 @@ function ModelsContent({
               {comparison &&
                 (comparable ? (
                   <div className="mt-3 overflow-x-auto">
-                    <table className="w-full text-left text-xs">
+                    <table className={listStyles.table}>
                       <thead>
                         <tr>
                           <th className="px-4 py-3">同一验证范围</th>

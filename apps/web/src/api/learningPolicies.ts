@@ -20,9 +20,9 @@ export const learningPoliciesApi = {
     ),
   check: (id: string, task: LearningTask = "detect") =>
     apiClient.post<LearningPolicyOut>(`${base(id)}/check${taskQuery(task)}`),
-  triggers: (id: string, offset = 0, task: LearningTask = "detect") =>
+  triggers: (id: string, offset = 0, task: LearningTask = "detect", limit = 20) =>
     apiClient.get<{ total: number; items: LearningTrigger[] }>(
-      `${base(id)}/triggers?limit=20&offset=${offset}${taskQuery(task, "&")}`,
+      `${base(id)}/triggers?limit=${limit}&offset=${offset}${taskQuery(task, "&")}`,
     ),
   remove: (id: string, task: LearningTask = "detect") =>
     apiClient.delete<void>(`${base(id)}${taskQuery(task)}`),

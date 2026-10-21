@@ -124,6 +124,7 @@ describe("Model lineage", () => {
         undefined,
         undefined,
         expect.anything(),
+        20,
       ),
     );
     expect(await screen.findByRole("link", { name: /查看详情/ })).toHaveAttribute(
@@ -165,7 +166,7 @@ describe("Model lineage", () => {
     await user.click(screen.getByRole("button", { name: "保存标记与说明" }));
     await screen.findByText("响应中断");
     await user.click(screen.getByRole("button", { name: "保存标记与说明" }));
-    await screen.findByText("标记与说明已保存。当前发布的模型未改变。");
+    await screen.findByText("标记与说明已保存。默认预标选择未改变。");
     expect(vi.mocked(modelLineageApi.append).mock.calls[0][2]).toEqual(
       vi.mocked(modelLineageApi.append).mock.calls[1][2],
     );
@@ -193,13 +194,14 @@ describe("Model lineage", () => {
         "candidate",
         2,
         expect.anything(),
+        20,
       ),
     );
     await act(async () => navigate(-1));
     const invalidation = vi.spyOn(clients[0], "invalidateQueries");
     await act(async () => resolve({ id: "late" } as never));
     expect(screen.getByLabelText("标记说明")).toHaveValue("旧查看位置的说明");
-    expect(screen.queryByText("标记与说明已保存。当前发布的模型未改变。")).not.toBeInTheDocument();
+    expect(screen.queryByText("标记与说明已保存。默认预标选择未改变。")).not.toBeInTheDocument();
     expect(invalidation).not.toHaveBeenCalled();
   });
   it("drops a late read after same-user token ABA", async () => {
@@ -233,8 +235,9 @@ describe("Model lineage", () => {
       "predictions",
       undefined,
       expect.anything(),
+      20,
     );
-    expect(screen.getByRole("button", { name: "下一批相关记录" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "下一页相关记录" })).toBeDisabled();
   });
   it("accepts only same-project learning return routes", () => {
     for (const target of [
@@ -249,12 +252,56 @@ describe("Model lineage", () => {
       "/projects/project/learning?tab=data&dataset=frozen",
     );
   });
+  it("restores cursor history on the previous page and resets it when changing row count", async () => {
+    vi.mocked(modelLineageApi.get).mockImplementation(
+      async (_project, kind, id, relation, cursor) => ({
+        ...result,
+        node: { ...node, kind, id },
+        relation,
+        next_cursor: cursor ? undefined : "second-page",
+      }),
+    );
+    const user = userEvent.setup();
+    mount("/projects/project/learning/models/candidate?model_view=records&relation=evaluations");
+    const next = await screen.findByRole("button", { name: "下一页相关记录" });
+    await waitFor(() => expect(next).toBeEnabled());
+    await user.click(next);
+    await waitFor(() =>
+      expect(modelLineageApi.get).toHaveBeenLastCalledWith(
+        "project",
+        "model",
+        "candidate",
+        "evaluations",
+        "second-page",
+        expect.anything(),
+        20,
+      ),
+    );
+    const previous = screen.getByRole("button", { name: "上一页相关记录" });
+    await waitFor(() => expect(previous).toBeEnabled());
+    await user.click(previous);
+    await waitFor(() => expect(previous).toBeDisabled());
+    await user.selectOptions(screen.getByLabelText("每页相关记录数"), "100");
+    await waitFor(() =>
+      expect(modelLineageApi.get).toHaveBeenLastCalledWith(
+        "project",
+        "model",
+        "candidate",
+        "evaluations",
+        undefined,
+        expect.anything(),
+        100,
+      ),
+    );
+    expect(previous).toBeDisabled();
+    expect(screen.getByTestId("location")).not.toHaveTextContent("cursor=");
+  });
 });
 
 it.each([
   ["active", "普通候选", /取消其他标记/],
   ["research", "待进一步评估", /不会自动创建评估任务/],
-  ["declined", "暂不采用", /不会阻止发布/],
+  ["declined", "暂不采用", /不会改变默认预标选择/],
   ["archived", "已归档", /不会删除权重或停用模型/],
 ] as const)(
   "explains the %s mark and keeps its stored value unchanged",

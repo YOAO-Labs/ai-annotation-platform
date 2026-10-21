@@ -54,12 +54,19 @@ function RoundList({
 }) {
   const { assert } = useTrainingViewOwner(projectId, scope);
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
   const list = useQuery({
-    queryKey: ["active-learning-rounds", projectId, scope, page, task],
+    queryKey: ["active-learning-rounds", projectId, scope, page, pageSize, task],
     retry: false,
     queryFn: async ({ signal }) => {
       assert(signal);
-      const value = await activeLearningApi.list(projectId, page * 20, { signal }, task);
+      const value = await activeLearningApi.list(
+        projectId,
+        page * pageSize,
+        { signal },
+        task,
+        pageSize,
+      );
       assert(signal);
       if (
         value.items.some((item) => item.project_id !== projectId || item.spec.round_id !== item.id)
@@ -160,7 +167,18 @@ function RoundList({
             </Link>
           ))}
       </div>
-      <PickerPage page={page} total={list.data?.total ?? 0} onChange={setPage} label="选样轮次" />
+      <PickerPage
+        page={page}
+        pageSize={pageSize}
+        loading={list.isFetching}
+        total={list.data?.total ?? 0}
+        onChange={setPage}
+        label="选样轮次"
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(0);
+        }}
+      />
     </PageContainer>
   );
 }

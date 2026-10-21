@@ -241,6 +241,7 @@
 
 | Method | Path |
 |---|---|
+| GET | `/reviewer/batches` |
 | GET | `/reviewer` |
 | GET | `/reviewer/today-mini` |
 | GET | `/me/recent-reviews` |
@@ -915,4 +916,4 @@
 
 ---
 
-_共 84 模块 / 518 路由_
+_共 84 模块 / 519 路由_

@@ -16,8 +16,9 @@ export const modelLineageApi = {
     relation?: string,
     cursor?: string,
     options?: RequestInit,
+    limit = 20,
   ) => {
-    const query = new URLSearchParams({ limit: "20" });
+    const query = new URLSearchParams({ limit: String(limit) });
     if (relation) query.set("relation", relation);
     if (cursor) query.set("cursor", cursor);
     return apiClient.get<LineageOut>(
@@ -25,9 +26,15 @@ export const modelLineageApi = {
       options,
     );
   },
-  decisions: (projectId: string, modelId: string, before?: number, options?: RequestInit) =>
+  decisions: (
+    projectId: string,
+    modelId: string,
+    before?: number,
+    options?: RequestInit,
+    limit = 20,
+  ) =>
     apiClient.get<ModelDecisionPage>(
-      `/projects/${projectId}/trained-models/${modelId}/decisions?limit=20${before ? `&before=${before}` : ""}`,
+      `/projects/${projectId}/trained-models/${modelId}/decisions?limit=${limit}${before ? `&before=${before}` : ""}`,
       options,
     ),
   append: (projectId: string, modelId: string, body: ModelDecisionCreate, options?: RequestInit) =>

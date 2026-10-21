@@ -327,7 +327,13 @@ async def decisions(
             .offset(offset)
         )
     ).all()
-    return {"items": [service.decision_output(row) for row in rows]}
+    total = await db.scalar(
+        select(func.count()).select_from(Decision).where(Decision.round_id == round.id)
+    )
+    return {
+        "items": [service.decision_output(row) for row in rows],
+        "total": total or 0,
+    }
 
 
 @router.post("/{round_id}/decisions", dependencies=WRITE)
@@ -372,7 +378,10 @@ async def feedback_list(
             .offset(offset)
         )
     ).all()
-    return {"items": [feedback.output(row) for row in rows]}
+    total = await db.scalar(
+        select(func.count()).select_from(Feedback).where(Feedback.round_id == round.id)
+    )
+    return {"items": [feedback.output(row) for row in rows], "total": total or 0}
 
 
 @router.post("/{round_id}/feedback", dependencies=WRITE)

@@ -3,7 +3,7 @@ title: 在线学习与模型训练 API
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-16
+last_reviewed: 2026-10-21
 ---
 
 # 在线学习与模型训练 API
@@ -140,7 +140,7 @@ last_reviewed: 2026-10-16
 
 创建、决策与反馈均使用 UUID `request_id` 加完整请求摘要幂等：同一内容返回原结果，改变内容返回 `409`。创建重复请求先读取既有轮次，无需重新访问已变化的候选。预览与创建变化返回 `preview_changed`；接纳前整个组变化或新增历史成员返回 `pool_stale`／`source_stale`。轮次状态为 `queued`、`running`、`cancelling`、`lost`、`succeeded`、`failed`、`cancelled`。仅完整成功报告允许决策；取消、封存与到期不得重建旧请求。
 
-决策体为 `request_id`、`action=accept|reject`、1–32 个不重复 `ordinals` 和可选 `batch_name`。接纳仅允许两组计划内候选，创建普通草稿批次并返回固定 `snapshot`、`snapshot_digest` 与可空 `accepted_batch_id`。批次删除不删除决策快照。读取决策或反馈的 `limit` 1–100、默认 20，`offset` 默认 0，返回 `items`。
+决策体为 `request_id`、`action=accept|reject`、1–32 个不重复 `ordinals` 和可选 `batch_name`。接纳仅允许两组计划内候选，创建普通草稿批次并返回固定 `snapshot`、`snapshot_digest` 与可空 `accepted_batch_id`。批次删除不删除决策快照。读取决策或反馈的 `limit` 1–100、默认 20，`offset` 默认 0，返回 `items` 和同权限、同轮次范围的 `total`。
 
 反馈体为 `request_id` 和可选最多四个 `{evaluation_id, attempt_id}`。结果区分实际审核／标注事实、保留的驳回事件、部分已记录会话和未知纠正次数；`efficiency_claim=false`。会话按人和作业类型对合格区间取并集；完整工时不由这些记录推断。恰好两个完整同口径评估才能生成后续指标差值，部分报告返回不可比较原因。快照不会随后续任务编辑而重算。
 
@@ -171,7 +171,7 @@ last_reviewed: 2026-10-16
 
 状态为 `queued`、`running`、`cancelling`、`lost`、`succeeded`、`failed`、`cancelled`。停止、失联与资源退出不等价。稳定成员请求 ID 绑定模型、输入、参数、profile 与固定 24 小时窗口；恢复先读取缓存收据，后端锁和封存记录阻止原请求重叠及迟到 POST。完成报告长期保留，失败／取消报告明确标记未完成成员且 `aggregate=null`。
 
-样本筛选支持零起始 `class_index`、`error=false_positive|false_negative|confusion|localization|failed`、可选 `confidence_min`／`confidence_max`，默认 `limit=12`、最多 32，`offset` 默认 0。置信度只筛选预测证据，不重新计算匹配；FN 筛选忽略置信度范围。返回固定尝试、报告与设置摘要及过滤后 `total`。
+样本筛选支持零起始 `class_index`、`error=false_positive|false_negative|confusion|localization|failed`、可选 `confidence_min`／`confidence_max`，默认 `limit=12`、最多 100，`offset` 默认 0；界面默认每页 20 行，评估任务仍最多冻结 32 个样本。置信度只筛选预测证据，不重新计算匹配；FN 筛选忽略置信度范围。返回固定尝试、报告与设置摘要及过滤后 `total`。
 
 比较仅在双方报告完整且冻结基准多重集、类别、用途、评估器、预处理、推理语义与阈值兼容时提供 `delta_right_minus_left` 和按冻结内容、标签、尺寸及重复次数对齐的 `sample_pairs`。候选权重和来源不参与兼容键。不兼容时返回明确 `reasons`，不补零或排名。
 
@@ -419,10 +419,10 @@ LibreYOLO 注册仅接受已核验的 YOLO9 t/s/m/c 原生检测最佳权重，�
 | 方法 | 路径                                     | 说明                                               |
 | ---- | ---------------------------------------- | -------------------------------------------------- |
 | GET  | `/model-lineage/{kind}/{node_id}`        | 单跳节点、直接来源／gap、可选关联列表              |
-| GET  | `/trained-models/{version_id}/decisions` | 决策序号倒序，`limit=1..20`，`before` 游标         |
+| GET  | `/trained-models/{version_id}/decisions` | 决策序号倒序，`limit=1..100`，`before` 游标        |
 | POST | `/trained-models/{version_id}/decisions` | 追加 `request_id`、`disposition`、`note`，返回 201 |
 
-节点类型为 `dataset/run/attempt/model/deployment/release/recipe/recipe_revision/evaluation`。不带 `relation` 时不展开后续记录；可用类型见响应 `sections`。关系页使用 `limit=1..20` 与 `cursor`，后续游标绑定当前项目、根节点和关系，不可跨关系复用。根节点不存在或属于其他项目返回 404；己方来源缺失、无效或归属不一致则只返回该边的 gap。查询不检查执行器或生成下载链接。
+节点类型为 `dataset/run/attempt/model/deployment/release/recipe/recipe_revision/evaluation`。不带 `relation` 时不展开后续记录；可用类型见响应 `sections`。关系页使用 `limit=1..100` 与 `cursor`，后续游标绑定当前项目、根节点和关系，不可跨关系复用。根节点不存在或属于其他项目返回 404；己方来源缺失、无效或归属不一致则只返回该边的 gap。查询不检查执行器或生成下载链接。
 
 `model` 的 `predictions` 关系返回 `usage`，匹配候选权重 SHA、类别及绑定身份，同时核对预测复合主键与项目。`retained_count` 最多 1,000，`truncated=true` 表示还有记录；缺少候选身份时计数为 null 并返回 `unavailable_reason`。此范围不含旧格式和删除历史。
 

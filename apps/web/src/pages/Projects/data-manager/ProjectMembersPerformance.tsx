@@ -198,10 +198,6 @@ function metricAvailability(metric: ProjectPerformanceMetric | undefined) {
   return "available";
 }
 
-function initial(name: string) {
-  return name.trim().slice(0, 1).toUpperCase() || "?";
-}
-
 function roleLabel(role: string | null) {
   if (!role) return "未记录角色";
   if (role === "owner") return "项目负责人";

@@ -1,3 +1,4 @@
+import { listStyles } from "@/components/ui/listStyles";
 import { CopyableError } from "@/components/ui/CopyableError";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
@@ -76,6 +77,8 @@ export function ProjectTrainingDataVersions({
   pending,
   page,
   onPage,
+  pageSize,
+  onPageSize,
   onRetry,
   href,
   onAction,
@@ -93,6 +96,8 @@ export function ProjectTrainingDataVersions({
   pending: boolean;
   page: number;
   onPage: (page: number) => void;
+  pageSize: number;
+  onPageSize: (size: number) => void;
   onRetry: () => void;
   href: (id: string) => string;
   onAction: (kind: DatasetAction, version: TrainingDatasetSummary) => void;
@@ -126,7 +131,7 @@ export function ProjectTrainingDataVersions({
         </div>
       )}
       <div className="overflow-x-auto border-t border-border">
-        <table aria-label="训练数据版本列表" className="w-full whitespace-nowrap text-left text-xs">
+        <table aria-label="训练数据版本列表" className={listStyles.table}>
           <thead className="bg-muted/40 text-2xs text-muted-foreground">
             <tr>
               {[
@@ -245,6 +250,8 @@ export function ProjectTrainingDataVersions({
         total={data?.total ?? 0}
         pending={loading}
         onPage={onPage}
+        pageSize={pageSize}
+        onPageSize={onPageSize}
       />
     </section>
   );

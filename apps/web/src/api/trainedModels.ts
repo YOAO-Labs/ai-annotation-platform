@@ -33,8 +33,9 @@ export const trainedModelsApi = {
     options?: RequestInit,
     archive: "exclude" | "include" | "only" = "exclude",
     filters?: TrainedModelListFilters,
+    limit = 20,
   ) => {
-    const query = new URLSearchParams({ limit: "20", offset: String(offset), archive });
+    const query = new URLSearchParams({ limit: String(limit), offset: String(offset), archive });
     for (const key of ["q", "framework", "task", "created_from", "created_to"] as const) {
       if (filters?.[key]) query.set(key, filters[key]);
     }
@@ -69,14 +70,14 @@ export const trainedModelsApi = {
       `${base(projectId)}/trained-models/${versionId}/deployments/${deploymentId}/mask-content/${shapeIndex}`,
       options,
     ),
-  releases: (projectId: string, offset = 0, task: ModelTask = "detect") =>
+  releases: (projectId: string, offset = 0, task: ModelTask = "detect", limit = 20) =>
     apiClient.get<{
       items: ModelReleaseOut[];
       total: number;
       generation: number;
       current_release_id: string | null;
       current: ModelReleaseOut | null;
-    }>(`${base(projectId)}/model-releases?limit=20&offset=${offset}&task=${task}`),
+    }>(`${base(projectId)}/model-releases?limit=${limit}&offset=${offset}&task=${task}`),
   publish: (projectId: string, body: ModelReleaseCreate) =>
     apiClient.post<ModelReleaseOut>(`${base(projectId)}/model-releases`, body),
 };

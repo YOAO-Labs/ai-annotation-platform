@@ -293,10 +293,10 @@ beforeEach(() => {
       report_sha256: hash,
       total: 13,
       offset: filters.offset ?? 0,
-      limit: 12,
+      limit: filters.limit ?? 20,
       items: report(value, attemptId).samples.slice(
         filters.offset ?? 0,
-        (filters.offset ?? 0) + 12,
+        (filters.offset ?? 0) + (filters.limit ?? 20),
       ),
     }),
   );
@@ -399,7 +399,7 @@ describe("frozen evaluation evidence navigation", () => {
       attemptId: attempt,
       page: 1,
       error: "",
-      filters: { offset: 12, error: "false_negative" },
+      filters: { offset: 20, limit: 20, error: "false_negative" },
     });
     expect(
       sourceWorkbenchUrl(
@@ -419,16 +419,16 @@ describe("frozen evaluation evidence navigation", () => {
   });
 
   it("puts the first member of a filtered page in the URL and aligns the second candidate to that member", async () => {
-    mount(`attempt=${attempt}&page=1&second=${second}`);
-    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("sample=12"));
-    expect(await screen.findByRole("heading", { name: "样本 13" })).toBeInTheDocument();
+    mount(`attempt=${attempt}&page=1&page_size=10&second=${second}`);
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("sample=10"));
+    expect(await screen.findByRole("heading", { name: "样本 11" })).toBeInTheDocument();
     const aligned = await screen.findByRole("link", { name: /同一冻结成员/ });
-    expect(aligned.getAttribute("href")).toContain("sample=0");
+    expect(aligned.getAttribute("href")).toContain("sample=2");
     expect(sampleEvaluationsApi.samples).toHaveBeenCalledWith(
       project,
       evaluation,
       attempt,
-      expect.objectContaining({ offset: 12 }),
+      expect.objectContaining({ offset: 10, limit: 10 }),
       { signal: expect.any(AbortSignal) },
     );
     fireEvent.click(screen.getByRole("checkbox", { name: "预测，虚线" }));

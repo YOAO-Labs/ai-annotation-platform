@@ -4,6 +4,7 @@ import { Layers } from "lucide-react";
 import { modelMetrics, record, type ModelTask, type TrainedModelOut } from "@/api/trainedModels";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { listStyles } from "@/components/ui/listStyles";
 import { TrainingError, TrainingLoading } from "../Training/TrainingFeedback";
 import { trainingTaskOf } from "../Training/trainingPresentation";
 import {
@@ -26,6 +27,8 @@ export function ProjectModelList({
   onRetry,
   page,
   onPage,
+  pageSize,
+  onPageSize,
   params,
   onRegister,
   task,
@@ -45,6 +48,8 @@ export function ProjectModelList({
   onRetry: () => void;
   page: number;
   onPage: (page: number) => void;
+  pageSize: number;
+  onPageSize: (size: number) => void;
   params: URLSearchParams;
   onRegister: () => void;
   task: ModelTask;
@@ -97,7 +102,7 @@ export function ProjectModelList({
         <TrainingLoading label="正在加载模型列表…" />
       ) : models && models.items.length > 0 ? (
         <div className="overflow-x-auto border-t border-border">
-          <table className="w-full whitespace-nowrap text-left text-xs">
+          <table className={listStyles.table}>
             <thead className="bg-muted/40 text-2xs text-muted-foreground">
               <tr>
                 {[
@@ -228,6 +233,8 @@ export function ProjectModelList({
         total={models?.total ?? 0}
         pending={loading || !!error}
         onPage={onPage}
+        pageSize={pageSize}
+        onPageSize={onPageSize}
       />
       {children}
     </section>

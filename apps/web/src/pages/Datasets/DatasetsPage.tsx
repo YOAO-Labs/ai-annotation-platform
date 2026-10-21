@@ -886,9 +886,9 @@ export function DatasetsPage() {
 
           {/* Main table */}
           <Card>
-            <div className="flex items-center justify-between border-b border-border px-4 py-3.5">
-              <div className="flex items-center gap-3">
-                <h3 className="m-0 text-sm font-semibold">全部数据集</h3>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3.5">
+              <div className="flex min-w-0 flex-wrap items-center gap-3">
+                <h3 className="m-0 shrink-0 whitespace-nowrap text-sm font-semibold">全部数据集</h3>
                 <FilterGroup label="数据类型" hideLabel>
                   {TYPE_FILTERS.map((option) => (
                     <FilterToggle
@@ -924,7 +924,10 @@ export function DatasetsPage() {
                 <tbody>
                   {isLoading && (
                     <tr>
-                      <td colSpan={7} className="p-10 text-center text-muted-foreground">
+                      <td
+                        colSpan={7}
+                        className="p-10 text-left text-muted-foreground sm:text-center"
+                      >
                         加载中...
                       </td>
                     </tr>
@@ -942,7 +945,10 @@ export function DatasetsPage() {
                     ))}
                   {!isLoading && datasets.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="p-10 text-center text-muted-foreground">
+                      <td
+                        colSpan={7}
+                        className="p-10 text-left text-muted-foreground sm:text-center"
+                      >
                         {query || filter !== "全部"
                           ? "没有匹配的数据集"
                           : "暂无数据集，点击「新建数据集」开始"}

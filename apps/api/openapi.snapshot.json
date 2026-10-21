@@ -13372,7 +13372,7 @@
             "type": "array"
           },
           "limit": {
-            "maximum": 32.0,
+            "maximum": 100.0,
             "minimum": 1.0,
             "title": "Limit",
             "type": "integer"
@@ -58663,6 +58663,31 @@
       "get": {
         "description": "v0.7.1 B-17 · 标注员视角的「我的批次」：仅返回当前用户被分派、且处于\nactive / annotating / rejected / reviewing 的批次。让标注员从 dashboard\n一眼看到自己手里的批次进度，并直接「提交质检」/ 查看 reviewer 留言。\n\nsuper_admin 看到所有同状态批次（便于演示 / 调试）；其他角色按 annotator_id 过滤（v0.7.2 单值）。",
         "operationId": "my_batches_api_v1_dashboard_annotator_batches_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -58677,6 +58702,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "security": [
@@ -58864,6 +58899,71 @@
           }
         ],
         "summary": "Reviewer Dashboard",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/api/v1/dashboard/reviewer/batches": {
+      "get": {
+        "operationId": "reviewer_batches_api_v1_dashboard_reviewer_batches_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ReviewingBatchItem"
+                  },
+                  "title": "Response Reviewer Batches Api V1 Dashboard Reviewer Batches Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reviewer Batches",
         "tags": [
           "dashboard"
         ]
@@ -66934,6 +67034,17 @@
               "title": "Limit",
               "type": "integer"
             }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -71665,7 +71776,7 @@
             "required": false,
             "schema": {
               "default": 20,
-              "maximum": 20,
+              "maximum": 100,
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
@@ -74224,7 +74335,7 @@
             "required": false,
             "schema": {
               "default": 12,
-              "maximum": 32,
+              "maximum": 100,
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
@@ -75553,7 +75664,7 @@
             "required": false,
             "schema": {
               "default": 20,
-              "maximum": 20,
+              "maximum": 100,
               "minimum": 1,
               "title": "Limit",
               "type": "integer"

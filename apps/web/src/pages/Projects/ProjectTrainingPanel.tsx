@@ -73,10 +73,16 @@ export function ProjectTrainingPanel({
     refetchInterval: visible ? 5000 : false,
   });
   const runs = useQuery({
-    queryKey: ["training-runs", projectId, scope, list.page, filters],
+    queryKey: ["training-runs", projectId, scope, list.page, list.pageSize, filters],
     queryFn: async ({ signal }) => {
       session.assert(signal);
-      const data = await trainingRunsApi.list(projectId, list.page * 20, { signal }, filters);
+      const data = await trainingRunsApi.list(
+        projectId,
+        list.page * list.pageSize,
+        { signal },
+        filters,
+        list.pageSize,
+      );
       session.assert(signal);
       return data;
     },
@@ -304,6 +310,8 @@ export function ProjectTrainingPanel({
             failed={runs.isError}
             page={list.page}
             onPage={list.setPage}
+            pageSize={list.pageSize}
+            onPageSize={list.setPageSize}
             selectedId={detailId}
             href={(id) => trainingRecordPath(projectId, "experiments", id, params)}
           />

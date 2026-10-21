@@ -1,3 +1,4 @@
+import { listPageSize } from "@/components/ui/ListPagination";
 import type {
   TrainingAttemptOut,
   TrainingEpochEvent,
@@ -67,6 +68,7 @@ export function parseComparison(params: URLSearchParams) {
     metricExplicit: params.has("metric"),
     smoothing,
     classPage: Number(classPage),
+    classPageSize: listPageSize(params.get("class_page_size")),
     showAll: inputs === "all",
     error,
   };

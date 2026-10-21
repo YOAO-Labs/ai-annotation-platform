@@ -70,9 +70,9 @@ const query = (values: Record<string, string | number | undefined>) => {
 };
 
 export const sampleEvaluationsApi = {
-  list: (projectId: string, offset = 0, options?: RequestInit) =>
+  list: (projectId: string, offset = 0, options?: RequestInit, limit = 20) =>
     apiClient.get<{ items: SampleEvaluationOut[]; total: number }>(
-      `${base(projectId)}?limit=20&offset=${offset}`,
+      `${base(projectId)}?limit=${limit}&offset=${offset}`,
       options,
     ),
   get: (projectId: string, id: string, options?: RequestInit) =>

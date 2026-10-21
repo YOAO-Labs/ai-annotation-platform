@@ -256,6 +256,7 @@ describe("project learning data versions", () => {
         undefined,
         expect.anything(),
         { task: "pose" },
+        20,
       ),
     );
   });
@@ -334,6 +335,7 @@ describe("project learning data versions", () => {
         undefined,
         expect.anything(),
         { task: "pose" },
+        20,
       ),
     );
     await user.click(screen.getByRole("button", { name: /未识别的历史版本/ }));
@@ -349,6 +351,7 @@ describe("project learning data versions", () => {
       "project-1",
       20,
       expect.anything(),
+      20,
     );
     expect(trainingDatasetsApi.getSummary).not.toHaveBeenCalled();
   });
@@ -390,6 +393,7 @@ describe("project learning data versions", () => {
         undefined,
         expect.anything(),
         { task: "detect" },
+        20,
       ),
     );
     await user.click(screen.getByRole("button", { name: "准备新版本" }));
@@ -405,6 +409,7 @@ describe("project learning data versions", () => {
         undefined,
         expect.anything(),
         { task: "segment" },
+        20,
       ),
     );
     await user.click(screen.getByRole("button", { name: "准备新版本" }));
@@ -952,6 +957,7 @@ describe("project learning data versions", () => {
         undefined,
         expect.anything(),
         { task: "detect", q: "第一轮", status: "ready" },
+        20,
       ),
     );
     const link = await screen.findByRole("link", { name: "查看详情：第一轮" });
@@ -967,6 +973,7 @@ describe("project learning data versions", () => {
         undefined,
         expect.anything(),
         { task: "detect", q: "第一轮", status: "ready" },
+        20,
       ),
     );
     await user.selectOptions(screen.getByLabelText("数据类型筛选"), "segment");
@@ -977,6 +984,7 @@ describe("project learning data versions", () => {
         undefined,
         expect.anything(),
         { task: "segment", q: "第一轮", status: "ready" },
+        20,
       ),
     );
     await user.selectOptions(screen.getByLabelText("数据类型筛选"), "all");
@@ -987,6 +995,7 @@ describe("project learning data versions", () => {
         undefined,
         expect.anything(),
         { q: "第一轮", status: "ready" },
+        20,
       ),
     );
     expect(trainingDatasetsApi.getSummary).not.toHaveBeenCalled();
@@ -1022,6 +1031,7 @@ describe("project learning data versions", () => {
       undefined,
       expect.anything(),
       { q: "第一轮", status: "ready" },
+      20,
     );
     await user.selectOptions(screen.getByLabelText("数据类型筛选"), "detect");
     await waitFor(() =>
@@ -1031,6 +1041,7 @@ describe("project learning data versions", () => {
         undefined,
         expect.anything(),
         { task: "detect", q: "第一轮", status: "ready" },
+        20,
       ),
     );
     await user.click(screen.getByRole("button", { name: "重置筛选" }));
@@ -1041,6 +1052,7 @@ describe("project learning data versions", () => {
         undefined,
         expect.anything(),
         {},
+        20,
       ),
     );
     expect(screen.getByLabelText("数据类型筛选")).toHaveValue("all");
