@@ -96,9 +96,28 @@ fixture attempts are retained separately from that passing run.
 API Project readers and accepted-write response paths now call the query owner;
 Task/member search consumes the fixed Workspace relations. Thirty-five selected
 Native/public API regressions pass without skips. The borrowed owner also matches
-all 27 frozen HTTP observations and both caller transaction probes. Public
-OpenAPI is unchanged. Full three-path comparison, faults/restores and noneditable
-package/image qualification remain open. No production cutover is claimed.
+all 27 frozen HTTP observations and both caller transaction probes. The same
+27 public responses match through the dedicated DSN and an installed HTTP owner;
+caller transaction probes deliberately retain the default borrowed binding.
+The actual remote Python owner-transfer workflow also passes. Public OpenAPI is
+unchanged, including the readiness description.
+
+The noneditable Workspace, Inference and Identity packages match their complete
+source manifests (36, seven and 121 files); shared contract dependencies match
+14 files. Installed tests pass 214 Workspace cases, 27 Inference cases and
+16 Identity Briefs-client cases without API, SQLAlchemy, Celery, storage or ML
+dependencies. The first artifact check omitted Identity's second top-level
+package from its inventory; the corrected check verifies both packages.
+
+Two installed-process cases verify query/profile grant loss, explicit missing
+profiles, no fallback, independent readiness, stop and restart. Four real-transfer
+cases verify precommit decode failure leaves the borrowed write uncommitted, and
+postcommit rename/deletion/temporal failure remain observable after the admitted
+actor is demoted. Accepted receipts remain committed after response failure.
+
+The supplemental 15 consumer and eight temporal HTTP observations still need
+current-provider replay. Full restore and restricted image qualification also
+remain open. No production cutover or full Workspace qualification is claimed.
 
 The full all-module deployment/language-replacement objective remains active.
 Shared PostgreSQL and the trusted coordinator are explicit current constraints.
