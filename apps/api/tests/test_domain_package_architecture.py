@@ -523,10 +523,7 @@ DOMAIN_PACKAGES = (
     DomainSpec(
         package="project_workspace",
         legacy_facades=(),
-        allowed_app_imports=(
-            "app.db.models.project",
-            "app.services.guide_asset_contracts",
-        ),
+        allowed_app_imports=("app.db.models.project",),
     ),
     DomainSpec(
         package="workspace_configuration",
@@ -536,6 +533,7 @@ DOMAIN_PACKAGES = (
             "app.services.inference_limits",
             "app.services.workspace_configuration_data",
             "app.services.workspace_project_query",
+            "app.services.workspace_guide_objects",
         ),
     ),
     DomainSpec(package="workspace_configuration_data", legacy_facades=()),
@@ -576,9 +574,6 @@ DOMAIN_PACKAGES = (
     ),
     DomainSpec(package="labeling_class_query_data", legacy_facades=()),
     DomainSpec(package="identity_organization_scope", legacy_facades=()),
-    DomainSpec(
-        package="guide_asset_contracts", legacy_facades=(), allowed_app_imports=()
-    ),
     DomainSpec(
         package="annotation_comment",
         legacy_facades=(),

@@ -10,12 +10,10 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.project import Project
-from app.db.models.user import User
 from aap_workspace.access_contract import ProjectAccess
 from aap_workspace.project_query_contract import ProjectOwnerTransferEvidence
 from app.services.project_access import (
     lock_current_project_access,
-    resolve_project_access_by_id,
 )
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.workspace_project_query import prepare_transfer_projection
@@ -27,23 +25,6 @@ from app.services.workspace_owner_transfer import (
 def _assert_project_manager(access: ProjectAccess) -> None:
     if not access.is_manager:
         raise HTTPException(status_code=403, detail="仅项目负责人或超级管理员可执行")
-
-
-async def read_managed_project(
-    db: AsyncSession, *, actor_id: uuid.UUID, project_id: uuid.UUID
-) -> Project:
-    actor = await db.get(User, actor_id)
-    if actor is None:
-        raise HTTPException(
-            status_code=401,
-            detail="账号已停用或不存在",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    project, access = await resolve_project_access_by_id(
-        db, actor_id=actor.id, project_id=project_id
-    )
-    _assert_project_manager(access)
-    return project
 
 
 async def lock_workspace_project(db: AsyncSession, project_id: uuid.UUID) -> Project:

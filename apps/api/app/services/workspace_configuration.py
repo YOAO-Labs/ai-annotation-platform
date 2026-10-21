@@ -15,6 +15,9 @@ from aap_workspace.configuration_contract import (
     ConfigurationUnavailable,
     ConfigurationRenameResult,
     ConfigurationRenameSuccess,
+    ConfigurationGuideSuccess,
+    ConfigurationRequest,
+    GUIDE_OPERATIONS,
     configuration_request,
     decode_configuration_reply,
 )
@@ -39,16 +42,27 @@ class ConfigurationExecution:
     operation: str
     actor_id: uuid.UUID
     rename_result: ConfigurationRenameResult | None = None
+    guide_result: ConfigurationGuideSuccess | None = None
+    guide_request: ConfigurationRequest | None = None
 
 
-def configuration_manager(data, *, noop_projection=None):
+def configuration_manager(data, *, noop_projection=None, guide_objects=None):
+    options = {"noop_projection": noop_projection}
+    if guide_objects is not None:
+        options["guide_objects"] = guide_objects
     return ConfigurationManager(
         data,
         capability_limits=capability_limits_from_settings(),
         video_segment_size_frames=settings.video_segment_size_frames,
         setup_timeout=settings.ml_health_timeout,
-        noop_projection=noop_projection,
+        **options,
     )
+
+
+def _guide_objects():
+    from app.services.workspace_guide_objects import guide_asset_objects
+
+    return guide_asset_objects()
 
 
 async def execute_configuration(
@@ -73,9 +87,13 @@ async def execute_configuration(
             raise ConfigurationUnavailable()
         if not url and not dsn:
             # Retain the existing blocking pool lock for borrowed transactions.
-            reply = await configuration_manager(WorkspaceConfigurationData(db)).execute(
-                request
+            data = WorkspaceConfigurationData(db)
+            manager = (
+                configuration_manager(data, guide_objects=_guide_objects())
+                if request.operation in GUIDE_OPERATIONS
+                else configuration_manager(data)
             )
+            reply = await manager.execute(request)
         else:
             timeout = settings.workspace_configuration_timeout_seconds
             async with asyncio.timeout(timeout):
@@ -93,7 +111,10 @@ async def execute_configuration(
                         trust_env=False, timeout=timeout
                     ) as client:
                         attempts = (
-                            1 if request.operation == "rename_project_class" else 2
+                            1
+                            if request.operation == "rename_project_class"
+                            or request.operation in GUIDE_OPERATIONS
+                            else 2
                         )
                         for attempt in range(attempts):
                             try:
@@ -120,11 +141,16 @@ async def execute_configuration(
                         return await _select_project_query_reply(db, project_request)
 
                     data = ConfigurationPostgresData(dsn, command_timeout=timeout)
-                    manager = (
-                        configuration_manager(data, noop_projection=noop_projection)
-                        if request.operation == "rename_project_class"
-                        else configuration_manager(data)
-                    )
+                    if request.operation in GUIDE_OPERATIONS:
+                        manager = configuration_manager(
+                            data, guide_objects=_guide_objects()
+                        )
+                    elif request.operation == "rename_project_class":
+                        manager = configuration_manager(
+                            data, noop_projection=noop_projection
+                        )
+                    else:
+                        manager = configuration_manager(data)
                     reply = await manager.execute(request)
         if not reply.ok:
             raise HTTPException(
@@ -146,6 +172,21 @@ async def execute_configuration(
                 operation=request.operation,
                 actor_id=request.actor_id,
                 rename_result=reply.result,
+            )
+        if isinstance(reply, ConfigurationGuideSuccess):
+            if request.operation in {
+                "guide_asset_upload_complete",
+                "guide_asset_delete",
+            } and reply.result.refreshed is not bool(url or dsn):
+                raise ConfigurationUnavailable()
+            return ConfigurationExecution(
+                resource_id=reply.result.resource_id,
+                template_id=None,
+                operation_id=request.operation_id,
+                operation=request.operation,
+                actor_id=request.actor_id,
+                guide_result=reply,
+                guide_request=request,
             )
         return ConfigurationExecution(
             resource_id=reply.result.resource_id,
