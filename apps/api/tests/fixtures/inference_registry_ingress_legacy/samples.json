@@ -1,0 +1,4026 @@
+{
+  "base": "3951a84fc629e5be6a71b6bfb2751fec0a781bfa",
+  "source_sha256": {
+    "apps/api/app/services/ml_backend_env_sync.py": "cfa9a0edf70461c641805e6b6a2bdbb47d643b35a78fa04f161984e47ce6c2df",
+    "apps/api/app/services/screenshot_seed_backends.py": "8b10da83be5b7c257593ec24d8ac73409dbe349585e8b47df40f68392d9db382",
+    "apps/api/app/services/ml_backend.py": "8ec97061f2326061aa53a5c66fe85ab64e24b3135847bb9be020ed7ba3ec1915"
+  },
+  "cases": [
+    {
+      "kind": "env",
+      "case": "new_ok",
+      "autoflush": false,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_read",
+        "registry_insert",
+        "unrelated_flush",
+        "pool_read",
+        "pool_insert",
+        "member_insert",
+        "registry_read",
+        "registry_read",
+        "registry_write"
+      ],
+      "caller_pending": false,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "Controlled",
+          "url": "<backend>",
+          "source": "env",
+          "state": "connected",
+          "is_interactive": false,
+          "extra_params": {},
+          "health_meta": {
+            "capabilities": {
+              "version": null,
+              "protocol_version": "1",
+              "task_contract_revision": 0,
+              "compat_protocol_versions": [],
+              "model_version": "one",
+              "weights_version": null,
+              "name": "Controlled",
+              "infra": "unknown",
+              "warmup_endpoint": false,
+              "managed_lifecycle": null,
+              "models": [
+                {
+                  "id": "Controlled",
+                  "display_name": "Controlled",
+                  "task": "detect",
+                  "model_family": null,
+                  "infra": "unknown",
+                  "is_interactive": false,
+                  "supported_prompts": [
+                    "bbox"
+                  ],
+                  "supported_inputs": [
+                    "bbox_prompt",
+                    "full_image"
+                  ],
+                  "default_input_type": "bbox_prompt",
+                  "supported_geometric_outputs": [],
+                  "output_attribute_types": [],
+                  "supported_text_outputs": [],
+                  "supported_trackers": [],
+                  "text_driven_trackers": [],
+                  "supported_variants": [],
+                  "composition": "atom",
+                  "default_thresholds": {},
+                  "resource_profile": {},
+                  "params": {},
+                  "exemplar_capabilities": null,
+                  "modality": "image"
+                }
+              ],
+              "is_interactive": false,
+              "supported_prompts": [
+                "bbox"
+              ],
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_trackers": [],
+              "text_driven_trackers": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": [],
+              "warnings": [],
+              "modalities": [
+                "image"
+              ]
+            }
+          },
+          "last_checked_at": "<time>",
+          "error_message": null
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "Controlled",
+            "url": "<backend>",
+            "source": "env",
+            "state": "connected",
+            "is_interactive": false,
+            "extra_params": {},
+            "health_meta": {
+              "capabilities": {
+                "name": "Controlled",
+                "infra": "unknown",
+                "models": [
+                  {
+                    "id": "Controlled",
+                    "task": "detect",
+                    "infra": "unknown",
+                    "params": {},
+                    "modality": "image",
+                    "composition": "atom",
+                    "display_name": "Controlled",
+                    "model_family": null,
+                    "is_interactive": false,
+                    "resource_profile": {},
+                    "supported_inputs": [
+                      "bbox_prompt",
+                      "full_image"
+                    ],
+                    "supported_prompts": [
+                      "bbox"
+                    ],
+                    "default_input_type": "bbox_prompt",
+                    "default_thresholds": {},
+                    "supported_trackers": [],
+                    "supported_variants": [],
+                    "text_driven_trackers": [],
+                    "exemplar_capabilities": null,
+                    "output_attribute_types": [],
+                    "supported_text_outputs": [],
+                    "supported_geometric_outputs": []
+                  }
+                ],
+                "version": null,
+                "warnings": [],
+                "modalities": [
+                  "image"
+                ],
+                "model_version": "one",
+                "is_interactive": false,
+                "warmup_endpoint": false,
+                "weights_version": null,
+                "protocol_version": "1",
+                "supported_inputs": [
+                  "bbox_prompt",
+                  "full_image"
+                ],
+                "managed_lifecycle": null,
+                "supported_prompts": [
+                  "bbox"
+                ],
+                "supported_trackers": [],
+                "text_driven_trackers": [],
+                "supported_text_outputs": [],
+                "task_contract_revision": 0,
+                "compat_protocol_versions": [],
+                "supported_geometric_outputs": []
+              }
+            },
+            "last_checked_at": "<time>",
+            "error_message": null
+          }
+        ],
+        "pools": [
+          {
+            "url": "<backend>",
+            "name": "Controlled",
+            "enabled": false,
+            "routing_generation": 1,
+            "capability_fingerprint": null,
+            "capability_snapshot": null,
+            "traffic_state": "active",
+            "weight": 1
+          }
+        ],
+        "pending_user_visible": true
+      }
+    },
+    {
+      "kind": "env",
+      "case": "new_ok",
+      "autoflush": true,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "http:/setup",
+        "clock",
+        "limits",
+        "unrelated_flush",
+        "registry_read",
+        "registry_insert",
+        "pool_read",
+        "pool_insert",
+        "member_insert",
+        "registry_read",
+        "registry_write",
+        "registry_read"
+      ],
+      "caller_pending": false,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "Controlled",
+          "url": "<backend>",
+          "source": "env",
+          "state": "connected",
+          "is_interactive": false,
+          "extra_params": {},
+          "health_meta": {
+            "capabilities": {
+              "version": null,
+              "protocol_version": "1",
+              "task_contract_revision": 0,
+              "compat_protocol_versions": [],
+              "model_version": "one",
+              "weights_version": null,
+              "name": "Controlled",
+              "infra": "unknown",
+              "warmup_endpoint": false,
+              "managed_lifecycle": null,
+              "models": [
+                {
+                  "id": "Controlled",
+                  "display_name": "Controlled",
+                  "task": "detect",
+                  "model_family": null,
+                  "infra": "unknown",
+                  "is_interactive": false,
+                  "supported_prompts": [
+                    "bbox"
+                  ],
+                  "supported_inputs": [
+                    "bbox_prompt",
+                    "full_image"
+                  ],
+                  "default_input_type": "bbox_prompt",
+                  "supported_geometric_outputs": [],
+                  "output_attribute_types": [],
+                  "supported_text_outputs": [],
+                  "supported_trackers": [],
+                  "text_driven_trackers": [],
+                  "supported_variants": [],
+                  "composition": "atom",
+                  "default_thresholds": {},
+                  "resource_profile": {},
+                  "params": {},
+                  "exemplar_capabilities": null,
+                  "modality": "image"
+                }
+              ],
+              "is_interactive": false,
+              "supported_prompts": [
+                "bbox"
+              ],
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_trackers": [],
+              "text_driven_trackers": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": [],
+              "warnings": [],
+              "modalities": [
+                "image"
+              ]
+            }
+          },
+          "last_checked_at": "<time>",
+          "error_message": null
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "Controlled",
+            "url": "<backend>",
+            "source": "env",
+            "state": "connected",
+            "is_interactive": false,
+            "extra_params": {},
+            "health_meta": {
+              "capabilities": {
+                "name": "Controlled",
+                "infra": "unknown",
+                "models": [
+                  {
+                    "id": "Controlled",
+                    "task": "detect",
+                    "infra": "unknown",
+                    "params": {},
+                    "modality": "image",
+                    "composition": "atom",
+                    "display_name": "Controlled",
+                    "model_family": null,
+                    "is_interactive": false,
+                    "resource_profile": {},
+                    "supported_inputs": [
+                      "bbox_prompt",
+                      "full_image"
+                    ],
+                    "supported_prompts": [
+                      "bbox"
+                    ],
+                    "default_input_type": "bbox_prompt",
+                    "default_thresholds": {},
+                    "supported_trackers": [],
+                    "supported_variants": [],
+                    "text_driven_trackers": [],
+                    "exemplar_capabilities": null,
+                    "output_attribute_types": [],
+                    "supported_text_outputs": [],
+                    "supported_geometric_outputs": []
+                  }
+                ],
+                "version": null,
+                "warnings": [],
+                "modalities": [
+                  "image"
+                ],
+                "model_version": "one",
+                "is_interactive": false,
+                "warmup_endpoint": false,
+                "weights_version": null,
+                "protocol_version": "1",
+                "supported_inputs": [
+                  "bbox_prompt",
+                  "full_image"
+                ],
+                "managed_lifecycle": null,
+                "supported_prompts": [
+                  "bbox"
+                ],
+                "supported_trackers": [],
+                "text_driven_trackers": [],
+                "supported_text_outputs": [],
+                "task_contract_revision": 0,
+                "compat_protocol_versions": [],
+                "supported_geometric_outputs": []
+              }
+            },
+            "last_checked_at": "<time>",
+            "error_message": null
+          }
+        ],
+        "pools": [
+          {
+            "url": "<backend>",
+            "name": "Controlled",
+            "enabled": false,
+            "routing_generation": 1,
+            "capability_fingerprint": null,
+            "capability_snapshot": null,
+            "traffic_state": "active",
+            "weight": 1
+          }
+        ],
+        "pending_user_visible": true
+      }
+    },
+    {
+      "kind": "env",
+      "case": "new_failed",
+      "autoflush": false,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "http:/setup",
+        "clock",
+        "registry_read",
+        "registry_insert",
+        "unrelated_flush",
+        "pool_read",
+        "pool_insert",
+        "member_insert",
+        "registry_read",
+        "registry_read",
+        "registry_write"
+      ],
+      "caller_pending": false,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "127.0.0.1:65411",
+          "url": "<backend>",
+          "source": "env",
+          "state": "error",
+          "is_interactive": false,
+          "extra_params": {},
+          "health_meta": null,
+          "last_checked_at": "<time>",
+          "error_message": null
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "127.0.0.1:65411",
+            "url": "<backend>",
+            "source": "env",
+            "state": "error",
+            "is_interactive": false,
+            "extra_params": {},
+            "health_meta": null,
+            "last_checked_at": "<time>",
+            "error_message": null
+          }
+        ],
+        "pools": [
+          {
+            "url": "<backend>",
+            "name": "127.0.0.1:65411",
+            "enabled": false,
+            "routing_generation": 1,
+            "capability_fingerprint": null,
+            "capability_snapshot": null,
+            "traffic_state": "active",
+            "weight": 1
+          }
+        ],
+        "pending_user_visible": true
+      }
+    },
+    {
+      "kind": "env",
+      "case": "new_failed",
+      "autoflush": true,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "http:/setup",
+        "clock",
+        "unrelated_flush",
+        "registry_read",
+        "registry_insert",
+        "pool_read",
+        "pool_insert",
+        "member_insert",
+        "registry_read",
+        "registry_write",
+        "registry_read"
+      ],
+      "caller_pending": false,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "127.0.0.1:65418",
+          "url": "<backend>",
+          "source": "env",
+          "state": "error",
+          "is_interactive": false,
+          "extra_params": {},
+          "health_meta": null,
+          "last_checked_at": "<time>",
+          "error_message": null
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "127.0.0.1:65418",
+            "url": "<backend>",
+            "source": "env",
+            "state": "error",
+            "is_interactive": false,
+            "extra_params": {},
+            "health_meta": null,
+            "last_checked_at": "<time>",
+            "error_message": null
+          }
+        ],
+        "pools": [
+          {
+            "url": "<backend>",
+            "name": "127.0.0.1:65418",
+            "enabled": false,
+            "routing_generation": 1,
+            "capability_fingerprint": null,
+            "capability_snapshot": null,
+            "traffic_state": "active",
+            "weight": 1
+          }
+        ],
+        "pending_user_visible": true
+      }
+    },
+    {
+      "kind": "env",
+      "case": "existing_ok",
+      "autoflush": false,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_read",
+        "registry_read",
+        "registry_write",
+        "unrelated_flush"
+      ],
+      "caller_pending": false,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "Controlled",
+          "url": "<backend>",
+          "source": "env",
+          "state": "connected",
+          "is_interactive": false,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            }
+          },
+          "health_meta": {
+            "capabilities": {
+              "version": null,
+              "protocol_version": "1",
+              "task_contract_revision": 0,
+              "compat_protocol_versions": [],
+              "model_version": "one",
+              "weights_version": null,
+              "name": "Controlled",
+              "infra": "unknown",
+              "warmup_endpoint": false,
+              "managed_lifecycle": null,
+              "models": [
+                {
+                  "id": "Controlled",
+                  "display_name": "Controlled",
+                  "task": "detect",
+                  "model_family": null,
+                  "infra": "unknown",
+                  "is_interactive": false,
+                  "supported_prompts": [
+                    "bbox"
+                  ],
+                  "supported_inputs": [
+                    "bbox_prompt",
+                    "full_image"
+                  ],
+                  "default_input_type": "bbox_prompt",
+                  "supported_geometric_outputs": [],
+                  "output_attribute_types": [],
+                  "supported_text_outputs": [],
+                  "supported_trackers": [],
+                  "text_driven_trackers": [],
+                  "supported_variants": [],
+                  "composition": "atom",
+                  "default_thresholds": {},
+                  "resource_profile": {},
+                  "params": {},
+                  "exemplar_capabilities": null,
+                  "modality": "image"
+                }
+              ],
+              "is_interactive": false,
+              "supported_prompts": [
+                "bbox"
+              ],
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_trackers": [],
+              "text_driven_trackers": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": [],
+              "warnings": [],
+              "modalities": [
+                "image"
+              ]
+            }
+          },
+          "last_checked_at": "<time>",
+          "error_message": "old error"
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "Controlled",
+            "url": "<backend>",
+            "source": "env",
+            "state": "connected",
+            "is_interactive": false,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "capabilities": {
+                "name": "Controlled",
+                "infra": "unknown",
+                "models": [
+                  {
+                    "id": "Controlled",
+                    "task": "detect",
+                    "infra": "unknown",
+                    "params": {},
+                    "modality": "image",
+                    "composition": "atom",
+                    "display_name": "Controlled",
+                    "model_family": null,
+                    "is_interactive": false,
+                    "resource_profile": {},
+                    "supported_inputs": [
+                      "bbox_prompt",
+                      "full_image"
+                    ],
+                    "supported_prompts": [
+                      "bbox"
+                    ],
+                    "default_input_type": "bbox_prompt",
+                    "default_thresholds": {},
+                    "supported_trackers": [],
+                    "supported_variants": [],
+                    "text_driven_trackers": [],
+                    "exemplar_capabilities": null,
+                    "output_attribute_types": [],
+                    "supported_text_outputs": [],
+                    "supported_geometric_outputs": []
+                  }
+                ],
+                "version": null,
+                "warnings": [],
+                "modalities": [
+                  "image"
+                ],
+                "model_version": "one",
+                "is_interactive": false,
+                "warmup_endpoint": false,
+                "weights_version": null,
+                "protocol_version": "1",
+                "supported_inputs": [
+                  "bbox_prompt",
+                  "full_image"
+                ],
+                "managed_lifecycle": null,
+                "supported_prompts": [
+                  "bbox"
+                ],
+                "supported_trackers": [],
+                "text_driven_trackers": [],
+                "supported_text_outputs": [],
+                "task_contract_revision": 0,
+                "compat_protocol_versions": [],
+                "supported_geometric_outputs": []
+              }
+            },
+            "last_checked_at": "<time>",
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": true
+      }
+    },
+    {
+      "kind": "env",
+      "case": "existing_ok",
+      "autoflush": true,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "http:/setup",
+        "clock",
+        "limits",
+        "unrelated_flush",
+        "registry_read",
+        "registry_write",
+        "registry_read"
+      ],
+      "caller_pending": false,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "Controlled",
+          "url": "<backend>",
+          "source": "env",
+          "state": "connected",
+          "is_interactive": false,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            }
+          },
+          "health_meta": {
+            "capabilities": {
+              "version": null,
+              "protocol_version": "1",
+              "task_contract_revision": 0,
+              "compat_protocol_versions": [],
+              "model_version": "one",
+              "weights_version": null,
+              "name": "Controlled",
+              "infra": "unknown",
+              "warmup_endpoint": false,
+              "managed_lifecycle": null,
+              "models": [
+                {
+                  "id": "Controlled",
+                  "display_name": "Controlled",
+                  "task": "detect",
+                  "model_family": null,
+                  "infra": "unknown",
+                  "is_interactive": false,
+                  "supported_prompts": [
+                    "bbox"
+                  ],
+                  "supported_inputs": [
+                    "bbox_prompt",
+                    "full_image"
+                  ],
+                  "default_input_type": "bbox_prompt",
+                  "supported_geometric_outputs": [],
+                  "output_attribute_types": [],
+                  "supported_text_outputs": [],
+                  "supported_trackers": [],
+                  "text_driven_trackers": [],
+                  "supported_variants": [],
+                  "composition": "atom",
+                  "default_thresholds": {},
+                  "resource_profile": {},
+                  "params": {},
+                  "exemplar_capabilities": null,
+                  "modality": "image"
+                }
+              ],
+              "is_interactive": false,
+              "supported_prompts": [
+                "bbox"
+              ],
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_trackers": [],
+              "text_driven_trackers": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": [],
+              "warnings": [],
+              "modalities": [
+                "image"
+              ]
+            }
+          },
+          "last_checked_at": "<time>",
+          "error_message": "old error"
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "Controlled",
+            "url": "<backend>",
+            "source": "env",
+            "state": "connected",
+            "is_interactive": false,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "capabilities": {
+                "name": "Controlled",
+                "infra": "unknown",
+                "models": [
+                  {
+                    "id": "Controlled",
+                    "task": "detect",
+                    "infra": "unknown",
+                    "params": {},
+                    "modality": "image",
+                    "composition": "atom",
+                    "display_name": "Controlled",
+                    "model_family": null,
+                    "is_interactive": false,
+                    "resource_profile": {},
+                    "supported_inputs": [
+                      "bbox_prompt",
+                      "full_image"
+                    ],
+                    "supported_prompts": [
+                      "bbox"
+                    ],
+                    "default_input_type": "bbox_prompt",
+                    "default_thresholds": {},
+                    "supported_trackers": [],
+                    "supported_variants": [],
+                    "text_driven_trackers": [],
+                    "exemplar_capabilities": null,
+                    "output_attribute_types": [],
+                    "supported_text_outputs": [],
+                    "supported_geometric_outputs": []
+                  }
+                ],
+                "version": null,
+                "warnings": [],
+                "modalities": [
+                  "image"
+                ],
+                "model_version": "one",
+                "is_interactive": false,
+                "warmup_endpoint": false,
+                "weights_version": null,
+                "protocol_version": "1",
+                "supported_inputs": [
+                  "bbox_prompt",
+                  "full_image"
+                ],
+                "managed_lifecycle": null,
+                "supported_prompts": [
+                  "bbox"
+                ],
+                "supported_trackers": [],
+                "text_driven_trackers": [],
+                "supported_text_outputs": [],
+                "task_contract_revision": 0,
+                "compat_protocol_versions": [],
+                "supported_geometric_outputs": []
+              }
+            },
+            "last_checked_at": "<time>",
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": true
+      }
+    },
+    {
+      "kind": "env",
+      "case": "existing_failed",
+      "autoflush": false,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "http:/setup",
+        "clock",
+        "registry_read",
+        "registry_read",
+        "registry_write",
+        "unrelated_flush"
+      ],
+      "caller_pending": false,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "127.0.0.1:65449",
+          "url": "<backend>",
+          "source": "env",
+          "state": "error",
+          "is_interactive": false,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            }
+          },
+          "health_meta": null,
+          "last_checked_at": "<time>",
+          "error_message": "old error"
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "127.0.0.1:65449",
+            "url": "<backend>",
+            "source": "env",
+            "state": "error",
+            "is_interactive": false,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": null,
+            "last_checked_at": "<time>",
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": true
+      }
+    },
+    {
+      "kind": "env",
+      "case": "existing_failed",
+      "autoflush": true,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "http:/setup",
+        "clock",
+        "unrelated_flush",
+        "registry_read",
+        "registry_write",
+        "registry_read"
+      ],
+      "caller_pending": false,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "127.0.0.1:65456",
+          "url": "<backend>",
+          "source": "env",
+          "state": "error",
+          "is_interactive": false,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            }
+          },
+          "health_meta": null,
+          "last_checked_at": "<time>",
+          "error_message": "old error"
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "127.0.0.1:65456",
+            "url": "<backend>",
+            "source": "env",
+            "state": "error",
+            "is_interactive": false,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": null,
+            "last_checked_at": "<time>",
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": true
+      }
+    },
+    {
+      "kind": "env",
+      "case": "manual_ok",
+      "autoflush": false,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_read",
+        "registry_read",
+        "unrelated_flush"
+      ],
+      "caller_pending": false,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "Before",
+          "url": "<backend>",
+          "source": "manual",
+          "state": "connected",
+          "is_interactive": true,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            }
+          },
+          "health_meta": {
+            "old": "snapshot"
+          },
+          "last_checked_at": null,
+          "error_message": "old error"
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": true
+      }
+    },
+    {
+      "kind": "env",
+      "case": "manual_ok",
+      "autoflush": true,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "http:/setup",
+        "clock",
+        "limits",
+        "unrelated_flush",
+        "registry_read",
+        "registry_read"
+      ],
+      "caller_pending": false,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "Before",
+          "url": "<backend>",
+          "source": "manual",
+          "state": "connected",
+          "is_interactive": true,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            }
+          },
+          "health_meta": {
+            "old": "snapshot"
+          },
+          "last_checked_at": null,
+          "error_message": "old error"
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": true
+      }
+    },
+    {
+      "kind": "env",
+      "case": "manual_invalid_setup",
+      "autoflush": false,
+      "error": "AttributeError",
+      "flush_error": null,
+      "trace": [
+        "http:/setup",
+        "clock",
+        "limits"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": true,
+      "memory": [],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "env",
+      "case": "manual_invalid_setup",
+      "autoflush": true,
+      "error": "AttributeError",
+      "flush_error": null,
+      "trace": [
+        "http:/setup",
+        "clock",
+        "limits"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": true,
+      "memory": [],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "env",
+      "case": "stale",
+      "autoflush": false,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "clock",
+        "registry_read",
+        "registry_write",
+        "unrelated_flush"
+      ],
+      "caller_pending": false,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "Before",
+          "url": "<backend>",
+          "source": "env",
+          "state": "disconnected",
+          "is_interactive": true,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            }
+          },
+          "health_meta": {
+            "old": "snapshot"
+          },
+          "last_checked_at": null,
+          "error_message": "old error"
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "env",
+            "state": "disconnected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": true
+      }
+    },
+    {
+      "kind": "env",
+      "case": "stale",
+      "autoflush": true,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "clock",
+        "unrelated_flush",
+        "registry_read",
+        "registry_write"
+      ],
+      "caller_pending": false,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "Before",
+          "url": "<backend>",
+          "source": "env",
+          "state": "disconnected",
+          "is_interactive": true,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            }
+          },
+          "health_meta": {
+            "old": "snapshot"
+          },
+          "last_checked_at": null,
+          "error_message": "old error"
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "env",
+            "state": "disconnected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": true
+      }
+    },
+    {
+      "kind": "env",
+      "case": "empty",
+      "autoflush": false,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "clock",
+        "registry_read",
+        "registry_write",
+        "unrelated_flush"
+      ],
+      "caller_pending": false,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "Before",
+          "url": "<backend>",
+          "source": "env",
+          "state": "disconnected",
+          "is_interactive": true,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            }
+          },
+          "health_meta": {
+            "old": "snapshot"
+          },
+          "last_checked_at": null,
+          "error_message": "old error"
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "env",
+            "state": "disconnected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": true
+      }
+    },
+    {
+      "kind": "env",
+      "case": "empty",
+      "autoflush": true,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "clock",
+        "unrelated_flush",
+        "registry_read",
+        "registry_write"
+      ],
+      "caller_pending": false,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "Before",
+          "url": "<backend>",
+          "source": "env",
+          "state": "disconnected",
+          "is_interactive": true,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            }
+          },
+          "health_meta": {
+            "old": "snapshot"
+          },
+          "last_checked_at": null,
+          "error_message": "old error"
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "env",
+            "state": "disconnected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": true
+      }
+    },
+    {
+      "kind": "env",
+      "case": "invalid_setup",
+      "autoflush": false,
+      "error": "AttributeError",
+      "flush_error": null,
+      "trace": [
+        "http:/setup",
+        "clock",
+        "limits"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": true,
+      "memory": [],
+      "database": {
+        "registry": [],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "env",
+      "case": "invalid_setup",
+      "autoflush": true,
+      "error": "AttributeError",
+      "flush_error": null,
+      "trace": [
+        "http:/setup",
+        "clock",
+        "limits"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": true,
+      "memory": [],
+      "database": {
+        "registry": [],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "env",
+      "case": "huge_row",
+      "autoflush": false,
+      "error": "ValueError",
+      "flush_error": null,
+      "trace": [
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_read"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": true,
+      "memory": [],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "env",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": "<oversized-json>",
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "env",
+      "case": "huge_row",
+      "autoflush": true,
+      "error": "ValueError",
+      "flush_error": null,
+      "trace": [
+        "http:/setup",
+        "clock",
+        "limits",
+        "unrelated_flush",
+        "registry_read"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "memory": [],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "env",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": "<oversized-json>",
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "env",
+      "case": "bad_name",
+      "autoflush": false,
+      "error": "DBAPIError",
+      "flush_error": null,
+      "trace": [
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_read",
+        "registry_insert"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "memory": [],
+      "database": {
+        "registry": [],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "env",
+      "case": "bad_name",
+      "autoflush": true,
+      "error": "DBAPIError",
+      "flush_error": null,
+      "trace": [
+        "http:/setup",
+        "clock",
+        "limits",
+        "unrelated_flush",
+        "registry_read",
+        "registry_insert"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "memory": [],
+      "database": {
+        "registry": [],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "live_ok",
+      "autoflush": false,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "registry_read",
+        "http:/health",
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_write",
+        "unrelated_flush"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": true,
+      "memory": [
+        {
+          "name": "Controlled",
+          "url": "<backend>",
+          "source": "manual",
+          "state": "connected",
+          "is_interactive": false,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            }
+          },
+          "health_meta": {
+            "compute": {
+              "configured_device": "cpu"
+            },
+            "capabilities": {
+              "version": null,
+              "protocol_version": "1",
+              "task_contract_revision": 0,
+              "compat_protocol_versions": [],
+              "model_version": "one",
+              "weights_version": null,
+              "name": "Controlled",
+              "infra": "unknown",
+              "warmup_endpoint": false,
+              "managed_lifecycle": null,
+              "models": [
+                {
+                  "id": "Controlled",
+                  "display_name": "Controlled",
+                  "task": "detect",
+                  "model_family": null,
+                  "infra": "unknown",
+                  "is_interactive": false,
+                  "supported_prompts": [
+                    "bbox"
+                  ],
+                  "supported_inputs": [
+                    "bbox_prompt",
+                    "full_image"
+                  ],
+                  "default_input_type": "bbox_prompt",
+                  "supported_geometric_outputs": [],
+                  "output_attribute_types": [],
+                  "supported_text_outputs": [],
+                  "supported_trackers": [],
+                  "text_driven_trackers": [],
+                  "supported_variants": [],
+                  "composition": "atom",
+                  "default_thresholds": {},
+                  "resource_profile": {},
+                  "params": {},
+                  "exemplar_capabilities": null,
+                  "modality": "image"
+                }
+              ],
+              "is_interactive": false,
+              "supported_prompts": [
+                "bbox"
+              ],
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_trackers": [],
+              "text_driven_trackers": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": [],
+              "warnings": [],
+              "modalities": [
+                "image"
+              ]
+            }
+          },
+          "last_checked_at": "<time>",
+          "error_message": null
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "live_ok",
+      "autoflush": true,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "unrelated_flush",
+        "registry_read",
+        "http:/health",
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_write"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "Controlled",
+          "url": "<backend>",
+          "source": "manual",
+          "state": "connected",
+          "is_interactive": false,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            }
+          },
+          "health_meta": {
+            "compute": {
+              "configured_device": "cpu"
+            },
+            "capabilities": {
+              "version": null,
+              "protocol_version": "1",
+              "task_contract_revision": 0,
+              "compat_protocol_versions": [],
+              "model_version": "one",
+              "weights_version": null,
+              "name": "Controlled",
+              "infra": "unknown",
+              "warmup_endpoint": false,
+              "managed_lifecycle": null,
+              "models": [
+                {
+                  "id": "Controlled",
+                  "display_name": "Controlled",
+                  "task": "detect",
+                  "model_family": null,
+                  "infra": "unknown",
+                  "is_interactive": false,
+                  "supported_prompts": [
+                    "bbox"
+                  ],
+                  "supported_inputs": [
+                    "bbox_prompt",
+                    "full_image"
+                  ],
+                  "default_input_type": "bbox_prompt",
+                  "supported_geometric_outputs": [],
+                  "output_attribute_types": [],
+                  "supported_text_outputs": [],
+                  "supported_trackers": [],
+                  "text_driven_trackers": [],
+                  "supported_variants": [],
+                  "composition": "atom",
+                  "default_thresholds": {},
+                  "resource_profile": {},
+                  "params": {},
+                  "exemplar_capabilities": null,
+                  "modality": "image"
+                }
+              ],
+              "is_interactive": false,
+              "supported_prompts": [
+                "bbox"
+              ],
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_trackers": [],
+              "text_driven_trackers": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": [],
+              "warnings": [],
+              "modalities": [
+                "image"
+              ]
+            }
+          },
+          "last_checked_at": "<time>",
+          "error_message": null
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "live_failed",
+      "autoflush": false,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "registry_read",
+        "http:/health",
+        "clock",
+        "registry_write",
+        "unrelated_flush"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": true,
+      "memory": [
+        {
+          "name": "Before",
+          "url": "<backend>",
+          "source": "manual",
+          "state": "error",
+          "is_interactive": true,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            }
+          },
+          "health_meta": {
+            "old": "snapshot"
+          },
+          "last_checked_at": "<time>",
+          "error_message": "health check failed"
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "live_failed",
+      "autoflush": true,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "unrelated_flush",
+        "registry_read",
+        "http:/health",
+        "clock",
+        "registry_write"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "Before",
+          "url": "<backend>",
+          "source": "manual",
+          "state": "error",
+          "is_interactive": true,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            }
+          },
+          "health_meta": {
+            "old": "snapshot"
+          },
+          "last_checked_at": "<time>",
+          "error_message": "health check failed"
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "live_plain_health",
+      "autoflush": false,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "registry_read",
+        "http:/health",
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_write",
+        "unrelated_flush"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": true,
+      "memory": [
+        {
+          "name": "Controlled",
+          "url": "<backend>",
+          "source": "manual",
+          "state": "connected",
+          "is_interactive": false,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            }
+          },
+          "health_meta": {
+            "capabilities": {
+              "version": null,
+              "protocol_version": "1",
+              "task_contract_revision": 0,
+              "compat_protocol_versions": [],
+              "model_version": "one",
+              "weights_version": null,
+              "name": "Controlled",
+              "infra": "unknown",
+              "warmup_endpoint": false,
+              "managed_lifecycle": null,
+              "models": [
+                {
+                  "id": "Controlled",
+                  "display_name": "Controlled",
+                  "task": "detect",
+                  "model_family": null,
+                  "infra": "unknown",
+                  "is_interactive": false,
+                  "supported_prompts": [
+                    "bbox"
+                  ],
+                  "supported_inputs": [
+                    "bbox_prompt",
+                    "full_image"
+                  ],
+                  "default_input_type": "bbox_prompt",
+                  "supported_geometric_outputs": [],
+                  "output_attribute_types": [],
+                  "supported_text_outputs": [],
+                  "supported_trackers": [],
+                  "text_driven_trackers": [],
+                  "supported_variants": [],
+                  "composition": "atom",
+                  "default_thresholds": {},
+                  "resource_profile": {},
+                  "params": {},
+                  "exemplar_capabilities": null,
+                  "modality": "image"
+                }
+              ],
+              "is_interactive": false,
+              "supported_prompts": [
+                "bbox"
+              ],
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_trackers": [],
+              "text_driven_trackers": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": [],
+              "warnings": [],
+              "modalities": [
+                "image"
+              ]
+            }
+          },
+          "last_checked_at": "<time>",
+          "error_message": null
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "live_plain_health",
+      "autoflush": true,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "unrelated_flush",
+        "registry_read",
+        "http:/health",
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_write"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "Controlled",
+          "url": "<backend>",
+          "source": "manual",
+          "state": "connected",
+          "is_interactive": false,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            }
+          },
+          "health_meta": {
+            "capabilities": {
+              "version": null,
+              "protocol_version": "1",
+              "task_contract_revision": 0,
+              "compat_protocol_versions": [],
+              "model_version": "one",
+              "weights_version": null,
+              "name": "Controlled",
+              "infra": "unknown",
+              "warmup_endpoint": false,
+              "managed_lifecycle": null,
+              "models": [
+                {
+                  "id": "Controlled",
+                  "display_name": "Controlled",
+                  "task": "detect",
+                  "model_family": null,
+                  "infra": "unknown",
+                  "is_interactive": false,
+                  "supported_prompts": [
+                    "bbox"
+                  ],
+                  "supported_inputs": [
+                    "bbox_prompt",
+                    "full_image"
+                  ],
+                  "default_input_type": "bbox_prompt",
+                  "supported_geometric_outputs": [],
+                  "output_attribute_types": [],
+                  "supported_text_outputs": [],
+                  "supported_trackers": [],
+                  "text_driven_trackers": [],
+                  "supported_variants": [],
+                  "composition": "atom",
+                  "default_thresholds": {},
+                  "resource_profile": {},
+                  "params": {},
+                  "exemplar_capabilities": null,
+                  "modality": "image"
+                }
+              ],
+              "is_interactive": false,
+              "supported_prompts": [
+                "bbox"
+              ],
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_trackers": [],
+              "text_driven_trackers": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": [],
+              "warnings": [],
+              "modalities": [
+                "image"
+              ]
+            }
+          },
+          "last_checked_at": "<time>",
+          "error_message": null
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "live_setup_failed",
+      "autoflush": false,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "registry_read",
+        "http:/health",
+        "http:/setup",
+        "clock",
+        "registry_write",
+        "unrelated_flush"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": true,
+      "memory": [
+        {
+          "name": "Before",
+          "url": "<backend>",
+          "source": "manual",
+          "state": "error",
+          "is_interactive": true,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            }
+          },
+          "health_meta": {
+            "old": "snapshot"
+          },
+          "last_checked_at": "<time>",
+          "error_message": "HTTPStatusError: Server error '503 Service Unavailable' for url '<backend>/setup'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/503"
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "live_setup_failed",
+      "autoflush": true,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "unrelated_flush",
+        "registry_read",
+        "http:/health",
+        "http:/setup",
+        "clock",
+        "registry_write"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "Before",
+          "url": "<backend>",
+          "source": "manual",
+          "state": "error",
+          "is_interactive": true,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            }
+          },
+          "health_meta": {
+            "old": "snapshot"
+          },
+          "last_checked_at": "<time>",
+          "error_message": "HTTPStatusError: Server error '503 Service Unavailable' for url '<backend>/setup'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/503"
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "live_empty_setup",
+      "autoflush": false,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "registry_read",
+        "http:/health",
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_write",
+        "unrelated_flush"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": true,
+      "memory": [
+        {
+          "name": "Before",
+          "url": "<backend>",
+          "source": "manual",
+          "state": "error",
+          "is_interactive": true,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            }
+          },
+          "health_meta": {
+            "old": "snapshot"
+          },
+          "last_checked_at": "<time>",
+          "error_message": "setup response has no usable capabilities"
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "live_empty_setup",
+      "autoflush": true,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "unrelated_flush",
+        "registry_read",
+        "http:/health",
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_write"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "Before",
+          "url": "<backend>",
+          "source": "manual",
+          "state": "error",
+          "is_interactive": true,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            }
+          },
+          "health_meta": {
+            "old": "snapshot"
+          },
+          "last_checked_at": "<time>",
+          "error_message": "setup response has no usable capabilities"
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "live_huge_row",
+      "autoflush": false,
+      "error": "ValueError",
+      "flush_error": null,
+      "trace": [
+        "registry_read"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": true,
+      "memory": [],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": "<oversized-json>",
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "live_huge_row",
+      "autoflush": true,
+      "error": "ValueError",
+      "flush_error": null,
+      "trace": [
+        "unrelated_flush",
+        "registry_read"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "memory": [],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": "<oversized-json>",
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "live_bad_extra",
+      "autoflush": false,
+      "error": "AttributeError",
+      "flush_error": null,
+      "trace": [
+        "registry_read"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": true,
+      "memory": [],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": [
+              1
+            ],
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "live_bad_extra",
+      "autoflush": true,
+      "error": "AttributeError",
+      "flush_error": null,
+      "trace": [
+        "unrelated_flush",
+        "registry_read"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "memory": [],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": [
+              1
+            ],
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "live_nan",
+      "autoflush": false,
+      "error": null,
+      "flush_error": "DBAPIError",
+      "trace": [
+        "registry_read",
+        "http:/health",
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_write"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": true,
+      "memory": [
+        {
+          "name": "Controlled",
+          "url": "<backend>",
+          "source": "manual",
+          "state": "connected",
+          "is_interactive": false,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            }
+          },
+          "health_meta": {
+            "host": {
+              "n": "<nonfinite>"
+            },
+            "compute": {
+              "configured_device": "cpu"
+            },
+            "capabilities": {
+              "version": null,
+              "protocol_version": "1",
+              "task_contract_revision": 0,
+              "compat_protocol_versions": [],
+              "model_version": "one",
+              "weights_version": null,
+              "name": "Controlled",
+              "infra": "unknown",
+              "warmup_endpoint": false,
+              "managed_lifecycle": null,
+              "models": [
+                {
+                  "id": "Controlled",
+                  "display_name": "Controlled",
+                  "task": "detect",
+                  "model_family": null,
+                  "infra": "unknown",
+                  "is_interactive": false,
+                  "supported_prompts": [
+                    "bbox"
+                  ],
+                  "supported_inputs": [
+                    "bbox_prompt",
+                    "full_image"
+                  ],
+                  "default_input_type": "bbox_prompt",
+                  "supported_geometric_outputs": [],
+                  "output_attribute_types": [],
+                  "supported_text_outputs": [],
+                  "supported_trackers": [],
+                  "text_driven_trackers": [],
+                  "supported_variants": [],
+                  "composition": "atom",
+                  "default_thresholds": {},
+                  "resource_profile": {},
+                  "params": {},
+                  "exemplar_capabilities": null,
+                  "modality": "image"
+                }
+              ],
+              "is_interactive": false,
+              "supported_prompts": [
+                "bbox"
+              ],
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_trackers": [],
+              "text_driven_trackers": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": [],
+              "warnings": [],
+              "modalities": [
+                "image"
+              ]
+            }
+          },
+          "last_checked_at": "<time>",
+          "error_message": null
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "live_nan",
+      "autoflush": true,
+      "error": null,
+      "flush_error": "DBAPIError",
+      "trace": [
+        "unrelated_flush",
+        "registry_read",
+        "http:/health",
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_write"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "Controlled",
+          "url": "<backend>",
+          "source": "manual",
+          "state": "connected",
+          "is_interactive": false,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            }
+          },
+          "health_meta": {
+            "host": {
+              "n": "<nonfinite>"
+            },
+            "compute": {
+              "configured_device": "cpu"
+            },
+            "capabilities": {
+              "version": null,
+              "protocol_version": "1",
+              "task_contract_revision": 0,
+              "compat_protocol_versions": [],
+              "model_version": "one",
+              "weights_version": null,
+              "name": "Controlled",
+              "infra": "unknown",
+              "warmup_endpoint": false,
+              "managed_lifecycle": null,
+              "models": [
+                {
+                  "id": "Controlled",
+                  "display_name": "Controlled",
+                  "task": "detect",
+                  "model_family": null,
+                  "infra": "unknown",
+                  "is_interactive": false,
+                  "supported_prompts": [
+                    "bbox"
+                  ],
+                  "supported_inputs": [
+                    "bbox_prompt",
+                    "full_image"
+                  ],
+                  "default_input_type": "bbox_prompt",
+                  "supported_geometric_outputs": [],
+                  "output_attribute_types": [],
+                  "supported_text_outputs": [],
+                  "supported_trackers": [],
+                  "text_driven_trackers": [],
+                  "supported_variants": [],
+                  "composition": "atom",
+                  "default_thresholds": {},
+                  "resource_profile": {},
+                  "params": {},
+                  "exemplar_capabilities": null,
+                  "modality": "image"
+                }
+              ],
+              "is_interactive": false,
+              "supported_prompts": [
+                "bbox"
+              ],
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_trackers": [],
+              "text_driven_trackers": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": [],
+              "warnings": [],
+              "modalities": [
+                "image"
+              ]
+            }
+          },
+          "last_checked_at": "<time>",
+          "error_message": null
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "Before",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "stub_new",
+      "autoflush": false,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "registry_read",
+        "registry_insert",
+        "unrelated_flush",
+        "pool_read",
+        "pool_insert",
+        "member_insert",
+        "http:/health",
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_write"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "mock-v2-backend",
+          "url": "<backend>",
+          "source": "seed",
+          "state": "connected",
+          "is_interactive": false,
+          "extra_params": {
+            "seed": {
+              "managed_by": "screenshot-seed",
+              "profile": "screenshots",
+              "revision": "screenshots-2026-08-g"
+            }
+          },
+          "health_meta": {
+            "compute": {
+              "configured_device": "cpu"
+            },
+            "capabilities": {
+              "version": null,
+              "protocol_version": "1",
+              "task_contract_revision": 0,
+              "compat_protocol_versions": [],
+              "model_version": "one",
+              "weights_version": null,
+              "name": "mock-v2-backend",
+              "infra": "unknown",
+              "warmup_endpoint": false,
+              "managed_lifecycle": null,
+              "models": [
+                {
+                  "id": "mock-v2-backend",
+                  "display_name": "mock-v2-backend",
+                  "task": "detect",
+                  "model_family": null,
+                  "infra": "unknown",
+                  "is_interactive": false,
+                  "supported_prompts": [
+                    "bbox"
+                  ],
+                  "supported_inputs": [
+                    "bbox_prompt",
+                    "full_image"
+                  ],
+                  "default_input_type": "bbox_prompt",
+                  "supported_geometric_outputs": [],
+                  "output_attribute_types": [],
+                  "supported_text_outputs": [],
+                  "supported_trackers": [],
+                  "text_driven_trackers": [],
+                  "supported_variants": [],
+                  "composition": "atom",
+                  "default_thresholds": {},
+                  "resource_profile": {},
+                  "params": {},
+                  "exemplar_capabilities": null,
+                  "modality": "image"
+                }
+              ],
+              "is_interactive": false,
+              "supported_prompts": [
+                "bbox"
+              ],
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_trackers": [],
+              "text_driven_trackers": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": [],
+              "warnings": [],
+              "modalities": [
+                "image"
+              ]
+            }
+          },
+          "last_checked_at": "<time>",
+          "error_message": null
+        }
+      ],
+      "database": {
+        "registry": [],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "stub_new",
+      "autoflush": true,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "unrelated_flush",
+        "registry_read",
+        "registry_insert",
+        "pool_read",
+        "pool_insert",
+        "member_insert",
+        "http:/health",
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_write"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "mock-v2-backend",
+          "url": "<backend>",
+          "source": "seed",
+          "state": "connected",
+          "is_interactive": false,
+          "extra_params": {
+            "seed": {
+              "managed_by": "screenshot-seed",
+              "profile": "screenshots",
+              "revision": "screenshots-2026-08-g"
+            }
+          },
+          "health_meta": {
+            "compute": {
+              "configured_device": "cpu"
+            },
+            "capabilities": {
+              "version": null,
+              "protocol_version": "1",
+              "task_contract_revision": 0,
+              "compat_protocol_versions": [],
+              "model_version": "one",
+              "weights_version": null,
+              "name": "mock-v2-backend",
+              "infra": "unknown",
+              "warmup_endpoint": false,
+              "managed_lifecycle": null,
+              "models": [
+                {
+                  "id": "mock-v2-backend",
+                  "display_name": "mock-v2-backend",
+                  "task": "detect",
+                  "model_family": null,
+                  "infra": "unknown",
+                  "is_interactive": false,
+                  "supported_prompts": [
+                    "bbox"
+                  ],
+                  "supported_inputs": [
+                    "bbox_prompt",
+                    "full_image"
+                  ],
+                  "default_input_type": "bbox_prompt",
+                  "supported_geometric_outputs": [],
+                  "output_attribute_types": [],
+                  "supported_text_outputs": [],
+                  "supported_trackers": [],
+                  "text_driven_trackers": [],
+                  "supported_variants": [],
+                  "composition": "atom",
+                  "default_thresholds": {},
+                  "resource_profile": {},
+                  "params": {},
+                  "exemplar_capabilities": null,
+                  "modality": "image"
+                }
+              ],
+              "is_interactive": false,
+              "supported_prompts": [
+                "bbox"
+              ],
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_trackers": [],
+              "text_driven_trackers": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": [],
+              "warnings": [],
+              "modalities": [
+                "image"
+              ]
+            }
+          },
+          "last_checked_at": "<time>",
+          "error_message": null
+        }
+      ],
+      "database": {
+        "registry": [],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "stub_existing",
+      "autoflush": false,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "registry_read",
+        "pool_read",
+        "pool_insert",
+        "registry_write",
+        "unrelated_flush",
+        "member_insert",
+        "http:/health",
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_write"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "mock-v2-backend",
+          "url": "<backend>",
+          "source": "manual",
+          "state": "connected",
+          "is_interactive": false,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            },
+            "seed": {
+              "managed_by": "screenshot-seed",
+              "profile": "screenshots",
+              "revision": "screenshots-2026-08-g"
+            }
+          },
+          "health_meta": {
+            "compute": {
+              "configured_device": "cpu"
+            },
+            "capabilities": {
+              "version": null,
+              "protocol_version": "1",
+              "task_contract_revision": 0,
+              "compat_protocol_versions": [],
+              "model_version": "one",
+              "weights_version": null,
+              "name": "mock-v2-backend",
+              "infra": "unknown",
+              "warmup_endpoint": false,
+              "managed_lifecycle": null,
+              "models": [
+                {
+                  "id": "mock-v2-backend",
+                  "display_name": "mock-v2-backend",
+                  "task": "detect",
+                  "model_family": null,
+                  "infra": "unknown",
+                  "is_interactive": false,
+                  "supported_prompts": [
+                    "bbox"
+                  ],
+                  "supported_inputs": [
+                    "bbox_prompt",
+                    "full_image"
+                  ],
+                  "default_input_type": "bbox_prompt",
+                  "supported_geometric_outputs": [],
+                  "output_attribute_types": [],
+                  "supported_text_outputs": [],
+                  "supported_trackers": [],
+                  "text_driven_trackers": [],
+                  "supported_variants": [],
+                  "composition": "atom",
+                  "default_thresholds": {},
+                  "resource_profile": {},
+                  "params": {},
+                  "exemplar_capabilities": null,
+                  "modality": "image"
+                }
+              ],
+              "is_interactive": false,
+              "supported_prompts": [
+                "bbox"
+              ],
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_trackers": [],
+              "text_driven_trackers": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": [],
+              "warnings": [],
+              "modalities": [
+                "image"
+              ]
+            }
+          },
+          "last_checked_at": "<time>",
+          "error_message": null
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "mock-v2-backend",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "stub_existing",
+      "autoflush": true,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "unrelated_flush",
+        "registry_read",
+        "registry_write",
+        "pool_read",
+        "pool_insert",
+        "member_insert",
+        "http:/health",
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_write"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "mock-v2-backend",
+          "url": "<backend>",
+          "source": "manual",
+          "state": "connected",
+          "is_interactive": false,
+          "extra_params": {
+            "keep": {
+              "nested": true
+            },
+            "seed": {
+              "managed_by": "screenshot-seed",
+              "profile": "screenshots",
+              "revision": "screenshots-2026-08-g"
+            }
+          },
+          "health_meta": {
+            "compute": {
+              "configured_device": "cpu"
+            },
+            "capabilities": {
+              "version": null,
+              "protocol_version": "1",
+              "task_contract_revision": 0,
+              "compat_protocol_versions": [],
+              "model_version": "one",
+              "weights_version": null,
+              "name": "mock-v2-backend",
+              "infra": "unknown",
+              "warmup_endpoint": false,
+              "managed_lifecycle": null,
+              "models": [
+                {
+                  "id": "mock-v2-backend",
+                  "display_name": "mock-v2-backend",
+                  "task": "detect",
+                  "model_family": null,
+                  "infra": "unknown",
+                  "is_interactive": false,
+                  "supported_prompts": [
+                    "bbox"
+                  ],
+                  "supported_inputs": [
+                    "bbox_prompt",
+                    "full_image"
+                  ],
+                  "default_input_type": "bbox_prompt",
+                  "supported_geometric_outputs": [],
+                  "output_attribute_types": [],
+                  "supported_text_outputs": [],
+                  "supported_trackers": [],
+                  "text_driven_trackers": [],
+                  "supported_variants": [],
+                  "composition": "atom",
+                  "default_thresholds": {},
+                  "resource_profile": {},
+                  "params": {},
+                  "exemplar_capabilities": null,
+                  "modality": "image"
+                }
+              ],
+              "is_interactive": false,
+              "supported_prompts": [
+                "bbox"
+              ],
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_trackers": [],
+              "text_driven_trackers": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": [],
+              "warnings": [],
+              "modalities": [
+                "image"
+              ]
+            }
+          },
+          "last_checked_at": "<time>",
+          "error_message": null
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "mock-v2-backend",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": {
+              "keep": {
+                "nested": true
+              }
+            },
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "stub_false",
+      "autoflush": false,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "registry_read",
+        "pool_read",
+        "pool_insert",
+        "registry_write",
+        "unrelated_flush",
+        "member_insert",
+        "http:/health",
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_write"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "mock-v2-backend",
+          "url": "<backend>",
+          "source": "manual",
+          "state": "connected",
+          "is_interactive": false,
+          "extra_params": {
+            "seed": {
+              "managed_by": "screenshot-seed",
+              "profile": "screenshots",
+              "revision": "screenshots-2026-08-g"
+            }
+          },
+          "health_meta": {
+            "compute": {
+              "configured_device": "cpu"
+            },
+            "capabilities": {
+              "version": null,
+              "protocol_version": "1",
+              "task_contract_revision": 0,
+              "compat_protocol_versions": [],
+              "model_version": "one",
+              "weights_version": null,
+              "name": "mock-v2-backend",
+              "infra": "unknown",
+              "warmup_endpoint": false,
+              "managed_lifecycle": null,
+              "models": [
+                {
+                  "id": "mock-v2-backend",
+                  "display_name": "mock-v2-backend",
+                  "task": "detect",
+                  "model_family": null,
+                  "infra": "unknown",
+                  "is_interactive": false,
+                  "supported_prompts": [
+                    "bbox"
+                  ],
+                  "supported_inputs": [
+                    "bbox_prompt",
+                    "full_image"
+                  ],
+                  "default_input_type": "bbox_prompt",
+                  "supported_geometric_outputs": [],
+                  "output_attribute_types": [],
+                  "supported_text_outputs": [],
+                  "supported_trackers": [],
+                  "text_driven_trackers": [],
+                  "supported_variants": [],
+                  "composition": "atom",
+                  "default_thresholds": {},
+                  "resource_profile": {},
+                  "params": {},
+                  "exemplar_capabilities": null,
+                  "modality": "image"
+                }
+              ],
+              "is_interactive": false,
+              "supported_prompts": [
+                "bbox"
+              ],
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_trackers": [],
+              "text_driven_trackers": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": [],
+              "warnings": [],
+              "modalities": [
+                "image"
+              ]
+            }
+          },
+          "last_checked_at": "<time>",
+          "error_message": null
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "mock-v2-backend",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": false,
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "stub_false",
+      "autoflush": true,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "unrelated_flush",
+        "registry_read",
+        "registry_write",
+        "pool_read",
+        "pool_insert",
+        "member_insert",
+        "http:/health",
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_write"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "mock-v2-backend",
+          "url": "<backend>",
+          "source": "manual",
+          "state": "connected",
+          "is_interactive": false,
+          "extra_params": {
+            "seed": {
+              "managed_by": "screenshot-seed",
+              "profile": "screenshots",
+              "revision": "screenshots-2026-08-g"
+            }
+          },
+          "health_meta": {
+            "compute": {
+              "configured_device": "cpu"
+            },
+            "capabilities": {
+              "version": null,
+              "protocol_version": "1",
+              "task_contract_revision": 0,
+              "compat_protocol_versions": [],
+              "model_version": "one",
+              "weights_version": null,
+              "name": "mock-v2-backend",
+              "infra": "unknown",
+              "warmup_endpoint": false,
+              "managed_lifecycle": null,
+              "models": [
+                {
+                  "id": "mock-v2-backend",
+                  "display_name": "mock-v2-backend",
+                  "task": "detect",
+                  "model_family": null,
+                  "infra": "unknown",
+                  "is_interactive": false,
+                  "supported_prompts": [
+                    "bbox"
+                  ],
+                  "supported_inputs": [
+                    "bbox_prompt",
+                    "full_image"
+                  ],
+                  "default_input_type": "bbox_prompt",
+                  "supported_geometric_outputs": [],
+                  "output_attribute_types": [],
+                  "supported_text_outputs": [],
+                  "supported_trackers": [],
+                  "text_driven_trackers": [],
+                  "supported_variants": [],
+                  "composition": "atom",
+                  "default_thresholds": {},
+                  "resource_profile": {},
+                  "params": {},
+                  "exemplar_capabilities": null,
+                  "modality": "image"
+                }
+              ],
+              "is_interactive": false,
+              "supported_prompts": [
+                "bbox"
+              ],
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_trackers": [],
+              "text_driven_trackers": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": [],
+              "warnings": [],
+              "modalities": [
+                "image"
+              ]
+            }
+          },
+          "last_checked_at": "<time>",
+          "error_message": null
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "mock-v2-backend",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": false,
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "stub_zero",
+      "autoflush": false,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "registry_read",
+        "pool_read",
+        "pool_insert",
+        "registry_write",
+        "unrelated_flush",
+        "member_insert",
+        "http:/health",
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_write"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "mock-v2-backend",
+          "url": "<backend>",
+          "source": "manual",
+          "state": "connected",
+          "is_interactive": false,
+          "extra_params": {
+            "seed": {
+              "managed_by": "screenshot-seed",
+              "profile": "screenshots",
+              "revision": "screenshots-2026-08-g"
+            }
+          },
+          "health_meta": {
+            "compute": {
+              "configured_device": "cpu"
+            },
+            "capabilities": {
+              "version": null,
+              "protocol_version": "1",
+              "task_contract_revision": 0,
+              "compat_protocol_versions": [],
+              "model_version": "one",
+              "weights_version": null,
+              "name": "mock-v2-backend",
+              "infra": "unknown",
+              "warmup_endpoint": false,
+              "managed_lifecycle": null,
+              "models": [
+                {
+                  "id": "mock-v2-backend",
+                  "display_name": "mock-v2-backend",
+                  "task": "detect",
+                  "model_family": null,
+                  "infra": "unknown",
+                  "is_interactive": false,
+                  "supported_prompts": [
+                    "bbox"
+                  ],
+                  "supported_inputs": [
+                    "bbox_prompt",
+                    "full_image"
+                  ],
+                  "default_input_type": "bbox_prompt",
+                  "supported_geometric_outputs": [],
+                  "output_attribute_types": [],
+                  "supported_text_outputs": [],
+                  "supported_trackers": [],
+                  "text_driven_trackers": [],
+                  "supported_variants": [],
+                  "composition": "atom",
+                  "default_thresholds": {},
+                  "resource_profile": {},
+                  "params": {},
+                  "exemplar_capabilities": null,
+                  "modality": "image"
+                }
+              ],
+              "is_interactive": false,
+              "supported_prompts": [
+                "bbox"
+              ],
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_trackers": [],
+              "text_driven_trackers": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": [],
+              "warnings": [],
+              "modalities": [
+                "image"
+              ]
+            }
+          },
+          "last_checked_at": "<time>",
+          "error_message": null
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "mock-v2-backend",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": 0,
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "stub_zero",
+      "autoflush": true,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "unrelated_flush",
+        "registry_read",
+        "registry_write",
+        "pool_read",
+        "pool_insert",
+        "member_insert",
+        "http:/health",
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_write"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "mock-v2-backend",
+          "url": "<backend>",
+          "source": "manual",
+          "state": "connected",
+          "is_interactive": false,
+          "extra_params": {
+            "seed": {
+              "managed_by": "screenshot-seed",
+              "profile": "screenshots",
+              "revision": "screenshots-2026-08-g"
+            }
+          },
+          "health_meta": {
+            "compute": {
+              "configured_device": "cpu"
+            },
+            "capabilities": {
+              "version": null,
+              "protocol_version": "1",
+              "task_contract_revision": 0,
+              "compat_protocol_versions": [],
+              "model_version": "one",
+              "weights_version": null,
+              "name": "mock-v2-backend",
+              "infra": "unknown",
+              "warmup_endpoint": false,
+              "managed_lifecycle": null,
+              "models": [
+                {
+                  "id": "mock-v2-backend",
+                  "display_name": "mock-v2-backend",
+                  "task": "detect",
+                  "model_family": null,
+                  "infra": "unknown",
+                  "is_interactive": false,
+                  "supported_prompts": [
+                    "bbox"
+                  ],
+                  "supported_inputs": [
+                    "bbox_prompt",
+                    "full_image"
+                  ],
+                  "default_input_type": "bbox_prompt",
+                  "supported_geometric_outputs": [],
+                  "output_attribute_types": [],
+                  "supported_text_outputs": [],
+                  "supported_trackers": [],
+                  "text_driven_trackers": [],
+                  "supported_variants": [],
+                  "composition": "atom",
+                  "default_thresholds": {},
+                  "resource_profile": {},
+                  "params": {},
+                  "exemplar_capabilities": null,
+                  "modality": "image"
+                }
+              ],
+              "is_interactive": false,
+              "supported_prompts": [
+                "bbox"
+              ],
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_trackers": [],
+              "text_driven_trackers": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": [],
+              "warnings": [],
+              "modalities": [
+                "image"
+              ]
+            }
+          },
+          "last_checked_at": "<time>",
+          "error_message": null
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "mock-v2-backend",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": 0,
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "stub_empty_list",
+      "autoflush": false,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "registry_read",
+        "pool_read",
+        "pool_insert",
+        "registry_write",
+        "unrelated_flush",
+        "member_insert",
+        "http:/health",
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_write"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "mock-v2-backend",
+          "url": "<backend>",
+          "source": "manual",
+          "state": "connected",
+          "is_interactive": false,
+          "extra_params": {
+            "seed": {
+              "managed_by": "screenshot-seed",
+              "profile": "screenshots",
+              "revision": "screenshots-2026-08-g"
+            }
+          },
+          "health_meta": {
+            "compute": {
+              "configured_device": "cpu"
+            },
+            "capabilities": {
+              "version": null,
+              "protocol_version": "1",
+              "task_contract_revision": 0,
+              "compat_protocol_versions": [],
+              "model_version": "one",
+              "weights_version": null,
+              "name": "mock-v2-backend",
+              "infra": "unknown",
+              "warmup_endpoint": false,
+              "managed_lifecycle": null,
+              "models": [
+                {
+                  "id": "mock-v2-backend",
+                  "display_name": "mock-v2-backend",
+                  "task": "detect",
+                  "model_family": null,
+                  "infra": "unknown",
+                  "is_interactive": false,
+                  "supported_prompts": [
+                    "bbox"
+                  ],
+                  "supported_inputs": [
+                    "bbox_prompt",
+                    "full_image"
+                  ],
+                  "default_input_type": "bbox_prompt",
+                  "supported_geometric_outputs": [],
+                  "output_attribute_types": [],
+                  "supported_text_outputs": [],
+                  "supported_trackers": [],
+                  "text_driven_trackers": [],
+                  "supported_variants": [],
+                  "composition": "atom",
+                  "default_thresholds": {},
+                  "resource_profile": {},
+                  "params": {},
+                  "exemplar_capabilities": null,
+                  "modality": "image"
+                }
+              ],
+              "is_interactive": false,
+              "supported_prompts": [
+                "bbox"
+              ],
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_trackers": [],
+              "text_driven_trackers": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": [],
+              "warnings": [],
+              "modalities": [
+                "image"
+              ]
+            }
+          },
+          "last_checked_at": "<time>",
+          "error_message": null
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "mock-v2-backend",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": [],
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "stub_empty_list",
+      "autoflush": true,
+      "error": null,
+      "flush_error": null,
+      "trace": [
+        "unrelated_flush",
+        "registry_read",
+        "registry_write",
+        "pool_read",
+        "pool_insert",
+        "member_insert",
+        "http:/health",
+        "http:/setup",
+        "clock",
+        "limits",
+        "registry_write"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "memory": [
+        {
+          "name": "mock-v2-backend",
+          "url": "<backend>",
+          "source": "manual",
+          "state": "connected",
+          "is_interactive": false,
+          "extra_params": {
+            "seed": {
+              "managed_by": "screenshot-seed",
+              "profile": "screenshots",
+              "revision": "screenshots-2026-08-g"
+            }
+          },
+          "health_meta": {
+            "compute": {
+              "configured_device": "cpu"
+            },
+            "capabilities": {
+              "version": null,
+              "protocol_version": "1",
+              "task_contract_revision": 0,
+              "compat_protocol_versions": [],
+              "model_version": "one",
+              "weights_version": null,
+              "name": "mock-v2-backend",
+              "infra": "unknown",
+              "warmup_endpoint": false,
+              "managed_lifecycle": null,
+              "models": [
+                {
+                  "id": "mock-v2-backend",
+                  "display_name": "mock-v2-backend",
+                  "task": "detect",
+                  "model_family": null,
+                  "infra": "unknown",
+                  "is_interactive": false,
+                  "supported_prompts": [
+                    "bbox"
+                  ],
+                  "supported_inputs": [
+                    "bbox_prompt",
+                    "full_image"
+                  ],
+                  "default_input_type": "bbox_prompt",
+                  "supported_geometric_outputs": [],
+                  "output_attribute_types": [],
+                  "supported_text_outputs": [],
+                  "supported_trackers": [],
+                  "text_driven_trackers": [],
+                  "supported_variants": [],
+                  "composition": "atom",
+                  "default_thresholds": {},
+                  "resource_profile": {},
+                  "params": {},
+                  "exemplar_capabilities": null,
+                  "modality": "image"
+                }
+              ],
+              "is_interactive": false,
+              "supported_prompts": [
+                "bbox"
+              ],
+              "supported_inputs": [
+                "bbox_prompt",
+                "full_image"
+              ],
+              "supported_trackers": [],
+              "text_driven_trackers": [],
+              "supported_text_outputs": [],
+              "supported_geometric_outputs": [],
+              "warnings": [],
+              "modalities": [
+                "image"
+              ]
+            }
+          },
+          "last_checked_at": "<time>",
+          "error_message": null
+        }
+      ],
+      "database": {
+        "registry": [
+          {
+            "name": "mock-v2-backend",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": [],
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "stub_bad_extra",
+      "autoflush": false,
+      "error": "TypeError",
+      "flush_error": null,
+      "trace": [
+        "registry_read"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": true,
+      "memory": [],
+      "database": {
+        "registry": [
+          {
+            "name": "mock-v2-backend",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": [
+              1
+            ],
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    },
+    {
+      "kind": "seed",
+      "case": "stub_bad_extra",
+      "autoflush": true,
+      "error": "TypeError",
+      "flush_error": null,
+      "trace": [
+        "unrelated_flush",
+        "registry_read"
+      ],
+      "caller_pending": true,
+      "unrelated_pending": false,
+      "memory": [],
+      "database": {
+        "registry": [
+          {
+            "name": "mock-v2-backend",
+            "url": "<backend>",
+            "source": "manual",
+            "state": "connected",
+            "is_interactive": true,
+            "extra_params": [
+              1
+            ],
+            "health_meta": {
+              "old": "snapshot"
+            },
+            "last_checked_at": null,
+            "error_message": "old error"
+          }
+        ],
+        "pools": [],
+        "pending_user_visible": false
+      }
+    }
+  ]
+}
