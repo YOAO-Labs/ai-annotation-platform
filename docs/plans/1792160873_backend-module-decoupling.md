@@ -3961,3 +3961,34 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   rename behavior before moving its Workspace configuration and Labeling writes
   into a shared transactional command. Guide object I/O, named pipelines,
   remaining cross-owner consumers and other modules remain open.
+
+### Project class rename: actual legacy baseline frozen
+
+- Freeze21 actual HTTP samples and one direct caller rollback probe before moving
+  the rename writer. Immutable SHA is
+  `976b5b1d7c0508c17e7102b0d712db8e8dacdacb0876a2189ca60d3055335ea7`;
+  fixture path is `apps/api/tests/fixtures/project_class_rename_legacy/samples.json`.
+  All31 guarded runtime files match the unchanged pre-extraction source.
+- A specified tool unit limits binding updates; Annotation class updates still
+  span every tool unit, active/inactive/canceled/AI row. Omitted unit selection
+  includes disabled stored bindings. Annotation version and timestamp remain
+  unchanged. Conflicts/missing/blank values and actual authority errors retain
+  their original phases. A valid stale JWT role claim uses current actor facts.
+- Trimmed equal names bypass old-class and unit existence checks, use the current
+  nonexclusive authority path and do not commit. A changed rename commits before
+  Project projection; actual connection failure produces503 with both domains
+  already changed. The direct workflow leaves a dirty Project until a caller
+  flush, preserves the open transaction, hides changes from another connection,
+  and permits rollback of binding and Annotation changes together.
+- Five additional real held-row-lock samples are frozen as `locks.json`, SHA
+  `6e7abbf1a55c48a8eab27e1ec864e9f63a9065c5b9fcd2779b9f05d4a6a763ef`.
+  User UPDATE rejects changed/no-op with409 account_busy; Project UPDATE or a
+  real rename's upgrade against held KEY SHARE returns409 project_busy. Four
+  actual55P03 errors commit nothing. KEY SHARE permits the equal-name no-op.
+  All snapshots remain unchanged, with no fake SQL or lock timing relaxation.
+- Both captures pass on owned0266 databases with exact resource cleanup. This is
+  old behavior evidence, separate from the class-query owner's closed41-case
+  qualification. No rename production implementation has moved yet. Extend the
+  existing Workspace configuration owner with a narrow Labeling write capability;
+  replay the frozen lock cases before qualification. Do not split writes across
+  independent HTTP transactions or add update-project side effects.

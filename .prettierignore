@@ -61,3 +61,4 @@ docs/plans/_spike-results/
 ROADMAP/archive/
 apps/api/tests/fixtures/workspace_access_reads_legacy/*.json
 apps/api/tests/fixtures/labeling_class_usage_reads_legacy/*.json
+apps/api/tests/fixtures/project_class_rename_legacy/*.json

@@ -986,7 +986,9 @@ async def test_capture_pre_extraction_project_class_rename(
                         }
                         assert changed
                         assert (
-                            working_project.tool_bindings["bbox"]["classes"][0]["name"]
+                            same_session_state["tool_bindings"]["bbox"]["classes"][0][
+                                "name"
+                            ]
                             == "Truck"
                         )
                         assert same_session_state["annotation_class_names"] == ["Truck"]
