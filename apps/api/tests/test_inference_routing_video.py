@@ -26,6 +26,7 @@ from aap_protocol_v2.routing import ROUTE_ADMISSION_HEADER
 from aap_protocol_v2.routing_runtime import install_backend_routing_controller
 from app.config import settings
 from app.db.models.video_tracker_job import VideoTrackerJob
+from app.services.ml_backend import MLBackendService
 from app.services.video_tracking.jobs import cancel_tracker_job
 from app.services.video_tracking.runner import run_tracker_job
 from tests.labeling_class_query_helpers import assert_owned_test_database
@@ -69,6 +70,24 @@ async def _routed_video_backend(
     release = [asyncio.Event(), asyncio.Event()]
     calls: list[dict] = []
     app.state.acceptance_calls = calls
+
+    @app.get("/health")
+    async def health():
+        return {
+            "status": "ok",
+            "loaded": False,
+            "capabilities": {"supported_trackers": ["sam2_video"]},
+        }
+
+    @app.get("/setup")
+    async def setup():
+        return {
+            "name": "routing-video-acceptance",
+            "is_interactive": True,
+            "supported_trackers": ["sam2_video"],
+            "supported_prompts": ["text"],
+            "supported_geometric_outputs": ["bbox"],
+        }
 
     @app.post("/predict")
     async def predict(request: Request):
@@ -304,7 +323,7 @@ async def test_committed_video_job_heartbeats_cancels_and_closes_one_route_scope
                     ),
                     {
                         "token": backend_token,
-                        "extra": json.dumps({"max_concurrency": 2}),
+                        "extra": json.dumps({"device": "cpu", "max_concurrency": 2}),
                         "registry": registry_id,
                     },
                 )
@@ -317,6 +336,17 @@ async def test_committed_video_job_heartbeats_cancels_and_closes_one_route_scope
                 expected_sha256=sha256(video).hexdigest(),
             ) as backend:
                 listener = None
+                # Changing transport configuration invalidates prior health.
+                # Re-observe this actual backend through the existing owner.
+                async with media.sessions.begin() as health_db:
+                    health_service = MLBackendService(health_db)
+                    assert await health_service.check_health(registry_id)
+                    resolved = (
+                        await health_service.get_tracker_backend_for_capabilities(
+                            project_id, ["sam2_video"]
+                        )
+                    )
+                    assert resolved is not None and resolved.id == registry_id
                 input_client, input_request, ready = await _prepared(
                     media, tmp_path, actor_id, task_id, job_id
                 )
@@ -374,7 +404,6 @@ async def test_committed_video_job_heartbeats_cancels_and_closes_one_route_scope
                             job_id,
                             publisher=_silent_event,
                             shadow_session_factory=media.sessions,
-                            tracker_input_ready=ready,
                         )
                     )
                     try:

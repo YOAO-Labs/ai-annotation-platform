@@ -4594,3 +4594,33 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   replacement, AMD64, production capacity or primary/production cutover. The next
   work is the real credential-owning Workspace probe and full registry/pool/health/
   routing/GPU/consumer contract closure described above. Go stays experimental.
+
+### Durable routing: API and local runtime checkpoint
+
+- The API now uses independent durable routing transactions for ordinary HTTP,
+  all three pool modes, and pinned video scopes. Public unload/reload and the
+  registered smoke flow obtain persistent management holds. Actual response
+  completion determines settlement; Redis hints never prove quiescence.
+- The runtime observation endpoint preserves unresolved counts after Redis reset
+  or outage and reports unknown when the selected owner fails. Its focused
+  endpoint/pipeline run passes48. The consumer run passes108 named cases; its one
+  response-only fixture failure is corrected and passes a separate targeted run.
+  These repetitions are not summed into a new whole-module qualification count.
+- Fresh noneditable Inference installation passes351, with72 package files
+  matching source. A stale shared-protocol wheel was caught and fixed with source
+  cache keys. The actual installed entrypoint survives stop/restart and replays
+  committed receipts; API selection does not fall back when it stops.
+- Sixteen admission/close commands at concurrency4 first exposed NOWAIT retry
+  exhaustion. Bounded250ms pool lock queues now preserve caller FK compatibility
+  and lock settings, with nine process/Native/pending-Prediction cases passing.
+  The sample measures control commands only, not inference or production capacity.
+- One real video case uses versioned source bytes, actual Media processes and
+  HTTP backend requests, authenticated binding, a pinned scope across windows,
+  durable heartbeat and cooperative cancellation. The backend is a deterministic
+  CPU fixture. Thirteen clean patch-equivalent child worktrees are removed;
+  their source branches and all failed acceptance receipts remain available.
+- This is a checkpoint, not full Inference or ten-module/seven-gate completion.
+  GPU eviction control and proven-not-sent settlement, durable video execution
+  handoff/window checkpoints, restore rebind, complete control/health/stats
+  consumers, current restricted images and cross-language qualification remain.
+  Primary/production cutover is not performed; Go remains a separate experiment.
