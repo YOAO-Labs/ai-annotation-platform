@@ -1,0 +1,39 @@
+{
+  "$defs": {
+    "RenameProjectAnnotationClassArguments": {
+      "additionalProperties": false,
+      "properties": {
+        "p_project": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "p_old": {
+          "type": "string"
+        },
+        "p_new": {
+          "type": "string"
+        }
+      },
+      "required": ["p_project", "p_old", "p_new"],
+      "type": "object"
+    },
+    "RenameProjectAnnotationClassResult": {
+      "description": "PostgreSQL void return",
+      "type": "null"
+    }
+  },
+  "$id": "aap-labeling-class-rename-effect-native/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/RenameProjectAnnotationClassArguments"
+    },
+    {
+      "$ref": "#/$defs/RenameProjectAnnotationClassResult"
+    }
+  ],
+  "$comment": "One fixed Labeling write capability. It rejects NULL arguments with SQLSTATE 22023 and updates class_name only for the specified project and prior name.",
+  "x-postgresql-functions": ["aap_labeling_v1.rename_project_annotation_class(uuid,text,text)"],
+  "x-postgresql-argument-order": ["p_project uuid", "p_old text", "p_new text"],
+  "x-postgresql-return-type": "void"
+}

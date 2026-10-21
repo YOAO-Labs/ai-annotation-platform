@@ -214,6 +214,7 @@ SQL_ARTIFACTS = (
     "0264_workspace_access_queries.sql",
     "0265_workspace_manager_queries.sql",
     "0266_labeling_class_query.sql",
+    "0267_labeling_class_rename.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -292,8 +293,10 @@ SCHEMA_ARTIFACTS = (
     "0264_workspace_access_queries.schema.json",
     "0265_workspace_manager_queries.schema.json",
     "0266_labeling_class_query.schema.json",
+    "0267_labeling_class_rename.schema.json",
 )
 TEST_FILES = (
+    "tests/test_labeling_class_rename_effect.py",
     "tests/test_labeling_class_query_native.py",
     "tests/test_workspace_project_access_queries_native.py",
     "tests/test_workspace_project_access_migration.py",
@@ -2584,8 +2587,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0266"]:
-            raise RuntimeError("module-data acceptance requires migration head 0266")
+        if heads != ["0267"]:
+            raise RuntimeError("module-data acceptance requires migration head 0267")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(

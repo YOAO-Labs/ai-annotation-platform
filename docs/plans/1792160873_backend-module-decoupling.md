@@ -4017,3 +4017,34 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   cleanup and verifier resource/credential destruction report no errors. This is
   separate legacy evidence, not an independent guide owner. Production guide code
   remains unchanged while the class-rename command boundary is designed.
+
+### Project class rename: implementation boundary agreed
+
+- Extend the existing Workspace Configuration owner with a dedicated
+  `rename_project_class` branch, preserving the six old operation/reply shapes.
+  Do not use generic begin/finish or update_project: they add state/receipt writes
+  and unrelated validation. Stateless rename must disable the API selector's
+  automatic two-attempt HTTP retry; other operations keep receipt-backed retries.
+- Preserve account/project/member shares and the changed-only Project UPDATE
+  upgrade. Annotation mutation precedes Project metadata SQL in one caller
+  transaction. Pure binding policy and Native0267 Labeling effect are prepared;
+  public callers have not switched. Workspace receives typed EXECUTE rather than
+  raw Annotation UPDATE; Labeling's extra privilege is class_name UPDATE only.
+- In independent NoOp mode, return a fully bound Project Query reply generated
+  inside the Configuration transaction's lock span. A callback reuses the
+  already-assembled query manager/profiles (HTTP owner) or API query selector
+  (direct DSN). Missing capabilities fail closed; the gateway skips its second
+  unlocked query. Default borrowed NoOp keeps the caller's existing projection
+  and transaction ownership; changed operations retain commit-before-projection.
+  NoOp rolls back only an independent owner's own transaction.
+- Scope, data shape and remaining gates are in
+  [ADR-0143](../adr/0143-workspace-project-class-rename-owner.md). Native268,
+  Configuration/API integration, removal of the old writer, three bindings,
+  revocation/lock-duration checks and current artifact/recovery gates remain open.
+- Primitive local validation at head 0267: seven pure binding-policy source cases,
+  four actual Labeling effect/ACL/transaction/null-argument cases, and eleven old
+  Identity/Workspace/Labeling current-head restore cases passed. A PostgreSQL
+  internal `"char"` catalog comparison was corrected in the new test only, then
+  all four new cases were rerun successfully; failed-attempt evidence is retained.
+  Both disposable acceptance runs report empty cleanup errors. The API route and
+  the previously qualified head-0266 images have not switched to the new command.

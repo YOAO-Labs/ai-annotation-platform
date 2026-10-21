@@ -698,6 +698,7 @@ GRANT SELECT (created_at, reviewed_at, updated_at, submitted_at)
 GRANT SELECT (created_at, parent_prediction_id, is_active, was_cancelled)
     ON public.annotations TO :"labeling_owner";
 GRANT SELECT (class_name, attributes) ON public.annotations TO :"labeling_owner";
+GRANT UPDATE (class_name) ON public.annotations TO :"labeling_owner";
 GRANT SELECT (id, status, annotator_id, reviewer_id)
     ON public.task_batches TO :"labeling_owner";
 GRANT UPDATE (
@@ -956,6 +957,7 @@ GRANT EXECUTE ON FUNCTION
 GRANT EXECUTE ON FUNCTION
     aap_assets_v1.workspace_configuration_datasets(uuid),
     aap_labeling_v1.workspace_configuration_video_facts(uuid),
+    aap_labeling_v1.rename_project_annotation_class(uuid, text, text),
     aap_inference_v1.enable_workspace_project_backend(uuid, uuid)
     TO :"workspace_owner";
 GRANT EXECUTE ON FUNCTION
@@ -1947,6 +1949,8 @@ ALTER FUNCTION aap_labeling_v1.detach_deleted_dataset_attribution(uuid)
 ALTER FUNCTION aap_labeling_v1.project_dataset_task_counts(uuid)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.workspace_configuration_video_facts(uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.rename_project_annotation_class(uuid, text, text)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.workspace_configuration_task_count(uuid)
     OWNER TO :"labeling_owner";

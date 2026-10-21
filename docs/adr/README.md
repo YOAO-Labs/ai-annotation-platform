@@ -188,3 +188,4 @@
 - [0129 — Identity 批量 UserBrief 读取（限定本地资格）](0129-identity-batched-user-brief-reads.md)
 - [0130 — Identity 认证后的主体上下文读取（限定本地资格）](0130-identity-post-admission-actor-context.md)
 - [0142 — Labeling Class Usage Query Owner](0142-labeling-class-usage-query-owner.md)
+- [0143 — Workspace Project Class Rename Owner](0143-workspace-project-class-rename-owner.md)
