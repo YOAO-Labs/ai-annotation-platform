@@ -1,0 +1,2261 @@
+{
+  "capture_kind": "actual-pre-extraction-pool-capability-policy",
+  "source_commit": "653b4e142f683c1441874d3e356f334ef60f3da6",
+  "source_path": "apps/api/app/services/ml_routing/capability.py",
+  "source_sha256": "5672e22f2e90a038e5d8719dd33b9d6a22b4257d049fe5acb0896e8497f92271",
+  "module_ast_without_header_sha256": "587f9c3a38b75af5fb464fa625ff505a564009a191b0980fd53e16f8befc335e",
+  "cases": [
+    {
+      "name": "null",
+      "input": null,
+      "canonical": {
+        "version": null,
+        "protocol_version": "1",
+        "compat_protocol_versions": [],
+        "model_version": null,
+        "weights_version": null,
+        "models": [],
+        "model_ids": [],
+        "task": null,
+        "modality": null,
+        "infra": null,
+        "supported_prompts": [],
+        "supported_inputs": [],
+        "supported_outputs": [],
+        "supported_trackers": [],
+        "parameter_schema": {},
+        "variant_axes": [],
+        "stateful": false,
+        "batchable": false,
+        "warmup": false
+      },
+      "fingerprint": "756697f002f24569ec9ad7965fb06489b1bccce7906a997500987ca8315c078b"
+    },
+    {
+      "name": "empty",
+      "input": {},
+      "canonical": {
+        "version": null,
+        "protocol_version": "1",
+        "compat_protocol_versions": [],
+        "model_version": null,
+        "weights_version": null,
+        "models": [],
+        "model_ids": [],
+        "task": null,
+        "modality": null,
+        "infra": null,
+        "supported_prompts": [],
+        "supported_inputs": [],
+        "supported_outputs": [],
+        "supported_trackers": [],
+        "parameter_schema": {},
+        "variant_axes": [],
+        "stateful": false,
+        "batchable": false,
+        "warmup": false
+      },
+      "fingerprint": "756697f002f24569ec9ad7965fb06489b1bccce7906a997500987ca8315c078b"
+    },
+    {
+      "name": "wrapped_empty",
+      "input": {
+        "capabilities": {}
+      },
+      "canonical": {
+        "version": null,
+        "protocol_version": "1",
+        "compat_protocol_versions": [],
+        "model_version": null,
+        "weights_version": null,
+        "models": [],
+        "model_ids": [],
+        "task": null,
+        "modality": null,
+        "infra": null,
+        "supported_prompts": [],
+        "supported_inputs": [],
+        "supported_outputs": [],
+        "supported_trackers": [],
+        "parameter_schema": {},
+        "variant_axes": [],
+        "stateful": false,
+        "batchable": false,
+        "warmup": false
+      },
+      "fingerprint": "756697f002f24569ec9ad7965fb06489b1bccce7906a997500987ca8315c078b"
+    },
+    {
+      "name": "explicit_null_wrapper",
+      "input": {
+        "capabilities": null,
+        "model_ids": [
+          "ignored"
+        ]
+      },
+      "canonical": {
+        "version": null,
+        "protocol_version": "1",
+        "compat_protocol_versions": [],
+        "model_version": null,
+        "weights_version": null,
+        "models": [],
+        "model_ids": [],
+        "task": null,
+        "modality": null,
+        "infra": null,
+        "supported_prompts": [],
+        "supported_inputs": [],
+        "supported_outputs": [],
+        "supported_trackers": [],
+        "parameter_schema": {},
+        "variant_axes": [],
+        "stateful": false,
+        "batchable": false,
+        "warmup": false
+      },
+      "fingerprint": "756697f002f24569ec9ad7965fb06489b1bccce7906a997500987ca8315c078b"
+    },
+    {
+      "name": "scalar_wrapper",
+      "input": {
+        "capabilities": "invalid",
+        "model_ids": [
+          "ignored"
+        ]
+      },
+      "canonical": {
+        "version": null,
+        "protocol_version": "1",
+        "compat_protocol_versions": [],
+        "model_version": null,
+        "weights_version": null,
+        "models": [],
+        "model_ids": [],
+        "task": null,
+        "modality": null,
+        "infra": null,
+        "supported_prompts": [],
+        "supported_inputs": [],
+        "supported_outputs": [],
+        "supported_trackers": [],
+        "parameter_schema": {},
+        "variant_axes": [],
+        "stateful": false,
+        "batchable": false,
+        "warmup": false
+      },
+      "fingerprint": "756697f002f24569ec9ad7965fb06489b1bccce7906a997500987ca8315c078b"
+    },
+    {
+      "name": "explicit_defaults",
+      "input": {
+        "version": null,
+        "protocol_version": "1",
+        "models": [],
+        "stateful": false,
+        "batchable": false,
+        "warmup": false
+      },
+      "canonical": {
+        "version": null,
+        "protocol_version": "1",
+        "compat_protocol_versions": [],
+        "model_version": null,
+        "weights_version": null,
+        "models": [],
+        "model_ids": [],
+        "task": null,
+        "modality": null,
+        "infra": null,
+        "supported_prompts": [],
+        "supported_inputs": [],
+        "supported_outputs": [],
+        "supported_trackers": [],
+        "parameter_schema": {},
+        "variant_axes": [],
+        "stateful": false,
+        "batchable": false,
+        "warmup": false
+      },
+      "fingerprint": "756697f002f24569ec9ad7965fb06489b1bccce7906a997500987ca8315c078b"
+    },
+    {
+      "name": "flat_legacy",
+      "input": {
+        "model_ids": [
+          "sam",
+          "yolo",
+          "sam"
+        ],
+        "supported_prompts": [
+          "text",
+          "box",
+          "text"
+        ],
+        "supported_inputs": [
+          "video",
+          "image"
+        ],
+        "supported_outputs": [
+          "mask",
+          "box"
+        ],
+        "supported_trackers": [
+          "b",
+          "a"
+        ],
+        "task": "segment",
+        "infra": "gpu",
+        "modality": "image",
+        "parameter_schema": {
+          "mode": {
+            "enum": [
+              "fast",
+              "best"
+            ],
+            "type": "string",
+            "help_text": "display"
+          }
+        },
+        "variant_axes": [
+          {
+            "key": "precision",
+            "values": [
+              "fp16",
+              "fp32",
+              "fp16"
+            ],
+            "default": "fp16"
+          }
+        ]
+      },
+      "canonical": {
+        "version": null,
+        "protocol_version": "1",
+        "compat_protocol_versions": [],
+        "model_version": null,
+        "weights_version": null,
+        "models": [],
+        "model_ids": [
+          "sam",
+          "yolo"
+        ],
+        "task": "segment",
+        "modality": "image",
+        "infra": "gpu",
+        "supported_prompts": [
+          "box",
+          "text"
+        ],
+        "supported_inputs": [
+          "image",
+          "video"
+        ],
+        "supported_outputs": [
+          "box",
+          "mask"
+        ],
+        "supported_trackers": [
+          "a",
+          "b"
+        ],
+        "parameter_schema": {
+          "mode": {
+            "enum": [
+              "best",
+              "fast"
+            ],
+            "type": "string"
+          }
+        },
+        "variant_axes": [
+          {
+            "key": "precision",
+            "values": [
+              "fp16",
+              "fp32"
+            ],
+            "default": "fp16"
+          }
+        ],
+        "stateful": false,
+        "batchable": false,
+        "warmup": false
+      },
+      "fingerprint": "61f2a7b55c721662b2f62c81bc7f35f547a6b71e5cd2852561075e41de5cd7a2"
+    },
+    {
+      "name": "wrapped_flat_legacy",
+      "input": {
+        "capabilities": {
+          "model_ids": [
+            "sam",
+            "yolo",
+            "sam"
+          ],
+          "supported_prompts": [
+            "text",
+            "box",
+            "text"
+          ],
+          "supported_inputs": [
+            "video",
+            "image"
+          ],
+          "supported_outputs": [
+            "mask",
+            "box"
+          ],
+          "supported_trackers": [
+            "b",
+            "a"
+          ],
+          "task": "segment",
+          "infra": "gpu",
+          "modality": "image",
+          "parameter_schema": {
+            "mode": {
+              "enum": [
+                "fast",
+                "best"
+              ],
+              "type": "string",
+              "help_text": "display"
+            }
+          },
+          "variant_axes": [
+            {
+              "key": "precision",
+              "values": [
+                "fp16",
+                "fp32",
+                "fp16"
+              ],
+              "default": "fp16"
+            }
+          ]
+        }
+      },
+      "canonical": {
+        "version": null,
+        "protocol_version": "1",
+        "compat_protocol_versions": [],
+        "model_version": null,
+        "weights_version": null,
+        "models": [],
+        "model_ids": [
+          "sam",
+          "yolo"
+        ],
+        "task": "segment",
+        "modality": "image",
+        "infra": "gpu",
+        "supported_prompts": [
+          "box",
+          "text"
+        ],
+        "supported_inputs": [
+          "image",
+          "video"
+        ],
+        "supported_outputs": [
+          "box",
+          "mask"
+        ],
+        "supported_trackers": [
+          "a",
+          "b"
+        ],
+        "parameter_schema": {
+          "mode": {
+            "enum": [
+              "best",
+              "fast"
+            ],
+            "type": "string"
+          }
+        },
+        "variant_axes": [
+          {
+            "key": "precision",
+            "values": [
+              "fp16",
+              "fp32"
+            ],
+            "default": "fp16"
+          }
+        ],
+        "stateful": false,
+        "batchable": false,
+        "warmup": false
+      },
+      "fingerprint": "61f2a7b55c721662b2f62c81bc7f35f547a6b71e5cd2852561075e41de5cd7a2"
+    },
+    {
+      "name": "scalar_list_coercion",
+      "input": {
+        "model_ids": "sam",
+        "supported_prompts": "box",
+        "supported_inputs": null,
+        "compat_protocol_versions": "2",
+        "stateful": 1,
+        "warmup": "yes"
+      },
+      "canonical": {
+        "version": null,
+        "protocol_version": "1",
+        "compat_protocol_versions": [
+          "2"
+        ],
+        "model_version": null,
+        "weights_version": null,
+        "models": [],
+        "model_ids": [
+          "sam"
+        ],
+        "task": null,
+        "modality": null,
+        "infra": null,
+        "supported_prompts": [
+          "box"
+        ],
+        "supported_inputs": [],
+        "supported_outputs": [],
+        "supported_trackers": [],
+        "parameter_schema": {},
+        "variant_axes": [],
+        "stateful": true,
+        "batchable": false,
+        "warmup": true
+      },
+      "fingerprint": "e9392fde77caeb78b9b236f2fb836f788bad33de54203cb7c7293a864ac15be3"
+    },
+    {
+      "name": "variant_axis_legacy_odd_entries",
+      "input": {
+        "variant_axes": [
+          null,
+          4,
+          {
+            "key": "x",
+            "values": [
+              "b",
+              "a",
+              "b"
+            ]
+          },
+          {
+            "key": null,
+            "values": "scalar"
+          }
+        ]
+      },
+      "canonical": {
+        "version": null,
+        "protocol_version": "1",
+        "compat_protocol_versions": [],
+        "model_version": null,
+        "weights_version": null,
+        "models": [],
+        "model_ids": [],
+        "task": null,
+        "modality": null,
+        "infra": null,
+        "supported_prompts": [],
+        "supported_inputs": [],
+        "supported_outputs": [],
+        "supported_trackers": [],
+        "parameter_schema": {},
+        "variant_axes": [
+          {
+            "key": "x",
+            "values": [
+              "a",
+              "b"
+            ],
+            "default": null
+          },
+          {
+            "key": null,
+            "values": [
+              "scalar"
+            ],
+            "default": null
+          }
+        ],
+        "stateful": false,
+        "batchable": false,
+        "warmup": false
+      },
+      "fingerprint": "249722746b320e54213b8ecdd4f62097853717554076f65144bc5ed63c1a5270"
+    },
+    {
+      "name": "modern_models",
+      "input": {
+        "version": "protocol-build",
+        "protocol_version": "2",
+        "compat_protocol_versions": [
+          "2",
+          "1",
+          "2"
+        ],
+        "model_version": "weights-A",
+        "weights_version": "sha256:fixture",
+        "models": [
+          {
+            "id": "sam-中文",
+            "task": "segment",
+            "model_family": "sam",
+            "infra": "gpu",
+            "modality": "image",
+            "is_interactive": true,
+            "supported_prompts": [
+              "box",
+              "point",
+              "box"
+            ],
+            "supported_inputs": [
+              "image",
+              "image"
+            ],
+            "supported_geometric_outputs": [
+              "region"
+            ],
+            "supported_trackers": [
+              "sam_video"
+            ],
+            "output_attribute_types": [
+              "color"
+            ],
+            "params": {
+              "threshold": {
+                "type": "number",
+                "minimum": 0,
+                "default": 0.2,
+                "label": "标签"
+              }
+            },
+            "supported_variants": [
+              {
+                "key": "quality",
+                "default": "fast",
+                "variants": [
+                  {
+                    "value": "best",
+                    "title": "Best"
+                  },
+                  {
+                    "value": "fast",
+                    "label": "Fast"
+                  }
+                ]
+              }
+            ],
+            "variant_combinations": [
+              [
+                "best",
+                "dark"
+              ],
+              [
+                "fast",
+                "light"
+              ],
+              [
+                "best",
+                "dark"
+              ]
+            ],
+            "default_variants": {
+              "quality": "fast"
+            },
+            "default_thresholds": {
+              "box": 0.2
+            },
+            "resource_profile": {
+              "batchable": true,
+              "vram_mb": 4096
+            },
+            "output_attribute_schema": [
+              {
+                "name": "color",
+                "type": "enum",
+                "values": [
+                  "red",
+                  "blue"
+                ],
+                "label": "Color"
+              }
+            ],
+            "exemplar_capabilities": {
+              "min_count": 1,
+              "max_count": 3,
+              "description": "display"
+            }
+          },
+          {
+            "id": "detector",
+            "task": "detect",
+            "modality": "image",
+            "infra": "cpu",
+            "supported_inputs": [
+              "image"
+            ]
+          }
+        ],
+        "parameter_schema": {
+          "query": {
+            "type": "string",
+            "required": false,
+            "title": "Query"
+          }
+        },
+        "variant_axes": [
+          {
+            "key": "theme",
+            "values": [
+              "light",
+              "dark",
+              "light"
+            ],
+            "default": "dark"
+          },
+          {
+            "key": "quality",
+            "values": [
+              "fast",
+              "best"
+            ],
+            "default": "fast"
+          }
+        ],
+        "stateful": true,
+        "batchable": false,
+        "warmup": true
+      },
+      "canonical": {
+        "version": "protocol-build",
+        "protocol_version": "2",
+        "compat_protocol_versions": [
+          "1",
+          "2"
+        ],
+        "model_version": "weights-A",
+        "weights_version": "sha256:fixture",
+        "models": [
+          {
+            "id": "detector",
+            "task": "detect",
+            "model_family": null,
+            "infra": "cpu",
+            "modality": "image",
+            "is_interactive": null,
+            "default_input_type": null,
+            "variants_shared_across_tasks": null,
+            "composition": null,
+            "supported_inputs": [
+              "image"
+            ],
+            "supported_prompts": [],
+            "supported_trackers": [],
+            "supported_geometric_outputs": [],
+            "text_driven_trackers": [],
+            "supported_text_outputs": [],
+            "output_attribute_types": [],
+            "output_attribute_schema": [],
+            "supported_variants": [],
+            "variant_combinations": [],
+            "default_variants": {},
+            "default_thresholds": {},
+            "params": {},
+            "batchable": false,
+            "exemplar_capabilities": {}
+          },
+          {
+            "id": "sam-中文",
+            "task": "segment",
+            "model_family": "sam",
+            "infra": "gpu",
+            "modality": "image",
+            "is_interactive": true,
+            "default_input_type": null,
+            "variants_shared_across_tasks": null,
+            "composition": null,
+            "supported_inputs": [
+              "image"
+            ],
+            "supported_prompts": [
+              "box",
+              "point"
+            ],
+            "supported_trackers": [
+              "sam_video"
+            ],
+            "supported_geometric_outputs": [
+              "region"
+            ],
+            "text_driven_trackers": [],
+            "supported_text_outputs": [],
+            "output_attribute_types": [
+              "color"
+            ],
+            "output_attribute_schema": [
+              {
+                "name": "color",
+                "type": "enum",
+                "values": [
+                  "blue",
+                  "red"
+                ]
+              }
+            ],
+            "supported_variants": [
+              {
+                "key": "quality",
+                "default": "fast",
+                "variants": [
+                  {
+                    "value": "best"
+                  },
+                  {
+                    "value": "fast"
+                  }
+                ]
+              }
+            ],
+            "variant_combinations": [
+              [
+                "best",
+                "dark"
+              ],
+              [
+                "fast",
+                "light"
+              ]
+            ],
+            "default_variants": {
+              "quality": "fast"
+            },
+            "default_thresholds": {
+              "box": 0.2
+            },
+            "params": {
+              "threshold": {
+                "default": 0.2,
+                "minimum": 0,
+                "type": "number"
+              }
+            },
+            "batchable": true,
+            "exemplar_capabilities": {
+              "max_count": 3,
+              "min_count": 1
+            }
+          }
+        ],
+        "model_ids": [],
+        "task": null,
+        "modality": null,
+        "infra": null,
+        "supported_prompts": [],
+        "supported_inputs": [],
+        "supported_outputs": [],
+        "supported_trackers": [],
+        "parameter_schema": {
+          "query": {
+            "required": false,
+            "type": "string"
+          }
+        },
+        "variant_axes": [
+          {
+            "key": "quality",
+            "values": [
+              "best",
+              "fast"
+            ],
+            "default": "fast"
+          },
+          {
+            "key": "theme",
+            "values": [
+              "dark",
+              "light"
+            ],
+            "default": "dark"
+          }
+        ],
+        "stateful": true,
+        "batchable": false,
+        "warmup": true
+      },
+      "fingerprint": "12c8240824a2b71465d24a20b34987ec95a041dcef59aa758a7ccf1a05fd7a48"
+    },
+    {
+      "name": "modern_reordered",
+      "input": {
+        "version": "protocol-build",
+        "protocol_version": "2",
+        "compat_protocol_versions": [
+          "2",
+          "1",
+          "2"
+        ],
+        "model_version": "weights-A",
+        "weights_version": "sha256:fixture",
+        "models": [
+          {
+            "id": "detector",
+            "task": "detect",
+            "modality": "image",
+            "infra": "cpu",
+            "supported_inputs": [
+              "image"
+            ]
+          },
+          {
+            "id": "sam-中文",
+            "task": "segment",
+            "model_family": "sam",
+            "infra": "gpu",
+            "modality": "image",
+            "is_interactive": true,
+            "supported_prompts": [
+              "box",
+              "point",
+              "box"
+            ],
+            "supported_inputs": [
+              "image",
+              "image"
+            ],
+            "supported_geometric_outputs": [
+              "region"
+            ],
+            "supported_trackers": [
+              "sam_video"
+            ],
+            "output_attribute_types": [
+              "color"
+            ],
+            "params": {
+              "threshold": {
+                "type": "number",
+                "minimum": 0,
+                "default": 0.2,
+                "label": "标签"
+              }
+            },
+            "supported_variants": [
+              {
+                "key": "quality",
+                "default": "fast",
+                "variants": [
+                  {
+                    "value": "best",
+                    "title": "Best"
+                  },
+                  {
+                    "value": "fast",
+                    "label": "Fast"
+                  }
+                ]
+              }
+            ],
+            "variant_combinations": [
+              [
+                "best",
+                "dark"
+              ],
+              [
+                "fast",
+                "light"
+              ],
+              [
+                "best",
+                "dark"
+              ]
+            ],
+            "default_variants": {
+              "quality": "fast"
+            },
+            "default_thresholds": {
+              "box": 0.2
+            },
+            "resource_profile": {
+              "batchable": true,
+              "vram_mb": 4096
+            },
+            "output_attribute_schema": [
+              {
+                "name": "color",
+                "type": "enum",
+                "values": [
+                  "red",
+                  "blue"
+                ],
+                "label": "Color"
+              }
+            ],
+            "exemplar_capabilities": {
+              "min_count": 1,
+              "max_count": 3,
+              "description": "display"
+            }
+          }
+        ],
+        "parameter_schema": {
+          "query": {
+            "type": "string",
+            "required": false,
+            "title": "Query"
+          }
+        },
+        "variant_axes": [
+          {
+            "key": "quality",
+            "values": [
+              "fast",
+              "best"
+            ],
+            "default": "fast"
+          },
+          {
+            "key": "theme",
+            "values": [
+              "light",
+              "dark",
+              "light"
+            ],
+            "default": "dark"
+          }
+        ],
+        "stateful": true,
+        "batchable": false,
+        "warmup": true
+      },
+      "canonical": {
+        "version": "protocol-build",
+        "protocol_version": "2",
+        "compat_protocol_versions": [
+          "1",
+          "2"
+        ],
+        "model_version": "weights-A",
+        "weights_version": "sha256:fixture",
+        "models": [
+          {
+            "id": "detector",
+            "task": "detect",
+            "model_family": null,
+            "infra": "cpu",
+            "modality": "image",
+            "is_interactive": null,
+            "default_input_type": null,
+            "variants_shared_across_tasks": null,
+            "composition": null,
+            "supported_inputs": [
+              "image"
+            ],
+            "supported_prompts": [],
+            "supported_trackers": [],
+            "supported_geometric_outputs": [],
+            "text_driven_trackers": [],
+            "supported_text_outputs": [],
+            "output_attribute_types": [],
+            "output_attribute_schema": [],
+            "supported_variants": [],
+            "variant_combinations": [],
+            "default_variants": {},
+            "default_thresholds": {},
+            "params": {},
+            "batchable": false,
+            "exemplar_capabilities": {}
+          },
+          {
+            "id": "sam-中文",
+            "task": "segment",
+            "model_family": "sam",
+            "infra": "gpu",
+            "modality": "image",
+            "is_interactive": true,
+            "default_input_type": null,
+            "variants_shared_across_tasks": null,
+            "composition": null,
+            "supported_inputs": [
+              "image"
+            ],
+            "supported_prompts": [
+              "box",
+              "point"
+            ],
+            "supported_trackers": [
+              "sam_video"
+            ],
+            "supported_geometric_outputs": [
+              "region"
+            ],
+            "text_driven_trackers": [],
+            "supported_text_outputs": [],
+            "output_attribute_types": [
+              "color"
+            ],
+            "output_attribute_schema": [
+              {
+                "name": "color",
+                "type": "enum",
+                "values": [
+                  "blue",
+                  "red"
+                ]
+              }
+            ],
+            "supported_variants": [
+              {
+                "key": "quality",
+                "default": "fast",
+                "variants": [
+                  {
+                    "value": "best"
+                  },
+                  {
+                    "value": "fast"
+                  }
+                ]
+              }
+            ],
+            "variant_combinations": [
+              [
+                "best",
+                "dark"
+              ],
+              [
+                "fast",
+                "light"
+              ]
+            ],
+            "default_variants": {
+              "quality": "fast"
+            },
+            "default_thresholds": {
+              "box": 0.2
+            },
+            "params": {
+              "threshold": {
+                "default": 0.2,
+                "minimum": 0,
+                "type": "number"
+              }
+            },
+            "batchable": true,
+            "exemplar_capabilities": {
+              "max_count": 3,
+              "min_count": 1
+            }
+          }
+        ],
+        "model_ids": [],
+        "task": null,
+        "modality": null,
+        "infra": null,
+        "supported_prompts": [],
+        "supported_inputs": [],
+        "supported_outputs": [],
+        "supported_trackers": [],
+        "parameter_schema": {
+          "query": {
+            "required": false,
+            "type": "string"
+          }
+        },
+        "variant_axes": [
+          {
+            "key": "quality",
+            "values": [
+              "best",
+              "fast"
+            ],
+            "default": "fast"
+          },
+          {
+            "key": "theme",
+            "values": [
+              "dark",
+              "light"
+            ],
+            "default": "dark"
+          }
+        ],
+        "stateful": true,
+        "batchable": false,
+        "warmup": true
+      },
+      "fingerprint": "12c8240824a2b71465d24a20b34987ec95a041dcef59aa758a7ccf1a05fd7a48"
+    },
+    {
+      "name": "modern_display_runtime_changes",
+      "input": {
+        "version": "protocol-build",
+        "protocol_version": "2",
+        "compat_protocol_versions": [
+          "2",
+          "1",
+          "2"
+        ],
+        "model_version": "weights-A",
+        "weights_version": "sha256:fixture",
+        "models": [
+          {
+            "id": "sam-中文",
+            "task": "segment",
+            "model_family": "sam",
+            "infra": "gpu",
+            "modality": "image",
+            "is_interactive": true,
+            "supported_prompts": [
+              "box",
+              "point",
+              "box"
+            ],
+            "supported_inputs": [
+              "image",
+              "image"
+            ],
+            "supported_geometric_outputs": [
+              "region"
+            ],
+            "supported_trackers": [
+              "sam_video"
+            ],
+            "output_attribute_types": [
+              "color"
+            ],
+            "params": {
+              "threshold": {
+                "type": "number",
+                "minimum": 0,
+                "default": 0.2,
+                "label": "Renamed display label"
+              }
+            },
+            "supported_variants": [
+              {
+                "key": "quality",
+                "default": "fast",
+                "variants": [
+                  {
+                    "value": "best",
+                    "title": "Another title"
+                  },
+                  {
+                    "value": "fast",
+                    "label": "Fast"
+                  }
+                ]
+              }
+            ],
+            "variant_combinations": [
+              [
+                "best",
+                "dark"
+              ],
+              [
+                "fast",
+                "light"
+              ],
+              [
+                "best",
+                "dark"
+              ]
+            ],
+            "default_variants": {
+              "quality": "fast"
+            },
+            "default_thresholds": {
+              "box": 0.2
+            },
+            "resource_profile": {
+              "batchable": true,
+              "vram_mb": 4096
+            },
+            "output_attribute_schema": [
+              {
+                "name": "color",
+                "type": "enum",
+                "values": [
+                  "red",
+                  "blue"
+                ],
+                "label": "Color"
+              }
+            ],
+            "exemplar_capabilities": {
+              "min_count": 1,
+              "max_count": 3,
+              "description": "display"
+            }
+          },
+          {
+            "id": "detector",
+            "task": "detect",
+            "modality": "image",
+            "infra": "cpu",
+            "supported_inputs": [
+              "image"
+            ]
+          }
+        ],
+        "parameter_schema": {
+          "query": {
+            "type": "string",
+            "required": false,
+            "title": "Query"
+          }
+        },
+        "variant_axes": [
+          {
+            "key": "theme",
+            "values": [
+              "light",
+              "dark",
+              "light"
+            ],
+            "default": "dark"
+          },
+          {
+            "key": "quality",
+            "values": [
+              "fast",
+              "best"
+            ],
+            "default": "fast"
+          }
+        ],
+        "stateful": true,
+        "batchable": false,
+        "warmup": true,
+        "url": "http://private.invalid",
+        "name": "Replica B",
+        "auth_token": "fixture-token",
+        "residency": {
+          "generation": "999"
+        },
+        "gpu_resource_id": "host/GPU-other",
+        "vram_budget_mb": 999
+      },
+      "canonical": {
+        "version": "protocol-build",
+        "protocol_version": "2",
+        "compat_protocol_versions": [
+          "1",
+          "2"
+        ],
+        "model_version": "weights-A",
+        "weights_version": "sha256:fixture",
+        "models": [
+          {
+            "id": "detector",
+            "task": "detect",
+            "model_family": null,
+            "infra": "cpu",
+            "modality": "image",
+            "is_interactive": null,
+            "default_input_type": null,
+            "variants_shared_across_tasks": null,
+            "composition": null,
+            "supported_inputs": [
+              "image"
+            ],
+            "supported_prompts": [],
+            "supported_trackers": [],
+            "supported_geometric_outputs": [],
+            "text_driven_trackers": [],
+            "supported_text_outputs": [],
+            "output_attribute_types": [],
+            "output_attribute_schema": [],
+            "supported_variants": [],
+            "variant_combinations": [],
+            "default_variants": {},
+            "default_thresholds": {},
+            "params": {},
+            "batchable": false,
+            "exemplar_capabilities": {}
+          },
+          {
+            "id": "sam-中文",
+            "task": "segment",
+            "model_family": "sam",
+            "infra": "gpu",
+            "modality": "image",
+            "is_interactive": true,
+            "default_input_type": null,
+            "variants_shared_across_tasks": null,
+            "composition": null,
+            "supported_inputs": [
+              "image"
+            ],
+            "supported_prompts": [
+              "box",
+              "point"
+            ],
+            "supported_trackers": [
+              "sam_video"
+            ],
+            "supported_geometric_outputs": [
+              "region"
+            ],
+            "text_driven_trackers": [],
+            "supported_text_outputs": [],
+            "output_attribute_types": [
+              "color"
+            ],
+            "output_attribute_schema": [
+              {
+                "name": "color",
+                "type": "enum",
+                "values": [
+                  "blue",
+                  "red"
+                ]
+              }
+            ],
+            "supported_variants": [
+              {
+                "key": "quality",
+                "default": "fast",
+                "variants": [
+                  {
+                    "value": "best"
+                  },
+                  {
+                    "value": "fast"
+                  }
+                ]
+              }
+            ],
+            "variant_combinations": [
+              [
+                "best",
+                "dark"
+              ],
+              [
+                "fast",
+                "light"
+              ]
+            ],
+            "default_variants": {
+              "quality": "fast"
+            },
+            "default_thresholds": {
+              "box": 0.2
+            },
+            "params": {
+              "threshold": {
+                "default": 0.2,
+                "minimum": 0,
+                "type": "number"
+              }
+            },
+            "batchable": true,
+            "exemplar_capabilities": {
+              "max_count": 3,
+              "min_count": 1
+            }
+          }
+        ],
+        "model_ids": [],
+        "task": null,
+        "modality": null,
+        "infra": null,
+        "supported_prompts": [],
+        "supported_inputs": [],
+        "supported_outputs": [],
+        "supported_trackers": [],
+        "parameter_schema": {
+          "query": {
+            "required": false,
+            "type": "string"
+          }
+        },
+        "variant_axes": [
+          {
+            "key": "quality",
+            "values": [
+              "best",
+              "fast"
+            ],
+            "default": "fast"
+          },
+          {
+            "key": "theme",
+            "values": [
+              "dark",
+              "light"
+            ],
+            "default": "dark"
+          }
+        ],
+        "stateful": true,
+        "batchable": false,
+        "warmup": true
+      },
+      "fingerprint": "12c8240824a2b71465d24a20b34987ec95a041dcef59aa758a7ccf1a05fd7a48"
+    },
+    {
+      "name": "model_odd_entries",
+      "input": {
+        "models": [
+          null,
+          7,
+          {
+            "id": null,
+            "params": "bad",
+            "resource_profile": null,
+            "supported_variants": [
+              null,
+              {
+                "key": "x",
+                "values": [
+                  "b",
+                  "a"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "canonical": {
+        "version": null,
+        "protocol_version": "1",
+        "compat_protocol_versions": [],
+        "model_version": null,
+        "weights_version": null,
+        "models": [
+          {
+            "id": null,
+            "task": null,
+            "model_family": null,
+            "infra": null,
+            "modality": null,
+            "is_interactive": null,
+            "default_input_type": null,
+            "variants_shared_across_tasks": null,
+            "composition": null,
+            "supported_inputs": [],
+            "supported_prompts": [],
+            "supported_trackers": [],
+            "supported_geometric_outputs": [],
+            "text_driven_trackers": [],
+            "supported_text_outputs": [],
+            "output_attribute_types": [],
+            "output_attribute_schema": [],
+            "supported_variants": [
+              {
+                "key": "x",
+                "default": null,
+                "variants": [
+                  {
+                    "value": "a"
+                  },
+                  {
+                    "value": "b"
+                  }
+                ]
+              }
+            ],
+            "variant_combinations": [],
+            "default_variants": {},
+            "default_thresholds": {},
+            "params": {},
+            "batchable": false,
+            "exemplar_capabilities": {}
+          }
+        ],
+        "model_ids": [],
+        "task": null,
+        "modality": null,
+        "infra": null,
+        "supported_prompts": [],
+        "supported_inputs": [],
+        "supported_outputs": [],
+        "supported_trackers": [],
+        "parameter_schema": {},
+        "variant_axes": [],
+        "stateful": false,
+        "batchable": false,
+        "warmup": false
+      },
+      "fingerprint": "4b5cf4ab00eab1759d2ae771877ec1d79d7c00ae2a94a82fb258d957841529ce"
+    },
+    {
+      "name": "mixed_schema_lists",
+      "input": {
+        "parameter_schema": {
+          "enum": [
+            null,
+            true,
+            1,
+            1.0,
+            "1",
+            {
+              "type": "x",
+              "label": "drop"
+            }
+          ],
+          "description": "drop",
+          "default": false
+        }
+      },
+      "canonical": {
+        "version": null,
+        "protocol_version": "1",
+        "compat_protocol_versions": [],
+        "model_version": null,
+        "weights_version": null,
+        "models": [],
+        "model_ids": [],
+        "task": null,
+        "modality": null,
+        "infra": null,
+        "supported_prompts": [],
+        "supported_inputs": [],
+        "supported_outputs": [],
+        "supported_trackers": [],
+        "parameter_schema": {
+          "default": false,
+          "enum": [
+            "1",
+            1,
+            1.0,
+            null,
+            true,
+            {
+              "type": "x"
+            }
+          ]
+        },
+        "variant_axes": [],
+        "stateful": false,
+        "batchable": false,
+        "warmup": false
+      },
+      "fingerprint": "249697425841685dfb4ee791f1e657e1c63140f2df75c1d50abbad45ab48d178"
+    }
+  ],
+  "diffs": [
+    {
+      "name": "both_empty",
+      "pool": null,
+      "candidate": {},
+      "result": null
+    },
+    {
+      "name": "legacy_same_wrapped",
+      "pool": {
+        "model_ids": [
+          "sam",
+          "yolo",
+          "sam"
+        ],
+        "supported_prompts": [
+          "text",
+          "box",
+          "text"
+        ],
+        "supported_inputs": [
+          "video",
+          "image"
+        ],
+        "supported_outputs": [
+          "mask",
+          "box"
+        ],
+        "supported_trackers": [
+          "b",
+          "a"
+        ],
+        "task": "segment",
+        "infra": "gpu",
+        "modality": "image",
+        "parameter_schema": {
+          "mode": {
+            "enum": [
+              "fast",
+              "best"
+            ],
+            "type": "string",
+            "help_text": "display"
+          }
+        },
+        "variant_axes": [
+          {
+            "key": "precision",
+            "values": [
+              "fp16",
+              "fp32",
+              "fp16"
+            ],
+            "default": "fp16"
+          }
+        ]
+      },
+      "candidate": {
+        "capabilities": {
+          "model_ids": [
+            "sam",
+            "yolo",
+            "sam"
+          ],
+          "supported_prompts": [
+            "text",
+            "box",
+            "text"
+          ],
+          "supported_inputs": [
+            "video",
+            "image"
+          ],
+          "supported_outputs": [
+            "mask",
+            "box"
+          ],
+          "supported_trackers": [
+            "b",
+            "a"
+          ],
+          "task": "segment",
+          "infra": "gpu",
+          "modality": "image",
+          "parameter_schema": {
+            "mode": {
+              "enum": [
+                "fast",
+                "best"
+              ],
+              "type": "string",
+              "help_text": "display"
+            }
+          },
+          "variant_axes": [
+            {
+              "key": "precision",
+              "values": [
+                "fp16",
+                "fp32",
+                "fp16"
+              ],
+              "default": "fp16"
+            }
+          ]
+        }
+      },
+      "result": null
+    },
+    {
+      "name": "modern_display_only",
+      "pool": {
+        "version": "protocol-build",
+        "protocol_version": "2",
+        "compat_protocol_versions": [
+          "2",
+          "1",
+          "2"
+        ],
+        "model_version": "weights-A",
+        "weights_version": "sha256:fixture",
+        "models": [
+          {
+            "id": "sam-中文",
+            "task": "segment",
+            "model_family": "sam",
+            "infra": "gpu",
+            "modality": "image",
+            "is_interactive": true,
+            "supported_prompts": [
+              "box",
+              "point",
+              "box"
+            ],
+            "supported_inputs": [
+              "image",
+              "image"
+            ],
+            "supported_geometric_outputs": [
+              "region"
+            ],
+            "supported_trackers": [
+              "sam_video"
+            ],
+            "output_attribute_types": [
+              "color"
+            ],
+            "params": {
+              "threshold": {
+                "type": "number",
+                "minimum": 0,
+                "default": 0.2,
+                "label": "标签"
+              }
+            },
+            "supported_variants": [
+              {
+                "key": "quality",
+                "default": "fast",
+                "variants": [
+                  {
+                    "value": "best",
+                    "title": "Best"
+                  },
+                  {
+                    "value": "fast",
+                    "label": "Fast"
+                  }
+                ]
+              }
+            ],
+            "variant_combinations": [
+              [
+                "best",
+                "dark"
+              ],
+              [
+                "fast",
+                "light"
+              ],
+              [
+                "best",
+                "dark"
+              ]
+            ],
+            "default_variants": {
+              "quality": "fast"
+            },
+            "default_thresholds": {
+              "box": 0.2
+            },
+            "resource_profile": {
+              "batchable": true,
+              "vram_mb": 4096
+            },
+            "output_attribute_schema": [
+              {
+                "name": "color",
+                "type": "enum",
+                "values": [
+                  "red",
+                  "blue"
+                ],
+                "label": "Color"
+              }
+            ],
+            "exemplar_capabilities": {
+              "min_count": 1,
+              "max_count": 3,
+              "description": "display"
+            }
+          },
+          {
+            "id": "detector",
+            "task": "detect",
+            "modality": "image",
+            "infra": "cpu",
+            "supported_inputs": [
+              "image"
+            ]
+          }
+        ],
+        "parameter_schema": {
+          "query": {
+            "type": "string",
+            "required": false,
+            "title": "Query"
+          }
+        },
+        "variant_axes": [
+          {
+            "key": "theme",
+            "values": [
+              "light",
+              "dark",
+              "light"
+            ],
+            "default": "dark"
+          },
+          {
+            "key": "quality",
+            "values": [
+              "fast",
+              "best"
+            ],
+            "default": "fast"
+          }
+        ],
+        "stateful": true,
+        "batchable": false,
+        "warmup": true
+      },
+      "candidate": {
+        "version": "protocol-build",
+        "protocol_version": "2",
+        "compat_protocol_versions": [
+          "2",
+          "1",
+          "2"
+        ],
+        "model_version": "weights-A",
+        "weights_version": "sha256:fixture",
+        "models": [
+          {
+            "id": "sam-中文",
+            "task": "segment",
+            "model_family": "sam",
+            "infra": "gpu",
+            "modality": "image",
+            "is_interactive": true,
+            "supported_prompts": [
+              "box",
+              "point",
+              "box"
+            ],
+            "supported_inputs": [
+              "image",
+              "image"
+            ],
+            "supported_geometric_outputs": [
+              "region"
+            ],
+            "supported_trackers": [
+              "sam_video"
+            ],
+            "output_attribute_types": [
+              "color"
+            ],
+            "params": {
+              "threshold": {
+                "type": "number",
+                "minimum": 0,
+                "default": 0.2,
+                "label": "Renamed display label"
+              }
+            },
+            "supported_variants": [
+              {
+                "key": "quality",
+                "default": "fast",
+                "variants": [
+                  {
+                    "value": "best",
+                    "title": "Another title"
+                  },
+                  {
+                    "value": "fast",
+                    "label": "Fast"
+                  }
+                ]
+              }
+            ],
+            "variant_combinations": [
+              [
+                "best",
+                "dark"
+              ],
+              [
+                "fast",
+                "light"
+              ],
+              [
+                "best",
+                "dark"
+              ]
+            ],
+            "default_variants": {
+              "quality": "fast"
+            },
+            "default_thresholds": {
+              "box": 0.2
+            },
+            "resource_profile": {
+              "batchable": true,
+              "vram_mb": 4096
+            },
+            "output_attribute_schema": [
+              {
+                "name": "color",
+                "type": "enum",
+                "values": [
+                  "red",
+                  "blue"
+                ],
+                "label": "Color"
+              }
+            ],
+            "exemplar_capabilities": {
+              "min_count": 1,
+              "max_count": 3,
+              "description": "display"
+            }
+          },
+          {
+            "id": "detector",
+            "task": "detect",
+            "modality": "image",
+            "infra": "cpu",
+            "supported_inputs": [
+              "image"
+            ]
+          }
+        ],
+        "parameter_schema": {
+          "query": {
+            "type": "string",
+            "required": false,
+            "title": "Query"
+          }
+        },
+        "variant_axes": [
+          {
+            "key": "theme",
+            "values": [
+              "light",
+              "dark",
+              "light"
+            ],
+            "default": "dark"
+          },
+          {
+            "key": "quality",
+            "values": [
+              "fast",
+              "best"
+            ],
+            "default": "fast"
+          }
+        ],
+        "stateful": true,
+        "batchable": false,
+        "warmup": true,
+        "url": "http://private.invalid",
+        "name": "Replica B",
+        "auth_token": "fixture-token",
+        "residency": {
+          "generation": "999"
+        },
+        "gpu_resource_id": "host/GPU-other",
+        "vram_budget_mb": 999
+      },
+      "result": null
+    },
+    {
+      "name": "request_schema_changed",
+      "pool": {
+        "version": "protocol-build",
+        "protocol_version": "2",
+        "compat_protocol_versions": [
+          "2",
+          "1",
+          "2"
+        ],
+        "model_version": "weights-A",
+        "weights_version": "sha256:fixture",
+        "models": [
+          {
+            "id": "sam-中文",
+            "task": "segment",
+            "model_family": "sam",
+            "infra": "gpu",
+            "modality": "image",
+            "is_interactive": true,
+            "supported_prompts": [
+              "box",
+              "point",
+              "box"
+            ],
+            "supported_inputs": [
+              "image",
+              "image"
+            ],
+            "supported_geometric_outputs": [
+              "region"
+            ],
+            "supported_trackers": [
+              "sam_video"
+            ],
+            "output_attribute_types": [
+              "color"
+            ],
+            "params": {
+              "threshold": {
+                "type": "number",
+                "minimum": 0,
+                "default": 0.2,
+                "label": "标签"
+              }
+            },
+            "supported_variants": [
+              {
+                "key": "quality",
+                "default": "fast",
+                "variants": [
+                  {
+                    "value": "best",
+                    "title": "Best"
+                  },
+                  {
+                    "value": "fast",
+                    "label": "Fast"
+                  }
+                ]
+              }
+            ],
+            "variant_combinations": [
+              [
+                "best",
+                "dark"
+              ],
+              [
+                "fast",
+                "light"
+              ],
+              [
+                "best",
+                "dark"
+              ]
+            ],
+            "default_variants": {
+              "quality": "fast"
+            },
+            "default_thresholds": {
+              "box": 0.2
+            },
+            "resource_profile": {
+              "batchable": true,
+              "vram_mb": 4096
+            },
+            "output_attribute_schema": [
+              {
+                "name": "color",
+                "type": "enum",
+                "values": [
+                  "red",
+                  "blue"
+                ],
+                "label": "Color"
+              }
+            ],
+            "exemplar_capabilities": {
+              "min_count": 1,
+              "max_count": 3,
+              "description": "display"
+            }
+          },
+          {
+            "id": "detector",
+            "task": "detect",
+            "modality": "image",
+            "infra": "cpu",
+            "supported_inputs": [
+              "image"
+            ]
+          }
+        ],
+        "parameter_schema": {
+          "query": {
+            "type": "string",
+            "required": false,
+            "title": "Query"
+          }
+        },
+        "variant_axes": [
+          {
+            "key": "theme",
+            "values": [
+              "light",
+              "dark",
+              "light"
+            ],
+            "default": "dark"
+          },
+          {
+            "key": "quality",
+            "values": [
+              "fast",
+              "best"
+            ],
+            "default": "fast"
+          }
+        ],
+        "stateful": true,
+        "batchable": false,
+        "warmup": true
+      },
+      "candidate": {
+        "version": "protocol-build",
+        "protocol_version": "2",
+        "compat_protocol_versions": [
+          "2",
+          "1",
+          "2"
+        ],
+        "model_version": "weights-A",
+        "weights_version": "sha256:fixture",
+        "models": [
+          {
+            "id": "sam-中文",
+            "task": "segment",
+            "model_family": "sam",
+            "infra": "gpu",
+            "modality": "image",
+            "is_interactive": true,
+            "supported_prompts": [
+              "box",
+              "point",
+              "box"
+            ],
+            "supported_inputs": [
+              "image",
+              "image"
+            ],
+            "supported_geometric_outputs": [
+              "region"
+            ],
+            "supported_trackers": [
+              "sam_video"
+            ],
+            "output_attribute_types": [
+              "color"
+            ],
+            "params": {
+              "threshold": {
+                "type": "number",
+                "minimum": 0.1,
+                "default": 0.2,
+                "label": "标签"
+              }
+            },
+            "supported_variants": [
+              {
+                "key": "quality",
+                "default": "fast",
+                "variants": [
+                  {
+                    "value": "best",
+                    "title": "Best"
+                  },
+                  {
+                    "value": "fast",
+                    "label": "Fast"
+                  }
+                ]
+              }
+            ],
+            "variant_combinations": [
+              [
+                "best",
+                "dark"
+              ],
+              [
+                "fast",
+                "light"
+              ],
+              [
+                "best",
+                "dark"
+              ]
+            ],
+            "default_variants": {
+              "quality": "fast"
+            },
+            "default_thresholds": {
+              "box": 0.2
+            },
+            "resource_profile": {
+              "batchable": true,
+              "vram_mb": 4096
+            },
+            "output_attribute_schema": [
+              {
+                "name": "color",
+                "type": "enum",
+                "values": [
+                  "red",
+                  "blue"
+                ],
+                "label": "Color"
+              }
+            ],
+            "exemplar_capabilities": {
+              "min_count": 1,
+              "max_count": 3,
+              "description": "display"
+            }
+          },
+          {
+            "id": "detector",
+            "task": "detect",
+            "modality": "image",
+            "infra": "cpu",
+            "supported_inputs": [
+              "image"
+            ]
+          }
+        ],
+        "parameter_schema": {
+          "query": {
+            "type": "string",
+            "required": false,
+            "title": "Query"
+          }
+        },
+        "variant_axes": [
+          {
+            "key": "theme",
+            "values": [
+              "light",
+              "dark",
+              "light"
+            ],
+            "default": "dark"
+          },
+          {
+            "key": "quality",
+            "values": [
+              "fast",
+              "best"
+            ],
+            "default": "fast"
+          }
+        ],
+        "stateful": true,
+        "batchable": false,
+        "warmup": true
+      },
+      "result": {
+        "pool_fingerprint": "12c8240824a2b71465d24a20b34987ec95a041dcef59aa758a7ccf1a05fd7a48",
+        "candidate_fingerprint": "e3f488aa4c8dee646a01351cc68f9e5c8f9cac4881f03abf8e02f5ac33d3bff9",
+        "differing_fields": [
+          "models"
+        ]
+      }
+    },
+    {
+      "name": "flat_model_identity_changed",
+      "pool": {
+        "model_ids": [
+          "sam"
+        ]
+      },
+      "candidate": {
+        "model_ids": [
+          "yolo"
+        ]
+      },
+      "result": {
+        "pool_fingerprint": "c84b09b04a8932f97055b3da3249baa544fa0f0c5dc2d9667565e53114c00a0c",
+        "candidate_fingerprint": "49a8b728fb34e4fd10c22e204cd61dcab5bb5e91df9780d58a0941f2f2f12f86",
+        "differing_fields": [
+          "model_ids"
+        ]
+      }
+    }
+  ]
+}

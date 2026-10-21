@@ -4375,3 +4375,48 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   AMD64, production capacity/SLO, primary cutover or ten-module/seven-gate goal.
   Go remains experimental. Registry/pool routing, GPU coordination and job
   control still require their own owner boundaries and consumer qualification.
+
+### Next Inference boundary: complete Backend control ownership
+
+- The preceding goal turn made authoritative progress: the named-pipeline slice
+  closed at653b4e142 with33 distinct selected DB/process cases and scoped artifact,
+  migration, recovery and cleanup evidence. That does not close full Inference
+  or the ten-module/seven-gate objective. Primary/production and the Go experiment
+  remain unchanged.
+- Current-source audits reject a registry-query-only facade. The next coherent
+  owner covers registry and service-pool topology, project enablement, health and
+  capability coordination, routing/Redis leases, backend HTTP and credentials,
+  together with every actual consumer. Its four central tables are
+  ml_backend_registry, ml_backend_service_pools, ml_backend_pool_members and
+  project_ml_backend_pool; GPU lifecycle state is part of the remaining Inference
+  boundary, not a reason to publish backend credentials to other modules.
+- API keeps public admission, Project/Task authorization, frame/object preparation,
+  annotation/prediction persistence and response composition. Workspace retains
+  projects.ml_backend_pool_id. Jobs running-work counts, Learning evaluation and
+  deployment references, Identity current-admin locks, Workspace binding cleanup
+  and Audit append must use their owners' fixed capabilities, with the original
+  failure order and transaction boundary. The pipeline client's two existing RPC
+  permissions must not expand to backend administration.
+- A remote owner committing independently cannot silently replace transaction-
+  coupled model publication, project configuration or registry deletion. Those
+  workflows need a language-neutral owner contract that keeps their single
+  coordinator transaction or an explicitly qualified durable protocol. Reusing
+  private provider Python policy inside each consumer remains transitional;
+  moving DTOs or exposing raw SQL does not satisfy the final contract gate.
+- Before extraction, the existing registry/pool/admin/project binding suite passes
+  71 distinct selected database cases, no skips, against owned Native head0271.
+  Evidence is .worktree/inference-registry-pool-legacy-existing-first.json; this is
+  a pre-change baseline, not qualification of a new backend control runtime.
+- Fifteen actual legacy pool-capability normalization/fingerprint vectors and
+  five diff vectors are frozen from source653b4e142 in
+  apps/inference/tests/fixtures/pool_capability_legacy.json, SHA-256
+  730b35f389152f0cefab8871c2a6e6ab26170e694c3f86340fe4b2d645d62d6d.
+  Inputs cover persisted flat/modern snapshots, ordering, defaults, schema/variant
+  fields, presentation/runtime exclusions and established odd-input behavior.
+  The pure policy will move into the existing Inference package without an API
+  forwarding facade. This prerequisite does not replace the full control owner.
+- Actual HTTP/database/business-Audit capture is being implemented for registry
+  and project configuration plus the complete admin pool lifecycle. Probe timing,
+  live Redis quiescence, revocation, generation/lease completion and cross-owner
+  transaction producers remain separate gates. No new module completion or
+  language-replacement qualification is claimed by this baseline work.
