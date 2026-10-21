@@ -3771,3 +3771,45 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   gates. No primary cutover, production capacity, full Workspace, other-module
   completion or another-language provider is claimed. Go remains experimental.
   See [ADR-0140](../adr/0140-workspace-directory-query-owner.md).
+
+### Directory owner: selected local qualification closed
+
+- The complete ten-module/seven-gate goal remains active. Only member-list and
+  mention-candidate reads are qualified here. Their13 immutable HTTP samples
+  match each borrowed/DSN/installed-HTTP binding; the two default caller probes
+  keep their own transaction and autoflush semantics. The fixture hash remains
+  `a18b31c5a229b8d06690a7ef6788a5a036059974216097cf37059087f1562de0`.
+- The strengthened0262 migration test first reproduces failure for a valid
+  client grant-option chain. The correction copies every grantee's effective
+  privilege before revoking dependent old-function grants; wrapper access and
+  grant options survive, and no non-owner can execute the implementation.
+  Two downgrade/upgrade cycles now pass, without changing the frozen0261 body.
+- Owner image184 and API image186 package files match source; the API also
+  checks198 application/Native inputs, unchanged OpenAPI and head0263. Nonroot,
+  read-only, offline proof containers pass and are removed. A live Directory
+  image performs public reads,16 requests at concurrency4 and restart within
+  1CPU/256MiB. The first restart test used Docker's old ephemeral host port;
+  actual inspection confirms reassignment and refreshing the address passes.
+- Ten current-schema restore cases pass across Workspace/Identity. The
+  configuration restore additionally compares both Directory operations through
+  independent function-only Directory/Briefs credentials, readonly transactions
+  and subsequent inactive-actor denial. Seven initial opt-in skips are replaced
+  by seven explicit passing follow-ups. Initial cleanup refused; a verified
+  zero-session retry through the same ownership guard removes only that run's
+  database, Redis, buckets, container and temporary root. Failed and retry
+  reports remain separate.
+- Full263 migration validation passes fresh263,173down/base/up,89suffixdown/up,
+  authentic historical forward conversion and pre-conversion restore. Four
+  derived databases and the dump are removed. Five clean, patch-equivalent
+  Directory child worktrees/branches are removed after integration.
+- The final selected-check union has37 distinct passing cases, with all earlier
+  failures/skips covered by matching successful follow-ups. Source/installed
+  package suites and transport/OpenAPI evidence stay separate; repeated runs
+  are not accumulated. Aggregate evidence is
+  `.worktree/workspace-directory-owner-qualification.json`.
+- Remaining Workspace work includes the actual repeated-phase `/access` read,
+  Labeling-owned class usage, class rename, guide object I/O, Inference-owned
+  named pipeline persistence and other cross-owner writes/consumers. Next capture
+  targets `/access` without changing its production behavior. Full Workspace,
+  other modules, another-language provider, primary cutover and production
+  capacity remain open. Go stays experimental.

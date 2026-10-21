@@ -648,6 +648,8 @@ Identity 的窄账号事实，不初始化 Briefs。空成员列表同样不访�
 `infra/docker/module-data-grants.sql` 与 `infra/docker/workspace-directory-query-grants.sql`。
 共享 PostgreSQL、独立连接的快照差异和剩余范围见
 [ADR-0140](docs/adr/0140-workspace-directory-query-owner.md)。
+三路径响应对照、独立安装包、受限 owner/API 镜像、故障恢复、备份恢复和完整迁移
+已通过限定本地验收；完整 Workspace、另一语言提供方和生产容量仍未完成。
 
 ### 设计系统
 

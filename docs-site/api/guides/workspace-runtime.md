@@ -131,3 +131,7 @@ HTTP 使用 `WORKSPACE_TEMPLATE_QUERY_URL`，二者互斥，显式失败不回�
 三份只读 secret 的宿主选择器为 `WORKSPACE_RUNTIME_DIRECTORY_QUERY_DATABASE_URL_FILE`、
 `WORKSPACE_RUNTIME_PROJECT_QUERY_BRIEFS_DATABASE_URL_FILE` 和 `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE`。
 协议与验证范围见 [ADR-0140](/dev/adr/0140-workspace-directory-query-owner)。
+
+此目录切片已通过三路径公开响应对照、独立安装包、受限 owner/API 镜像、故障与重启、
+备份恢复及完整迁移的限定本地验收。1 CPU／256 MiB 下的16次并发读取不代表生产容量；
+API 与数据库不在该容器预算内。`/access`、相邻命令和完整模块替换仍待推进。

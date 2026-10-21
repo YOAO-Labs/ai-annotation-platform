@@ -1,6 +1,6 @@
 # 0140 — Workspace Directory Query Owner
 
-- **Status:** Accepted; API image verification pending
+- **Status:** Accepted; selected directory capability locally qualified
 - **Date:** 2026-10-21
 - **Deciders:** Backend architecture team
 - **Supersedes:** None
@@ -116,10 +116,20 @@ buckets and container. The failed report and cleanup retry remain separate.
 
 Full migration validation passes fresh263,173down/base/up, the89-step reversible
 suffix, authentic historical forward conversion and pre-conversion restore.
-All four derived databases and the dump are removed. API image verification
-remains pending for this new artifact; previous Project query image evidence is
-not reused as Directory qualification. These local ARM64 checks do not establish
-production capacity or an SLO.
+All four derived databases and the dump are removed. The updated API image
+matches186 installed package files and198 application/Native inputs, including
+the grant-chain correction. It passes nonroot, read-only, no-network and resource
+restrictions, exact OpenAPI, closed Directory schema and head0263 checks. Both
+proof containers are removed. Previous Project query image evidence is not reused
+as Directory qualification. These local ARM64 checks do not establish production
+capacity or an SLO.
+
+The final selected-check union has37 distinct passing cases, combining native,
+temporal and ACL checks, current-provider replay, existing API regressions,
+installed-process faults, container and restore checks, and the migration
+validator. Earlier failed or skipped attempts are retained and have matching
+passing follow-ups; repeated runs are not added to this count. Source/installed
+package suites and transport/OpenAPI checks remain separate evidence.
 
 This is a selected directory boundary. Project `/access`, class-usage reads,
 class rename, guide-object I/O, Inference-owned named pipelines and other
