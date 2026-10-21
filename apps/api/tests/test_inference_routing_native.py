@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from datetime import datetime, timezone
 
 import asyncpg
 import pytest
@@ -82,6 +83,7 @@ _ACTIONS = [
     "open_transport_subject",
     "begin_control_attempt",
     "settle_control_attempt",
+    "runtime_snapshot",
 ]
 
 
@@ -412,6 +414,139 @@ async def test_routing_snapshot_scope_attempt_and_writer_fence(test_engine):
     finally:
         if started:
             await transaction.rollback()
+        await client.close()
+        try:
+            await _cleanup(owner, world)
+        finally:
+            await owner.close()
+
+
+async def test_runtime_snapshot_reports_physical_attempts_without_expiring_scopes(
+    test_engine,
+):
+    await assert_owned_test_database(test_engine)
+    owner = await _connect(test_engine)
+    world = await _seed(owner)
+    client = await _connect(test_engine, role=_ROLE)
+    registry_id = world["registry_id"]
+    pool_id = world["pool_id"]
+    absent_registry_id = uuid.uuid4()
+    try:
+        state = await owner.fetchrow(
+            """SELECT config_revision, eligibility_revision, authority_epoch, realm
+               FROM aap_inference_routing_v1.registry_state WHERE registry_id=$1""",
+            registry_id,
+        )
+        assert state is not None
+
+        async def add_scope(scope_id, state_name, *, closed, seconds):
+            await owner.execute(
+                """INSERT INTO aap_inference_routing_v1.scopes (
+                       id, command_sha256, registry_id, pool_id, project_id, mode,
+                       owner, operation, generation, config_revision, eligibility_revision,
+                       authority_epoch, realm, state, closed, heartbeat_deadline
+                   ) VALUES (
+                       $1, repeat('a', 64), $2, $3, NULL, 'off',
+                       'api:runtime-snapshot-test', 'predict', 1, $4, $5,
+                       $6, $7, $8, $9,
+                       pg_catalog.statement_timestamp()
+                           + ($10::double precision * INTERVAL '1 second')
+                   )""",
+                scope_id,
+                registry_id,
+                pool_id,
+                state["config_revision"],
+                state["eligibility_revision"],
+                state["authority_epoch"],
+                state["realm"],
+                state_name,
+                closed,
+                seconds,
+            )
+
+        expired_reserved_id = uuid.uuid4()
+        live_reserved_id = uuid.uuid4()
+        uncertain_scope_id = uuid.uuid4()
+        active_attempt_scope_id = uuid.uuid4()
+        await add_scope(expired_reserved_id, "reserved", closed=False, seconds=-60)
+        await add_scope(live_reserved_id, "reserved", closed=False, seconds=300)
+        await add_scope(uncertain_scope_id, "uncertain", closed=True, seconds=-300)
+        await add_scope(active_attempt_scope_id, "finished", closed=True, seconds=-300)
+
+        uncertain_attempt_id = uuid.uuid4()
+        active_attempt_id = uuid.uuid4()
+        for attempt_id, scope_id, attempt_state, reason in (
+            (uncertain_attempt_id, uncertain_scope_id, "uncertain", "request_timeout"),
+            (active_attempt_id, active_attempt_scope_id, "active", None),
+        ):
+            await owner.execute(
+                """INSERT INTO aap_inference_routing_v1.attempts (
+                       id, scope_id, method, path, transport_identity_sha256,
+                       state, status_code, reason
+                   ) VALUES ($1, $2, 'POST', '/predict', repeat('b', 64), $3, NULL, $4)""",
+                attempt_id,
+                scope_id,
+                attempt_state,
+                reason,
+            )
+
+        control_id = uuid.uuid4()
+        await owner.execute(
+            """INSERT INTO aap_inference_routing_v1.controls (
+                   id, registry_id, kind, phase, new_epoch, retired_epoch, challenge,
+                   backend_incarnation, config_revision, realm, expected_topology
+               ) VALUES ($1, $2, 'unload', 'prepared', NULL, NULL, repeat('c', 64),
+                         NULL, $3, $4, NULL)""",
+            control_id,
+            registry_id,
+            state["config_revision"],
+            state["realm"],
+        )
+        expired_before = await owner.fetchrow(
+            "SELECT state, updated_at FROM aap_inference_routing_v1.scopes WHERE id=$1",
+            expired_reserved_id,
+        )
+
+        reply = await _step(
+            client,
+            "runtime_snapshot",
+            {"registry_ids": [str(absent_registry_id), str(registry_id)]},
+        )
+        assert set(reply) == {"schema", "status", "observed_at", "registries"}
+        assert reply["schema"] == "aap-inference-routing-data/v1"
+        assert reply["status"] == "ok"
+        observed_at = datetime.fromisoformat(
+            reply["observed_at"].replace("Z", "+00:00")
+        )
+        assert observed_at.tzinfo == timezone.utc
+        assert reply["registries"] == [
+            {
+                "registry_id": str(registry_id),
+                "open_scopes": 3,
+                "active_attempts": 1,
+                "uncertain_attempts": 1,
+                "continuity": "unverified",
+                "authority_epoch": None,
+                "backend_incarnation": None,
+                "control_id": str(control_id),
+            }
+        ]
+        expired_after = await owner.fetchrow(
+            "SELECT state, updated_at FROM aap_inference_routing_v1.scopes WHERE id=$1",
+            expired_reserved_id,
+        )
+        assert expired_after == expired_before
+
+        empty = await _step(client, "runtime_snapshot", {"registry_ids": []})
+        assert empty["registries"] == []
+        for registry_ids in (
+            [str(registry_id), str(registry_id)],
+            [str(uuid.uuid4()) for _ in range(513)],
+        ):
+            with pytest.raises(asyncpg.PostgresError) as caught:
+                await _step(client, "runtime_snapshot", {"registry_ids": registry_ids})
+            assert caught.value.sqlstate == "22023"
+    finally:
         await client.close()
         try:
             await _cleanup(owner, world)

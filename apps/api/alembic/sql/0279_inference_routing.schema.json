@@ -45,7 +45,8 @@
             "capture_transport_subject",
             "open_transport_subject",
             "begin_control_attempt",
-            "settle_control_attempt"
+            "settle_control_attempt",
+            "runtime_snapshot"
           ],
           "ready": true
         }
@@ -143,6 +144,28 @@
     {
       "name": "settle_control_attempt",
       "keys": ["control_id", "capability", "attempt_id", "kind", "status_code", "reason"]
+    },
+    {
+      "name": "runtime_snapshot",
+      "keys": ["registry_ids"],
+      "max_registry_ids": 512,
+      "registry_ids_unique": true,
+      "facts": {
+        "observed_at": "ISO 8601 UTC timestamp",
+        "registries": [
+          {
+            "registry_id": "uuid",
+            "open_scopes": "nonnegative integer",
+            "active_attempts": "nonnegative integer",
+            "uncertain_attempts": "nonnegative integer",
+            "continuity": ["unverified", "ready"],
+            "authority_epoch": "uuid|null",
+            "backend_incarnation": "uuid|null",
+            "control_id": "uuid|null"
+          }
+        ]
+      },
+      "semantics": "Read-only; omits absent registries, sorts returned rows by registry_id, and never expires scopes or proves physical quiescence."
     }
   ],
   "private_tables": [

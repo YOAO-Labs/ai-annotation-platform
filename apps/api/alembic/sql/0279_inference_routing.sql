@@ -1450,7 +1450,8 @@ AS $function$
             'scope_status', 'begin_attempt', 'settle_attempt', 'heartbeat_scope',
             'close_scope', 'quiescence', 'prepare_control', 'finish_control',
             'prepare_epoch', 'finish_epoch', 'capture_transport_subject',
-            'open_transport_subject', 'begin_control_attempt', 'settle_control_attempt'
+            'open_transport_subject', 'begin_control_attempt', 'settle_control_attempt',
+            'runtime_snapshot'
         ),
         'ready', aap_inference_routing_v1._routing_secret() IS NOT NULL
     )
@@ -3721,6 +3722,95 @@ BEGIN
                 'status_code', v_status_code,
                 'reason', v_reason
             )
+        ));
+
+    WHEN 'runtime_snapshot' THEN
+        IF NOT aap_inference_routing_v1._routing_exact_keys(
+            v_args, ARRAY['registry_ids']
+        ) OR pg_catalog.jsonb_typeof(v_args -> 'registry_ids') IS DISTINCT FROM 'array' THEN
+            RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'invalid routing runtime snapshot';
+        END IF;
+        IF pg_catalog.jsonb_array_length(v_args -> 'registry_ids') > 512 THEN
+            RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'invalid routing runtime snapshot';
+        END IF;
+        v_registry_ids := ARRAY[]::uuid[];
+        FOR v_json_element IN
+            SELECT element.value
+            FROM pg_catalog.jsonb_array_elements(v_args -> 'registry_ids') AS element(value)
+        LOOP
+            IF pg_catalog.jsonb_typeof(v_json_element) IS DISTINCT FROM 'string' THEN
+                RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'invalid routing runtime registry';
+            END IF;
+            v_item := aap_inference_routing_v1._routing_uuid(v_json_element #>> '{}');
+            IF v_item = ANY(v_registry_ids) THEN
+                RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'duplicate routing runtime registry';
+            END IF;
+            v_registry_ids := pg_catalog.array_append(v_registry_ids, v_item);
+        END LOOP;
+
+        v_secret := aap_inference_routing_v1._routing_secret();
+        v_realm := aap_inference_routing_v1._routing_realm();
+        v_now := pg_catalog.statement_timestamp();
+        SELECT COALESCE(
+            pg_catalog.jsonb_agg(
+                pg_catalog.jsonb_build_object(
+                    'registry_id', requested.registry_id,
+                    'open_scopes', scope_counts.open_scopes,
+                    'active_attempts', scope_counts.active_attempts,
+                    'uncertain_attempts', scope_counts.uncertain_attempts,
+                    'continuity', CASE
+                        WHEN v_secret IS NOT NULL
+                         AND state.realm IS NOT DISTINCT FROM v_realm
+                         AND state.continuity = 'ready'
+                        THEN 'ready' ELSE 'unverified' END,
+                    'authority_epoch', CASE
+                        WHEN v_secret IS NOT NULL
+                         AND state.realm IS NOT DISTINCT FROM v_realm
+                         AND state.continuity = 'ready'
+                        THEN state.authority_epoch ELSE NULL END,
+                    'backend_incarnation', CASE
+                        WHEN v_secret IS NOT NULL
+                         AND state.realm IS NOT DISTINCT FROM v_realm
+                         AND state.continuity = 'ready'
+                        THEN state.backend_incarnation ELSE NULL END,
+                    'control_id', control.id
+                ) ORDER BY requested.registry_id
+            ),
+            '[]'::jsonb
+        )
+        INTO v_result
+        FROM pg_catalog.unnest(v_registry_ids) AS requested(registry_id)
+        JOIN public.ml_backend_registry AS registry
+          ON registry.id = requested.registry_id
+        LEFT JOIN aap_inference_routing_v1.registry_state AS state
+          ON state.registry_id = requested.registry_id
+        LEFT JOIN LATERAL (
+            SELECT
+                pg_catalog.count(DISTINCT scope.id) FILTER (
+                    WHERE scope.state IN ('active', 'uncertain')
+                       OR (scope.state = 'reserved' AND scope.heartbeat_deadline > v_now)
+                       OR attempt.state IN ('active', 'uncertain')
+                ) AS open_scopes,
+                pg_catalog.count(DISTINCT attempt.id) FILTER (
+                    WHERE attempt.state = 'active'
+                ) AS active_attempts,
+                pg_catalog.count(DISTINCT attempt.id) FILTER (
+                    WHERE attempt.state = 'uncertain'
+                ) AS uncertain_attempts
+            FROM aap_inference_routing_v1.scopes AS scope
+            LEFT JOIN aap_inference_routing_v1.attempts AS attempt
+              ON attempt.scope_id = scope.id
+            WHERE scope.registry_id = requested.registry_id
+        ) AS scope_counts ON TRUE
+        LEFT JOIN aap_inference_routing_v1.controls AS control
+          ON control.registry_id = requested.registry_id
+         AND control.phase IN ('prepared', 'draining', 'uncertain');
+
+        RETURN aap_inference_routing_v1._routing_reply('ok', pg_catalog.jsonb_build_object(
+            'observed_at', pg_catalog.to_char(
+                v_now AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+            ),
+            'registries', v_result
         ));
 
     ELSE
