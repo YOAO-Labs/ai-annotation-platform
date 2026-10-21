@@ -36,3 +36,11 @@ Redis PING 和一次 exact inflight=0 不是持久停流证明。路由候选暂
 ## Notes
 
 本地验收使用隔离 PostgreSQL，强制真实锁等待并通过 `pg_blocking_pids` 确认交叠；后端 I/O 为受控替身。旧健康、Registry 和 Pool 观测文件保持原字节，仅健康重放显式容许 member-read → pool-lock → member-lock 的锁序变化。此前单独声明的移除响应修正继续保留。完整迁移、恢复、工件和本地结果记录于 `.worktree/inference-topology-qualification.json`。未切换主开发或生产环境，Go 实验范围不变。
+
+## Scoped local qualification
+
+本轮选择151项去重通过检查，包含25项真实 PostgreSQL 并发与拓扑边界；受控后端 I/O 为替身，并非真实 GPU 或生产负载。原实现先重现三条死锁。24组健康、58组 Registry 和38组 Pool 旧观测回放匹配既定差异规则；六个冻结文件与修复前提交逐字节相同。五阶段完整迁移和非空 Workspace 配置／绑定恢复通过。
+
+独立非 editable 安装的 Inference／Workspace 分别通过132／449项，50／272个包文件与源码一致；源码 Inference／共享合同另通过132项。源提交9ca449f09的三项镜像在无网络、只读、降权容器中完成冷检查，API 的1,246项输入、OpenAPI 和 Native head275相符。镜像冷检查不代表独立健康服务执行资格。
+
+最终34项组合批次的测试退出码为0；外层脚本首次资源销毁报 WorktreeError，因此原回执保留failed。单独重新核验容器标签、数据库 marker、完整资源拓扑及精确确认值后，清理重试成功并记录恢复回执，没有强制断开未知连接。另一次旧行为回放因未传基线摘要参数而拒绝执行，补齐固定摘要后通过；失败尝试不计入通过总数。日常开发与生产未迁移或刷新。
