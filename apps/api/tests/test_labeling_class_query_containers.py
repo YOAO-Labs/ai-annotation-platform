@@ -317,7 +317,12 @@ async def _labeling_owner_container(test_engine, directory: Path, token: str):
         attached_postgres = (network.get("Containers") or {}).get(postgres_id)
         assert attached_postgres is not None
         assert attached_postgres.get("Name") == postgres_name
-        assert postgres_alias in (attached_postgres.get("Aliases") or [])
+        assert (
+            postgres_alias
+            in _inspect_docker(postgres_id)["NetworkSettings"]["Networks"][
+                network_name
+            ]["Aliases"]
+        )
 
         container_id = _docker(
             "run",
@@ -377,7 +382,12 @@ async def _labeling_owner_container(test_engine, directory: Path, token: str):
         network_members = network.get("Containers") or {}
         assert set(network_members) == {postgres_id, container_id}
         assert network_members[postgres_id].get("Name") == postgres_name
-        assert postgres_alias in (network_members[postgres_id].get("Aliases") or [])
+        assert (
+            postgres_alias
+            in _inspect_docker(postgres_id)["NetworkSettings"]["Networks"][
+                network_name
+            ]["Aliases"]
+        )
         assert network_members[container_id].get("Name") == container_name
         async with httpx.AsyncClient(trust_env=False, timeout=10) as client:
             unauthorized = await client.post(
@@ -424,9 +434,12 @@ async def _labeling_owner_container(test_engine, directory: Path, token: str):
                     )
                 if postgres_id in attachments:
                     entry = attachments[postgres_id]
+                    _verify_postgres(test_engine.url)
+                    aliases = _inspect_docker(postgres_id)["NetworkSettings"][
+                        "Networks"
+                    ][network_name]["Aliases"]
                     if not (
-                        entry.get("Name") == postgres_name
-                        and postgres_alias in (entry.get("Aliases") or [])
+                        entry.get("Name") == postgres_name and postgres_alias in aliases
                     ):
                         raise AssertionError(
                             "PostgreSQL network attachment identity changed"
@@ -594,22 +607,6 @@ async def test_labeling_owner_container_public_api_restart_and_bounded_load(
                                             frozen
                                         )
                                         observed.append(replayed)
-                                        if interleave_id is not None:
-                                            async with (
-                                                test_engine.begin() as connection
-                                            ):
-                                                await connection.execute(
-                                                    text(
-                                                        "DELETE FROM public.annotations "
-                                                        "WHERE id=CAST(:annotation_id AS uuid)"
-                                                    ),
-                                                    {
-                                                        "annotation_id": str(
-                                                            interleave_id
-                                                        )
-                                                    },
-                                                )
-                                            interleave_id = None
                                 finally:
                                     if interleave_id is not None:
                                         async with test_engine.begin() as connection:

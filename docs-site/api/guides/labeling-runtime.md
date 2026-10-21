@@ -1,7 +1,7 @@
 ---
 audience: [dev]
 type: reference
-status: draft
+status: stable
 last_reviewed: 2026-10-21
 ---
 
@@ -57,5 +57,7 @@ Project Query 配置；部署时同步更新匹配的 Workspace／Labeling 工�
 使用单独的 Compose project 名运行，日常主环境不会自动切换。
 
 三路径响应、真实语句间提交、调用方回滚、完整迁移与当前库备份恢复已通过本地检查；
-受限镜像和容器验收仍在推进。范围、冻结样本与剩余门槛见
+受限镜像、独立容器、重启和有限并发检查也已通过。容器仅配置两个只读凭据，
+使用 1 CPU／256 MiB；16 次请求、并发 4 的结果一致。数据库和 API 不在这个资源预算内，
+这些结果不代表生产容量。范围、冻结样本与剩余门槛见
 [ADR-0142](/dev/adr/0142-labeling-class-usage-query-owner)。

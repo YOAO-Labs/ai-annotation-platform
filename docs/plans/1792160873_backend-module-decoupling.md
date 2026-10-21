@@ -3939,8 +3939,25 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   compatibility cases, preserving79 frozen public observations per binding on
   the current noneditable artifact. These are compatibility checks for the new
   manager operation and shared utility move, not repeated qualification totals.
-- Current restricted images, live container/restart and
-  bounded concurrency qualification remain open. This selected query owner does
-  not close complete Labeling, Workspace, ten modules/seven gates, another-language
-  replacement or production capacity. Primary runtime and Go experiment remain
-  unchanged.
+- Current restricted Labeling/Workspace/API images qualify committed production
+  inputs `d3a3a25212f7ba9a87b0e24b3593ae85ec6b1576`, matching10/186/196 installed
+  package files and209 API/Native inputs. API retains exact public OpenAPI and
+  head0266. An initial cold probe compared different transport/row-set schemas;
+  corrected checks pass on the same image, with the failed attempt retained.
+- The actual nonroot, read-only Labeling container uses1CPU/256MiB, two read-only
+  secrets and its own temporary PG network. Both HTTP owners preserve16 frozen
+  public samples and raw500. New committed attributes are immediately visible;
+  16 requests at concurrency4 match, without OOM. Restart changes the ephemeral
+  port; the test discovers the new origin and verifies the same public result.
+  Database/API resources are outside the owner budget. The final union passes41
+  distinct selected database/process cases, including ten old current-schema
+  restores, with no unresolved failures/skips. Earlier attempts remain separate;
+  retry counts are not added twice. All task-owned live resources are removed
+  without cleanup errors. Aggregate evidence is
+  `.worktree/labeling-class-query-owner-qualification.json`.
+- This selected query owner does not close complete Labeling, Workspace, ten
+  modules/seven gates, another-language replacement or production capacity. Primary
+  runtime and Go experiment remain unchanged. Next freeze actual Project class
+  rename behavior before moving its Workspace configuration and Labeling writes
+  into a shared transactional command. Guide object I/O, named pipelines,
+  remaining cross-owner consumers and other modules remain open.

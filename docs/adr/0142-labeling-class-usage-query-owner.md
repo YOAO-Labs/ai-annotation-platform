@@ -1,6 +1,6 @@
 # 0142 — Labeling Class Usage Query Owner
 
-- **Status:** Accepted; runtime qualification in progress
+- **Status:** Accepted; selected local qualification complete
 - **Date:** 2026-10-21
 - **Deciders:** Backend architecture team
 - **Supersedes:** None
@@ -118,7 +118,38 @@ removed with no cleanup errors. Initial restore harness failures (missing
 interleaved fixture state and clone URL/driver selection) are retained separately
 and resolved without changing the frozen baseline or database safety guards.
 
-Restricted images and live container/restart sampling remain pending.
-This is a selected read slice on a
-Mac ARM64 host, not complete Labeling or Workspace, production capacity, primary
-cutover or another-language provider qualification. Go remains experimental.
+Current committed production inputs are `d3a3a25212f7ba9a87b0e24b3593ae85ec6b1576`.
+Three fresh linux/arm64 images pass restricted offline checks:
+
+| Artifact  | Image ID                                                                  | Verified installed files             |
+| --------- | ------------------------------------------------------------------------- | ------------------------------------ |
+| Labeling  | `sha256:167bc5c9b12e3c822c43251865abafc0205b55673e719eaadf5ec65d46f41aff` | 10 package files                     |
+| Workspace | `sha256:141f400583c23a1355fb0797214e62696f2a3accec3bd01a31f087c2b1c8aa90` | 186 package files                    |
+| API       | `sha256:229631c015ff0975c85de5e1f3d664d281385c76e60546bab8608b6e932ef4cf` | 196 package and 209 API/Native files |
+
+Each image matches its committed source bytes. The API cold proof retains current
+OpenAPI, head0266 and the guard-before-projection coordinator. An initial probe
+incorrectly compared the transport schema to the deliberately different Native
+row-set schema; corrected policy/row-set checks pass on the same built image.
+The failed probe report is retained separately, and its container was removed.
+
+The actual Labeling container uses a read-only root, nonroot UID10006, dropped
+capabilities, no-new-privileges, 1CPU/256MiB and exactly two read-only secret files.
+It connects to only the task-owned PostgreSQL network. Workspace runs as a
+separately installed HTTP peer without Briefs configuration. All16 public samples
+match, including plain500; a newly committed attribute is visible immediately.
+Sixteen requests at concurrency4 return the same counts without OOM. Restart
+changes the ephemeral port; inspecting the new origin and reconfiguring the API
+preserves the result. The database and API are outside this owner resource budget.
+
+The final union has 41 distinct selected database/process cases, no unresolved
+failures or skips. It includes ten existing current-schema restore regressions;
+retries replace earlier case outcomes rather than increasing the total. The
+aggregate is `.worktree/labeling-class-query-owner-qualification.json`. Task-owned
+containers, network, credentials, databases and buckets are removed without
+cleanup errors. Source/installed suites and the143 inapplicable static rules stay
+separate from this union. Documentation build and final diff checks pass.
+
+This qualifies one read slice on a Mac ARM64 host. Complete Labeling, Workspace,
+ten modules/seven gates, production capacity, primary cutover and another-language
+provider remain unfinished. Go remains experimental.
