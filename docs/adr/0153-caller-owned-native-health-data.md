@@ -19,7 +19,7 @@ Native0277 在 `aap_inference_health_data_v1` 发布11项固定能力：policy�
 
 Native apply 先按 Registry → Pool → Member 锁序复核归属与旧版本，再应用这两种状态转换；不一致报40001。能力规范化与指纹仍由可信协调器计算，SQL 不再实现另一份策略。读取 Pool 先锁 Registry KEY SHARE，单独触发的对账同样遵循锁序。此版本检查不构成路由停流或 Redis 连续性证明。
 
-`HealthDataPostgresData.bind(connection)` 是不依赖 API／ORM 的独立包实现，只借用已经处于事务中的 asyncpg 连接。绑定核验函数白名单和精确 Native policy；该实现不创建、提交、回滚或关闭连接。它完整解码 Registry／Pool JSONB 并保留 DTO 身份和延迟 apply；最终事务仍由调用者管理。
+`HealthDataPostgresData.bind(connection)` 是不依赖 API／ORM 的独立包实现，只借用已经处于事务中的 asyncpg 连接。绑定核验函数白名单和精确 Native policy；该实现不创建、提交、回滚或关闭连接。它完整解码 Registry／Pool JSONB 并保留 DTO 身份和延迟 apply；最终事务仍由调用者管理。绑定记录原事务 XID；每次 Native RPC 前核验该事务仍处于活动状态且 XID 相同。提交、回滚或换事务后拒绝复用，调用方必须建立新绑定。这会在独立 asyncpg 路径增加事务元数据查询，不改变 API 的 ORM 兼容路径。
 
 `inference_health_data_client` 是可信协调器的数据角色，只获得上述11函数，没有原表、序列、TEMP 或其他 owner 权限。观察角色与 subject origin 角色不增加健康写权限。API 的兼容绑定仍使用过渡角色和原 ORM unit of work，尚未移除整套 API 的宽表权限。没有新增公开 HTTP 健康写接口，也不接受来自公开请求的 healthy/capabilities 权威值。
 

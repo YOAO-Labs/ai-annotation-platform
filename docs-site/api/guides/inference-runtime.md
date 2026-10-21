@@ -161,6 +161,6 @@ Registry/GPU membership、写回和对账；观察服务没有健康业务写权
 
 ### 同事务的健康数据能力
 
-`aap_inference_health_data_v1` 提供11项固定数据函数，后端状态写回与能力对账都不自行提交。API 保留原 Session 的对象身份、自动刷新及延迟 flush；独立安装包也可使用 `await HealthDataPostgresData.bind(connection)` 绑定已开启事务的 asyncpg 连接，再由调用方提交或回滚。
+`aap_inference_health_data_v1` 提供11项固定数据函数，后端状态写回与能力对账都不自行提交。API 保留原 Session 的对象身份、自动刷新及延迟 flush；独立安装包也可使用 `await HealthDataPostgresData.bind(connection)` 绑定已开启事务的 asyncpg 连接，再由调用方提交或回滚。提交或回滚后须丢弃绑定；原绑定在事务结束或更换后拒绝继续调用。
 
 迁移后依次应用 `module-data-grants.sql` 与 `inference-health-data-grants.sql`，为 `inference_health_data_client` 授予封闭的11函数。此角色属于可信健康协调器，没有 Registry／Pool 原表权限；不能用它接收任意公开 HTTP 的健康结果。观察角色与签发／验证角色保持独立。完整远程协调、其他控制面写入与全模块替换仍在推进，见 [ADR-0153](/dev/adr/0153-caller-owned-native-health-data)。

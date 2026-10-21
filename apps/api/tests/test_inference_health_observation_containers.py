@@ -71,7 +71,11 @@ async def _observer_container(dsn, token):
     prefix = os.environ.get(
         "AAP_HEALTH_OBSERVATION_QUALIFICATION_PREFIX", "inference-health-observation"
     )
-    assert prefix in {"inference-health-observation", "inference-health-data"}
+    assert prefix in {
+        "inference-health-observation",
+        "inference-health-data",
+        "inference-health-data-transaction",
+    }
     artifact = json.loads(
         (ROOT / f".worktree/{prefix}-inference-image-artifact.json").read_text()
     )

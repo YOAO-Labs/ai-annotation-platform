@@ -13,6 +13,8 @@ _SCHEMA = "aap_inference_health_data_v1"
 _POLICY_SCHEMA = "aap-inference-health-data-native/v1"
 _DATA_PROTOCOL = "aap-inference-health-data/v1"
 _POLICY_SQL = f"SELECT {_SCHEMA}.health_data_policy()"
+_BIND_TRANSACTION_SQL = "SELECT pg_catalog.pg_current_xact_id()::text"
+_TRANSACTION_SQL = "SELECT pg_catalog.pg_current_xact_id_if_assigned()::text"
 _BACKEND_READ_SQL = f"SELECT * FROM {_SCHEMA}.backend_row($1::uuid, false)"
 _BACKEND_LOCK_SQL = f"SELECT * FROM {_SCHEMA}.backend_row($1::uuid, true)"
 _MEMBERSHIP_READ_SQL = (
@@ -290,8 +292,9 @@ def _canonical_snapshot_json(snapshot: dict[str, Any]) -> str:
 class HealthDataPostgresData:
     """Borrow one active transaction; discard this binding when the caller ends it."""
 
-    def __init__(self, connection: Any) -> None:
+    def __init__(self, connection: Any, transaction_id: str) -> None:
         self._connection = connection
+        self._transaction_id = transaction_id
         self._backends: dict[UUID, BackendHealthRow] = {}
         self._pools: dict[UUID, HealthServicePoolRow] = {}
         self._members: dict[UUID, HealthPoolMemberRow] = {}
@@ -320,11 +323,32 @@ class HealthDataPostgresData:
             raise HealthDataUnavailable() from None
         if not health_data_policy_ready(policy):
             raise HealthDataUnavailable()
-        return cls(connection)
+        try:
+            transaction_id = await connection.fetchval(_BIND_TRANSACTION_SQL)
+        except Exception:
+            raise HealthDataUnavailable() from None
+        if type(transaction_id) is not str or not transaction_id.isdecimal():
+            raise HealthDataUnavailable()
+        return cls(connection, transaction_id)
+
+    async def _assert_transaction(self) -> None:
+        if (
+            self._connection.is_in_transaction() is not True
+            or await self._connection.fetchval(_TRANSACTION_SQL) != self._transaction_id
+        ):
+            raise HealthDataUnavailable()
+
+    async def _fetchrow(self, statement, *args):
+        await self._assert_transaction()
+        return await self._connection.fetchrow(statement, *args)
+
+    async def _fetchval(self, statement, *args):
+        await self._assert_transaction()
+        return await self._connection.fetchval(statement, *args)
 
     async def _backend_row(self, registry_id: UUID, *, for_update: bool):
         statement = _BACKEND_LOCK_SQL if for_update else _BACKEND_READ_SQL
-        record = await self._connection.fetchrow(statement, _uuid(registry_id))
+        record = await self._fetchrow(statement, _uuid(registry_id))
         if record is None:
             return None
         return _decode_backend(record)
@@ -358,7 +382,7 @@ class HealthDataPostgresData:
         if type(gpu_resource_id) is not str:
             raise HealthDataUnavailable()
         statement = _MEMBERSHIP_LOCK_SQL if for_update else _MEMBERSHIP_READ_SQL
-        record = await self._connection.fetchrow(
+        record = await self._fetchrow(
             statement,
             _uuid(registry_id),
             gpu_resource_id,
@@ -366,7 +390,7 @@ class HealthDataPostgresData:
         return None if record is None else _decode_membership(record)
 
     async def clock_timestamp(self) -> datetime | None:
-        return await self._connection.fetchval(_CLOCK_SQL)
+        return await self._fetchval(_CLOCK_SQL)
 
     async def lock_current_backend(self, registry_id: UUID) -> BackendHealthRow | None:
         row = await self._backend_row(registry_id, for_update=True)
@@ -377,10 +401,10 @@ class HealthDataPostgresData:
     async def lock_gpu_resource(self, resource_id: str) -> None:
         if type(resource_id) is not str:
             raise HealthDataUnavailable()
-        await self._connection.fetchval(_LOCK_RESOURCE_SQL, resource_id)
+        await self._fetchval(_LOCK_RESOURCE_SQL, resource_id)
 
     async def try_membership_promotion(self) -> bool | None:
-        return await self._connection.fetchval(_TRY_PROMOTION_SQL)
+        return await self._fetchval(_TRY_PROMOTION_SQL)
 
     async def write_health(
         self,
@@ -400,7 +424,7 @@ class HealthDataPostgresData:
         health_meta_json = json.dumps(values["health_meta"])
         has_interactive = "is_interactive" in values
         interactive = values["is_interactive"] if has_interactive else False
-        rowcount = await self._connection.fetchval(
+        rowcount = await self._fetchval(
             _WRITE_BACKEND_SQL,
             _uuid(registry_id),
             state,
@@ -427,12 +451,12 @@ class HealthDataPostgresData:
             _copy_row(backend, cached)
 
     async def read_member_pool(self, registry_id: UUID) -> UUID | None:
-        value = await self._connection.fetchval(_MEMBER_POOL_SQL, _uuid(registry_id))
+        value = await self._fetchval(_MEMBER_POOL_SQL, _uuid(registry_id))
         return _uuid(value, nullable=True)
 
     async def load_pool_member(self, registry_id: UUID) -> HealthPoolMemberRow | None:
         registry_id = _uuid(registry_id)
-        record = await self._connection.fetchrow(_MEMBER_SQL, registry_id)
+        record = await self._fetchrow(_MEMBER_SQL, registry_id)
         row = None if record is None else _decode_member(record)
         if self._intent is not None and self._intent.member.registry_id == registry_id:
             self._intent = None
@@ -452,7 +476,7 @@ class HealthDataPostgresData:
         registry_id: UUID,
     ) -> HealthServicePoolRow | None:
         pool_id = _uuid(pool_id)
-        record = await self._connection.fetchrow(
+        record = await self._fetchrow(
             _POOL_SQL,
             pool_id,
             _uuid(registry_id),
@@ -503,7 +527,7 @@ class HealthDataPostgresData:
         if intent is None:
             return
         snapshot_json = _canonical_snapshot_json(intent.snapshot)
-        record = await self._connection.fetchrow(
+        record = await self._fetchrow(
             _APPLY_RECONCILIATION_SQL,
             intent.registry_id,
             _uuid(intent.pool.id),

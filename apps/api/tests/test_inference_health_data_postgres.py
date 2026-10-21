@@ -125,6 +125,17 @@ async def test_portable_coordinator_function_login_keeps_outer_commit_and_gpu_pr
             else:
                 await tx.rollback()
             tx = None
+            with pytest.raises(HealthDataUnavailable):
+                await data.clock_timestamp()
+            replacement = client.transaction()
+            await replacement.start()
+            try:
+                with pytest.raises(HealthDataUnavailable):
+                    await data.get_backend(world["registry_id"])
+                fresh = await HealthDataPostgresData.bind(client)
+                assert await fresh.get_backend(world["registry_id"]) is not None
+            finally:
+                await replacement.rollback()
             assert (
                 await owner.fetchval(
                     "SELECT last_checked_at FROM ml_backend_registry WHERE id=$1",

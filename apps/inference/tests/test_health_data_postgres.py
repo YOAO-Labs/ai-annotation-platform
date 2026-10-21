@@ -18,6 +18,8 @@ from aap_inference.health_data_postgres import (
     _APPLY_RECONCILIATION_SQL,
     _BACKEND_LOCK_SQL,
     _BACKEND_READ_SQL,
+    _BIND_TRANSACTION_SQL,
+    _TRANSACTION_SQL,
     _FUNCTIONS,
     _MEMBERSHIP_LOCK_SQL,
     _MEMBERSHIP_READ_SQL,
@@ -113,7 +115,7 @@ class _Connection:
         self.policy = policy
         self.calls = []
         self.rows = {}
-        self.values = {}
+        self.values = {_BIND_TRANSACTION_SQL: "123", _TRANSACTION_SQL: "123"}
         self.commit_count = 0
         self.rollback_count = 0
         self.close_count = 0
@@ -122,7 +124,8 @@ class _Connection:
         return self.active
 
     async def fetchval(self, statement, *args):
-        self.calls.append(("fetchval", statement, args))
+        if statement not in {_BIND_TRANSACTION_SQL, _TRANSACTION_SQL}:
+            self.calls.append(("fetchval", statement, args))
         if statement == _POLICY_SQL:
             return self.policy
         return self.values[statement]
@@ -534,3 +537,22 @@ async def test_cached_identity_still_materializes_unused_database_json(monkeypat
     with pytest.raises(ValueError):
         await data.get_backend(_REGISTRY_ID)
     assert backend.url == "http://caller-pending.test"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ended", [True, False])
+async def test_binding_rejects_ended_or_replaced_caller_transaction(monkeypatch, ended):
+    connection = _Connection()
+    connection.rows[_BACKEND_READ_SQL] = [_backend_row()]
+    data = await _bound(monkeypatch, connection)
+    calls = list(connection.calls)
+    connection.active = not ended
+    connection.values[_TRANSACTION_SQL] = "124"
+    with pytest.raises(HealthDataUnavailable):
+        await data.get_backend(_REGISTRY_ID)
+    assert connection.calls == calls
+    assert (
+        connection.commit_count,
+        connection.rollback_count,
+        connection.close_count,
+    ) == (0, 0, 0)
