@@ -49,7 +49,7 @@ function page(
   offset = 0,
 ): TrainingDatasetSamplePage {
   items.forEach((sample) => retained.set(`${sample.version_id}/${sample.task_id}`, sample));
-  return { source_version_id: versionId, items, total, offset, limit: 10 };
+  return { source_version_id: versionId, items, total, offset, limit: 20 };
 }
 
 function normalMembers(_projectId: string, versionId: string, filters: DatasetSampleFilters) {
@@ -107,7 +107,7 @@ beforeEach(() => {
       ],
       total: 1,
       offset,
-      limit: 500,
+      limit: 20,
     }),
   );
   vi.mocked(trainingDatasetsApi.sampleMedia).mockResolvedValue(
@@ -137,7 +137,7 @@ describe("frozen content comparison", () => {
       expect(trainingDatasetsApi.samples).toHaveBeenCalledWith(
         "project-1",
         versionId,
-        { limit: 10, offset: 0, content_sha256: CONTENT },
+        { limit: 20, offset: 0, content_sha256: CONTENT },
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       );
       expect(trainingDatasetsApi.sampleMedia).toHaveBeenCalledWith(
@@ -171,6 +171,7 @@ describe("frozen content comparison", () => {
         expect.anything(),
         expect.anything(),
         expect.anything(),
+        20,
       );
     },
   );
@@ -215,7 +216,7 @@ describe("frozen content comparison", () => {
         const offset = filters.offset ?? 0;
         return page(
           versionId,
-          Array.from({ length: Math.min(10, 12 - offset) }, (_, index) =>
+          Array.from({ length: Math.min(filters.limit ?? 20, 12 - offset) }, (_, index) =>
             member(versionId, `baseline-${index + offset}`),
           ),
           12,
@@ -227,6 +228,10 @@ describe("frozen content comparison", () => {
     const baseline = screen.getByRole("region", { name: "基线版本" });
     expect(await within(baseline).findByText("共 12 个训练成员")).toBeVisible();
     await userEvent.selectOptions(
+      within(baseline).getByRole("combobox", { name: "每页基线版本成员数" }),
+      "10",
+    );
+    await userEvent.selectOptions(
       within(baseline).getByLabelText("基线版本冻结成员"),
       "baseline-7",
     );
@@ -237,6 +242,7 @@ describe("frozen content comparison", () => {
         "baseline-7",
         0,
         expect.anything(),
+        20,
       ),
     );
     await userEvent.click(within(baseline).getByRole("button", { name: "下一页成员" }));
@@ -248,6 +254,7 @@ describe("frozen content comparison", () => {
         "baseline-10",
         0,
         expect.anything(),
+        20,
       ),
     );
     expect(within(baseline).getByLabelText("基线版本冻结成员")).toHaveValue("baseline-10");
@@ -283,6 +290,7 @@ describe("frozen content comparison", () => {
         "next-target-member",
         0,
         expect.anything(),
+        20,
       ),
     );
     await act(async () => {
@@ -425,5 +433,26 @@ describe("frozen content comparison", () => {
     );
     expect(outerClose).not.toHaveBeenCalled();
     await waitFor(() => expect(opener).toHaveFocus());
+  });
+  it("changes one side's member page size without changing the opposite side", async () => {
+    const user = userEvent.setup();
+    mount();
+    const baseline = screen.getByRole("region", { name: "基线版本" });
+    await within(baseline).findByText("基线类别");
+    await user.selectOptions(
+      within(baseline).getByRole("combobox", { name: "每页基线版本成员数" }),
+      "50",
+    );
+    await waitFor(() =>
+      expect(trainingDatasetsApi.samples).toHaveBeenLastCalledWith(
+        "project-1",
+        "baseline",
+        { limit: 50, offset: 0, content_sha256: CONTENT },
+        expect.anything(),
+      ),
+    );
+    expect(
+      vi.mocked(trainingDatasetsApi.samples).mock.calls.filter((call) => call[1] === "target"),
+    ).toHaveLength(1);
   });
 });

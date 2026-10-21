@@ -82,7 +82,7 @@ beforeEach(() => {
   vi.mocked(trainingDatasetsApi.classes).mockResolvedValue({
     items: [insightClass],
     total: 1,
-    limit: 25,
+    limit: 20,
     offset: 0,
   });
   vi.mocked(trainingDatasetsApi.list).mockResolvedValue({
@@ -100,7 +100,7 @@ beforeEach(() => {
     items: [insightSample],
     total: 26,
     offset: 0,
-    limit: 25,
+    limit: 20,
   });
 });
 afterEach(() => {
@@ -171,7 +171,7 @@ describe("frozen training data insights", () => {
     expect(trainingDatasetsApi.samples).toHaveBeenLastCalledWith(
       "project-1",
       insightVersion.id,
-      expect.objectContaining({ class_index: 0, split: "train", offset: 0, limit: 25 }),
+      expect.objectContaining({ class_index: 0, split: "train", offset: 0, limit: 20 }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     await user.click(screen.getByRole("button", { name: "下一页样本" }));
@@ -179,7 +179,7 @@ describe("frozen training data insights", () => {
       expect(trainingDatasetsApi.samples).toHaveBeenLastCalledWith(
         "project-1",
         insightVersion.id,
-        expect.objectContaining({ offset: 25, class_index: 0 }),
+        expect.objectContaining({ offset: 20, class_index: 0 }),
         expect.anything(),
       ),
     );
@@ -194,7 +194,7 @@ describe("frozen training data insights", () => {
       items: [{ ...insightSample, version_id: "dataset-old" }],
       total: 1,
       offset: 0,
-      limit: 25,
+      limit: 20,
     });
     mount("&data_view=compare&data_baseline=dataset-old");
     expect(await screen.findByText("包含重复次数的评估基准：已变化")).toBeVisible();
@@ -207,6 +207,7 @@ describe("frozen training data insights", () => {
         "ready",
         expect.anything(),
         { task: "detect" },
+        20,
       ),
     );
     await user.click(screen.getByRole("button", { name: /移除内容/ }));
@@ -231,7 +232,7 @@ describe("frozen training data insights", () => {
       source_version_id: insightVersion.id,
       items: [],
       total: 0,
-      limit: 25,
+      limit: 20,
       offset: 0,
     });
     await user.selectOptions(screen.getByLabelText("样本类型"), "negative");
@@ -288,5 +289,76 @@ describe("frozen training data insights", () => {
     act(() => useAuthStore.getState().setAuth("session-b", { id: "user-b" } as MeResponse));
     await waitFor(() => expect(trainingDatasetsApi.insights).toHaveBeenCalledTimes(before + 1));
     expect(screen.getByRole("heading", { name: "新版本" })).toBeVisible();
+  });
+  it("clamps a stale sample page after the server collection shrinks", async () => {
+    mount("&data_view=samples&data_page=8");
+    await waitFor(() =>
+      expect(trainingDatasetsApi.samples).toHaveBeenLastCalledWith(
+        "project-1",
+        insightVersion.id,
+        expect.objectContaining({ limit: 20, offset: 20 }),
+        expect.anything(),
+      ),
+    );
+    expect(screen.getByTestId("url")).toHaveTextContent("data_page=1");
+    expect(screen.getByRole("button", { name: "下一页样本" })).toBeDisabled();
+  });
+  it("restores sample page size from the URL and resets the real server offset when resizing", async () => {
+    const user = userEvent.setup();
+    vi.mocked(trainingDatasetsApi.samples).mockResolvedValue({
+      source_version_id: insightVersion.id,
+      items: [insightSample],
+      total: 201,
+      offset: 50,
+      limit: 50,
+    });
+    mount("&data_view=samples&data_page=1&data_page_size=50");
+    await screen.findByRole("button", { name: "预览冻结样本" });
+    expect(trainingDatasetsApi.samples).toHaveBeenLastCalledWith(
+      "project-1",
+      insightVersion.id,
+      expect.objectContaining({ limit: 50, offset: 50 }),
+      expect.anything(),
+    );
+    await user.selectOptions(screen.getByRole("combobox", { name: "每页样本数" }), "100");
+    await waitFor(() =>
+      expect(trainingDatasetsApi.samples).toHaveBeenLastCalledWith(
+        "project-1",
+        insightVersion.id,
+        expect.objectContaining({ limit: 100, offset: 0 }),
+        expect.anything(),
+      ),
+    );
+    expect(screen.getByTestId("url")).toHaveTextContent("data_page_size=100");
+    expect(screen.getByTestId("url")).toHaveTextContent("data_page=0");
+  });
+  it("uses the class page size for both server pagination and URL state", async () => {
+    const user = userEvent.setup();
+    vi.mocked(trainingDatasetsApi.classes).mockResolvedValue({
+      items: [insightClass],
+      total: 101,
+      offset: 0,
+      limit: 20,
+    });
+    mount();
+    await screen.findByRole("combobox", { name: "每页类别数" });
+    await user.selectOptions(screen.getByRole("combobox", { name: "每页类别数" }), "50");
+    await waitFor(() =>
+      expect(trainingDatasetsApi.classes).toHaveBeenLastCalledWith(
+        "project-1",
+        insightVersion.id,
+        expect.objectContaining({ limit: 50, offset: 0 }),
+        expect.anything(),
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "下一页类别" }));
+    await waitFor(() =>
+      expect(trainingDatasetsApi.classes).toHaveBeenLastCalledWith(
+        "project-1",
+        insightVersion.id,
+        expect.objectContaining({ limit: 50, offset: 50 }),
+        expect.anything(),
+      ),
+    );
   });
 });
