@@ -80,14 +80,19 @@ Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事�
 源码与非 editable 安装各通过 273 项 Workspace 检查；本地并发样本不代表生产容量。见
 [ADR-0143](/dev/adr/0143-workspace-project-class-rename-owner)。
 
-## 指南对象能力与待迁移命令
+## 指南素材命令与对象能力
 
 指南签名、HEAD 和普通删除已有独立字节合同，由既有 Assets Source 二进制提供。
-`guide-only` 不需要数据库凭据；Workspace 保留项目权限与元数据，公共指南工作流已接入，命令验收仍在推进。
+`guide-only` 不需要数据库凭据；Workspace 保留项目权限与元数据，公共指南工作流已接入。
 源码 449 项、独立安装的 Source 439 项检查通过，十五个包的 154 个文件指纹一致。
 两个去重选定真实运行案例覆盖独立进程与受限容器；容器重启后重新检查端口并保留上传对象。
 1 CPU／256 MiB 的 16 个并发 HEAD 得到 5 个成功、11 个预期 busy，无其他错误或 OOM；
-这不代表生产容量，也未完成整个指南命令或 Workspace。后续权限围栏、三路径及恢复验收见
+命令的本地选定验收另有 53 个去重 DB/process 案例，包含 12 项既有恢复兼容检查；无有效跳过。
+借用事务、专用 DSN 和独立 HTTP 均匹配 11 个冻结场景，实际权限锁、非空登记的备份恢复、
+克隆库独立写入与撤权均通过。源码与独立 Workspace 安装各通过 314 项，251 个包文件一致；
+Workspace 无 S3 凭据，复用受限 Source 字节能力。两个实际受限容器完成重启读取及 16 次并发签名，
+均返回 200；API、数据库及对象存储在 owner 资源预算之外。它不代表生产容量、完整 Workspace／Assets
+或非 Python 提供方替换资格；精确工件、失败尝试与验收范围见
 [ADR-0144](/dev/adr/0144-workspace-guide-assets-owner)。
 
 ## Workspace 项目成员生命周期命令

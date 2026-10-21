@@ -451,8 +451,10 @@ async def _clone_only_write_cycle(
             assert complete_reply.get("content_type") == "image/png"
             clone_assets = await asset_list(maker, project_id, aliases)
             assert len(clone_assets) == len(retained_assets) + 1
-            assert any(item.get("key") == key for item in clone_assets)
-            assert any(item.get("key") == retained_key for item in clone_assets)
+            assert any(item.get("key") == aliases[key] for item in clone_assets)
+            assert any(
+                item.get("key") == aliases[retained_key] for item in clone_assets
+            )
             assert (
                 await asset_list(source_maker, project_id, aliases) == retained_assets
             )
@@ -510,6 +512,7 @@ async def _disable_clone_owner_and_check_source(
     source_assets,
     aliases,
     guide_file,
+    source_urls,
 ):
     async with restored_engine.begin() as connection:
         result = await connection.execute(
@@ -560,22 +563,25 @@ async def _disable_clone_owner_and_check_source(
     monkeypatch.setattr(storage_service, "client", source_client)
     monkeypatch.setattr(storage_service, "bucket", bucket)
     try:
-        async with _api_client(
-            source_engine,
-            app_module,
-            monkeypatch,
-            tmp_path,
-            mode="borrowed",
-            scope=scope,
-            bucket=bucket,
-        ) as client:
-            await _sign_and_download(
-                client,
-                project_id=project_id,
-                key=key,
-                token=token,
-                guide_file=guide_file,
-            )
+        with monkeypatch.context() as source_environment:
+            for name, value in source_urls.items():
+                source_environment.setenv(name, value)
+            async with _api_client(
+                source_engine,
+                app_module,
+                monkeypatch,
+                tmp_path,
+                mode="borrowed",
+                scope=scope,
+                bucket=bucket,
+            ) as client:
+                await _sign_and_download(
+                    client,
+                    project_id=project_id,
+                    key=key,
+                    token=token,
+                    guide_file=guide_file,
+                )
     finally:
         source_client.close()
     assert (
@@ -823,6 +829,11 @@ async def test_project_guide_assets_native_capabilities_survive_owned_restore(
             test_engine.url.set(database=clone), hide_parameters=True
         )
         clone_urls = _clone_urls(test_engine, clone)
+        source_urls = {name: required_env(name) for name in clone_urls}
+        assert all(
+            make_url(value).database == test_engine.url.database
+            for value in source_urls.values()
+        )
         for value in clone_urls.values():
             _verify_postgres(make_url(value))
 
@@ -913,6 +924,7 @@ async def test_project_guide_assets_native_capabilities_survive_owned_restore(
                 source_assets=retained_assets,
                 aliases=aliases,
                 guide_file=GUIDE_FILE,
+                source_urls=source_urls,
             )
             assert await asset_list(maker, project_id, aliases) == retained_assets
             await assert_no_configuration_receipts_or_states(

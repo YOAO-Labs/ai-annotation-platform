@@ -1,6 +1,6 @@
 # 0144 — Workspace Guide Assets and Assets Object Capability
 
-- **Status:** Accepted; implementation in progress
+- **Status:** Accepted; selected local owner qualification complete
 - **Date:** 2026-10-21
 - **Deciders:** Backend architecture team
 - **Supersedes:** None
@@ -71,8 +71,8 @@ The service rejects excess in-flight work immediately instead of queuing it.
 
 ## Workspace transition
 
-The planned command extension reuses the existing Configuration owner and its
-borrowed or independent transaction bindings. It must retain these phases:
+The command extension reuses the existing Configuration owner and its borrowed
+or independent transaction bindings. It retains these phases:
 
 - Init: public manager preflight, current account/Project/member shared fences,
   manager check, key/type/size policy, then PUT signing while fenced.
@@ -148,7 +148,7 @@ identities and exact object versions are removed. Image and installed artifacts
 are retained for review; canonical evidence is
 `.worktree/project-guide-object-primitive-qualification.json`.
 
-## Command integration in progress
+## Qualified local command owner
 
 Native 0269 extends the same two Configuration RPCs with stateless guide phases
 and adds only the Workspace guide_assets column UPDATE privilege. Two private
@@ -167,15 +167,57 @@ after the byte effect; complete/delete commits then reads the full row. No Guide
 state or receipt is written, and HTTP commands make one attempt.
 
 The old API workflow, Guide ORM helpers, redundant User read and constant file
-are removed without facades. Frozen response replay, live authority/lock
-interleaving and current command artifact/recovery gates remain open. Workspace
-pure checks currently have 314 passes; four Native and 26 existing public Guide
-cases pass against owned disposable data. Focused API transport/adapter/OpenAPI
-checks have 36 passes, and architecture checks pass with their existing
-inapplicable cases skipped. Failed preparation used the verifier's stale
-0268 head pin; later new driver fixes use an existing UUID directly and inspect
-the Query reply's nested request. Production SQL was unchanged for those fixes.
-This work is separate from the prepared byte primitive and the closed
-class-rename 47-case union. Neither slice completes Workspace, Assets or the
-ten-module/seven-gate objective. Primary and production remain unchanged; Go
-remains an optional experiment.
+are removed without facades. The current selected union has 53 distinct passing
+database/process cases, including twelve existing Identity, Workspace and
+Labeling restore compatibility cases. No selected case remains skipped or
+unresolved. Three binding cases each replay all eleven unchanged old HTTP/S3
+samples, including real denied deletion. Samples and request counts are not
+additional test cases. The byte primitive's two cases and class rename's 47 are
+not added to this union.
+
+Five PostgreSQL interleavings verify revocation after the unlocked HEAD phase,
+member/account/Project lock spans, read-only rollback, best-effort deletion and
+committed metadata despite a failing full-row refresh. A separate dump/restore
+case starts with committed nonempty Guide metadata and real object bytes. Both
+source and clone read that retained asset through all three bindings; clone-only
+uploads, completions and deletions leave the source metadata and object versions
+unchanged. Clone-only account deactivation rejects the clone while the source
+still signs and reads successfully. Function definitions, owners, ACLs and GUCs
+survive restoration; each restricted Configuration/Project Query client retains
+exactly its original two RPCs and no raw-table or cross-owner execution rights.
+
+Full migration validation covers fresh head 0269, the reversible prefix and
+suffix, authentic irreversible role conversion and its pre-conversion snapshot
+restore. The frozen SQL installer also includes the new 0269 SQL/schema pair.
+Workspace source and fresh noneditable suites each pass 314 cases; the installed
+thirteen-package artifact matches 251 Python/JSON files and has no API, ORM,
+Celery, Redis, ML or boto3 dependency. Focused API transport/adapter/exact OpenAPI
+checks pass 36; architecture checks retain their existing inapplicable static
+skips, which are outside the selected union. Existing registry dependencies did
+not change when adding the Guide client assembly.
+
+The current Workspace image matches those 251 package files; the API image
+matches 261 package files and 1227 application/Native inputs, exact OpenAPI and
+head 0269. Both pass read-only, network-disabled, nonroot offline proofs. A live
+Workspace container and separately restricted Source container replay the frozen
+HTTP/S3 sequence with one CPU and 256 MiB each. Workspace has only Configuration
+and two control secrets, no S3 credentials; Source has no database credentials.
+After a real Workspace restart the driver re-inspects its changed host port and
+reads the committed asset. Sixteen concurrent public signing requests all return
+200 in 0.689 seconds, with no OOM. API, PostgreSQL and S3 are outside the owner
+budget; this is a bounded local observation, not production capacity or an SLO.
+The previously qualified Source image is reused with unchanged runtime bytes;
+its older build-input manifest has a later README-only documentation difference.
+
+Failed and incomplete attempts remain in the evidence: old head assertions,
+UUID/reply-shape mistakes, omitted installed-runtime flags and a restore driver's
+source/clone connection switch. Normalized-key assertions were also corrected.
+These required no production SQL or policy changes. Cleanup reports confirm all
+owned databases, IAM identities, object versions, processes, containers and
+networks were removed. Canonical command evidence is
+`.worktree/project-guide-owner-command-qualification.json`.
+
+This selected local owner qualification does not complete Workspace, Assets,
+non-Python provider replacement or the ten-module/seven-gate objective. No
+browser/Vite/CORS, AMD64 or production qualification is inferred. Primary and
+production remain unchanged; Go remains an optional experiment.

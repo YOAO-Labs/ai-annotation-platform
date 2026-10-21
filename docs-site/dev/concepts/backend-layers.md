@@ -283,7 +283,8 @@ DELETE 在围栏内尝试对象删除，失败仍移除登记；无效尺寸的�
 
 Assets Source 的受限签名、HEAD 和普通删除端口持有对象凭据；独立 Workspace 运行时只持有
 `WORKSPACE_GUIDE_OBJECTS_URL` 和专用 bearer。默认 API 装配复用现有 S3 客户端，选择字节 HTTP
-提供方后失败不回退。对象操作不提供版本选择、自动重试或跨资源原子性，当前命令验收范围见
+提供方后失败不回退。对象操作不提供版本选择、自动重试或跨资源原子性。三绑定冻结回放、
+实际权限锁、独立工件、容器重启与非空登记恢复已通过本地限定验收；完整模块与语言替换仍在推进。范围见
 [指南素材 owner ADR](/dev/adr/0144-workspace-guide-assets-owner)。
 
 `application/project_pipeline.py::apply_saved_pipeline` 组合当前项目管理权威与项目 backend 启用检查，再调用 `services/pipeline_template.py::apply_pipeline` 完成快照复制、使用计数和默认项切换。保存编排的创建、更新、删除、结构校验、阶段深拷贝及默认项命令均由 `services/pipeline_template.py` 持有；HTTP 路由只处理请求/可见性、提交、刷新和响应。

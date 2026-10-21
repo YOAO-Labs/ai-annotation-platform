@@ -216,6 +216,7 @@ SQL_ARTIFACTS = (
     "0266_labeling_class_query.sql",
     "0267_labeling_class_rename.sql",
     "0268_workspace_class_rename.sql",
+    "0269_workspace_guide_assets.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -296,6 +297,7 @@ SCHEMA_ARTIFACTS = (
     "0266_labeling_class_query.schema.json",
     "0267_labeling_class_rename.schema.json",
     "0268_workspace_class_rename.schema.json",
+    "0269_workspace_guide_assets.schema.json",
 )
 TEST_FILES = (
     "tests/test_workspace_class_rename_native.py",

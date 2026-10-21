@@ -4174,3 +4174,39 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   cases and class-rename's closed47 remain separate, with no sample/request-count
   inflation. This is not a full Workspace/Assets or ten-module/seven-gate finish;
   primary, production and Go remain unchanged.
+
+### Project guide assets: selected local command owner qualification complete
+
+- The current command union has 53 distinct passing DB/process cases, including
+  twelve existing Identity/Workspace/Labeling restore compatibility cases. No
+  selected case remains skipped or unresolved. Each of three binding replay
+  cases matches the immutable eleven HTTP/S3 samples; sample and request counts
+  are not added as cases. The byte primitive's two cases and class rename's
+  closed 47 remain separate.
+- Five real PostgreSQL interleavings cover revocation after unlocked HEAD,
+  account/Project/member lock spans, read-only rollback, best-effort deletion and
+  a failed full-row refresh after committed metadata. Actual dump/restore starts
+  with nonempty Guide registration and object bytes: source/clone read through
+  all three bindings, clone-only write/delete cycles preserve source data and
+  versions, and clone-only deactivation leaves the source active. Definitions,
+  owners, ACLs, GUCs and each client's original two-RPC restriction survive.
+- Full migration validation at 0269 passes fresh, reversible prefix/suffix, authentic
+  forward conversion and pre-conversion snapshot restore; the frozen installer
+  now includes 0269 SQL/schema. Current-head assertions and test-driver installed
+  environment/source-clone switching were corrected without changing production
+  policy or SQL. All failed/incomplete evidence and exact cleanup results remain.
+- Workspace source and fresh noneditable suites each pass 314; thirteen packages
+  match 251 files without API/ORM/Celery/Redis/ML/boto3. Focused API checks pass 36.
+  Current Workspace and API images pass read-only, nonroot, network-disabled byte
+  proofs; API matches 261 package files and 1227 application/Native inputs. A live
+  Workspace using one CPU and 256 MiB plus separately restricted Source replays all
+  eleven samples, survives a real restart with re-inspected port, and returns 200
+  for all sixteen concurrent signs in 0.689s. API/DB/S3 remain outside the owner budget;
+  this is not production capacity, AMD64, browser/Vite/CORS or an SLO.
+- Canonical evidence: `.worktree/project-guide-owner-command-qualification.json`;
+  decision and limits: ADR0144. Source runtime bytes remain unchanged from its
+  qualified image; its older full build-input manifest has README-only drift.
+  Primary/production remain unchanged and Go remains an experiment. Complete
+  Workspace/Assets and non-Python provider replacement remain unfinished. The
+  next bounded slice freezes named-pipeline HTTP/data behavior before extracting
+  its Inference-owned persistence; Project embedded configuration stays Workspace.
