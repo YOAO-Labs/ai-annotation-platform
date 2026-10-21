@@ -67,17 +67,22 @@ async def _committed_api_client(app, maker):
 
 
 @asynccontextmanager
-async def _query_container(test_engine, directory, token):
-    image = _inspect_docker(os.environ["AAP_WORKSPACE_PROJECT_QUERY_IMAGE"])
+async def _query_container(test_engine, directory, token, *, query_kind="project"):
+    assert query_kind in {"project", "directory"}
+    variable_prefix = f"AAP_WORKSPACE_{query_kind.upper()}_QUERY"
+    port = 8177 if query_kind == "directory" else 8176
+    image = _inspect_docker(os.environ[f"{variable_prefix}_IMAGE"])
     labels = image["Config"]["Labels"]
-    assert labels["org.aap.acceptance"] == "workspace-project-query-owner"
-    assert (
-        labels["org.aap.acceptance-id"]
-        == os.environ["AAP_WORKSPACE_PROJECT_QUERY_IDENTITY"]
-    )
+    assert labels["org.aap.acceptance"] == f"workspace-{query_kind}-query-owner"
+    assert labels["org.aap.acceptance-id"] == os.environ[f"{variable_prefix}_IDENTITY"]
     assert image["Config"]["User"] == "10004:10004"
     assert image["Config"]["Cmd"] == ["python", "-m", "aap_workspace"]
-    parsed = make_url(project_query_dsn(test_engine))
+    from tests.workspace_directory_query_helpers import directory_query_dsn
+
+    selected_dsn = (
+        directory_query_dsn if query_kind == "directory" else project_query_dsn
+    )
+    parsed = make_url(selected_dsn(test_engine))
     container_dsn = parsed.set(host="host.docker.internal").render_as_string(
         hide_password=False
     )
@@ -118,7 +123,7 @@ async def _query_container(test_engine, directory, token):
             "--no-healthcheck",
             "--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=32m",
             "--publish",
-            "127.0.0.1::8176",
+            f"127.0.0.1::{port}",
             "--mount",
             f"type=bind,src={dsn_file},dst=/run/secrets/query,readonly",
             "--mount",
@@ -128,9 +133,9 @@ async def _query_container(test_engine, directory, token):
             "--env",
             "WORKSPACE_HOST=0.0.0.0",
             "--env",
-            "WORKSPACE_PORT=8176",
+            f"WORKSPACE_PORT={port}",
             "--env",
-            "WORKSPACE_PROJECT_QUERY_DATABASE_URL_FILE=/run/secrets/query",
+            f"WORKSPACE_{query_kind.upper()}_QUERY_DATABASE_URL_FILE=/run/secrets/query",
             "--env",
             "WORKSPACE_PROJECT_QUERY_IDENTITY_BRIEFS_DATABASE_URL_FILE=/run/secrets/briefs",
             "--env",
@@ -158,7 +163,7 @@ async def _query_container(test_engine, directory, token):
             "/run/secrets/control": token_file.resolve(),
             "/run/secrets/briefs": briefs_file.resolve(),
         }
-        published = metadata["NetworkSettings"]["Ports"]["8176/tcp"]
+        published = metadata["NetworkSettings"]["Ports"][f"{port}/tcp"]
         assert len(published) == 1 and published[0]["HostIp"] == "127.0.0.1"
         origin = f"http://127.0.0.1:{published[0]['HostPort']}"
         deadline = time.monotonic() + 40

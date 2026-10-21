@@ -1,6 +1,6 @@
 # 0140 — Workspace Directory Query Owner
 
-- **Status:** Accepted; selected directory verification in progress
+- **Status:** Accepted; API image verification pending
 - **Date:** 2026-10-21
 - **Deciders:** Backend architecture team
 - **Supersedes:** None
@@ -80,6 +80,13 @@ inactive-account joins and real manager execution. A deployed-ACL migration test
 performs downgrade/upgrade twice, retaining runtime/client access and grant
 options while denying direct implementation access.
 
+An extended regression also reproduces upgrade failure when an existing client
+uses its grant option to authorize another role. Upgrade now copies every
+grantee's effective EXECUTE/grant-option state before revoking the old function's
+dependent privilege chains. The public wrapper retains access for both roles;
+the private implementation has no non-owner EXECUTE entries. The strengthened
+two-cycle migration regression passes after that correction.
+
 All thirteen frozen HTTP observations match through borrowed, function-only DSN
 and noneditable HTTP providers. The two caller autoflush probes deliberately use
 the borrowed binding. Two installed-process cases verify optional-profile
@@ -89,9 +96,30 @@ without skips. Nine transport cases and exact public OpenAPI also pass.
 Noneditable Workspace passes226 tests and matches all42 source files; its
 Identity, Inference and shared-package manifests also match. Documentation builds.
 
-Restricted owner/API images and a directory backup/restore check remain pending
-for this new artifact; the previous Project query image evidence is not reused
-as Directory qualification.
+The restricted owner image matches184 installed files and passes nonroot,
+read-only, no-network and resource-limit checks. A real Directory container
+performs public reads, sixteen requests at concurrency four and restart within
+1 CPU/256 MiB; the API and database remain outside that budget. Docker changes
+the ephemeral published port on restart, so the test refreshes the actual address
+before readiness and readback. This corrects a failed test attempt without
+changing runtime behavior or increasing its readiness deadline.
+
+Ten restore cases cover the current schema and affected Identity/Workspace
+readers. The configuration restore now also compares both Directory operations
+through separate function-only Directory and Briefs credentials, verifies
+read-only transactions and denies a subsequently inactive actor. The first run
+passes three restore cases but skips seven lacking their explicit opt-in; all
+seven pass in the follow-up. Initial cleanup refuses to proceed; a later owned
+inventory confirms zero connections and the unchanged ownership markers, after
+which the same destruction guard removes only that run's database, Redis,
+buckets and container. The failed report and cleanup retry remain separate.
+
+Full migration validation passes fresh263,173down/base/up, the89-step reversible
+suffix, authentic historical forward conversion and pre-conversion restore.
+All four derived databases and the dump are removed. API image verification
+remains pending for this new artifact; previous Project query image evidence is
+not reused as Directory qualification. These local ARM64 checks do not establish
+production capacity or an SLO.
 
 This is a selected directory boundary. Project `/access`, class-usage reads,
 class rename, guide-object I/O, Inference-owned named pipelines and other

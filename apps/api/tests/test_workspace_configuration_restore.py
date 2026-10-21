@@ -21,7 +21,11 @@ from aap_workspace.project_queries import ProjectQueryManager
 from aap_workspace.project_query_contract import project_query_request
 from aap_workspace.project_query_postgres import ProjectQueryPostgresData
 from aap_workspace.project_query_profiles import ProjectQueryIdentityProfiles
+from aap_workspace.directory_queries import DirectoryQueryManager
+from aap_workspace.directory_query_contract import directory_query_request
+from aap_workspace.directory_query_postgres import DirectoryQueryPostgresData
 from app.db.models.project import Project
+from app.db.models.project_member import ProjectMember
 from app.db.models.project_template import ProjectTemplate
 from app.db.models.user import User
 from tests.factory import create_user
@@ -33,11 +37,25 @@ from tests.workspace_project_query_helpers import (
     project_query_briefs_dsn,
     project_query_dsn,
 )
+from tests.workspace_directory_query_helpers import directory_query_dsn
 
 
 def _project_reader(test_engine, database=None):
     return ProjectQueryManager(
         ProjectQueryPostgresData(project_query_dsn(test_engine, database)),
+        ProjectQueryIdentityProfiles(
+            RuntimeSettings(
+                project_query_identity_briefs_database_url=project_query_briefs_dsn(
+                    test_engine, database
+                )
+            )
+        ),
+    )
+
+
+def _directory_reader(test_engine, database=None):
+    return DirectoryQueryManager(
+        DirectoryQueryPostgresData(directory_query_dsn(test_engine, database)),
         ProjectQueryIdentityProfiles(
             RuntimeSettings(
                 project_query_identity_briefs_database_url=project_query_briefs_dsn(
@@ -309,12 +327,31 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
                 filters={"q": "Workspace configuration restored project", "limit": 20},
             ),
         ]
+        async with source_maker.begin() as db:
+            db.add(
+                ProjectMember(
+                    project_id=project_id,
+                    user_id=actor_id,
+                    assigned_by=actor_id,
+                    role="annotator",
+                )
+            )
         original_project_reader = _project_reader(test_engine)
         original_projects = [
             await original_project_reader.execute(request)
             for request in project_requests
         ]
         assert all(reply.ok for reply in original_projects)
+
+        directory_requests = [
+            directory_query_request(operation, actor_id, project_id)
+            for operation in ("list_members", "mention_candidates")
+        ]
+        original_directory = [
+            await _directory_reader(test_engine).execute(request)
+            for request in directory_requests
+        ]
+        assert all(reply.ok for reply in original_directory)
 
         async with source_maker() as db:
             await _assert_receipt_set(db, operation_ids)
@@ -341,7 +378,7 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
         async with source_maker() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0261"
+                == "0263"
             )
             assert await db.scalar(
                 text(
@@ -431,10 +468,20 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
             await restored_project_reader.execute(request)
             for request in project_requests
         ] == original_projects
+        restored_directory_reader = _directory_reader(test_engine, clone)
+        async with restored_directory_reader.data.transaction() as transaction:
+            assert (
+                await transaction.connection.fetchval("SHOW transaction_read_only")
+                == "on"
+            )
+        assert [
+            await restored_directory_reader.execute(request)
+            for request in directory_requests
+        ] == original_directory
         async with restored_maker() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0261"
+                == "0263"
             )
             template = await db.get(ProjectTemplate, template_id)
             project = await db.get(Project, project_id)
@@ -479,6 +526,10 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
         assert revoked.ok is False
         assert revoked.error.status_code == 401
         assert revoked.error.headers == {"WWW-Authenticate": "Bearer"}
+        revoked_directory = await restored_directory_reader.execute(
+            directory_requests[0]
+        )
+        assert not revoked_directory.ok and revoked_directory.error.status_code == 401
         # A previously admitted response readback retains its actor snapshot;
         # it does not adopt the command owner's new current-account fence.
         assert (

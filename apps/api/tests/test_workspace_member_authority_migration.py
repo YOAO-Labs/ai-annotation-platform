@@ -74,15 +74,31 @@ async def test_member_temporal_migration_preserves_client_acl_and_hides_impl(
                     text("SELECT to_regprocedure(:signature) IS NULL"),
                     {"signature": _IMPL},
                 )
+                await connection.execute(
+                    text("SET LOCAL ROLE workspace_project_query_client")
+                )
+                await connection.execute(
+                    text(
+                        f"GRANT EXECUTE ON FUNCTION {_STEP} TO workspace_template_query_client"
+                    )
+                )
+                await connection.execute(text("RESET ROLE"))
                 await connection.run_sync(run, "upgrade")
                 assert await state(connection) == original
+                assert await connection.scalar(
+                    text(
+                        "SELECT has_function_privilege('workspace_template_query_client', "
+                        "to_regprocedure(:signature), 'EXECUTE')"
+                    ),
+                    {"signature": _STEP},
+                )
                 assert await connection.scalar(
                     text(
                         "SELECT pg_get_userbyid(proowner)='workspace_code' "
                         "AND NOT has_function_privilege('workspace_project_query_client',oid,'EXECUTE') "
                         "AND NOT has_function_privilege('legacy_runtime',oid,'EXECUTE') "
                         "AND NOT EXISTS (SELECT 1 FROM aclexplode(proacl) AS acl "
-                        "WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') "
+                        "WHERE acl.grantee<>proowner AND acl.privilege_type='EXECUTE') "
                         "FROM pg_proc WHERE oid=to_regprocedure(:signature)"
                     ),
                     {"signature": _IMPL},

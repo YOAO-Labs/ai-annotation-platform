@@ -76,7 +76,7 @@ BEGIN
             ELSE pg_catalog.quote_ident(pg_catalog.pg_get_userbyid(v_grantee))
         END;
         EXECUTE pg_catalog.format(
-            'REVOKE ALL PRIVILEGES ON FUNCTION aap_workspace_project_query_v1.project_query_step(jsonb, text, jsonb, text, text, text[], text[], uuid, text, timestamptz, timestamptz, bigint, integer) FROM %s',
+            'REVOKE ALL PRIVILEGES ON FUNCTION aap_workspace_project_query_v1.project_query_step(jsonb, text, jsonb, text, text, text[], text[], uuid, text, timestamptz, timestamptz, bigint, integer) FROM %s CASCADE',
             v_grantee_sql
         );
     END LOOP;
@@ -121,13 +121,14 @@ BEGIN
     WHERE function.oid = v_impl_oid
       AND privilege.privilege_type = 'EXECUTE'
       AND privilege.grantee <> v_owner_oid;
+    -- Preserve every captured grant before retiring dependent privilege chains.
     FOREACH v_grantee IN ARRAY v_impl_grantees LOOP
         v_grantee_sql := CASE
             WHEN v_grantee = 0::oid THEN 'PUBLIC'
             ELSE pg_catalog.quote_ident(pg_catalog.pg_get_userbyid(v_grantee))
         END;
         EXECUTE pg_catalog.format(
-            'REVOKE ALL PRIVILEGES ON FUNCTION aap_workspace_project_query_v1._project_query_step_impl(jsonb, text, jsonb, text, text, text[], text[], uuid, text, timestamptz, timestamptz, bigint, integer) FROM %s',
+            'REVOKE ALL PRIVILEGES ON FUNCTION aap_workspace_project_query_v1._project_query_step_impl(jsonb, text, jsonb, text, text, text[], text[], uuid, text, timestamptz, timestamptz, bigint, integer) FROM %s CASCADE',
             v_grantee_sql
         );
     END LOOP;
@@ -188,7 +189,7 @@ BEGIN
             ELSE pg_catalog.quote_ident(pg_catalog.pg_get_userbyid(v_grantee))
         END;
         EXECUTE pg_catalog.format(
-            'REVOKE ALL PRIVILEGES ON FUNCTION aap_workspace_project_query_v1.project_query_step(jsonb, text, jsonb, text, text, text[], text[], uuid, text, timestamptz, timestamptz, bigint, integer) FROM %s',
+            'REVOKE ALL PRIVILEGES ON FUNCTION aap_workspace_project_query_v1.project_query_step(jsonb, text, jsonb, text, text, text[], text[], uuid, text, timestamptz, timestamptz, bigint, integer) FROM %s CASCADE',
             v_grantee_sql
         );
     END LOOP;
