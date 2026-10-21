@@ -1,6 +1,6 @@
 # 0141 — Workspace Project Access Query
 
-- **Status:** Accepted; implementation verification in progress
+- **Status:** Accepted; selected local qualification complete
 - **Date:** 2026-10-21
 - **Deciders:** Backend architecture team
 - **Supersedes:** None
@@ -69,14 +69,14 @@ bypass the full HTTP visibility dependency and are reported separately.
 The immutable fixture has16 HTTP responses, including owner/SA/member/viewer,
 non-owner PA membership, missing/inactive/unknown-role cases, both finite
 year10000 member timestamps and genuine infinities. Source Workspace tests
-pass239 cases. Native facts, malformed binds and deployed OID/owner/privilege
+pass 239 cases. Native facts, malformed binds and deployed OID/owner/privilege
 preservation pass their first three owned database cases.
 
 The original Project50, Directory13 and Access16 HTTP observations match each
 of the borrowed, dedicated and installed-HTTP bindings. Direct resolver probes
 remain separate from the HTTP owner trace. Four process cases cover query/profile
 grant loss and restart; Access continues to work without Briefs. A separate
-noneditable package passes239 tests and matches all43 Workspace source files.
+noneditable package passes239 tests and matches all 43 Workspace source files.
 
 Three paired legacy/new database cases commit role/version changes, deactivation
 plus Project deletion, and an out-of-range timestamp between the two real read
@@ -93,8 +93,35 @@ access at version37 and manager access through independent Project/Briefs
 credentials. The0262 privilege-chain regression also passes on the new schema.
 Full migration validation passes fresh264,173down/base/up, the90-step reversible
 suffix, authentic forward conversion and pre-conversion restore. Its four
-derived databases and dump are removed. Current image and container qualification
-remain in progress. This extension does not move the other API/worker resolver callers
-to independent services. Full Workspace, other modules, another-language
-provider, primary cutover and production capacity remain open. Go stays an
+derived databases and dump are removed.
+
+The final selected-case union has 84 distinct passing cases, with no skips or
+unresolved failures. The two earlier adapter failures retain their original
+reports and are covered by the successful paired phase cases. Ten current-schema
+Workspace/Identity restore cases pass, in addition to the actual container case.
+Repeated runs do not increase the union. Aggregate evidence is
+`.worktree/workspace-project-access-owner-qualification.json`.
+
+Current owner and API images are built from
+`966ceadf39624539654a18d9ffde8938ea42fb81`. The owner image
+`sha256:cf374759d1ce78a7405bae9463d7875261c936155acf0fa53b1ec8d07b579e1d`
+matches 185 installed package files. The API image
+`sha256:5bacb66eb4190f0f3e2a4183f4bb1965b7165365d7aa2c43a8bc2fdd22532ee7`
+matches 187 package files and 201 API/Native inputs, unchanged OpenAPI and head 0264.
+Nonroot, read-only, offline proof containers pass and are removed.
+
+The live owner image needs two read-only secrets and no Identity Briefs
+configuration. A real API read observes an ordinary member's role/version change
+from reviewer version37 to viewer version38, and restart retains the current result. Sixteen
+requests at concurrency 4 pass within the owner's 1 CPU/256 MiB budget; the API and
+database are outside that budget. Docker reassigns the ephemeral host port on
+restart, so the test uses the inspected current address. Owned databases, Redis,
+storage identities, buckets and containers are removed, with no cleanup errors.
+
+This evidence is local to a Mac ARM64 host and linux/arm64 containers. It does not
+establish production capacity or a common snapshot across independent services.
+The default binding retains its caller transaction; independent bindings remain
+read-only and cannot see pending caller changes. This extension does not move the
+other API/worker resolver callers to independent services. Full Workspace, other
+modules, another-language provider and primary cutover remain open. Go stays an
 independent experiment.

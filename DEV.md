@@ -633,7 +633,7 @@ Identity Briefs 依赖：`WORKSPACE_PROJECT_QUERY_IDENTITY_URL` 及独立 token/
 该操作不访问显示资料，独立进程无需为它配置 Identity Briefs。
 原本地读写解析器仍供其他工作流使用，只复用 Workspace 的纯权限策略，锁序不变。
 部署此扩展时先应用当前迁移，再刷新 Workspace owner/API 工件；旧服务不支持新操作时显式失败，不回退。
-访问上下文扩展的验证状态见 [ADR-0141](docs/adr/0141-workspace-project-access-query.md)。
+访问上下文扩展已通过三路径、独立安装包、受限镜像、重启、恢复与完整迁移的限定本地验收；具体证据与范围见 [ADR-0141](docs/adr/0141-workspace-project-access-query.md)。
 
 ### Workspace 项目成员目录查询
 

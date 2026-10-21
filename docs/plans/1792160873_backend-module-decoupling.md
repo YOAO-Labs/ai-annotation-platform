@@ -3849,3 +3849,27 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Complete Workspace, other modules, language replacement, primary
   cutover and production capacity remain open; Go stays experimental.
   See [ADR-0141](../adr/0141-workspace-project-access-query.md).
+
+### Project access response: selected local qualification closed
+
+- The selected-case union has 84 distinct passing cases, with no skips or
+  unresolved failures. Earlier adapter failures retain separate reports and
+  matching successful follow-ups. Source and noneditable suites each pass 239;
+  all 43 Workspace files match installed bytes. The three bindings each match 79
+  frozen HTTP observations; direct resolver/caller probes remain separate.
+- Current owner/API images match 185/187 package files and 201 API/Native inputs,
+  unchanged OpenAPI and head 0264. Restricted offline proofs pass. The live owner
+  needs two read-only secrets and no Briefs dependency; the API observes member
+  reviewer version37 changing to viewer version38, including after restart. Sixteen reads at
+  concurrency 4 pass within 1 CPU/256 MiB; API/database resources are outside that
+  budget. These are Mac ARM64/linux-arm64 checks, not production capacity.
+- Ten current-schema Workspace/Identity restore cases pass; full 264 migration
+  validation also passes. All owned databases, Redis, storage identities,
+  buckets, dump and containers are removed without cleanup errors. Aggregate
+  evidence is `.worktree/workspace-project-access-owner-qualification.json`.
+- The whole-module goal remains active. Next inspect Labeling-owned class usage
+  and freeze its existing authorization, aggregation and two-query visibility
+  before extraction. Class rename, guide object I/O, Inference-owned named
+  pipeline persistence, cross-owner consumers and remaining modules are still
+  open. No primary cutover or alternate-language provider is claimed; Go stays
+  experimental.
