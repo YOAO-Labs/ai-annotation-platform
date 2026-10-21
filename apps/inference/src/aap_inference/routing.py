@@ -29,6 +29,11 @@ from aap_inference_contract.routing import (
     decode_routing_status_result,
     make_routing_status_request,
     routing_command_sha256,
+    routing_command_bytes,
+)
+from aap_inference_contract.video_execution import (
+    VideoScopeRejected,
+    decode_video_scope_data,
 )
 
 from .health_data_postgres import (
@@ -269,6 +274,18 @@ class RoutingManager:
         result_body: dict[str, Any] | None = None
         try:
             async with self._data_factory() as data:
+                if request.operation == "video_acquire":
+                    # Current claim validation precedes any successful receipt
+                    # replay. Stable scope identity survives contention retries.
+                    try:
+                        await self._prepare_video_acquire(data, request, digest)
+                    except VideoScopeRejected as rejected:
+                        if retry_contention and rejected.reason in {
+                            "execution_busy",
+                            "management_busy",
+                        }:
+                            raise _RetryAdmission() from None
+                        raise RoutingUnavailable() from None
                 prior = await self._command_status(data, request, digest)
                 if prior is not None:
                     result_body = prior
@@ -279,7 +296,8 @@ class RoutingManager:
                         if (
                             retry_contention
                             and rejected.reason == "management_busy"
-                            and request.operation in {"acquire", "begin"}
+                            and request.operation
+                            in {"acquire", "video_acquire", "begin", "heartbeat"}
                         ):
                             raise _RetryAdmission() from None
                         result_body = _rejection(rejected.reason)
@@ -374,8 +392,8 @@ class RoutingManager:
     ) -> dict[str, Any]:
         body = _request_body(request)
         operation = request.operation
-        if operation == "acquire":
-            return await self._acquire(data, body, digest)
+        if operation in {"acquire", "video_acquire"}:
+            return await self._acquire(data, body, digest, request=request)
         if operation == "begin":
             return await self._begin(data, body, control=False)
         if operation == "settle":
@@ -397,7 +415,12 @@ class RoutingManager:
         raise RoutingUnavailable()
 
     async def _acquire(
-        self, data: RoutingTransaction, body: dict[str, Any], digest: str
+        self,
+        data: RoutingTransaction,
+        body: dict[str, Any],
+        digest: str,
+        *,
+        request: RoutingCommand | None = None,
     ) -> dict[str, Any]:
         if body["operation"].startswith("control:"):
             raise _Rejected("invalid_command")
@@ -446,21 +469,69 @@ class RoutingManager:
             observed_at=observed_at,
             health_max_age_seconds=self.health_max_age_seconds,
         )
+        reservation = {
+            "snapshot": snapshot,
+            "candidate_ids": [str(value) for value in candidate_ids],
+            "scope_id": str(self._video_scope_id(request))
+            if request is not None and request.operation == "video_acquire"
+            else str(uuid.uuid4()),
+            "command_sha256": digest,
+            "owner": body["owner"],
+            "operation": body["operation"],
+            "ttl_ms": self.lease_ttl_ms,
+        }
+        if request is not None and request.operation == "video_acquire":
+            try:
+                reserved = await self._video_step(
+                    data,
+                    "reserve",
+                    {
+                        **body["execution"],
+                        "request_id": str(request.request_id),
+                        **{
+                            key: value
+                            for key, value in reservation.items()
+                            if key not in {"owner", "operation"}
+                        },
+                    },
+                )
+            except VideoScopeRejected as rejected:
+                if rejected.reason in {"execution_busy", "management_busy"}:
+                    raise _Rejected("management_busy") from None
+                raise _Rejected("scope_unavailable") from None
+            return _public_json(reserved["scope"])
         reserved = await _native_step(
             data,
             "reserve_scope",
-            {
-                "snapshot": snapshot,
-                "candidate_ids": [str(value) for value in candidate_ids],
-                "scope_id": str(uuid.uuid4()),
-                "command_sha256": digest,
-                "owner": body["owner"],
-                "operation": body["operation"],
-                "ttl_ms": self.lease_ttl_ms,
-            },
+            reservation,
             keys={"scope"},
         )
         return _json_object(reserved["scope"])
+
+    @staticmethod
+    def _video_scope_id(request: RoutingCommand) -> uuid.UUID:
+        return uuid.uuid5(request.request_id, "aap-video-execution-scope/v1")
+
+    async def _prepare_video_acquire(self, data, request, digest):
+        return await self._video_step(
+            data,
+            "prepare",
+            {
+                **_request_body(request)["execution"],
+                "request_id": str(request.request_id),
+                "command": json.loads(routing_command_bytes(request)),
+                "command_sha256": digest,
+                "scope_id": str(self._video_scope_id(request)),
+            },
+        )
+
+    @staticmethod
+    async def _video_step(data, action, arguments):
+        method = getattr(data, "video_execution_scope_step", None)
+        if not callable(method):
+            raise RoutingUnavailable()
+        reply = await method(action, arguments)
+        return decode_video_scope_data(action, arguments, reply)
 
     async def _open_transport_subject(
         self,
@@ -939,17 +1010,27 @@ class RoutingManager:
         digest: str,
         result: Mapping[str, Any],
     ) -> None:
-        recorded = await _native_step(
-            data,
-            "record_command",
-            {
-                "request_id": str(request.request_id),
-                "command_sha256": digest,
-                "operation": request.operation,
-                "result": _public_json(dict(result)),
-            },
-            keys={"receipt"},
-        )
+        arguments = {
+            "request_id": str(request.request_id),
+            "command_sha256": digest,
+            "result": _public_json(dict(result)),
+        }
+        if request.operation == "video_acquire":
+            recorded = await self._video_step(
+                data,
+                "record",
+                {
+                    **_request_body(request)["execution"],
+                    **arguments,
+                },
+            )
+        else:
+            recorded = await _native_step(
+                data,
+                "record_command",
+                {"operation": request.operation, **arguments},
+                keys={"receipt"},
+            )
         receipt = self._receipt(
             recorded["receipt"],
             request_id=request.request_id,

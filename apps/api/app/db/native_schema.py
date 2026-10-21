@@ -53,6 +53,10 @@ NATIVE_MANAGED_TABLES = frozenset(
         "workspace_configuration_operation_attempts",
         "workspace_configuration_operation_states",
         "workspace_configuration_operation_receipts",
+        "video_execution_authority",
+        "video_executions",
+        "video_execution_route_intents",
+        "video_execution_scope_permits",
     }
 )
 

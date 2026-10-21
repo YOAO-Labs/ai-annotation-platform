@@ -35,6 +35,7 @@ CONTAINER_ID_LABEL = "org.aap.acceptance-id"
 POSTGRES_IMAGE = "postgres:16-alpine"
 INFERENCE_REGISTRY_INGRESS_ROLE = "inference_registry_ingress_client"
 INFERENCE_ROUTING_ROLE = "inference_routing_client"
+VIDEO_EXECUTION_ROLE = "video_execution_client"
 IDENTITY_CLIENT_ROLES = {
     "AUTH": "identity_auth_client",
     "COMMAND": "identity_command_client",
@@ -101,6 +102,7 @@ MODULE_ROLES = (
     "asset_image_worker_client",
     "labeling_mask_gc_client",
     "preannotation_result_client",
+    VIDEO_EXECUTION_ROLE,
     *IDENTITY_CLIENT_ROLES.values(),
 )
 SQL_ARTIFACTS = (
@@ -237,6 +239,7 @@ SQL_ARTIFACTS = (
     "0278_inference_registry_ingress.sql",
     "0279_inference_routing.sql",
     "0280_inference_scope_retirement.sql",
+    "0281_video_execution.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -329,9 +332,14 @@ SCHEMA_ARTIFACTS = (
     "0278_inference_registry_ingress.schema.json",
     "0279_inference_routing.schema.json",
     "0280_inference_scope_retirement.schema.json",
+    "0281_video_execution.schema.json",
 )
 TEST_FILES = (
     "tests/test_inference_scope_retirement_native.py",
+    "tests/test_video_execution_native.py",
+    "tests/test_video_execution_fences.py",
+    "tests/test_video_execution_summary.py",
+    "tests/test_video_execution_bindings.py",
     "tests/test_inference_scope_retirement_live.py",
     "tests/test_inference_scope_retirement_bindings.py",
     "tests/test_inference_routing_native.py",
@@ -1823,6 +1831,7 @@ def _create_module_roles(
                         "asset_image_worker_client",
                         "labeling_mask_gc_client",
                         "preannotation_result_client",
+                        VIDEO_EXECUTION_ROLE,
                         INFERENCE_REGISTRY_INGRESS_ROLE,
                         INFERENCE_ROUTING_ROLE,
                         *IDENTITY_CLIENT_ROLES.values(),
@@ -2192,6 +2201,9 @@ def _install_and_rollback_frozen_sql(
             "AND to_regprocedure('aap_inference_routing_v1.routing_policy()') IS NULL "
             "AND to_regprocedure('aap_inference_routing_v1.routing_step(text,text)') IS NULL "
             "AND to_regprocedure('aap_inference_routing_v1.scope_retirement_step(text,text)') IS NULL "
+            "AND to_regprocedure('aap_inference_routing_v1.video_execution_scope_step(text,text)') IS NULL "
+            "AND to_regprocedure('aap_jobs_v1.video_execution_step(text,text)') IS NULL "
+            "AND to_regclass('aap_jobs_v1.video_executions') IS NULL "
             "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger "
             "WHERE tgname IN ('aap_route_registry_after_insert', 'aap_route_registry_before_change', "
             "'aap_route_pool_before_change', 'aap_route_pool_after_generation', "
@@ -2475,6 +2487,7 @@ def main(argv: list[str] | None = None) -> int:
         inference_routing_grants_path = (
             ROOT / "infra/docker/inference-routing-grants.sql"
         )
+        video_execution_grants_path = ROOT / "infra/docker/video-execution-grants.sql"
         identity_deactivation_grants_path = (
             ROOT / "infra/docker/identity-deactivation-grants.sql"
         )
@@ -2525,6 +2538,7 @@ def main(argv: list[str] | None = None) -> int:
             or not inference_health_data_grants_path.is_file()
             or not inference_registry_ingress_grants_path.is_file()
             or not inference_routing_grants_path.is_file()
+            or not video_execution_grants_path.is_file()
             or not identity_account_grants_path.is_file()
             or not identity_recovery_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
@@ -2622,6 +2636,9 @@ def main(argv: list[str] | None = None) -> int:
         inference_routing_grant_sql = inference_routing_grants_path.read_text(
             encoding="utf-8"
         )
+        video_execution_grant_sql = video_execution_grants_path.read_text(
+            encoding="utf-8"
+        )
         workspace_project_query_grant_sql = (
             workspace_project_query_grants_path.read_text(encoding="utf-8")
         )
@@ -2662,6 +2679,7 @@ def main(argv: list[str] | None = None) -> int:
         result_password = f"batch-result-{secrets.token_hex(16)}"
         inference_registry_ingress_password = secrets.token_hex(24)
         inference_routing_password = secrets.token_hex(24)
+        video_execution_password = secrets.token_hex(24)
         identity_passwords = {
             role: secrets.token_hex(24) for role in IDENTITY_CLIENT_ROLES.values()
         }
@@ -2741,8 +2759,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0280"]:
-            raise RuntimeError("module-data acceptance requires migration head 0280")
+        if heads != ["0281"]:
+            raise RuntimeError("module-data acceptance requires migration head 0281")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -2871,6 +2889,21 @@ def main(argv: list[str] | None = None) -> int:
             mask_gc_password,
             result_password,
         )
+        phase = "create-video-execution-client-role"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=(
+                f"CREATE ROLE {VIDEO_EXECUTION_ROLE} LOGIN "
+                f"PASSWORD '{video_execution_password}' "
+                "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT "
+                "NOREPLICATION NOBYPASSRLS;"
+            ),
+        )
         phase = "create-identity-client-roles"
         _psql(
             container_id,
@@ -2983,6 +3016,22 @@ def main(argv: list[str] | None = None) -> int:
             },
         )
 
+        phase = "install-video-execution-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=video_execution_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "jobs_owner": "jobs_code",
+                "video_execution_role": VIDEO_EXECUTION_ROLE,
+            },
+        )
         phase = "install-identity-grants"
         _psql(
             container_id,
@@ -3777,6 +3826,14 @@ def main(argv: list[str] | None = None) -> int:
                     "postgresql+asyncpg",
                     username="preannotation_result_client",
                     password=result_password,
+                    host="127.0.0.1",
+                    port=port,
+                    database=database,
+                ).render_as_string(hide_password=False),
+                "AAP_MODULE_DATA_VIDEO_EXECUTION_URL": URL.create(
+                    "postgresql+asyncpg",
+                    username=VIDEO_EXECUTION_ROLE,
+                    password=video_execution_password,
                     host="127.0.0.1",
                     port=port,
                     database=database,

@@ -1,4 +1,4 @@
--- Grant the routing LOGIN only its three fixed Native capabilities.
+-- Grant the routing LOGIN only its four fixed Native capabilities.
 -- Apply module-data-grants.sql first in the same explicitly named database.
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v inference_owner=inference_code
@@ -57,7 +57,8 @@ DECLARE
     actual_tables text[];
     expected_tables text[] := ARRAY[
         'attempts', 'authority_secret', 'command_receipts', 'control_attempts',
-        'controls', 'registry_state', 'scope_retirements', 'scopes', 'weights'
+        'controls', 'registry_state', 'scope_retirements', 'scopes',
+        'video_execution_scope_permits', 'weights'
     ];
     bad_function text;
     required record;
@@ -110,7 +111,8 @@ BEGIN
     FOR required IN SELECT * FROM (VALUES
         ('aap_inference_routing_v1.routing_policy()','jsonb'),
         ('aap_inference_routing_v1.routing_step(text,text)','jsonb'),
-        ('aap_inference_routing_v1.scope_retirement_step(text,text)','jsonb')
+        ('aap_inference_routing_v1.scope_retirement_step(text,text)','jsonb'),
+        ('aap_inference_routing_v1.video_execution_scope_step(text,text)','jsonb')
     ) AS capability(signature,result_type)
     LOOP
         function_oid := pg_catalog.to_regprocedure(required.signature)::oid;
@@ -153,7 +155,8 @@ GRANT USAGE ON SCHEMA aap_inference_routing_v1
 GRANT EXECUTE ON FUNCTION
     aap_inference_routing_v1.routing_policy(),
     aap_inference_routing_v1.routing_step(text,text),
-    aap_inference_routing_v1.scope_retirement_step(text,text)
+    aap_inference_routing_v1.scope_retirement_step(text,text),
+    aap_inference_routing_v1.video_execution_scope_step(text,text)
     TO :"inference_routing_role";
 
 DO $$
@@ -166,7 +169,8 @@ DECLARE
     expected_functions text[] := ARRAY[
         'aap_inference_routing_v1.routing_policy()',
         'aap_inference_routing_v1.routing_step(text, text)',
-        'aap_inference_routing_v1.scope_retirement_step(text, text)'
+        'aap_inference_routing_v1.scope_retirement_step(text, text)',
+        'aap_inference_routing_v1.video_execution_scope_step(text, text)'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(
@@ -210,6 +214,21 @@ BEGIN
       AND pg_catalog.has_function_privilege(role_oid,function.oid,'EXECUTE');
     IF actual_functions IS DISTINCT FROM expected_functions THEN
         RAISE EXCEPTION 'Routing LOGIN has unexpected functions: %',actual_functions;
+    END IF;
+    IF pg_catalog.has_function_privilege(
+        role_oid,
+        pg_catalog.to_regprocedure(
+            'aap_inference_routing_v1._routing_step_0279(text,text)'
+        ),
+        'EXECUTE'
+    ) OR pg_catalog.has_function_privilege(
+        role_oid,
+        pg_catalog.to_regprocedure(
+            'aap_inference_routing_v1._scope_retirement_step_0280(text,text)'
+        ),
+        'EXECUTE'
+    ) THEN
+        RAISE EXCEPTION 'Routing LOGIN must not call private legacy dispatchers';
     END IF;
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace

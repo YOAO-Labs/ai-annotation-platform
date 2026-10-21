@@ -79,6 +79,7 @@ class MLBackendRouter:
         project_id: uuid.UUID | None = None,
         required_instance_id: uuid.UUID | None = None,
         registry_id: uuid.UUID | None = None,
+        execution: dict | None = None,
     ) -> RouteSelection:
         """Reserve durable execution ownership using current committed topology."""
         from aap_inference_contract.routing import RoutingUnavailable
@@ -93,8 +94,15 @@ class MLBackendRouter:
                 owner=owner,
                 operation=operation,
                 required_instance_id=required_instance_id,
+                **({"execution": execution} if execution is not None else {}),
             )
         except RoutingRejected as exc:
+            if execution is not None and exc.reason == "management_busy":
+                return RouteSelection(
+                    lease=None,
+                    instance_id=None,
+                    rejection=RejectionReason.ROUTER_UNAVAILABLE,
+                )
             reason = {
                 "pool_not_enabled": RejectionReason.POOL_NOT_ENABLED,
                 "pool_saturated": RejectionReason.POOL_SATURATED,

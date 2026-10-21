@@ -19,6 +19,7 @@ from pydantic import (
     StrictStr,
     TypeAdapter,
     ValidationError,
+    field_validator,
     model_validator,
 )
 
@@ -59,6 +60,7 @@ ROUTING_NATIVE_ACTIONS = (
 
 RoutingOperation = Literal[
     "acquire",
+    "video_acquire",
     "begin",
     "settle",
     "heartbeat",
@@ -73,6 +75,7 @@ RoutingOperation = Literal[
 RoutingState = Literal["caller_pending", "committed", "unknown"]
 _OPERATIONS = (
     "acquire",
+    "video_acquire",
     "begin",
     "settle",
     "heartbeat",
@@ -134,6 +137,37 @@ class _AcquireBody(_RoutingModel):
     required_instance_id: uuid.UUID | None
     owner: StrictStr = Field(min_length=1, max_length=512)
     operation: StrictStr = Field(min_length=1, max_length=96)
+
+
+class RoutingVideoExecutionProof(_RoutingModel):
+    job_id: uuid.UUID
+    run_id: uuid.UUID
+    worker_id: uuid.UUID
+    generation: StrictInt = Field(ge=1, le=(1 << 63) - 1)
+    lease_token: uuid.UUID = Field(repr=False)
+
+    @field_validator("job_id", "run_id", "worker_id", "lease_token", mode="before")
+    @classmethod
+    def canonical_identity(cls, value):
+        if type(value) is uuid.UUID:
+            return value
+        if type(value) is not str or not _canonical_wire_uuid(value):
+            raise ValueError("Invalid video execution identity")
+        return uuid.UUID(value)
+
+
+class _VideoAcquireBody(_AcquireBody):
+    execution: RoutingVideoExecutionProof = Field(repr=False)
+
+    @model_validator(mode="after")
+    def exact_tracker_subject(self):
+        if (
+            self.operation != "tracker"
+            or self.owner != f"tracker:{self.execution.job_id}"
+            or self.project_id is None
+        ):
+            raise ValueError("Invalid video execution subject")
+        return self
 
 
 class _BeginBody(_RoutingModel):
@@ -249,6 +283,7 @@ class _SettleControlBody(_RoutingModel):
 
 _COMMAND_BODY_TYPES: dict[str, type[_RoutingModel]] = {
     "acquire": _AcquireBody,
+    "video_acquire": _VideoAcquireBody,
     "begin": _BeginBody,
     "settle": _SettleBody,
     "heartbeat": _HeartbeatBody,
@@ -563,6 +598,7 @@ class RoutingRejectedResult(_RoutingModel):
 
 _RESULT_BODY_TYPES: dict[str, type[_RoutingModel]] = {
     "acquire": RoutingScopeView,
+    "video_acquire": RoutingScopeView,
     "begin": RoutingBeginResult,
     "settle": RoutingAttemptView,
     "heartbeat": RoutingScopeView,

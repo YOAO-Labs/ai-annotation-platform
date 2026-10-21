@@ -21,7 +21,9 @@ import uvicorn
 from sqlalchemy import text
 
 from aap_inference.routing_runtime import RoutingRuntime
+from aap_inference.pipeline_server import PipelineHttpServer
 from aap_inference_contract.routing import make_routing_command
+from aap_inference_contract.routing import decode_routing_command, RoutingUnavailable
 from aap_protocol_v2.routing import ROUTE_ADMISSION_HEADER
 from aap_protocol_v2.routing_runtime import install_backend_routing_controller
 from app.config import settings
@@ -277,8 +279,9 @@ async def _verify_restricted_routing_dsn(dsn: str, expected_database: str) -> No
         await connection.close(timeout=2)
 
 
+@pytest.mark.parametrize("binding", ("embedded", "dsn", "http"))
 async def test_committed_video_job_heartbeats_cancels_and_closes_one_route_scope(
-    test_engine, tmp_path, monkeypatch
+    test_engine, tmp_path, monkeypatch, binding
 ):
     ownership = await assert_owned_test_database(test_engine)
     routing_dsn = os.environ.get("AAP_MODULE_DATA_INFERENCE_ROUTING_URL")
@@ -290,6 +293,7 @@ async def test_committed_video_job_heartbeats_cancels_and_closes_one_route_scope
         listener, backend_url = _reserve_loopback_listener()
         backend_token = f"video-route-control-{uuid4().hex}"
         owner_runtime = None
+        owner_server = None
         running = None
         try:
             (
@@ -368,7 +372,9 @@ async def test_committed_video_job_heartbeats_cancels_and_closes_one_route_scope
                 monkeypatch.setattr(settings, "inference_routing_token", "")
                 monkeypatch.setattr(settings, "inference_routing_token_file", "")
                 monkeypatch.setattr(
-                    settings, "inference_routing_database_url", routing_dsn
+                    settings,
+                    "inference_routing_database_url",
+                    routing_dsn if binding == "dsn" else "",
                 )
                 monkeypatch.setattr(settings, "inference_routing_database_url_file", "")
                 monkeypatch.setattr(settings, "ml_backend_router_mode", "enforce")
@@ -380,6 +386,26 @@ async def test_committed_video_job_heartbeats_cancels_and_closes_one_route_scope
 
                 owner_runtime = RoutingRuntime(routing_dsn)
                 assert await owner_runtime.readiness()
+                if binding == "http":
+                    owner_listener, owner_url = _reserve_loopback_listener()
+                    owner_port = owner_listener.getsockname()[1]
+                    owner_listener.close()
+                    owner_token = uuid4().hex
+                    owner_server = PipelineHttpServer(
+                        manager=None,
+                        data=None,
+                        control_token=None,
+                        host="127.0.0.1",
+                        port=owner_port,
+                        routing_manager=owner_runtime.manager,
+                        routing_control_token=owner_token,
+                        scope_retirement_manager=owner_runtime.scope_retirement_manager,
+                    )
+                    await owner_server.start()
+                    monkeypatch.setattr(settings, "inference_routing_url", owner_url)
+                    monkeypatch.setattr(
+                        settings, "inference_routing_token", owner_token
+                    )
                 reconcile = await owner_runtime.execute(
                     make_routing_command(
                         "reconcile",
@@ -414,6 +440,26 @@ async def test_committed_video_job_heartbeats_cancels_and_closes_one_route_scope
                         assert first_scope["project_id"] == project_id
                         assert first_scope["operation"] == "tracker"
                         assert first_scope["state"] == "active"
+                        async with media.sessions() as observed:
+                            command = await observed.scalar(
+                                text(
+                                    "SELECT public.pgp_sym_decrypt("
+                                    "intent.command_ciphertext,pg_catalog.encode("
+                                    "aap_jobs_v1._video_execution_secret(),'hex')) "
+                                    "FROM aap_jobs_v1.video_execution_route_intents intent "
+                                    "JOIN aap_jobs_v1.video_executions execution "
+                                    "ON execution.route_request_id=intent.request_id "
+                                    "AND execution.job_id=intent.job_id "
+                                    "AND execution.generation=intent.generation "
+                                    "WHERE intent.job_id=:job AND intent.state='bound'"
+                                ),
+                                {"job": job_id},
+                            )
+                        assert command is not None
+                        replay = await owner_runtime.execute(command)
+                        assert replay.state == "committed"
+                        assert replay.result.id == first_scope["id"]
+                        assert len(backend.calls) == 1
                         heartbeated = await _wait_for_heartbeat(
                             media.sessions,
                             owner_name,
@@ -425,6 +471,14 @@ async def test_committed_video_job_heartbeats_cancels_and_closes_one_route_scope
                         await _wait_for_gate(backend.entered[1], running)
                         async with media.sessions.begin() as cancel_db:
                             await cancel_tracker_job(cancel_db, job_id)
+                        cancelling_scope = await _routing_scope(
+                            media.sessions, owner_name
+                        )
+                        await _wait_for_heartbeat(
+                            media.sessions,
+                            owner_name,
+                            cancelling_scope["heartbeat_deadline"],
+                        )
                         backend.release[1].set()
                         result = await asyncio.wait_for(running, timeout=60)
                     finally:
@@ -457,6 +511,23 @@ async def test_committed_video_job_heartbeats_cancels_and_closes_one_route_scope
                 assert all(item["admission_header_present"] for item in backend.calls)
                 assert all(item["authorization_bound"] for item in backend.calls)
                 assert backend.controller.active_requests == 0
+
+                # A definite stale/terminal preflight cannot recover an old
+                # success through the ambiguous-commit status fallback.
+                from app.services.ml_routing import authority as routing_authority
+
+                replay_command = decode_routing_command(command)
+                with monkeypatch.context() as replay_settings:
+                    replay_settings.setattr(
+                        routing_authority,
+                        "make_routing_command",
+                        lambda *_args: replay_command,
+                    )
+                    with pytest.raises(RoutingUnavailable):
+                        await routing_authority.RoutingAuthority(test_engine).execute(
+                            "video_acquire", replay_command.body
+                        )
+                assert len(backend.calls) == 2
 
                 async with media.sessions() as db:
                     scopes = (
@@ -509,5 +580,7 @@ async def test_committed_video_job_heartbeats_cancels_and_closes_one_route_scope
             if running is not None and not running.done():
                 running.cancel()
                 await asyncio.gather(running, return_exceptions=True)
+            if owner_server is not None:
+                await owner_server.close()
             if owner_runtime is not None:
                 await owner_runtime.close()

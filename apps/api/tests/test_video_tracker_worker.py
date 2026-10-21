@@ -2033,3 +2033,50 @@ def test_context_spans_group_same_direction_windows() -> None:
         2: (8, 11),
         3: (0, 3),
     }
+
+
+async def test_mask_write_cancellation_retains_completed_frames_in_current_window(
+    db_session, super_admin, monkeypatch
+):
+    from app.services.video_tracking import runner
+
+    user, _ = super_admin
+    task, item = await _make_video_task(db_session, user.id)
+    job = VideoTrackerJob(
+        task_id=task.id,
+        dataset_item_id=item.id,
+        created_by=user.id,
+        target_class_name="car",
+        target_tool_unit_id="bbox",
+        status="queued",
+        model_key="mock_bbox",
+        direction="forward",
+        from_frame=0,
+        to_frame=1,
+        prompt={},
+        event_channel="video-tracker-job:cancel-mask-write",
+    )
+    db_session.add(job)
+    await db_session.commit()
+    job_id = job.id
+    original = runner._materialize_tracker_mask_result
+
+    async def cancel_during_second_write(result, **kwargs):
+        if result.frame_index == 1:
+            current = await db_session.get(VideoTrackerJob, job_id)
+            current.status = "cancelled"
+            current.cancel_requested_at = datetime.now(timezone.utc)
+            await db_session.flush()
+            raise runner.TrackerMaskWriteCancelled()
+        return await original(result, **kwargs)
+
+    monkeypatch.setattr(
+        runner, "_materialize_tracker_mask_result", cancel_during_second_write
+    )
+
+    async def silent(*_args):
+        pass
+
+    result = await run_tracker_job(db_session, job_id, publisher=silent)
+    assert result.status == "cancelled"
+    assert [frame["frame_index"] for frame in result.staged_result["results"]] == [0]

@@ -150,6 +150,8 @@ IMAGE_MEDIA_RUNTIME_CAPABILITIES = (
 INFERENCE_ROUTING_RUNTIME_CAPABILITIES = (
     "aap_inference_routing_v1.routing_policy()",
     "aap_inference_routing_v1.routing_step(text,text)",
+    "aap_inference_routing_v1.scope_retirement_step(text,text)",
+    "aap_inference_routing_v1.video_execution_scope_step(text,text)",
 )
 IMAGE_ACCEPTED_INPUT_RUNTIME_CAPABILITIES = (
     "aap_assets_v1.find_accepted_image_input(uuid,uuid,uuid)",
@@ -626,6 +628,7 @@ class LocalResources:
                     f"{inference_routing_function_grant}, "
                     "aap_learning_v1.registry_evaluation_reference_exists(uuid), "
                     "aap_jobs_v1.count_running_registry_predictions(uuid), "
+                    "aap_jobs_v1.video_execution_step(text,text), "
                     "aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb), "
                     "aap_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid), "
                     "aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb), "

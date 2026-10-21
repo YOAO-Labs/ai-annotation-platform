@@ -27,6 +27,8 @@ async def test_tracker_root_bridge_requires_the_exact_running_owner(monkeypatch)
     key = "raster-masks/sha256/a0/a0/" + "a0a0" + "a" * 60 + ".json"
     register = AsyncMock(return_value=True)
     monkeypatch.setattr(roots, "register_tracker_running_mask_root", register)
+    guard = AsyncMock()
+    monkeypatch.setattr(roots, "fence_tracker_write", guard)
 
     await roots.retain_tracker_output_mask(
         db, job_id=job_id, task_id=task_id, object_key=key
@@ -35,6 +37,7 @@ async def test_tracker_root_bridge_requires_the_exact_running_owner(monkeypatch)
     register.assert_awaited_once_with(
         db, job_id=job_id, task_id=task_id, object_key=key
     )
+    guard.assert_awaited_once_with(db, job_id, "mask_root")
     register.return_value = False
     with pytest.raises(roots.TrackerMaskRootOwnerChanged):
         await roots.retain_tracker_output_mask(

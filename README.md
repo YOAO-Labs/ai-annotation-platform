@@ -407,7 +407,7 @@ Workspace 的后端能力探测通过 Inference 私有协议返回模态，Works
 
 推理路由正在接入独立的持久执行账本；运行计数不再依赖 Redis 租约，卸载与重载要求管理占用和真实后端连续性。配置与本地验证边界见[路由执行权指南](./docs-site/api/guides/inference-runtime.md#持久路由执行权)。GPU 自动驱逐、作业重启交接与完整模块资格仍在推进。
 
-作业交接的定向退役协议已提供并通过限定本地验收：先关闭单个 scope 的准入，再确认该范围的实际后端工作结束，其他作业继续运行。完整的视频执行代次、窗口检查点和崩溃恢复尚未闭合，见[定向退役 ADR](./docs/adr/0156-scoped-inference-retirement.md)。
+作业交接的定向退役协议已提供并通过限定本地验收：先关闭单个 scope 的准入，再确认该范围的实际后端工作结束，其他作业继续运行。视频 runner 已接入执行代次、原子路由绑定和当前业务写入检查，重派发复用后台汇总；持久窗口检查点与崩溃恢复仍未闭合，见[执行权 ADR](./docs/adr/0157-video-execution-claims-and-route-binding.md)。
 
 类别与属性用量已接入 Labeling 读取边界，先核验当前项目管理权，保留原统计口径和两次顺序读取；独立安装包、三路径响应、语句间提交、受限镜像与备份恢复已完成限定本地验收，见 [Labeling 运行协议](./docs-site/api/guides/labeling-runtime.md)与 [统计 owner ADR](./docs/adr/0142-labeling-class-usage-query-owner.md)。
 

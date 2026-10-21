@@ -977,6 +977,8 @@ async def create_video_mask_correction_job(
             tracker_job_id=row.id,
             grid_step=grid_step,
         )
+        await db.flush()
+        await db.refresh(row)
     except IntegrityError as exc:
         await db.rollback()
         raise HTTPException(
@@ -1329,7 +1331,12 @@ async def tracker_job_preview(db: AsyncSession, row: VideoTrackerJob) -> dict[st
         for item in (staged.get("results") or [])
         if isinstance(item, dict)
     ]
-    source_ids = _runner._review_source_map_ids(row, staged)
+    source_ids = (
+        {}
+        if row.staged_result is None
+        and row.status in {"queued", "running", "failed", "cancelled"}
+        else _runner._review_source_map_ids(row, staged)
+    )
     annotation_ids = set(source_ids.values())
     annotations = {}
     if annotation_ids:

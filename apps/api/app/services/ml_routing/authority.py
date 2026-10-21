@@ -32,6 +32,11 @@ from aap_inference_contract.scope_retirement import (
     decode_scope_retirement_request,
     decode_scope_retirement_result,
 )
+from aap_inference_contract.video_execution import (
+    VIDEO_EXECUTION_SCOPE_ACTIONS,
+    VideoScopeRejected,
+    decode_video_scope_data,
+)
 from aap_workspace.config import secret_source
 from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, async_object_session
@@ -169,6 +174,31 @@ class _SqlAlchemyData:
             raise RoutingUnavailable()
         return result
 
+    async def video_execution_scope_step(self, action, arguments):
+        if type(action) is not str or action not in VIDEO_EXECUTION_SCOPE_ACTIONS:
+            raise RoutingUnavailable()
+        xid = await self.connection.scalar(
+            text("SELECT pg_catalog.pg_current_xact_id_if_assigned()::text")
+        )
+        if xid != self.xid or not self.connection.in_transaction():
+            raise RoutingUnavailable()
+        encoded = json.dumps(arguments, allow_nan=False, separators=(",", ":"))
+        if len(encoded.encode("utf-8")) > 1024 * 1024:
+            raise RoutingUnavailable()
+        raw = await self.connection.scalar(
+            text(
+                "SELECT aap_inference_routing_v1.video_execution_scope_step(:action,:arguments)"
+            ),
+            {"action": action, "arguments": encoded},
+        )
+        if type(raw) is str:
+            raw = json.loads(raw)
+        try:
+            decode_video_scope_data(action, arguments, raw)
+        except VideoScopeRejected:
+            pass
+        return raw
+
 
 class RoutingAuthority:
     """The configured owner; it never borrows the caller's business transaction."""
@@ -290,20 +320,24 @@ class RoutingAuthority:
         owner="api",
         operation="backend_http",
         required_instance_id=None,
+        execution=None,
     ):
+        body = {
+            "pool_id": str(pool_id) if pool_id else None,
+            "registry_id": str(registry_id) if registry_id else None,
+            "project_id": str(project_id) if project_id else None,
+            "mode": mode,
+            "owner": owner,
+            "operation": operation,
+            "required_instance_id": str(required_instance_id)
+            if required_instance_id
+            else None,
+        }
+        if execution is not None:
+            body["execution"] = execution
         return await self.execute(
-            "acquire",
-            {
-                "pool_id": str(pool_id) if pool_id else None,
-                "registry_id": str(registry_id) if registry_id else None,
-                "project_id": str(project_id) if project_id else None,
-                "mode": mode,
-                "owner": owner,
-                "operation": operation,
-                "required_instance_id": str(required_instance_id)
-                if required_instance_id
-                else None,
-            },
+            "video_acquire" if execution is not None else "acquire",
+            body,
         )
 
     async def runtime_snapshot(self, registry_ids):

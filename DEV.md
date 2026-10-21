@@ -1822,8 +1822,9 @@ HTTP begin 的配置 subject 仍由 API 本地短事务签发，不携带后端�
 独立 owner 进程使用 `INFERENCE_ROUTING_DATABASE_URL(_FILE)` 与独立的
 `INFERENCE_ROUTING_TOKEN(_FILE)`；准入参数为
 `INFERENCE_ROUTING_HEALTH_MAX_AGE_SECONDS` 与 `INFERENCE_ROUTING_LEASE_TTL_SECONDS`。
-`inference_routing_client` 仅可执行 core policy、core step 和
-`scope_retirement_step(text,text)` 三项固定 Native 能力，不能授予原表权限。
+`inference_routing_client` 仅可执行 core policy、core step、
+`scope_retirement_step(text,text)` 和 `video_execution_scope_step(text,text)` 四项固定
+Native 能力，不能授予原表权限。
 定向退役沿用相同进程、端口与控制认证，接口为 `/v1/routes/retire` 与
 `/v1/routes/retirement-status`；调用前保存退役 ID，状态查询不发送后端控制。
 
@@ -1836,3 +1837,10 @@ HTTP begin 的配置 subject 仍由 API 本地短事务签发，不携带后端�
 
 当前实现与验收状态见 [ADR-0155](docs/adr/0155-durable-inference-routing-authority.md)。
 完整迁移、真实并发、受限部署和故障资格仍需完成；此配置不切换日常或生产环境。
+
+视频执行权使用 `aap_jobs_v1.video_execution_step(text,text)`，迁移与 owner 授权后通过
+`infra/docker/video-execution-grants.sql` 安装单独 `video_execution_client` LOGIN；参数为
+`expected_database`、`migration_role`、`jobs_owner` 和 `video_execution_role`，必须先核验
+目标数据库与角色归属。该账号不能与路由 LOGIN 合并。现有 API bridge 在原业务事务内
+调用 guard，不新增运行时 DSN selector；`AAP_MODULE_DATA_VIDEO_EXECUTION_URL` 仅供
+隔离 verifier 验收。完整恢复仍未开启，详见 [ADR-0157](docs/adr/0157-video-execution-claims-and-route-binding.md)。

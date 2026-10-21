@@ -134,10 +134,22 @@ Durable routing includes per-scope retirement through the existing listener:
 `POST /v1/routes/retire` creates or resumes an immutable intent, and
 `POST /v1/routes/retirement-status` only reads its durable phase. The same routing
 bearer and explicit data source apply. The function-only routing LOGIN has the
-two core RPCs plus `scope_retirement_step(text,text)`; no raw table grants are
+two core RPCs plus `scope_retirement_step(text,text)` and
+`video_execution_scope_step(text,text)`; no raw table grants are
 needed. Native closes admission before authenticated backend control, and only
 the original bound backend's zero-work retirement proof reconciles that scope.
 Background futures must be registered before the handler finishes. Unregistered
 work is outside that proof and disqualifies a provider. This enables a handoff
-prerequisite; durable video execution claims, checkpoints and writer fencing are
-still separate work. See ADR-0156 and the Inference runtime guide.
+prerequisite. Video acquisition now uses the private `video_acquire` command:
+its current Jobs proof, immutable request identity, reservation and route binding
+share one Native transaction. Replay validates the current claim before reading
+the old receipt. Attempt admission and heartbeat reject superseded bindings;
+cancellation permits only the current worker's heartbeat and partial finalization,
+without admitting another model attempt. Transient contention is retried.
+
+The API runner uses durable Jobs claims and transaction-bound checks before its
+current business writes. Frozen execution-plan and checkpoint value codecs are
+available, but checkpoint persistence, model-context recovery and automatic
+handoff remain unfinished; recovery-required runs defer. The legacy business
+writers have not been replaced by an independent Labeling writer service.
+See ADR-0156, ADR-0157 and the Inference runtime guide.

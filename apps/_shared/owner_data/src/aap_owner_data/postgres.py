@@ -8,7 +8,7 @@ class FunctionRoleUnavailable(Exception):
 
 
 async def verify_function_only_role(
-    connection, *, schema: str, functions: set[tuple[str, str]]
+    connection, *, schema: str, functions: set[tuple[str, str]], role: str | None = None
 ) -> None:
     expected = {f"{schema}.{name}({arguments})" for name, arguments in functions}
     rows = await connection.fetch("""
@@ -40,7 +40,7 @@ async def verify_function_only_role(
                 """)
     if {row["signature"] for row in rows} != expected:
         raise FunctionRoleUnavailable()
-    role = schema.removeprefix("aap_").removesuffix("_v1") + "_client"
+    role = role or schema.removeprefix("aap_").removesuffix("_v1") + "_client"
     denied = await connection.fetchval(
         """
                 SELECT current_user <> $1

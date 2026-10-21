@@ -77,6 +77,7 @@ async def _bind(monkeypatch, connection):
                 ("routing_policy", ""),
                 ("routing_step", "text, text"),
                 ("scope_retirement_step", "text, text"),
+                ("video_execution_scope_step", "text, text"),
             },
         )
     ]

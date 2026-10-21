@@ -672,6 +672,11 @@ GRANT SELECT (
     staged_result, revision, cancel_requested_at, started_at, created_at, completed_at
 ), UPDATE (id) ON public.video_tracker_jobs TO :"labeling_owner";
 GRANT SELECT (
+    id, status, cancel_requested_at
+), UPDATE (id) ON public.video_tracker_jobs TO :"jobs_owner";
+GRANT SELECT (tracker_job_id, project_id, prepare_error)
+    ON public.video_tracker_input_scopes TO :"jobs_owner";
+GRANT SELECT (
     id, task_id, project_id, parent_annotation_id, geometry, track_id, video_segment_id, is_active,
     was_cancelled, version
 ) ON public.annotations TO :"labeling_owner";
@@ -906,10 +911,21 @@ GRANT USAGE ON SCHEMA aap_labeling_v1 TO :"labeling_owner", :"jobs_owner",
     :"workspace_owner", :"workflow_role", :"identity_owner";
 GRANT USAGE ON SCHEMA aap_jobs_v1 TO :"jobs_owner", :"labeling_owner",
     :"workspace_owner", :"assets_owner", :"workflow_role", :"inference_owner";
+GRANT USAGE ON SCHEMA aap_inference_routing_v1 TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_step(text,text)
+    TO :"labeling_owner", :"workflow_role";
 GRANT USAGE ON SCHEMA aap_learning_v1
     TO :"learning_owner", :"workspace_owner", :"assets_owner", :"inference_owner";
 GRANT EXECUTE ON FUNCTION aap_learning_v1.registry_evaluation_reference_exists(uuid),
-    aap_jobs_v1.count_running_registry_predictions(uuid) TO :"inference_owner";
+    aap_jobs_v1.count_running_registry_predictions(uuid),
+    aap_jobs_v1._video_execution_route_step(text,text),
+    aap_jobs_v1._video_execution_scope_is_current(uuid,boolean)
+    TO :"inference_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_inference_routing_v1._video_execution_canonical_json(jsonb),
+    aap_inference_routing_v1._video_execution_no_scope_rejection(uuid,uuid,text)
+    TO :"jobs_owner";
 GRANT USAGE ON SCHEMA aap_inference_v1 TO :"inference_owner", :"workspace_owner";
 GRANT USAGE ON SCHEMA aap_workspace_configuration_v1 TO :"workspace_owner";
 GRANT USAGE ON SCHEMA aap_workspace_template_query_v1 TO :"workspace_owner";
@@ -1741,11 +1757,33 @@ ALTER TABLE aap_inference_routing_v1.controls OWNER TO :"inference_owner";
 ALTER TABLE aap_inference_routing_v1.control_attempts OWNER TO :"inference_owner";
 ALTER TABLE aap_inference_routing_v1.command_receipts OWNER TO :"inference_owner";
 ALTER TABLE aap_inference_routing_v1.scope_retirements OWNER TO :"inference_owner";
+ALTER TABLE aap_inference_routing_v1.video_execution_scope_permits
+    OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_routing_v1.routing_policy()
     OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_routing_v1.routing_step(text, text)
     OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1._routing_step_0279(text, text)
+    OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_routing_v1.scope_retirement_step(text, text)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1._scope_retirement_step_0280(text, text)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1.video_execution_scope_step(text, text)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1._video_execution_canonical_json(jsonb)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1._video_execution_scope_uuid(uuid)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1._video_execution_result(jsonb,text)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1._video_execution_no_scope_rejection(uuid,uuid,text)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1._video_execution_permit_scope()
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1._video_execution_attempt_gate()
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1._video_execution_heartbeat_gate()
     OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_routing_v1._scope_retirement_result(text, jsonb)
     OWNER TO :"inference_owner";
@@ -2305,6 +2343,7 @@ ALTER FUNCTION aap_labeling_v1.workspace_project_query_batch_task_counts(uuid)
 REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
 
 GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
+ALTER SCHEMA aap_jobs_v1 OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.count_running_registry_predictions(uuid)
     OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1._accepted_image_input_job_reply(jsonb, text)
@@ -2349,6 +2388,22 @@ ALTER FUNCTION aap_jobs_v1.workspace_project_query_job_status_counts(uuid)
     OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.workspace_project_query_latest_job_status(uuid)
     OWNER TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.video_execution_authority OWNER TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.video_executions OWNER TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.video_execution_route_intents OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.video_execution_step(text,text) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_execution_route_step(text,text)
+    OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_execution_scope_is_current(uuid,boolean)
+    OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_execution_claim_view(uuid,uuid)
+    OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_execution_secret() OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_execution_realm() OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_execution_exact_keys(jsonb,text[])
+    OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_execution_uuid(jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_execution_reply(jsonb,text) OWNER TO :"jobs_owner";
 REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
 
 GRANT CREATE ON SCHEMA aap_learning_v1 TO :"learning_owner";

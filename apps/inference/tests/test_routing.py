@@ -249,6 +249,151 @@ class _DataFactory:
         return _DataContext(self.native, fail_commit=fail)
 
 
+class _VideoNative(_Native):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.intent = None
+        self.bound_scope = None
+        self.claim_lost = False
+        self.video_calls = []
+
+    async def video_execution_scope_step(self, action, arguments):
+        self.video_calls.append((action, dict(arguments)))
+        self.events.append(("video", action, self.active_transaction))
+        if self.claim_lost:
+            return {
+                "schema": "aap-video-execution-data/v1",
+                "status": "rejected",
+                "reason": "lease_lost",
+            }
+        if action == "record":
+            reply = await super().step(
+                "record_command",
+                {
+                    "operation": "video_acquire",
+                    "request_id": arguments["request_id"],
+                    "command_sha256": arguments["command_sha256"],
+                    "result": arguments["result"],
+                },
+            )
+            return {**reply, "schema": "aap-video-execution-data/v1"}
+        if action == "prepare" and self.intent is None:
+            self.intent = {
+                key: arguments[key]
+                for key in (
+                    "job_id",
+                    "run_id",
+                    "generation",
+                    "request_id",
+                    "command_sha256",
+                    "scope_id",
+                )
+            }
+            self.intent["state"] = "prepared"
+        if action == "reserve":
+            assert self.intent["request_id"] == arguments["request_id"]
+            assert self.intent["scope_id"] == arguments["scope_id"]
+            assert arguments["candidate_ids"] == [str(_LEGACY_ID)]
+            self.bound_scope = {
+                **_scope(_LEGACY_ID),
+                "id": arguments["scope_id"],
+                "owner": f"tracker:{arguments['job_id']}",
+                "operation": "tracker",
+            }
+            self.intent["state"] = "bound"
+        return {
+            "schema": "aap-video-execution-data/v1",
+            "status": "ok",
+            "intent": self.intent,
+            "scope": self.bound_scope,
+        }
+
+
+def _video_command():
+    job_id = UUID("3b191e7b-5bb1-4432-a479-b68c0886f129")
+    return make_routing_command(
+        "video_acquire",
+        {
+            "pool_id": _POOL_ID,
+            "registry_id": None,
+            "project_id": _PROJECT_ID,
+            "mode": "enforce",
+            "required_instance_id": None,
+            "owner": f"tracker:{job_id}",
+            "operation": "tracker",
+            "execution": {
+                "job_id": job_id,
+                "run_id": UUID("a440a603-de8c-43ce-ab1a-7321a20df782"),
+                "worker_id": UUID("cce55467-d5ee-4d99-aee5-2d791307e4a0"),
+                "generation": 1,
+                "lease_token": UUID("e2813b7e-5677-4a12-86a4-ab61119b5658"),
+            },
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_video_admission_binds_selected_scope_before_receipt_and_reuses_identity():
+    native = _VideoNative()
+    manager = RoutingManager(
+        _DataFactory(native), health_max_age_seconds=60, lease_ttl_ms=60_000
+    )
+    command = _video_command()
+    first = await manager.execute(command)
+    second = await manager.execute(command)
+    assert first == second
+    assert first.result.owner == f"tracker:{command.body.execution.job_id}"
+    assert first.result.operation == "tracker"
+    assert [action for action, _ in native.video_calls] == [
+        "prepare",
+        "reserve",
+        "record",
+        "prepare",
+    ]
+    assert not any(action == "reserve_scope" for action, _ in native.calls)
+    first_step = next(event for event in native.events if event[0] in {"step", "video"})
+    assert first_step == ("video", "prepare", True)
+    assert native.video_calls[0][1]["scope_id"] == native.video_calls[1][1]["scope_id"]
+    assert native.video_calls[0][1]["scope_id"] == native.video_calls[3][1]["scope_id"]
+
+
+@pytest.mark.asyncio
+async def test_lost_video_claim_cannot_replay_successful_receipt_through_execute():
+    native = _VideoNative()
+    manager = RoutingManager(
+        _DataFactory(native), health_max_age_seconds=60, lease_ttl_ms=60_000
+    )
+    command = _video_command()
+    await manager.execute(command)
+    native.claim_lost = True
+    native.calls.clear()
+    with pytest.raises(RoutingUnavailable):
+        await manager.execute(command)
+    assert native.calls == []
+
+
+@pytest.mark.asyncio
+async def test_video_policy_rejection_has_durable_idempotent_receipt_without_scope():
+    native = _VideoNative(
+        handlers={"admission_snapshot": lambda _args: _rejected("pool_not_enabled")}
+    )
+    manager = RoutingManager(
+        _DataFactory(native), health_max_age_seconds=60, lease_ttl_ms=60_000
+    )
+    command = _video_command()
+    first = await manager.execute(command)
+    assert isinstance(first.result, RoutingRejectedResult)
+    assert first.result.reason == "pool_not_enabled"
+    assert native.bound_scope is None
+    second = await manager.execute(command)
+    assert second == first
+    assert [action for action, _ in native.video_calls] == [
+        "prepare",
+        "record",
+        "prepare",
+    ]
+
+
 def _acquire(*, mode="enforce", request_id=None, required=None, registry_id=None):
     return make_routing_command(
         "acquire",
@@ -348,6 +493,35 @@ async def test_admission_retries_only_known_contention_outside_the_transaction(
     assert len(calls) == min(busy_count + 1, 5)
     exits = [event for event in native.events if event[0] == "exit"]
     assert sum(event[1] is not None for event in exits) == min(busy_count, 4)
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_retries_known_contention_before_recording_its_receipt():
+    native = _Native()
+    calls = []
+
+    def heartbeat(_arguments):
+        calls.append(True)
+        return (
+            _rejected("management_busy")
+            if len(calls) <= 2
+            else _success(scope=_scope(_LEGACY_ID))
+        )
+
+    native.handlers["heartbeat_scope"] = heartbeat
+    result = await _manager(native).execute(
+        make_routing_command(
+            "heartbeat",
+            {
+                "scope_id": _SCOPE_ID,
+                "capability": "private-scope-capability",
+            },
+        )
+    )
+    assert result.state == "committed"
+    assert result.result.id == _SCOPE_ID
+    assert len(calls) == 3
+    assert sum(action == "record_command" for action, _ in native.calls) == 1
 
 
 @pytest.mark.asyncio

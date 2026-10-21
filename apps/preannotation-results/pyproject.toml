@@ -7,7 +7,7 @@ name = "aap-preannotation-results"
 version = "0.1.0"
 description = "Portable durable batch preannotation result contract and native adapter"
 requires-python = ">=3.11"
-dependencies = ["pydantic>=2.10.0"]
+dependencies = ["aap-owner-data", "pydantic>=2.10.0"]
 
 [project.optional-dependencies]
 postgres = ["asyncpg>=0.30.0"]
@@ -17,8 +17,19 @@ test = ["pytest>=8.3.0", "ruff==0.15.22"]
 aap-preannotation-results = "aap_preannotation_results_runtime.__main__:main"
 aap-prediction-retries = "aap_preannotation_results_runtime.retry_main:main"
 
+[tool.uv.sources]
+aap-owner-data = { path = "../_shared/owner_data", editable = true }
+
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "README.md" },
+    { file = "src/**/*.py" },
+    { file = "src/**/*.json" },
+]
+
 [tool.setuptools.package-data]
-aap_preannotation_results = ["protocol.schema.json", "prediction-retries.schema.json"]
+aap_preannotation_results = ["*.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

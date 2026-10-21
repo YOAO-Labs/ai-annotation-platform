@@ -46,3 +46,22 @@ reply validation also checks byte sizes, hashes and scope echoes.
 Job summaries keep at most 100 failed prediction IDs and flag a truncated list.
 The complete failure history is paged through execution members; the application
 uses that history when retrying a Job's failed items.
+
+Video tracking has a separate private `aap-video-execution-data/v1` contract in
+`video_execution.py`. Claim, renew, guard and release use exact job/run/worker,
+generation and lease-token identities. `VideoExecutionPostgresData` binds the
+single `aap_jobs_v1.video_execution_step(text,text)` function to an already active
+asyncpg transaction under `video_execution_client`. A guard's locks remain in
+that transaction until the caller commits or rolls back; it is not a standalone
+HTTP authorization result. The API bridge retains the existing business
+transaction. Tokens and encrypted route commands are private execution authority
+and must not enter public Job prompts, errors or events.
+
+`video_execution_plan.py` and `video-execution-plan.schema.json` describe frozen
+window plans, canonical result snapshots, bounded checkpoint chunks and strict
+recovery compatibility. Source timeline sampling and annotation output-grid step
+are independent. Missing backend incarnation, model, weight or capability
+identity permits an initial run but forbids checkpoint reuse. These are value
+contracts only: the current runner does not persist or consume these checkpoints,
+and defers runs that require recovery. Full crash resume and model-session replay
+remain separate work; see ADR-0157.

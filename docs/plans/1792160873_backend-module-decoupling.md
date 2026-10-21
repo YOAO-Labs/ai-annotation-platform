@@ -4712,3 +4712,27 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   added. Complete control/health/stats ownership, GPU deadline recovery, Jobs
   handoff, restore rebind, restricted images and language replacement still
   require their own evidence. Go remains experimental and unchanged.
+
+### Video execution claims and atomic route binding
+
+- Native0281 adds a Jobs-owned logical run, rotating worker/generation/token and
+  immutable encrypted video-acquire intent. Reservation, current execution binding
+  and command receipt share one transaction. Current claim validation precedes
+  successful receipt replay; core routing actions and legacy acquire stay frozen.
+- The current runner checks execution authority in its business transaction before
+  start, progress, candidate staging, Mask-root registration and failure. Known
+  contention retries without discarding held output; stale workers stop writing.
+  The current cancelled worker can heartbeat/finalize partial results while new
+  model attempts are refused. Stable summaries project canonical terminal facts;
+  broker errors do not independently terminalize managed summaries.
+- The selected owned database run passes32 cases, including actual video through
+  embedded, dedicated DSN and HTTP owner bindings; replay creates no additional
+  scope/model request, cancellation retains the first window, and migration
+  roundtrip/grants plus exact LOGIN and transaction checks pass. Failed diagnostic
+  attempts remain separate evidence; owned resources are cleaned.
+- Portable frozen-plan/checkpoint values are available but are not persisted or
+  consumed by the runner. Recovery-required runs explicitly defer. Window
+  persistence, automatic retirement/rebind, model-context recovery, a separate
+  Labeling writer, restore epochs and the full ten-module/seven-gate goal remain
+  active. This is local ARM64/CPU fixture evidence, without a primary/production
+  cutover, push, replacement-language provider or Go expansion. See ADR-0157.

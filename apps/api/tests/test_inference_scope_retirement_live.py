@@ -218,7 +218,7 @@ async def test_retire_one_live_scope_preserves_another_and_fences_delayed_tokens
                             "mode": "direct",
                             "required_instance_id": str(registry_id),
                             "owner": "scope-retirement:" + label,
-                            "operation": "tracker",
+                            "operation": "predict",
                         },
                     )
                 )

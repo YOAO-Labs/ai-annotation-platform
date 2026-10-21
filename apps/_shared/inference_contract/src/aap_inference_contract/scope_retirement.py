@@ -23,6 +23,7 @@ SCOPE_RETIREMENT_NATIVE_FUNCTIONS = (
     "aap_inference_routing_v1.routing_policy()",
     "aap_inference_routing_v1.routing_step(text,text)",
     "aap_inference_routing_v1.scope_retirement_step(text,text)",
+    "aap_inference_routing_v1.video_execution_scope_step(text,text)",
 )
 SCOPE_RETIREMENT_REQUEST_MAX_BYTES = 65_536
 SCOPE_RETIREMENT_REPLY_MAX_BYTES = 65_536

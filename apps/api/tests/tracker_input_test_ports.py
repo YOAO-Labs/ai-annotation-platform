@@ -54,9 +54,39 @@ def seed_staged_tracker_input(job, task, source_instance_map=None):
 
 
 def create_tracker_input_owner_fakes(db_session, monkeypatch):
-    # Import before patching the service so the worker never retains a bound
-    # method belonging to a previous test's closed session.
-    from app.workers import video_tracker as worker
+    from sqlalchemy import text
+    from app.services.video_tracking import runner
+    from tests.test_video_execution_native import _seed_claimable_input
+
+    claimed_execution = runner.tracker_execution
+
+    @asynccontextmanager
+    async def claim_captured_unit_input(db, job_id, **kwargs):
+        # These unit ports declare the input already accepted. Supply its
+        # minimal Native claim scope; full input admission is tested separately.
+        present = await db.scalar(
+            text(
+                "SELECT 1 FROM public.video_tracker_input_scopes WHERE tracker_job_id=:job"
+            ),
+            {"job": job_id},
+        )
+        if present is None:
+            job = await db.get(VideoTrackerJob, job_id)
+            task = await db.get(Task, job.task_id)
+            actor_id = job.created_by
+            if actor_id is None:
+                actor_id = await db.scalar(
+                    text("SELECT owner_id FROM public.projects WHERE id=:project"),
+                    {"project": task.project_id},
+                )
+            await _seed_claimable_input(
+                db, actor_id, task.project_id, task.dataset_item_id, task.id, job_id
+            )
+            await db.commit()
+        async with claimed_execution(db, job_id, **kwargs) as claim:
+            yield claim
+
+    monkeypatch.setattr(runner, "tracker_execution", claim_captured_unit_input)
 
     class Ports:
         def __init__(self):
@@ -249,7 +279,6 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
     monkeypatch.setattr(
         accepted_tracker_inputs, "prepare_tracker_video_input", ports.prepare
     )
-    monkeypatch.setattr(worker, "prepare_tracker_video_input", ports.prepare)
     monkeypatch.setattr(accepted_tracker_inputs, "tracker_video_input_gateway", gateway)
     monkeypatch.setattr(
         accepted_tracker_inputs, "lock_video_tracker_input_for_stage", ports.lock_stage

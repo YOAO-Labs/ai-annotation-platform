@@ -449,7 +449,7 @@ class BucketUpgradeTests(unittest.TestCase):
             flags=re.DOTALL,
         )
         normalized = re.sub(r"\s+", "", ",".join(runtime_grants))
-        self.assertEqual(len(INFERENCE_ROUTING_RUNTIME_CAPABILITIES), 2)
+        self.assertEqual(len(INFERENCE_ROUTING_RUNTIME_CAPABILITIES), 4)
         for signature in INFERENCE_ROUTING_RUNTIME_CAPABILITIES:
             self.assertIn(signature, normalized)
         self.assertNotIn("aap_inference_routing_v1._routing_secret()", normalized)

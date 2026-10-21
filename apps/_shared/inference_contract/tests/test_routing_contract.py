@@ -131,6 +131,51 @@ def _body(operation: str) -> dict:
     raise AssertionError(operation)
 
 
+def test_video_acquire_requires_exact_job_subject_and_keeps_legacy_wire_unchanged():
+    legacy = make_routing_command("acquire", _body("acquire"), request_id=_REQUEST_ID)
+    legacy_bytes = routing_command_bytes(legacy)
+    job_id = uuid.uuid4()
+    body = {
+        **_body("acquire"),
+        "project_id": uuid.uuid4(),
+        "owner": f"tracker:{job_id}",
+        "operation": "tracker",
+        "execution": {
+            "job_id": job_id,
+            "run_id": uuid.uuid4(),
+            "worker_id": uuid.uuid4(),
+            "generation": 1,
+            "lease_token": uuid.uuid4(),
+        },
+    }
+    command = make_routing_command("video_acquire", body)
+    assert routing_command_bytes(
+        decode_routing_command(routing_command_bytes(command))
+    ) == routing_command_bytes(command)
+    assert str(body["execution"]["lease_token"]) not in repr(command)
+    for key, wrong in {
+        "owner": "tracker:another-job",
+        "operation": "predict",
+        "project_id": None,
+    }.items():
+        with pytest.raises(RoutingUnavailable):
+            make_routing_command("video_acquire", {**body, key: wrong})
+    for generation in (True, "1", 1.0, 0):
+        with pytest.raises(RoutingUnavailable):
+            make_routing_command(
+                "video_acquire",
+                {**body, "execution": {**body["execution"], "generation": generation}},
+            )
+    with pytest.raises(RoutingUnavailable):
+        make_routing_command("acquire", body)
+    assert (
+        routing_command_bytes(
+            make_routing_command("acquire", _body("acquire"), request_id=_REQUEST_ID)
+        )
+        == legacy_bytes
+    )
+
+
 def _scope() -> dict:
     return {
         "id": _SCOPE_ID,

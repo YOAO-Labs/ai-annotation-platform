@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import func, select
 
 from aap_assets_media.contract import ObjectIdentity
+from aap_assets_video_inputs.tracker import TrackerInputReadRequest
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem
 from app.db.models.audit_log import AuditLog
@@ -22,6 +23,7 @@ from app.schemas.video_tracker_job import (
     VideoTrackerJobOut,
 )
 from app.services.audit import AuditAction
+from app.services.accepted_tracker_inputs import SqlAlchemyTrackerVideoInputDatabase
 from app.services.raster_mask_storage import build_rle_reference
 from app.services.video_tracking.jobs import (
     operate_video_mask_keyframe,
@@ -37,6 +39,23 @@ from tests.test_video_tracker_jobs_list import _bearer
 
 RLE = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 3]}
 ALT_RLE = {"encoding": "coco_rle", "size": [2, 3], "counts": [2, 1, 3]}
+
+
+async def _captured_correction_seed(db, job, annotation):
+    work = await SqlAlchemyTrackerVideoInputDatabase(db, commit=False).call(
+        "read_video_tracker_input",
+        TrackerInputReadRequest(
+            actor_id=job.created_by, tracker_job_id=job.id, task_id=job.task_id
+        ),
+    )
+    execution = work.record.scope.execution
+    return await _correction_seed(
+        db,
+        job,
+        annotation,
+        execution=execution,
+        prompt_snapshot=execution.prompt_snapshot,
+    )
 
 
 @pytest.fixture
@@ -730,6 +749,7 @@ async def test_create_correction_freezes_exact_route_and_single_active_lease(
     assert created.status_code == 202, created.text
     body = created.json()
     assert body["job_kind"] == "correction"
+    assert body["event_channel"] == f"video-tracker-job:{body['id']}"
     assert body["track_id_snapshot"] == "mask-track-1"
     correction = body["prompt"]["correction"]
     assert correction["source_version"] == 3
@@ -751,7 +771,7 @@ async def test_create_correction_freezes_exact_route_and_single_active_lease(
         (2, 5, "backward", True),
         (5, 8, "forward", True),
     ]
-    assert await _correction_seed(db_session, row, annotation) == [
+    assert await _captured_correction_seed(db_session, row, annotation) == [
         {
             "obj_id": 1,
             "prompts": [
@@ -777,6 +797,7 @@ async def test_create_correction_freezes_exact_route_and_single_active_lease(
     )
     assert preview.status_code == 200, preview.text
     preview_body = preview.json()
+    assert preview_body["results"] == []
     assert {
         key: preview_body[key]
         for key in (
@@ -864,7 +885,7 @@ async def test_bbox_fallback_requires_exact_capability_confirmation_and_text(
     assert correction["seed_bbox"] is not None
     row = await db_session.get(VideoTrackerJob, uuid.UUID(created.json()["id"]))
     assert row is not None
-    assert await _correction_seed(db_session, row, annotation) == [
+    assert await _captured_correction_seed(db_session, row, annotation) == [
         {"obj_id": 1, "bbox": correction["seed_bbox"]}
     ]
 

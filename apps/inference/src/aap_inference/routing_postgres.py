@@ -21,17 +21,24 @@ from aap_inference_contract.scope_retirement import (
     SCOPE_RETIREMENT_REPLY_MAX_BYTES,
     SCOPE_RETIREMENT_REQUEST_MAX_BYTES,
 )
+from aap_inference_contract.video_execution import (
+    VIDEO_EXECUTION_SCOPE_ACTIONS,
+    VideoScopeRejected,
+    decode_video_scope_data,
+)
 
 _SCHEMA = "aap_inference_routing_v1"
 _POLICY_SQL = f"SELECT {_SCHEMA}.routing_policy()"
 _STEP_SQL = f"SELECT {_SCHEMA}.routing_step($1::text,$2::text)"
 _RETIREMENT_STEP_SQL = f"SELECT {_SCHEMA}.scope_retirement_step($1::text,$2::text)"
+_VIDEO_STEP_SQL = f"SELECT {_SCHEMA}.video_execution_scope_step($1::text,$2::text)"
 _BIND_TRANSACTION_SQL = "SELECT pg_catalog.pg_current_xact_id()::text"
 _TRANSACTION_SQL = "SELECT pg_catalog.pg_current_xact_id_if_assigned()::text"
 _FUNCTIONS = {
     ("routing_policy", ""),
     ("routing_step", "text, text"),
     ("scope_retirement_step", "text, text"),
+    ("video_execution_scope_step", "text, text"),
 }
 
 
@@ -239,6 +246,36 @@ class RoutingPostgresData:
         ):
             raise RoutingUnavailable()
         return reply
+
+    async def video_execution_scope_step(self, action, arguments):
+        if (
+            type(action) is not str
+            or action not in VIDEO_EXECUTION_SCOPE_ACTIONS
+            or not isinstance(arguments, Mapping)
+            or any(type(key) is not str for key in arguments)
+        ):
+            raise RoutingUnavailable()
+        request_json = _json_text(arguments)
+        try:
+            await self._assert_transaction()
+            raw = await self._connection.fetchval(_VIDEO_STEP_SQL, action, request_json)
+            reply = _json_object(raw, max_bytes=ROUTING_REPLY_MAX_BYTES)
+            # Validation happens before the caller's transaction can commit.
+            # Preserve the envelope for the manager's independent validation.
+            try:
+                decode_video_scope_data(action, dict(arguments), reply)
+            except VideoScopeRejected:
+                pass
+            return reply
+        except (
+            RoutingUnavailable,
+            asyncio.CancelledError,
+            KeyboardInterrupt,
+            SystemExit,
+        ):
+            raise
+        except Exception:
+            raise RoutingUnavailable() from None
 
 
 __all__ = ["RoutingPostgresData"]

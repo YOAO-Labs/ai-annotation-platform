@@ -389,11 +389,13 @@ name = "aap-preannotation-results"
 version = "0.1.0"
 source = { editable = "../preannotation-results" }
 dependencies = [
+    { name = "aap-owner-data" },
     { name = "pydantic" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-owner-data", editable = "../_shared/owner_data" },
     { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.30.0" },
     { name = "pydantic", specifier = ">=2.10.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },

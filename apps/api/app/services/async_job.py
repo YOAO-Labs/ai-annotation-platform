@@ -19,6 +19,7 @@ from typing import AsyncIterator
 
 from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.db.models.async_job import AsyncJob, AsyncJobKind, AsyncJobStatus
 
@@ -46,6 +47,53 @@ async def create_job(
     db.add(job)
     await db.flush()
     return job
+
+
+async def ensure_video_tracker_summary(
+    db: AsyncSession,
+    *,
+    tracker_job_id: uuid.UUID,
+    kind: str,
+    user_id: uuid.UUID | None,
+    project_id: uuid.UUID | None,
+    payload: dict,
+    celery_task_id: str | None,
+) -> AsyncJob:
+    """Retain one best-effort index row across tracker worker redeliveries.
+
+    The canonical tracker UUID is also its summary UUID in the separate index.
+    Reuse never resets lifecycle or progress and never supplies execution rights.
+    """
+    if kind not in {
+        AsyncJobKind.VIDEO_TRACKER.value,
+        AsyncJobKind.VIDEO_CORRECTION.value,
+    } or (payload.get("video_tracker_job_id") != str(tracker_job_id)):
+        raise ValueError("invalid video tracker summary")
+    payload = {**payload, "video_execution_protocol": "aap-video-execution-data/v1"}
+    await db.execute(
+        pg_insert(AsyncJob)
+        .values(
+            id=tracker_job_id,
+            kind=kind,
+            user_id=user_id,
+            project_id=project_id,
+            payload=payload,
+            celery_task_id=celery_task_id,
+            status=AsyncJobStatus.PENDING.value,
+        )
+        .on_conflict_do_nothing(index_elements=[AsyncJob.id])
+    )
+    summary = await db.get(AsyncJob, tracker_job_id, populate_existing=True)
+    if summary is None or (
+        summary.kind != kind
+        or summary.user_id != user_id
+        or summary.project_id != project_id
+        or (summary.payload or {}).get("video_tracker_job_id") != str(tracker_job_id)
+        or (summary.payload or {}).get("video_execution_protocol")
+        != "aap-video-execution-data/v1"
+    ):
+        raise ValueError("video tracker summary identity conflict")
+    return summary
 
 
 async def delete_batch_predict_jobs(db: AsyncSession, batch_id: uuid.UUID) -> int:

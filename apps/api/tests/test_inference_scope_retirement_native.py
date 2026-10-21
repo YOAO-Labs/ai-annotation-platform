@@ -131,6 +131,7 @@ async def test_native_scope_retirement_is_exact_and_preserves_other_work(test_en
                     f"{_SCHEMA}.routing_policy()",
                     f"{_SCHEMA}.routing_step(text,text)",
                     f"{_SCHEMA}.scope_retirement_step(text,text)",
+                    f"{_SCHEMA}.video_execution_scope_step(text,text)",
                 ],
             }
             await client.execute("SAVEPOINT retirement_table_denial")

@@ -113,10 +113,13 @@ GRANT EXECUTE ON FUNCTION aap_inference_registry_ingress_v1.registry_ingress_pol
     TO :"application_role";
 GRANT USAGE ON SCHEMA aap_inference_routing_v1 TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_inference_routing_v1.routing_policy(),
-    aap_inference_routing_v1.routing_step(text,text)
+    aap_inference_routing_v1.routing_step(text,text),
+    aap_inference_routing_v1.scope_retirement_step(text,text),
+    aap_inference_routing_v1.video_execution_scope_step(text,text)
     TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_learning_v1.registry_evaluation_reference_exists(uuid),
-    aap_jobs_v1.count_running_registry_predictions(uuid) TO :"application_role";
+    aap_jobs_v1.count_running_registry_predictions(uuid),
+    aap_jobs_v1.video_execution_step(text,text) TO :"application_role";
 -- Embedded Identity adapters use the same owner capabilities as isolated clients.
 GRANT USAGE ON SCHEMA aap_identity_v1, aap_identity_keys_v1,
     aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1,
