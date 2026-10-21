@@ -162,13 +162,9 @@ class BackendRoutingController:
         *,
         registry_id: str | UUID | None = None,
         control_token: bytes | str | None = None,
-        allow_legacy_execution: bool = False,
     ) -> None:
         self.registry_id = _parse_optional_registry_id(registry_id)
         self._control_token = _parse_control_token(control_token)
-        if type(allow_legacy_execution) is not bool:
-            raise RouteConfigurationError("invalid route legacy execution setting")
-        self.allow_legacy_execution = allow_legacy_execution
         self.backend_incarnation = str(uuid4())
         self._counter = StrongWorkCounter()
         self._control_lock = threading.RLock()
@@ -218,6 +214,8 @@ class BackendRoutingController:
     ) -> _RequestLease:
         with self._control_lock:
             if self._control_token is None:
+                if admission_values:
+                    raise RouteAuthorizationError
                 return _RequestLease(
                     self,
                     self._counter.acquire(),
@@ -226,12 +224,6 @@ class BackendRoutingController:
 
             control = self._accepted_control
             if control is None:
-                if self.allow_legacy_execution and not admission_values:
-                    return _RequestLease(
-                        self,
-                        self._counter.acquire(),
-                        management=False,
-                    )
                 raise RouteAuthorizationError
             now = int(time.time())
             self._prune_attempts(now)
@@ -739,13 +731,12 @@ def _load_control_token(environ: Mapping[str, str]) -> bytes | None:
     return _parse_control_token(raw)
 
 
-def _load_allow_legacy(environ: Mapping[str, str]) -> bool:
+def _reject_legacy_bypass(environ: Mapping[str, str]) -> None:
     value = environ.get(_LEGACY_ENV)
-    if value in (None, "0"):
-        return False
-    if value == "1":
-        return True
-    raise RouteConfigurationError("invalid route legacy execution setting")
+    if value not in (None, "", "0"):
+        raise RouteConfigurationError(
+            "managed route admission cannot enable legacy execution"
+        )
 
 
 def install_backend_routing_controller(
@@ -762,10 +753,10 @@ def install_backend_routing_controller(
     configured_registry_id = (
         registry_id if registry_id is not None else source.get(_REGISTRY_ENV)
     )
+    _reject_legacy_bypass(source)
     controller = BackendRoutingController(
         registry_id=configured_registry_id,
         control_token=_load_control_token(source),
-        allow_legacy_execution=_load_allow_legacy(source),
     )
     if app.middleware_stack is not None:
         raise RouteConfigurationError(

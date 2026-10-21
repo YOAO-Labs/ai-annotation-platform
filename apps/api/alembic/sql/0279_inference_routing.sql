@@ -3141,6 +3141,12 @@ BEGIN
                OR aap_inference_routing_v1._routing_secret() IS NULL THEN
                 RETURN aap_inference_routing_v1._routing_rejected('backend_not_ready');
             END IF;
+            IF v_registry.auth_method IS DISTINCT FROM 'token'
+               OR v_registry.auth_token IS NULL
+               OR pg_catalog.char_length(v_registry.auth_token) NOT BETWEEN 1 AND 8192
+               OR v_registry.auth_token !~ '^[!-~]+$' THEN
+                RETURN aap_inference_routing_v1._routing_rejected('backend_not_ready');
+            END IF;
             v_new_epoch := public.gen_random_uuid();
             v_retired_epoch := CASE WHEN v_state.continuity = 'ready'
                                     THEN v_state.authority_epoch ELSE NULL END;

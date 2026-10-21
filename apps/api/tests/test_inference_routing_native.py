@@ -245,6 +245,52 @@ async def test_routing_policy_and_client_have_only_the_two_fixed_functions(test_
         await connection.close()
 
 
+async def test_epoch_without_control_auth_does_not_leave_an_unrecoverable_hold(
+    test_engine,
+):
+    await assert_owned_test_database(test_engine)
+    owner = await _connect(test_engine)
+    world = await _seed(owner)
+    client = await _connect(test_engine, role=_ROLE)
+    try:
+        await owner.execute(
+            "UPDATE public.ml_backend_registry SET auth_method='none',auth_token=NULL WHERE id=$1",
+            world["registry_id"],
+        )
+        async with client.transaction():
+            reply = await _step(
+                client,
+                "prepare_epoch",
+                {
+                    "control_id": str(uuid.uuid4()),
+                    "registry_id": str(world["registry_id"]),
+                },
+            )
+        assert reply == {
+            "schema": "aap-inference-routing-data/v1",
+            "status": "rejected",
+            "reason": "backend_not_ready",
+        }
+        assert (
+            await owner.fetchval(
+                "SELECT count(*) FROM aap_inference_routing_v1.controls WHERE registry_id=$1",
+                world["registry_id"],
+            )
+            == 0
+        )
+        # Configuration can still be repaired before any management HTTP is sent.
+        await owner.execute(
+            "UPDATE public.ml_backend_registry SET auth_method='token',auth_token='repaired' WHERE id=$1",
+            world["registry_id"],
+        )
+    finally:
+        await client.close()
+        try:
+            await _cleanup(owner, world)
+        finally:
+            await owner.close()
+
+
 async def test_routing_snapshot_scope_attempt_and_writer_fence(test_engine):
     await assert_owned_test_database(test_engine)
     owner = await _connect(test_engine)

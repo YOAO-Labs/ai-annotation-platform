@@ -12,7 +12,6 @@ import pytest
 from aap_protocol_v2.routing import (
     ROUTE_ADMISSION_AUDIENCE,
     ROUTE_ADMISSION_PROTOCOL,
-    ROUTE_CONTROL_PATH,
     ROUTE_CONTROL_PROTOCOL,
     ROUTE_STATUS_PATH,
     decode_backend_route_control_command,
@@ -194,36 +193,35 @@ async def test_legacy_mode_tracks_mutations_and_management_requires_control_secr
 
 
 @pytest.mark.asyncio
-async def test_unbound_legacy_migration_closes_when_drain_is_accepted():
+async def test_managed_restart_rejects_headerless_and_retired_epoch_work():
     registry_id = str(uuid4())
-    controller = BackendRoutingController(
-        registry_id=registry_id,
-        control_token="management-secret",
-        allow_legacy_execution=True,
+    original = BackendRoutingController(registry_id=registry_id, control_token="secret")
+    _, key = await _bind(original)
+    old_token = _claims(original, key)
+    restarted = BackendRoutingController(
+        registry_id=registry_id, control_token="secret"
     )
-    middleware = _middleware(controller)
-    status, _, _ = await _asgi_call(middleware)
-    assert status == 200
+    middleware = _middleware(restarted)
+    assert restarted.backend_incarnation != original.backend_incarnation
+    assert (await _asgi_call(middleware))[0] == 503
+    assert (
+        await _asgi_call(
+            middleware, headers=[(b"x-aap-route-admission", old_token.encode())]
+        )
+    )[0] == 503
+    assert restarted.active_requests == 0
 
-    command_id, epoch = str(uuid4()), str(uuid4())
-    raw = _command(
-        action="drain",
-        command_id=command_id,
-        registry_id=registry_id,
-        authority_epoch=epoch,
-        retired_epoch=None,
-        challenge="d" * 64,
-    )
-    status, body, _ = await _asgi_call(
-        middleware,
-        path=ROUTE_CONTROL_PATH,
-        headers=[(b"authorization", b"Bearer management-secret")],
-        body=raw,
-    )
-    assert status == 200
-    assert json.loads(body)["phase"] == "drained"
-    status, _, _ = await _asgi_call(middleware)
-    assert status == 503
+
+@pytest.mark.asyncio
+async def test_unmanaged_backend_rejects_managed_admission_instead_of_ignoring_it():
+    controller = BackendRoutingController()
+    assert (
+        await _asgi_call(
+            _middleware(controller),
+            headers=[(b"x-aap-route-admission", b"retired-managed-token")],
+        )
+    )[0] == 503
+    assert controller.active_requests == 0
 
 
 @pytest.mark.asyncio
@@ -483,7 +481,6 @@ async def test_app_installer_is_idempotent_and_fails_closed_on_bad_config():
         registry_id=str(uuid4()),
         environ={
             "AAP_ROUTE_CONTROL_TOKEN": "secret",
-            "AAP_ROUTE_ALLOW_LEGACY_EXECUTION": "1",
         },
     )
     assert install_backend_routing_controller(app) is controller
@@ -495,5 +492,18 @@ async def test_app_installer_is_idempotent_and_fails_closed_on_bad_config():
             environ={
                 "AAP_ROUTE_CONTROL_TOKEN": "one",
                 "AAP_ROUTE_CONTROL_TOKEN_FILE": "two",
+            },
+        )
+
+
+def test_installer_rejects_legacy_bypass_even_after_restart():
+    from fastapi import FastAPI
+
+    with pytest.raises(RouteConfigurationError, match="cannot enable legacy execution"):
+        install_backend_routing_controller(
+            FastAPI(),
+            environ={
+                "AAP_ROUTE_CONTROL_TOKEN": "secret",
+                "AAP_ROUTE_ALLOW_LEGACY_EXECUTION": "1",
             },
         )
