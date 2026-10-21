@@ -121,6 +121,10 @@ Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事�
 控制面具备争用安全性。私有凭据快照、带真实性约束的观察结果和同事务 Native apply
 仍是后续工作。详见 [ADR-0150](/dev/adr/0150-portable-backend-health-coordination)。
 
+本地197项去重选定检查通过，24组旧健康相位和38组既有服务池观测匹配。
+独立安装的 Inference／Workspace 分别通过132／449项，当前镜像的包及 API／Native
+指纹一致。此证据覆盖协调器提取，不代表独立健康写服务或完整 Inference 已完成。
+
 ## Workspace 后端能力探测
 
 Workspace 配置路径只持有 registry ID 和不透明事务快照；Inference 独立持有凭据并执行

@@ -73,3 +73,29 @@ a consistent lock order and controlled race acceptance are mandatory follow-up.
 Native head274 and all existing deployment selectors remain unchanged. Full
 Inference, all ten modules/seven gates, non-Python replacement, production/primary
 cutover, Go expansion, real GPU and production capacity remain unqualified here.
+
+## Scoped local qualification
+
+The local ledger selects197 distinct passing cases:194 database/process cases
+and three focused architecture checks. Source Inference/shared contracts pass132;
+fresh noneditable Inference and Workspace environments pass132 and449 respectively,
+without API/ORM/Celery imports. All24 frozen old health observations match exactly,
+including SQL/HTTP order and caller flush behavior. The existing38-observation
+pool corpus also replays unchanged; observations and repeated runs are not added
+to the selected-case count. All27 health and five reconciliation conditions match
+the original AST conditions; the proof timestamp helper AST is identical.
+
+Fresh Inference, Workspace and API images use sourcee8266ecc8. Restricted read-only,
+no-network cold checks match49/271 package files and1,243 API/Native inputs, OpenAPI
+and head274. Native, ORM model and dependency inputs are byte-identical to the
+preceding qualification, so its complete274 migration/restore evidence is retained
+separately rather than rerun for a code-only move. These cold checks do not assert
+an independent health HTTP service or new image/database execution qualification.
+
+The integrated child branch remains reachable after its clean worktree is removed.
+Its private generated environment/egg metadata was identified before cleanup;
+shared environments were preserved. Owned database/Redis/probe resources are
+removed, and primary/shared state remains unchanged. Canonical evidence is
+`.worktree/inference-health-coordinator-qualification.json`. Full health Native/wire
+ownership, consistent locking, the stats path and the other complete-module gates
+above remain open. No push, primary/production cutover or Go expansion occurred.
