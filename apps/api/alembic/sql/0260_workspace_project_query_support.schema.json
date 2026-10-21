@@ -1,0 +1,199 @@
+{
+  "$id": "aap-workspace-project-query-support/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Workspace project query typed foreign facts",
+  "type": "object",
+  "function_defaults": {
+    "volatility": "STABLE",
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"]
+  },
+  "functions": [
+    {
+      "signature": "aap_labeling_v1.workspace_project_query_counters(uuid[])",
+      "arguments": [{ "name": "p_project_ids", "type": "uuid[]" }],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          { "name": "project_id", "type": "uuid" },
+          { "name": "total_tasks", "type": "integer" },
+          { "name": "completed_tasks", "type": "integer" },
+          { "name": "review_tasks", "type": "integer" },
+          { "name": "in_progress_tasks", "type": "integer" },
+          { "name": "batch_summary", "type": "jsonb" }
+        ]
+      },
+      "semantics": "Return only persisted Project counter columns without coalescing or recounting."
+    },
+    {
+      "signature": "aap_labeling_v1.workspace_project_query_ai_counts(uuid[])",
+      "arguments": [{ "name": "p_project_ids", "type": "uuid[]" }],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          { "name": "project_id", "type": "uuid" },
+          { "name": "task_count", "type": "bigint" }
+        ]
+      },
+      "semantics": "Count distinct annotation task IDs with active AI annotations; retain cancelled annotations and omit projects with no matching rows."
+    },
+    {
+      "signature": "aap_labeling_v1.workspace_project_query_annotation_count(uuid[],boolean)",
+      "arguments": [
+        { "name": "p_project_ids", "type": "uuid[]" },
+        { "name": "p_ai_only", "type": "boolean" }
+      ],
+      "returns": { "kind": "scalar", "type": "bigint" },
+      "semantics": "Count active, non-cancelled annotations; true restricts to AI-derived annotations."
+    },
+    {
+      "signature": "aap_labeling_v1.workspace_project_query_task_series(uuid[],timestamptz[])",
+      "arguments": [
+        { "name": "p_project_ids", "type": "uuid[]" },
+        { "name": "p_bucket_ends", "type": "timestamptz[]" }
+      ],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          { "name": "bucket_index", "type": "integer" },
+          { "name": "total_data", "type": "bigint" },
+          { "name": "completed", "type": "bigint" },
+          { "name": "pending_review", "type": "bigint" }
+        ]
+      },
+      "semantics": "Return twelve input-ordered cumulative task buckets using created, reviewed, updated, and submitted timestamps."
+    },
+    {
+      "signature": "aap_labeling_v1.workspace_project_query_annotation_series(uuid[],timestamptz[])",
+      "arguments": [
+        { "name": "p_project_ids", "type": "uuid[]" },
+        { "name": "p_bucket_ends", "type": "timestamptz[]" }
+      ],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          { "name": "bucket_index", "type": "integer" },
+          { "name": "total_annotations", "type": "bigint" },
+          { "name": "ai_annotations", "type": "bigint" }
+        ]
+      },
+      "semantics": "Return twelve input-ordered cumulative counts for active, non-cancelled annotations and their AI-derived subset."
+    },
+    {
+      "signature": "aap_assets_v1.workspace_project_query_dataset_ids(uuid)",
+      "arguments": [{ "name": "p_project_id", "type": "uuid" }],
+      "returns": {
+        "kind": "table",
+        "columns": [{ "name": "dataset_id", "type": "uuid" }]
+      },
+      "semantics": "Return project_datasets association rows without joining datasets or imposing an order."
+    },
+    {
+      "signature": "aap_assets_v1.workspace_project_query_dataset_item_count(uuid[])",
+      "arguments": [{ "name": "p_dataset_ids", "type": "uuid[]" }],
+      "returns": { "kind": "scalar", "type": "bigint" },
+      "semantics": "Count DatasetItems whose dataset ID is in the caller-captured set."
+    },
+    {
+      "signature": "aap_assets_v1.workspace_project_query_dataset_item_ids(uuid[])",
+      "arguments": [{ "name": "p_dataset_ids", "type": "uuid[]" }],
+      "returns": {
+        "kind": "table",
+        "columns": [{ "name": "item_id", "type": "uuid" }]
+      },
+      "semantics": "Return DatasetItem IDs for the caller-captured dataset set without ordering."
+    },
+    {
+      "signature": "aap_labeling_v1.workspace_project_query_linked_task_count(uuid,uuid[])",
+      "arguments": [
+        { "name": "p_project_id", "type": "uuid" },
+        { "name": "p_dataset_ids", "type": "uuid[]" }
+      ],
+      "returns": { "kind": "scalar", "type": "bigint" },
+      "semantics": "Count non-uploading project tasks whose non-null DatasetItem belongs to the caller-captured dataset set."
+    },
+    {
+      "signature": "aap_labeling_v1.workspace_project_query_task_count(uuid)",
+      "arguments": [{ "name": "p_project_id", "type": "uuid" }],
+      "returns": { "kind": "scalar", "type": "bigint" },
+      "semantics": "Count project tasks except tasks with status uploading."
+    },
+    {
+      "signature": "aap_labeling_v1.workspace_project_query_batches(uuid)",
+      "arguments": [{ "name": "p_project_id", "type": "uuid" }],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          { "name": "id", "type": "uuid" },
+          { "name": "status", "type": "text" },
+          { "name": "annotator_id", "type": "uuid" },
+          { "name": "reviewer_id", "type": "uuid" }
+        ]
+      },
+      "semantics": "Return project batches except archived batches, without imposing an order."
+    },
+    {
+      "signature": "aap_labeling_v1.workspace_project_query_batch_task_counts(uuid)",
+      "arguments": [{ "name": "p_project_id", "type": "uuid" }],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          { "name": "batch_id", "type": "uuid", "nullable": true },
+          { "name": "task_count", "type": "bigint" }
+        ]
+      },
+      "semantics": "Group non-uploading project tasks by batch_id, retaining a null batch group and without joining TaskBatch."
+    },
+    {
+      "signature": "aap_jobs_v1.workspace_project_query_job_status_counts(uuid)",
+      "arguments": [{ "name": "p_project_id", "type": "uuid" }],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          { "name": "status", "type": "text" },
+          { "name": "job_count", "type": "bigint" }
+        ]
+      },
+      "semantics": "Group create_tasks jobs for a project by status without additional filters or ordering."
+    },
+    {
+      "signature": "aap_jobs_v1.workspace_project_query_latest_job_status(uuid)",
+      "arguments": [{ "name": "p_project_id", "type": "uuid" }],
+      "returns": {
+        "kind": "table",
+        "columns": [{ "name": "status", "type": "text" }]
+      },
+      "semantics": "Return the newest create_tasks job status by created_at descending then ID descending; return no rows when missing."
+    },
+    {
+      "signature": "aap_inference_v1.workspace_project_query_pool(uuid)",
+      "arguments": [{ "name": "p_pool_id", "type": "uuid" }],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          { "name": "pool_id", "type": "uuid" },
+          { "name": "legacy_instance_id", "type": "uuid", "nullable": true }
+        ]
+      },
+      "semantics": "Return the service-pool ID and nullable legacy instance ID without enabled or membership checks."
+    }
+  ],
+  "x-postgresql-functions": [
+    "aap_labeling_v1.workspace_project_query_counters(uuid[])",
+    "aap_labeling_v1.workspace_project_query_ai_counts(uuid[])",
+    "aap_labeling_v1.workspace_project_query_annotation_count(uuid[],boolean)",
+    "aap_labeling_v1.workspace_project_query_task_series(uuid[],timestamptz[])",
+    "aap_labeling_v1.workspace_project_query_annotation_series(uuid[],timestamptz[])",
+    "aap_assets_v1.workspace_project_query_dataset_ids(uuid)",
+    "aap_assets_v1.workspace_project_query_dataset_item_count(uuid[])",
+    "aap_assets_v1.workspace_project_query_dataset_item_ids(uuid[])",
+    "aap_labeling_v1.workspace_project_query_linked_task_count(uuid,uuid[])",
+    "aap_labeling_v1.workspace_project_query_task_count(uuid)",
+    "aap_labeling_v1.workspace_project_query_batches(uuid)",
+    "aap_labeling_v1.workspace_project_query_batch_task_counts(uuid)",
+    "aap_jobs_v1.workspace_project_query_job_status_counts(uuid)",
+    "aap_jobs_v1.workspace_project_query_latest_job_status(uuid)",
+    "aap_inference_v1.workspace_project_query_pool(uuid)"
+  ]
+}
