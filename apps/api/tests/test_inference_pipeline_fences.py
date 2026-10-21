@@ -260,7 +260,7 @@ def _quote_identifier(value: str) -> str:
 
 
 async def _replace_execute_acl(connection, function_name, desired_acl, owner):
-    await connection.execute(f"SET ROLE {_quote_identifier(owner)}")
+    await connection.exec_driver_sql(f"SET ROLE {_quote_identifier(owner)}")
     try:
         current_acl = await _function_metadata(connection, function_name)
         grantees = {entry[0] for entry in current_acl["acl"]}
@@ -269,7 +269,7 @@ async def _replace_execute_acl(connection, function_name, desired_acl, owner):
             if grantee == owner:
                 continue
             rendered = "PUBLIC" if grantee == "PUBLIC" else _quote_identifier(grantee)
-            await connection.execute(
+            await connection.exec_driver_sql(
                 f"REVOKE ALL ON FUNCTION aap_inference_pipelines_v1.{function_name}"
                 "(jsonb,text,jsonb,text[],text[]) FROM "
                 f"{rendered}"
@@ -279,16 +279,16 @@ async def _replace_execute_acl(connection, function_name, desired_acl, owner):
                 continue
             rendered = "PUBLIC" if grantee == "PUBLIC" else _quote_identifier(grantee)
             grant_option = " WITH GRANT OPTION" if grantable else ""
-            await connection.execute("RESET ROLE")
-            await connection.execute(f"SET ROLE {_quote_identifier(grantor)}")
-            await connection.execute(
+            await connection.exec_driver_sql("RESET ROLE")
+            await connection.exec_driver_sql(f"SET ROLE {_quote_identifier(grantor)}")
+            await connection.exec_driver_sql(
                 f"GRANT {privilege} ON FUNCTION aap_inference_pipelines_v1.{function_name}"
                 "(jsonb,text,jsonb,text[],text[]) TO "
                 f"{rendered}{grant_option}"
             )
-            await connection.execute("RESET ROLE")
+            await connection.exec_driver_sql("RESET ROLE")
     finally:
-        await connection.execute("RESET ROLE")
+        await connection.exec_driver_sql("RESET ROLE")
 
 
 @asynccontextmanager
@@ -413,7 +413,7 @@ async def _wait_for_advisory_waiter(test_engine, lock_key, timeout_seconds=20):
                     await observer.execute(
                         text(
                             """SELECT activity.pid, activity.application_name,
-                                  activity.query, lock.waitstart
+                                  activity.query, pglock.waitstart
                            FROM pg_catalog.pg_locks AS pglock
                            JOIN pg_catalog.pg_stat_activity AS activity
                              ON activity.pid=pglock.pid
