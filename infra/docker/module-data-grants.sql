@@ -803,13 +803,32 @@ GRANT SELECT (project_id), DELETE ON public.project_task_datasets,
 -- Other owners expose only their project cleanup predicates and row mutations.
 GRANT SELECT (project_id), DELETE ON public.project_ml_backend_pool,
     public.project_pipelines TO :"inference_owner";
+GRANT SELECT (
+        id, scope, project_id, organization_id, name, stages, is_default,
+        created_by, usage_count, created_at, updated_at
+    ) ON public.project_pipelines TO :"inference_owner";
+GRANT INSERT (
+        id, scope, project_id, organization_id, name, stages, is_default, created_by
+    ) ON public.project_pipelines TO :"inference_owner";
+GRANT UPDATE (
+        scope, project_id, organization_id, name, stages, is_default,
+        usage_count, updated_at
+    ) ON public.project_pipelines TO :"inference_owner";
 GRANT SELECT (registry_id, pool_id) ON public.ml_backend_pool_members
     TO :"inference_owner";
+GRANT SELECT (id, created_at, updated_at, capability_snapshot)
+    ON public.ml_backend_service_pools TO :"inference_owner";
 GRANT SELECT (id, enabled, routing_generation, legacy_instance_id),
     UPDATE (enabled, routing_generation, updated_at)
     ON public.ml_backend_service_pools TO :"inference_owner";
+GRANT SELECT (
+        id, last_checked_at, created_at, updated_at, extra_params, health_meta
+    ) ON public.ml_backend_registry TO :"inference_owner";
 GRANT SELECT (id, url, auth_method, auth_token, extra_params)
     ON public.ml_backend_registry TO :"inference_owner";
+GRANT SELECT (
+        id, project_id, pool_id, enabled, created_at, updated_at, default_variants
+    ) ON public.project_ml_backend_pool TO :"inference_owner";
 GRANT SELECT (id, pool_id, enabled), INSERT (id, project_id, pool_id, enabled),
     UPDATE (enabled, updated_at)
     ON public.project_ml_backend_pool TO :"inference_owner";
@@ -850,7 +869,7 @@ GRANT USAGE ON SCHEMA aap_workspace_template_query_v1 TO :"workspace_owner";
 GRANT USAGE ON SCHEMA aap_workspace_directory_query_v1 TO :"workspace_owner";
 GRANT USAGE ON SCHEMA aap_labeling_class_query_v1 TO :"labeling_owner";
 GRANT USAGE ON SCHEMA aap_workspace_project_query_v1
-    TO :"workspace_owner", :"labeling_owner", :"identity_owner";
+    TO :"workspace_owner", :"labeling_owner", :"identity_owner", :"inference_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_project_query_v1.project_search_scope(uuid, text)
     TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_project_query_v1.project_search_member_ids(uuid, text)
@@ -1051,6 +1070,12 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.read_project_visibility(uuid, uuid)
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_manager(uuid, uuid)
     TO :"assets_owner", :"labeling_owner", :"jobs_owner", :"workflow_role";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.project_access_step(uuid, uuid, text)
+    TO :"inference_owner";
+GRANT EXECUTE ON FUNCTION aap_workspace_project_query_v1.project_query_step(
+    jsonb, text, jsonb, text, text, text[], text[], uuid, text,
+    timestamptz, timestamptz, bigint, integer
+) TO :"inference_owner";
+GRANT EXECUTE ON FUNCTION aap_identity_v1.workspace_template_query_org_ids(uuid)
     TO :"inference_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.lock_dataset_reference(uuid),
     aap_assets_v1.lock_current_association(uuid, uuid),
@@ -2145,6 +2170,35 @@ ALTER FUNCTION aap_inference_v1.workspace_configuration_backend(uuid)
 ALTER FUNCTION aap_inference_v1.workspace_project_query_pool(uuid)
     OWNER TO :"inference_owner";
 REVOKE CREATE ON SCHEMA aap_inference_v1 FROM :"inference_owner";
+
+GRANT CREATE ON SCHEMA aap_inference_pipelines_v1 TO :"inference_owner";
+ALTER SCHEMA aap_inference_pipelines_v1 OWNER TO :"inference_owner";
+ALTER TABLE aap_inference_pipelines_v1.operation_states OWNER TO :"inference_owner";
+ALTER TABLE aap_inference_pipelines_v1.operation_attempts OWNER TO :"inference_owner";
+ALTER TABLE aap_inference_pipelines_v1.operation_receipts OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_pipelines_v1._has_exact_keys(jsonb, text[])
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_pipelines_v1._actor_is_valid(jsonb)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_pipelines_v1._command_is_valid(jsonb)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_pipelines_v1._query_is_valid(jsonb)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_pipelines_v1._pipeline_row_value(public.project_pipelines)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_pipelines_v1._step_success(uuid, text, text, uuid, uuid, jsonb)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_pipelines_v1._step_failure(uuid, text, text, uuid, uuid, integer, jsonb, jsonb, boolean)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_pipelines_v1._guard_unfinished_operation()
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_pipelines_v1._cleanup_unfinished_state()
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_pipelines_v1.pipeline_policy()
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_pipelines_v1.pipeline_step(jsonb, text, jsonb, text[], text[])
+    OWNER TO :"inference_owner";
+REVOKE CREATE ON SCHEMA aap_inference_pipelines_v1 FROM :"inference_owner";
 
 GRANT CREATE ON SCHEMA aap_insights_v1 TO :"insights_owner";
 ALTER FUNCTION aap_insights_v1.clear_project_task_views(uuid)
