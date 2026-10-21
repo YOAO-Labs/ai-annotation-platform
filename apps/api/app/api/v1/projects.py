@@ -1,6 +1,5 @@
 from aap_task_contract import normalize_task
 from aap_inference.capability_registry import INPUT_BBOX_PROMPT, INPUT_CROP
-from aap_inference.pipeline import PipelineValidationError
 import aap_inference.preannotate as preannotate_schemas
 from aap_workspace.configuration_requests import ProjectCreate, ProjectUpdate
 from aap_workspace_contract.project_query_contract import (
@@ -51,7 +50,6 @@ from app.services.user_brief import resolve_briefs
 from app.db.models.user import User
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
-from app.db.models.project_pipeline import ProjectPipeline
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.async_job import AsyncJob
@@ -94,9 +92,6 @@ from app.services.accepted_video_inputs import (
     VideoInputManifestCaptureFactory,
     get_video_input_manifest_capture,
 )
-from app.services.pipeline_template import (
-    assert_pipeline_visible,
-)
 from app.services.assets_catalog import AssetsCatalogGateway
 from app.application.project_deletion import (
     delete_project as delete_project_transaction,
@@ -105,7 +100,11 @@ from app.application.project_task_cleanup import (
     cleanup_annotation_orphans as cleanup_project_annotation_orphans,
     delete_source_less_tasks as cleanup_source_less_tasks,
 )
-from app.application.project_pipeline import apply_saved_pipeline
+from app.services.inference_pipelines import (
+    commit_pipeline_command,
+    execute_pipeline_command,
+    get_pipeline_projection,
+)
 from app.services.workspace_configuration import execute_configuration
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.workspace_project_query import execute_project_query
@@ -448,23 +447,18 @@ async def apply_project_pipeline(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    pipeline = await db.get(ProjectPipeline, body.pipeline_id)
-    if pipeline is None:
-        raise HTTPException(status_code=404, detail="编排不存在")
-    await assert_pipeline_visible(db, pipeline, current_user)
-    try:
-        copied = await apply_saved_pipeline(
-            db,
-            actor_id=current_user.id,
-            project_id=project.id,
-            source=pipeline,
-            set_default=body.set_default,
-        )
-    except PipelineValidationError as exc:
-        raise HTTPException(status_code=422, detail=exc.detail) from exc
-    await db.commit()
-    await db.refresh(copied)
-    return copied
+    mutation = await execute_pipeline_command(
+        db,
+        operation="apply_pipeline",
+        actor=current_user,
+        target_id=project.id,
+        payload={
+            "pipeline_id": body.pipeline_id,
+            "set_default": body.set_default,
+        },
+    )
+    await commit_pipeline_command(db, mutation)
+    return await get_pipeline_projection(db, mutation, actor=current_user)
 
 
 @router.delete("/{project_id}", status_code=204)
