@@ -43,7 +43,7 @@ from app.api.v1.tasks._shared import (
     _load_task_or_404,
     require_task_annotation_write,
 )
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace.access_contract import ProjectAccess
 from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()

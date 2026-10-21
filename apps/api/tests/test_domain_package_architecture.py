@@ -46,6 +46,7 @@ _SPATIAL_RETIRED_MODULES = (
 )
 
 REMOVED_MODULES = (
+    "app.services.workspace_contract",
     "app.services.project_template",
     "app.application.project_workspace_configuration",
     "app.services.project_membership",
@@ -212,11 +213,6 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="project_write_guard", legacy_facades=()),
     DomainSpec(package="workspace_membership", legacy_facades=()),
     DomainSpec(package="workspace_membership_data", legacy_facades=()),
-    DomainSpec(
-        package="workspace_contract",
-        legacy_facades=(),
-        allowed_app_imports=("app.db.enums",),
-    ),
     DomainSpec(package="user_lifecycle", legacy_facades=()),
     DomainSpec(package="identity_commands", legacy_facades=()),
     DomainSpec(

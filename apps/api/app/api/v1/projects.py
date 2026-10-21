@@ -39,7 +39,7 @@ from app.db.enums import (
     UserRole,
     WORKBENCH_AI_EDITABLE_TASK_STATUSES,
 )
-from app.services.workspace_contract import ProjectCapability
+from aap_workspace.access_contract import ProjectCapability
 from app.services.project_access import resolve_project_access
 from app.services.workspace_membership import (
     add_member as add_project_member,

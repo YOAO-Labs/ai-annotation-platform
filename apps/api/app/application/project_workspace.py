@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.project import Project
 from app.db.models.user import User
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace.access_contract import ProjectAccess
 from app.services.project_access import (
     lock_current_project_access,
     resolve_project_access_by_id,

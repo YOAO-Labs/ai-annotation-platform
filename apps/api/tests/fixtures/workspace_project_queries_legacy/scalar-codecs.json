@@ -1,0 +1,95 @@
+{
+  "runtime_reference_commit": "50fc1df9ac9f99fdbbed7ac0eda7205d7287156d",
+  "project_model_sha256": "b274f2a7765a14e1ec62b3f9e1253e09046f592edd94c0a769fedd6be7e31da4",
+  "project_physical_columns": [
+    "id",
+    "organization_id",
+    "display_id",
+    "name",
+    "type_label",
+    "type_key",
+    "data_type",
+    "owner_id",
+    "status",
+    "ai_enabled",
+    "ml_backend_pool_id",
+    "default_variants",
+    "preannotate_pipeline",
+    "label_config",
+    "tool_bindings",
+    "sampling",
+    "maximum_annotations",
+    "show_overlap_first",
+    "iou_dedup_threshold",
+    "box_threshold",
+    "text_threshold",
+    "ai_interactive_enabled",
+    "raster_mask_native_editing_enabled",
+    "mask_qc_config",
+    "point_cloud_quality_config",
+    "rendering_config",
+    "annotation_guide",
+    "guide_assets",
+    "model_version",
+    "task_lock_ttl_seconds",
+    "total_tasks",
+    "completed_tasks",
+    "review_tasks",
+    "in_progress_tasks",
+    "batch_summary",
+    "video_sampling",
+    "video_collaboration",
+    "scene_mode",
+    "prefer_same_scene_continuation",
+    "scene_continuation_window_min",
+    "due_date",
+    "created_at",
+    "updated_at"
+  ],
+  "observations": [
+    {
+      "date_style": "ISO, MDY",
+      "binary": {
+        "finite": {
+          "type": "date",
+          "iso": "2020-01-02"
+        },
+        "minimum": {
+          "type": "date",
+          "iso": "0001-01-01"
+        },
+        "maximum": {
+          "type": "date",
+          "iso": "9999-12-31"
+        }
+      },
+      "native_json": {
+        "finite": "2020-01-02",
+        "maximum": "infinity",
+        "minimum": "-infinity"
+      }
+    },
+    {
+      "date_style": "SQL, DMY",
+      "binary": {
+        "finite": {
+          "type": "date",
+          "iso": "2020-01-02"
+        },
+        "minimum": {
+          "type": "date",
+          "iso": "0001-01-01"
+        },
+        "maximum": {
+          "type": "date",
+          "iso": "9999-12-31"
+        }
+      },
+      "native_json": {
+        "finite": "2020-01-02",
+        "maximum": "infinity",
+        "minimum": "-infinity"
+      }
+    }
+  ]
+}

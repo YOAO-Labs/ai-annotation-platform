@@ -32,7 +32,7 @@ from app.services.discussion_notifications import (
 from app.services.feedback import FeedbackService
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.notification import NotificationService
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace.access_contract import ProjectAccess
 from app.services.task_discussion import require_visible_annotation
 
 

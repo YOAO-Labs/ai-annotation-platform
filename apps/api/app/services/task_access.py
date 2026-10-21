@@ -18,7 +18,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.services.annotation_evidence import assert_review_evidence_current
-from app.services.workspace_contract import (
+from aap_workspace.access_contract import (
     ProjectAccess,
     ProjectCapability,
 )

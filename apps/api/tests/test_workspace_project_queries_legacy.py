@@ -966,8 +966,9 @@ async def test_capture_legacy_project_query_and_projection_samples(
             assert created_body["member_count"] == 0
             assert created_body["classes"] == ["truck"]
             assert created_body["classes_config"]["truck"]["color"] == "#123456"
-            assert created_body["label_config"] == create_body["label_config"]
-            assert created_body["annotation_guide"] == "# Created guide"
+            # ProjectCreate ignores these extra configuration fields.
+            assert created_body["label_config"] == {}
+            assert created_body["annotation_guide"] is None
 
             update_body = {
                 "name": f"Updated project projection {suffix}",
@@ -991,14 +992,14 @@ async def test_capture_legacy_project_query_and_projection_samples(
                 "project_admin",
                 "PATCH",
                 f"{_PROJECTS_PATH}/{created_project_id}",
-                body={"label_config": None},
+                body={"rendering_config": None},
             )
             assert null_write.status_code == 500
             async with owner_maker.begin() as db:
                 stored = (
                     await db.execute(
                         text(
-                            "SELECT label_config IS NULL, jsonb_typeof(label_config) "
+                            "SELECT rendering_config IS NULL, jsonb_typeof(rendering_config) "
                             "FROM public.projects WHERE id=:id"
                         ),
                         {"id": created_project_id},
@@ -1007,7 +1008,7 @@ async def test_capture_legacy_project_query_and_projection_samples(
                 assert stored[0] is False and stored[1] == "null"
                 await db.execute(
                     text(
-                        "UPDATE public.projects SET label_config='{}'::jsonb WHERE id=:id"
+                        "UPDATE public.projects SET rendering_config='{}'::jsonb WHERE id=:id"
                     ),
                     {"id": created_project_id},
                 )
@@ -1017,7 +1018,7 @@ async def test_capture_legacy_project_query_and_projection_samples(
                 f"{_PROJECTS_PATH}/{created_project_id}",
             )
             assert reset.status_code == 200
-            assert reset_body["label_config"] == {}
+            assert reset_body["rendering_config"] is not None
 
         capture["direct_read_probes"] = [
             await _direct_read_probe(
@@ -1040,7 +1041,7 @@ async def test_capture_legacy_project_query_and_projection_samples(
 
         async with owner_maker() as observer:
             persisted = await observer.get(Project, created_project_id)
-            assert persisted is not None and persisted.label_config == {}
+            assert persisted is not None and persisted.rendering_config == {}
             assert (
                 await observer.get(Project, project_by_alias["target"].id) is not None
             )

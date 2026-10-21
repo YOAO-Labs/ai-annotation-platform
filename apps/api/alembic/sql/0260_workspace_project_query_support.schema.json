@@ -2,6 +2,8 @@
   "$id": "aap-workspace-project-query-support/v1",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Workspace project query typed foreign facts",
+  "$comment": "This is a PostgreSQL function catalog, not a JSON request/reply envelope. Typed SQL arguments and RETURNS declarations define the wire values; no duplicate JSON DTO models are declared here.",
+  "$defs": {},
   "type": "object",
   "function_defaults": {
     "volatility": "STABLE",

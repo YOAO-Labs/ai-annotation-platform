@@ -339,7 +339,7 @@ async def _hold_import_authority(
         bind_project_write_policy_resolver,
         restore_project_write_policy_failure,
     )
-    from app.services.workspace_contract import (
+    from aap_workspace.access_contract import (
         ProjectWritePolicyFailure,
         ProjectWritePolicyRequest,
     )

@@ -24,7 +24,7 @@ from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
-from app.services.workspace_contract import ProjectCapability
+from aap_workspace.access_contract import ProjectCapability
 from app.services.project_access import resolve_project_access
 from app.services.workspace_membership import change_role, remove_member
 from app.services.workspace_membership import add_member, preview_role_change

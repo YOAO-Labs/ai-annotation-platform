@@ -52,6 +52,7 @@ infra/grafana/dashboards/
 
 # Immutable history; keep its original authored formatting
 apps/api/tests/fixtures/workspace_template_queries_legacy/*.json
+apps/api/tests/fixtures/workspace_project_queries_legacy/*.json
 docs/adr/archive/
 docs/changelogs/
 docs/plans/archive/

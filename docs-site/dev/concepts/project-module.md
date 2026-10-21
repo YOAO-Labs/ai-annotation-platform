@@ -295,3 +295,20 @@ Project 模型本身保留了多种聚合字段：
 - 后端 schema 加了字段，前端 settings 页没接
 - project 配置改了，但 `scheduler` 还在读旧字段
 - owner / member 权限判断只改了一半
+
+## 项目读取的所有权基础
+
+权限上下文、能力与角色兼容规则已由独立 Workspace 包的
+`aap_workspace.access_contract` 持有，实际 API／服务／worker 调用方直接导入该所有者，
+原 API 值模块已删除。当前 SQL 权限解析、锁与最终写入检查仍由原适配器执行；
+这些值本身不是跨进程授权凭据。
+
+项目普通读取仍在 API。为继续迁移，0260提供了15项固定 PostgreSQL 读取能力：
+Labeling 持有物化计数、AI／时间序列及任务／批次事实，Assets 持有数据集和素材事实，
+Jobs 持有建题作业计数与最新状态，Inference 持有主池的 legacy instance 映射。
+Workspace 只获显式函数权限，不直接读取这些所有者的原表。
+
+实际旧行为已冻结27项 HTTP 观测、两项调用方事务探针，以及日期编码与43个物理字段；
+原 SQL 读取、授权时点和配置提交后的响应失败行为仍保留。独立 Project 查询协议、
+运行时、搜索关联事实及命令回读证据继续实施，详见
+[Project 读取基础 ADR](/dev/adr/0138-workspace-project-read-foundation)。

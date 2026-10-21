@@ -36,7 +36,7 @@ from app.services.multicamera_annotation import (
     restore_camera_member,
     update_camera_member,
 )
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace.access_contract import ProjectAccess
 from app.services.assets_spatial import AssetsSpatialGateway, AssetsSpatialGatewayError
 from aap_assets_catalog.spatial_contract import (
     ReadCameraTargetRequest,

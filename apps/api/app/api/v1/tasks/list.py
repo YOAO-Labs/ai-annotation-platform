@@ -17,7 +17,7 @@ from app.schemas.task import (
     TaskListResponse,
 )
 from app.schemas.scene import NeighborsResponse
-from app.services.workspace_contract import (
+from aap_workspace.access_contract import (
     ProjectAccess,
     ProjectCapability,
 )

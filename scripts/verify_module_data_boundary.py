@@ -204,6 +204,7 @@ SQL_ARTIFACTS = (
     "0257_workspace_configuration.sql",
     "0258_workspace_template_query_support.sql",
     "0259_workspace_template_queries.sql",
+    "0260_workspace_project_query_support.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -275,6 +276,7 @@ SCHEMA_ARTIFACTS = (
     "0257_workspace_configuration.schema.json",
     "0258_workspace_template_query_support.schema.json",
     "0259_workspace_template_queries.schema.json",
+    "0260_workspace_project_query_support.schema.json",
 )
 TEST_FILES = (
     "tests/test_identity_admin_passwords_native.py",
@@ -304,6 +306,7 @@ TEST_FILES = (
     "tests/test_workspace_owner_transfer_restore.py",
     "tests/test_workspace_configuration_dependencies_native.py",
     "tests/test_workspace_configuration_dependencies_roles.py",
+    "tests/test_workspace_project_query_support_native.py",
     "tests/test_identity_actor_context_native.py",
     "tests/test_identity_account_locks_native.py",
     "tests/test_users_role_matrix.py::TestRoleMatrix::test_sa_cannot_demote_last_super_admin",
@@ -2082,6 +2085,10 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_workspace_membership_v1') IS NULL "
             "AND to_regnamespace('aap_workspace_owner_transfer_v1') IS NULL "
             "AND to_regnamespace('aap_workspace_template_query_v1') IS NULL "
+            "AND to_regprocedure('aap_labeling_v1.workspace_project_query_counters(uuid[])') IS NULL "
+            "AND to_regprocedure('aap_assets_v1.workspace_project_query_dataset_ids(uuid)') IS NULL "
+            "AND to_regprocedure('aap_jobs_v1.workspace_project_query_latest_job_status(uuid)') IS NULL "
+            "AND to_regprocedure('aap_inference_v1.workspace_project_query_pool(uuid)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.workspace_configuration_org_scope(uuid,uuid)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.workspace_template_query_org_ids(uuid)') IS NULL "
             "AND to_regprocedure('aap_assets_v1.workspace_configuration_datasets(uuid)') IS NULL "
@@ -2532,8 +2539,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0259"]:
-            raise RuntimeError("module-data acceptance requires migration head 0259")
+        if heads != ["0260"]:
+            raise RuntimeError("module-data acceptance requires migration head 0260")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(

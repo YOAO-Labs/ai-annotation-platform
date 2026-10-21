@@ -45,7 +45,7 @@ from app.services.mask_formats.service import (
     staged_prefix,
 )
 from app.services.storage import storage_service
-from app.services.workspace_contract import ProjectAccess, ProjectCapability
+from aap_workspace.access_contract import ProjectAccess, ProjectCapability
 from app.services.identity_contracts import IdentityActorFacts
 
 

@@ -51,6 +51,7 @@
 - [0135](0135-workspace-configuration-values-and-dependencies.md) — Workspace 配置值、纯策略与跨模块依赖（配置命令 owner 仍在实施）
 - [0136](0136-workspace-configuration-command-owner.md) — Workspace 配置命令协议、分阶段写入与事务边界（限定本地验收通过）
 - [0137](0137-workspace-template-query-owner.md) — Workspace 模板读取与提交后响应投影（限定本地验收通过）
+- [0138](0138-workspace-project-read-foundation.md) — Project 读取的类型化外域依赖与 Workspace 权限值（基础实现已验证，查询 owner 接入中）
 
 ### 已采纳（Accepted，归档）
 

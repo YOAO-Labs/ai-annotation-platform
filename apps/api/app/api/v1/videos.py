@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aap_assets_media.contract import MediaFailure, SamplesRequest, TimetableRequest
 
 from app.services import task_access
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace.access_contract import ProjectAccess
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.db.models.video_chapter import VideoChapter

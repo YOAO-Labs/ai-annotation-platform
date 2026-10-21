@@ -25,7 +25,7 @@ from app.services.image_pyramid_contract import (
 )
 from app.deps import get_current_user, get_db
 from app.services import task_access
-from app.services.workspace_contract import (
+from aap_workspace.access_contract import (
     ProjectAccess,
     ProjectCapability,
 )

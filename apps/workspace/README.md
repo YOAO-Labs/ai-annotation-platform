@@ -48,3 +48,11 @@ packages, restricted owner/API images, real container reads and response
 projection, fault recovery, backup restore and full migration qualification pass.
 The bounded local concurrency sample is not a production capacity claim;
 see ADR-0137 for scope.
+
+Project access values and capability policy live in `access_contract`, including
+the shared membership compatibility rule. API, service and worker consumers
+import this owner directly; the old API value module is removed. Current SQL
+authority resolution and locks remain with their existing adapters. Fifteen
+typed foreign read capabilities support the next Project query extraction;
+ordinary Project queries still execute in the API. See ADR-0138 for the frozen
+baseline and remaining integration boundaries.

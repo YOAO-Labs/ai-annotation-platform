@@ -25,6 +25,20 @@ from tests.test_identity_recovery import _alembic, _postgres_tool
 from tests.workspace_configuration_helpers import configuration_dsn
 from tests.workspace_template_query_helpers import template_query_dsn
 
+
+async def _project_counter_facts(maker, project_id):
+    async with maker() as db:
+        await db.execute(text("SET LOCAL ROLE workspace_code"))
+        rows = await db.execute(
+            text(
+                "SELECT * FROM aap_labeling_v1.workspace_project_query_counters("
+                "CAST(:ids AS uuid[]))"
+            ),
+            {"ids": [project_id]},
+        )
+        return [dict(row) for row in rows.mappings()]
+
+
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.skipif(
@@ -196,6 +210,11 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
             operation_ids[4],
         )
         project_id = create_project_reply.result.resource_id
+        original_project_counters = await _project_counter_facts(
+            source_maker, project_id
+        )
+        assert len(original_project_counters) == 1
+        assert original_project_counters[0]["project_id"] == project_id
 
         query_requests = [
             template_query_request(
@@ -250,7 +269,7 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
         async with source_maker() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0259"
+                == "0260"
             )
             assert await db.scalar(
                 text(
@@ -312,6 +331,10 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
             test_engine.url.set(database=clone), hide_parameters=True
         )
         restored_maker = async_sessionmaker(restored_owner, expire_on_commit=False)
+        assert (
+            await _project_counter_facts(restored_maker, project_id)
+            == original_project_counters
+        )
         restored_data = ConfigurationPostgresData(clone_dsn)
         restored_manager = ConfigurationManager(restored_data)
         await restored_data.configuration_policy()
@@ -328,7 +351,7 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
         async with restored_maker() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0259"
+                == "0260"
             )
             template = await db.get(ProjectTemplate, template_id)
             project = await db.get(Project, project_id)

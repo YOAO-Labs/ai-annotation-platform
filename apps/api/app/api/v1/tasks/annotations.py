@@ -101,7 +101,7 @@ from app.api.v1.tasks._shared import (
     require_task_annotation_write,
     require_task_annotation_write_strict,
 )
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace.access_contract import ProjectAccess
 from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.identity_contracts import IdentityActorFacts
 

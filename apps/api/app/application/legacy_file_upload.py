@@ -35,7 +35,7 @@ from app.services.project_access import (
     resolve_project_access_by_id,
     restore_project_write_policy_failure,
 )
-from app.services.workspace_contract import (
+from aap_workspace.access_contract import (
     ProjectAccess,
     ProjectWritePolicyFailure,
     ProjectWritePolicyRequest,

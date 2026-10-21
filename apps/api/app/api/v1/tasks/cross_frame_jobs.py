@@ -18,7 +18,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.deps import get_db, get_current_user
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace.access_contract import ProjectAccess
 from app.schemas.async_job import AsyncJobOut
 from app.schemas.cross_frame_job import CrossFrameJobCreate, CrossFrameJobListResponse
 from app.services import async_job as async_job_svc

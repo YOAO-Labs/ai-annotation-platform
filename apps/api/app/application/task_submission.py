@@ -32,7 +32,7 @@ from app.services.batch import BatchService
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.labeling_tasks import LabelingTaskService
 from app.services.mask_qc.config import load_mask_qc_config
-from app.services.workspace_contract import ProjectAccess
+from aap_workspace.access_contract import ProjectAccess
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services import task_access
 

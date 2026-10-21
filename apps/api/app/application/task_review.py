@@ -27,7 +27,7 @@ from app.services.feedback import FeedbackService
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.labeling_tasks import LabelingTaskService
 from app.services.notification import NotificationService
-from app.services.workspace_contract import (
+from aap_workspace.access_contract import (
     ProjectAccess,
     ProjectCapability,
 )

@@ -692,6 +692,13 @@ GRANT SELECT (
     thumbnail_path, blurhash
 ) ON public.tasks TO :"labeling_owner";
 GRANT SELECT (version, total_predictions) ON public.tasks TO :"labeling_owner";
+-- Project query facts stay with Labeling; Workspace receives only typed reads.
+GRANT SELECT (created_at, reviewed_at, updated_at, submitted_at)
+    ON public.tasks TO :"labeling_owner";
+GRANT SELECT (created_at, parent_prediction_id, is_active, was_cancelled)
+    ON public.annotations TO :"labeling_owner";
+GRANT SELECT (id, status, annotator_id, reviewer_id)
+    ON public.task_batches TO :"labeling_owner";
 GRANT UPDATE (
     media_source_generation, media_object_identity, media_source_drifted,
     thumbnail_path, blurhash
@@ -836,6 +843,25 @@ GRANT USAGE ON SCHEMA aap_learning_v1
 GRANT USAGE ON SCHEMA aap_inference_v1 TO :"inference_owner", :"workspace_owner";
 GRANT USAGE ON SCHEMA aap_workspace_configuration_v1 TO :"workspace_owner";
 GRANT USAGE ON SCHEMA aap_workspace_template_query_v1 TO :"workspace_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_labeling_v1.workspace_project_query_counters(uuid[]),
+    aap_labeling_v1.workspace_project_query_ai_counts(uuid[]),
+    aap_labeling_v1.workspace_project_query_annotation_count(uuid[], boolean),
+    aap_labeling_v1.workspace_project_query_task_series(uuid[], timestamptz[]),
+    aap_labeling_v1.workspace_project_query_annotation_series(uuid[], timestamptz[]),
+    aap_labeling_v1.workspace_project_query_linked_task_count(uuid, uuid[]),
+    aap_labeling_v1.workspace_project_query_task_count(uuid),
+    aap_labeling_v1.workspace_project_query_batches(uuid),
+    aap_labeling_v1.workspace_project_query_batch_task_counts(uuid),
+    aap_assets_v1.workspace_project_query_dataset_ids(uuid),
+    aap_assets_v1.workspace_project_query_dataset_item_count(uuid[]),
+    aap_jobs_v1.workspace_project_query_job_status_counts(uuid),
+    aap_jobs_v1.workspace_project_query_latest_job_status(uuid),
+    aap_inference_v1.workspace_project_query_pool(uuid)
+    TO :"workspace_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.workspace_project_query_dataset_item_ids(uuid[])
+    TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION
     aap_workspace_configuration_v1.configuration_policy(),
     aap_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[])
@@ -1824,6 +1850,12 @@ ALTER FUNCTION aap_assets_v1.complete_accepted_input_garbage(uuid, uuid)
     OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1._accepted_input_garbage_immutable_scope()
     OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.workspace_project_query_dataset_ids(uuid)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.workspace_project_query_dataset_item_count(uuid[])
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.workspace_project_query_dataset_item_ids(uuid[])
+    OWNER TO :"assets_owner";
 REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
 
 GRANT CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
@@ -1944,6 +1976,24 @@ ALTER FUNCTION aap_labeling_v1.open_video_input_manifest_members(uuid, uuid, jso
     OWNER TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.lock_video_input_manifest_member(uuid, uuid, uuid, jsonb, jsonb)
     OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.workspace_project_query_counters(uuid[])
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.workspace_project_query_ai_counts(uuid[])
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.workspace_project_query_annotation_count(uuid[], boolean)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.workspace_project_query_task_series(uuid[], timestamptz[])
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.workspace_project_query_annotation_series(uuid[], timestamptz[])
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.workspace_project_query_linked_task_count(uuid, uuid[])
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.workspace_project_query_task_count(uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.workspace_project_query_batches(uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.workspace_project_query_batch_task_counts(uuid)
+    OWNER TO :"labeling_owner";
 REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
 
 GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
@@ -1985,6 +2035,10 @@ ALTER FUNCTION aap_jobs_v1.guard_dataset_source_deletion(uuid)
     OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.task_creation_execution_active(uuid, uuid)
     OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.workspace_project_query_job_status_counts(uuid)
+    OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.workspace_project_query_latest_job_status(uuid)
+    OWNER TO :"jobs_owner";
 REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
 
 GRANT CREATE ON SCHEMA aap_learning_v1 TO :"learning_owner";
@@ -2010,6 +2064,8 @@ ALTER FUNCTION aap_inference_v1.enable_workspace_project_backend(uuid, uuid)
 ALTER FUNCTION aap_inference_v1.workspace_configuration_source_pool(uuid)
     OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_v1.workspace_configuration_backend(uuid)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_v1.workspace_project_query_pool(uuid)
     OWNER TO :"inference_owner";
 REVOKE CREATE ON SCHEMA aap_inference_v1 FROM :"inference_owner";
 

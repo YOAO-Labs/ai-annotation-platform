@@ -3627,3 +3627,44 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   preserved. Four clean modifier worktrees/branches were removed after exact
   integrated-patch proof. No push, release, remote CI or primary/production
   runtime cutover occurred. See [ADR-0137](../adr/0137-workspace-template-query-owner.md).
+
+### Project query foundation and portable Workspace access values
+
+- The full all-module objective remains active. Project list/query/detail/stats/
+  readiness/projection still execute their original API reads; no independent
+  Project query runtime or full Workspace qualification is claimed here.
+- Before moving authority values, actual committed-session capture freezes27
+  HTTP observations and2caller autoflush probes. The driver checks28 sources
+  against50fc1df9a, and a supplemental guard verifies1,100 existing runtime/schema/
+  SQL inputs. Actual capture atc50835877 precedes changes to those runtime files.
+  Far-past/future stats fixtures are stable; weekly boundaries have separate tests.
+  A real codec probe records43 Project columns, ISO/SQL DateStyle behavior and
+  binary date extrema versus native infinity strings. Immutable fixtures are
+  under workspace_project_queries_legacy.
+- Fixture attempts incorrectly assumed extra create fields were accepted and
+  chose an unsupported PATCH field for JSONB-null. The corrected capture preserves
+  actual ignored extras and supported rendering-config committed-null/public500.
+  Initial catalog preflight lacked a definitions map and stopped before creating
+  runtime resources. Failed attempts remain retained rather than counted green.
+- Native0260 publishes15 fixed read capabilities across Labeling, Assets, Jobs
+  and Inference. Workspace has14 executes; only Labeling can execute the Assets
+  dataset-item relation. Raw foreign-table grants are not widened to Workspace.
+  Captured dataset IDs survive later unlink, AI-cancelled count differences stay,
+  and12bucket results use the original one36/24-FILTER aggregate scan shape.
+  All6Native behavior/owner/grant cases pass, with scalar and legacy captures
+  passing separately; disposable resources were removed without cleanup errors.
+- Workspace access values/capabilities and scalar rules now live in the portable
+  package. Actual callers use the new owner; the old API module is removed and
+  the membership helper is canonicalized. Source checks pass519 cases (184
+  Workspace,10API pure,325architecture);137 architecture parameters are inapplicable.
+  The affected public/authority suite passes67 cases. OpenAPI remains unchanged.
+  These groups overlap and are not a global distinct-case sum.
+- Ten protected restore cases pass at0260, including the new counter capability
+  executed as Workspace before/after real backup restore. Full migration260
+  passes fresh260,173down/base,86suffixdown,forward and restore; its4derived
+  databases are removed without cleanup errors or leftovers.
+- Next: complete query wire/policy/data bindings with lazy Identity Briefs,
+  search Workspace facts and scoped configuration/transfer/class-rename readback
+  evidence, then perform provider/fault/package/image qualification. Current
+  shared PostgreSQL and trusted coordinator constraints remain explicit.
+  See [ADR-0138](../adr/0138-workspace-project-read-foundation.md).
