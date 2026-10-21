@@ -1,0 +1,38 @@
+{
+  "$id": "aap-inference-backend-dependency-reads/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Inference ML backend deletion dependency reads",
+  "$comment": "This is a PostgreSQL function catalog, not a JSON request/reply envelope. Typed SQL arguments and RETURNS declarations define these fixed read capabilities.",
+  "$defs": {},
+  "type": "object",
+  "function_defaults": {
+    "volatility": "STABLE",
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"]
+  },
+  "functions": [
+    {
+      "signature": "aap_learning_v1.registry_evaluation_reference_exists(uuid)",
+      "arguments": [{ "name": "p_registry_id", "type": "uuid", "nullable": false }],
+      "returns": { "kind": "scalar", "type": "boolean" },
+      "semantics": "True when any Sample Evaluation run joins to a deployment on this registry; run and deployment statuses are not filtered."
+    },
+    {
+      "signature": "aap_jobs_v1.count_running_registry_predictions(uuid)",
+      "arguments": [{ "name": "p_registry_id", "type": "uuid", "nullable": false }],
+      "returns": { "kind": "scalar", "type": "bigint" },
+      "semantics": "Count rows where kind is batch_predict, JSON payload ml_backend_id equals the canonical registry UUID text, and status is running."
+    }
+  ],
+  "x-postgresql-functions": [
+    "aap_learning_v1.registry_evaluation_reference_exists(uuid)",
+    "aap_jobs_v1.count_running_registry_predictions(uuid)"
+  ],
+  "x-postgresql-errors": {
+    "null_registry_id": {
+      "sqlstate": "22023",
+      "message": "registry_id must not be null"
+    }
+  }
+}
