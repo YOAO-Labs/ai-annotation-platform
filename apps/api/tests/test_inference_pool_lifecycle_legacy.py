@@ -1119,7 +1119,7 @@ async def _run_scenarios(client, maker, world, monkeypatch) -> list[dict]:
         )
         assert preview["has_drift"] is True and preview["can_accept"] is True
         assert preview["differing_fields"] == ["model_ids"]
-        await request(
+        stale_review = await request(
             "stale_drift_review_rejected_after_health_probe",
             "POST",
             f"{base}/{drift_pool}/members/{drift_registry}/capability-drift/accept",
