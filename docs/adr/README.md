@@ -200,3 +200,4 @@
 - [0152 — Credential-owning Health Observations](0152-credential-owning-health-observations.md)
 - [0153 — Caller-owned Native Health Data](0153-caller-owned-native-health-data.md)
 - [0154 — Registry Ingress and Environment Synchronization Owner](0154-registry-ingress-and-environment-sync-owner.md)
+- [0155 — Durable Inference Routing Authority](0155-durable-inference-routing-authority.md)

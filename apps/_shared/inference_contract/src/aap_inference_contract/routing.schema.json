@@ -33,21 +33,72 @@
         "body": { "type": "object" }
       },
       "allOf": [
-        { "if": { "properties": { "operation": { "const": "acquire" } }, "required": ["operation"] }, "then": { "properties": { "body": { "$ref": "#/$defs/AcquireBody" } } } },
-        { "if": { "properties": { "operation": { "const": "begin" } }, "required": ["operation"] }, "then": { "properties": { "body": { "$ref": "#/$defs/BeginBody" } } } },
-        { "if": { "properties": { "operation": { "const": "settle" } }, "required": ["operation"] }, "then": { "properties": { "body": { "$ref": "#/$defs/SettleBody" } } } },
-        { "if": { "properties": { "operation": { "const": "heartbeat" } }, "required": ["operation"] }, "then": { "properties": { "body": { "$ref": "#/$defs/ScopeCapabilityBody" } } } },
-        { "if": { "properties": { "operation": { "const": "close" } }, "required": ["operation"] }, "then": { "properties": { "body": { "$ref": "#/$defs/CloseBody" } } } },
-        { "if": { "properties": { "operation": { "const": "scope_status" } }, "required": ["operation"] }, "then": { "properties": { "body": { "$ref": "#/$defs/ScopeCapabilityBody" } } } },
-        { "if": { "properties": { "operation": { "const": "reconcile" } }, "required": ["operation"] }, "then": { "properties": { "body": { "$ref": "#/$defs/ReconcileBody" } } } },
-        { "if": { "properties": { "operation": { "const": "prepare_control" } }, "required": ["operation"] }, "then": { "properties": { "body": { "$ref": "#/$defs/PrepareControlBody" } } } },
-        { "if": { "properties": { "operation": { "const": "finish_control" } }, "required": ["operation"] }, "then": { "properties": { "body": { "$ref": "#/$defs/FinishControlBody" } } } },
         {
-          "if": { "properties": { "operation": { "const": "begin_control" } }, "required": ["operation"] },
+          "if": {
+            "properties": { "operation": { "const": "acquire" } },
+            "required": ["operation"]
+          },
+          "then": { "properties": { "body": { "$ref": "#/$defs/AcquireBody" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "begin" } }, "required": ["operation"] },
+          "then": { "properties": { "body": { "$ref": "#/$defs/BeginBody" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "settle" } }, "required": ["operation"] },
+          "then": { "properties": { "body": { "$ref": "#/$defs/SettleBody" } } }
+        },
+        {
+          "if": {
+            "properties": { "operation": { "const": "heartbeat" } },
+            "required": ["operation"]
+          },
+          "then": { "properties": { "body": { "$ref": "#/$defs/ScopeCapabilityBody" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "close" } }, "required": ["operation"] },
+          "then": { "properties": { "body": { "$ref": "#/$defs/CloseBody" } } }
+        },
+        {
+          "if": {
+            "properties": { "operation": { "const": "scope_status" } },
+            "required": ["operation"]
+          },
+          "then": { "properties": { "body": { "$ref": "#/$defs/ScopeCapabilityBody" } } }
+        },
+        {
+          "if": {
+            "properties": { "operation": { "const": "reconcile" } },
+            "required": ["operation"]
+          },
+          "then": { "properties": { "body": { "$ref": "#/$defs/ReconcileBody" } } }
+        },
+        {
+          "if": {
+            "properties": { "operation": { "const": "prepare_control" } },
+            "required": ["operation"]
+          },
+          "then": { "properties": { "body": { "$ref": "#/$defs/PrepareControlBody" } } }
+        },
+        {
+          "if": {
+            "properties": { "operation": { "const": "finish_control" } },
+            "required": ["operation"]
+          },
+          "then": { "properties": { "body": { "$ref": "#/$defs/FinishControlBody" } } }
+        },
+        {
+          "if": {
+            "properties": { "operation": { "const": "begin_control" } },
+            "required": ["operation"]
+          },
           "then": { "properties": { "body": { "$ref": "#/$defs/BeginControlBody" } } }
         },
         {
-          "if": { "properties": { "operation": { "const": "settle_control" } }, "required": ["operation"] },
+          "if": {
+            "properties": { "operation": { "const": "settle_control" } },
+            "required": ["operation"]
+          },
           "then": { "properties": { "body": { "$ref": "#/$defs/SettleControlBody" } } }
         }
       ],
@@ -56,7 +107,15 @@
     "AcquireBody": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["pool_id", "registry_id", "project_id", "mode", "required_instance_id", "owner", "operation"],
+      "required": [
+        "pool_id",
+        "registry_id",
+        "project_id",
+        "mode",
+        "required_instance_id",
+        "owner",
+        "operation"
+      ],
       "properties": {
         "pool_id": { "type": ["string", "null"], "format": "uuid" },
         "registry_id": { "type": ["string", "null"], "format": "uuid" },
@@ -73,11 +132,33 @@
       "required": ["scope_id", "capability", "attempt_id", "method", "path", "transport_subject"],
       "properties": {
         "scope_id": { "type": "string", "format": "uuid" },
-        "capability": { "type": "string", "minLength": 1, "maxLength": 16384, "writeOnly": true, "x-sensitive": true },
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "writeOnly": true,
+          "x-sensitive": true
+        },
         "attempt_id": { "type": "string", "format": "uuid" },
-        "method": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[A-Za-z0-9!#$%&'*+.^_`|~-]+$" },
-        "path": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^/(?!/)(?!.*://)[^\\u0000-\\u0020\\u007F]*$" },
-        "transport_subject": { "type": "string", "minLength": 1, "writeOnly": true, "x-sensitive": true, "description": "Opaque encrypted transport identity, never plaintext endpoint or credentials." }
+        "method": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[A-Za-z0-9!#$%&'*+.^_`|~-]+$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^/(?!/)(?!.*://)[^\\u0000-\\u0020\\u007F]*$"
+        },
+        "transport_subject": {
+          "type": "string",
+          "minLength": 1,
+          "writeOnly": true,
+          "x-sensitive": true,
+          "description": "Opaque encrypted transport identity, never plaintext endpoint or credentials."
+        }
       }
     },
     "SettleBody": {
@@ -86,11 +167,21 @@
       "required": ["scope_id", "capability", "attempt_id", "kind", "status_code", "reason"],
       "properties": {
         "scope_id": { "type": "string", "format": "uuid" },
-        "capability": { "type": "string", "minLength": 1, "maxLength": 16384, "writeOnly": true, "x-sensitive": true },
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "writeOnly": true,
+          "x-sensitive": true
+        },
         "attempt_id": { "type": "string", "format": "uuid" },
         "kind": { "enum": ["response", "uncertain"] },
         "status_code": { "type": ["integer", "null"], "minimum": 100, "maximum": 599 },
-        "reason": { "type": ["string", "null"], "maxLength": 96, "pattern": "^[a-z][a-z0-9_]{0,95}$" }
+        "reason": {
+          "type": ["string", "null"],
+          "maxLength": 96,
+          "pattern": "^[a-z][a-z0-9_]{0,95}$"
+        }
       }
     },
     "ScopeCapabilityBody": {
@@ -99,7 +190,13 @@
       "required": ["scope_id", "capability"],
       "properties": {
         "scope_id": { "type": "string", "format": "uuid" },
-        "capability": { "type": "string", "minLength": 1, "maxLength": 16384, "writeOnly": true, "x-sensitive": true }
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "writeOnly": true,
+          "x-sensitive": true
+        }
       }
     },
     "CloseBody": {
@@ -108,7 +205,13 @@
       "required": ["scope_id", "capability", "outcome"],
       "properties": {
         "scope_id": { "type": "string", "format": "uuid" },
-        "capability": { "type": "string", "minLength": 1, "maxLength": 16384, "writeOnly": true, "x-sensitive": true },
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "writeOnly": true,
+          "x-sensitive": true
+        },
         "outcome": { "enum": ["success", "error", "cancel"] }
       }
     },
@@ -130,7 +233,7 @@
         "member_id": { "type": ["string", "null"], "format": "uuid" },
         "pool_id": { "type": ["string", "null"], "format": "uuid" },
         "routing_generation": { "type": ["integer", "null"], "minimum": 1 },
-        "traffic_state": { "enum": ["active", "draining", null] }
+        "traffic_state": { "enum": ["active", "draining", "disabled", null] }
       }
     },
     "PrepareControlBody": {
@@ -141,7 +244,9 @@
         "registry_id": { "type": "string", "format": "uuid" },
         "control_id": { "type": "string", "format": "uuid" },
         "kind": { "enum": ["unload", "reload"] },
-        "expected_topology": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ExpectedTopology" }] }
+        "expected_topology": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/ExpectedTopology" }]
+        }
       }
     },
     "FinishControlBody": {
@@ -159,11 +264,33 @@
       "required": ["control_id", "capability", "attempt_id", "method", "path", "transport_subject"],
       "properties": {
         "control_id": { "type": "string", "format": "uuid" },
-        "capability": { "type": "string", "minLength": 1, "maxLength": 16384, "writeOnly": true, "x-sensitive": true },
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "writeOnly": true,
+          "x-sensitive": true
+        },
         "attempt_id": { "type": "string", "format": "uuid" },
-        "method": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[A-Za-z0-9!#$%&'*+.^_`|~-]+$" },
-        "path": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^/(?!/)(?!.*://)[^\\u0000-\\u0020\\u007F]*$" },
-        "transport_subject": { "type": "string", "minLength": 1, "writeOnly": true, "x-sensitive": true, "description": "Opaque encrypted transport identity, never plaintext endpoint or credentials." }
+        "method": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[A-Za-z0-9!#$%&'*+.^_`|~-]+$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^/(?!/)(?!.*://)[^\\u0000-\\u0020\\u007F]*$"
+        },
+        "transport_subject": {
+          "type": "string",
+          "minLength": 1,
+          "writeOnly": true,
+          "x-sensitive": true,
+          "description": "Opaque encrypted transport identity, never plaintext endpoint or credentials."
+        }
       }
     },
     "SettleControlBody": {
@@ -172,17 +299,43 @@
       "required": ["control_id", "capability", "attempt_id", "kind", "status_code", "reason"],
       "properties": {
         "control_id": { "type": "string", "format": "uuid" },
-        "capability": { "type": "string", "minLength": 1, "maxLength": 16384, "writeOnly": true, "x-sensitive": true },
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384,
+          "writeOnly": true,
+          "x-sensitive": true
+        },
         "attempt_id": { "type": "string", "format": "uuid" },
         "kind": { "enum": ["response", "uncertain"] },
         "status_code": { "type": ["integer", "null"], "minimum": 100, "maximum": 599 },
-        "reason": { "type": ["string", "null"], "maxLength": 96, "pattern": "^[a-z][a-z0-9_]{0,95}$" }
+        "reason": {
+          "type": ["string", "null"],
+          "maxLength": 96,
+          "pattern": "^[a-z][a-z0-9_]{0,95}$"
+        }
       }
     },
     "RoutingScopeView": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "pool_id", "registry_id", "project_id", "mode", "owner", "operation", "generation", "config_revision", "eligibility_revision", "authority_epoch", "state", "closed", "heartbeat_deadline_ms", "capability"],
+      "required": [
+        "id",
+        "pool_id",
+        "registry_id",
+        "project_id",
+        "mode",
+        "owner",
+        "operation",
+        "generation",
+        "config_revision",
+        "eligibility_revision",
+        "authority_epoch",
+        "state",
+        "closed",
+        "heartbeat_deadline_ms",
+        "capability"
+      ],
       "properties": {
         "id": { "type": "string", "format": "uuid" },
         "pool_id": { "type": ["string", "null"], "format": "uuid" },
@@ -195,7 +348,17 @@
         "config_revision": { "type": "integer", "minimum": 1 },
         "eligibility_revision": { "type": "integer", "minimum": 1 },
         "authority_epoch": { "type": "string", "format": "uuid" },
-        "state": { "enum": ["reserved", "active", "uncertain", "finished", "cancelled", "expired", "reconciled"] },
+        "state": {
+          "enum": [
+            "reserved",
+            "active",
+            "uncertain",
+            "finished",
+            "cancelled",
+            "expired",
+            "reconciled"
+          ]
+        },
         "closed": { "type": "boolean" },
         "heartbeat_deadline_ms": { "type": "integer", "minimum": 0 },
         "capability": { "type": "string", "minLength": 1, "maxLength": 16384, "x-sensitive": true }
@@ -209,7 +372,11 @@
         "attempt_id": { "type": "string", "format": "uuid" },
         "state": { "enum": ["active", "response", "uncertain", "reconciled"] },
         "status_code": { "type": ["integer", "null"], "minimum": 100, "maximum": 599 },
-        "reason": { "type": ["string", "null"], "maxLength": 96, "pattern": "^[a-z][a-z0-9_]{0,95}$" }
+        "reason": {
+          "type": ["string", "null"],
+          "maxLength": 96,
+          "pattern": "^[a-z][a-z0-9_]{0,95}$"
+        }
       }
     },
     "RoutingControlView": {
@@ -264,7 +431,13 @@
           "additionalProperties": false,
           "required": ["X-AAP-Route-Admission"],
           "properties": {
-            "X-AAP-Route-Admission": { "type": "string", "minLength": 1, "maxLength": 16384, "pattern": "^[!-~]+$", "x-sensitive": true }
+            "X-AAP-Route-Admission": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 16384,
+              "pattern": "^[!-~]+$",
+              "x-sensitive": true
+            }
           }
         }
       ]
@@ -284,7 +457,24 @@
       "required": ["kind", "reason"],
       "properties": {
         "kind": { "const": "rejected" },
-        "reason": { "enum": ["pool_unavailable", "pool_not_enabled", "pool_saturated", "generation_mismatch", "scope_unavailable", "scope_expired", "scope_closed", "transport_changed", "management_busy", "member_not_draining", "member_not_quiescent", "continuity_unverified", "backend_not_ready", "invalid_command"] }
+        "reason": {
+          "enum": [
+            "pool_unavailable",
+            "pool_not_enabled",
+            "pool_saturated",
+            "generation_mismatch",
+            "scope_unavailable",
+            "scope_expired",
+            "scope_closed",
+            "transport_changed",
+            "management_busy",
+            "member_not_draining",
+            "member_not_quiescent",
+            "continuity_unverified",
+            "backend_not_ready",
+            "invalid_command"
+          ]
+        }
       }
     },
     "RoutingResult": {
@@ -295,23 +485,263 @@
         "schema": { "const": "aap-inference-routing-result/v1" },
         "request_id": { "type": "string", "format": "uuid" },
         "command_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "operation": { "enum": ["acquire", "begin", "settle", "heartbeat", "close", "scope_status", "reconcile", "prepare_control", "finish_control", "begin_control", "settle_control"] },
+        "operation": {
+          "enum": [
+            "acquire",
+            "begin",
+            "settle",
+            "heartbeat",
+            "close",
+            "scope_status",
+            "reconcile",
+            "prepare_control",
+            "finish_control",
+            "begin_control",
+            "settle_control"
+          ]
+        },
         "state": { "enum": ["caller_pending", "committed", "unknown"] },
         "result": {}
       },
       "allOf": [
-        { "if": { "properties": { "state": { "const": "unknown" } }, "required": ["state"] }, "then": { "properties": { "result": { "type": "null" } } }, "else": { "properties": { "result": { "type": "object" } } } },
-        { "if": { "properties": { "operation": { "const": "acquire" } }, "required": ["operation"] }, "then": { "if": { "properties": { "state": { "enum": ["caller_pending", "committed"] } }, "required": ["state"] }, "then": { "properties": { "result": { "oneOf": [{ "$ref": "#/$defs/RoutingScopeView" }, { "$ref": "#/$defs/RoutingRejectedResult" }] } } } } },
-        { "if": { "properties": { "operation": { "const": "begin" } }, "required": ["operation"] }, "then": { "if": { "properties": { "state": { "enum": ["caller_pending", "committed"] } }, "required": ["state"] }, "then": { "properties": { "result": { "oneOf": [{ "$ref": "#/$defs/RoutingBeginResult" }, { "$ref": "#/$defs/RoutingRejectedResult" }] } } } } },
-        { "if": { "properties": { "operation": { "const": "settle" } }, "required": ["operation"] }, "then": { "if": { "properties": { "state": { "enum": ["caller_pending", "committed"] } }, "required": ["state"] }, "then": { "properties": { "result": { "oneOf": [{ "$ref": "#/$defs/RoutingAttemptView" }, { "$ref": "#/$defs/RoutingRejectedResult" }] } } } } },
-        { "if": { "properties": { "operation": { "const": "heartbeat" } }, "required": ["operation"] }, "then": { "if": { "properties": { "state": { "enum": ["caller_pending", "committed"] } }, "required": ["state"] }, "then": { "properties": { "result": { "oneOf": [{ "$ref": "#/$defs/RoutingScopeView" }, { "$ref": "#/$defs/RoutingRejectedResult" }] } } } } },
-        { "if": { "properties": { "operation": { "const": "close" } }, "required": ["operation"] }, "then": { "if": { "properties": { "state": { "enum": ["caller_pending", "committed"] } }, "required": ["state"] }, "then": { "properties": { "result": { "oneOf": [{ "$ref": "#/$defs/RoutingScopeView" }, { "$ref": "#/$defs/RoutingRejectedResult" }] } } } } },
-        { "if": { "properties": { "operation": { "const": "scope_status" } }, "required": ["operation"] }, "then": { "if": { "properties": { "state": { "enum": ["caller_pending", "committed"] } }, "required": ["state"] }, "then": { "properties": { "result": { "oneOf": [{ "$ref": "#/$defs/RoutingScopeStatusResult" }, { "$ref": "#/$defs/RoutingRejectedResult" }] } } } } },
-        { "if": { "properties": { "operation": { "const": "reconcile" } }, "required": ["operation"] }, "then": { "if": { "properties": { "state": { "enum": ["caller_pending", "committed"] } }, "required": ["state"] }, "then": { "properties": { "result": { "oneOf": [{ "$ref": "#/$defs/RoutingEpochView" }, { "$ref": "#/$defs/RoutingRejectedResult" }] } } } } },
-        { "if": { "properties": { "operation": { "const": "prepare_control" } }, "required": ["operation"] }, "then": { "if": { "properties": { "state": { "enum": ["caller_pending", "committed"] } }, "required": ["state"] }, "then": { "properties": { "result": { "oneOf": [{ "$ref": "#/$defs/RoutingControlView" }, { "$ref": "#/$defs/RoutingRejectedResult" }] } } } } },
-        { "if": { "properties": { "operation": { "const": "finish_control" } }, "required": ["operation"] }, "then": { "if": { "properties": { "state": { "enum": ["caller_pending", "committed"] } }, "required": ["state"] }, "then": { "properties": { "result": { "oneOf": [{ "$ref": "#/$defs/RoutingControlView" }, { "$ref": "#/$defs/RoutingRejectedResult" }] } } } } },
-        { "if": { "properties": { "operation": { "const": "begin_control" } }, "required": ["operation"] }, "then": { "if": { "properties": { "state": { "enum": ["caller_pending", "committed"] } }, "required": ["state"] }, "then": { "properties": { "result": { "oneOf": [{ "$ref": "#/$defs/RoutingBeginControlResult" }, { "$ref": "#/$defs/RoutingRejectedResult" }] } } } } },
-        { "if": { "properties": { "operation": { "const": "settle_control" } }, "required": ["operation"] }, "then": { "if": { "properties": { "state": { "enum": ["caller_pending", "committed"] } }, "required": ["state"] }, "then": { "properties": { "result": { "oneOf": [{ "$ref": "#/$defs/RoutingAttemptView" }, { "$ref": "#/$defs/RoutingRejectedResult" }] } } } } }
+        {
+          "if": { "properties": { "state": { "const": "unknown" } }, "required": ["state"] },
+          "then": { "properties": { "result": { "type": "null" } } },
+          "else": { "properties": { "result": { "type": "object" } } }
+        },
+        {
+          "if": {
+            "properties": { "operation": { "const": "acquire" } },
+            "required": ["operation"]
+          },
+          "then": {
+            "if": {
+              "properties": { "state": { "enum": ["caller_pending", "committed"] } },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    { "$ref": "#/$defs/RoutingScopeView" },
+                    { "$ref": "#/$defs/RoutingRejectedResult" }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "begin" } }, "required": ["operation"] },
+          "then": {
+            "if": {
+              "properties": { "state": { "enum": ["caller_pending", "committed"] } },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    { "$ref": "#/$defs/RoutingBeginResult" },
+                    { "$ref": "#/$defs/RoutingRejectedResult" }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "settle" } }, "required": ["operation"] },
+          "then": {
+            "if": {
+              "properties": { "state": { "enum": ["caller_pending", "committed"] } },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    { "$ref": "#/$defs/RoutingAttemptView" },
+                    { "$ref": "#/$defs/RoutingRejectedResult" }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "operation": { "const": "heartbeat" } },
+            "required": ["operation"]
+          },
+          "then": {
+            "if": {
+              "properties": { "state": { "enum": ["caller_pending", "committed"] } },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    { "$ref": "#/$defs/RoutingScopeView" },
+                    { "$ref": "#/$defs/RoutingRejectedResult" }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "close" } }, "required": ["operation"] },
+          "then": {
+            "if": {
+              "properties": { "state": { "enum": ["caller_pending", "committed"] } },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    { "$ref": "#/$defs/RoutingScopeView" },
+                    { "$ref": "#/$defs/RoutingRejectedResult" }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "operation": { "const": "scope_status" } },
+            "required": ["operation"]
+          },
+          "then": {
+            "if": {
+              "properties": { "state": { "enum": ["caller_pending", "committed"] } },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    { "$ref": "#/$defs/RoutingScopeStatusResult" },
+                    { "$ref": "#/$defs/RoutingRejectedResult" }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "operation": { "const": "reconcile" } },
+            "required": ["operation"]
+          },
+          "then": {
+            "if": {
+              "properties": { "state": { "enum": ["caller_pending", "committed"] } },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    { "$ref": "#/$defs/RoutingEpochView" },
+                    { "$ref": "#/$defs/RoutingRejectedResult" }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "operation": { "const": "prepare_control" } },
+            "required": ["operation"]
+          },
+          "then": {
+            "if": {
+              "properties": { "state": { "enum": ["caller_pending", "committed"] } },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    { "$ref": "#/$defs/RoutingControlView" },
+                    { "$ref": "#/$defs/RoutingRejectedResult" }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "operation": { "const": "finish_control" } },
+            "required": ["operation"]
+          },
+          "then": {
+            "if": {
+              "properties": { "state": { "enum": ["caller_pending", "committed"] } },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    { "$ref": "#/$defs/RoutingControlView" },
+                    { "$ref": "#/$defs/RoutingRejectedResult" }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "operation": { "const": "begin_control" } },
+            "required": ["operation"]
+          },
+          "then": {
+            "if": {
+              "properties": { "state": { "enum": ["caller_pending", "committed"] } },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    { "$ref": "#/$defs/RoutingBeginControlResult" },
+                    { "$ref": "#/$defs/RoutingRejectedResult" }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "operation": { "const": "settle_control" } },
+            "required": ["operation"]
+          },
+          "then": {
+            "if": {
+              "properties": { "state": { "enum": ["caller_pending", "committed"] } },
+              "required": ["state"]
+            },
+            "then": {
+              "properties": {
+                "result": {
+                  "oneOf": [
+                    { "$ref": "#/$defs/RoutingAttemptView" },
+                    { "$ref": "#/$defs/RoutingRejectedResult" }
+                  ]
+                }
+              }
+            }
+          }
+        }
       ]
     },
     "RoutingStatusRequest": {
@@ -324,8 +754,17 @@
         "command_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "operation": {
           "enum": [
-            "acquire", "begin", "settle", "heartbeat", "close", "scope_status",
-            "reconcile", "prepare_control", "finish_control", "begin_control", "settle_control"
+            "acquire",
+            "begin",
+            "settle",
+            "heartbeat",
+            "close",
+            "scope_status",
+            "reconcile",
+            "prepare_control",
+            "finish_control",
+            "begin_control",
+            "settle_control"
           ]
         }
       }
@@ -342,10 +781,24 @@
       "aap_inference_routing_v1.routing_step(text,text)"
     ],
     "actions": [
-      "command_status", "record_command", "admission_snapshot", "reserve_scope",
-      "scope_status", "begin_attempt", "settle_attempt", "heartbeat_scope", "close_scope",
-      "quiescence", "prepare_control", "finish_control", "prepare_epoch", "finish_epoch",
-      "capture_transport_subject", "open_transport_subject", "begin_control_attempt", "settle_control_attempt"
+      "command_status",
+      "record_command",
+      "admission_snapshot",
+      "reserve_scope",
+      "scope_status",
+      "begin_attempt",
+      "settle_attempt",
+      "heartbeat_scope",
+      "close_scope",
+      "quiescence",
+      "prepare_control",
+      "finish_control",
+      "prepare_epoch",
+      "finish_epoch",
+      "capture_transport_subject",
+      "open_transport_subject",
+      "begin_control_attempt",
+      "settle_control_attempt"
     ]
   }
 }

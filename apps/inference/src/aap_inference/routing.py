@@ -625,32 +625,38 @@ class RoutingManager:
             raise RoutingUnavailable()
         body = _request_body(request)
         prepared: dict[str, Any] | None = None
+        early_result: dict[str, Any] | None = None
         body_completed = False
         try:
             async with self._data_factory() as data:
                 prior = await self._command_status(data, request, digest)
                 if prior is not None:
                     return self._result(request, digest, "committed", prior)
-                prepared_result = await _native_step(
-                    data,
-                    "prepare_epoch",
-                    {
-                        "control_id": body["control_id"],
-                        "registry_id": body["registry_id"],
-                    },
-                    keys={
-                        "control_id",
-                        "registry_id",
-                        "phase",
-                        "new_epoch",
-                        "challenge",
-                        "retired_epoch",
-                        "backend_incarnation",
-                        "endpoint",
-                        "signing_key",
-                    },
-                )
-                prepared = prepared_result
+                try:
+                    prepared_result = await _native_step(
+                        data,
+                        "prepare_epoch",
+                        {
+                            "control_id": body["control_id"],
+                            "registry_id": body["registry_id"],
+                        },
+                        keys={
+                            "control_id",
+                            "registry_id",
+                            "phase",
+                            "new_epoch",
+                            "challenge",
+                            "retired_epoch",
+                            "backend_incarnation",
+                            "endpoint",
+                            "signing_key",
+                        },
+                    )
+                    prepared = prepared_result
+                except _Rejected as rejected:
+                    early_result = _rejection(rejected.reason)
+                    self._result(request, digest, "committed", early_result)
+                    await self._record_command(data, request, digest, early_result)
                 body_completed = True
         except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
             raise
@@ -658,6 +664,8 @@ class RoutingManager:
             if body_completed:
                 return self._unknown(make_routing_status_request(request))
             raise RoutingUnavailable() from None
+        if early_result is not None:
+            return self._result(request, digest, "committed", early_result)
         assert prepared is not None
         private_context = self._validate_private_epoch(prepared, body)
         if private_context["phase"] == "completed":
@@ -699,16 +707,19 @@ class RoutingManager:
                 prior = await self._command_status(data, request, digest)
                 if prior is not None:
                     return self._result(request, digest, "committed", prior)
-                finished = await _native_step(
-                    data,
-                    "finish_epoch",
-                    {
-                        "control_id": str(private_context["control_id"]),
-                        "reply": reply.model_dump(mode="json", by_alias=True),
-                    },
-                    keys=_EPOCH_FIELDS,
-                )
-                final_body = finished
+                try:
+                    finished = await _native_step(
+                        data,
+                        "finish_epoch",
+                        {
+                            "control_id": str(private_context["control_id"]),
+                            "reply": reply.as_dict(),
+                        },
+                        keys=_EPOCH_FIELDS,
+                    )
+                    final_body = finished
+                except _Rejected as rejected:
+                    final_body = _rejection(rejected.reason)
                 self._result(request, digest, "committed", final_body)
                 await self._record_command(data, request, digest, final_body)
                 body_completed = True

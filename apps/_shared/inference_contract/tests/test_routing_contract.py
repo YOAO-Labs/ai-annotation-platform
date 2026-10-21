@@ -44,6 +44,14 @@ _CAPABILITY = "scope-capability-never-print"
 _TRANSPORT_SUBJECT = "opaque-transport-subject-never-print"
 
 
+def test_reload_expected_topology_accepts_disabled_member():
+    body = _body("prepare_control")
+    body["kind"] = "reload"
+    body["expected_topology"]["traffic_state"] = "disabled"
+    command = make_routing_command("prepare_control", body)
+    assert command.body.expected_topology.traffic_state == "disabled"
+
+
 def _body(operation: str) -> dict:
     if operation == "acquire":
         return {

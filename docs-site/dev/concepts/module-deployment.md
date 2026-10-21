@@ -133,6 +133,8 @@ Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事�
 
 启动环境同步与截图 seed 的 Registry 写入使用另一组11项固定 ingress 能力，策略由 Inference 包持有。环境同步以完整命令选择嵌入、专用 DSN 或独立 HTTP owner，实际探测在数据库事务之前完成；seed 写入仍与项目选择和绑定处于原事务。最小回执区分待提交、已提交与未知，响应不确定时只查状态，不重发写命令。本地64项去重选定检查通过，含54组旧入口观测的限定比较；源码265项、独立安装 Inference／Workspace 265／582项通过。完整迁移、非空恢复、三项受限镜像、实际启动入口、容器重启和停止后不回退分别验证。Native 内部 SQL 顺序与错误后的 Session 内存状态差异单独记录。完整 Registry／Pool 控制、健康远程协调、stats／GPU 消费者以及路由连续性仍未闭合，见 [ADR-0154](/dev/adr/0154-registry-ingress-and-environment-sync-owner)。
 
+持久路由执行权正在实施：独立账本记录实际 HTTP attempt，视频作业固定实例，卸载和重载持有跨网络调用的管理占用。真实后端 drain/bind 才能建立连续性，超时或 Redis 丢失不能据此清除工作。修改前四项实际竞态已记录；通信、后端 ASGI、传输完成和 API 端口已有局部测试，Native、独立部署和故障资格仍待完成。该进展不表示完整 Inference 或十模块目标完成，见 [ADR-0155](/dev/adr/0155-durable-inference-routing-authority)。
+
 ## Workspace 后端能力探测
 
 Workspace 配置路径只持有 registry ID 和不透明事务快照；Inference 独立持有凭据并执行

@@ -354,7 +354,7 @@ async def test_routing_snapshot_scope_attempt_and_writer_fence(test_engine):
             pool_id,
         )
         await owner_transaction.commit()
-        check = await client.transaction()
+        check = client.transaction()
         await check.start()
         result = await _step(client, "quiescence", {"registry_id": str(registry_id)})
         assert result == {

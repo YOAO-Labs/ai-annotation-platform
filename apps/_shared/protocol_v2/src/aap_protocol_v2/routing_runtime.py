@@ -574,9 +574,37 @@ class BackendRoutingMiddleware:
             return
 
         app_task: asyncio.Task[Any] | None = None
+        response_start = None
+        pending_body = None
+
+        async def start_response():
+            nonlocal response_start
+            if response_start is not None:
+                await send(response_start)
+                response_start = None
+
+        async def tracked_send(message):
+            nonlocal response_start, pending_body
+            if message["type"] == "http.response.start":
+                response_start = message
+                return
+            if message["type"] != "http.response.body":
+                await send(message)
+                return
+            body = message.get("body", b"")
+            if body:
+                if pending_body is not None:
+                    await start_response()
+                    await send({**pending_body, "more_body": True})
+                pending_body = message
+            elif not message.get("more_body", False):
+                # Keep the last nonempty bytes even when the final ASGI message
+                # is empty: Content-Length clients otherwise finish too early.
+                pending_body = {**(pending_body or message), "more_body": False}
+
         context_token = _CURRENT_REQUEST.set(lease)
         try:
-            app_task = asyncio.create_task(self.app(scope, receive, send))
+            app_task = asyncio.create_task(self.app(scope, receive, tracked_send))
             try:
                 await asyncio.shield(app_task)
             except asyncio.CancelledError:
@@ -585,6 +613,12 @@ class BackendRoutingMiddleware:
                 # Keep the ticket until handlers, streams, and awaited background work stop.
                 await _wait_for_task(app_task)
                 raise
+            # A complete HTTP response is used as execution settlement evidence.
+            # Withhold its last bytes through actual background/future completion.
+            await _finish_uncancelled(self.controller, lease)
+            await start_response()
+            if pending_body is not None:
+                await send({**pending_body, "more_body": False})
         finally:
             _CURRENT_REQUEST.reset(context_token)
             if app_task is None or app_task.done():

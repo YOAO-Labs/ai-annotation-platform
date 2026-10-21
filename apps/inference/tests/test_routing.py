@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-import sys
-from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
@@ -187,15 +184,15 @@ class _Native:
             key = (receipt["request_id"], receipt["command_sha256"])
             self.receipts[key] = receipt
             return _success(receipt=receipt)
-        if action == "admission_snapshot":
-            self.last_admission = dict(arguments)
-            return _success(**self.snapshot)
         handler = self.handlers.get(action)
         if handler is not None:
             result = handler(arguments)
             if isinstance(result, Exception):
                 raise result
             return result
+        if action == "admission_snapshot":
+            self.last_admission = dict(arguments)
+            return _success(**self.snapshot)
         if action == "reserve_scope":
             selected = arguments["candidate_ids"][0]
             admission = self.last_admission
@@ -593,34 +590,43 @@ async def test_ambiguous_commit_returns_unknown_then_status_resolves_receipt():
     assert sum(action == "command_status" for action, _ in native.calls) == 2
 
 
-@dataclass(frozen=True)
-class _BackendControlReply:
-    command_id: UUID
-    registry_id: UUID
-    authority_epoch: UUID
-    backend_incarnation: UUID
-    challenge: str
-    phase: str
-    active_requests: int
-
-    def model_dump(self, *, mode, by_alias):
-        assert mode == "json" and by_alias is True
-        return {
-            "schema": "aap-backend-route-control-reply/v1",
-            "command_id": str(self.command_id),
-            "registry_id": str(self.registry_id),
-            "authority_epoch": str(self.authority_epoch),
-            "backend_incarnation": str(self.backend_incarnation),
-            "challenge": self.challenge,
-            "phase": self.phase,
-            "active_requests": self.active_requests,
-        }
+def _backend_reply(*, phase="bound", active_requests=0):
+    return {
+        "schema": "aap-backend-route-control-reply/v1",
+        "command_id": str(_CONTROL_ID),
+        "registry_id": str(_LEGACY_ID),
+        "authority_epoch": str(_NEW_EPOCH),
+        "backend_incarnation": str(_NEW_INCARNATION),
+        "challenge": _CHALLENGE,
+        "phase": phase,
+        "active_requests": active_requests,
+    }
 
 
 @pytest.mark.asyncio
-async def test_reconcile_commits_prepare_before_control_io_and_finishes_only_bound(
-    monkeypatch,
-):
+async def test_reconcile_rejected_before_control_io_has_a_committed_replayable_receipt():
+    native = _Native(
+        handlers={"prepare_epoch": lambda _args: _rejected("member_not_quiescent")}
+    )
+
+    async def backend_control(_context):
+        pytest.fail("rejected epoch preparation must not call the backend")
+
+    manager = _manager(native, backend_control=backend_control)
+    command = make_routing_command(
+        "reconcile", {"registry_id": str(_LEGACY_ID), "control_id": str(_CONTROL_ID)}
+    )
+    first = await manager.execute(command)
+    second = await manager.execute(command)
+    assert first.state == second.state == "committed"
+    assert isinstance(first.result, RoutingRejectedResult)
+    assert first.result.reason == "member_not_quiescent"
+    assert first.result == second.result
+    assert sum(action == "prepare_epoch" for action, _ in native.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_reconcile_commits_prepare_before_control_io_and_finishes_only_bound():
     prepared = {
         "control_id": str(_CONTROL_ID),
         "registry_id": str(_LEGACY_ID),
@@ -650,31 +656,12 @@ async def test_reconcile_commits_prepare_before_control_io_and_finishes_only_bou
         }
     )
     factory = _DataFactory(native)
-    decoded = []
-
-    def decode_reply(value):
-        decoded.append(value)
-        return _BackendControlReply(
-            command_id=_CONTROL_ID,
-            registry_id=_LEGACY_ID,
-            authority_epoch=_NEW_EPOCH,
-            backend_incarnation=_NEW_INCARNATION,
-            challenge=_CHALLENGE,
-            phase="bound",
-            active_requests=0,
-        )
-
-    monkeypatch.setitem(
-        sys.modules,
-        "aap_protocol_v2.routing",
-        SimpleNamespace(decode_backend_route_control_reply=decode_reply),
-    )
     control_calls = []
 
     async def backend_control(private_context):
         assert factory.native.active_transaction is False
         control_calls.append(dict(private_context))
-        return {"real": "backend reply payload"}
+        return _backend_reply()
 
     manager = RoutingManager(
         factory,
@@ -691,7 +678,6 @@ async def test_reconcile_commits_prepare_before_control_io_and_finishes_only_bou
 
     assert result.result.phase == "completed"
     assert len(control_calls) == 1
-    assert decoded == [{"real": "backend reply payload"}]
     assert [event[0] for event in native.events if event[0] in {"enter", "exit"}] == [
         "enter",
         "exit",
@@ -706,7 +692,7 @@ async def test_reconcile_commits_prepare_before_control_io_and_finishes_only_bou
 
 
 @pytest.mark.asyncio
-async def test_reconcile_records_draining_progress_without_finishing_epoch(monkeypatch):
+async def test_reconcile_records_draining_progress_without_finishing_epoch():
     prepared = {
         "control_id": str(_CONTROL_ID),
         "registry_id": str(_LEGACY_ID),
@@ -723,26 +709,11 @@ async def test_reconcile_records_draining_progress_without_finishing_epoch(monke
         "signing_key": base64.urlsafe_b64encode(b"k" * 32).decode().rstrip("="),
     }
     native = _Native(handlers={"prepare_epoch": lambda _args: _success(**prepared)})
-    monkeypatch.setitem(
-        sys.modules,
-        "aap_protocol_v2.routing",
-        SimpleNamespace(
-            decode_backend_route_control_reply=lambda _value: _BackendControlReply(
-                command_id=_CONTROL_ID,
-                registry_id=_LEGACY_ID,
-                authority_epoch=_NEW_EPOCH,
-                backend_incarnation=_NEW_INCARNATION,
-                challenge=_CHALLENGE,
-                phase="draining",
-                active_requests=3,
-            )
-        ),
-    )
     calls = []
 
     async def backend_control(_context):
         calls.append(True)
-        return {"phase": "draining"}
+        return _backend_reply(phase="draining", active_requests=3)
 
     result = await RoutingManager(
         _DataFactory(native),

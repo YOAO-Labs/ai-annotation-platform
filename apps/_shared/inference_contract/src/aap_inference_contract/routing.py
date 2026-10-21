@@ -185,7 +185,7 @@ class RoutingExpectedTopology(_RoutingModel):
     member_id: uuid.UUID | None
     pool_id: uuid.UUID | None
     routing_generation: StrictInt | None
-    traffic_state: Literal["active", "draining"] | None
+    traffic_state: Literal["active", "draining", "disabled"] | None
 
     @model_validator(mode="after")
     def positive_generation(self) -> RoutingExpectedTopology:

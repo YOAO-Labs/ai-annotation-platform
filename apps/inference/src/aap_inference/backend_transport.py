@@ -34,6 +34,7 @@ from aap_protocol_v2.lifecycle import (
     parse_managed_unload_response_json,
 )
 from .capabilities import resolve_model_task
+from .request_tracking import RequestContext, http_client
 
 # BUG B-17 · per-backend asyncio.Semaphore 限速. 受 backend extra_params.max_concurrency
 # 控制 (默认 4, 匹配现有 celery worker --concurrency=4 不破坏既有行为). 改 extra_params 后需 worker
@@ -243,6 +244,7 @@ class BackendTransport:
         dispatch_context: DispatchContext,
         observe: Observer,
         error_factory: ErrorFactory = BackendTransportError,
+        request_context: RequestContext | None = None,
     ) -> None:
         self._backend = backend
         self.base_url = backend.url.rstrip("/")
@@ -256,11 +258,15 @@ class BackendTransport:
         self._dispatch_context = dispatch_context
         self._observe = observe
         self.error_factory = error_factory
+        self._request_context = request_context
         extra = getattr(backend, "extra_params", None) or {}
         self._extra_params = extra
         self.max_concurrency = int(
             extra.get("max_concurrency", _DEFAULT_MAX_CONCURRENCY)
         )
+
+    def _http_client(self, **kwargs):
+        return http_client(self._request_context, **kwargs)
 
     def _predict_context(self, context: dict) -> dict:
         normalized = normalize_context_task(context)
@@ -310,7 +316,7 @@ class BackendTransport:
 
     async def health(self) -> bool:
         try:
-            async with httpx.AsyncClient(
+            async with self._http_client(
                 timeout=self.options.ml_health_timeout
             ) as client:
                 resp = await client.get(
@@ -344,7 +350,7 @@ class BackendTransport:
             headers["Cache-Control"] = "no-cache"
             params = {GPU_HEALTH_CHALLENGE_QUERY_PARAM: gpu_health_challenge}
         try:
-            async with httpx.AsyncClient(
+            async with self._http_client(
                 timeout=self.options.ml_health_timeout
             ) as client:
                 resp = await client.get(
@@ -414,7 +420,7 @@ class BackendTransport:
         return semaphore
 
     async def install_trained_model(self, payload: dict) -> dict:
-        async with httpx.AsyncClient(timeout=180) as client:
+        async with self._http_client(timeout=180) as client:
             response = await client.post(
                 f"{self.base_url}/managed-models", json=payload, headers=self._headers()
             )
@@ -422,7 +428,7 @@ class BackendTransport:
             return response.json()
 
     async def trained_model_receipt(self, version_id: str) -> dict:
-        async with httpx.AsyncClient(timeout=self.options.ml_health_timeout) as client:
+        async with self._http_client(timeout=self.options.ml_health_timeout) as client:
             response = await client.get(
                 f"{self.base_url}/managed-models/{version_id}", headers=self._headers()
             )
@@ -433,7 +439,7 @@ class BackendTransport:
         self, path: str, *, payload: dict | None = None, params: dict | None = None
     ) -> dict:
         """Read/seal a request without starting native work or GPU admission."""
-        async with httpx.AsyncClient(timeout=self.options.ml_health_timeout) as client:
+        async with self._http_client(timeout=self.options.ml_health_timeout) as client:
             async with client.stream(
                 "POST" if payload is not None else "GET",
                 f"{self.base_url}/managed-evaluation/{path}",
@@ -470,7 +476,7 @@ class BackendTransport:
                 async with self._dispatch_context(
                     "predict", AdmissionScope.PREDICT
                 ) as grant:
-                    async with httpx.AsyncClient(
+                    async with self._http_client(
                         timeout=self.options.ml_predict_timeout
                     ) as client:
                         if max_response_bytes is None:
@@ -550,7 +556,7 @@ class BackendTransport:
                     async with self._dispatch_context(
                         "predict_interactive", AdmissionScope.PREDICT
                     ) as grant:
-                        async with httpx.AsyncClient(
+                        async with self._http_client(
                             timeout=self.options.ml_predict_timeout
                         ) as client:
                             request_kwargs = {
@@ -628,7 +634,7 @@ class BackendTransport:
     async def unload(self) -> dict:
         """B-28+ · 让 backend 卸载模型释放显存. backend 必须实现 POST /unload."""
         async with self._dispatch_context("unload", AdmissionScope.UNLOAD) as grant:
-            async with httpx.AsyncClient(
+            async with self._http_client(
                 timeout=self.options.ml_health_timeout
             ) as client:
                 request_kwargs: dict = {"headers": self._headers(grant)}
@@ -672,7 +678,7 @@ class BackendTransport:
             )
             body[key] = semantic["modality"]
         async with self._dispatch_context("reload", AdmissionScope.RELOAD) as grant:
-            async with httpx.AsyncClient(
+            async with self._http_client(
                 timeout=self.options.ml_predict_timeout
             ) as client:
                 resp = await client.post(
@@ -686,7 +692,7 @@ class BackendTransport:
                 return resp.json()
 
     async def setup(self) -> dict:
-        async with httpx.AsyncClient(timeout=self.options.ml_health_timeout) as client:
+        async with self._http_client(timeout=self.options.ml_health_timeout) as client:
             headers = self._headers()
             headers["Cache-Control"] = "no-cache"
             resp = await client.get(f"{self.base_url}/setup", headers=headers)
@@ -709,7 +715,7 @@ class BackendTransport:
             raise ValueError("admission_token must be non-empty and canonical")
         headers = self._headers()
         headers[GPU_ADMISSION_TOKEN_HEADER] = admission_token
-        async with httpx.AsyncClient(timeout=self.options.ml_health_timeout) as client:
+        async with self._http_client(timeout=self.options.ml_health_timeout) as client:
             resp = await client.post(
                 f"{self.base_url}/lifecycle/mode",
                 json=request.model_dump(mode="json"),
@@ -741,7 +747,7 @@ class BackendTransport:
             raise ValueError("admission_token must be non-empty and canonical")
         headers = self._headers()
         headers[GPU_ADMISSION_TOKEN_HEADER] = admission_token
-        async with httpx.AsyncClient(timeout=self.options.ml_health_timeout) as client:
+        async with self._http_client(timeout=self.options.ml_health_timeout) as client:
             resp = await client.post(
                 f"{self.base_url}/lifecycle/reset",
                 json=request.model_dump(mode="json"),
@@ -768,7 +774,7 @@ class BackendTransport:
             raise ValueError("managed GPU transition endpoint is invalid")
         request = GenerationTransitionRequest(generation=grant.generation)
         try:
-            async with httpx.AsyncClient(
+            async with self._http_client(
                 timeout=self.options.ml_health_timeout
             ) as client:
                 response = await client.post(
@@ -843,7 +849,7 @@ class BackendTransport:
             revision = (meta.get("capabilities") or {}).get("task_contract_revision", 0)
             payload["task"] = task if revision == 1 else legacy_inference_task(task)
         async with self._dispatch_context("warmup", AdmissionScope.WARMUP) as grant:
-            async with httpx.AsyncClient(
+            async with self._http_client(
                 timeout=self.options.ml_predict_timeout
             ) as client:
                 resp = await client.post(
@@ -857,7 +863,7 @@ class BackendTransport:
                 return resp.json()
 
     async def get_versions(self) -> list[str]:
-        async with httpx.AsyncClient(timeout=self.options.ml_health_timeout) as client:
+        async with self._http_client(timeout=self.options.ml_health_timeout) as client:
             resp = await client.get(
                 f"{self.base_url}/versions", headers=self._headers()
             )

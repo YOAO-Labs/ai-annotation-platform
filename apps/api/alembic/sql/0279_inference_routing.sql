@@ -78,7 +78,7 @@ CREATE TABLE aap_inference_routing_v1.attempts (
     id uuid PRIMARY KEY,
     scope_id uuid NOT NULL REFERENCES aap_inference_routing_v1.scopes(id) ON DELETE RESTRICT,
     method text NOT NULL CHECK (method ~ '^[A-Z]{1,16}$'),
-    path text NOT NULL CHECK (path ~ '^/[^?#[:space:]]{0,1023}$'),
+    path text NOT NULL CHECK (pg_catalog.char_length(path) BETWEEN 1 AND 4096 AND path ~ '^/[^?#[:space:]]*$'),
     transport_identity_sha256 text NOT NULL CHECK (
         transport_identity_sha256 COLLATE "C" ~ '^[0-9a-f]{64}$'
     ),
@@ -128,7 +128,7 @@ CREATE TABLE aap_inference_routing_v1.control_attempts (
     id uuid PRIMARY KEY,
     control_id uuid NOT NULL REFERENCES aap_inference_routing_v1.controls(id) ON DELETE RESTRICT,
     method text NOT NULL CHECK (method ~ '^[A-Z]{1,16}$'),
-    path text NOT NULL CHECK (path ~ '^/[^?#[:space:]]{0,1023}$'),
+    path text NOT NULL CHECK (pg_catalog.char_length(path) BETWEEN 1 AND 4096 AND path ~ '^/[^?#[:space:]]*$'),
     transport_identity_sha256 text NOT NULL CHECK (
         transport_identity_sha256 COLLATE "C" ~ '^[0-9a-f]{64}$'
     ),
@@ -2396,7 +2396,8 @@ BEGIN
            OR pg_catalog.jsonb_typeof(v_args -> 'method') IS DISTINCT FROM 'string'
            OR v_method !~ '^[A-Z]{1,16}$'
            OR pg_catalog.jsonb_typeof(v_args -> 'path') IS DISTINCT FROM 'string'
-           OR v_path !~ '^/[^?#[:space:]]{0,1023}$'
+           OR pg_catalog.char_length(v_path) NOT BETWEEN 1 AND 4096
+           OR v_path !~ '^/[^?#[:space:]]*$'
            OR pg_catalog.jsonb_typeof(v_args #> '{transport_identity,identity_sha256}')
                 IS DISTINCT FROM 'string'
            OR v_identity_hash !~ '^[0-9a-f]{64}$' THEN
@@ -3525,7 +3526,8 @@ BEGIN
            OR pg_catalog.jsonb_typeof(v_args -> 'method') IS DISTINCT FROM 'string'
            OR v_method IS DISTINCT FROM 'POST'
            OR pg_catalog.jsonb_typeof(v_args -> 'path') IS DISTINCT FROM 'string'
-           OR v_path !~ '^/[^?#[:space:]]{0,1023}$'
+           OR pg_catalog.char_length(v_path) NOT BETWEEN 1 AND 4096
+           OR v_path !~ '^/[^?#[:space:]]*$'
            OR pg_catalog.jsonb_typeof(v_args #> '{transport_identity,identity_sha256}')
                 IS DISTINCT FROM 'string'
            OR v_identity_hash !~ '^[0-9a-f]{64}$' THEN

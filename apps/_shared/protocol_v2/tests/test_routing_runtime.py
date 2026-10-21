@@ -309,6 +309,7 @@ async def test_drain_waits_for_existing_asgi_work_and_rejects_new_admission():
     )
     await started.wait()
     old_epoch = controller._authority_epoch
+    next_token = _claims(controller, key)
     command_id, next_epoch = str(uuid4()), str(uuid4())
     reply = await controller.apply_control(
         decode_backend_route_control_command(
@@ -323,7 +324,6 @@ async def test_drain_waits_for_existing_asgi_work_and_rejects_new_admission():
         )
     )
     assert (reply.phase, reply.active_requests) == ("draining", 1)
-    next_token = _claims(controller, key)
     assert (
         await _asgi_call(
             middleware,
@@ -397,6 +397,63 @@ async def test_explicit_background_future_keeps_request_lease_after_response():
     finish.set()
     assert (await call)[0] == 200
     assert controller.active_requests == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_complete_http_body_waits_for_actual_background_work(streaming):
+    controller = BackendRoutingController()
+    started, finish = asyncio.Event(), asyncio.Event()
+    sent = []
+
+    async def background():
+        started.set()
+        await finish.wait()
+
+    async def app(scope, receive, send):
+        assert controller.track_background_future(asyncio.create_task(background()))
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 503,
+                "headers": [(b"content-length", b"4")],
+            }
+        )
+        if streaming:
+            await send({"type": "http.response.body", "body": b"ab", "more_body": True})
+            await send({"type": "http.response.body", "body": b"cd", "more_body": True})
+            await send({"type": "http.response.body", "body": b"", "more_body": False})
+        else:
+            await send(
+                {"type": "http.response.body", "body": b"abcd", "more_body": False}
+            )
+
+    async def send(message):
+        sent.append(message)
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    call = asyncio.create_task(
+        _middleware(controller, app)(
+            {"type": "http", "method": "POST", "path": "/predict", "headers": []},
+            receive,
+            send,
+        )
+    )
+    await started.wait()
+    await asyncio.sleep(0)
+    assert controller.active_requests == 1
+    assert sum(len(item.get("body", b"")) for item in sent) < 4
+    assert not any(
+        item["type"] == "http.response.body" and not item.get("more_body", False)
+        for item in sent
+    )
+    finish.set()
+    await call
+    assert controller.active_requests == 0
+    assert b"".join(item.get("body", b"") for item in sent) == b"abcd"
+    assert sent[-1]["more_body"] is False
 
 
 def test_replay_cache_prunes_only_expired_completed_attempts():
