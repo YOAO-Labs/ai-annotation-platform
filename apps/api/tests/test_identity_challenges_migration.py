@@ -56,6 +56,7 @@ async def test_0239_preserves_live_legacy_challenge_links(test_engine, tmp_path:
     second_email = f"identity-live-{second_user}@example.test"
 
     clone = f"aap_identity_challenge_migration_{uuid.uuid4().hex[:12]}_test"
+    routing_role = f"inference_routing_client_{uuid.uuid4().hex[:12]}"
     ownership = f"identity-challenge-migration:{uuid.uuid4()}"
     owner_url = test_engine.url.set(database=clone)
     admin = create_async_engine(
@@ -63,6 +64,7 @@ async def test_0239_preserves_live_legacy_challenge_links(test_engine, tmp_path:
     )
     restored = create_async_engine(owner_url)
     created = False
+    routing_role_created = False
     snapshot = tmp_path / "identity-challenges.dump"
 
     live_token = "legacy.reset/nonhex+token"
@@ -179,6 +181,14 @@ async def test_0239_preserves_live_legacy_challenge_links(test_engine, tmp_path:
 
         upgraded = _alembic(owner_url, "upgrade", "head")
         assert upgraded.returncode == 0, "Owned legacy challenge upgrade failed"
+        async with restored.begin() as db:
+            await db.execute(
+                text(
+                    f'CREATE ROLE "{routing_role}" LOGIN NOSUPERUSER NOCREATEDB '
+                    "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS"
+                )
+            )
+            routing_role_created = True
         _apply_grant_script(
             test_engine,
             clone,
@@ -202,6 +212,8 @@ async def test_0239_preserves_live_legacy_challenge_links(test_engine, tmp_path:
                 "workflow_role": "append_client",
                 "asset_cleanup_role": "asset_cleanup_client",
                 "mask_gc_role": "labeling_mask_gc_client",
+                "inference_registry_ingress_role": "inference_registry_ingress_client",
+                "inference_routing_role": routing_role,
             },
         )
         _apply_grant_script(
@@ -348,6 +360,8 @@ async def test_0239_preserves_live_legacy_challenge_links(test_engine, tmp_path:
                         == ownership
                     )
                     await db.execute(text(f'DROP DATABASE "{clone}"'))
+                    if routing_role_created:
+                        await db.execute(text(f'DROP ROLE "{routing_role}"'))
         finally:
             await admin.dispose()
             try:

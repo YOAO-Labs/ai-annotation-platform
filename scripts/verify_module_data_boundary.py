@@ -34,6 +34,7 @@ CONTAINER_LABEL_VALUE = "module-data-boundary"
 CONTAINER_ID_LABEL = "org.aap.acceptance-id"
 POSTGRES_IMAGE = "postgres:16-alpine"
 INFERENCE_REGISTRY_INGRESS_ROLE = "inference_registry_ingress_client"
+INFERENCE_ROUTING_ROLE = "inference_routing_client"
 IDENTITY_CLIENT_ROLES = {
     "AUTH": "identity_auth_client",
     "COMMAND": "identity_command_client",
@@ -90,6 +91,7 @@ MODULE_ROLES = (
     "append_client",
     "asset_cleanup_client",
     INFERENCE_REGISTRY_INGRESS_ROLE,
+    INFERENCE_ROUTING_ROLE,
     "asset_catalog_client",
     "asset_source_client",
     "asset_import_client",
@@ -233,6 +235,7 @@ SQL_ARTIFACTS = (
     "0276_inference_health_observation.sql",
     "0277_inference_health_data.sql",
     "0278_inference_registry_ingress.sql",
+    "0279_inference_routing.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -323,8 +326,10 @@ SCHEMA_ARTIFACTS = (
     "0276_inference_health_observation.schema.json",
     "0277_inference_health_data.schema.json",
     "0278_inference_registry_ingress.schema.json",
+    "0279_inference_routing.schema.json",
 )
 TEST_FILES = (
+    "tests/test_inference_routing_native.py",
     "tests/test_inference_registry_ingress_native.py",
     "tests/test_inference_registry_ingress_binding.py",
     "tests/test_inference_registry_ingress_postgres.py",
@@ -1814,6 +1819,7 @@ def _create_module_roles(
                         "labeling_mask_gc_client",
                         "preannotation_result_client",
                         INFERENCE_REGISTRY_INGRESS_ROLE,
+                        INFERENCE_ROUTING_ROLE,
                         *IDENTITY_CLIENT_ROLES.values(),
                     }
                 )
@@ -2169,6 +2175,22 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_inference_health_observation_v1') IS NULL "
             "AND to_regnamespace('aap_inference_health_data_v1') IS NULL "
             "AND to_regnamespace('aap_inference_registry_ingress_v1') IS NULL "
+            "AND to_regnamespace('aap_inference_routing_v1') IS NULL "
+            "AND to_regclass('aap_inference_routing_v1.authority_secret') IS NULL "
+            "AND to_regclass('aap_inference_routing_v1.registry_state') IS NULL "
+            "AND to_regclass('aap_inference_routing_v1.scopes') IS NULL "
+            "AND to_regclass('aap_inference_routing_v1.attempts') IS NULL "
+            "AND to_regclass('aap_inference_routing_v1.weights') IS NULL "
+            "AND to_regclass('aap_inference_routing_v1.controls') IS NULL "
+            "AND to_regclass('aap_inference_routing_v1.control_attempts') IS NULL "
+            "AND to_regclass('aap_inference_routing_v1.command_receipts') IS NULL "
+            "AND to_regprocedure('aap_inference_routing_v1.routing_policy()') IS NULL "
+            "AND to_regprocedure('aap_inference_routing_v1.routing_step(text,text)') IS NULL "
+            "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger "
+            "WHERE tgname IN ('aap_route_registry_after_insert', 'aap_route_registry_before_change', "
+            "'aap_route_pool_before_change', 'aap_route_pool_after_generation', "
+            "'aap_route_member_before_change', 'aap_route_project_pool_before_change') "
+            "AND NOT tgisinternal) "
             "AND to_regclass('aap_inference_registry_ingress_v1.env_sync_receipts') IS NULL "
             "AND to_regprocedure('aap_inference_registry_ingress_v1.registry_ingress_policy()') IS NULL "
             "AND to_regprocedure('aap_inference_registry_ingress_v1.registry_by_url(text)') IS NULL "
@@ -2444,6 +2466,9 @@ def main(argv: list[str] | None = None) -> int:
         inference_registry_ingress_grants_path = (
             ROOT / "infra/docker/inference-registry-ingress-grants.sql"
         )
+        inference_routing_grants_path = (
+            ROOT / "infra/docker/inference-routing-grants.sql"
+        )
         identity_deactivation_grants_path = (
             ROOT / "infra/docker/identity-deactivation-grants.sql"
         )
@@ -2493,6 +2518,7 @@ def main(argv: list[str] | None = None) -> int:
             or not inference_health_origin_grants_path.is_file()
             or not inference_health_data_grants_path.is_file()
             or not inference_registry_ingress_grants_path.is_file()
+            or not inference_routing_grants_path.is_file()
             or not identity_account_grants_path.is_file()
             or not identity_recovery_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
@@ -2587,6 +2613,9 @@ def main(argv: list[str] | None = None) -> int:
         inference_registry_ingress_grant_sql = (
             inference_registry_ingress_grants_path.read_text(encoding="utf-8")
         )
+        inference_routing_grant_sql = inference_routing_grants_path.read_text(
+            encoding="utf-8"
+        )
         workspace_project_query_grant_sql = (
             workspace_project_query_grants_path.read_text(encoding="utf-8")
         )
@@ -2626,6 +2655,7 @@ def main(argv: list[str] | None = None) -> int:
         mask_gc_password = f"mask-gc-{secrets.token_hex(16)}"
         result_password = f"batch-result-{secrets.token_hex(16)}"
         inference_registry_ingress_password = secrets.token_hex(24)
+        inference_routing_password = secrets.token_hex(24)
         identity_passwords = {
             role: secrets.token_hex(24) for role in IDENTITY_CLIENT_ROLES.values()
         }
@@ -2864,6 +2894,21 @@ def main(argv: list[str] | None = None) -> int:
                 "NOREPLICATION NOBYPASSRLS;\n"
             ),
         )
+        phase = "create-inference-routing-client"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=(
+                "CREATE ROLE inference_routing_client LOGIN "
+                f"PASSWORD '{inference_routing_password}' "
+                "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT "
+                "NOREPLICATION NOBYPASSRLS;\n"
+            ),
+        )
         phase = "install-module-grants"
         _psql(
             container_id,
@@ -2893,6 +2938,7 @@ def main(argv: list[str] | None = None) -> int:
                 "asset_cleanup_role": "asset_cleanup_client",
                 "mask_gc_role": "labeling_mask_gc_client",
                 "inference_registry_ingress_role": INFERENCE_REGISTRY_INGRESS_ROLE,
+                "inference_routing_role": INFERENCE_ROUTING_ROLE,
             },
         )
 
@@ -3363,6 +3409,22 @@ def main(argv: list[str] | None = None) -> int:
                 "inference_registry_ingress_role": INFERENCE_REGISTRY_INGRESS_ROLE,
             },
         )
+        phase = "install-inference-routing-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=inference_routing_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "inference_owner": "inference_code",
+                "inference_routing_role": INFERENCE_ROUTING_ROLE,
+            },
+        )
         phase = "install-workspace-template-query-grants"
         _psql(
             container_id,
@@ -3693,6 +3755,14 @@ def main(argv: list[str] | None = None) -> int:
                     "postgresql+asyncpg",
                     username=INFERENCE_REGISTRY_INGRESS_ROLE,
                     password=inference_registry_ingress_password,
+                    host="127.0.0.1",
+                    port=port,
+                    database=database,
+                ).render_as_string(hide_password=False),
+                "AAP_MODULE_DATA_INFERENCE_ROUTING_URL": URL.create(
+                    "postgresql+asyncpg",
+                    username=INFERENCE_ROUTING_ROLE,
+                    password=inference_routing_password,
                     host="127.0.0.1",
                     port=port,
                     database=database,

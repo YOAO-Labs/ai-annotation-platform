@@ -21,6 +21,7 @@ from worktree_resources import (
     IMAGE_MANIFEST_RUNTIME_CAPABILITIES,
     IMAGE_MEDIA_RUNTIME_CAPABILITIES,
     LocalResources,
+    INFERENCE_ROUTING_RUNTIME_CAPABILITIES,
     VIDEO_RUNTIME_CAPABILITIES,
 )
 
@@ -437,6 +438,22 @@ class BucketUpgradeTests(unittest.TestCase):
         ):
             self.assertNotIn(excluded, normalized)
 
+    def test_lan_runtime_grants_only_the_closed_routing_entrypoints(self):
+        sql = (
+            Path(__file__).resolve().parents[1]
+            / "infra/docker/lan-production-grants.sql"
+        ).read_text()
+        runtime_grants = re.findall(
+            r'GRANT EXECUTE ON FUNCTION\s+(.*?)\s+TO\s+:"application_role";',
+            sql,
+            flags=re.DOTALL,
+        )
+        normalized = re.sub(r"\s+", "", ",".join(runtime_grants))
+        self.assertEqual(len(INFERENCE_ROUTING_RUNTIME_CAPABILITIES), 2)
+        for signature in INFERENCE_ROUTING_RUNTIME_CAPABILITIES:
+            self.assertIn(signature, normalized)
+        self.assertNotIn("aap_inference_routing_v1._routing_secret()", normalized)
+
         image_grant_section = sql.split(
             "-- The monolithic API/Celery runtime still composes the image media owner",
             maxsplit=1,
@@ -505,6 +522,9 @@ class BucketUpgradeTests(unittest.TestCase):
             + ' TO "app"',
             statements,
         )
+        runtime_sql = " ".join(statements)
+        for signature in INFERENCE_ROUTING_RUNTIME_CAPABILITIES:
+            self.assertIn(signature, runtime_sql)
         worktree_image_signatures = re.findall(
             r"aap_(?:assets|labeling)_v1\.[a-z0-9_]+\([^)]*\)",
             " ".join(

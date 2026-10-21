@@ -147,6 +147,10 @@ IMAGE_MEDIA_RUNTIME_CAPABILITIES = (
     "aap_assets_v1.claim_image_garbage(uuid,integer,integer)",
     "aap_assets_v1.complete_image_garbage(uuid,uuid)",
 )
+INFERENCE_ROUTING_RUNTIME_CAPABILITIES = (
+    "aap_inference_routing_v1.routing_policy()",
+    "aap_inference_routing_v1.routing_step(text,text)",
+)
 IMAGE_ACCEPTED_INPUT_RUNTIME_CAPABILITIES = (
     "aap_assets_v1.find_accepted_image_input(uuid,uuid,uuid)",
     "aap_assets_v1.reserve_accepted_image_input(uuid,uuid,uuid,text,jsonb)",
@@ -554,13 +558,16 @@ class LocalResources:
             image_accepted_function_grant = ", ".join(
                 IMAGE_ACCEPTED_RUNTIME_CAPABILITIES
             )
+            inference_routing_function_grant = ", ".join(
+                INFERENCE_ROUTING_RUNTIME_CAPABILITIES
+            )
             async with engine.begin() as connection:
                 for sql in (
                     f"GRANT CONNECT ON DATABASE {database} TO {role}",
                     f"GRANT USAGE ON SCHEMA public TO {role}",
                     f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {role}",
                     f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}",
-                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_membership_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_inference_pipelines_v1, aap_inference_backend_probe_v1, aap_inference_health_observation_v1, aap_inference_health_data_v1, aap_inference_registry_ingress_v1, aap_assets_v1, aap_labeling_v1, aap_labeling_class_query_v1, aap_jobs_v1, aap_learning_v1, aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_briefs_v1, aap_notifications_v1, aap_settings_v1 TO {role}",
+                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_membership_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_inference_pipelines_v1, aap_inference_backend_probe_v1, aap_inference_health_observation_v1, aap_inference_health_data_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, aap_assets_v1, aap_labeling_v1, aap_labeling_class_query_v1, aap_jobs_v1, aap_learning_v1, aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_briefs_v1, aap_notifications_v1, aap_settings_v1 TO {role}",
                     "GRANT SELECT ON aap_assets_v1.spatial_item_references, "
                     f"aap_assets_v1.spatial_scene_references TO {role}",
                     f"GRANT EXECUTE ON FUNCTION aap_workspace_owner_transfer_v1.owner_transfer_policy(), "
@@ -616,6 +623,7 @@ class LocalResources:
                     "aap_inference_registry_ingress_v1.tag_seed_registry(uuid,text), "
                     "aap_inference_registry_ingress_v1.sync_result(uuid,text), "
                     "aap_inference_registry_ingress_v1.record_sync_result(uuid,text,integer), "
+                    f"{inference_routing_function_grant}, "
                     "aap_learning_v1.registry_evaluation_reference_exists(uuid), "
                     "aap_jobs_v1.count_running_registry_predictions(uuid), "
                     "aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb), "
