@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.db.models.ml_backend_pool import MLBackendServicePool
 from app.db.models.project import Project
 from app.db.models.user import User
 from app.services.workspace_backend_bindings import (
@@ -50,9 +51,12 @@ async def _connect_inference(test_engine):
 async def _seed(test_engine):
     await assert_owned_test_database(test_engine)
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
-    world = {"actor_ids": [], "project_ids": [], "projects": {}}
-    target_pool_id = uuid.uuid4()
-    other_pool_id = uuid.uuid4()
+    world = {
+        "actor_ids": [],
+        "project_ids": [],
+        "pool_ids": [],
+        "projects": {},
+    }
     try:
         async with maker.begin() as db:
             actor = await create_user(
@@ -62,6 +66,23 @@ async def _seed(test_engine):
                 "Workspace Binding Owner",
             )
             world["actor_ids"].append(actor.id)
+
+            target_pool = MLBackendServicePool(
+                name=f"Workspace binding target {uuid.uuid4().hex}",
+                enabled=False,
+                legacy_instance_id=None,
+            )
+            other_pool = MLBackendServicePool(
+                name=f"Workspace binding other {uuid.uuid4().hex}",
+                enabled=False,
+                legacy_instance_id=None,
+            )
+            db.add_all((target_pool, other_pool))
+            await db.flush()
+            target_pool_id = target_pool.id
+            other_pool_id = other_pool.id
+            world["pool_ids"].extend((target_pool_id, other_pool_id))
+
             for label, pool_id in (
                 ("target_a", target_pool_id),
                 ("target_b", target_pool_id),
@@ -361,6 +382,12 @@ async def _cleanup(maker, world) -> None:
             await db.execute(
                 Project.__table__.delete().where(
                     Project.id.in_(world["project_ids"])
+                )
+            )
+        if world["pool_ids"]:
+            await db.execute(
+                MLBackendServicePool.__table__.delete().where(
+                    MLBackendServicePool.id.in_(world["pool_ids"])
                 )
             )
         if world["actor_ids"]:
