@@ -9,14 +9,19 @@ from .routing import (
     ROUTING_REPLY_MAX_BYTES,
     RoutingCommand,
     RoutingResult,
+    RoutingRuntimeRequest,
+    RoutingRuntimeResult,
     RoutingStatusRequest,
     RoutingUnavailable,
     decode_routing_command,
     decode_routing_result,
+    decode_routing_runtime_request,
+    decode_routing_runtime_result,
     decode_routing_status_request,
     decode_routing_status_result,
     make_routing_status_request,
     routing_command_bytes,
+    routing_runtime_request_bytes,
     routing_status_request_bytes,
 )
 
@@ -170,6 +175,20 @@ class RoutingHttpClient:
             raw = await self._post("/v1/routes/status", body)
             return decode_routing_status_result(typed_request, raw)
         except _AmbiguousRoutingResponse:
+            raise RoutingUnavailable() from None
+
+    async def runtime(
+        self,
+        request: RoutingRuntimeRequest | dict | bytes | str,
+    ) -> RoutingRuntimeResult:
+        typed_request = decode_routing_runtime_request(request)
+        body = routing_runtime_request_bytes(typed_request)
+        try:
+            raw = await self._post("/v1/routes/runtime", body)
+            return decode_routing_runtime_result(typed_request, raw)
+        except _AmbiguousRoutingResponse:
+            # This is an observation only; unlike command receipts it has no
+            # write to recover, so malformed or lost replies fail immediately.
             raise RoutingUnavailable() from None
 
 

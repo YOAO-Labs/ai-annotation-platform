@@ -8,7 +8,9 @@ import pytest
 from aap_inference_contract.routing import (
     ROUTING_DATA_PROTOCOL,
     RoutingRejectedResult,
+    RoutingUnavailable,
     make_routing_command,
+    make_routing_runtime_request,
     make_routing_status_request,
     routing_command_sha256,
 )
@@ -731,3 +733,69 @@ async def test_reconcile_records_draining_progress_without_finishing_epoch():
     assert result.result.phase == "draining"
     assert calls == [True]
     assert not any(action == "finish_epoch" for action, _ in native.calls)
+
+
+def _runtime_row(registry_id, *, open_scopes=0, active=0, uncertain=0):
+    return {
+        "registry_id": str(registry_id),
+        "open_scopes": open_scopes,
+        "active_attempts": active,
+        "uncertain_attempts": uncertain,
+        "continuity": "ready",
+        "authority_epoch": str(_AUTHORITY_EPOCH),
+        "backend_incarnation": str(_BACKEND_INCARNATION),
+        "control_id": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_runtime_snapshot_calls_only_readonly_native_action_and_binds_ids():
+    request = make_routing_runtime_request([_STALE_ID, _LEGACY_ID])
+
+    def read_snapshot(arguments):
+        assert arguments == {"registry_ids": [str(_STALE_ID), str(_LEGACY_ID)]}
+        return _success(
+            observed_at=_NOW.isoformat(),
+            registries=[
+                _runtime_row(_LEGACY_ID, open_scopes=2, active=1, uncertain=1),
+                _runtime_row(_STALE_ID, open_scopes=0),
+            ],
+        )
+
+    native = _Native(handlers={"runtime_snapshot": read_snapshot})
+
+    result = await _manager(native).runtime(request)
+
+    assert result.request_id == request.request_id
+    assert [row.registry_id for row in result.registries] == [
+        _LEGACY_ID,
+        _STALE_ID,
+    ]
+    assert result.registries[0].open_scopes == 2
+    assert [action for action, _args in native.calls] == ["runtime_snapshot"]
+    assert native.receipts == {}
+
+
+@pytest.mark.asyncio
+async def test_runtime_snapshot_accepts_empty_request_and_rejects_unrequested_rows():
+    def empty_snapshot(arguments):
+        assert arguments == {"registry_ids": []}
+        return _success(observed_at=_NOW.isoformat(), registries=[])
+
+    empty_native = _Native(handlers={"runtime_snapshot": empty_snapshot})
+    empty_result = await _manager(empty_native).runtime(
+        make_routing_runtime_request([])
+    )
+    assert empty_result.registries == []
+    assert [action for action, _args in empty_native.calls] == ["runtime_snapshot"]
+
+    extra_native = _Native(
+        handlers={
+            "runtime_snapshot": lambda _arguments: _success(
+                observed_at=_NOW.isoformat(),
+                registries=[_runtime_row(_DRIFT_ID)],
+            )
+        }
+    )
+    with pytest.raises(RoutingUnavailable):
+        await _manager(extra_native).runtime(make_routing_runtime_request([_LEGACY_ID]))

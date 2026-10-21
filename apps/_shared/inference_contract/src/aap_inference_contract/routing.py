@@ -6,7 +6,8 @@ import hashlib
 import json
 import math
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from pydantic import (
@@ -24,6 +25,8 @@ from pydantic import (
 ROUTING_PROTOCOL = "aap-inference-routing/v1"
 ROUTING_RESULT_PROTOCOL = "aap-inference-routing-result/v1"
 ROUTING_STATUS_PROTOCOL = "aap-inference-routing-status/v1"
+ROUTING_RUNTIME_PROTOCOL = "aap-inference-routing-runtime/v1"
+ROUTING_RUNTIME_RESULT_PROTOCOL = "aap-inference-routing-runtime-result/v1"
 ROUTING_NATIVE_POLICY_SCHEMA = "aap-inference-routing-native/v1"
 ROUTING_DATA_PROTOCOL = "aap-inference-routing-data/v1"
 ROUTING_REQUEST_MAX_BYTES = 1024 * 1024
@@ -51,6 +54,7 @@ ROUTING_NATIVE_ACTIONS = (
     "open_transport_subject",
     "begin_control_attempt",
     "settle_control_attempt",
+    "runtime_snapshot",
 )
 
 RoutingOperation = Literal[
@@ -398,6 +402,47 @@ class RoutingStatusRequest(_RoutingModel):
         return self
 
 
+class RoutingRuntimeRequest(_RoutingModel):
+    schema_: Literal["aap-inference-routing-runtime/v1"] = Field(alias="schema")
+    request_id: uuid.UUID
+    registry_ids: list[uuid.UUID] = Field(max_length=512)
+
+    @model_validator(mode="after")
+    def unique_registry_ids(self) -> RoutingRuntimeRequest:
+        if len(set(self.registry_ids)) != len(self.registry_ids):
+            raise ValueError("Duplicate routing runtime registry id")
+        return self
+
+
+class RoutingRuntimeRegistryView(_RoutingModel):
+    registry_id: uuid.UUID
+    open_scopes: StrictInt = Field(ge=0)
+    active_attempts: StrictInt = Field(ge=0)
+    uncertain_attempts: StrictInt = Field(ge=0)
+    continuity: Literal["unverified", "ready"]
+    authority_epoch: uuid.UUID | None
+    backend_incarnation: uuid.UUID | None
+    control_id: uuid.UUID | None
+
+
+class RoutingRuntimeResult(_RoutingModel):
+    schema_: Literal["aap-inference-routing-runtime-result/v1"] = Field(alias="schema")
+    request_id: uuid.UUID
+    observed_at: datetime
+    registries: list[RoutingRuntimeRegistryView] = Field(max_length=512)
+
+    @model_validator(mode="after")
+    def utc_ordered_registries(self) -> RoutingRuntimeResult:
+        if self.observed_at.tzinfo is None or self.observed_at.utcoffset() != timedelta(
+            0
+        ):
+            raise ValueError("Routing runtime observation must use UTC")
+        identifiers = [str(registry.registry_id) for registry in self.registries]
+        if identifiers != sorted(set(identifiers)):
+            raise ValueError("Routing runtime registries must be unique and ordered")
+        return self
+
+
 class RoutingScopeView(_RoutingModel):
     id: uuid.UUID
     pool_id: uuid.UUID | None
@@ -582,6 +627,8 @@ class RoutingResult(_RoutingModel):
 _COMMAND_ADAPTER = TypeAdapter(RoutingCommand)
 _STATUS_REQUEST_ADAPTER = TypeAdapter(RoutingStatusRequest)
 _RESULT_ADAPTER = TypeAdapter(RoutingResult)
+_RUNTIME_REQUEST_ADAPTER = TypeAdapter(RoutingRuntimeRequest)
+_RUNTIME_RESULT_ADAPTER = TypeAdapter(RoutingRuntimeResult)
 
 
 def _validate_digest(value: str) -> None:
@@ -621,6 +668,27 @@ def _status_request_wire(request: RoutingStatusRequest) -> dict[str, Any]:
         "command_sha256": request.command_sha256,
         "operation": request.operation,
     }
+
+
+def _runtime_request_wire(request: RoutingRuntimeRequest) -> dict[str, Any]:
+    return {
+        "schema": request.schema_,
+        "request_id": str(request.request_id),
+        "registry_ids": [str(registry_id) for registry_id in request.registry_ids],
+    }
+
+
+def _runtime_result_wire(result: RoutingRuntimeResult) -> dict[str, Any]:
+    return result.model_dump(mode="json", by_alias=True)
+
+
+def _canonical_wire_uuid(value: object) -> bool:
+    if type(value) is not str:
+        return False
+    try:
+        return str(uuid.UUID(value)) == value
+    except (ValueError, AttributeError):
+        return False
 
 
 def _decode_command(value: object) -> RoutingCommand:
@@ -802,8 +870,133 @@ def decode_routing_status_result(
     return result
 
 
+def _decode_runtime_request(value: object) -> RoutingRuntimeRequest:
+    try:
+        input_value = (
+            _runtime_request_wire(value)
+            if type(value) is RoutingRuntimeRequest
+            else value
+        )
+    except (AttributeError, TypeError, ValueError):
+        raise RoutingUnavailable() from None
+    encoded, parsed = _json_input(input_value, max_bytes=ROUTING_REQUEST_MAX_BYTES)
+    try:
+        request = _RUNTIME_REQUEST_ADAPTER.validate_json(encoded)
+    except _JSON_ERRORS:
+        raise RoutingUnavailable() from None
+    if (
+        not _canonical_wire_uuid(parsed.get("request_id"))
+        or type(parsed.get("registry_ids")) is not list
+        or any(not _canonical_wire_uuid(value) for value in parsed["registry_ids"])
+    ):
+        raise RoutingUnavailable()
+    return request
+
+
+def decode_routing_runtime_request(data: object) -> RoutingRuntimeRequest:
+    """Decode a strict bounded runtime observation request."""
+    return _decode_runtime_request(data)
+
+
+def make_routing_runtime_request(
+    registry_ids: Sequence[uuid.UUID | str],
+    *,
+    request_id: uuid.UUID | None = None,
+) -> RoutingRuntimeRequest:
+    if (
+        not isinstance(registry_ids, Sequence)
+        or isinstance(registry_ids, (str, bytes))
+        or len(registry_ids) > 512
+        or (request_id is not None and type(request_id) is not uuid.UUID)
+    ):
+        raise RoutingUnavailable()
+    return _decode_runtime_request(
+        {
+            "schema": ROUTING_RUNTIME_PROTOCOL,
+            "request_id": request_id if request_id is not None else uuid.uuid4(),
+            "registry_ids": list(registry_ids),
+        }
+    )
+
+
+def routing_runtime_request_bytes(request: object) -> bytes:
+    """Encode a closed runtime observation request within the request budget."""
+    typed = _decode_runtime_request(request)
+    encoded = json.dumps(
+        _runtime_request_wire(typed),
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    if len(encoded) > ROUTING_REQUEST_MAX_BYTES:
+        raise RoutingUnavailable()
+    return encoded
+
+
+def _decode_runtime_result(value: object) -> RoutingRuntimeResult:
+    try:
+        input_value = (
+            _runtime_result_wire(value)
+            if type(value) is RoutingRuntimeResult
+            else value
+        )
+    except (AttributeError, TypeError, ValueError):
+        raise RoutingUnavailable() from None
+    encoded, parsed = _json_input(input_value, max_bytes=ROUTING_REPLY_MAX_BYTES)
+    try:
+        result = _RUNTIME_RESULT_ADAPTER.validate_json(encoded)
+    except _JSON_ERRORS:
+        raise RoutingUnavailable() from None
+    rows = parsed.get("registries")
+    observed_at = parsed.get("observed_at")
+    if (
+        not _canonical_wire_uuid(parsed.get("request_id"))
+        or type(observed_at) is not str
+        or not (observed_at.endswith("Z") or observed_at.endswith("+00:00"))
+        or type(rows) is not list
+        or any(
+            type(row) is not dict or not _canonical_wire_uuid(row.get("registry_id"))
+            for row in rows
+        )
+    ):
+        raise RoutingUnavailable()
+    return result
+
+
+def routing_runtime_result_bytes(result: object) -> bytes:
+    """Encode a validated runtime observation result within the reply budget."""
+    typed = _decode_runtime_result(result)
+    encoded = json.dumps(
+        _runtime_result_wire(typed),
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    if len(encoded) > ROUTING_REPLY_MAX_BYTES:
+        raise RoutingUnavailable()
+    return encoded
+
+
+def decode_routing_runtime_result(
+    request: RoutingRuntimeRequest | object,
+    data: object,
+) -> RoutingRuntimeResult:
+    """Decode and bind an observation to the requested IDs and request ID."""
+    typed_request = _decode_runtime_request(request)
+    result = _decode_runtime_result(data)
+    requested_ids = set(typed_request.registry_ids)
+    returned_ids = [row.registry_id for row in result.registries]
+    if result.request_id != typed_request.request_id or any(
+        registry_id not in requested_ids for registry_id in returned_ids
+    ):
+        raise RoutingUnavailable()
+    return result
+
+
 def routing_native_policy_ready(value: str | bytes | dict) -> bool:
-    """Require the exact two-function, eighteen-action Native routing policy."""
+    """Require the exact two-function, nineteen-action Native routing policy."""
     try:
         if isinstance(value, bytes):
             value = value.decode("utf-8")
@@ -853,6 +1046,8 @@ __all__ = [
     "ROUTING_REPLY_MAX_BYTES",
     "ROUTING_REQUEST_MAX_BYTES",
     "ROUTING_RESULT_PROTOCOL",
+    "ROUTING_RUNTIME_PROTOCOL",
+    "ROUTING_RUNTIME_RESULT_PROTOCOL",
     "ROUTING_STATUS_PROTOCOL",
     "RoutingAttemptView",
     "RoutingBeginControlResult",
@@ -863,19 +1058,27 @@ __all__ = [
     "RoutingExpectedTopology",
     "RoutingRejectedResult",
     "RoutingResult",
+    "RoutingRuntimeRegistryView",
+    "RoutingRuntimeRequest",
+    "RoutingRuntimeResult",
     "RoutingScopeStatusResult",
     "RoutingScopeView",
     "RoutingStatusRequest",
     "RoutingUnavailable",
     "decode_routing_command",
     "decode_routing_result",
+    "decode_routing_runtime_request",
+    "decode_routing_runtime_result",
     "decode_routing_status_request",
     "decode_routing_status_result",
     "make_routing_command",
     "make_routing_status_request",
+    "make_routing_runtime_request",
     "routing_command_bytes",
     "routing_command_sha256",
     "routing_native_policy_ready",
     "routing_result_bytes",
+    "routing_runtime_request_bytes",
+    "routing_runtime_result_bytes",
     "routing_status_request_bytes",
 ]

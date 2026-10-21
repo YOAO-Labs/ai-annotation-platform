@@ -8,14 +8,18 @@ import uuid
 
 from aap_inference_contract.routing import (
     ROUTING_RESULT_PROTOCOL,
+    ROUTING_RUNTIME_RESULT_PROTOCOL,
     RoutingResult,
     RoutingUnavailable,
     decode_routing_command,
+    decode_routing_runtime_request,
     decode_routing_status_request,
     make_routing_command,
     make_routing_status_request,
+    make_routing_runtime_request,
     routing_command_sha256,
     routing_result_bytes,
+    routing_runtime_result_bytes,
 )
 from aap_inference_contract.routing_client import RoutingHttpClient
 
@@ -227,6 +231,76 @@ async def test_status_rejects_compressed_response_without_retry(monkeypatch) -> 
     _install_mock_transport(monkeypatch, httpx.MockTransport(handle))
     with pytest.raises(RoutingUnavailable):
         await RoutingHttpClient("http://routing-owner.local", "token").status(request)
+    assert calls == 1
+
+
+def _runtime_result(request):
+    return {
+        "schema": ROUTING_RUNTIME_RESULT_PROTOCOL,
+        "request_id": request.request_id,
+        "observed_at": "2026-10-22T02:30:00Z",
+        "registries": [
+            {
+                "registry_id": _REGISTRY_ID,
+                "open_scopes": 1,
+                "active_attempts": 1,
+                "uncertain_attempts": 0,
+                "continuity": "ready",
+                "authority_epoch": _EPOCH_ID,
+                "backend_incarnation": None,
+                "control_id": None,
+            }
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_runtime_posts_one_bound_observation_request_without_recovery(
+    monkeypatch,
+) -> None:
+    request = make_routing_runtime_request([_REGISTRY_ID], request_id=_REQUEST_ID)
+    calls = []
+
+    async def handle(http_request: httpx.Request) -> httpx.Response:
+        calls.append(http_request)
+        assert http_request.url.path == "/base/v1/routes/runtime"
+        assert http_request.headers["authorization"] == "Bearer private-token"
+        assert decode_routing_runtime_request(await http_request.aread()) == request
+        return httpx.Response(
+            200,
+            content=routing_runtime_result_bytes(_runtime_result(request)),
+            headers={"content-type": "application/json"},
+        )
+
+    _install_mock_transport(monkeypatch, httpx.MockTransport(handle))
+    client = RoutingHttpClient("http://routing-owner.local/base", "private-token")
+
+    result = await client.runtime(request)
+
+    assert result.request_id == request.request_id
+    assert result.registries[0].open_scopes == 1
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_runtime_lost_reply_is_not_retried_or_treated_as_a_command(
+    monkeypatch,
+) -> None:
+    request = make_routing_runtime_request([_REGISTRY_ID], request_id=_REQUEST_ID)
+    calls = 0
+
+    async def lose_reply(http_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        assert http_request.url.path == "/v1/routes/runtime"
+        raise httpx.ReadError("runtime reply lost", request=http_request)
+
+    _install_mock_transport(monkeypatch, httpx.MockTransport(lose_reply))
+    client = RoutingHttpClient("http://routing-owner.local", "private-token")
+
+    with pytest.raises(RoutingUnavailable):
+        await client.runtime(request)
+
     assert calls == 1
 
 

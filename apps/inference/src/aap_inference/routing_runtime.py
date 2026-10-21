@@ -11,6 +11,8 @@ from typing import Any
 
 from aap_inference_contract.routing import (
     RoutingCommand,
+    RoutingRuntimeRequest,
+    RoutingRuntimeResult,
     RoutingStatusRequest,
     RoutingUnavailable,
 )
@@ -80,6 +82,11 @@ class RoutingRuntime:
 
     async def status(self, request: RoutingStatusRequest | dict | bytes | str):
         return await self.manager.status(request)
+
+    async def runtime(
+        self, request: RoutingRuntimeRequest | dict | bytes | str
+    ) -> RoutingRuntimeResult:
+        return await self.manager.runtime(request)
 
     async def readiness(self) -> bool:
         return await self.manager.readiness()

@@ -18,6 +18,8 @@ from aap_inference_contract.routing import (
     ROUTING_REPLY_MAX_BYTES,
     ROUTING_REQUEST_MAX_BYTES,
     ROUTING_RESULT_PROTOCOL,
+    ROUTING_RUNTIME_PROTOCOL,
+    ROUTING_RUNTIME_RESULT_PROTOCOL,
     ROUTING_STATUS_PROTOCOL,
     RoutingCommand,
     RoutingRejectedResult,
@@ -26,12 +28,17 @@ from aap_inference_contract.routing import (
     decode_routing_result,
     decode_routing_status_request,
     decode_routing_status_result,
+    decode_routing_runtime_request,
+    decode_routing_runtime_result,
     make_routing_command,
     make_routing_status_request,
+    make_routing_runtime_request,
     routing_command_bytes,
     routing_command_sha256,
     routing_native_policy_ready,
     routing_result_bytes,
+    routing_runtime_request_bytes,
+    routing_runtime_result_bytes,
     routing_status_request_bytes,
 )
 
@@ -39,6 +46,7 @@ _REQUEST_ID = uuid.UUID("628c8b72-92fd-4c5c-aa1b-c0d72cb220cc")
 _OTHER_REQUEST_ID = uuid.UUID("6de9f77b-8f0c-40cf-b8ad-4da2fef63f3d")
 _SCOPE_ID = uuid.UUID("400ced71-6095-4f73-b51c-54a996090934")
 _REGISTRY_ID = uuid.UUID("91695303-8d1b-47f8-b50b-8a1bc8695854")
+_SECOND_REGISTRY_ID = uuid.UUID("e6fbe2b6-a177-47f2-9f89-9a1f4bb21ba2")
 _EPOCH_ID = uuid.UUID("6b1704b3-456b-4d4f-8641-488863dd052e")
 _CAPABILITY = "scope-capability-never-print"
 _TRANSPORT_SUBJECT = "opaque-transport-subject-never-print"
@@ -453,3 +461,97 @@ def test_packaged_schema_matches_protocol_actions_and_size_caps() -> None:
     assert schema["x-native-policy"]["data_protocol"] == ROUTING_DATA_PROTOCOL
     assert schema["x-native-policy"]["functions"] == list(ROUTING_NATIVE_FUNCTIONS)
     assert schema["x-native-policy"]["actions"] == list(ROUTING_NATIVE_ACTIONS)
+    assert (
+        defs["RoutingRuntimeRequest"]["properties"]["schema"]["const"]
+        == ROUTING_RUNTIME_PROTOCOL
+    )
+    assert (
+        defs["RoutingRuntimeResult"]["properties"]["schema"]["const"]
+        == ROUTING_RUNTIME_RESULT_PROTOCOL
+    )
+    assert (
+        defs["RoutingRuntimeRequest"]["properties"]["registry_ids"]["maxItems"] == 512
+    )
+
+
+def test_runtime_observation_wire_is_closed_bounded_and_bound_to_requested_ids():
+    request = make_routing_runtime_request([_REGISTRY_ID], request_id=_REQUEST_ID)
+    encoded_request = routing_runtime_request_bytes(request)
+    assert decode_routing_runtime_request(encoded_request) == request
+    assert request.schema_ == ROUTING_RUNTIME_PROTOCOL
+    assert make_routing_runtime_request([]).registry_ids == []
+
+    duplicate_ids = json.loads(encoded_request)
+    duplicate_ids["registry_ids"] = [str(_REGISTRY_ID), str(_REGISTRY_ID)]
+    with pytest.raises(RoutingUnavailable):
+        decode_routing_runtime_request(json.dumps(duplicate_ids))
+    with pytest.raises(RoutingUnavailable):
+        make_routing_runtime_request([_REGISTRY_ID] * 513)
+
+    result_value = {
+        "schema": ROUTING_RUNTIME_RESULT_PROTOCOL,
+        "request_id": str(_REQUEST_ID),
+        "observed_at": "2026-10-22T02:30:00+00:00",
+        "registries": [
+            {
+                "registry_id": str(_REGISTRY_ID),
+                "open_scopes": 3,
+                "active_attempts": 2,
+                "uncertain_attempts": 1,
+                "continuity": "ready",
+                "authority_epoch": str(_EPOCH_ID),
+                "backend_incarnation": None,
+                "control_id": None,
+            }
+        ],
+    }
+    result = decode_routing_runtime_result(request, result_value)
+    assert result.request_id == _REQUEST_ID
+    assert result.registries[0].open_scopes == 3
+    assert (
+        decode_routing_runtime_result(request, routing_runtime_result_bytes(result))
+        == result
+    )
+
+    with pytest.raises(RoutingUnavailable):
+        decode_routing_runtime_result(
+            request,
+            {
+                **result_value,
+                "registries": [
+                    {
+                        **result_value["registries"][0],
+                        "registry_id": str(_SECOND_REGISTRY_ID),
+                    }
+                ],
+            },
+        )
+    second_registry_id = _SECOND_REGISTRY_ID
+    second_request = make_routing_runtime_request(
+        [_REGISTRY_ID, second_registry_id], request_id=_REQUEST_ID
+    )
+    second_row = {
+        **result_value["registries"][0],
+        "registry_id": str(second_registry_id),
+    }
+    with pytest.raises(RoutingUnavailable):
+        decode_routing_runtime_result(
+            second_request,
+            {**result_value, "registries": [second_row, result_value["registries"][0]]},
+        )
+    with pytest.raises(RoutingUnavailable):
+        decode_routing_runtime_result(
+            request,
+            {
+                **result_value,
+                "registries": [
+                    {**result_value["registries"][0], "active_attempts": -1}
+                ],
+            },
+        )
+    with pytest.raises(RoutingUnavailable):
+        decode_routing_runtime_result(
+            request, {**result_value, "observed_at": "2026-10-22T02:30:00"}
+        )
+    with pytest.raises(RoutingUnavailable):
+        decode_routing_runtime_result(request, {**result_value, "extra": "not allowed"})

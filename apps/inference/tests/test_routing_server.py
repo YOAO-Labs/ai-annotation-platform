@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
@@ -8,12 +9,17 @@ from aap_inference_contract.routing import (
     ROUTING_REPLY_MAX_BYTES,
     ROUTING_REQUEST_MAX_BYTES,
     ROUTING_RESULT_PROTOCOL,
+    ROUTING_RUNTIME_RESULT_PROTOCOL,
     RoutingResult,
+    RoutingRuntimeResult,
     decode_routing_result,
+    decode_routing_runtime_result,
     make_routing_command,
+    make_routing_runtime_request,
     make_routing_status_request,
     routing_command_bytes,
     routing_command_sha256,
+    routing_runtime_request_bytes,
     routing_status_request_bytes,
 )
 
@@ -26,6 +32,7 @@ class _RoutingManager:
     def __init__(self) -> None:
         self.commands = []
         self.statuses = []
+        self.runtimes = []
 
     async def execute(self, command):
         self.commands.append(command)
@@ -47,6 +54,26 @@ class _RoutingManager:
             operation=request.operation,
             state="unknown",
             result=None,
+        )
+
+    async def runtime(self, request):
+        self.runtimes.append(request)
+        return RoutingRuntimeResult(
+            schema=ROUTING_RUNTIME_RESULT_PROTOCOL,
+            request_id=request.request_id,
+            observed_at=datetime(2026, 10, 22, 2, 30, tzinfo=UTC),
+            registries=[
+                {
+                    "registry_id": _REGISTRY_ID,
+                    "open_scopes": 2,
+                    "active_attempts": 1,
+                    "uncertain_attempts": 1,
+                    "continuity": "ready",
+                    "authority_epoch": UUID("33333333-3333-4333-8333-333333333333"),
+                    "backend_incarnation": None,
+                    "control_id": None,
+                }
+            ],
         )
 
 
@@ -178,3 +205,59 @@ def test_route_paths_use_the_wire_body_budget():
         server._request_limit("/v1/routes/status?unsupported=1")
         == ROUTING_REQUEST_MAX_BYTES
     )
+    assert server._request_limit("/v1/routes/runtime") == ROUTING_REQUEST_MAX_BYTES
+
+
+@pytest.mark.asyncio
+async def test_runtime_snapshot_is_read_only_authenticated_and_bound():
+    manager = _RoutingManager()
+    server = PipelineHttpServer(
+        None,
+        None,
+        None,
+        routing_manager=manager,
+        routing_control_token="separate-route-token",
+    )
+    request = make_routing_runtime_request([_REGISTRY_ID])
+
+    status, encoded = await server._dispatch(
+        "POST",
+        "/v1/routes/runtime",
+        {"authorization": "Bearer separate-route-token"},
+        routing_runtime_request_bytes(request),
+    )
+
+    assert status == 200
+    reply = decode_routing_runtime_result(request, encoded)
+    assert reply.registries[0].open_scopes == 2
+    assert manager.runtimes == [request]
+    assert manager.commands == []
+    assert manager.statuses == []
+
+
+@pytest.mark.asyncio
+async def test_runtime_snapshot_rejects_duplicate_registry_ids():
+    manager = _RoutingManager()
+    server = PipelineHttpServer(
+        None,
+        None,
+        None,
+        routing_manager=manager,
+        routing_control_token="separate-route-token",
+    )
+    request = make_routing_runtime_request([_REGISTRY_ID])
+    body = routing_runtime_request_bytes(request).decode("utf-8")
+    body = body.replace(
+        f'"registry_ids":["{_REGISTRY_ID}"]',
+        f'"registry_ids":["{_REGISTRY_ID}","{_REGISTRY_ID}"]',
+    ).encode("utf-8")
+
+    status, _ = await server._dispatch(
+        "POST",
+        "/v1/routes/runtime",
+        {"authorization": "Bearer separate-route-token"},
+        body,
+    )
+
+    assert status == 400
+    assert manager.runtimes == []

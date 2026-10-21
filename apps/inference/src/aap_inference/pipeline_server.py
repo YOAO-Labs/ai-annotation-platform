@@ -42,9 +42,12 @@ from aap_inference_contract.routing import (
     RoutingUnavailable,
     decode_routing_command,
     decode_routing_result,
+    decode_routing_runtime_request,
+    decode_routing_runtime_result,
     decode_routing_status_request,
     decode_routing_status_result,
     routing_result_bytes,
+    routing_runtime_result_bytes,
 )
 
 from .pipeline_contract import (
@@ -80,6 +83,7 @@ _ROUTES = {
 }
 _ROUTING_COMMAND_PATH = "/v1/routes/command"
 _ROUTING_STATUS_PATH = "/v1/routes/status"
+_ROUTING_RUNTIME_PATH = "/v1/routes/runtime"
 
 
 class _BadRequest(Exception):
@@ -571,6 +575,8 @@ class PipelineHttpServer:
             return await self._dispatch_routing_command(headers, body)
         if method == "POST" and path == _ROUTING_STATUS_PATH:
             return await self._dispatch_routing_status(headers, body)
+        if method == "POST" and path == _ROUTING_RUNTIME_PATH:
+            return await self._dispatch_routing_runtime(headers, body)
         operation = _ROUTES.get(path)
         if method != "POST" or operation is None:
             return 404, _json_bytes({"detail": "Not Found"})
@@ -627,6 +633,7 @@ class PipelineHttpServer:
         if path.split("?", 1)[0] in {
             _ROUTING_COMMAND_PATH,
             _ROUTING_STATUS_PATH,
+            _ROUTING_RUNTIME_PATH,
         }:
             return ROUTING_REQUEST_MAX_BYTES
         return self.max_request_bytes
@@ -639,6 +646,7 @@ class PipelineHttpServer:
         if path.split("?", 1)[0] in {
             _ROUTING_COMMAND_PATH,
             _ROUTING_STATUS_PATH,
+            _ROUTING_RUNTIME_PATH,
         }:
             return ROUTING_REPLY_MAX_BYTES
         return self.max_response_bytes
@@ -773,6 +781,31 @@ class PipelineHttpServer:
             result = await self.routing_manager.status(request)
             encoded = routing_result_bytes(result)
             decode_routing_status_result(request, encoded)
+        except RoutingUnavailable:
+            return 503, _json_bytes({"detail": "Inference routing owner unavailable"})
+        if len(encoded) > min(self.max_response_bytes, ROUTING_REPLY_MAX_BYTES):
+            return 503, _json_bytes({"detail": "Inference routing owner unavailable"})
+        return 200, encoded
+
+    async def _dispatch_routing_runtime(
+        self, headers, body: bytes
+    ) -> tuple[int, bytes]:
+        if self.routing_manager is None or self.routing_control_token is None:
+            return 503, _json_bytes({"detail": "Inference routing owner unavailable"})
+        if not self._routing_authorized(headers):
+            return 401, _json_bytes({"detail": "Unauthorized"})
+        if len(body) > ROUTING_REQUEST_MAX_BYTES:
+            return 413, _json_bytes({"detail": "Request body too large"})
+        try:
+            request = decode_routing_runtime_request(body)
+        except RoutingUnavailable:
+            return 400, _json_bytes(
+                {"detail": "Invalid Inference routing runtime request"}
+            )
+        try:
+            result = await self.routing_manager.runtime(request)
+            encoded = routing_runtime_result_bytes(result)
+            decode_routing_runtime_result(request, encoded)
         except RoutingUnavailable:
             return 503, _json_bytes({"detail": "Inference routing owner unavailable"})
         if len(encoded) > min(self.max_response_bytes, ROUTING_REPLY_MAX_BYTES):

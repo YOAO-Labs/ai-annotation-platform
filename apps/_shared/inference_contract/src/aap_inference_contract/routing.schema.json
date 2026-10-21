@@ -5,7 +5,9 @@
   "oneOf": [
     { "$ref": "#/$defs/RoutingCommand" },
     { "$ref": "#/$defs/RoutingResult" },
-    { "$ref": "#/$defs/RoutingStatusRequest" }
+    { "$ref": "#/$defs/RoutingStatusRequest" },
+    { "$ref": "#/$defs/RoutingRuntimeRequest" },
+    { "$ref": "#/$defs/RoutingRuntimeResult" }
   ],
   "$defs": {
     "RoutingCommand": {
@@ -768,6 +770,64 @@
           ]
         }
       }
+    },
+    "RoutingRuntimeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "request_id", "registry_ids"],
+      "properties": {
+        "schema": { "const": "aap-inference-routing-runtime/v1" },
+        "request_id": { "type": "string", "format": "uuid" },
+        "registry_ids": {
+          "type": "array",
+          "maxItems": 512,
+          "uniqueItems": true,
+          "items": { "type": "string", "format": "uuid" }
+        }
+      }
+    },
+    "RoutingRuntimeRegistryView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "registry_id",
+        "open_scopes",
+        "active_attempts",
+        "uncertain_attempts",
+        "continuity",
+        "authority_epoch",
+        "backend_incarnation",
+        "control_id"
+      ],
+      "properties": {
+        "registry_id": { "type": "string", "format": "uuid" },
+        "open_scopes": { "type": "integer", "minimum": 0 },
+        "active_attempts": { "type": "integer", "minimum": 0 },
+        "uncertain_attempts": { "type": "integer", "minimum": 0 },
+        "continuity": { "enum": ["unverified", "ready"] },
+        "authority_epoch": { "type": ["string", "null"], "format": "uuid" },
+        "backend_incarnation": { "type": ["string", "null"], "format": "uuid" },
+        "control_id": { "type": ["string", "null"], "format": "uuid" }
+      }
+    },
+    "RoutingRuntimeResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "request_id", "observed_at", "registries"],
+      "properties": {
+        "schema": { "const": "aap-inference-routing-runtime-result/v1" },
+        "request_id": { "type": "string", "format": "uuid" },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "(Z|\\+00:00)$"
+        },
+        "registries": {
+          "type": "array",
+          "maxItems": 512,
+          "items": { "$ref": "#/$defs/RoutingRuntimeRegistryView" }
+        }
+      }
     }
   },
   "x-request-max-bytes": 1048576,
@@ -798,7 +858,8 @@
       "capture_transport_subject",
       "open_transport_subject",
       "begin_control_attempt",
-      "settle_control_attempt"
+      "settle_control_attempt",
+      "runtime_snapshot"
     ]
   }
 }

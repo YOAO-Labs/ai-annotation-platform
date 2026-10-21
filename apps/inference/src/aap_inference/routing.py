@@ -14,12 +14,17 @@ import uuid
 from aap_inference_contract.routing import (
     ROUTING_DATA_PROTOCOL,
     ROUTING_RESULT_PROTOCOL,
+    ROUTING_RUNTIME_RESULT_PROTOCOL,
     RoutingCommand,
     RoutingResult,
+    RoutingRuntimeRequest,
+    RoutingRuntimeResult,
     RoutingStatusRequest,
     RoutingUnavailable,
     decode_routing_command,
     decode_routing_result,
+    decode_routing_runtime_request,
+    decode_routing_runtime_result,
     decode_routing_status_request,
     decode_routing_status_result,
     make_routing_status_request,
@@ -302,6 +307,40 @@ class RoutingManager:
         if parsed["state"] == "unknown":
             return self._unknown(status_request)
         return self._status_result(status_request, parsed)
+
+    async def runtime(
+        self, request: RoutingRuntimeRequest | dict | bytes | str
+    ) -> RoutingRuntimeResult:
+        runtime_request = decode_routing_runtime_request(request)
+        try:
+            async with self._data_factory() as data:
+                facts = await _native_step(
+                    data,
+                    "runtime_snapshot",
+                    {
+                        "registry_ids": [
+                            str(registry_id)
+                            for registry_id in runtime_request.registry_ids
+                        ]
+                    },
+                    keys={"observed_at", "registries"},
+                )
+        except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
+            raise
+        except Exception:
+            raise RoutingUnavailable() from None
+        try:
+            return decode_routing_runtime_result(
+                runtime_request,
+                {
+                    "schema": ROUTING_RUNTIME_RESULT_PROTOCOL,
+                    "request_id": str(runtime_request.request_id),
+                    "observed_at": _timestamp(facts["observed_at"]).isoformat(),
+                    "registries": facts["registries"],
+                },
+            )
+        except (ValueError, TypeError, OverflowError):
+            raise RoutingUnavailable() from None
 
     async def close(self) -> None:
         """The manager owns no pool or connection; transactions are operation-scoped."""
