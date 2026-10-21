@@ -2,7 +2,7 @@
 audience: [super_admin]
 type: how-to
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-21
 ---
 
 # ML Backend 注册（全局注册表）
@@ -109,6 +109,8 @@ POST   /admin/ml-integrations/service-pools/:pool_id/members/:registry_id/capabi
 **审核能力变更**：健康刷新发现 `/setup` 的路由合同与服务池基线不一致时，平台会自动把成员设为 `disabled`；若它是 legacy 实例，还会关闭服务池。超管可在「服务池」展开成员或「实例」操作菜单中选择「审核能力变更」，查看旧/新指纹与 canonical 字段差异。确认时平台会重新执行健康与 `/setup` 探测，并校验候选指纹没有在审核期间再次变化；池内若仍有能力不一致的 active / draining 成员则拒绝。验证通过后，新基线、成员 `active` 状态、路由代际和可选的服务池启用在同一事务中提交。若实例已经回滚到原基线，则只恢复成员与服务池，不改写基线。该操作只接受明确审核过的合同，不会自动放行 capability superset。
 
 **卸载 / 移除成员 / 删除**：纳管实例必须先进入 `draining`，并且只有在路由模式为 `enforce`、路由账本新鲜、清理过期 lease 后 exact `inflight=0` 时才会放行。账本失联、字段缺失或陈旧都会失败关闭，不会被当作零。删除服务池前必须逐一安全移除所有成员，空池才可删除。
+
+加入、移除、drain 和 resume 成功后返回已提交的最新服务池状态。若连接中断、没有收到结果，先读取服务池详情核对成员和路由代际，再决定下一步；再次移除已不存在的成员会返回404。
 
 ## 项目启用
 

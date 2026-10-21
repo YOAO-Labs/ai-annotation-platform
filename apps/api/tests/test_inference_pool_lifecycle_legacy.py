@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextvars
+from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 from ipaddress import IPv4Address, IPv6Address
@@ -1203,10 +1204,11 @@ async def _run_scenarios(client, maker, world, monkeypatch) -> list[dict]:
             "real_owned_redis_legacy_removal_commits_before_response_500",
             "DELETE",
             f"{seed_path}/members/{seed_registry}",
-            expected_status=500,
+            expected_status=200,
             ledger_factory=lambda: _TracingRedisLedger(world),
         )
-        assert removed == "Internal Server Error"
+        assert removed["legacy_instance_id"] is None
+        assert removed["enabled"] is False
         last = world["samples"][-1]["tables_after"]["ml_backend_service_pools"]
         owned_seed = next(row for row in last if row["id"] == "$pool_seed")
         assert owned_seed["legacy_instance_id"] is None
@@ -1423,4 +1425,17 @@ async def test_replay_frozen_legacy_inference_pool_lifecycle(
 ):
     fixture = _fixture_data()
     live = await _exercise_owned_http(test_engine, app_module, monkeypatch)
-    assert live["samples"] == fixture["samples"]
+    expected = deepcopy(fixture["samples"])
+    by_label = {sample["label"]: sample for sample in expected}
+    removal = by_label["real_owned_redis_legacy_removal_commits_before_response_500"]
+    assert removal["response"] == {
+        "status": 500,
+        "headers": {"content-type": "text/plain; charset=utf-8"},
+        "body": "Internal Server Error",
+    }
+    readback = by_label["fresh_get_confirms_removal_committed_despite_response_failure"]
+    assert removal["tables_after"] == readback["tables_before"]
+    # The explicit postcommit refresh fix changes only this response. Keep the
+    # captured error bytes and all old data/Audit/lease observations immutable.
+    removal["response"] = deepcopy(readback["response"])
+    assert live["samples"] == expected

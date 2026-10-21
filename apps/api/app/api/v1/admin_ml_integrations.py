@@ -1930,6 +1930,7 @@ async def add_or_update_pool_member(
     )
     await db.commit()
     pool = await svc.get_pool(pool_id)
+    await db.refresh(pool)
     return await _pool_to_admin_item(db, pool)
 
 
@@ -1971,6 +1972,7 @@ async def remove_pool_member(
     )
     await db.commit()
     pool = await svc.get_pool(pool_id)
+    await db.refresh(pool)
     return await _pool_to_admin_item(db, pool)
 
 
@@ -2001,6 +2003,7 @@ async def drain_pool_member(
     )
     await db.commit()
     pool = await svc.get_pool(pool_id)
+    await db.refresh(pool)
     return await _pool_to_admin_item(db, pool)
 
 
@@ -2034,6 +2037,7 @@ async def resume_pool_member(
     )
     await db.commit()
     pool = await svc.get_pool(pool_id)
+    await db.refresh(pool)
     return await _pool_to_admin_item(db, pool)
 
 
