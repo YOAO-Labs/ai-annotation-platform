@@ -560,7 +560,7 @@ class LocalResources:
                     f"GRANT USAGE ON SCHEMA public TO {role}",
                     f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {role}",
                     f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}",
-                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_membership_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_inference_pipelines_v1, aap_inference_backend_probe_v1, aap_inference_health_observation_v1, aap_inference_health_data_v1, aap_assets_v1, aap_labeling_v1, aap_labeling_class_query_v1, aap_jobs_v1, aap_learning_v1, aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_briefs_v1, aap_notifications_v1, aap_settings_v1 TO {role}",
+                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_membership_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_inference_pipelines_v1, aap_inference_backend_probe_v1, aap_inference_health_observation_v1, aap_inference_health_data_v1, aap_inference_registry_ingress_v1, aap_assets_v1, aap_labeling_v1, aap_labeling_class_query_v1, aap_jobs_v1, aap_learning_v1, aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_briefs_v1, aap_notifications_v1, aap_settings_v1 TO {role}",
                     "GRANT SELECT ON aap_assets_v1.spatial_item_references, "
                     f"aap_assets_v1.spatial_scene_references TO {role}",
                     f"GRANT EXECUTE ON FUNCTION aap_workspace_owner_transfer_v1.owner_transfer_policy(), "
@@ -605,6 +605,17 @@ class LocalResources:
                     "aap_inference_health_data_v1.pool_row(uuid,uuid), "
                     "aap_inference_health_data_v1.member_row(uuid), "
                     "aap_inference_health_data_v1.apply_reconciliation(uuid,uuid,text,text,text,bigint,text,text), "
+                    "aap_inference_registry_ingress_v1.registry_ingress_policy(), "
+                    "aap_inference_registry_ingress_v1.registry_by_url(text), "
+                    "aap_inference_registry_ingress_v1.registry_candidates(text), "
+                    "aap_inference_registry_ingress_v1.create_registry(uuid,text,text,text,boolean,text), "
+                    "aap_inference_registry_ingress_v1.singleton_pool(uuid), "
+                    "aap_inference_registry_ingress_v1.create_singleton_pool(uuid,uuid,uuid,text,text,text), "
+                    "aap_inference_registry_ingress_v1.apply_observation(uuid,text,text,text,boolean,text,timestamp with time zone,text,boolean,text), "
+                    "aap_inference_registry_ingress_v1.disconnect_env_registry(uuid,text), "
+                    "aap_inference_registry_ingress_v1.tag_seed_registry(uuid,text), "
+                    "aap_inference_registry_ingress_v1.sync_result(uuid,text), "
+                    "aap_inference_registry_ingress_v1.record_sync_result(uuid,text,integer), "
                     "aap_learning_v1.registry_evaluation_reference_exists(uuid), "
                     "aap_jobs_v1.count_running_registry_predictions(uuid), "
                     "aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb), "

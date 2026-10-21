@@ -9,6 +9,7 @@
 --   -v notifications_owner=notifications_code -v workflow_role=append_client
 --   -v asset_cleanup_role=asset_cleanup_client
 --   -v mask_gc_role=labeling_mask_gc_client
+--   -v inference_registry_ingress_role=inference_registry_ingress_client
 --   -f infra/docker/module-data-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -30,6 +31,7 @@ SELECT set_config('aap.notifications_owner', :'notifications_owner', true);
 SELECT set_config('aap.workflow_role', :'workflow_role', true);
 SELECT set_config('aap.asset_cleanup_role', :'asset_cleanup_role', true);
 SELECT set_config('aap.mask_gc_role', :'mask_gc_role', true);
+SELECT set_config('aap.inference_registry_ingress_role', :'inference_registry_ingress_role', true);
 
 DO $$
 DECLARE
@@ -50,14 +52,15 @@ DECLARE
         current_setting('aap.notifications_owner'),
         current_setting('aap.workflow_role'),
         current_setting('aap.asset_cleanup_role'),
-        current_setting('aap.mask_gc_role')
+        current_setting('aap.mask_gc_role'),
+        current_setting('aap.inference_registry_ingress_role')
     ];
 BEGIN
     IF current_database() <> current_setting('aap.expected_database')
        OR current_user <> current_setting('aap.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF (SELECT count(DISTINCT n) FROM unnest(role_names) AS n) <> 16 THEN
+    IF (SELECT count(DISTINCT n) FROM unnest(role_names) AS n) <> 17 THEN
         RAISE EXCEPTION 'Module owners and caller must be distinct roles';
     END IF;
     FOREACH role_name IN ARRAY role_names LOOP
@@ -67,7 +70,8 @@ BEGIN
               AND rolcanlogin = (role_name IN (
                   current_setting('aap.workflow_role'),
                   current_setting('aap.asset_cleanup_role'),
-                  current_setting('aap.mask_gc_role')
+                  current_setting('aap.mask_gc_role'),
+                  current_setting('aap.inference_registry_ingress_role')
               ))
         ) OR pg_has_role(role_name, current_user, 'MEMBER') THEN
             RAISE EXCEPTION 'Unsafe or missing module role: %', role_name;
@@ -100,27 +104,27 @@ BEGIN
 END $$;
 
 REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_membership_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
-    aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
+    aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1, aap_inference_registry_ingress_v1,
     aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_workspace_v1,
     aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_membership_v1, aap_assets_v1, aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
-    aap_inference_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
+    aap_inference_v1, aap_inference_registry_ingress_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
     aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
 REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
-    aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
+    aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1, aap_inference_registry_ingress_v1,
     aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1
     FROM :"asset_cleanup_role";
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_workspace_v1,
     aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_assets_v1, aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
-    aap_inference_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
+    aap_inference_v1, aap_inference_registry_ingress_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
     aap_audit_v1 FROM :"asset_cleanup_role";
 REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
-    aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
+    aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1, aap_inference_registry_ingress_v1,
     aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1,
     aap_settings_v1, aap_notifications_v1 FROM :"mask_gc_role";
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_workspace_v1,
     aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_assets_v1, aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
-    aap_inference_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
+    aap_inference_v1, aap_inference_registry_ingress_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
     aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM :"mask_gc_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"workflow_role";
 REVOKE ALL ON DATABASE :"expected_database" FROM :"asset_cleanup_role";
@@ -821,6 +825,19 @@ GRANT SELECT ON public.ml_backend_registry, public.ml_backend_service_pools,
     public.ml_backend_pool_members TO :"inference_owner";
 GRANT UPDATE (state, last_checked_at, health_meta, is_interactive, updated_at)
     ON public.ml_backend_registry TO :"inference_owner";
+GRANT INSERT (
+        id, name, url, state, is_interactive, auth_method, auth_token,
+        extra_params, gpu_resource_id, vram_budget_mb, eviction_priority,
+        health_meta, source, error_message, last_checked_at
+    ) ON public.ml_backend_registry TO :"inference_owner";
+GRANT UPDATE (name, error_message, extra_params)
+    ON public.ml_backend_registry TO :"inference_owner";
+GRANT INSERT (
+        id, name, enabled, routing_policy, legacy_instance_id,
+        routing_generation, capability_fingerprint, capability_snapshot
+    ) ON public.ml_backend_service_pools TO :"inference_owner";
+GRANT INSERT (id, pool_id, registry_id, traffic_state, weight)
+    ON public.ml_backend_pool_members TO :"inference_owner";
 GRANT UPDATE (capability_snapshot, capability_fingerprint, enabled,
     routing_generation, updated_at)
     ON public.ml_backend_service_pools TO :"inference_owner";
@@ -1665,6 +1682,39 @@ ALTER FUNCTION aap_inference_health_data_v1.pool_row(uuid,uuid) OWNER TO :"infer
 ALTER FUNCTION aap_inference_health_data_v1.member_row(uuid) OWNER TO :"inference_owner";
 ALTER FUNCTION aap_inference_health_data_v1.apply_reconciliation(uuid,uuid,text,text,text,bigint,text,text) OWNER TO :"inference_owner";
 REVOKE CREATE ON SCHEMA aap_inference_health_data_v1 FROM :"inference_owner";
+
+GRANT CREATE ON SCHEMA aap_inference_registry_ingress_v1 TO :"inference_owner";
+ALTER SCHEMA aap_inference_registry_ingress_v1 OWNER TO :"inference_owner";
+ALTER TABLE aap_inference_registry_ingress_v1.env_sync_receipts
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_registry_ingress_v1.registry_ingress_policy()
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_registry_ingress_v1.registry_by_url(text)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_registry_ingress_v1.registry_candidates(text)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_registry_ingress_v1.create_registry(
+    uuid, text, text, text, boolean, text
+) OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_registry_ingress_v1.singleton_pool(uuid)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_registry_ingress_v1.create_singleton_pool(
+    uuid, uuid, uuid, text, text, text
+) OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_registry_ingress_v1.apply_observation(
+    uuid, text, text, text, boolean, text, timestamptz, text, boolean, text
+) OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_registry_ingress_v1.disconnect_env_registry(
+    uuid, text
+) OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_registry_ingress_v1.tag_seed_registry(uuid, text)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_registry_ingress_v1.sync_result(uuid, text)
+    OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_registry_ingress_v1.record_sync_result(
+    uuid, text, integer
+) OWNER TO :"inference_owner";
+REVOKE CREATE ON SCHEMA aap_inference_registry_ingress_v1 FROM :"inference_owner";
 ALTER FUNCTION aap_workspace_v1.lock_group_assignment_scope(uuid, uuid[], boolean)
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.invitation_projects(uuid[])

@@ -33,6 +33,7 @@ CONTAINER_LABEL = "org.aap.acceptance"
 CONTAINER_LABEL_VALUE = "module-data-boundary"
 CONTAINER_ID_LABEL = "org.aap.acceptance-id"
 POSTGRES_IMAGE = "postgres:16-alpine"
+INFERENCE_REGISTRY_INGRESS_ROLE = "inference_registry_ingress_client"
 IDENTITY_CLIENT_ROLES = {
     "AUTH": "identity_auth_client",
     "COMMAND": "identity_command_client",
@@ -88,6 +89,7 @@ MODULE_ROLES = (
     "notifications_code",
     "append_client",
     "asset_cleanup_client",
+    INFERENCE_REGISTRY_INGRESS_ROLE,
     "asset_catalog_client",
     "asset_source_client",
     "asset_import_client",
@@ -230,6 +232,7 @@ SQL_ARTIFACTS = (
     "0275_workspace_binding_lock_guard.sql",
     "0276_inference_health_observation.sql",
     "0277_inference_health_data.sql",
+    "0278_inference_registry_ingress.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -319,8 +322,12 @@ SCHEMA_ARTIFACTS = (
     "0275_workspace_binding_lock_guard.schema.json",
     "0276_inference_health_observation.schema.json",
     "0277_inference_health_data.schema.json",
+    "0278_inference_registry_ingress.schema.json",
 )
 TEST_FILES = (
+    "tests/test_inference_registry_ingress_native.py",
+    "tests/test_inference_registry_ingress_binding.py",
+    "tests/test_inference_registry_ingress_postgres.py",
     "tests/test_inference_health_data_native.py",
     "tests/test_inference_health_data_binding.py",
     "tests/test_inference_health_data_postgres.py",
@@ -1801,6 +1808,7 @@ def _create_module_roles(
                         "asset_image_worker_client",
                         "labeling_mask_gc_client",
                         "preannotation_result_client",
+                        INFERENCE_REGISTRY_INGRESS_ROLE,
                         *IDENTITY_CLIENT_ROLES.values(),
                     }
                 )
@@ -2155,6 +2163,19 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_inference_pipelines_v1') IS NULL "
             "AND to_regnamespace('aap_inference_health_observation_v1') IS NULL "
             "AND to_regnamespace('aap_inference_health_data_v1') IS NULL "
+            "AND to_regnamespace('aap_inference_registry_ingress_v1') IS NULL "
+            "AND to_regclass('aap_inference_registry_ingress_v1.env_sync_receipts') IS NULL "
+            "AND to_regprocedure('aap_inference_registry_ingress_v1.registry_ingress_policy()') IS NULL "
+            "AND to_regprocedure('aap_inference_registry_ingress_v1.registry_by_url(text)') IS NULL "
+            "AND to_regprocedure('aap_inference_registry_ingress_v1.registry_candidates(text)') IS NULL "
+            "AND to_regprocedure('aap_inference_registry_ingress_v1.create_registry(uuid,text,text,text,boolean,text)') IS NULL "
+            "AND to_regprocedure('aap_inference_registry_ingress_v1.singleton_pool(uuid)') IS NULL "
+            "AND to_regprocedure('aap_inference_registry_ingress_v1.create_singleton_pool(uuid,uuid,uuid,text,text,text)') IS NULL "
+            "AND to_regprocedure('aap_inference_registry_ingress_v1.apply_observation(uuid,text,text,text,boolean,text,timestamptz,text,boolean,text)') IS NULL "
+            "AND to_regprocedure('aap_inference_registry_ingress_v1.disconnect_env_registry(uuid,text)') IS NULL "
+            "AND to_regprocedure('aap_inference_registry_ingress_v1.tag_seed_registry(uuid,text)') IS NULL "
+            "AND to_regprocedure('aap_inference_registry_ingress_v1.sync_result(uuid,text)') IS NULL "
+            "AND to_regprocedure('aap_inference_registry_ingress_v1.record_sync_result(uuid,text,integer)') IS NULL "
             "AND to_regnamespace('aap_inference_backend_probe_v1') IS NULL "
             "AND to_regclass('aap_inference_backend_probe_v1.probe_secret') IS NULL "
             "AND to_regprocedure('aap_workspace_v1.clear_primary_backend_bindings(uuid)') IS NULL "
@@ -2415,6 +2436,9 @@ def main(argv: list[str] | None = None) -> int:
         inference_health_data_grants_path = (
             ROOT / "infra/docker/inference-health-data-grants.sql"
         )
+        inference_registry_ingress_grants_path = (
+            ROOT / "infra/docker/inference-registry-ingress-grants.sql"
+        )
         identity_deactivation_grants_path = (
             ROOT / "infra/docker/identity-deactivation-grants.sql"
         )
@@ -2463,6 +2487,7 @@ def main(argv: list[str] | None = None) -> int:
             or not inference_health_observation_grants_path.is_file()
             or not inference_health_origin_grants_path.is_file()
             or not inference_health_data_grants_path.is_file()
+            or not inference_registry_ingress_grants_path.is_file()
             or not identity_account_grants_path.is_file()
             or not identity_recovery_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
@@ -2554,6 +2579,9 @@ def main(argv: list[str] | None = None) -> int:
         inference_health_data_grant_sql = inference_health_data_grants_path.read_text(
             encoding="utf-8"
         )
+        inference_registry_ingress_grant_sql = (
+            inference_registry_ingress_grants_path.read_text(encoding="utf-8")
+        )
         workspace_project_query_grant_sql = (
             workspace_project_query_grants_path.read_text(encoding="utf-8")
         )
@@ -2592,6 +2620,7 @@ def main(argv: list[str] | None = None) -> int:
         image_worker_password = f"image-worker-{secrets.token_hex(16)}"
         mask_gc_password = f"mask-gc-{secrets.token_hex(16)}"
         result_password = f"batch-result-{secrets.token_hex(16)}"
+        inference_registry_ingress_password = secrets.token_hex(24)
         identity_passwords = {
             role: secrets.token_hex(24) for role in IDENTITY_CLIENT_ROLES.values()
         }
@@ -2671,8 +2700,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0277"]:
-            raise RuntimeError("module-data acceptance requires migration head 0277")
+        if heads != ["0278"]:
+            raise RuntimeError("module-data acceptance requires migration head 0278")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -2815,6 +2844,21 @@ def main(argv: list[str] | None = None) -> int:
                 for role, password in identity_passwords.items()
             ),
         )
+        phase = "create-inference-registry-ingress-client"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=(
+                "CREATE ROLE inference_registry_ingress_client LOGIN "
+                f"PASSWORD '{inference_registry_ingress_password}' "
+                "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT "
+                "NOREPLICATION NOBYPASSRLS;\n"
+            ),
+        )
         phase = "install-module-grants"
         _psql(
             container_id,
@@ -2843,6 +2887,7 @@ def main(argv: list[str] | None = None) -> int:
                 "workflow_role": "append_client",
                 "asset_cleanup_role": "asset_cleanup_client",
                 "mask_gc_role": "labeling_mask_gc_client",
+                "inference_registry_ingress_role": INFERENCE_REGISTRY_INGRESS_ROLE,
             },
         )
 
@@ -3297,6 +3342,22 @@ def main(argv: list[str] | None = None) -> int:
                     variable: role,
                 },
             )
+        phase = "install-inference-registry-ingress-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=inference_registry_ingress_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "inference_owner": "inference_code",
+                "inference_registry_ingress_role": INFERENCE_REGISTRY_INGRESS_ROLE,
+            },
+        )
         phase = "install-workspace-template-query-grants"
         _psql(
             container_id,
@@ -3623,6 +3684,14 @@ def main(argv: list[str] | None = None) -> int:
                 "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL": media_control_url,
                 "AAP_MODULE_DATA_ASSET_MEDIA_WORKER_URL": media_worker_url,
                 "AAP_MODULE_DATA_ASSET_IMAGE_WORKER_URL": image_worker_url,
+                "AAP_MODULE_DATA_INFERENCE_REGISTRY_INGRESS_URL": URL.create(
+                    "postgresql+asyncpg",
+                    username=INFERENCE_REGISTRY_INGRESS_ROLE,
+                    password=inference_registry_ingress_password,
+                    host="127.0.0.1",
+                    port=port,
+                    database=database,
+                ).render_as_string(hide_password=False),
                 "AAP_MODULE_DATA_PREANNOTATION_RESULT_URL": URL.create(
                     "postgresql+asyncpg",
                     username="preannotation_result_client",

@@ -98,6 +98,19 @@ GRANT EXECUTE ON FUNCTION aap_inference_health_data_v1.health_data_policy(),
     aap_inference_health_data_v1.member_row(uuid),
     aap_inference_health_data_v1.apply_reconciliation(uuid,uuid,text,text,text,bigint,text,text)
     TO :"application_role";
+GRANT USAGE ON SCHEMA aap_inference_registry_ingress_v1 TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_inference_registry_ingress_v1.registry_ingress_policy(),
+    aap_inference_registry_ingress_v1.registry_by_url(text),
+    aap_inference_registry_ingress_v1.registry_candidates(text),
+    aap_inference_registry_ingress_v1.create_registry(uuid,text,text,text,boolean,text),
+    aap_inference_registry_ingress_v1.singleton_pool(uuid),
+    aap_inference_registry_ingress_v1.create_singleton_pool(uuid,uuid,uuid,text,text,text),
+    aap_inference_registry_ingress_v1.apply_observation(uuid,text,text,text,boolean,text,timestamp with time zone,text,boolean,text),
+    aap_inference_registry_ingress_v1.disconnect_env_registry(uuid,text),
+    aap_inference_registry_ingress_v1.tag_seed_registry(uuid,text),
+    aap_inference_registry_ingress_v1.sync_result(uuid,text),
+    aap_inference_registry_ingress_v1.record_sync_result(uuid,text,integer)
+    TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_learning_v1.registry_evaluation_reference_exists(uuid),
     aap_jobs_v1.count_running_registry_predictions(uuid) TO :"application_role";
 -- Embedded Identity adapters use the same owner capabilities as isolated clients.
