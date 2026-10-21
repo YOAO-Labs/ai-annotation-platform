@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import subprocess
 import tempfile
 import time
 import uuid
@@ -57,6 +58,12 @@ async def _ready(origin, container_id):
             assert _inspect_docker(container_id)["State"]["Running"]
             assert time.monotonic() < deadline, "Owned observation container not ready"
             await asyncio.sleep(0.1)
+
+
+def _origin(container_id):
+    published = _inspect_docker(container_id)["NetworkSettings"]["Ports"]["8768/tcp"]
+    assert len(published) == 1 and published[0]["HostIp"] == "127.0.0.1"
+    return "http://127.0.0.1:" + published[0]["HostPort"]
 
 
 @asynccontextmanager
@@ -146,7 +153,7 @@ async def _observer_container(dsn, token):
             )
             published = state["NetworkSettings"]["Ports"]["8768/tcp"]
             assert len(published) == 1 and published[0]["HostIp"] == "127.0.0.1"
-            origin = "http://127.0.0.1:" + published[0]["HostPort"]
+            origin = _origin(container_id)
             await _ready(origin, container_id)
             result.update(container_id=container_id, restrictions_verified=True)
             yield origin, container_id, result
@@ -155,6 +162,24 @@ async def _observer_container(dsn, token):
             if container_id is not None:
                 state = _inspect_docker(container_id)
                 result["oom_killed"] = state["State"]["OOMKilled"]
+                captured = subprocess.run(
+                    ["rtk", "proxy", "docker", "logs", "--tail", "120", container_id],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                    check=True,
+                )
+                log = captured.stdout + captured.stderr
+                for secret in (connection, token, make_url(connection).password):
+                    if secret:
+                        log = log.replace(secret, "<redacted>")
+                log_path = (
+                    ROOT
+                    / f".worktree/inference-health-observation-runtime-{identity}.log"
+                )
+                log_path.touch(mode=0o600)
+                log_path.write_text(log)
+                result["log_file"] = log_path.name
                 _stop_remove_container(container_id, identity)
                 result["container_removed"] = True
                 (
@@ -247,7 +272,14 @@ async def test_public_health_uses_observer_image_survives_restart_and_fails_with
                     ).last_checked_at
                     assert first_checked is not None
                 before = _inspect_docker(container_id)["State"]["StartedAt"]
+                record["origin_before_restart"] = origin
                 _docker("restart", "--time", "5", container_id)
+                # Docker may reassign an ephemeral host port on restart.
+                origin = _origin(container_id)
+                record["origin_after_restart"] = origin
+                monkeypatch.setattr(
+                    settings, "inference_health_observation_url", origin
+                )
                 await _ready(origin, container_id)
                 assert _inspect_docker(container_id)["State"]["StartedAt"] != before
                 await health()

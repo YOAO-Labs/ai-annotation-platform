@@ -91,6 +91,19 @@ live in `aap_inference.health`. Typed borrowed data and explicit client/limits
 factories preserve full-row materialization, database clocks, unlocked backend I/O,
 GPU proof/fences and caller commit boundaries. The API binding still uses its
 injected Session; these mutable row ports are transitional, not an independent
-health wire protocol. Native/authenticated observation work and the preexisting
-member/pool lock-order inversion remain required before full-owner qualification.
-See ADR-0150 for exact scope and the immutable real HTTP/SQL baseline.
+health write protocol. Registry/Pool/Member locking now follows the qualified
+ADR-0151 order. The external health/setup window has a closed observation boundary:
+`POST /v1/backends/health-observation` receives only encrypted, original-transaction
+subjects and returns sealed evidence. Its readonly LOGIN has exactly policy/open/seal;
+it cannot read raw registry/key tables or commit health business writes. The API
+retains capability extraction, its database observation clock, GPU fences, refresh,
+reconciliation and caller commit. Full health Native apply remains unfinished.
+
+Configure `INFERENCE_HEALTH_OBSERVATION_DATABASE_URL(_FILE)` and the distinct
+`INFERENCE_HEALTH_OBSERVATION_TOKEN(_FILE)` to enable this capability alone or alongside
+pipelines/setup probes. The API may embed the same manager or select a dedicated DSN
+or authenticated HTTP provider, with no fallback on explicit failure. Private outcome
+text has a shared codec/schema, including legacy nonfinite JSON and failure phases;
+HTTP envelopes contain no plaintext credentials or authority booleans. See ADR-0152
+and `docker-compose.inference-health.yml` for the bounded deployment example. These
+observation bindings do not qualify the entire Inference module or language replacement.
