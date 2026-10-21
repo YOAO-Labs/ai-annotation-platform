@@ -845,6 +845,14 @@ GRANT UPDATE (traffic_state, updated_at)
     ON public.ml_backend_pool_members TO :"inference_owner";
 GRANT SELECT (backend_registry_id, gpu_resource_id, membership_epoch, state),
     UPDATE (state) ON public.gpu_backend_memberships TO :"inference_owner";
+-- The existing Registry configuration trigger retains its GPU fence checks.
+GRANT SELECT (backend_registry_id, runtime_epoch_high_water,
+    generation_high_water, control_epoch_high_water, token_expiry_high_water),
+    UPDATE (backend_registry_id)
+    ON public.gpu_backend_fences TO :"inference_owner";
+GRANT UPDATE (membership_epoch, runtime_epoch_baseline, vram_budget_mb,
+    eviction_priority, max_concurrency, updated_at)
+    ON public.gpu_backend_memberships TO :"inference_owner";
 GRANT SELECT (registry_id, pool_id) ON public.ml_backend_pool_members
     TO :"inference_owner";
 GRANT SELECT (id, created_at, updated_at, capability_snapshot)

@@ -66,7 +66,7 @@ async def test_restored_key_and_role_contract_keep_database_binding_and_caller_c
     test_engine, monkeypatch, tmp_path
 ):
     await assert_owned_test_database(test_engine)
-    assert await _database_head(test_engine) == "0277"
+    assert await _database_head(test_engine) == "0278"
     registry_id, request_id = uuid.uuid4(), uuid.uuid4()
     clone = f"aap_health_observation_restore_{uuid.uuid4().hex[:10]}_test"
     ownership = "health-observation-restore:" + str(uuid.uuid4())
@@ -144,7 +144,7 @@ async def test_restored_key_and_role_contract_keep_database_binding_and_caller_c
                 test_engine.url.set(database=clone), hide_parameters=True
             )
             await _assert_clone_identity(restored, clone, ownership)
-            assert await _database_head(restored) == "0277"
+            assert await _database_head(restored) == "0278"
             assert await _native_state(restored) == native_before
             async with restored.connect() as connection:
                 assert (

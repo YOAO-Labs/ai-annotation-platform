@@ -37,8 +37,8 @@ def _registry(url: str, *, source: str = "env", extra_params=None):
     )
 
 
-def _capture_sql(db_session):
-    connection = db_session.sync_session.connection()
+async def _capture_sql(db_session):
+    connection = (await db_session.connection()).sync_connection
     statements = []
 
     def observe(conn, cursor, statement, parameters, context, executemany):
@@ -75,7 +75,7 @@ async def test_native_registry_insert_precedes_pending_unrelated_uow_flush(db_se
         role="employee",
     )
     db_session.add(pending)
-    connection, statements, observe = _capture_sql(db_session)
+    connection, statements, observe = await _capture_sql(db_session)
     try:
         row = await InferenceRegistryIngressData(db_session).create_registry(
             "Native-created",
@@ -121,7 +121,7 @@ async def test_observation_stage_calls_native_at_flush_without_orm_registry_upda
         expected_snapshot=snapshot,
     )
 
-    connection, statements, observe = _capture_sql(db_session)
+    connection, statements, observe = await _capture_sql(db_session)
     try:
         await data.flush()
     finally:
@@ -158,7 +158,7 @@ async def test_registry_refresh_discards_a_staged_observation(db_session):
     )
     url = row.url
     db_session.expire(row)
-    connection, statements, observe = _capture_sql(db_session)
+    connection, statements, observe = await _capture_sql(db_session)
     try:
         with db_session.no_autoflush:
             assert await data.by_url(url) is row
@@ -240,7 +240,7 @@ async def test_equal_seed_marker_does_not_call_native_tag(db_session):
     data = InferenceRegistryIngressData(db_session)
     await data.create_singleton_pool(row, None, None)
     db_session.autoflush = False
-    connection, statements, observe = _capture_sql(db_session)
+    connection, statements, observe = await _capture_sql(db_session)
     try:
         await get_or_create_seed(data, row.url, "ingress-binding", marker)
         await data.flush()

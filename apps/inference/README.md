@@ -97,7 +97,9 @@ ADR-0151 order. The external health/setup window has a closed observation bounda
 subjects and returns sealed evidence. Its readonly LOGIN has exactly policy/open/seal;
 it cannot read raw registry/key tables or commit health business writes. The API
 retains capability extraction, its database observation clock, GPU fences, refresh,
-reconciliation and caller commit. Full health Native apply remains unfinished.
+reconciliation and caller commit. Eleven fixed Native data functions now bind
+health reads, writes and deferred pool reconciliation to the caller's original
+transaction; complete remote health coordination remains unfinished.
 
 Configure `INFERENCE_HEALTH_OBSERVATION_DATABASE_URL(_FILE)` and the distinct
 `INFERENCE_HEALTH_OBSERVATION_TOKEN(_FILE)` to enable this capability alone or alongside
@@ -107,3 +109,23 @@ text has a shared codec/schema, including legacy nonfinite JSON and failure phas
 HTTP envelopes contain no plaintext credentials or authority booleans. See ADR-0152
 and `docker-compose.inference-health.yml` for the bounded deployment example. These
 observation bindings do not qualify the entire Inference module or language replacement.
+
+Registry startup and screenshot-seed ingress use `registry_ingress` with eleven
+fixed Native capabilities. `RegistryIngressPostgresData.bind(connection)` borrows
+an active caller transaction and rejects a reused binding after that transaction
+ends. Seed writes stay in the caller's unit of work; project selection/bindings
+remain outside this ingress capability.
+
+`RegistryEnvSyncManager` owns an entire startup synchronization command, performs
+its actual `/setup` requests before opening the database transaction and commits
+all Registry/pool changes together. Configure
+`INFERENCE_REGISTRY_INGRESS_DATABASE_URL(_FILE)` with the function-only
+`inference_registry_ingress_client` LOGIN and
+`INFERENCE_REGISTRY_INGRESS_TOKEN(_FILE)` with a distinct bearer. The existing
+listener then serves `/v1/registry/env-sync` and `/v1/registry/env-sync-status`.
+Empty URL lists disconnect all environment-managed entries. Commands and replies
+are bounded at 24 MiB; callers cannot submit precomputed probe results. Minimal
+receipts distinguish pending, committed and unknown; clients recover ambiguous
+acknowledgements through status without reposting. See ADR-0154 and
+`docker-compose.inference-registry.yml`. Full Registry/Pool/routing ownership and
+whole-module deployment qualification remain separate work.

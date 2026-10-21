@@ -14,11 +14,14 @@
       "required": ["schema", "request_id", "urls", "timeout_seconds", "capability_limits"],
       "properties": {
         "schema": { "const": "aap-inference-registry-env-sync/v1" },
-        "request_id": { "type": "string", "format": "uuid", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
         "urls": {
           "type": "array",
-          "minItems": 1,
-          "items": { "type": "string" },
+          "items": { "type": "string", "minLength": 1 },
           "writeOnly": true,
           "description": "Trusted operator-supplied URLs; never returned in an acknowledgement."
         },
@@ -46,7 +49,11 @@
       "required": ["schema", "request_id", "command_sha256", "state", "observed_urls"],
       "properties": {
         "schema": { "const": "aap-inference-registry-env-sync-result/v1" },
-        "request_id": { "type": "string", "format": "uuid", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
         "command_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "state": { "enum": ["caller_pending", "committed", "unknown"] },
         "observed_urls": { "type": ["integer", "null"], "minimum": 0 }
@@ -65,7 +72,11 @@
       "required": ["schema", "request_id", "command_sha256"],
       "properties": {
         "schema": { "const": "aap-inference-registry-env-sync-status/v1" },
-        "request_id": { "type": "string", "format": "uuid", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+        "request_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
         "command_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
       },
       "x-request-id-canonical": true
@@ -76,7 +87,7 @@
       "required": ["schema", "data_protocol", "transaction", "functions", "ready"],
       "properties": {
         "schema": { "const": "aap-inference-registry-ingress-native/v1" },
-        "data_protocol": { "const": "aap-inference-registry-env-sync/v1" },
+        "data_protocol": { "const": "aap-inference-registry-ingress/v1" },
         "transaction": { "const": "caller_owned" },
         "functions": {
           "const": [

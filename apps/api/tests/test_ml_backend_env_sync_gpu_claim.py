@@ -70,7 +70,11 @@ async def test_env_sync_uses_safe_defaults_and_preserves_existing_claims(
     async def _probe_setup(_client, url: str):
         if url == failed_env.url:
             return None
-        return {"name": f"observed-{url}", "is_interactive": True}
+        return {
+            "name": f"observed-{url}",
+            "is_interactive": True,
+            "supported_prompts": ["bbox"],
+        }
 
     @asynccontextmanager
     async def _session():
@@ -78,11 +82,6 @@ async def test_env_sync_uses_safe_defaults_and_preserves_existing_claims(
 
     monkeypatch.setattr(ml_backend_env_sync, "_observe_urls", lambda: urls)
     monkeypatch.setattr(ml_backend_env_sync, "_probe_setup", _probe_setup)
-    monkeypatch.setattr(
-        ml_backend_env_sync,
-        "extract_capabilities",
-        lambda _setup: {"is_interactive": True},
-    )
     monkeypatch.setattr(ml_backend_env_sync, "async_session", _session)
 
     await ml_backend_env_sync.sync_env_backends()

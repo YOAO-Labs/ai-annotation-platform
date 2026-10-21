@@ -164,3 +164,28 @@ Registry/GPU membership、写回和对账；观察服务没有健康业务写权
 `aap_inference_health_data_v1` 提供11项固定数据函数，后端状态写回与能力对账都不自行提交。API 保留原 Session 的对象身份、自动刷新及延迟 flush；独立安装包也可使用 `await HealthDataPostgresData.bind(connection)` 绑定已开启事务的 asyncpg 连接，再由调用方提交或回滚。提交或回滚后须丢弃绑定；原绑定在事务结束或更换后拒绝继续调用。
 
 迁移后依次应用 `module-data-grants.sql` 与 `inference-health-data-grants.sql`，为 `inference_health_data_client` 授予封闭的11函数。此角色属于可信健康协调器，没有 Registry／Pool 原表权限；不能用它接收任意公开 HTTP 的健康结果。观察角色与签发／验证角色保持独立。完整远程协调、其他控制面写入与全模块替换仍在推进，见 [ADR-0153](/dev/adr/0153-caller-owned-native-health-data)。
+
+## Registry 环境同步
+
+启动时的环境后端同步按完整命令选择 owner。默认借用原 Session；
+`INFERENCE_REGISTRY_INGRESS_DATABASE_URL(_FILE)` 使用独立受限数据库账号，
+`INFERENCE_REGISTRY_INGRESS_URL` 使用独立 HTTP 进程，二者互斥。
+HTTP bearer 使用 `INFERENCE_REGISTRY_INGRESS_TOKEN(_FILE)`，整体预算默认90秒，
+由 `INFERENCE_REGISTRY_INGRESS_TIMEOUT_SECONDS` 控制；单次后端探测仍由
+`ML_HEALTH_TIMEOUT` 控制。显式配置失败不会回退到本地写入。
+
+独立进程使用相同 DSN/token selector，运行 `python -m aap_inference`；
+受限容器示例见 `docker-compose.inference-registry.yml`。其 LOGIN 为
+`inference_registry_ingress_client`，仅能执行11项固定 Native 函数。
+先应用迁移及 module-data grants，再应用 `infra/docker/inference-registry-ingress-grants.sql`。
+
+私有路由 `/v1/registry/env-sync` 接收受信任的运维 URL 配置和能力限制，
+由 owner 实际执行 setup 探测；不接收调用方提供的健康结果。空 URL 列表会将全部
+环境来源后端置为 disconnected，手工注册项继续优先，历史溯源不删除。
+命令与响应各限24 MiB，bearer 与其他 Inference 能力分开。
+
+回执区分 caller_pending、committed 和 unknown。客户端在响应不确定时只查询
+`/v1/registry/env-sync-status` 一次，不重发写入；unknown 不能作为已回滚的依据。
+截图 seed 复用相同 ingress 策略，但写入仍属于原调用方事务，项目选择与绑定继续由
+Workspace 消费者负责。完整 Registry/Pool 管理、健康远程协调、路由排空及租约连续性
+仍未闭合，参见 [ADR-0154](/dev/adr/0154-registry-ingress-and-environment-sync-owner)。

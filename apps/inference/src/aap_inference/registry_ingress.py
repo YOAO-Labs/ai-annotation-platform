@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncContextManager, Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal, Protocol
@@ -242,7 +243,7 @@ async def refresh_candidates(
     return list(backends)
 
 
-def _http_client(timeout_seconds: float) -> AsyncContextManager[Any]:
+def _http_client(timeout_seconds: float) -> AbstractAsyncContextManager[Any]:
     import httpx
 
     return httpx.AsyncClient(timeout=httpx.Timeout(float(timeout_seconds)))
@@ -266,9 +267,9 @@ async def sync_environment(
     urls: Sequence[str],
     *,
     timeout_seconds: float,
-    data_factory: Callable[[], AsyncContextManager[RegistryIngressData]],
+    data_factory: Callable[[], AbstractAsyncContextManager[RegistryIngressData]],
     capability_limits_factory: Callable[[], CapabilityLimits],
-    client_factory: Callable[[float], AsyncContextManager[Any]] | None = None,
+    client_factory: Callable[[float], AbstractAsyncContextManager[Any]] | None = None,
     setup_probe: Callable[[Any, str], Awaitable[Any]] | None = None,
     clock: Callable[[], datetime] | None = None,
     request_id: UUID | None = None,

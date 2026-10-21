@@ -44,3 +44,4 @@ def downgrade() -> None:
         _execute(f"DROP FUNCTION {signature} RESTRICT")
     _execute("DROP TABLE aap_inference_registry_ingress_v1.env_sync_receipts RESTRICT")
     _execute("DROP SCHEMA aap_inference_registry_ingress_v1 RESTRICT")
+    _execute("ALTER FUNCTION public.sync_gpu_backend_membership() RESET search_path")

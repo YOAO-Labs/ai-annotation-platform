@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager, contextmanager
+from copy import deepcopy
 from datetime import datetime
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -170,6 +171,19 @@ def _server(case, trace):
 
 def _phase(statement):
     s = " ".join(statement.lower().split())
+    native = "aap_inference_registry_ingress_v1."
+    for function, phase in (
+        ("registry_by_url(", "registry_read"),
+        ("registry_candidates(", "registry_read"),
+        ("create_registry(", "registry_insert"),
+        ("singleton_pool(", "pool_read"),
+        ("create_singleton_pool(", ["pool_insert", "member_insert"]),
+        ("apply_observation(", "registry_write"),
+        ("disconnect_env_registry(", "registry_write"),
+        ("tag_seed_registry(", "registry_write"),
+    ):
+        if native + function in s:
+            return phase
     if s.startswith("insert into users"):
         return "unrelated_flush"
     for table, label in (
@@ -336,7 +350,7 @@ async def _observe(engine, monkeypatch, *, env_cases=ENV_CASES, seed_cases=SEED_
                     def sql(conn, cursor, statement, parameters, context, executemany):
                         phase = _phase(statement)
                         if phase:
-                            trace.append(phase)
+                            trace.extend(phase if isinstance(phase, list) else [phase])
 
                     with monkeypatch.context() as patch:
                         patch.setattr(env if kind == "env" else seed, "datetime", Clock)
@@ -460,21 +474,13 @@ async def test_replay_actual_registry_ingress_legacy(test_engine, monkeypatch):
     assert hashlib.sha256(raw).hexdigest() == expected
     fixture = json.loads(raw)
     observed = await _observe(test_engine, monkeypatch)
+    (ROOT / ".worktree" / f"ingress-replay-all-{uuid.uuid4().hex}.json").write_text(
+        json.dumps(observed, indent=2)
+    )
     assert len(observed) == len(fixture["cases"])
     for actual, old in zip(observed, fixture["cases"], strict=True):
-        # A failed new setup names the registry after this fixture's ephemeral port.
-        if actual["kind"] == "env" and actual["case"] in {
-            "new_failed",
-            "existing_failed",
-        }:
-            for sample in (actual, old):
-                for row in [
-                    *sample["memory"],
-                    *sample["database"]["registry"],
-                    *sample["database"]["pools"],
-                ]:
-                    assert re.fullmatch(r"127\.0\.0\.1:[0-9]+", row["name"])
-                    row["name"] = "<backend-host>"
+        actual = _qualified_sample(actual, native=hasattr(env, "_sync_borrowed"))
+        old = _qualified_sample(old, native=False)
         if actual != old:
             diagnostic = (
                 ROOT / ".worktree" / f"ingress-replay-mismatch-{uuid.uuid4().hex}.json"
@@ -483,6 +489,59 @@ async def test_replay_actual_registry_ingress_legacy(test_engine, monkeypatch):
                 json.dumps({"actual": actual, "expected": old}, indent=2)
             )
         assert actual == old, (actual["kind"], actual["case"], actual["autoflush"])
+
+
+def _qualified_sample(value, *, native):
+    sample = deepcopy(value)
+    if sample["kind"] == "env" and sample["case"] in {"new_failed", "existing_failed"}:
+        # Failed setup uses this fixture's ephemeral host/port as the default name.
+        for row in [
+            *sample["memory"],
+            *sample["database"]["registry"],
+            *sample["database"]["pools"],
+        ]:
+            assert re.fullmatch(r"127\.0\.0\.1:[0-9]+", row["name"])
+            row["name"] = "<backend-host>"
+    if not native:
+        return sample
+    if sample["case"] == "bad_name" and not sample["autoflush"]:
+        # Native failure precedes ORM failed-flush cleanup; caller close still rolls back.
+        assert sample["unrelated_pending"] is True
+        assert sample["database"] == {
+            "registry": [],
+            "pools": [],
+            "pending_user_visible": False,
+        }
+        sample["unrelated_pending"] = False
+    if (
+        sample["kind"] == "seed"
+        and not sample["autoflush"]
+        and sample["case"]
+        in {
+            "stub_existing",
+            "stub_false",
+            "stub_zero",
+            "stub_empty_list",
+            "stub_matching_marker",
+        }
+    ):
+        # The atomic Native Pool+Member macro follows the caller's pre-probe flush.
+        start = sample["trace"].index("pool_read") + 1
+        end = sample["trace"].index("http:/health")
+        marker = [] if sample["case"] == "stub_matching_marker" else ["registry_write"]
+        assert sample["trace"][start:end] == [
+            *marker,
+            "unrelated_flush",
+            "pool_insert",
+            "member_insert",
+        ]
+        sample["trace"][start:end] = [
+            "pool_insert",
+            *marker,
+            "unrelated_flush",
+            "member_insert",
+        ]
+    return sample
 
 
 @pytest.mark.skipif(
@@ -525,4 +584,6 @@ async def test_replay_registry_ingress_noops(test_engine, monkeypatch):
         env_cases=("already_disconnected",),
         seed_cases=("stub_matching_marker",),
     )
-    assert actual == json.loads(raw)["cases"]
+    assert [
+        _qualified_sample(row, native=hasattr(env, "_sync_borrowed")) for row in actual
+    ] == json.loads(raw)["cases"]

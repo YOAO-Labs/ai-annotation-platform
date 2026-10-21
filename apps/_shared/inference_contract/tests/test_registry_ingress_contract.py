@@ -74,6 +74,19 @@ def test_request_is_closed_unicode_utf8_and_hides_operator_urls() -> None:
     }
 
 
+def test_empty_environment_is_a_valid_disconnect_all_command() -> None:
+    request = _request(urls=[])
+    assert (
+        decode_registry_env_sync_request(registry_env_sync_request_bytes(request)).urls
+        == []
+    )
+    result = _result(request, observed_urls=0)
+    assert (
+        decode_registry_env_sync_result(request, registry_env_sync_result_bytes(result))
+        == result
+    )
+
+
 def test_command_fingerprint_is_canonical_and_excludes_request_identity() -> None:
     first = _request()
     second = _request(request_id=_OTHER_REQUEST_ID)
@@ -103,8 +116,8 @@ def test_command_fingerprint_is_canonical_and_excludes_request_identity() -> Non
 def test_legacy_nonpositive_timeout_is_preserved_but_nonfinite_and_boolean_rejected() -> (
     None
 ):
-    assert _request(timeout_seconds=0).timeout_seconds == 0
-    assert _request(timeout_seconds=-3).timeout_seconds == -3
+    assert _request(timeout=0).timeout_seconds == 0
+    assert _request(timeout=-3).timeout_seconds == -3
     for value in (True, float("inf"), float("nan")):
         with pytest.raises(RegistryEnvSyncUnavailable):
             make_registry_env_sync_request(
@@ -136,14 +149,14 @@ def test_request_rejects_extra_duplicate_empty_and_noncanonical_identity() -> No
         decode_registry_env_sync_request(uppercase_uuid)
 
     empty_urls = json.loads(raw)
-    empty_urls["urls"] = []
+    empty_urls["urls"] = [""]
     with pytest.raises(RegistryEnvSyncUnavailable):
         decode_registry_env_sync_request(empty_urls)
 
 
 def test_request_revalidates_mutated_model_and_enforces_size_budget() -> None:
     request = _request()
-    object.__setattr__(request, "urls", [])
+    object.__setattr__(request, "urls", [""])
     with pytest.raises(RegistryEnvSyncUnavailable):
         decode_registry_env_sync_request(request)
 
@@ -237,8 +250,13 @@ def test_status_request_and_result_are_bound_to_command_identity_and_fingerprint
 
     wrong = json.loads(encoded)
     wrong["request_id"] = str(_OTHER_REQUEST_ID)
+    assert (
+        decode_registry_env_sync_status_request(wrong).request_id == _OTHER_REQUEST_ID
+    )
     with pytest.raises(RegistryEnvSyncUnavailable):
-        decode_registry_env_sync_status_request(wrong)
+        decode_registry_env_sync_status_result(
+            wrong, registry_env_sync_result_bytes(_result(request))
+        )
     with pytest.raises(RegistryEnvSyncUnavailable):
         decode_registry_env_sync_status_result(
             status_request,
@@ -249,7 +267,7 @@ def test_status_request_and_result_are_bound_to_command_identity_and_fingerprint
 def test_native_policy_readiness_requires_exact_closed_facts() -> None:
     policy = {
         "schema": REGISTRY_ENV_SYNC_NATIVE_POLICY_SCHEMA,
-        "data_protocol": REGISTRY_ENV_SYNC_PROTOCOL,
+        "data_protocol": "aap-inference-registry-ingress/v1",
         "transaction": "caller_owned",
         "functions": list(REGISTRY_ENV_SYNC_NATIVE_FUNCTIONS),
         "ready": True,
@@ -260,6 +278,7 @@ def test_native_policy_readiness_requires_exact_closed_facts() -> None:
     for key, value in (
         ("extra", None),
         ("transaction", "independent"),
+        ("data_protocol", REGISTRY_ENV_SYNC_PROTOCOL),
         ("functions", list(reversed(REGISTRY_ENV_SYNC_NATIVE_FUNCTIONS))),
         ("ready", False),
         ("ready", 1),

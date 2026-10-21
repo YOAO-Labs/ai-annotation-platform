@@ -131,6 +131,8 @@ Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事�
 
 健康数据适配器使用11项固定 Native 函数，后端健康写入与服务池 seed／disable 对账继续由原事务持有。独立 `HealthDataPostgresData` 可借用已开启的 asyncpg 事务，不依赖 API／ORM；API 绑定保留原对象身份、自动刷新与其他待提交对象。专用数据 LOGIN 没有原表权限，观察 LOGIN 不增加写权。本地153项去重选定检查通过，源码213项、独立安装 Inference／Workspace 213／530项通过；完整迁移、非空恢复、受限镜像与实际公开 API 链路分别验证。独立端口拒绝已结束或已更换事务的旧绑定。此切片不代表完整健康远程协调、全部 Registry／Pool writers 或路由／GPU已完成。见 [ADR-0153](/dev/adr/0153-caller-owned-native-health-data)。
 
+启动环境同步与截图 seed 的 Registry 写入使用另一组11项固定 ingress 能力，策略由 Inference 包持有。环境同步以完整命令选择嵌入、专用 DSN 或独立 HTTP owner，实际探测在数据库事务之前完成；seed 写入仍与项目选择和绑定处于原事务。最小回执区分待提交、已提交与未知，响应不确定时只查状态，不重发写命令。此能力的限定本地验收单独记录；完整 Registry／Pool 控制、健康远程协调、stats／GPU 消费者以及路由连续性仍未闭合，见 [ADR-0154](/dev/adr/0154-registry-ingress-and-environment-sync-owner)。
+
 ## Workspace 后端能力探测
 
 Workspace 配置路径只持有 registry ID 和不透明事务快照；Inference 独立持有凭据并执行

@@ -334,6 +334,12 @@ class Settings(BaseSettings):
     inference_health_observation_timeout_seconds: float = Field(
         default=90, gt=0, le=3600
     )
+    inference_registry_ingress_url: str = Field(default="", repr=False)
+    inference_registry_ingress_token: str = Field(default="", repr=False)
+    inference_registry_ingress_token_file: str = ""
+    inference_registry_ingress_database_url: str = Field(default="", repr=False)
+    inference_registry_ingress_database_url_file: str = ""
+    inference_registry_ingress_timeout_seconds: float = Field(default=90, gt=0, le=3600)
 
     media_probe_url: str = ""
     media_probe_token: str = Field(default="", repr=False)

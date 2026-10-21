@@ -502,6 +502,83 @@ async def test_registry_create_rows_singletons_and_observation_phases(test_engin
         await owner.close()
 
 
+async def test_seed_marker_retains_gpu_membership_mutation_and_managed_fence(
+    test_engine,
+):
+    from tests.test_inference_health_data_native import _seed_world, _cleanup_world
+
+    await assert_owned_test_database(test_engine)
+    owner = await _connect(test_engine)
+    client = await _connect(test_engine, role=_ROLE)
+    world = await _seed_world(owner)
+    registry_id = world["registry_id"]
+    try:
+        await owner.execute(
+            "UPDATE ml_backend_registry SET gpu_resource_id=$2,vram_budget_mb=1024 WHERE id=$1",
+            registry_id,
+            world["gpu_resource_id"],
+        )
+        original_epoch = await owner.fetchval(
+            "SELECT membership_epoch FROM gpu_backend_memberships WHERE backend_registry_id=$1 AND state='pending'",
+            registry_id,
+        )
+        await client.fetchrow(
+            f"SELECT * FROM {_TAG_SEED}($1,$2)", registry_id, json.dumps(_MARKER)
+        )
+        assert (
+            await owner.fetchval(
+                "SELECT membership_epoch FROM gpu_backend_memberships WHERE backend_registry_id=$1 AND state='pending'",
+                registry_id,
+            )
+            == original_epoch + 1
+        )
+        assert (
+            _json(
+                await owner.fetchval(
+                    "SELECT extra_params FROM ml_backend_registry WHERE id=$1",
+                    registry_id,
+                )
+            )["seed"]
+            == _MARKER
+        )
+        tx = owner.transaction()
+        await tx.start()
+        try:
+            await owner.execute(
+                "UPDATE ml_backend_registry SET extra_params=extra_params-'seed' WHERE id=$1",
+                registry_id,
+            )
+            await owner.execute(
+                "UPDATE gpu_backend_fences SET runtime_epoch_high_water=1 WHERE backend_registry_id=$1",
+                registry_id,
+            )
+            await owner.execute("SET LOCAL ROLE inference_registry_ingress_client")
+            await owner.fetchrow(
+                f"SELECT * FROM {_TAG_SEED}($1,$2)", registry_id, json.dumps(_MARKER)
+            )
+        except asyncpg.CheckViolationError as exc:
+            assert exc.constraint_name == "ck_gpu_backend_membership_managed_mutation"
+        else:
+            pytest.fail("the original managed GPU mutation fence must remain active")
+        finally:
+            await tx.rollback()
+        assert (
+            _json(
+                await owner.fetchval(
+                    "SELECT extra_params FROM ml_backend_registry WHERE id=$1",
+                    registry_id,
+                )
+            )["seed"]
+            == _MARKER
+        )
+    finally:
+        await client.close()
+        try:
+            await _cleanup_world(owner, world)
+        finally:
+            await owner.close()
+
+
 async def test_seed_marker_merge_preserves_legacy_falsey_json_behavior(test_engine):
     await assert_owned_test_database(test_engine)
     owner = await _connect(test_engine)

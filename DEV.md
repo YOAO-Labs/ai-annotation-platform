@@ -1791,3 +1791,22 @@ Worker `--healthcheck` 仅验证配置、连接及精确 SQL 能力，不证明�
 能力提取、数据库观察时钟、GPU 围栏、健康写回、服务池对账、Audit 与最终提交仍由
 既有调用方事务完成。显式提供方不可用时返回503且不回退；后端网络故障与 setup 失败
 继续使用既有行为。完整健康 Native apply、路由连续性与完整 Inference 控制面仍在实施。
+
+### Registry 环境同步
+
+启动同步可设置 `INFERENCE_REGISTRY_INGRESS_URL` 或
+`INFERENCE_REGISTRY_INGRESS_DATABASE_URL(_FILE)`，两者互斥；均为空时借用原启动事务。
+HTTP 使用 `INFERENCE_REGISTRY_INGRESS_TOKEN(_FILE)`，整体调用预算由
+`INFERENCE_REGISTRY_INGRESS_TIMEOUT_SECONDS` 控制；实际后端请求仍使用 `ML_HEALTH_TIMEOUT`。
+独立进程使用相同 DSN/token selector；bearer 必须与其他 Inference 能力不同。
+
+先应用当前迁移，再以迁移角色应用 `infra/docker/module-data-grants.sql`，
+随后应用 `infra/docker/inference-registry-ingress-grants.sql`，设置
+`expected_database`、`migration_role`、`inference_owner` 和
+`inference_registry_ingress_role=inference_registry_ingress_client`。专用 LOGIN 只能调用11项固定函数，
+没有原表、列、序列、临时对象或其他模块权限。不要把日常 API 的宽权限 DSN 用于该独立进程。
+
+本地容器示例为 `docker-compose.inference-registry.yml`，其两个
+`INFERENCE_RUNTIME_REGISTRY_INGRESS_*_FILE` 变量指向 DSN 和独立 bearer 文件。
+该进程独立监听，但尚不代表整个 Inference 模块可独立替换语言；截图 seed 的项目绑定、
+普通 Registry/Pool 管理、路由排空和租约连续性仍在后续范围。

@@ -7,7 +7,7 @@ import json
 import math
 import uuid
 from collections.abc import Mapping
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import (
     BaseModel,
@@ -29,6 +29,7 @@ REGISTRY_ENV_SYNC_RESULT_PROTOCOL = "aap-inference-registry-env-sync-result/v1"
 REGISTRY_ENV_SYNC_REQUEST_MAX_BYTES = 24 * 1024 * 1024
 REGISTRY_ENV_SYNC_REPLY_MAX_BYTES = 24 * 1024 * 1024
 REGISTRY_ENV_SYNC_NATIVE_POLICY_SCHEMA = "aap-inference-registry-ingress-native/v1"
+REGISTRY_INGRESS_DATA_PROTOCOL = "aap-inference-registry-ingress/v1"
 REGISTRY_ENV_SYNC_NATIVE_FUNCTIONS = (
     "aap_inference_registry_ingress_v1.registry_ingress_policy()",
     "aap_inference_registry_ingress_v1.registry_by_url(text)",
@@ -84,7 +85,7 @@ class _RegistryEnvSyncLimits(_RegistryEnvSyncModel):
 class RegistryEnvSyncRequest(_RegistryEnvSyncModel):
     schema_: Literal["aap-inference-registry-env-sync/v1"] = Field(alias="schema")
     request_id: uuid.UUID
-    urls: list[StrictStr] = Field(min_length=1, repr=False)
+    urls: list[Annotated[StrictStr, Field(min_length=1)]] = Field(repr=False)
     timeout_seconds: StrictInt | StrictFloat
     capability_limits: _RegistryEnvSyncLimits
 
@@ -445,7 +446,7 @@ def registry_env_sync_policy_ready(value: str | bytes | dict) -> bool:
         type(parsed["schema"]) is str
         and parsed["schema"] == REGISTRY_ENV_SYNC_NATIVE_POLICY_SCHEMA
         and type(parsed["data_protocol"]) is str
-        and parsed["data_protocol"] == REGISTRY_ENV_SYNC_PROTOCOL
+        and parsed["data_protocol"] == REGISTRY_INGRESS_DATA_PROTOCOL
         and type(parsed["transaction"]) is str
         and parsed["transaction"] == "caller_owned"
         and type(functions) is list
@@ -457,6 +458,7 @@ def registry_env_sync_policy_ready(value: str | bytes | dict) -> bool:
 
 
 __all__ = [
+    "REGISTRY_INGRESS_DATA_PROTOCOL",
     "REGISTRY_ENV_SYNC_NATIVE_FUNCTIONS",
     "REGISTRY_ENV_SYNC_NATIVE_POLICY_SCHEMA",
     "REGISTRY_ENV_SYNC_PROTOCOL",

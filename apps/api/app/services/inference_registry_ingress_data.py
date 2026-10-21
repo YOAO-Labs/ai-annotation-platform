@@ -19,6 +19,7 @@ from app.db.models.ml_backend_registry import MLBackendRegistry
 
 _NATIVE = "aap_inference_registry_ingress_v1."
 _STAGES = "aap_inference_registry_ingress_stages"
+_BASELINES = "aap_inference_registry_ingress_extra_baselines"
 
 
 @dataclass
@@ -81,20 +82,48 @@ def _merge_seed_extra(stage: _SeedMarkerStage, native_extra: Any) -> Any:
     staged = _mapping(stage.staged_extra_params)
     current = _mapping(current_extra)
 
-    for key, value in previous.items():
-        if key != "seed":
-            merged[key] = deepcopy(value)
-    for key in baseline.keys() - previous.keys():
-        if key != "seed":
-            merged.pop(key, None)
-    for key in staged.keys() - current.keys():
-        if key != "seed":
-            merged.pop(key, None)
-    for key, value in current.items():
-        if key != "seed":
-            merged[key] = deepcopy(value)
-    merged["seed"] = deepcopy(stage.marker)
+    missing = object()
+    for before, after, skip_seed in (
+        (baseline, previous, True),
+        (staged, current, False),
+    ):
+        for key in before.keys() | after.keys():
+            if (skip_seed and key == "seed") or before.get(key, missing) == after.get(
+                key, missing
+            ):
+                continue
+            if key in after:
+                merged[key] = deepcopy(after[key])
+            else:
+                merged.pop(key, None)
     return merged
+
+
+def _set_stamp(row, value):
+    if not attributes.get_history(row, "updated_at").has_changes():
+        attributes.set_committed_value(row, "updated_at", value)
+
+
+def _remember_extra(row):
+    session = object_session(row)
+    if session is not None and "extra_params" in row.__dict__:
+        session.info.setdefault(_BASELINES, {})[row.id] = deepcopy(row.extra_params)
+
+
+@event.listens_for(MLBackendRegistry, "load")
+def _remember_loaded_extra(target, context):
+    _remember_extra(target)
+
+
+@event.listens_for(MLBackendRegistry, "after_insert")
+def _remember_inserted_extra(mapper, connection, target):
+    _remember_extra(target)
+
+
+@event.listens_for(MLBackendRegistry, "after_update")
+def _remember_updated_extra(mapper, connection, target):
+    if attributes.get_history(target, "extra_params").has_changes():
+        _remember_extra(target)
 
 
 def _discard_ingress_stages(session: Session, row: MLBackendRegistry) -> None:
@@ -160,7 +189,7 @@ def _apply_observation(session: Session, stage: _ObservationStage) -> None:
         _set_applied_value(
             row, "error_message", stage.error_message, stage.error_message
         )
-    attributes.set_committed_value(row, "updated_at", updated_at)
+    _set_stamp(row, updated_at)
 
 
 def _apply_env_disconnect(session: Session, stage: _EnvironmentDisconnectStage) -> None:
@@ -173,7 +202,7 @@ def _apply_env_disconnect(session: Session, stage: _EnvironmentDisconnectStage) 
         {"registry_id": stage.row.id, "expected_url": stage.expected_url},
     ).scalar_one()
     _set_applied_value(stage.row, "state", "disconnected", stage.expected_state)
-    attributes.set_committed_value(stage.row, "updated_at", updated_at)
+    _set_stamp(stage.row, updated_at)
 
 
 def _apply_seed_marker(session: Session, stage: _SeedMarkerStage) -> None:
@@ -201,12 +230,13 @@ def _apply_seed_marker(session: Session, stage: _SeedMarkerStage) -> None:
     )
     native_extra = result["extra_params"]
     desired_extra = _merge_seed_extra(stage, native_extra)
+    session.info.setdefault(_BASELINES, {})[stage.row.id] = deepcopy(native_extra)
 
     attributes.set_committed_value(stage.row, "extra_params", native_extra)
     if desired_extra != native_extra:
         # Ordinary caller-owned extra-param edits remain in the ORM unit of work.
         stage.row.extra_params = desired_extra
-    attributes.set_committed_value(stage.row, "updated_at", result["updated_at"])
+    _set_stamp(stage.row, result["updated_at"])
 
 
 @event.listens_for(Session, "before_flush")
@@ -231,6 +261,7 @@ def _flush_registry_ingress(session, flush_context, instances) -> None:
 @event.listens_for(Session, "after_soft_rollback")
 def _discard_registry_ingress_rollback(session, previous_transaction) -> None:
     session.info.pop(_STAGES, None)
+    session.info.pop(_BASELINES, None)
 
 
 @event.listens_for(MLBackendRegistry, "refresh")
@@ -238,6 +269,8 @@ def _discard_registry_ingress_refresh(target, context, attrs) -> None:
     session = object_session(target)
     if session is not None:
         _discard_ingress_stages(session, target)
+        if attrs is None or "extra_params" in attrs:
+            _remember_extra(target)
 
 
 class InferenceRegistryIngressData:
@@ -377,6 +410,8 @@ class InferenceRegistryIngressData:
     async def stage_env_disconnect(self, row: MLBackendRegistry) -> None:
         if self.db is None:
             return
+        if not attributes.get_history(row, "state").has_changes():
+            return
         _session_stages(self.db.sync_session).append(
             _EnvironmentDisconnectStage(
                 row=row,
@@ -401,6 +436,9 @@ class InferenceRegistryIngressData:
             deepcopy(history.deleted[0])
             if history.deleted
             else deepcopy(previous_extra_params)
+        )
+        database_extra_params = self.db.sync_session.info.get(_BASELINES, {}).get(
+            row.id, database_extra_params
         )
         _session_stages(self.db.sync_session).append(
             _SeedMarkerStage(

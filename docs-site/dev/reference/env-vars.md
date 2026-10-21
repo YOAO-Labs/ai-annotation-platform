@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-22
 ---
 
 # 环境变量参考
@@ -852,3 +852,16 @@ last_reviewed: 2026-10-21
 | `INFERENCE_HEALTH_OBSERVATION_TIMEOUT_SECONDS` | `90` | — |
 | `INFERENCE_RUNTIME_HEALTH_OBSERVATION_DATABASE_URL_FILE` | `—` | The standalone runtime uses the same DATABASE_URL and TOKEN selectors. Use a different bearer from the pipeline and Workspace setup-probe routes. |
 | `INFERENCE_RUNTIME_HEALTH_OBSERVATION_TOKEN_FILE` | `—` | — |
+
+## Startup Registry environment synchronization: select the entire command owner.
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `INFERENCE_REGISTRY_INGRESS_URL` | `—` | Empty selectors borrow the startup transaction; URL and dedicated DSN are exclusive. |
+| `INFERENCE_REGISTRY_INGRESS_TOKEN` | `—` | — |
+| `INFERENCE_REGISTRY_INGRESS_TOKEN_FILE` | `—` | — |
+| `INFERENCE_REGISTRY_INGRESS_DATABASE_URL` | `—` | — |
+| `INFERENCE_REGISTRY_INGRESS_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_REGISTRY_INGRESS_TIMEOUT_SECONDS` | `90` | — |
+| `INFERENCE_RUNTIME_REGISTRY_INGRESS_DATABASE_URL_FILE` | `—` | Standalone runtime and Compose use a function-only LOGIN and a distinct bearer. |
+| `INFERENCE_RUNTIME_REGISTRY_INGRESS_TOKEN_FILE` | `—` | — |

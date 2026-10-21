@@ -19,6 +19,10 @@ COMMENT ON TABLE aap_inference_registry_ingress_v1.env_sync_receipts
 REVOKE ALL ON TABLE aap_inference_registry_ingress_v1.env_sync_receipts
     FROM PUBLIC;
 -- aap-statement-break
+-- The existing invoker trigger must resolve its own relations under Native GUCs.
+ALTER FUNCTION public.sync_gpu_backend_membership()
+    SET search_path = pg_catalog, public, pg_temp;
+-- aap-statement-break
 CREATE OR REPLACE FUNCTION
     aap_inference_registry_ingress_v1.registry_ingress_policy()
 RETURNS jsonb
@@ -317,7 +321,13 @@ BEGIN
             MESSAGE = 'invalid Registry ingress create request';
     END IF;
 
-    RETURN NEXT v_created;
+    RETURN QUERY SELECT
+        v_created.id, v_created.name, v_created.url, v_created.state,
+        v_created.is_interactive, v_created.auth_method, v_created.auth_token,
+        v_created.extra_params, v_created.gpu_resource_id, v_created.vram_budget_mb,
+        v_created.eviction_priority, v_created.health_meta, v_created.source,
+        v_created.error_message, v_created.last_checked_at,
+        v_created.created_at, v_created.updated_at;
 END;
 $function$;
 -- aap-statement-break
@@ -523,7 +533,11 @@ BEGIN
         1
     );
 
-    RETURN NEXT v_pool;
+    RETURN QUERY SELECT
+        v_pool.id, v_pool.name, v_pool.enabled, v_pool.routing_policy,
+        v_pool.legacy_instance_id, v_pool.routing_generation,
+        v_pool.capability_fingerprint, v_pool.capability_snapshot,
+        v_pool.created_at, v_pool.updated_at;
 END;
 $function$;
 -- aap-statement-break
@@ -630,11 +644,8 @@ BEGIN
            NOT IN ('string', 'null')
        OR pg_catalog.jsonb_typeof(v_expected_snapshot -> 'source')
            IS DISTINCT FROM 'string'
-       OR v_expected_snapshot ->> 'source' IS DISTINCT FROM
-           CASE p_profile
-               WHEN 'env' THEN 'env'
-               ELSE 'seed'
-           END THEN
+       OR (p_profile = 'env' AND
+           v_expected_snapshot ->> 'source' IS DISTINCT FROM 'env') THEN
         RAISE EXCEPTION USING
             ERRCODE = '22023',
             MESSAGE = 'invalid Registry ingress observation snapshot';
@@ -854,7 +865,7 @@ BEGIN
             MESSAGE = 'invalid Registry seed extra parameters';
     END IF;
 
-    v_merged := v_extra || v_marker;
+    v_merged := v_extra || pg_catalog.jsonb_build_object('seed', v_marker);
     IF v_merged IS DISTINCT FROM v_current THEN
         UPDATE public.ml_backend_registry AS registry
         SET extra_params = v_merged,

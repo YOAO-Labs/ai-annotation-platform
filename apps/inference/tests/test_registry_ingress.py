@@ -549,7 +549,7 @@ async def test_environment_receipt_replay_repeats_probe_but_skips_all_mutations(
     assert result == data.cached_result
     assert data.staged_observations == []
     assert data.staged_disconnects == []
-    assert data.trace[-1] == ("sync_result", request_id, "a" * 64)
+    assert data.trace[-2:] == [("sync_result", request_id, "a" * 64), ("data_exit",)]
     assert ("flush",) not in data.trace
     assert trace.index(("http", "http://backend")) < trace.index(("clock",))
     assert trace.index(("clock",)) < trace.index(("data_factory",))

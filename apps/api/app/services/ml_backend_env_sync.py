@@ -13,6 +13,7 @@ from app.config import settings
 from app.db.base import async_session
 from app.services.capability_instances import _observe_urls, _probe_setup
 from app.services.inference_limits import capability_limits_from_settings
+from app.services.inference_registry_ingress import sync_selected_environment
 from app.services.inference_registry_ingress_data import InferenceRegistryIngressData
 
 logger = logging.getLogger(__name__)
@@ -45,5 +46,5 @@ async def _sync_borrowed(urls: list[str]) -> int:
 async def sync_env_backends() -> None:
     """Reconcile configured env URLs at API startup without blocking app import."""
     urls = _observe_urls()
-    observed_count = await _sync_borrowed(urls)
+    observed_count = await sync_selected_environment(urls, borrowed=_sync_borrowed)
     logger.info("env ML backend sync done: %d observed url(s)", observed_count)

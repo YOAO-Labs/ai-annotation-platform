@@ -445,7 +445,11 @@ async def test_env_disconnect_is_staged_with_exact_url_fence(monkeypatch):
 async def test_create_boundaries_flush_prior_stages_and_preserve_json_null(monkeypatch):
     connection = _Connection()
     connection.rows[_BY_URL_SQL] = [_registry_row()]
-    connection.rows[_CREATE_REGISTRY_SQL] = [_registry_row(name="Seed", source="seed")]
+    connection.rows[_CREATE_REGISTRY_SQL] = [
+        _registry_row(
+            id=UUID("ec4c804e-8c6b-46b6-843c-c1bc4b48a001"), name="Seed", source="seed"
+        )
+    ]
     connection.rows[_CREATE_SINGLETON_POOL_SQL] = [_pool_row()]
     connection.values[_APPLY_OBSERVATION_SQL] = _NOW
     data = await _bind(monkeypatch, connection)
