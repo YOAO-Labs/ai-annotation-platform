@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from aap_workspace.template_query_contract import template_query_request
 from app.config import settings
 from app.core.security import create_access_token
+from app.deps import get_db
 from tests.factory import create_user
 from tests.test_asset_storage_cleanup_runtime import (
     _docker,
@@ -40,6 +41,26 @@ pytestmark = [
         reason="requires an explicitly qualified owned Workspace query image",
     ),
 ]
+
+
+@asynccontextmanager
+async def _committed_api_client(app, maker):
+    async def request_db():
+        async with maker() as db:
+            yield db
+
+    previous = app.dependency_overrides.get(get_db)
+    app.dependency_overrides[get_db] = request_db
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app), base_url="http://test"
+        ) as client:
+            yield client
+    finally:
+        if previous is None:
+            app.dependency_overrides.pop(get_db, None)
+        else:
+            app.dependency_overrides[get_db] = previous
 
 
 @asynccontextmanager
@@ -146,7 +167,7 @@ async def _query_container(test_engine, directory, token):
 
 
 async def test_query_image_public_projection_restart_and_local_concurrency(
-    test_engine, httpx_client, tmp_path, monkeypatch
+    test_engine, app_module, tmp_path, monkeypatch
 ):
     monkeypatch.setattr(settings, "audit_async", True)
     monkeypatch.setattr("app.middleware.audit._enqueue_audit", lambda _payload: True)
@@ -165,9 +186,10 @@ async def test_query_image_public_projection_restart_and_local_concurrency(
         headers = {
             "Authorization": f"Bearer {create_access_token(str(actor_id), actor.role)}"
         }
-        async with _query_container(
-            test_engine, tmp_path / "query-first", token
-        ) as first:
+        async with (
+            _query_container(test_engine, tmp_path / "query-first", token) as first,
+            _committed_api_client(app_module, maker) as httpx_client,
+        ):
             origin, container, image_id = first
             async with api_template_query_binding(url=origin, token=token):
                 created = await httpx_client.post(
@@ -213,9 +235,12 @@ async def test_query_image_public_projection_restart_and_local_concurrency(
                 await asyncio.gather(*(read_once() for _ in range(16)))
                 elapsed = (time.perf_counter() - started) * 1000
             assert not _inspect_docker(container)["State"]["OOMKilled"]
-        async with _query_container(
-            test_engine, tmp_path / "query-restart", token
-        ) as restarted:
+        async with (
+            _query_container(
+                test_engine, tmp_path / "query-restart", token
+            ) as restarted,
+            _committed_api_client(app_module, maker) as httpx_client,
+        ):
             assert restarted[2] == image_id
             async with api_template_query_binding(url=restarted[0], token=token):
                 response = await httpx_client.get(target, headers=headers)
