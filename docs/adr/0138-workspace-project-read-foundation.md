@@ -119,6 +119,25 @@ Python addition, Python modification, Python removal and schema modification.
 Package metadata stays unchanged between phases and no forced refresh/reinstall
 is used. Its copied source, environment and cache are removed after verification.
 
+Independent noneditable installation at `1e081adadff6adeeaad8b4909766a30cb42fed9c`
+passes 184 Workspace and 27 Inference tests outside the source tree. All 51 package
+Python/schema files match their source manifests. The installed environment has
+no API, SQLAlchemy, Celery, Boto3 or Torch package.
+
+The Workspace image verifies the same 51 files in an offline, mount-free,
+read-only container as UID 10004 with one CPU and 256 MiB. The API image verifies 173
+package files and 183 API/Native inputs, unchanged OpenAPI and migration head 0260
+as UID 10001 with one CPU and 512 MiB under the same filesystem/network restrictions.
+Both drop all capabilities, disallow privilege escalation, cap processes at 64
+and exit without OOM. Their proof containers are removed; the images and installed
+environment remain local review artifacts. These are package/cold-assembly checks,
+not Project-query provider or production-capacity acceptance.
+
+The API image's first cold probe exceeded the operating system's single-argument
+limit while passing its source manifest to Python. The corrected probe streams
+its program through standard input and reuses the already fingerprinted image.
+The failed attempt remains separate from the passing result.
+
 ## Remaining work and limits
 
 This establishes data and value ownership foundations. Project query handlers and

@@ -3670,6 +3670,13 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Python addition/modification/removal and schema modification, with unchanged
   metadata and no forced refresh. Copied source, environment and cache are removed.
   Artifact gates now also reject unexpected Python/schema files.
+- Noneditable installed artifacts pass 184 Workspace and 27 Inference cases outside
+  the source tree; all 51 runtime/schema files match. Offline restricted Workspace
+  and API images verify 51 and 173 package files respectively; API also verifies 183
+  application/Native inputs, unchanged OpenAPI and head 0260. Proof containers are
+  removed and local review artifacts retained. The API cold probe's initial
+  argument-length failure is retained; stdin delivery passes on the same image.
+  These are artifact checks, not a new independent Project query provider.
 - Next: complete query wire/policy/data bindings with lazy Identity Briefs,
   search Workspace facts and scoped configuration/transfer/class-rename readback
   evidence, then perform provider/fault/package/image qualification. Current
