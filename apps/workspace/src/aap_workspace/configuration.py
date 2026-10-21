@@ -8,12 +8,10 @@ from datetime import date
 from typing import Any, AsyncContextManager, Protocol
 from uuid import UUID
 
+from aap_inference_contract.capabilities import CapabilityLimits
+from aap_inference_contract.probe import BackendProbeUnavailable
 from aap_inference import (
-    BackendSetupLocator,
-    CapabilityLimits,
     PipelineValidationError,
-    derive_modalities,
-    probe_backend_capabilities,
     validate_saved_pipeline,
 )
 
@@ -90,7 +88,10 @@ from aap_workspace_contract.project_query_contract import (
     decode_project_query_reply,
     project_query_request,
 )
-from aap_workspace_contract.project_query_values import decode_project_row, project_json_value
+from aap_workspace_contract.project_query_values import (
+    decode_project_row,
+    project_json_value,
+)
 
 _MANAGER_ROLES = frozenset({"super_admin", "project_admin"})
 _PROJECT_CREATE_COLUMNS = frozenset(
@@ -182,7 +183,17 @@ class ConfigurationData(Protocol):
     ) -> AsyncContextManager[ConfigurationTransaction]: ...
 
 
-SetupProbe = Callable[..., Awaitable[dict[str, Any] | None]]
+class BackendProbe(Protocol):
+    async def __call__(
+        self,
+        registry_id: UUID,
+        probe_subject: str,
+        *,
+        timeout: float,
+        limits: CapabilityLimits,
+    ) -> list[str] | None: ...
+
+
 NoOpProjection = Callable[[ProjectQueryRequest], Awaitable[ProjectQueryReply]]
 
 
@@ -195,7 +206,7 @@ class ConfigurationManager:
         *,
         noop_projection: NoOpProjection | None = None,
         guide_objects: GuideAssetObjectPort | None = None,
-        setup_probe: SetupProbe | None = None,
+        backend_probe: BackendProbe | None = None,
         capability_limits: CapabilityLimits = CapabilityLimits(),
         video_segment_size_frames: int = 18_000,
         setup_timeout: float = 10.0,
@@ -203,7 +214,7 @@ class ConfigurationManager:
         self.data = data
         self.noop_projection = noop_projection
         self.guide_objects = guide_objects
-        self.setup_probe = setup_probe or probe_backend_capabilities
+        self.backend_probe = backend_probe
         self.capability_limits = capability_limits
         self.video_segment_size_frames = video_segment_size_frames
         self.setup_timeout = setup_timeout
@@ -1598,22 +1609,39 @@ class ConfigurationManager:
             backend = backend_facts
         if backend is None:
             return
-        locator = BackendSetupLocator(
-            id=UUID(str(backend["id"])),
-            url=backend["url"],
-            auth_method=backend["auth_method"],
-            auth_token=backend.get("auth_token"),
-            extra_params=backend.get("extra_params") or {},
-        )
-        capabilities = await self.setup_probe(
-            locator,
-            timeout=self.setup_timeout,
-            limits=self.capability_limits,
-        )
-        if capabilities is None:
+        if not isinstance(backend, Mapping) or set(backend) != {
+            "id",
+            "probe_subject",
+        }:
+            raise ConfigurationUnavailable()
+        if type(backend.get("id")) is not str:
+            raise ConfigurationUnavailable()
+        try:
+            fact_registry_id = UUID(backend["id"])
+            requested_registry_id = UUID(str(backend_id))
+        except (TypeError, ValueError):
+            raise ConfigurationUnavailable() from None
+        if (
+            str(fact_registry_id) != backend["id"]
+            or fact_registry_id != requested_registry_id
+            or type(backend.get("probe_subject")) is not str
+            or not backend["probe_subject"]
+        ):
+            raise ConfigurationUnavailable()
+        if self.backend_probe is None:
+            raise ConfigurationUnavailable()
+        try:
+            modalities = await self.backend_probe(
+                fact_registry_id,
+                backend["probe_subject"],
+                timeout=self.setup_timeout,
+                limits=self.capability_limits,
+            )
+        except BackendProbeUnavailable:
+            raise ConfigurationUnavailable() from None
+        if modalities is None or not modalities:
             return
-        modalities = derive_modalities(capabilities)
-        if not modalities or data_type in modalities:
+        if data_type in modalities:
             return
         raise ConfigurationPolicyError(
             422,

@@ -44,6 +44,10 @@ class RuntimeSettings(BaseSettings):
     project_query_identity_briefs_database_url_file: str = ""
     project_query_identity_timeout_seconds: float = Field(default=2, gt=0, le=3600)
     configuration_setup_timeout_seconds: float = Field(default=10, gt=0)
+    inference_probe_url: str = Field(default="", repr=False)
+    inference_probe_token: SecretStr | None = Field(default=None, repr=False)
+    inference_probe_token_file: str = ""
+    inference_probe_timeout_seconds: float = Field(default=30, gt=0, le=3600)
     guide_objects_url: str = Field(default="", repr=False)
     guide_objects_token: SecretStr | None = Field(default=None, repr=False)
     guide_objects_token_file: str = ""
@@ -89,6 +93,29 @@ class RuntimeSettings(BaseSettings):
     def directory_database_url(self) -> str:
         return secret_source(
             self.directory_query_database_url, self.directory_query_database_url_file
+        )
+
+    def inference_probe_client(self):
+        try:
+            token = secret_source(
+                self.inference_probe_token, self.inference_probe_token_file
+            )
+        except ValueError:
+            raise ValueError(
+                "Workspace Inference probe configuration is invalid"
+            ) from None
+        if not self.inference_probe_url and not token:
+            return None
+        if not self.inference_probe_url or not token:
+            raise ValueError(
+                "Workspace Inference probe URL and token are required together"
+            )
+        from aap_inference_contract.client import BackendProbeHttpClient
+
+        return BackendProbeHttpClient(
+            self.inference_probe_url,
+            token,
+            timeout_seconds=self.inference_probe_timeout_seconds,
         )
 
     def control_token(self) -> str:

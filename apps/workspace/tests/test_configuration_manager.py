@@ -5,14 +5,23 @@ from uuid import UUID
 
 import pytest
 
+from aap_inference_contract import client as backend_probe_client_module
+from aap_inference_contract.capabilities import CapabilityLimits
+from aap_inference_contract.probe import (
+    BackendProbeLegacyFailure,
+    BackendProbeUnavailable,
+)
+from aap_workspace.config import RuntimeSettings
 from aap_workspace.configuration_contract import (
     CONFIGURATION_PROTOCOL,
+    ConfigurationUnavailable,
     configuration_request,
 )
 from aap_workspace.configuration import (
     ConfigurationCommandFailure,
     ConfigurationManager,
 )
+from aap_workspace.configuration_policy import ConfigurationPolicyError
 
 _ACTOR = UUID("6a64e81b-1ad5-4a65-8551-2798a6a1fbbd")
 _PROJECT = UUID("424cc9e8-9691-4509-8d89-d936e276429b")
@@ -136,6 +145,342 @@ class FakeData:
         except BaseException as error:
             self.tx.caught = error
             raise
+
+
+_BACKEND = UUID("e2bc8042-4b7f-40e4-9860-218e68b07739")
+_POOL = UUID("170742cf-96b6-4eca-9cbb-a48858eb8464")
+_PROBE_SUBJECT = "v1.AAECAwQFBgcICQ=="
+
+
+def _project(data_type="video"):
+    return {
+        "id": str(_PROJECT),
+        "type_key": "video-track" if data_type == "video" else data_type,
+        "data_type": data_type,
+        "scene_mode": False,
+        "total_tasks": 0,
+        "tool_bindings": {},
+        "ml_backend_pool_id": None,
+    }
+
+
+class BackendProbeTransaction(FakeTransaction):
+    def __init__(self, backend_facts, *, data_type="video"):
+        project = _project(data_type)
+        super().__init__(
+            begin={
+                "actor": _actor(),
+                "project": project,
+                "source_project": None,
+                "template": None,
+                "replay": None,
+                "is_manager": True,
+            },
+            authority={
+                "actor": _actor(),
+                "project": project,
+                "source_project": None,
+                "template": None,
+                "is_manager": True,
+            },
+        )
+        self.backend_facts = backend_facts
+
+    async def step(self, request_json, action, args, columns, values):
+        reply = await super().step(request_json, action, args, columns, values)
+        if reply["ok"] is not True:
+            return reply
+        facts = dict(reply["facts"])
+        if action == "backend":
+            facts["backend"] = self.backend_facts
+        elif action == "enable_backend":
+            facts["pool_id"] = str(_POOL)
+        return {**reply, "facts": facts}
+
+
+def _probe_request():
+    return configuration_request(
+        "update_project",
+        _ACTOR,
+        _PROJECT,
+        {"ml_backend_id": str(_BACKEND)},
+    )
+
+
+def _safe_backend_facts(**overrides):
+    return {
+        "id": str(_BACKEND),
+        "probe_subject": _PROBE_SUBJECT,
+        **overrides,
+    }
+
+
+@pytest.mark.asyncio
+async def test_backend_probe_receives_only_registry_id_and_opaque_subject():
+    transaction = BackendProbeTransaction(_safe_backend_facts())
+    calls = []
+    limits = CapabilityLimits(
+        video_tracker_window_size_frames=240,
+        video_tracker_sam3_window_size_frames=12,
+    )
+
+    async def backend_probe(registry_id, probe_subject, *, timeout, limits):
+        calls.append((registry_id, probe_subject, timeout, limits))
+        return ["image", "video"]
+
+    manager = ConfigurationManager(
+        FakeData(transaction),
+        backend_probe=backend_probe,
+        setup_timeout=7.5,
+        capability_limits=limits,
+    )
+    reply = await manager.execute(_probe_request())
+
+    assert reply.ok is True
+    assert calls == [(_BACKEND, _PROBE_SUBJECT, 7.5, limits)]
+    assert [call[0] for call in transaction.calls] == [
+        "begin",
+        "backend",
+        "authority",
+        "enable_backend",
+        "binding",
+        "update",
+        "finish",
+    ]
+    assert "url" not in transaction.backend_facts
+    assert "auth_method" not in transaction.backend_facts
+    assert "auth_token" not in transaction.backend_facts
+    assert "extra_params" not in transaction.backend_facts
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("modalities", [None, []])
+async def test_backend_probe_null_or_empty_modalities_preserve_legacy_fail_open(
+    modalities,
+):
+    transaction = BackendProbeTransaction(_safe_backend_facts())
+
+    async def backend_probe(*_args, **_kwargs):
+        return modalities
+
+    reply = await ConfigurationManager(
+        FakeData(transaction), backend_probe=backend_probe
+    ).execute(_probe_request())
+
+    assert reply.ok is True
+    assert [call[0] for call in transaction.calls][-4:] == [
+        "enable_backend",
+        "binding",
+        "update",
+        "finish",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_backend_probe_modality_mismatch_keeps_legacy_422_phase_and_detail():
+    transaction = BackendProbeTransaction(_safe_backend_facts())
+
+    async def backend_probe(*_args, **_kwargs):
+        return ["image"]
+
+    with pytest.raises(ConfigurationPolicyError) as caught:
+        await ConfigurationManager(
+            FakeData(transaction), backend_probe=backend_probe
+        ).execute(_probe_request())
+
+    assert caught.value.status_code == 422
+    assert caught.value.detail == (
+        "该 ML Backend 不支持「video」模态 (检测到: ['image']); "
+        "视频项目需绑定自报 supported_trackers 的 backend."
+    )
+    assert [call[0] for call in transaction.calls] == ["begin", "backend"]
+    assert transaction.caught is caught.value
+
+
+@pytest.mark.asyncio
+async def test_backend_probe_provider_is_required_only_when_modalities_are_needed():
+    video_transaction = BackendProbeTransaction(_safe_backend_facts())
+    with pytest.raises(ConfigurationUnavailable):
+        await ConfigurationManager(FakeData(video_transaction)).execute(
+            _probe_request()
+        )
+    assert [call[0] for call in video_transaction.calls] == ["begin", "backend"]
+
+    lidar_transaction = BackendProbeTransaction(
+        _safe_backend_facts(), data_type="lidar"
+    )
+    reply = await ConfigurationManager(FakeData(lidar_transaction)).execute(
+        _probe_request()
+    )
+    assert reply.ok is True
+    assert "backend" not in [call[0] for call in lidar_transaction.calls]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "backend_facts",
+    [
+        {
+            "id": str(_BACKEND),
+            "url": "https://old.example",
+            "auth_token": "sentinel-secret",
+        },
+        _safe_backend_facts(url="https://old.example"),
+        _safe_backend_facts(id="9dc1d1b0-92e0-4a38-88c2-4cfd7084420c"),
+        _safe_backend_facts(probe_subject=None),
+    ],
+)
+async def test_legacy_or_misbound_backend_facts_fail_closed(backend_facts):
+    transaction = BackendProbeTransaction(backend_facts)
+    calls = []
+
+    async def backend_probe(*args, **kwargs):
+        calls.append((args, kwargs))
+        return ["video"]
+
+    with pytest.raises(ConfigurationUnavailable):
+        await ConfigurationManager(
+            FakeData(transaction), backend_probe=backend_probe
+        ).execute(_probe_request())
+    assert calls == []
+    assert [call[0] for call in transaction.calls] == ["begin", "backend"]
+    if "auth_token" in backend_facts:
+        assert "sentinel-secret" not in str(transaction.caught)
+
+
+@pytest.mark.asyncio
+async def test_backend_probe_unavailable_maps_to_configuration_unavailable():
+    transaction = BackendProbeTransaction(_safe_backend_facts())
+
+    async def backend_probe(*_args, **_kwargs):
+        raise BackendProbeUnavailable()
+
+    with pytest.raises(ConfigurationUnavailable):
+        await ConfigurationManager(
+            FakeData(transaction), backend_probe=backend_probe
+        ).execute(_probe_request())
+    assert transaction.caught is not None
+
+
+@pytest.mark.asyncio
+async def test_backend_probe_legacy_materialization_failure_is_not_hidden():
+    transaction = BackendProbeTransaction(_safe_backend_facts())
+    failure = BackendProbeLegacyFailure()
+
+    async def backend_probe(*_args, **_kwargs):
+        raise failure
+
+    with pytest.raises(BackendProbeLegacyFailure) as caught:
+        await ConfigurationManager(
+            FakeData(transaction), backend_probe=backend_probe
+        ).execute(_probe_request())
+    assert caught.value is failure
+    assert transaction.caught is failure
+
+
+def test_unconfigured_workspace_probe_is_optional_and_does_not_reuse_control_token():
+    settings = RuntimeSettings(membership_control_token="workspace-control-token")
+
+    assert settings.inference_probe_client() is None
+
+
+def test_partial_workspace_probe_configuration_is_rejected_without_fallback():
+    settings = RuntimeSettings(inference_probe_url="http://inference.internal")
+
+    with pytest.raises(ValueError, match="URL and token are required together"):
+        settings.inference_probe_client()
+
+
+def test_workspace_runtime_builds_probe_client_from_its_dedicated_credentials(
+    monkeypatch,
+):
+    observed = {}
+
+    class FakeProbeClient:
+        def __init__(self, base_url, token, *, timeout_seconds):
+            observed.update(
+                base_url=base_url,
+                token=token,
+                timeout_seconds=timeout_seconds,
+            )
+
+        async def probe_modalities(self, *args, **kwargs):
+            return None
+
+    monkeypatch.setattr(
+        backend_probe_client_module,
+        "BackendProbeHttpClient",
+        FakeProbeClient,
+    )
+    settings = RuntimeSettings(
+        membership_control_token="workspace-control-token",
+        inference_probe_url="http://inference.internal",
+        inference_probe_token="inference-probe-token",
+        inference_probe_timeout_seconds=12.0,
+    )
+
+    client = settings.inference_probe_client()
+
+    assert isinstance(client, FakeProbeClient)
+    assert observed == {
+        "base_url": "http://inference.internal",
+        "token": "inference-probe-token",
+        "timeout_seconds": 12.0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_workspace_http_runtime_injects_probe_client_into_configuration_manager(
+    monkeypatch,
+):
+    import httpx
+
+    from aap_workspace.api import create_app
+
+    transaction = BackendProbeTransaction(_safe_backend_facts())
+    observed = []
+
+    class FakeProbeClient:
+        def __init__(self, _base_url, _token, *, timeout_seconds):
+            self.timeout_seconds = timeout_seconds
+
+        async def probe_modalities(
+            self, registry_id, probe_subject, *, timeout, limits
+        ):
+            observed.append((registry_id, probe_subject, timeout, limits))
+            return ["image", "video"]
+
+    monkeypatch.setattr(
+        backend_probe_client_module,
+        "BackendProbeHttpClient",
+        FakeProbeClient,
+    )
+    app = create_app(
+        RuntimeSettings(
+            membership_control_token="workspace-control-token",
+            inference_probe_url="http://inference.internal",
+            inference_probe_token="inference-probe-token",
+        ),
+        configuration_data=FakeData(transaction),
+    )
+    request = _probe_request()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://workspace.test"
+    ) as client:
+        response = await client.post(
+            "/v1/workspace/configuration/execute",
+            headers={"Authorization": "Bearer workspace-control-token"},
+            json=request.model_dump(mode="json", by_alias=True),
+        )
+
+    assert response.status_code == 200, response.text
+    assert observed and observed[0][0:3] == (_BACKEND, _PROBE_SUBJECT, 10.0)
+    assert [call[0] for call in transaction.calls][-4:] == [
+        "enable_backend",
+        "binding",
+        "update",
+        "finish",
+    ]
 
 
 @pytest.mark.asyncio

@@ -68,6 +68,7 @@ def create_app(
     guide_objects=None,
 ) -> FastAPI:
     settings = settings or RuntimeSettings()
+    backend_probe_client = settings.inference_probe_client()
     if guide_objects is None:
         from .guide_asset_storage import RemoteGuideAssetObjects
 
@@ -225,7 +226,7 @@ def create_app(
     )
 
     def configuration_manager(binding):
-        from aap_inference.capabilities import CapabilityLimits
+        from aap_inference_contract.capabilities import CapabilityLimits
 
         async def noop_projection(request):
             if project_query_data is None or project_query_profiles is None:
@@ -245,6 +246,11 @@ def create_app(
                 video_tracker_sam3_window_size_frames=(
                     settings.configuration_video_tracker_sam3_window_size_frames
                 ),
+            ),
+            backend_probe=(
+                backend_probe_client.probe_modalities
+                if backend_probe_client is not None
+                else None
             ),
             noop_projection=noop_projection,
             guide_objects=guide_objects,
