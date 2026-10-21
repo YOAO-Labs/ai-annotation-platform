@@ -128,7 +128,8 @@ async def _assert_single_pipeline_and_receipt(
     expected_pipeline_id,
     expected_default_id,
 ):
-    async with test_engine.connect() as connection:
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    async with maker() as connection:
         pipeline_rows = (
             (
                 await connection.execute(

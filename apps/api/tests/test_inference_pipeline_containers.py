@@ -115,13 +115,18 @@ for name in (
     }
 forbidden = {
     name: importlib.util.find_spec(name) is not None
-    for name in ("app", "aap_api", "aap_workspace", "celery", "fastapi", "sqlalchemy")
+    for name in ("app", "aap_api", "aap_workspace", "celery", "sqlalchemy")
 }
-print(json.dumps({"packages": packages, "forbidden_runtime_modules": forbidden}, sort_keys=True))
+print(json.dumps({"packages": packages, "forbidden_runtime_modules": forbidden,
+                  "fastapi_transitive_dependency_retained": importlib.util.find_spec("fastapi") is not None}, sort_keys=True))
 """
     raw = _docker("exec", container, "python", "-I", "-c", script, timeout=30)
     value = json.loads(raw)
-    assert set(value) == {"packages", "forbidden_runtime_modules"}
+    assert set(value) == {
+        "packages",
+        "forbidden_runtime_modules",
+        "fastapi_transitive_dependency_retained",
+    }
     return value
 
 
@@ -464,6 +469,9 @@ async def test_inference_pipeline_container_image_replay_restart_and_local_profi
                 ),
                 "forbidden_runtime_modules_present": installed[
                     "forbidden_runtime_modules"
+                ],
+                "fastapi_transitive_dependency_retained": installed[
+                    "fastapi_transitive_dependency_retained"
                 ],
                 "requests": 16,
                 "concurrency": 4,
