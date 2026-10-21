@@ -191,3 +191,4 @@
 - [0143 — Workspace Project Class Rename Owner](0143-workspace-project-class-rename-owner.md)
 - [0144 — Workspace Guide Assets and Assets Object Capability](0144-workspace-guide-assets-owner.md)
 - [0145 — Workspace Project Access Facts for Independent Owners](0145-workspace-project-access-facts.md)
+- [0146 — Independent Inference Named-Pipeline Owner](0146-inference-named-pipeline-owner.md)
