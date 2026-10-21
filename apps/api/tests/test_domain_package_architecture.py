@@ -92,6 +92,7 @@ REMOVED_MODULES = (
     "app.services.storage_connection",
     "app.services.media_materialization",
     "app.workers.media_materialization",
+    "app.services.ml_routing.capability",
     *_SPATIAL_RETIRED_MODULES,
 )
 
@@ -1014,6 +1015,35 @@ def test_inference_pipeline_gateways_use_the_portable_inference_owner() -> None:
             if name == "aap_inference" or name.startswith("aap_inference.")
         }
         assert imported == allowed, f"{package} imports unexpected Inference modules"
+
+
+def test_inference_pool_capability_policy_is_portable() -> None:
+    """Pool canonicalization lives in Inference without API or runtime imports."""
+    retired = _SERVICES_DIR / "ml_routing" / "capability.py"
+    assert not retired.exists(), f"retired capability module returned: {retired}"
+
+    source = (
+        _REPO_ROOT
+        / "apps"
+        / "inference"
+        / "src"
+        / "aap_inference"
+        / "pool_capability.py"
+    )
+    tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+    forbidden = ("app", "sqlalchemy", "fastapi", "celery", "httpx")
+    imports = [
+        imported
+        for imported, _local in _collect_imports(tree, "aap_inference.pool_capability")
+    ]
+    offenders = [
+        imported
+        for imported in imports
+        if any(
+            imported == root or imported.startswith(root + ".") for root in forbidden
+        )
+    ]
+    assert not offenders, f"pool capability imports nonportable modules {offenders}"
 
 
 @pytest.mark.parametrize(

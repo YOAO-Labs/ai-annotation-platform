@@ -1786,7 +1786,7 @@ async def test_tracker_enforce_mode_acquires_and_finishes_route_lease(
 async def _make_multi_member_tracker_job(db_session, user_id):
     from app.db.models.ml_backend_pool import MLBackendPoolMember
     from app.db.models.ml_backend_registry import MLBackendRegistry
-    from app.services.ml_routing.capability import (
+    from aap_inference.pool_capability import (
         canonicalize_capability,
         capability_fingerprint,
     )

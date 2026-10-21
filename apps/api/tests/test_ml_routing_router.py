@@ -54,7 +54,7 @@ async def _seed_pool_with_two_members(
     )
     db.add_all([r1, r2])
     await db.flush()
-    from app.services.ml_routing.capability import capability_fingerprint
+    from aap_inference.pool_capability import capability_fingerprint
 
     fp = capability_fingerprint(caps)
     pool = MLBackendServicePool(

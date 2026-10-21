@@ -1,4 +1,4 @@
-"""v0.23.3 ADR-0050 §7 / §B.5 · capability canonicalization, fingerprint, diff.
+"""Canonical routing capabilities for interchangeable model service-pool members.
 
 A service pool represents interchangeable logical capability. Members join only on
 exact fingerprint match (ADR-0050 D3); mismatch → 409 ``ml_backend_pool_capability_mismatch``

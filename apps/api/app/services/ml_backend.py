@@ -210,7 +210,7 @@ class MLBackendService:
         capability_snapshot = None
         capability_fp = None
         if isinstance(raw_caps, dict):
-            from app.services.ml_routing.capability import (
+            from aap_inference.pool_capability import (
                 canonicalize_capability,
                 capability_fingerprint,
             )
@@ -355,7 +355,7 @@ class MLBackendService:
 
         Returns (member, pool). Raises CapabilityMismatch on fingerprint divergence.
         """
-        from app.services.ml_routing.capability import (
+        from aap_inference.pool_capability import (
             canonicalize_capability,
             capability_fingerprint,
             diff_capabilities,
@@ -439,7 +439,7 @@ class MLBackendService:
         self, registry_id: uuid.UUID, capabilities: dict
     ) -> None:
         """Seed a pool snapshot or disable a member whose stable contract drifted."""
-        from app.services.ml_routing.capability import (
+        from aap_inference.pool_capability import (
             canonicalize_capability,
             capability_fingerprint,
         )
@@ -480,7 +480,7 @@ class MLBackendService:
     def _registry_capability_snapshot(
         registry: MLBackendRegistry,
     ) -> tuple[dict | None, str | None]:
-        from app.services.ml_routing.capability import (
+        from aap_inference.pool_capability import (
             canonicalize_capability,
             capability_fingerprint,
         )
@@ -512,7 +512,7 @@ class MLBackendService:
     async def preview_capability_drift(
         self, pool_id: uuid.UUID, registry_id: uuid.UUID
     ) -> CapabilityDriftPreview | None:
-        from app.services.ml_routing.capability import diff_capabilities
+        from aap_inference.pool_capability import diff_capabilities
 
         pool = await self.db.get(MLBackendServicePool, pool_id)
         if pool is None:
@@ -593,7 +593,7 @@ class MLBackendService:
         complete pool topology and verifies the reviewed fingerprint again before
         atomically replacing the baseline and restoring routing.
         """
-        from app.services.ml_routing.capability import diff_capabilities
+        from aap_inference.pool_capability import diff_capabilities
 
         pool = await self.db.scalar(
             select(MLBackendServicePool)

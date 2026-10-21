@@ -14,7 +14,7 @@ from app.services.ml_backend import (
     MLBackendCapabilityRevalidationError,
     MLBackendService,
 )
-from app.services.ml_routing.capability import capability_fingerprint
+from aap_inference.pool_capability import capability_fingerprint
 from tests.conftest import create_registry_with_pool
 
 

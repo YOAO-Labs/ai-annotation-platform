@@ -32,7 +32,7 @@ async def test_topology_super_admin_sees_full_detail(
         health_meta={"capabilities": caps},
         last_checked_at=datetime.now(UTC),
     )
-    from app.services.ml_routing.capability import (
+    from aap_inference.pool_capability import (
         canonicalize_capability,
         capability_fingerprint,
     )
@@ -140,7 +140,7 @@ async def test_topology_status_derivation(
         health_meta={"capabilities": caps},
         last_checked_at=datetime.now(UTC),
     )
-    from app.services.ml_routing.capability import (
+    from aap_inference.pool_capability import (
         canonicalize_capability,
         capability_fingerprint,
     )

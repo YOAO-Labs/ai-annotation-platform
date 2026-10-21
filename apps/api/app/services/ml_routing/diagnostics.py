@@ -39,7 +39,7 @@ from app.schemas.ml_routing import (
     TopologyResponse,
 )
 from app.services.ml_routing.ledger import RoutingLedger
-from app.services.ml_routing.capability import capability_fingerprint
+from aap_inference.pool_capability import capability_fingerprint
 
 
 def _derive_pool_status(

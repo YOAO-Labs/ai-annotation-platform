@@ -38,7 +38,7 @@ from app.config import settings
 from app.db.models.gpu_backend_membership import GPUBackendMembership
 from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry
-from app.services.ml_routing.capability import capability_fingerprint
+from aap_inference.pool_capability import capability_fingerprint
 from app.services.ml_routing.contracts import (
     RejectionReason,
     RouteLease,
