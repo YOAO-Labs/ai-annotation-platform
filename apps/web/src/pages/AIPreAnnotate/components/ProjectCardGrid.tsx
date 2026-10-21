@@ -43,7 +43,7 @@ export function ProjectCardGrid({ items, isLoading, onSelect }: Props) {
 function ProjectCard({ item, onClick }: { item: PreannotateProjectSummary; onClick: () => void }) {
   return (
     <button type="button" onClick={onClick} className={`${listStyles.row} ${styles.projectCard}`}>
-      <div className={styles.cardTopRow}>
+      <div className={styles.cardContent}>
         <div className={styles.cardTitleBlock}>
           <div className={styles.projectName} title={item.project_name}>
             {item.project_name}
@@ -52,43 +52,43 @@ function ProjectCard({ item, onClick }: { item: PreannotateProjectSummary; onCli
             {item.project_display_id ?? "—"} · {mediaLabel(item.data_type)}
           </div>
         </div>
-        <Icon name="chevRight" size={14} />
-      </div>
 
-      <div className={styles.backendRow}>
-        <span className={`${styles.backendChip} ${backendStateClass(item.ml_backend_state)}`}>
-          <Icon name="bot" size={10} />
-          <span className={styles.backendName}>{item.ml_backend_name ?? "未配置推理服务"}</span>
-          {item.ml_backend_state && ` · ${backendStateLabel(item.ml_backend_state)}`}
-        </span>
-        {item.ml_backend_max_concurrency != null && (
-          <span className={styles.concurrencyText}>
-            最多 {item.ml_backend_max_concurrency} 并发
+        <div className={styles.backendRow}>
+          <span className={`${styles.backendChip} ${backendStateClass(item.ml_backend_state)}`}>
+            <Icon name="bot" size={10} />
+            <span className={styles.backendName}>{item.ml_backend_name ?? "未配置推理服务"}</span>
+            {item.ml_backend_state && ` · ${backendStateLabel(item.ml_backend_state)}`}
           </span>
+          {item.ml_backend_max_concurrency != null && (
+            <span className={styles.concurrencyText}>
+              最多 {item.ml_backend_max_concurrency} 并发
+            </span>
+          )}
+        </div>
+
+        <div className={styles.statsRow}>
+          <BadgeStat
+            label="可预标"
+            value={item.active_batches}
+            variant={item.active_batches > 0 ? "ai" : "muted"}
+          />
+          <BadgeStat
+            label="已就绪"
+            value={item.ready_batches}
+            variant={item.ready_batches > 0 ? "success" : "muted"}
+          />
+          <BadgeStat
+            label="近期失败"
+            value={item.recent_failures}
+            variant={item.recent_failures > 0 ? "danger" : "muted"}
+          />
+        </div>
+
+        {item.last_job_at && (
+          <div className={styles.lastJobText}>最近运行 · {formatRelative(item.last_job_at)}</div>
         )}
       </div>
-
-      <div className={styles.statsRow}>
-        <BadgeStat
-          label="可预标"
-          value={item.active_batches}
-          variant={item.active_batches > 0 ? "ai" : "muted"}
-        />
-        <BadgeStat
-          label="已就绪"
-          value={item.ready_batches}
-          variant={item.ready_batches > 0 ? "success" : "muted"}
-        />
-        <BadgeStat
-          label="近期失败"
-          value={item.recent_failures}
-          variant={item.recent_failures > 0 ? "danger" : "muted"}
-        />
-      </div>
-
-      {item.last_job_at && (
-        <div className={styles.lastJobText}>最近运行 · {formatRelative(item.last_job_at)}</div>
-      )}
+      <Icon name="chevRight" size={14} className={styles.cardArrow} />
     </button>
   );
 }
