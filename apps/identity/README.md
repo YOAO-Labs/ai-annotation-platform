@@ -510,3 +510,9 @@ This implementation is a local architecture slice. It does not complete the
 Identity module, authorize a primary cutover or production deployment, or supply
 an alternate-language provider. Group assignment and remaining lifecycle
 ownership remain open.
+
+`aap_identity.briefs_client.BriefsClient` provides the strict, batched Briefs client
+for other owners. Empty requests do not initialize a provider; selected HTTP errors
+never fall back to SQL, and a shared deadline covers the selected provider.
+uv cache keys include Python/schema sources and metadata so source-only client
+changes also invalidate a noneditable wheel.

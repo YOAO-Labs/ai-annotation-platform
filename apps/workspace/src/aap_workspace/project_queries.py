@@ -19,7 +19,6 @@ from .access_contract import (
 from .project_query_contract import (
     PROJECT_QUERY_PROTOCOL,
     ProjectClassRenameEvidence,
-    ProjectOwnerTransferEvidence,
     ProjectQueryFailure,
     ProjectQueryRejected,
     ProjectQueryProjectionMissing,
@@ -95,6 +94,24 @@ def _list_filters(request):
     }
 
 
+def _date_bounds(filters):
+    result = {}
+    epoch = datetime(1970, 1, 1, tzinfo=UTC)
+    for key in ("created_from", "created_to"):
+        value = filters[key]
+        delta = value - epoch if value is not None else None
+        result[key + "_us"] = (
+            str(
+                delta.days * 86_400_000_000
+                + delta.seconds * 1_000_000
+                + delta.microseconds
+            )
+            if delta is not None
+            else None
+        )
+    return result
+
+
 class ProjectQueryManager:
     def __init__(
         self,
@@ -114,11 +131,6 @@ class ProjectQueryManager:
                 _list_filters(request) if request.filters_ascii is not None else None
             )
             evidence = request.projection_evidence
-            if (
-                isinstance(evidence, ProjectOwnerTransferEvidence)
-                and evidence.snapshot_row_json is None
-            ):
-                raise ProjectQueryUnavailable()
             if isinstance(evidence, ProjectClassRenameEvidence) and not (
                 evidence.is_active
                 and (
@@ -144,11 +156,6 @@ class ProjectQueryManager:
                     data = await self._stats(request, transaction)
                 elif request.operation == "get_project_projection":
                     facts = await self._step(request, transaction, "projection_row")
-                    if (
-                        isinstance(evidence, ProjectOwnerTransferEvidence)
-                        and facts.row_json != evidence.snapshot_row_json
-                    ):
-                        raise ProjectQueryUnavailable()
                     row = decode_project_row(
                         facts.row_json, target_id=request.target_id
                     )
@@ -288,11 +295,16 @@ class ProjectQueryManager:
 
     async def _list(self, request, transaction, filters):
         total = None
+        bounds = _date_bounds(filters)
         if request.operation == "query_projects":
             total = (
-                await self._step(request, transaction, "count_rows", filters=filters)
+                await self._step(
+                    request, transaction, "count_rows", bounds, filters=filters
+                )
             ).count
-        facts = await self._step(request, transaction, "list_rows", filters=filters)
+        facts = await self._step(
+            request, transaction, "list_rows", bounds, filters=filters
+        )
         rows = decode_project_rows(facts.rows_json)
         batch_summaries = {row["id"]: self._batch_summary(row) for row in rows}
         ai_lookup = {}

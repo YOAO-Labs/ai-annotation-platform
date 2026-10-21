@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import struct
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +18,17 @@ _FIXTURE = json.loads(
     (Path(__file__).parent / "fixtures/project_owner_profiles_legacy.json").read_text()
 )
 _RESPONSES = {item["phase"]: item["response"] for item in _FIXTURE["records"]}
+
+
+def _persisted_response(phase):
+    expected = json.loads(json.dumps(_RESPONSES[phase]))
+    rows = expected if isinstance(expected, list) else expected.get("items", [])
+    # The old seed session retained Python defaults in its ORM identity map.
+    # Compare the persisted REAL values that a fresh public request reads.
+    for row in rows:
+        for field in ("box_threshold", "text_threshold"):
+            row[field] = struct.unpack("!f", struct.pack("!f", row[field]))[0]
+    return expected
 
 
 async def _seed(db):
@@ -87,7 +99,7 @@ async def test_owner_profiles_match_legacy_with_one_lookup_per_response(
                 path, params=params, headers={"Authorization": "Bearer " + token}
             )
             assert response.status_code == 200, response.text
-            assert response.json() == _RESPONSES[phase]
+            assert response.json() == _persisted_response(phase)
             assert len(native) - before == 1
             assert calls[-1] == expected_owners
         assert len(calls) == 3

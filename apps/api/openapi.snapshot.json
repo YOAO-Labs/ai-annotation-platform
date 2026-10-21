@@ -72420,7 +72420,6 @@
     },
     "/api/v1/projects/{project_id}/readiness": {
       "get": {
-        "description": "Return the owner-facing, server-observed project start conditions.\n\nThis endpoint intentionally reports task-creation jobs and active member\naccounts together with counters.  The settings page can therefore explain\na pending or failed worker without treating a partially created project as\nready.",
         "operationId": "get_project_readiness_api_v1_projects__project_id__readiness_get",
         "parameters": [
           {

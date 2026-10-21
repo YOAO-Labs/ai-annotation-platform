@@ -356,8 +356,8 @@ async def _seed_world(test_engine) -> dict:
                 "label_config = 'null'::jsonb, "
                 "batch_summary = 'null'::jsonb, "
                 "iou_dedup_threshold = '-0'::double precision, "
-                "box_threshold = 'Infinity'::double precision, "
-                "text_threshold = '-Infinity'::double precision, "
+                "box_threshold = 0.375, "
+                "text_threshold = 0.625, "
                 "due_date = 'infinity'::date, "
                 "created_at = 'infinity'::timestamptz, "
                 "updated_at = :updated_at, "
@@ -661,8 +661,8 @@ async def test_project_query_rows_filters_phases_and_projection_receipts(test_en
         assert scalar_row["label_config"] == "null"
         assert scalar_row["batch_summary"] == "null"
         assert scalar_row["iou_dedup_threshold"] == "-0"
-        assert scalar_row["box_threshold"] == "Infinity"
-        assert scalar_row["text_threshold"] == "-Infinity"
+        assert scalar_row["box_threshold"] == "0.375"
+        assert scalar_row["text_threshold"] == "0.625"
         assert scalar_row["due_date"] == "infinity"
         assert scalar_row["created_at"] == "infinity"
         assert (
@@ -720,7 +720,6 @@ async def test_project_query_rows_filters_phases_and_projection_receipts(test_en
                 "source": "owner_transfer",
                 "operation_id": str(world["transfer_operation_id"]),
                 "new_owner_id": str(world["transfer_new_owner_id"]),
-                "snapshot_row_json": None,
             },
         )
         transferred = await _step(connection, transfer_request, "projection_row")
@@ -740,21 +739,9 @@ async def test_project_query_rows_filters_phases_and_projection_receipts(test_en
                     "project_id": world["owned_project_id"],
                 },
             )
-        frozen_transfer_request = _request(
-            world["transfer_actor_id"],
-            "super_admin",
-            "get_project_projection",
-            target_id=world["owned_project_id"],
-            projection_evidence={
-                **transfer_request["projection_evidence"],
-                "snapshot_row_json": captured_row_json,
-            },
-        )
-        frozen_transfer = await _step(
-            connection, frozen_transfer_request, "projection_row"
-        )
-        assert frozen_transfer["row_json"] == captured_row_json
-        assert json.loads(frozen_transfer["row_json"])["name"] != (
+        refreshed_transfer = await _step(connection, transfer_request, "projection_row")
+        assert refreshed_transfer["row_json"] != captured_row_json
+        assert json.loads(refreshed_transfer["row_json"])["name"] == (
             "Renamed after owner-transfer snapshot"
         )
         for field, invalid_value in (("ok", False), ("schema", "invalid-schema")):

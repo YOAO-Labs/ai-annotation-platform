@@ -18,7 +18,7 @@ from app.services.project_access import (
     resolve_project_access_by_id,
 )
 from app.services.identity_contracts import IdentityActorFacts
-from app.services.workspace_project_query import capture_transfer_projection
+from app.services.workspace_project_query import prepare_transfer_projection
 from app.services.workspace_owner_transfer import (
     transfer_project_owner as execute_owner_transfer,
 )
@@ -113,4 +113,4 @@ async def transfer_project_owner(
         project_id=project_id,
         new_owner_id=new_owner_id,
     )
-    return await capture_transfer_projection(db, actor=actor, transfer=transfer)
+    return await prepare_transfer_projection(db, actor=actor, transfer=transfer)

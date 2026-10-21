@@ -390,6 +390,7 @@ postgres = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-identity", extras = ["postgres"], marker = "extra == 'runtime'", editable = "../identity" },
     { name = "aap-inference", editable = "../inference" },
     { name = "aap-workspace-contract", editable = "../_shared/workspace_contract" },
     { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.29" },

@@ -607,6 +607,27 @@ Node conformance provider 只用于本地替换实验，Native 持有业务策�
 公开 DTO 校验继续在 API 完成。源码、三路径响应对照、独立安装包、受限镜像、
 故障恢复与0259完整迁移均已完成限定本地验收，详见 [ADR-0137](docs/adr/0137-workspace-template-query-owner.md)。
 
+### Workspace 项目查询
+
+项目列表、分页、详情、统计、就绪度、写入后的响应投影及项目搜索使用
+`aap-workspace-project-query/v1`。默认借用调用方事务；
+`WORKSPACE_PROJECT_QUERY_DATABASE_URL(_FILE)` 和 `WORKSPACE_PROJECT_QUERY_URL`
+分别选择专用连接与 HTTP owner，不能同时配置。显式失败不回退，远程截止时间由
+`WORKSPACE_PROJECT_QUERY_TIMEOUT_SECONDS` 控制，默认30秒。
+
+独立运行时使用 `workspace_project_query_client` 的 policy/step 函数权限和只读事务，
+私有入口为 `POST /v1/workspace/project-queries/execute`。非空项目响应还需要显式的
+Identity Briefs 依赖：`WORKSPACE_PROJECT_QUERY_IDENTITY_URL` 及独立 token/file，
+或 `WORKSPACE_PROJECT_QUERY_IDENTITY_BRIEFS_DATABASE_URL(_FILE)`；HTTP 优先。
+空列表、统计和就绪度不初始化资料依赖。资料故障保留独立的503错误文案。
+
+可选 `docker-compose.workspace-project-query.yml` 绑定本机8176，读取三份宿主 secret：
+`WORKSPACE_RUNTIME_PROJECT_QUERY_DATABASE_URL_FILE`、
+`WORKSPACE_RUNTIME_PROJECT_QUERY_BRIEFS_DATABASE_URL_FILE`、
+`WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE`。该组合仍在本地验收阶段，
+三路径响应对照、安装包、镜像及恢复的完成状态见
+[ADR-0139](docs/adr/0139-workspace-project-query-owner.md)。
+
 ### 设计系统
 
 前端设计系统基于 Tailwind CSS + shadcn/ui。运行时主题 Token 定义在 `apps/web/src/styles/shadcn.css`：

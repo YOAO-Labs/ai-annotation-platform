@@ -38,7 +38,8 @@ annotation count snapshots may produce a ratio above 100, as before.
 JSONB columns travel as their exact JSON text, distinguishing SQL NULL from JSON
 null without prematurely applying public DTO validation. This also preserves
 arbitrary JSON integers and finite JSON numbers that overflow Python floats.
-Float columns use round-trippable text. The codec retains the original driver
+Float columns are promoted to double precision before round-trippable text
+encoding, preserving the original binary driver's float32-to-Python value. The codec retains the original driver
 failure phase for finite temporal values outside Python's range. True date
 infinities become date extrema; timestamp infinities become naive datetime
 extrema, while ordinary finite timestamps remain UTC-aware.
@@ -52,12 +53,14 @@ client belongs to Identity and validates the full profile contract. Selected
 HTTP failures never fall back, and profile failures retain their public 503 detail.
 
 Configuration and transfer projections bind actual accepted operation receipts.
-Transfer preserves its precommit row capture: the write coordinator borrows its
-current transaction without autoflush to capture the typed row, then commits and
-hands that exact snapshot to the selected query provider for enrichment. The
-provider verifies the receipt and snapshot target instead of rereading a later
-Project state. This accepted-write handoff is independent of query-provider
-selection and does not constitute fallback after a remote failure.
+Transfer retains both legacy row-read phases. The write coordinator borrows its
+current transaction without autoflush to read and decode the row before its
+caller commits. After commit, the selected query provider verifies the accepted
+receipt and reads the current row again before enrichment, as the previous
+route's refresh did. Concurrent updates are visible at that second read;
+disappearance or decoding failure remains an internal error after the accepted
+write. Neither phase reauthorizes the accepted operation. The precommit read is
+independent of query-provider selection and is not fallback after remote failure.
 Class rename carries raw accepted locked actor/project facts, bound to its source
 operation, and recomputes management authority without a new postcommit check.
 This context trusts the authenticated API coordinator; it is not a durable receipt
@@ -78,14 +81,24 @@ role demotion. The first consumer fixture assumed a reviewer could not see an
 unassigned-reviewer batch; actual legacy behavior corrected that expectation.
 No production rule changed. The failed attempt is retained separately.
 
-The portable manager/contract/codecs pass 24 focused cases covering read phases,
+The portable manager/contract/codecs pass 25 focused cases covering read phases,
 authority order, late business validation, exact counts, profile isolation,
 membership scope binding and accepted projection context. Missing configuration
 projection is an internal failure; malformed search results fail the private
-contract before entering its untyped public response. These are pure-policy checks, not provider or public
-integration acceptance. Native bindings, actual API callers, runtime dependencies,
-three-path comparison, faults/restores and package/image qualification remain
-open. Ordinary API Project readers are unchanged at this checkpoint.
+contract before entering its untyped public response. The complete Workspace
+source suite passes 214 cases, including Project-only runtime assembly, empty
+profile isolation and the explicit HTTP Identity dependency without SQL fallback.
+Native0261 passes three owned database cases for role grants, row/filter/projection
+facts and search relations. Migrations upgrade, roll back and reapply grants;
+owned resources are removed after the check. Migration compilation and invalid
+fixture attempts are retained separately from that passing run.
+
+API Project readers and accepted-write response paths now call the query owner;
+Task/member search consumes the fixed Workspace relations. Thirty-five selected
+Native/public API regressions pass without skips. The borrowed owner also matches
+all 27 frozen HTTP observations and both caller transaction probes. Public
+OpenAPI is unchanged. Full three-path comparison, faults/restores and noneditable
+package/image qualification remain open. No production cutover is claimed.
 
 The full all-module deployment/language-replacement objective remains active.
 Shared PostgreSQL and the trusted coordinator are explicit current constraints.

@@ -360,7 +360,7 @@ async def test_owner_transfer_matches_actual_legacy(test_engine, monkeypatch, bi
                         project_id=projects["direct"].id,
                         new_owner_id=users["receiver"].id,
                     )
-                    assert evidence.project_id == projects["direct"].id
+                    assert evidence.source == "owner_transfer"
                     assert evidence.new_owner_id == users["receiver"].id
                     state = {
                         "in_transaction": caller.in_transaction(),

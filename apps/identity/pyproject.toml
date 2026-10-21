@@ -9,6 +9,14 @@ description = "Portable Identity admission contract and credential verifier"
 requires-python = ">=3.11"
 dependencies = ["pydantic>=2.5", "python-jose[cryptography]>=3.3.0", "bcrypt>=4.0"]
 
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "README.md" },
+    { file = "src/**/*.py" },
+    { file = "src/**/*.json" },
+]
+
 [project.optional-dependencies]
 postgres = ["asyncpg>=0.29"]
 runtime = [

@@ -12,6 +12,7 @@ dependencies = ["aap-workspace-contract", "aap-inference", "pydantic>=2.10"]
 [tool.uv.sources]
 aap-workspace-contract = { path = "../_shared/workspace_contract", editable = true }
 aap-inference = { path = "../inference", editable = true }
+aap-identity = { path = "../identity", editable = true }
 
 [tool.uv]
 cache-keys = [
@@ -24,6 +25,7 @@ cache-keys = [
 [project.optional-dependencies]
 postgres = ["asyncpg>=0.29", "httpx>=0.28"]
 runtime = [
+    "aap-identity[postgres]",
     "asyncpg>=0.29",
     "fastapi>=0.115",
     "httpx>=0.28",

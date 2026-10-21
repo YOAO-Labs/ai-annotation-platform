@@ -53,9 +53,8 @@ Project access values and capability policy live in `access_contract`, including
 the shared membership compatibility rule. API, service and worker consumers
 import this owner directly; the old API value module is removed. Current SQL
 authority resolution and locks remain with their existing adapters. Fifteen
-typed foreign read capabilities support the next Project query extraction;
-ordinary Project queries still execute in the API. See ADR-0138 for the frozen
-baseline and remaining integration boundaries.
+typed foreign read capabilities support the Project query owner. See ADR-0138
+for the frozen baseline and remaining integration boundaries.
 
 uv build-cache keys include package Python/schema sources and README metadata,
 so source-only changes also invalidate a noneditable cached wheel. Independent
@@ -65,6 +64,9 @@ setuptools staging directory from retaining removed modules in a later wheel.
 
 Project query requests, typed read facts, raw value codecs and ordered policy are
 implemented in `project_query_contract`, `project_query_values` and
-`project_queries`. Native/API/runtime integration is still in progress; ordinary
-Project HTTP readers have not switched at this checkpoint. See ADR-0139 for
-authority phases, accepted projection snapshots and remaining qualification.
+`project_queries`. API callers select borrowed, dedicated PostgreSQL or HTTP
+bindings. Native0261 and its function-only credential pass owned database checks;
+the standalone runtime resolves Identity Briefs through its explicit public
+client dependency. Source checks and public regression verification are separate
+from the still-open three-path, package/image, fault and restore qualification.
+See ADR-0139 for authority phases and the current acceptance boundary.

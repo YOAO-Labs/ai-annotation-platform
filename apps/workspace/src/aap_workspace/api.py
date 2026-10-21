@@ -37,6 +37,14 @@ from .template_query_contract import (
     decode_template_query_request,
 )
 from .template_query_postgres import TemplateQueryPostgresData
+from .project_queries import ProjectQueryManager
+from .project_query_contract import (
+    ProjectQueryInvalidRequest,
+    ProjectQueryUnavailable,
+    decode_project_query_request,
+)
+from .project_query_postgres import ProjectQueryPostgresData
+from .project_query_profiles import ProjectQueryIdentityProfiles
 
 
 def create_app(
@@ -46,12 +54,15 @@ def create_app(
     owner_transfer_data=None,
     configuration_data=None,
     template_query_data=None,
+    project_query_data=None,
+    project_query_profiles=None,
 ) -> FastAPI:
     settings = settings or RuntimeSettings()
     control = settings.control_token().encode("utf-8")
     transfer_dsn = settings.transfer_database_url()
     config_dsn = settings.config_database_url()
     query_dsn = settings.query_database_url()
+    project_dsn = settings.project_database_url()
     if owner_transfer_data is None and transfer_dsn:
         owner_transfer_data = OwnerTransferPostgresData(
             transfer_dsn, command_timeout=settings.timeout_seconds
@@ -64,6 +75,12 @@ def create_app(
         template_query_data = TemplateQueryPostgresData(
             query_dsn, command_timeout=settings.timeout_seconds
         )
+    if project_query_data is None and project_dsn:
+        project_query_data = ProjectQueryPostgresData(
+            project_dsn, command_timeout=settings.timeout_seconds
+        )
+    if project_query_profiles is None:
+        project_query_profiles = ProjectQueryIdentityProfiles(settings)
     if data is None and (
         settings.membership_database_url
         or settings.membership_database_url_file
@@ -71,6 +88,7 @@ def create_app(
             owner_transfer_data is None
             and configuration_data is None
             and template_query_data is None
+            and project_query_data is None
         )
     ):
         data = MembershipPostgresData(
@@ -101,12 +119,15 @@ def create_app(
                         await configuration_data.configuration_policy()
                     if template_query_data is not None:
                         await template_query_data.template_query_policy()
+                    if project_query_data is not None:
+                        await project_query_data.project_query_policy()
             return {"status": "ready"}
         except (
             MembershipUnavailable,
             OwnerTransferUnavailable,
             ConfigurationUnavailable,
             TemplateQueryUnavailable,
+            ProjectQueryUnavailable,
             TimeoutError,
         ):
             return JSONResponse({"detail": "Workspace unavailable"}, status_code=503)
@@ -207,5 +228,14 @@ def create_app(
         TemplateQueryInvalidRequest,
         TemplateQueryUnavailable,
         "template query",
+    )
+    register_command(
+        "/v1/workspace/project-queries/execute",
+        decode_project_query_request,
+        lambda binding: ProjectQueryManager(binding, project_query_profiles),
+        project_query_data,
+        ProjectQueryInvalidRequest,
+        ProjectQueryUnavailable,
+        "Project query",
     )
     return app

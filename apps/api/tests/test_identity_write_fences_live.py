@@ -477,7 +477,7 @@ async def test_workspace_transfer_holds_identity_account_locks_through_commit(
                 project_id=project_id,
                 new_owner_id=receiver_id,
             )
-            assert transferred.project_id == project_id
+            assert transferred.source == "owner_transfer"
             assert transferred.new_owner_id == receiver_id
             async with maker() as observer:
                 for table, key in (

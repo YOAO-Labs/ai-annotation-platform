@@ -58,6 +58,9 @@ ProjectQueryAction: TypeAlias = Literal[
 ]
 DecimalCount: TypeAlias = Annotated[StrictStr, Field(pattern=r"^(0|[1-9][0-9]*)$")]
 PositiveDecimal: TypeAlias = Annotated[StrictStr, Field(pattern=r"^[1-9][0-9]*$")]
+SignedMicroseconds: TypeAlias = Annotated[
+    StrictStr, Field(pattern=r"^(0|-?[1-9][0-9]*)$", max_length=19)
+]
 
 PROJECT_ROW_COLUMNS = (
     "id",
@@ -162,7 +165,6 @@ class ProjectOwnerTransferEvidence(ClosedModel):
     source: Literal["owner_transfer"]
     operation_id: uuid.UUID
     new_owner_id: uuid.UUID
-    snapshot_row_json: StrictStr | None
 
 
 class ProjectClassRenameEvidence(ClosedModel):
@@ -443,6 +445,11 @@ ProjectQueryFacts: TypeAlias = (
 )
 
 
+class ProjectQueryDateBounds(ClosedModel):
+    created_from_us: SignedMicroseconds | None
+    created_to_us: SignedMicroseconds | None
+
+
 class ProjectQueryProjectIds(ClosedModel):
     project_ids: list[uuid.UUID]
 
@@ -468,7 +475,8 @@ class ProjectQueryDatasetIds(ClosedModel):
 
 
 ProjectQueryParameters: TypeAlias = (
-    ProjectQueryProjectIds
+    ProjectQueryDateBounds
+    | ProjectQueryProjectIds
     | ProjectQueryProjectId
     | ProjectQueryPoolId
     | ProjectQueryAnnotationCountParameters
@@ -479,8 +487,8 @@ ProjectQueryParameters: TypeAlias = (
 
 # Each action binds both its argument shape and its reply, including repeated reads.
 PROJECT_QUERY_STEPS = {
-    "list_rows": (type(None), ProjectQueryRowsFacts),
-    "count_rows": (type(None), ProjectQueryCountFacts),
+    "list_rows": (ProjectQueryDateBounds, ProjectQueryRowsFacts),
+    "count_rows": (ProjectQueryDateBounds, ProjectQueryCountFacts),
     "visible_rows": (type(None), ProjectQueryRowsFacts),
     "get_row": (type(None), ProjectQueryRowFacts),
     "actor_status": (type(None), ProjectQueryActorFacts),

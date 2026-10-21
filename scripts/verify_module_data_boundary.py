@@ -63,6 +63,7 @@ IDENTITY_CLIENT_ROLES = {
     "WORKSPACE_OWNER_TRANSFER": "workspace_owner_transfer_client",
     "WORKSPACE_CONFIGURATION": "workspace_configuration_client",
     "WORKSPACE_TEMPLATE_QUERY": "workspace_template_query_client",
+    "WORKSPACE_PROJECT_QUERY": "workspace_project_query_client",
 }
 MODULE_ROLES = (
     "identity_code",
@@ -205,6 +206,7 @@ SQL_ARTIFACTS = (
     "0258_workspace_template_query_support.sql",
     "0259_workspace_template_queries.sql",
     "0260_workspace_project_query_support.sql",
+    "0261_workspace_project_queries.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -277,6 +279,7 @@ SCHEMA_ARTIFACTS = (
     "0258_workspace_template_query_support.schema.json",
     "0259_workspace_template_queries.schema.json",
     "0260_workspace_project_query_support.schema.json",
+    "0261_workspace_project_queries.schema.json",
 )
 TEST_FILES = (
     "tests/test_identity_admin_passwords_native.py",
@@ -2085,6 +2088,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_workspace_membership_v1') IS NULL "
             "AND to_regnamespace('aap_workspace_owner_transfer_v1') IS NULL "
             "AND to_regnamespace('aap_workspace_template_query_v1') IS NULL "
+            "AND to_regnamespace('aap_workspace_project_query_v1') IS NULL "
             "AND to_regprocedure('aap_labeling_v1.workspace_project_query_counters(uuid[])') IS NULL "
             "AND to_regprocedure('aap_assets_v1.workspace_project_query_dataset_ids(uuid)') IS NULL "
             "AND to_regprocedure('aap_jobs_v1.workspace_project_query_latest_job_status(uuid)') IS NULL "
@@ -2315,6 +2319,9 @@ def main(argv: list[str] | None = None) -> int:
         workspace_template_query_grants_path = (
             ROOT / "infra/docker/workspace-template-query-grants.sql"
         )
+        workspace_project_query_grants_path = (
+            ROOT / "infra/docker/workspace-project-query-grants.sql"
+        )
         identity_deactivation_grants_path = (
             ROOT / "infra/docker/identity-deactivation-grants.sql"
         )
@@ -2355,6 +2362,7 @@ def main(argv: list[str] | None = None) -> int:
             or not workspace_owner_transfer_grants_path.is_file()
             or not workspace_configuration_grants_path.is_file()
             or not workspace_template_query_grants_path.is_file()
+            or not workspace_project_query_grants_path.is_file()
             or not identity_account_grants_path.is_file()
             or not identity_recovery_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
@@ -2424,6 +2432,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         workspace_template_query_grant_sql = (
             workspace_template_query_grants_path.read_text(encoding="utf-8")
+        )
+        workspace_project_query_grant_sql = (
+            workspace_project_query_grants_path.read_text(encoding="utf-8")
         )
         identity_group_grant_sql = identity_group_grants_path.read_text(
             encoding="utf-8"
@@ -2539,8 +2550,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0260"]:
-            raise RuntimeError("module-data acceptance requires migration head 0260")
+        if heads != ["0261"]:
+            raise RuntimeError("module-data acceptance requires migration head 0261")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -3110,6 +3121,23 @@ def main(argv: list[str] | None = None) -> int:
                 "identity_owner": "identity_code",
                 "workspace_owner": "workspace_code",
                 "workspace_template_query_role": "workspace_template_query_client",
+            },
+        )
+        phase = "install-workspace-project-query-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=workspace_project_query_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "workspace_project_query_role": "workspace_project_query_client",
             },
         )
         resource_environment = backend.environment()

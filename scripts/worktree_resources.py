@@ -560,7 +560,7 @@ class LocalResources:
                     f"GRANT USAGE ON SCHEMA public TO {role}",
                     f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {role}",
                     f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}",
-                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_membership_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_template_query_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_briefs_v1, aap_notifications_v1, aap_settings_v1 TO {role}",
+                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_membership_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_briefs_v1, aap_notifications_v1, aap_settings_v1 TO {role}",
                     "GRANT SELECT ON aap_assets_v1.spatial_item_references, "
                     f"aap_assets_v1.spatial_scene_references TO {role}",
                     f"GRANT EXECUTE ON FUNCTION aap_workspace_owner_transfer_v1.owner_transfer_policy(), "
@@ -568,6 +568,10 @@ class LocalResources:
                     "aap_identity_v1.workspace_template_query_org_ids(uuid), "
                     "aap_workspace_template_query_v1.template_query_policy(), "
                     "aap_workspace_template_query_v1.template_query_step(jsonb, text, jsonb, text, text[], text), "
+                    "aap_workspace_project_query_v1.project_query_policy(), "
+                    "aap_workspace_project_query_v1.project_query_step(jsonb, text, jsonb, text, text, text[], text[], uuid, text, timestamptz, timestamptz, bigint, integer), "
+                    "aap_workspace_project_query_v1.project_search_scope(uuid, text), "
+                    "aap_workspace_project_query_v1.project_search_member_ids(uuid, text), "
                     "aap_workspace_configuration_v1.configuration_policy(), "
                     "aap_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[]), "
                     "aap_workspace_membership_v1.membership_policy(), "

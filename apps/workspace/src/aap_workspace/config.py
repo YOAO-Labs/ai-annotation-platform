@@ -29,6 +29,16 @@ class RuntimeSettings(BaseSettings):
     configuration_database_url_file: str = ""
     template_query_database_url: SecretStr | None = Field(default=None, repr=False)
     template_query_database_url_file: str = ""
+    project_query_database_url: SecretStr | None = Field(default=None, repr=False)
+    project_query_database_url_file: str = ""
+    project_query_identity_url: str = Field(default="", repr=False)
+    project_query_identity_token: SecretStr | None = Field(default=None, repr=False)
+    project_query_identity_token_file: str = ""
+    project_query_identity_briefs_database_url: SecretStr | None = Field(
+        default=None, repr=False
+    )
+    project_query_identity_briefs_database_url_file: str = ""
+    project_query_identity_timeout_seconds: float = Field(default=2, gt=0, le=3600)
     configuration_setup_timeout_seconds: float = Field(default=10, gt=0)
     configuration_video_segment_size_frames: int = Field(default=18000, ge=1)
     configuration_video_tracker_window_size_frames: int = Field(default=300, ge=1)
@@ -61,6 +71,11 @@ class RuntimeSettings(BaseSettings):
     def query_database_url(self) -> str:
         return secret_source(
             self.template_query_database_url, self.template_query_database_url_file
+        )
+
+    def project_database_url(self) -> str:
+        return secret_source(
+            self.project_query_database_url, self.project_query_database_url_file
         )
 
     def control_token(self) -> str:

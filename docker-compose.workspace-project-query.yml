@@ -1,0 +1,40 @@
+services:
+  workspace-project-query:
+    image: aap-workspace:local
+    build:
+      context: .
+      dockerfile: apps/workspace/Dockerfile
+    environment:
+      WORKSPACE_HOST: 0.0.0.0
+      WORKSPACE_PORT: 8176
+      WORKSPACE_PROJECT_QUERY_DATABASE_URL_FILE: /run/secrets/project_query_database_url
+      WORKSPACE_PROJECT_QUERY_IDENTITY_BRIEFS_DATABASE_URL_FILE: /run/secrets/identity_briefs_database_url
+      WORKSPACE_MEMBERSHIP_CONTROL_TOKEN_FILE: /run/secrets/membership_control_token
+    secrets:
+      - project_query_database_url
+      - identity_briefs_database_url
+      - membership_control_token
+    ports:
+      - "127.0.0.1:8176:8176"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8176/ready', timeout=2)"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1
+
+secrets:
+  project_query_database_url:
+    file: ${WORKSPACE_RUNTIME_PROJECT_QUERY_DATABASE_URL_FILE:?Set Workspace Project-query function-only DSN file}
+  identity_briefs_database_url:
+    file: ${WORKSPACE_RUNTIME_PROJECT_QUERY_BRIEFS_DATABASE_URL_FILE:?Set Identity Briefs function-only DSN file}
+  membership_control_token:
+    file: ${WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE:?Set Workspace private bearer file}

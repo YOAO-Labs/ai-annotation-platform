@@ -16,7 +16,10 @@ SET search_path = pg_catalog, pg_temp
 AS $function$
     SELECT CASE
         WHEN pg_catalog.jsonb_typeof(p_value) IS DISTINCT FROM 'object' THEN false
-        ELSE pg_catalog.jsonb_object_length(p_value) = pg_catalog.cardinality(p_keys)
+        ELSE (
+                 SELECT pg_catalog.count(*)
+                 FROM pg_catalog.jsonb_object_keys(p_value)
+             ) = pg_catalog.cardinality(p_keys)
              AND p_value ?& p_keys
              AND NOT EXISTS (
                  SELECT 1
@@ -251,12 +254,6 @@ DECLARE
     v_transfer_changed boolean;
     v_evidence jsonb;
     v_evidence_source text;
-    v_snapshot_row_json text;
-    v_snapshot_row json;
-    v_snapshot_id_text text;
-    v_snapshot_key_count integer;
-    v_snapshot_key_distinct_count integer;
-    v_snapshot_keys_valid boolean;
     v_evidence_operation_id uuid;
     v_evidence_operation text;
     v_evidence_actor_id uuid;
@@ -650,11 +647,11 @@ BEGIN
            OR (v_filters->>'q') IS DISTINCT FROM p_search
            OR (v_filters->>'limit') !~ '^(0|[1-9][0-9]*)$'
            OR pg_catalog.char_length(v_filters->>'limit') > 2
-           OR CASE
+           OR (CASE
                WHEN (v_filters->>'limit') ~ '^(0|[1-9][0-9]{0,1})$'
                THEN (v_filters->>'limit')::integer
                ELSE NULL
-              END IS DISTINCT FROM p_limit
+              END) IS DISTINCT FROM p_limit
            OR p_search IS NULL OR pg_catalog.char_length(p_search) NOT BETWEEN 1 AND 64
            OR p_limit NOT BETWEEN 1 AND 20 THEN
             RAISE EXCEPTION USING ERRCODE = '22023',
@@ -1453,15 +1450,13 @@ BEGIN
                 IF NOT aap_workspace_project_query_v1._has_exact_keys(
                     v_evidence,
                     ARRAY[
-                        'source', 'operation_id', 'new_owner_id',
-                        'snapshot_row_json'
+                        'source', 'operation_id', 'new_owner_id'
                     ]::text[]
                 )
                    OR pg_catalog.jsonb_typeof(v_evidence->'operation_id') IS DISTINCT FROM 'string'
                    OR (v_evidence->>'operation_id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
                    OR pg_catalog.jsonb_typeof(v_evidence->'new_owner_id') IS DISTINCT FROM 'string'
-                   OR (v_evidence->>'new_owner_id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-                   OR pg_catalog.jsonb_typeof(v_evidence->'snapshot_row_json') NOT IN ('null', 'string') THEN
+                   OR (v_evidence->>'new_owner_id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
                     RAISE EXCEPTION USING ERRCODE = '22023',
                         MESSAGE = 'invalid Workspace Project owner-transfer evidence';
                 END IF;
@@ -1538,63 +1533,6 @@ BEGIN
                    (v_transfer_previous_owner_id IS DISTINCT FROM v_evidence_new_owner_id) THEN
                     RAISE EXCEPTION USING ERRCODE = '22023',
                         MESSAGE = 'Workspace Project transfer result change flag is invalid';
-                END IF;
-                IF pg_catalog.jsonb_typeof(v_evidence->'snapshot_row_json') = 'string' THEN
-                    v_snapshot_row_json := v_evidence->>'snapshot_row_json';
-                    BEGIN
-                        v_snapshot_row := v_snapshot_row_json::json;
-                    EXCEPTION WHEN invalid_text_representation THEN
-                        RAISE EXCEPTION USING ERRCODE = '22023',
-                            MESSAGE = 'invalid Workspace Project transfer snapshot JSON';
-                    END;
-                    IF pg_catalog.json_typeof(v_snapshot_row) IS DISTINCT FROM 'object' THEN
-                        RAISE EXCEPTION USING ERRCODE = '22023',
-                            MESSAGE = 'Workspace Project transfer snapshot must be an object';
-                    END IF;
-                    SELECT pg_catalog.count(*)::integer,
-                           pg_catalog.count(DISTINCT field.key)::integer,
-                           pg_catalog.bool_and(field.key = ANY(ARRAY[
-                               'id', 'organization_id', 'display_id', 'name',
-                               'type_label', 'type_key', 'data_type', 'owner_id',
-                               'status', 'ai_enabled', 'ml_backend_pool_id',
-                               'default_variants', 'preannotate_pipeline',
-                               'label_config', 'tool_bindings', 'sampling',
-                               'maximum_annotations', 'show_overlap_first',
-                               'iou_dedup_threshold', 'box_threshold',
-                               'text_threshold', 'ai_interactive_enabled',
-                               'raster_mask_native_editing_enabled', 'mask_qc_config',
-                               'point_cloud_quality_config', 'rendering_config',
-                               'annotation_guide', 'guide_assets', 'model_version',
-                               'task_lock_ttl_seconds', 'total_tasks',
-                               'completed_tasks', 'review_tasks',
-                               'in_progress_tasks', 'batch_summary',
-                               'video_sampling', 'video_collaboration', 'scene_mode',
-                               'prefer_same_scene_continuation',
-                               'scene_continuation_window_min', 'due_date',
-                               'created_at', 'updated_at'
-                           ]::text[]))
-                    INTO v_snapshot_key_count,
-                         v_snapshot_key_distinct_count,
-                         v_snapshot_keys_valid
-                    FROM pg_catalog.json_object_keys(v_snapshot_row) AS field(key);
-                    IF v_snapshot_key_count <> 43
-                       OR v_snapshot_key_distinct_count <> 43
-                       OR v_snapshot_keys_valid IS DISTINCT FROM true THEN
-                        RAISE EXCEPTION USING ERRCODE = '22023',
-                            MESSAGE = 'Workspace Project transfer snapshot has invalid columns';
-                    END IF;
-                    v_snapshot_id_text := pg_catalog.json_extract_path_text(
-                        v_snapshot_row, 'id'
-                    );
-                    IF v_snapshot_id_text IS NULL
-                       OR v_snapshot_id_text !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
-                        RAISE EXCEPTION USING ERRCODE = '22023',
-                            MESSAGE = 'Workspace Project transfer snapshot target does not match';
-                    END IF;
-                    IF v_snapshot_id_text::uuid IS DISTINCT FROM v_target_id THEN
-                        RAISE EXCEPTION USING ERRCODE = '22023',
-                            MESSAGE = 'Workspace Project transfer snapshot target does not match';
-                    END IF;
                 END IF;
             ELSIF v_evidence_source = 'class_rename' THEN
                 IF NOT aap_workspace_project_query_v1._has_exact_keys(
@@ -1675,13 +1613,6 @@ BEGIN
                 MESSAGE = 'unused Workspace Project query binds must be null';
         END IF;
 
-            IF p_action = 'projection_row'
-               AND v_evidence_source = 'owner_transfer'
-               AND v_snapshot_row_json IS NOT NULL THEN
-                v_facts := pg_catalog.jsonb_build_object(
-                    'row_json', pg_catalog.to_jsonb(v_snapshot_row_json)
-                );
-            ELSE
             WITH selected_projects AS MATERIALIZED (
                 SELECT project.id,
                        project.created_at,
@@ -1705,9 +1636,9 @@ BEGIN
                            'sampling', project.sampling,
                            'maximum_annotations', project.maximum_annotations,
                            'show_overlap_first', project.show_overlap_first,
-                           'iou_dedup_threshold', project.iou_dedup_threshold::text,
-                           'box_threshold', project.box_threshold::text,
-                           'text_threshold', project.text_threshold::text,
+                           'iou_dedup_threshold', project.iou_dedup_threshold::double precision::text,
+                           'box_threshold', project.box_threshold::double precision::text,
+                           'text_threshold', project.text_threshold::double precision::text,
                            'ai_interactive_enabled', project.ai_interactive_enabled,
                            'raster_mask_native_editing_enabled', project.raster_mask_native_editing_enabled,
                            'mask_qc_config', project.mask_qc_config::text,
@@ -1868,7 +1799,6 @@ BEGIN
             ELSE
                 v_facts := pg_catalog.jsonb_build_object('rows_json', v_rows_json);
             END IF;
-        END IF;
     END IF;
 
     RETURN pg_catalog.jsonb_build_object(

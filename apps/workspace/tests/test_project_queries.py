@@ -303,7 +303,7 @@ async def test_list_reads_batched_ai_then_one_profile_lookup_then_row_facts_and_
     )
     assert data.events == [
         "transaction",
-        ("list_rows", None),
+        ("list_rows", {"created_from_us": None, "created_to_us": None}),
         ("ai_counts", {"project_ids": [str(PROJECT)]}),
         ("profiles", {ACTOR}),
         ("member_count", {"project_id": str(PROJECT)}),
@@ -349,7 +349,9 @@ async def test_paged_count_precedes_rows_and_date_only_end_keeps_full_day():
         pagination={"page": "9007199254740993", "page_size": 20},
     )
     reply = await ProjectQueryManager(data, object()).execute(value)
-    assert data.events == ["transaction", ("count_rows", None), ("list_rows", None)]
+    assert data.events[0] == "transaction"
+    assert [event[0] for event in data.events[1:]] == ["count_rows", "list_rows"]
+    assert data.events[1][1] == data.events[2][1]
     assert data.filters[0]["created_to"] == datetime(
         2026, 1, 2, 23, 59, 59, 999999, tzinfo=UTC
     )
@@ -594,31 +596,23 @@ async def test_missing_configuration_projection_is_an_internal_failure_before_pr
 
 
 @pytest.mark.asyncio
-async def test_transfer_projection_requires_and_retains_the_precommit_row_snapshot():
-    snapshot = json.dumps(row(name="Before caller commit"))
+async def test_transfer_projection_reads_current_row_without_reauthorizing():
     evidence = {
         "source": "owner_transfer",
         "operation_id": uuid.UUID(int=8),
         "new_owner_id": ACTOR,
-        "snapshot_row_json": snapshot,
     }
     value = request("get_project_projection", projection_evidence=evidence)
-    facts = serialization_facts(row())
-    facts["projection_row"] = {"row_json": snapshot}
-    data = Data(facts)
-    reply = await ProjectQueryManager(data, Profiles(data.events)).execute(value)
-    assert materialize_project_query_data(reply)["name"] == "Before caller commit"
     data = Data(serialization_facts(row(name="Changed after caller commit")))
-    with pytest.raises(ProjectQueryUnavailable):
-        await ProjectQueryManager(data, object()).execute(value)
-    value = request(
-        "get_project_projection",
-        projection_evidence={**evidence, "snapshot_row_json": None},
+    reply = await ProjectQueryManager(data, Profiles(data.events)).execute(value)
+    assert (
+        materialize_project_query_data(reply)["name"] == "Changed after caller commit"
     )
-    data = Data({})
-    with pytest.raises(ProjectQueryUnavailable):
+    assert "actor_status" not in [event[0] for event in data.events[1:]]
+    data = Data({"projection_row": {"row_json": None}})
+    with pytest.raises(ProjectQueryProjectionMissing):
         await ProjectQueryManager(data, object()).execute(value)
-    assert data.events == []
+    assert data.events == ["transaction", ("projection_row", None)]
 
 
 def test_search_reply_rejects_bad_scalar_types_and_results_beyond_its_limit():
@@ -638,3 +632,20 @@ def test_search_reply_rejects_bad_scalar_types_and_results_beyond_its_limit():
                     "data_json": json.dumps(data),
                 },
             )
+
+
+@pytest.mark.asyncio
+async def test_parsed_date_bounds_bind_exact_microseconds_across_offset_seconds():
+    data = Data({"list_rows": {"rows_json": "[]"}})
+    value = request(
+        filters={
+            "created_from": "1970-01-01T01:02:03.000001+01:02:03",
+            "created_to": "1970-01-01T00:00:00.000002Z",
+        }
+    )
+    reply = await ProjectQueryManager(data, object()).execute(value)
+    assert reply.ok
+    assert data.events == [
+        "transaction",
+        ("list_rows", {"created_from_us": "1", "created_to_us": "2"}),
+    ]
