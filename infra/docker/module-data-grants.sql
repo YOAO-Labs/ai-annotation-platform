@@ -318,6 +318,7 @@ GRANT SELECT (
     created_at, updated_at
 ) ON public.projects TO :"workspace_owner";
 GRANT UPDATE (owner_id, updated_at) ON public.projects TO :"workspace_owner";
+GRANT UPDATE (guide_assets) ON public.projects TO :"workspace_owner";
 GRANT SELECT (ml_backend_pool_id) ON public.projects TO :"workspace_owner";
 GRANT INSERT (
     id, display_id, name, type_label, type_key, data_type, owner_id, status,
@@ -1667,6 +1668,10 @@ ALTER FUNCTION aap_workspace_configuration_v1._configuration_actor(uuid, boolean
 ALTER FUNCTION aap_workspace_configuration_v1._class_rename_project_row(uuid, text)
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_configuration_v1._class_rename_member_rows(uuid, uuid)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_configuration_v1._guide_asset_read_project_row(uuid)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_configuration_v1._guide_asset_read_member_rows(uuid, uuid)
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_configuration_v1._configuration_project_snapshot(uuid, text)
     OWNER TO :"workspace_owner";
