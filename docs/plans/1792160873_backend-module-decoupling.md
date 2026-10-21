@@ -3992,3 +3992,28 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   existing Workspace configuration owner with a narrow Labeling write capability;
   replay the frozen lock cases before qualification. Do not split writes across
   independent HTTP transactions or add update-project side effects.
+
+### Project guide assets: actual object-I/O baseline frozen
+
+- Freeze11 actual HTTP/storage scenarios, SHA
+  `88c7a43398c5562d64ba081cf541dd36cb296135486737375c1100aa9039bb0d`, at
+  `apps/api/tests/fixtures/project_guide_assets_legacy/samples.json`. All19
+  affected source files match the unchanged route/workflow base. Presigned PUT,
+  HEAD, signing and deletion use real task-owned MinIO objects; signed query,
+  token and DSN secrets are excluded from the artifact.
+- Completion retains key/type validation and unlocked HEAD before current
+  authority/exclusive Project lock, metadata SQL and commit. Missing objects
+  fail before that exclusive lock. Wrong-project completion rejects before
+  HEAD; wrong-project deletion and an unregistered reference reject after the
+  Project lock but before storage. A visible member can sign a registered asset;
+  a nonowner project-admin member cannot delete it.
+- Deletion mutates the in-memory metadata under its current fence, performs S3
+  deletion, then flushes Project metadata and commits. A real MinIO AccessDenied
+  using the existing catalog GET-only identity still yields200 and commits the
+  metadata removal, leaving the object/version state intact. No credential or
+  policy privileges are expanded. Preserve this order and failure behavior during
+  extraction instead of silently substituting an outbox or earlier SQL commit.
+- The owned capture passes on0266 with a versioned bucket; exact row/key/version
+  cleanup and verifier resource/credential destruction report no errors. This is
+  separate legacy evidence, not an independent guide owner. Production guide code
+  remains unchanged while the class-rename command boundary is designed.

@@ -963,6 +963,95 @@ async def test_capture_legacy_project_guide_asset_http_and_io(
                         }
                     )
 
+                    denied_key = (
+                        f"projects/{project.id}/guide/{uuid.uuid4()}-delete-denied.png"
+                    )
+                    aliases[denied_key] = "$guide_delete_denied"
+                    _assert_key_unused(owner_s3, bucket, denied_key)
+                    owned_keys.append(denied_key)
+                    owner_s3.put_object(
+                        Bucket=bucket,
+                        Key=denied_key,
+                        Body=_GUIDE_FILE,
+                        ContentType="image/png",
+                    )
+                    async with owner_maker.begin() as fixture_db:
+                        fixture_project = await fixture_db.get(Project, project.id)
+                        fixture_project.guide_assets = [
+                            *(fixture_project.guide_assets or []),
+                            {
+                                "key": denied_key,
+                                "original_name": "delete-denied.png",
+                                "content_type": "image/png",
+                                "size": len(_GUIDE_FILE),
+                                "uploaded_at": "2026-01-15T12:00:00+00:00",
+                            },
+                        ]
+                    deny_delete_client = _local_s3_client(
+                        settings,
+                        _required_env("AAP_MODULE_DATA_ASSET_CATALOG_S3_ACCESS_KEY"),
+                        _required_env("AAP_MODULE_DATA_ASSET_CATALOG_S3_SECRET_KEY"),
+                    )
+                    # This already-owned identity only has GET permissions. Its
+                    # real MinIO denial exercises the failure path without an
+                    # additional identity, policy mutation or fabricated error.
+                    before = await _project_assets(owner_maker, project.id, aliases)
+                    denied_versions = _version_summary(owner_s3, bucket, denied_key)
+                    with monkeypatch.context() as denied_storage:
+                        denied_storage.setattr(
+                            storage_service, "client", deny_delete_client
+                        )
+                        failed_delete, failed_delete_raw = await _capture_http(
+                            client,
+                            label="real_delete_denial_still_removes_metadata",
+                            method="DELETE",
+                            path=base_path,
+                            actor_alias="owner",
+                            token=tokens["owner"],
+                            aliases=aliases,
+                            params={"key": denied_key},
+                        )
+                    assert failed_delete["response"]["status"] == 200
+                    assert failed_delete_raw == {"deleted": denied_key}
+                    denied_events = [
+                        item
+                        for item in failed_delete["ordered_effects"]
+                        if item.get("kind") == "storage"
+                    ]
+                    assert len(denied_events) == 1
+                    assert denied_events[0]["operation"] == "delete_object"
+                    assert denied_events[0]["outcome"] == "error"
+                    assert denied_events[0]["error_code"] in {"AccessDenied", "403"}
+                    after = await _project_assets(owner_maker, project.id, aliases)
+                    assert not any(
+                        entry["key"] == "$guide_delete_denied" for entry in after
+                    )
+                    assert _object_state(owner_s3, bucket, denied_key)["exists"]
+                    assert (
+                        _version_summary(owner_s3, bucket, denied_key)
+                        == denied_versions
+                    )
+                    assert (
+                        _phase_sequences(failed_delete, "project.lock")[0]
+                        < denied_events[0]["sequence"]
+                        < _phase_sequences(failed_delete, "project.write")[0]
+                        < _phase_sequences(failed_delete, "database.commit")[0]
+                    )
+                    operations.append(
+                        {
+                            **failed_delete,
+                            "project_assets_before": before,
+                            "project_assets_after": after,
+                            "object_after": _object_state(owner_s3, bucket, denied_key),
+                            "object_versions_before": denied_versions,
+                            "object_versions_after": _version_summary(
+                                owner_s3, bucket, denied_key
+                            ),
+                            "storage_identity": "existing-verifier-catalog-readonly",
+                            "storage_policy_changed": False,
+                        }
+                    )
+
                     before = await _project_assets(owner_maker, project.id, aliases)
                     object_before_delete = _object_state(owner_s3, bucket, key)
                     deleted, deleted_raw = await _capture_http(
@@ -1008,7 +1097,7 @@ async def test_capture_legacy_project_guide_asset_http_and_io(
                         }
                     )
 
-                    assert len(operations) == 10
+                    assert len(operations) == 11
                     capture = {
                         "capture_kind": "actual-legacy-project-guide-assets-http-and-effects",
                         "source": source,
@@ -1024,10 +1113,7 @@ async def test_capture_legacy_project_guide_asset_http_and_io(
                             "fixture_object_put_is_real": True,
                             "api_head_and_delete_are_unmocked": True,
                             "cleanup_scope": "exact generated object keys and versions only",
-                            "delete_storage_failure": (
-                                "not exercised: the verifier supplies no guide-assets "
-                                "deny-delete identity, and this capture does not alter MinIO policies"
-                            ),
+                            "delete_storage_failure": "actual MinIO AccessDenied with existing readonly catalog credential; metadata still commits, object remains",
                         },
                         "samples": operations,
                     }
