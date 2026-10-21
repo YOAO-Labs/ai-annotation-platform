@@ -9,6 +9,7 @@ import pytest
 from aap_inference.pipeline_contract import (
     PIPELINE_STEP_PROTOCOL,
     PipelineStepSuccess,
+    PipelineUnavailable,
     pipeline_command_request,
     pipeline_status_request,
 )
@@ -372,6 +373,112 @@ async def test_backend_probe_keeps_registry_pool_and_association_reads_separate(
     )
 
     assert missing == [str(backend_id), "not-a-uuid"]
+    assert [event[0] for event in transaction.events] == [
+        "backend_get",
+        "backend_pool",
+        "backend_enabled",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_backend_probe_rejects_registry_for_another_requested_id():
+    actor_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    backend_id = uuid.uuid4()
+    unrelated_backend_id = uuid.uuid4()
+
+    def handle(_request, action, _args):
+        if action == "backend_get":
+            return _backend_registry_facts(unrelated_backend_id)
+        raise AssertionError(
+            f"Unexpected backend action after mismatched registry: {action}"
+        )
+
+    request = _command(
+        operation="apply_pipeline",
+        actor_id=actor_id,
+        actor_role="project_admin",
+        target_id=project_id,
+        payload={"pipeline_id": str(uuid.uuid4()), "set_default": False},
+    )
+    transaction = _Transaction(owns_commit=False, step_handler=handle)
+
+    with pytest.raises(PipelineUnavailable):
+        await PipelineManager(_Data(owns_commit=False))._unenabled_backend_ids(
+            transaction,
+            request,
+            project_id,
+            [{"ml_backend_id": str(backend_id)}],
+        )
+
+    assert [event[0] for event in transaction.events] == ["backend_get"]
+
+
+@pytest.mark.parametrize("mismatched_field", ["project_id", "pool_id"])
+@pytest.mark.asyncio
+async def test_backend_probe_rejects_misbound_project_association(mismatched_field):
+    actor_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    backend_id = uuid.uuid4()
+    pool_id = uuid.uuid4()
+    unrelated_id = uuid.uuid4()
+    association_id = uuid.uuid4()
+    association_project_id = project_id
+    association_pool_id = pool_id
+    if mismatched_field == "project_id":
+        association_project_id = unrelated_id
+    else:
+        association_pool_id = unrelated_id
+
+    def handle(_request, action, _args):
+        if action == "backend_get":
+            return _backend_registry_facts(backend_id)
+        if action == "backend_pool":
+            return {
+                "rows_json": json.dumps(
+                    [
+                        {
+                            "id": str(pool_id),
+                            "created_at": "2025-01-01T00:00:00Z",
+                            "updated_at": "2025-01-01T00:00:00Z",
+                            "capability_snapshot": "null",
+                        }
+                    ]
+                )
+            }
+        if action == "backend_enabled":
+            return {
+                "row_json": json.dumps(
+                    {
+                        "id": str(association_id),
+                        "project_id": str(association_project_id),
+                        "pool_id": str(association_pool_id),
+                        "enabled": True,
+                        "created_at": "2025-01-01T00:00:00Z",
+                        "updated_at": "2025-01-01T00:00:00Z",
+                        "default_variants": "null",
+                    }
+                )
+            }
+        raise AssertionError(f"Unexpected backend action: {action}")
+
+    request = _command(
+        operation="apply_pipeline",
+        actor_id=actor_id,
+        actor_role="project_admin",
+        target_id=project_id,
+        payload={"pipeline_id": str(uuid.uuid4()), "set_default": False},
+    )
+    transaction = _Transaction(owns_commit=False, step_handler=handle)
+
+    with pytest.raises(PipelineUnavailable):
+        await PipelineManager(_Data(owns_commit=False))._unenabled_backend_ids(
+            transaction,
+            request,
+            project_id,
+            [{"ml_backend_id": str(backend_id)}],
+        )
+
     assert [event[0] for event in transaction.events] == [
         "backend_get",
         "backend_pool",

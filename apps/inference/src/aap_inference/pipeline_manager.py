@@ -908,6 +908,8 @@ class PipelineManager:
             if registry is None:
                 missing.append(backend_id)
                 continue
+            if registry["id"] != parsed_backend_id:
+                raise PipelineUnavailable()
 
             pool_facts = _exact_dict(
                 await self._step(
@@ -944,6 +946,11 @@ class PipelineManager:
                 )
             except (ValueError, OverflowError) as error:
                 raise self._legacy_materialization_failure() from error
+            if association is not None and (
+                association["project_id"] != project_id
+                or association["pool_id"] != pool_id
+            ):
+                raise PipelineUnavailable()
             if association is None or not bool(association["enabled"]):
                 missing.append(backend_id)
         return missing
