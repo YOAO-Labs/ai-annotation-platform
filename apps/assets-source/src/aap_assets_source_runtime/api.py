@@ -15,7 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from .config import SourceConfig, load_config
+from .config import GuideOnlyConfig, SourceConfig, load_config
 from aap_assets_source.contract import (
     SourceDeletionRequest,
     SourceFailure,
@@ -48,6 +48,7 @@ from .runtime import SourceRuntime
 
 logger = logging.getLogger("aap_assets_source_runtime")
 _SOURCE_SCHEMA = "aap-assets-source/v1"
+_GUIDE_OBJECT_PATH = "/v1/guide-objects/execute"
 _ZIP_UPLOAD_PATH = "/v1/source/upload-zip"
 _ZIP_SPOOL_MEMORY_BYTES = 8 * 1024 * 1024
 _CONNECTION_PATHS = frozenset(
@@ -324,10 +325,12 @@ async def _require_gateway(request: Request) -> None:
 
 def create_app(
     *,
-    config: SourceConfig | None = None,
+    config: SourceConfig | GuideOnlyConfig | None = None,
     runtime: SourceRuntime | None = None,
 ) -> FastAPI:
     actual_config = config or load_config()
+    guide_only = isinstance(actual_config, GuideOnlyConfig)
+    guide_enabled = guide_only or actual_config.guide is not None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -365,6 +368,11 @@ def create_app(
     ) -> JSONResponse:
         if request.url.path in _CONNECTION_PATHS:
             return _connection_failure_response("invalid_request")
+        if request.url.path == _GUIDE_OBJECT_PATH:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"detail": "Invalid guide object request"},
+            )
         if request.url.path in {_ZIP_UPLOAD_PATH, "/v1/source/scan"}:
             return _ingest_failure_response("invalid_request")
         return _failure_response("invalid_request")
@@ -384,6 +392,59 @@ def create_app(
                 detail="Assets source is not ready",
             ) from None
         return {"status": "ready"}
+
+    if guide_enabled:
+        from aap_assets_source.guide_object_contract import (
+            GuideObjectFailure,
+            decode_guide_object_reply,
+            decode_guide_object_request,
+            guide_object_failure_reply,
+        )
+
+        @app.post(
+            _GUIDE_OBJECT_PATH,
+            dependencies=[Depends(_require_gateway)],
+        )
+        async def guide_object_execute(request: Request) -> Response:
+            try:
+                guide_request = decode_guide_object_request(await request.body())
+            except ValueError:
+                return JSONResponse(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    content={"detail": "Invalid guide object request"},
+                )
+
+            try:
+                payload = await request.app.state.runtime.guide_object(guide_request)
+                if not isinstance(payload, bytes):
+                    raise RuntimeError("Guide object runtime returned no bytes")
+                try:
+                    decode_guide_object_reply(guide_request, payload)
+                except GuideObjectFailure:
+                    pass
+                except ValueError:
+                    raise RuntimeError(
+                        "Guide object runtime returned an invalid reply"
+                    ) from None
+            except GuideObjectFailure as exc:
+                reply = guide_object_failure_reply(guide_request, exc.code)
+                payload = reply.model_dump_json(by_alias=True).encode("utf-8")
+            except Exception as exc:  # noqa: BLE001 - keep storage faults off the wire
+                logger.error("Guide object request failed (%s)", type(exc).__name__)
+                return JSONResponse(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    content={"detail": "Assets guide storage failed"},
+                )
+
+            if len(payload) > actual_config.max_response_bytes:
+                return JSONResponse(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    content={"detail": "Assets guide response is too large"},
+                )
+            return Response(content=payload, media_type="application/json")
+
+    if guide_only:
+        return app
 
     @app.post("/v1/source/upload-init", dependencies=[Depends(_require_gateway)])
     async def upload_init(request: Request, body: UploadInitRequest) -> Response:
