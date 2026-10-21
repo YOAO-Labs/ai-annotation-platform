@@ -832,7 +832,8 @@ GRANT USAGE ON SCHEMA aap_identity_keys_v1, aap_identity_sessions_v1,
     aap_identity_offboarding_v1, aap_identity_briefs_v1
     TO :"identity_owner";
 GRANT USAGE ON SCHEMA aap_workspace_v1 TO :"workspace_owner", :"assets_owner",
-    :"labeling_owner", :"jobs_owner", :"workflow_role", :"identity_owner";
+    :"labeling_owner", :"jobs_owner", :"workflow_role", :"identity_owner",
+    :"inference_owner";
 GRANT USAGE ON SCHEMA aap_assets_v1 TO :"assets_owner", :"labeling_owner",
     :"jobs_owner", :"learning_owner", :"workspace_owner", :"workflow_role",
     :"asset_cleanup_role";
@@ -1049,6 +1050,8 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.read_project_visibility(uuid, uuid)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_manager(uuid, uuid)
     TO :"assets_owner", :"labeling_owner", :"jobs_owner", :"workflow_role";
+GRANT EXECUTE ON FUNCTION aap_workspace_v1.project_access_step(uuid, uuid, text)
+    TO :"inference_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.lock_dataset_reference(uuid),
     aap_assets_v1.lock_current_association(uuid, uuid),
     aap_assets_v1.lock_append_sources(uuid, uuid[]),
@@ -1581,6 +1584,8 @@ ALTER FUNCTION aap_workspace_v1._project_read_failure(text)
 ALTER FUNCTION aap_workspace_v1.read_project_visibility(uuid, uuid)
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.lock_project_manager(uuid, uuid) OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1.project_access_step(uuid, uuid, text)
+    OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.lock_group_assignment_scope(uuid, uuid[], boolean)
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.invitation_projects(uuid[])
