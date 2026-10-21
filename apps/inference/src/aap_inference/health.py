@@ -7,7 +7,7 @@ import secrets
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from aap_inference_contract.capabilities import CapabilityLimits
 from aap_protocol_v2.lifecycle import managed_lifecycle_capability_sha256
@@ -30,11 +30,13 @@ class MembershipRow(Protocol):
 
 
 class PoolMemberRow(Protocol):
+    id: uuid.UUID
     pool_id: uuid.UUID
     traffic_state: str
 
 
 class ServicePoolRow(Protocol):
+    id: uuid.UUID
     capability_snapshot: dict[str, Any] | None
     capability_fingerprint: str | None
     routing_generation: int
@@ -77,7 +79,23 @@ class BackendHealthData(Protocol):
         self, registry_id: uuid.UUID
     ) -> PoolMemberRow | None: ...
 
-    async def load_pool(self, pool_id: uuid.UUID) -> ServicePoolRow | None: ...
+    async def load_pool(
+        self, pool_id: uuid.UUID, *, registry_id: uuid.UUID
+    ) -> ServicePoolRow | None: ...
+
+    async def stage_pool_reconciliation(
+        self,
+        registry_id: uuid.UUID,
+        pool: ServicePoolRow,
+        member: PoolMemberRow,
+        *,
+        operation: Literal["seed", "disable"],
+        snapshot: dict[str, Any],
+        fingerprint: str,
+        expected_generation: int,
+        expected_pool_fingerprint: str | None,
+        expected_member_state: str,
+    ) -> None: ...
 
     async def flush(self) -> None: ...
 
@@ -107,7 +125,7 @@ async def reconcile_pool_capability(
     pool_id = await data.read_member_pool(registry_id)
     if pool_id is None:
         return
-    pool = await data.load_pool(pool_id)
+    pool = await data.load_pool(pool_id, registry_id=registry_id)
     if pool is None:
         return
     member = await data.load_pool_member(registry_id)
@@ -116,19 +134,47 @@ async def reconcile_pool_capability(
     snapshot = canonicalize_capability(capabilities)
     fingerprint = capability_fingerprint(snapshot)
     if pool.capability_fingerprint is None:
+        expected_generation = pool.routing_generation
+        expected_pool_fingerprint = pool.capability_fingerprint
+        expected_member_state = member.traffic_state
         pool.capability_snapshot = snapshot
         pool.capability_fingerprint = fingerprint
         pool.routing_generation += 1
+        await data.stage_pool_reconciliation(
+            registry_id,
+            pool,
+            member,
+            operation="seed",
+            snapshot=snapshot,
+            fingerprint=fingerprint,
+            expected_generation=expected_generation,
+            expected_pool_fingerprint=expected_pool_fingerprint,
+            expected_member_state=expected_member_state,
+        )
     elif (
         pool.capability_fingerprint != fingerprint
         and member.traffic_state != "disabled"
     ):
+        expected_generation = pool.routing_generation
+        expected_pool_fingerprint = pool.capability_fingerprint
+        expected_member_state = member.traffic_state
         member.traffic_state = "disabled"
         if pool.legacy_instance_id == registry_id:
             # Off/observe dispatch uses the legacy instance; drift disables the
             # pool until an equivalent legacy is selected explicitly.
             pool.enabled = False
         pool.routing_generation += 1
+        await data.stage_pool_reconciliation(
+            registry_id,
+            pool,
+            member,
+            operation="disable",
+            snapshot=snapshot,
+            fingerprint=fingerprint,
+            expected_generation=expected_generation,
+            expected_pool_fingerprint=expected_pool_fingerprint,
+            expected_member_state=expected_member_state,
+        )
 
 
 class BackendHealthCoordinator:

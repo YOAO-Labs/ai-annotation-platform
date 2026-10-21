@@ -10,6 +10,11 @@ import pytest
 from aap_inference.health import (
     GPU_HEALTH_CHALLENGE_ECHO_MARKER,
     BackendHealthCoordinator,
+    reconcile_pool_capability,
+)
+from aap_inference.pool_capability import (
+    canonicalize_capability,
+    capability_fingerprint,
 )
 from aap_inference_contract.capabilities import CapabilityLimits
 
@@ -33,6 +38,8 @@ class _Data:
         self.member = member
         self.pool = pool
         self.values = None
+        self.loaded_pool_registry_ids = []
+        self.staged = []
 
     async def get_backend(self, registry_id):
         self.trace.append("backend")
@@ -73,9 +80,37 @@ class _Data:
         self.trace.append("member_lock")
         return self.member
 
-    async def load_pool(self, pool_id):
+    async def load_pool(self, pool_id, *, registry_id):
         self.trace.append("pool_lock")
+        self.loaded_pool_registry_ids.append(registry_id)
         return self.pool
+
+    async def stage_pool_reconciliation(
+        self,
+        registry_id,
+        pool,
+        member,
+        *,
+        operation,
+        snapshot,
+        fingerprint,
+        expected_generation,
+        expected_pool_fingerprint,
+        expected_member_state,
+    ):
+        self.staged.append(
+            {
+                "registry_id": registry_id,
+                "pool_id": pool.id,
+                "member_id": member.id,
+                "operation": operation,
+                "snapshot": snapshot,
+                "fingerprint": fingerprint,
+                "expected_generation": expected_generation,
+                "expected_pool_fingerprint": expected_pool_fingerprint,
+                "expected_member_state": expected_member_state,
+            }
+        )
 
     async def flush(self):
         self.trace.append("flush")
@@ -147,8 +182,10 @@ async def test_gpu_health_phases_keep_io_before_locks_and_proof_after_observatio
         gpu_resource_id="gpu/0",
         last_checked_at=None,
     )
-    member = SimpleNamespace(pool_id=uuid.uuid4(), traffic_state="active")
+    pool_id = uuid.uuid4()
+    member = SimpleNamespace(id=uuid.uuid4(), pool_id=pool_id, traffic_state="active")
     pool = SimpleNamespace(
+        id=pool_id,
         capability_snapshot=None,
         capability_fingerprint=None,
         routing_generation=0,
@@ -204,6 +241,55 @@ async def test_gpu_health_phases_keep_io_before_locks_and_proof_after_observatio
     assert proof["probe_started_at"] == "2026-01-01T00:00:00Z"
     assert proof["observed_at"] == "2026-01-01T00:00:02Z"
     assert proof["membership_epoch"] == "8"
+    assert data.loaded_pool_registry_ids == [registry_id]
+    assert len(data.staged) == 1
+    assert data.staged[0]["operation"] == "seed"
+    assert data.staged[0]["expected_generation"] == 0
+    assert data.staged[0]["expected_pool_fingerprint"] is None
+    assert data.staged[0]["expected_member_state"] == "active"
+    assert data.staged[0]["snapshot"] == pool.capability_snapshot
+    assert data.staged[0]["fingerprint"] == pool.capability_fingerprint
+
+
+@pytest.mark.asyncio
+async def test_drift_stages_native_disable_with_pre_mutation_fences():
+    registry_id = uuid.uuid4()
+    pool_id = uuid.uuid4()
+    member = SimpleNamespace(id=uuid.uuid4(), pool_id=pool_id, traffic_state="active")
+    pool = SimpleNamespace(
+        id=pool_id,
+        capability_snapshot={"model_version": "old"},
+        capability_fingerprint="0" * 64,
+        routing_generation=5,
+        legacy_instance_id=registry_id,
+        enabled=True,
+    )
+    capabilities = {"name": "controlled", "supported_prompts": ["bbox"]}
+    canonical_snapshot = canonicalize_capability(capabilities)
+    candidate_fingerprint = capability_fingerprint(canonical_snapshot)
+    data = _Data(member=member, pool=pool)
+
+    await reconcile_pool_capability(data, registry_id, capabilities)
+
+    assert member.traffic_state == "disabled"
+    assert pool.enabled is False
+    assert pool.routing_generation == 6
+    assert data.trace == ["member_read", "pool_lock", "member_lock"]
+    assert data.loaded_pool_registry_ids == [registry_id]
+    assert data.staged == [
+        {
+            "registry_id": registry_id,
+            "pool_id": pool_id,
+            "member_id": member.id,
+            "operation": "disable",
+            "snapshot": canonical_snapshot,
+            "fingerprint": candidate_fingerprint,
+            "expected_generation": 5,
+            "expected_pool_fingerprint": "0" * 64,
+            "expected_member_state": "active",
+        }
+    ]
+    assert "flush" not in data.trace
 
 
 @pytest.mark.asyncio
