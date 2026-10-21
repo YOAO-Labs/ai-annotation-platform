@@ -1952,8 +1952,10 @@ async def remove_pool_member(
 
     svc = MLBackendService(db)
     try:
-        await require_registry_quiescent(db, registry_id)
-        ok = await svc.remove_pool_member(pool_id, registry_id)
+        topology = await require_registry_quiescent(db, registry_id)
+        ok = await svc.remove_pool_member(
+            pool_id, registry_id, expected_topology=topology
+        )
     except MLBackendQuiescenceError as exc:
         raise HTTPException(
             status_code=503 if exc.unavailable else 409, detail=exc.as_detail()

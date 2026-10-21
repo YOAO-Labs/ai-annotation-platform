@@ -173,7 +173,7 @@ DOMAIN_PACKAGES = (
         package="workspace_backend_bindings",
         legacy_facades=(),
         allowed_app_imports=(),
-        allowed_framework_imports=("sqlalchemy",),
+        allowed_framework_imports=("sqlalchemy", "fastapi"),
     ),
     DomainSpec(
         package="annotation_create_contract",

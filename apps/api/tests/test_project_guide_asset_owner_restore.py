@@ -637,7 +637,7 @@ async def test_project_guide_assets_native_capabilities_survive_owned_restore(
     assert test_engine.url.database and test_engine.url.database.endswith("_test")
     assert os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1"
     await assert_owned_test_database(test_engine)
-    assert await _database_head(test_engine) == "0274"
+    assert await _database_head(test_engine) == "0275"
 
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     resources = None
@@ -841,7 +841,7 @@ async def test_project_guide_assets_native_capabilities_survive_owned_restore(
             for name, value in clone_urls.items():
                 clone_environment.setenv(name, value)
             await assert_owned_test_database(restored_engine)
-            assert await _database_head(restored_engine) == "0274"
+            assert await _database_head(restored_engine) == "0275"
             async with admin.connect() as connection:
                 marker = await connection.scalar(
                     text(

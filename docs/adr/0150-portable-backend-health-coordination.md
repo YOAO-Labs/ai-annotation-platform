@@ -70,7 +70,9 @@ The existing health reconciliation order is member then pool, whereas member
 mutation paths use pool then member. That inversion can deadlock. This extraction
 preserves it for equivalence and does not claim contention-safe full-owner status;
 a consistent lock order and controlled race acceptance are mandatory follow-up.
-Native head274 and all existing deployment selectors remain unchanged. Full
+The subsequent lock-order repair and its separate qualification are recorded in
+[ADR-0151](0151-inference-topology-locking.md). Native head274 and all existing
+deployment selectors remain unchanged for this extraction. Full
 Inference, all ten modules/seven gates, non-Python replacement, production/primary
 cutover, Go expansion, real GPU and production capacity remain unqualified here.
 

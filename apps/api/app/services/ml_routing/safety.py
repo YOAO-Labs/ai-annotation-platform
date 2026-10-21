@@ -5,6 +5,8 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import select
+
+from aap_inference.topology import RegistryTopologySnapshot
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -24,20 +26,26 @@ class MLBackendQuiescenceError(Exception):
         return {"error_code": self.error_code, "message": str(self)}
 
 
-async def require_registry_quiescent(db: AsyncSession, registry_id: uuid.UUID) -> None:
-    """Require enforce + draining + a fresh exact inflight=0 proof.
+async def require_registry_quiescent(
+    db: AsyncSession, registry_id: uuid.UUID
+) -> RegistryTopologySnapshot:
+    """Observe enforce + draining + current exact inflight=0 before mutation.
 
     Unpooled registries cannot receive service-pool leases and retain the legacy
-    direct-unload behavior. Any uncertainty for a managed member blocks the action.
+    direct-unload behavior. Known observation failures block the action; Redis continuity is not proved here.
     """
     member = await db.scalar(
-        select(MLBackendPoolMember).where(
-            MLBackendPoolMember.registry_id == registry_id
-        )
+        select(MLBackendPoolMember)
+        .where(MLBackendPoolMember.registry_id == registry_id)
+        .execution_options(populate_existing=True)
     )
     if member is None:
-        return
-    pool = await db.get(MLBackendServicePool, member.pool_id)
+        return RegistryTopologySnapshot(registry_id, None, None, None, None)
+    pool = await db.scalar(
+        select(MLBackendServicePool)
+        .where(MLBackendServicePool.id == member.pool_id)
+        .execution_options(populate_existing=True)
+    )
     if pool is None:
         raise MLBackendQuiescenceError(
             "ml_backend_pool_unavailable",
@@ -54,6 +62,9 @@ async def require_registry_quiescent(db: AsyncSession, registry_id: uuid.UUID) -
             "service-pool member must be draining before unload",
         )
 
+    observed = RegistryTopologySnapshot(
+        registry_id, member.id, pool.id, pool.routing_generation, member.traffic_state
+    )
     ledger = None
     try:
         ledger = make_ledger_from_settings()
@@ -78,3 +89,4 @@ async def require_registry_quiescent(db: AsyncSession, registry_id: uuid.UUID) -
             "ml_backend_member_not_quiescent",
             f"service-pool member still has {inflight} active route lease(s)",
         )
+    return observed

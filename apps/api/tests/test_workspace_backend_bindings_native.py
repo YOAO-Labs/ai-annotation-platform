@@ -144,9 +144,12 @@ async def test_native_clear_is_match_scoped_timestamped_and_caller_transactional
             f"SELECT {_FUNCTION_CALL}($1::uuid)", world["target_pool_id"]
         )
         assert cleared == 2
-        assert await connection.fetchval(
-            f"SELECT {_FUNCTION_CALL}($1::uuid)", uuid.uuid4()
-        ) == 0
+        assert (
+            await connection.fetchval(
+                f"SELECT {_FUNCTION_CALL}($1::uuid)", uuid.uuid4()
+            )
+            == 0
+        )
         # Another connection cannot observe writes before the caller commits.
         assert await _snapshot(test_engine, world) == original
         await transaction.rollback()
@@ -155,9 +158,12 @@ async def test_native_clear_is_match_scoped_timestamped_and_caller_transactional
         transaction = connection.transaction()
         await transaction.start()
         transaction_time = await connection.fetchval("SELECT pg_catalog.now()")
-        assert await connection.fetchval(
-            f"SELECT {_FUNCTION_CALL}($1::uuid)", world["target_pool_id"]
-        ) == 2
+        assert (
+            await connection.fetchval(
+                f"SELECT {_FUNCTION_CALL}($1::uuid)", world["target_pool_id"]
+            )
+            == 2
+        )
         await transaction.commit()
 
         committed = await _snapshot(test_engine, world)
@@ -171,18 +177,23 @@ async def test_native_clear_is_match_scoped_timestamped_and_caller_transactional
             transaction_time,
             original[world["projects"]["target_b"]][2],
         )
-        assert committed[world["projects"]["other"]] == original[
-            world["projects"]["other"]
-        ]
-        assert committed[world["projects"]["unbound"]] == original[
-            world["projects"]["unbound"]
-        ]
+        assert (
+            committed[world["projects"]["other"]]
+            == original[world["projects"]["other"]]
+        )
+        assert (
+            committed[world["projects"]["unbound"]]
+            == original[world["projects"]["unbound"]]
+        )
 
         transaction = connection.transaction()
         await transaction.start()
-        assert await connection.fetchval(
-            f"SELECT {_FUNCTION_CALL}($1::uuid)", uuid.uuid4()
-        ) == 0
+        assert (
+            await connection.fetchval(
+                f"SELECT {_FUNCTION_CALL}($1::uuid)", uuid.uuid4()
+            )
+            == 0
+        )
         await transaction.commit()
         assert await _snapshot(test_engine, world) == committed
     finally:
@@ -240,16 +251,23 @@ async def test_inference_code_has_only_the_fixed_binding_write(test_engine):
         )
         assert [row["signature"] for row in workspace_functions] == [
             "aap_workspace_v1.clear_primary_backend_bindings(uuid)",
+            "aap_workspace_v1.lock_project_reference(uuid)",
             "aap_workspace_v1.project_access_step(uuid, uuid, text)",
         ]
-        assert await connection.fetchval(
-            "SELECT pg_catalog.has_table_privilege("
-            "'inference_code', 'public.projects', 'SELECT')"
-        ) is False
-        assert await connection.fetchval(
-            "SELECT pg_catalog.has_table_privilege("
-            "'inference_code', 'public.projects', 'UPDATE')"
-        ) is False
+        assert (
+            await connection.fetchval(
+                "SELECT pg_catalog.has_table_privilege("
+                "'inference_code', 'public.projects', 'SELECT')"
+            )
+            is False
+        )
+        assert (
+            await connection.fetchval(
+                "SELECT pg_catalog.has_table_privilege("
+                "'inference_code', 'public.projects', 'UPDATE')"
+            )
+            is False
+        )
 
         async with connection.transaction():
             await connection.execute("SET LOCAL ROLE inference_code")
@@ -262,13 +280,14 @@ async def test_inference_code_has_only_the_fixed_binding_write(test_engine):
                         await connection.execute(statement)
             with pytest.raises(asyncpg.PostgresError) as caught:
                 async with connection.transaction():
-                    await connection.fetchval(
-                        f"SELECT {_FUNCTION_CALL}(NULL::uuid)"
-                    )
+                    await connection.fetchval(f"SELECT {_FUNCTION_CALL}(NULL::uuid)")
             assert caught.value.sqlstate == "22023"
-            assert await connection.fetchval(
-                f"SELECT {_FUNCTION_CALL}($1::uuid)", uuid.uuid4()
-            ) == 0
+            assert (
+                await connection.fetchval(
+                    f"SELECT {_FUNCTION_CALL}($1::uuid)", uuid.uuid4()
+                )
+                == 0
+            )
     finally:
         await connection.close()
 
@@ -291,16 +310,12 @@ async def test_api_adapter_keeps_autoflush_and_no_autoflush_in_outer_transaction
             pending_default.ml_backend_pool_id = world["target_pool_id"]
             pending_default_id = pending_default.id
 
-            await clear_primary_backend_binding_for_pool(
-                db, world["target_pool_id"]
-            )
+            await clear_primary_backend_binding_for_pool(db, world["target_pool_id"])
 
             rows = (
                 await db.execute(
                     select(Project.id, Project.ml_backend_pool_id, Project.name).where(
-                        Project.id.in_(
-                            [*world["project_ids"], pending_default_id]
-                        )
+                        Project.id.in_([*world["project_ids"], pending_default_id])
                     )
                 )
             ).all()
@@ -337,9 +352,7 @@ async def test_api_adapter_keeps_autoflush_and_no_autoflush_in_outer_transaction
                             Project.id,
                             Project.ml_backend_pool_id,
                         ).where(
-                            Project.id.in_(
-                                [*world["project_ids"], pending_disabled_id]
-                            )
+                            Project.id.in_([*world["project_ids"], pending_disabled_id])
                         )
                     )
                 ).all()
@@ -380,9 +393,7 @@ async def _cleanup(maker, world) -> None:
     async with maker.begin() as db:
         if world["project_ids"]:
             await db.execute(
-                Project.__table__.delete().where(
-                    Project.id.in_(world["project_ids"])
-                )
+                Project.__table__.delete().where(Project.id.in_(world["project_ids"]))
             )
         if world["pool_ids"]:
             await db.execute(

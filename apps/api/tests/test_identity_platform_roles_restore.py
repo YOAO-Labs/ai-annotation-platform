@@ -221,7 +221,7 @@ async def test_restored_platform_role_receipt_replays_frozen_result(
         async with restored.begin() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0274"
+                == "0275"
             )
             await db.execute(
                 text(

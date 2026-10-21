@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass
 
 from fastapi import HTTPException
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +18,7 @@ from app.services.gpu_arbitration.contracts import (
 )
 from app.services.gpu_arbitration.policy import validate_gpu_claim
 from app.services.ml_client import MLBackendClient
+from aap_inference.topology import RegistryDeletion, RegistryTopologySnapshot
 
 
 class MLBackendDeleteBlocked(Exception):
@@ -264,6 +265,7 @@ class MLBackendService:
             select(MLBackendServicePool)
             .where(MLBackendServicePool.id == pool_id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
 
     async def list_pools(self) -> list[MLBackendServicePool]:
@@ -330,9 +332,50 @@ class MLBackendService:
             raise ValueError(
                 "remove every service-pool member before deleting the pool"
             )
+        from app.services.workspace_backend_bindings import (
+            clear_primary_backend_binding_for_pool,
+        )
+
+        await clear_primary_backend_binding_for_pool(self.db, pool_id)
         await self.db.delete(pool)
         await self.db.flush()
         return True
+
+    async def _registry_for_pool_change(self, registry_id: uuid.UUID):
+        return await self.db.scalar(
+            select(MLBackendRegistry)
+            .where(MLBackendRegistry.id == registry_id)
+            .with_for_update(read=True)
+            .execution_options(populate_existing=True)
+        )
+
+    async def _lock_registry_reference(self, registry_id: uuid.UUID):
+        return await self.db.scalar(
+            select(MLBackendRegistry.id)
+            .where(MLBackendRegistry.id == registry_id)
+            .with_for_update(read=True, key_share=True)
+        )
+
+    @staticmethod
+    def _check_topology(expected, registry_id, member, pool):
+        if expected is None:
+            return
+        current = RegistryTopologySnapshot(
+            registry_id=registry_id,
+            member_id=member.id if member is not None else None,
+            pool_id=member.pool_id if member is not None else None,
+            routing_generation=pool.routing_generation
+            if member is not None and pool is not None
+            else None,
+            traffic_state=member.traffic_state if member is not None else None,
+        )
+        if current != expected:
+            from app.services.ml_routing.safety import MLBackendQuiescenceError
+
+            raise MLBackendQuiescenceError(
+                "ml_backend_topology_changed",
+                "service-pool topology changed after quiescence check; drain again and retry",
+            )
 
     async def add_pool_member(
         self,
@@ -354,20 +397,17 @@ class MLBackendService:
         )
         from app.services.ml_routing.contracts import CapabilityMismatchError
 
-        pool = await self.db.scalar(
-            select(MLBackendServicePool)
-            .where(MLBackendServicePool.id == pool_id)
-            .with_for_update()
-        )
+        registry = await self._registry_for_pool_change(registry_id)
+        pool = await self._get_pool_for_update(pool_id)
         if pool is None:
             raise ValueError(f"pool {pool_id} not found")
-        registry = await self.get(registry_id)
         if registry is None:
             raise ValueError(f"registry {registry_id} not found")
         owned_member = await self.db.scalar(
             select(MLBackendPoolMember)
             .where(MLBackendPoolMember.registry_id == registry_id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if owned_member is not None and owned_member.pool_id != pool_id:
             raise MLBackendPoolMemberConflict(owned_member.pool_id)
@@ -558,12 +598,9 @@ class MLBackendService:
         """
         from aap_inference.pool_capability import diff_capabilities
 
-        pool = await self.db.scalar(
-            select(MLBackendServicePool)
-            .where(MLBackendServicePool.id == pool_id)
-            .with_for_update()
-        )
-        if pool is None:
+        target_registry = await self._registry_for_pool_change(registry_id)
+        pool = await self._get_pool_for_update(pool_id)
+        if pool is None or target_registry is None:
             return None
         result = await self.db.execute(
             select(MLBackendPoolMember, MLBackendRegistry)
@@ -572,7 +609,8 @@ class MLBackendService:
                 MLBackendRegistry.id == MLBackendPoolMember.registry_id,
             )
             .where(MLBackendPoolMember.pool_id == pool_id)
-            .with_for_update()
+            .with_for_update(of=MLBackendPoolMember)
+            .execution_options(populate_existing=True)
         )
         rows = list(result.tuples().all())
         target = next(
@@ -659,12 +697,20 @@ class MLBackendService:
         )
 
     async def remove_pool_member(
-        self, pool_id: uuid.UUID, registry_id: uuid.UUID
+        self,
+        pool_id: uuid.UUID,
+        registry_id: uuid.UUID,
+        *,
+        expected_topology: RegistryTopologySnapshot | None = None,
     ) -> bool:
         """Remove a member. If it's the legacy_instance_id, clear that pointer + disable
         pool (D5/D15: non-empty enabled pool must have legacy member)."""
+        if await self._lock_registry_reference(registry_id) is None:
+            self._check_topology(expected_topology, registry_id, None, None)
+            return False
         pool = await self._get_pool_for_update(pool_id)
         if pool is None:
+            self._check_topology(expected_topology, registry_id, None, None)
             return False
         result = await self.db.execute(
             select(MLBackendPoolMember)
@@ -673,10 +719,13 @@ class MLBackendService:
                 MLBackendPoolMember.registry_id == registry_id,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         member = result.scalar_one_or_none()
         if member is None:
+            self._check_topology(expected_topology, registry_id, None, None)
             return False
+        self._check_topology(expected_topology, registry_id, member, pool)
         await self.db.delete(member)
         if pool.legacy_instance_id == registry_id:
             pool.legacy_instance_id = None
@@ -689,6 +738,9 @@ class MLBackendService:
         self, pool_id: uuid.UUID, registry_id: uuid.UUID
     ) -> MLBackendPoolMember | None:
         """Set member traffic_state=draining (no new leases; keeps existing)."""
+        pool = await self._get_pool_for_update(pool_id)
+        if pool is None:
+            return None
         result = await self.db.execute(
             select(MLBackendPoolMember)
             .where(
@@ -696,11 +748,11 @@ class MLBackendService:
                 MLBackendPoolMember.registry_id == registry_id,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         member = result.scalar_one_or_none()
         if member is None:
             return None
-        pool = await self._get_pool_for_update(pool_id)
         changed = member.traffic_state != "draining"
         if changed:
             member.traffic_state = "draining"
@@ -713,6 +765,9 @@ class MLBackendService:
         self, pool_id: uuid.UUID, registry_id: uuid.UUID
     ) -> MLBackendPoolMember | None:
         """Resume a draining member back to active. Disabled members need re-validation."""
+        pool = await self._get_pool_for_update(pool_id)
+        if pool is None:
+            return None
         result = await self.db.execute(
             select(MLBackendPoolMember)
             .where(
@@ -720,6 +775,7 @@ class MLBackendService:
                 MLBackendPoolMember.registry_id == registry_id,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         member = result.scalar_one_or_none()
         if member is None:
@@ -731,7 +787,6 @@ class MLBackendService:
         changed = member.traffic_state != "active"
         if changed:
             member.traffic_state = "active"
-        pool = await self._get_pool_for_update(pool_id)
         if pool is not None and changed:
             pool.routing_generation += 1
         await self.db.flush()
@@ -851,48 +906,78 @@ class MLBackendService:
         return True
 
     async def delete(self, registry_id: uuid.UUID) -> bool:
-        row = await self.get(registry_id)
-        if not row:
-            return False
+        return (await self.delete_with_topology(registry_id)).deleted
+
+    async def delete_with_topology(
+        self,
+        registry_id: uuid.UUID,
+        *,
+        expected_topology: RegistryTopologySnapshot | None = None,
+    ) -> RegistryDeletion:
+        row = await self.db.scalar(
+            select(MLBackendRegistry)
+            .where(MLBackendRegistry.id == registry_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if row is None:
+            self._check_topology(expected_topology, registry_id, None, None)
+            return RegistryDeletion(False)
         await self.validate_delete(registry_id)
-        # v0.23.3 ADR-0050 §5.2: 删除 registry 前必须先清理服务池层 ——
-        # pool.legacy_instance_id (FK RESTRICT) 与 pool_member.registry_id (FK RESTRICT)
-        # 都引用此 registry。off mode singleton 下: 删 member → 若该 registry 是某 pool
-        # 的 legacy_instance_id 且 pool 无其它成员, 把 pool 置 disabled + 清 legacy 指针
-        # (空 pool 只能 disabled) → 再删 registry 行。多成员 pool 的 legacy 接替留给
-        # 显式 pool 管理 API (v0.23.4), 本删除路径只处理 singleton / 无 legacy 场景。
-        pool = await self._pool_for_registry(registry_id)
-        if pool is not None:
-            # 删该 registry 在所有 pool 的成员关系 (singleton 下只有一条)。
-            members = await self.db.execute(
-                select(MLBackendPoolMember).where(
-                    MLBackendPoolMember.registry_id == registry_id
-                )
+        pool_id = await self.db.scalar(
+            select(MLBackendPoolMember.pool_id).where(
+                MLBackendPoolMember.registry_id == registry_id
             )
-            for member in members.scalars():
-                await self.db.delete(member)
-            await self.db.flush()
-            # 若该 registry 是某 pool 的 legacy_instance_id: 该 pool 失去 legacy 实例。
-            # 按 ADR-0050 D15 非空 enabled pool 必须有 legacy 成员; 这里 registry 正被删,
-            # pool 必然变为空 (singleton) 或需新 legacy (多成员, 不在本路径处理)。
-            # 把 pool enabled=false 并清 legacy_instance_id 满足 CHECK 约束。
-            legacy_pools = await self.db.execute(
-                select(MLBackendServicePool).where(
-                    MLBackendServicePool.legacy_instance_id == registry_id
+        )
+        pools = list(
+            (
+                await self.db.execute(
+                    select(MLBackendServicePool)
+                    .where(
+                        or_(
+                            MLBackendServicePool.id == pool_id,
+                            MLBackendServicePool.legacy_instance_id == registry_id,
+                        )
+                    )
+                    .order_by(MLBackendServicePool.id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
                 )
+            ).scalars()
+        )
+        member = await self.db.scalar(
+            select(MLBackendPoolMember)
+            .where(MLBackendPoolMember.registry_id == registry_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        owning_pool = next((pool for pool in pools if pool.id == pool_id), None)
+        self._check_topology(expected_topology, registry_id, member, owning_pool)
+        if member is not None and member.pool_id != pool_id:
+            from app.services.ml_routing.safety import MLBackendQuiescenceError
+
+            raise MLBackendQuiescenceError(
+                "ml_backend_topology_changed",
+                "service-pool membership changed during deletion",
             )
-            for lp in legacy_pools.scalars():
-                lp.enabled = False
-                lp.legacy_instance_id = None
-                lp.routing_generation += 1
+        if member is not None:
+            await self.db.delete(member)
             await self.db.flush()
-        # Historical prediction registry/pool ids retain their FK SET NULL behavior.
+        for pool in pools:
+            if pool.legacy_instance_id == registry_id:
+                pool.enabled = False
+                pool.legacy_instance_id = None
+                pool.routing_generation += 1
+            elif member is not None and pool.id == pool_id:
+                pool.routing_generation += 1
+        if pools:
+            await self.db.flush()
         await self.db.delete(row)
         try:
             await self.db.flush()
         except IntegrityError as exc:
             _raise_managed_mutation_for_integrity(exc)
-        return True
+        return RegistryDeletion(True, pool_id)
 
     # ── 项目启用关联 (v0.23.3 ADR-0050 · 经服务池层) ─────────────────────────
     # 项目绑定改为 pool 维度: project_ml_backend_pool.pool_id → service pool。
@@ -1017,9 +1102,22 @@ class MLBackendService:
 
         与 set_enabled (registry-level) 对称, 但直接操作 pool id。pool 必须存在。
         """
-        pool = await self.db.get(MLBackendServicePool, pool_id)
+        from app.services.workspace_backend_bindings import (
+            lock_backend_project_reference,
+        )
+
+        await lock_backend_project_reference(self.db, project_id)
+        pool = await self._get_pool_for_update(pool_id)
         if pool is None:
             raise ValueError(f"service pool {pool_id} not found")
+        if enabled and (not pool.enabled or pool.legacy_instance_id is None):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error_code": "ml_backend_pool_not_enabled",
+                    "message": "pool is disabled or has no legacy instance; cannot enable for project",
+                },
+            )
         result = await self.db.execute(
             select(ProjectMLBackendPool).where(
                 ProjectMLBackendPool.project_id == project_id,
@@ -1037,12 +1135,6 @@ class MLBackendService:
             self.db.add(assoc)
         else:
             assoc.enabled = enabled
-        if enabled and not pool.enabled:
-            # A freshly registered singleton starts globally disabled. The first
-            # project enablement must make the logical route reachable; otherwise
-            # off/observe dispatch is rejected despite the project association.
-            pool.enabled = True
-            pool.routing_generation += 1
         for key in ("default_variants",):
             if key in overrides:
                 setattr(assoc, key, overrides[key])
@@ -1079,14 +1171,31 @@ class MLBackendService:
 
         v0.23.3: registry_id 经 _pool_for_registry 解析到 singleton pool,
         关联行写 pool_id。registry 必须 singleton-backfill 过 (有 pool)。"""
+        from app.services.workspace_backend_bindings import (
+            lock_backend_project_reference,
+        )
+
+        await lock_backend_project_reference(self.db, project_id)
+        registry = await self._registry_for_pool_change(registry_id)
         pool = await self._pool_for_registry(registry_id)
-        if pool is None:
-            raise ValueError(
-                f"registry {registry_id} has no service pool; "
-                "singleton backfill (alembic 0132) must run first"
+        if registry is None or pool is None:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error_code": "ml_backend_topology_changed",
+                    "message": "backend or service-pool membership is no longer available",
+                },
             )
         pool = await self._get_pool_for_update(pool.id)
-        assert pool is not None
+        current_pool_id = await self.pool_id_for_registry(registry_id)
+        if pool is None or current_pool_id != pool.id:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error_code": "ml_backend_topology_changed",
+                    "message": "service-pool membership changed while enabling the backend",
+                },
+            )
         result = await self.db.execute(
             select(ProjectMLBackendPool).where(
                 ProjectMLBackendPool.project_id == project_id,

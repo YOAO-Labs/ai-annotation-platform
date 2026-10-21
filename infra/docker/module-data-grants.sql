@@ -1067,7 +1067,7 @@ GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
 GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_audit_actor(uuid)
     TO :"audit_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid)
-    TO :"assets_owner";
+    TO :"assets_owner", :"inference_owner";
 GRANT SELECT ON aap_workspace_v1.project_catalog_configs TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.read_project_visibility(uuid, uuid)
     TO :"assets_owner";

@@ -76,11 +76,19 @@ class InferenceHealthData:
     async def refresh_backend(self, backend):
         await self.db.refresh(backend)
 
+    async def read_member_pool(self, registry_id):
+        return await self.db.scalar(
+            select(MLBackendPoolMember.pool_id).where(
+                MLBackendPoolMember.registry_id == registry_id
+            )
+        )
+
     async def load_pool_member(self, registry_id):
         return await self.db.scalar(
             select(MLBackendPoolMember)
             .where(MLBackendPoolMember.registry_id == registry_id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
 
     async def load_pool(self, pool_id):
@@ -88,6 +96,7 @@ class InferenceHealthData:
             select(MLBackendServicePool)
             .where(MLBackendServicePool.id == pool_id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
 
     async def flush(self):

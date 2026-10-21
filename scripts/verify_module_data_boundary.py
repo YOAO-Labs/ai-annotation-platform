@@ -224,6 +224,7 @@ SQL_ARTIFACTS = (
     "0272_workspace_backend_bindings.sql",
     "0273_inference_backend_dependency_reads.sql",
     "0274_inference_backend_probe.sql",
+    "0275_workspace_binding_lock_guard.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -310,6 +311,7 @@ SCHEMA_ARTIFACTS = (
     "0272_workspace_backend_bindings.schema.json",
     "0273_inference_backend_dependency_reads.schema.json",
     "0274_inference_backend_probe.schema.json",
+    "0275_workspace_binding_lock_guard.schema.json",
 )
 TEST_FILES = (
     "tests/test_inference_backend_probe_native.py",
@@ -2636,8 +2638,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0274"]:
-            raise RuntimeError("module-data acceptance requires migration head 0274")
+        if heads != ["0275"]:
+            raise RuntimeError("module-data acceptance requires migration head 0275")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(

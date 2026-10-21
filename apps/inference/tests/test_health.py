@@ -65,6 +65,10 @@ class _Data:
     async def refresh_backend(self, backend):
         self.trace.append("refresh")
 
+    async def read_member_pool(self, registry_id):
+        self.trace.append("member_read")
+        return self.member.pool_id if self.member is not None else None
+
     async def load_pool_member(self, registry_id):
         self.trace.append("member_lock")
         return self.member
@@ -191,8 +195,9 @@ async def test_gpu_health_phases_keep_io_before_locks_and_proof_after_observatio
         "membership_lock",
         "write",
         "refresh",
-        "member_lock",
+        "member_read",
         "pool_lock",
+        "member_lock",
         "flush",
     ]
     proof = data.values["health_meta"]["gpu_arbiter_probe"]

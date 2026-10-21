@@ -71,6 +71,8 @@ class BackendHealthData(Protocol):
 
     async def refresh_backend(self, backend: BackendRow) -> None: ...
 
+    async def read_member_pool(self, registry_id: uuid.UUID) -> uuid.UUID | None: ...
+
     async def load_pool_member(
         self, registry_id: uuid.UUID
     ) -> PoolMemberRow | None: ...
@@ -102,11 +104,14 @@ async def reconcile_pool_capability(
     """Seed a pool snapshot or disable a member whose stable contract drifted."""
     from .pool_capability import canonicalize_capability, capability_fingerprint
 
-    member = await data.load_pool_member(registry_id)
-    if member is None:
+    pool_id = await data.read_member_pool(registry_id)
+    if pool_id is None:
         return
-    pool = await data.load_pool(member.pool_id)
+    pool = await data.load_pool(pool_id)
     if pool is None:
+        return
+    member = await data.load_pool_member(registry_id)
+    if member is None or member.pool_id != pool_id:
         return
     snapshot = canonicalize_capability(capabilities)
     fingerprint = capability_fingerprint(snapshot)

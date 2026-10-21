@@ -117,13 +117,13 @@ Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事�
 和调用方提交顺序。它尚未形成独立的 Native／HTTP 健康服务，不增加部署 selector。
 
 旧实现已冻结24组真实 HTTP／SQL 相位观测，覆盖两种自动刷新设置和原有错误阶段。
-健康对账与成员变更之间仍有相反的行锁顺序，须单独统一并做并发验收；当前不宣称完整
-控制面具备争用安全性。私有凭据快照、带真实性约束的观察结果和同事务 Native apply
-仍是后续工作。详见 [ADR-0150](/dev/adr/0150-portable-backend-health-coordination)。
+健康对账与 Registry／Pool／Member 变更已统一为 Registry → Pool → Member；需要多个池时按 UUID 排序，健康检查的外部 I/O 仍在持锁前完成。删除或移除成员在写锁内复核先前观察的成员身份、池、路由代次与接流状态，发生变化返回409。项目启用先通过 Workspace 固定能力锁项目再锁池，并在池锁内重验资格；Inference 不增加 Project 表权限。清理项目绑定遇争用时立即回滚整个实例或空池删除；项目配置等待池锁后也会重新核验所选成员。并发边界见 [ADR-0151](/dev/adr/0151-inference-topology-locking)。
+
+当前 Redis 检查仍只是一次在飞计数观察，尚未证明账本连续性、暂停路由候选的代次围栏或长请求租约持续有效；不能由一次零计数推导完整停流安全。私有凭据快照、带真实性约束的健康观察和同事务 Native apply 仍待实现。协调器提取见 [ADR-0150](/dev/adr/0150-portable-backend-health-coordination)。
 
 本地197项去重选定检查通过，24组旧健康相位和38组既有服务池观测匹配。
-独立安装的 Inference／Workspace 分别通过132／449项，当前镜像的包及 API／Native
-指纹一致。此证据覆盖协调器提取，不代表独立健康写服务或完整 Inference 已完成。
+该协调器批次的独立安装 Inference／Workspace 分别通过132／449项；对应镜像的包及 API／Native
+指纹一致。该批次证据覆盖协调器提取，不代表独立健康写服务或完整 Inference 已完成。
 
 ## Workspace 后端能力探测
 
