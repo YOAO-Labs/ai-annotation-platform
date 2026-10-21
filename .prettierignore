@@ -59,3 +59,4 @@ docs/changelogs/
 docs/plans/archive/
 docs/plans/_spike-results/
 ROADMAP/archive/
+apps/api/tests/fixtures/workspace_access_reads_legacy/*.json

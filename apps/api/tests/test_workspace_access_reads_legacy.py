@@ -955,7 +955,8 @@ async def test_capture_legacy_project_access_reads(
         assert responses["out_of_scope_employee"]["status"] == 404
         assert responses["missing_project"]["status"] == 404
         assert responses["inactive_account"]["status"] == 401
-        assert responses["stale_platform_role_token"]["status"] == 401
+        # The valid old-role token resolves current authority, then hides scope.
+        assert responses["stale_platform_role_token"]["status"] == 404
         assert responses["viewer_with_work_membership"]["status"] == 403
         for sample in capture["samples"]:
             if sample["response"]["status"] == 200:
