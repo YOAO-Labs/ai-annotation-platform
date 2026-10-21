@@ -26,6 +26,16 @@ from aap_inference_contract.health_observation import (
     decode_health_observation_request,
     health_observation_reply_bytes,
 )
+from aap_inference_contract.registry_ingress import (
+    REGISTRY_ENV_SYNC_REPLY_MAX_BYTES,
+    REGISTRY_ENV_SYNC_REQUEST_MAX_BYTES,
+    RegistryEnvSyncUnavailable,
+    decode_registry_env_sync_request,
+    decode_registry_env_sync_result,
+    decode_registry_env_sync_status_request,
+    decode_registry_env_sync_status_result,
+    registry_env_sync_result_bytes,
+)
 
 from .pipeline_contract import (
     PIPELINE_REQUEST_BODY_MAX_BYTES,
@@ -115,6 +125,8 @@ class PipelineHttpServer:
         backend_probe_control_token: str | None = None,
         health_observation_manager=None,
         health_observation_control_token: str | None = None,
+        registry_ingress_manager=None,
+        registry_ingress_control_token: str | None = None,
     ) -> None:
         if (
             type(host) is not str
@@ -163,6 +175,18 @@ class PipelineHttpServer:
                 )
             )
             or (
+                registry_ingress_control_token is not None
+                and (
+                    type(registry_ingress_control_token) is not str
+                    or not registry_ingress_control_token.isascii()
+                    or not registry_ingress_control_token
+                    or any(
+                        character.isspace()
+                        for character in registry_ingress_control_token
+                    )
+                )
+            )
+            or (
                 control_token is not None
                 and backend_probe_control_token is not None
                 and hmac.compare_digest(control_token, backend_probe_control_token)
@@ -179,6 +203,25 @@ class PipelineHttpServer:
                     backend_probe_control_token, health_observation_control_token
                 )
             )
+            or (
+                control_token is not None
+                and registry_ingress_control_token is not None
+                and hmac.compare_digest(control_token, registry_ingress_control_token)
+            )
+            or (
+                backend_probe_control_token is not None
+                and registry_ingress_control_token is not None
+                and hmac.compare_digest(
+                    backend_probe_control_token, registry_ingress_control_token
+                )
+            )
+            or (
+                health_observation_control_token is not None
+                and registry_ingress_control_token is not None
+                and hmac.compare_digest(
+                    health_observation_control_token, registry_ingress_control_token
+                )
+            )
         ):
             raise ValueError("Invalid Inference pipeline HTTP server settings")
         self.manager = manager
@@ -188,6 +231,8 @@ class PipelineHttpServer:
         self.backend_probe_control_token = backend_probe_control_token
         self.health_observation_manager = health_observation_manager
         self.health_observation_control_token = health_observation_control_token
+        self.registry_ingress_manager = registry_ingress_manager
+        self.registry_ingress_control_token = registry_ingress_control_token
         self.host = host
         self.port = port
         self.max_concurrency = max_concurrency
@@ -392,13 +437,22 @@ class PipelineHttpServer:
                 self.health_observation_control_token is not None
                 and self.health_observation_manager is not None
             )
-            if not probe_configured and not observation_configured:
+            registry_configured = (
+                self.registry_ingress_control_token is not None
+                and self.registry_ingress_manager is not None
+            )
+            if (
+                not probe_configured
+                and not observation_configured
+                and not registry_configured
+            ):
                 # Preserve the pipeline-only readiness phase and response.
                 pipeline_ready = (
                     await self.data.readiness() if pipeline_configured else False
                 )
                 probe_ready = False
                 observation_ready = False
+                registry_ready = False
             else:
                 pipeline_ready = False
                 if pipeline_configured:
@@ -422,7 +476,15 @@ class PipelineHttpServer:
                     )
                 except Exception:
                     observation_ready = False
-            ready = pipeline_ready or probe_ready or observation_ready
+                try:
+                    registry_ready = (
+                        await self.registry_ingress_manager.readiness()
+                        if registry_configured
+                        else False
+                    )
+                except Exception:
+                    registry_ready = False
+            ready = pipeline_ready or probe_ready or observation_ready or registry_ready
             return (200 if ready else 503), _json_bytes(
                 {"status": "ready" if ready else "not_ready"}
             )
@@ -430,6 +492,10 @@ class PipelineHttpServer:
             return await self._dispatch_backend_probe(headers, body)
         if method == "POST" and path == "/v1/backends/health-observation":
             return await self._dispatch_health_observation(headers, body)
+        if method == "POST" and path == "/v1/registry/env-sync":
+            return await self._dispatch_registry_ingress_sync(headers, body)
+        if method == "POST" and path == "/v1/registry/env-sync-status":
+            return await self._dispatch_registry_ingress_status(headers, body)
         operation = _ROUTES.get(path)
         if method != "POST" or operation is None:
             return 404, _json_bytes({"detail": "Not Found"})
@@ -481,12 +547,97 @@ class PipelineHttpServer:
     def _request_limit(self, path: str) -> int:
         if path == "/v1/backends/health-observation":
             return HEALTH_OBSERVATION_REQUEST_MAX_BYTES
+        if path in {"/v1/registry/env-sync", "/v1/registry/env-sync-status"}:
+            return REGISTRY_ENV_SYNC_REQUEST_MAX_BYTES
         return self.max_request_bytes
 
     def _response_limit(self, path: str) -> int:
         if path == "/v1/backends/health-observation":
             return HEALTH_OBSERVATION_REPLY_MAX_BYTES
+        if path in {"/v1/registry/env-sync", "/v1/registry/env-sync-status"}:
+            return REGISTRY_ENV_SYNC_REPLY_MAX_BYTES
         return self.max_response_bytes
+
+    def _registry_ingress_authorized(self, headers) -> bool:
+        if self.registry_ingress_manager is None or (
+            self.registry_ingress_control_token is None
+        ):
+            return False
+        authorization = headers.get("authorization")
+        expected = f"Bearer {self.registry_ingress_control_token}"
+        return authorization is not None and hmac.compare_digest(
+            authorization.encode("utf-8"), expected.encode("utf-8")
+        )
+
+    async def _dispatch_registry_ingress_sync(
+        self, headers, body: bytes
+    ) -> tuple[int, bytes]:
+        if self.registry_ingress_manager is None or (
+            self.registry_ingress_control_token is None
+        ):
+            return 503, _json_bytes(
+                {"detail": "Inference Registry ingress owner unavailable"}
+            )
+        if not self._registry_ingress_authorized(headers):
+            return 401, _json_bytes({"detail": "Unauthorized"})
+        if len(body) > REGISTRY_ENV_SYNC_REQUEST_MAX_BYTES:
+            return 413, _json_bytes({"detail": "Request body too large"})
+        try:
+            request = decode_registry_env_sync_request(body)
+        except (RegistryEnvSyncUnavailable, ValueError, TypeError, UnicodeError):
+            return 400, _json_bytes(
+                {"detail": "Invalid Registry environment sync request"}
+            )
+        try:
+            result = await self.registry_ingress_manager.sync(request)
+            encoded = registry_env_sync_result_bytes(result)
+            bound = decode_registry_env_sync_result(request, encoded)
+        except RegistryEnvSyncUnavailable:
+            return 503, _json_bytes(
+                {"detail": "Inference Registry ingress owner unavailable"}
+            )
+        if bound.state != "committed":
+            return 503, _json_bytes(
+                {"detail": "Inference Registry ingress owner unavailable"}
+            )
+        if len(encoded) > REGISTRY_ENV_SYNC_REPLY_MAX_BYTES:
+            return 503, _json_bytes(
+                {"detail": "Inference Registry ingress owner unavailable"}
+            )
+        return 200, encoded
+
+    async def _dispatch_registry_ingress_status(
+        self, headers, body: bytes
+    ) -> tuple[int, bytes]:
+        if self.registry_ingress_manager is None or (
+            self.registry_ingress_control_token is None
+        ):
+            return 503, _json_bytes(
+                {"detail": "Inference Registry ingress owner unavailable"}
+            )
+        if not self._registry_ingress_authorized(headers):
+            return 401, _json_bytes({"detail": "Unauthorized"})
+        if len(body) > REGISTRY_ENV_SYNC_REQUEST_MAX_BYTES:
+            return 413, _json_bytes({"detail": "Request body too large"})
+        try:
+            request = decode_registry_env_sync_status_request(body)
+        except (RegistryEnvSyncUnavailable, ValueError, TypeError, UnicodeError):
+            return 400, _json_bytes(
+                {"detail": "Invalid Registry environment sync status request"}
+            )
+        try:
+            result = await self.registry_ingress_manager.status(request)
+            encoded = registry_env_sync_result_bytes(result)
+            decode_registry_env_sync_status_result(request, encoded)
+        except RegistryEnvSyncUnavailable:
+            return 503, _json_bytes(
+                {"detail": "Inference Registry ingress owner unavailable"}
+            )
+        if len(encoded) > REGISTRY_ENV_SYNC_REPLY_MAX_BYTES:
+            return 503, _json_bytes(
+                {"detail": "Inference Registry ingress owner unavailable"}
+            )
+        return 200, encoded
 
     async def _dispatch_health_observation(
         self, headers, body: bytes

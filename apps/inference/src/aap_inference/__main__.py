@@ -13,6 +13,7 @@ from .health_observation_postgres import BackendHealthObservationPostgresData
 from .pipeline_manager import PipelineManager
 from .pipeline_postgres import PipelinePostgresData
 from .pipeline_server import PipelineHttpServer
+from .registry_ingress_manager import RegistryEnvSyncManager
 
 
 def _environment_value(name: str) -> str | None:
@@ -50,6 +51,8 @@ async def run() -> None:
     probe_token = _environment_value("INFERENCE_BACKEND_PROBE_CONTROL_TOKEN")
     observation_dsn = _environment_value("INFERENCE_HEALTH_OBSERVATION_DATABASE_URL")
     observation_token = _environment_value("INFERENCE_HEALTH_OBSERVATION_TOKEN")
+    registry_ingress_dsn = _environment_value("INFERENCE_REGISTRY_INGRESS_DATABASE_URL")
+    registry_ingress_token = _environment_value("INFERENCE_REGISTRY_INGRESS_TOKEN")
     if (probe_dsn is None) != (probe_token is None):
         raise ValueError(
             "INFERENCE_BACKEND_PROBE_DATABASE_URL and "
@@ -59,6 +62,11 @@ async def run() -> None:
         raise ValueError(
             "INFERENCE_HEALTH_OBSERVATION_DATABASE_URL and "
             "INFERENCE_HEALTH_OBSERVATION_TOKEN must be configured together"
+        )
+    if (registry_ingress_dsn is None) != (registry_ingress_token is None):
+        raise ValueError(
+            "INFERENCE_REGISTRY_INGRESS_DATABASE_URL and "
+            "INFERENCE_REGISTRY_INGRESS_TOKEN must be configured together"
         )
     host = os.environ.get("INFERENCE_HOST", "127.0.0.1")
     if not host or any(character.isspace() for character in host):
@@ -81,6 +89,9 @@ async def run() -> None:
     if observation_dsn is not None and observation_token is not None:
         observation_data = BackendHealthObservationPostgresData(observation_dsn)
         observation_manager = BackendHealthObservationManager(observation_data)
+    registry_ingress_manager = None
+    if registry_ingress_dsn is not None and registry_ingress_token is not None:
+        registry_ingress_manager = RegistryEnvSyncManager(registry_ingress_dsn)
 
     server = None
     try:
@@ -95,6 +106,8 @@ async def run() -> None:
             backend_probe_control_token=probe_token,
             health_observation_manager=observation_manager,
             health_observation_control_token=observation_token,
+            registry_ingress_manager=registry_ingress_manager,
+            registry_ingress_control_token=registry_ingress_token,
         )
         await server.serve_forever()
     finally:
@@ -110,8 +123,12 @@ async def run() -> None:
                     if probe_data is not None:
                         await probe_data.close()
                 finally:
-                    if observation_data is not None:
-                        await observation_data.close()
+                    try:
+                        if observation_data is not None:
+                            await observation_data.close()
+                    finally:
+                        if registry_ingress_manager is not None:
+                            await registry_ingress_manager.close()
 
 
 def main() -> None:
