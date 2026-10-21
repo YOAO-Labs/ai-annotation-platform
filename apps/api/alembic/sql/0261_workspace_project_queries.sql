@@ -227,6 +227,8 @@ DECLARE
     v_filter_type_keys text[];
     v_filter_data_types text[];
     v_filter_member_id uuid;
+    v_filter_from_us numeric;
+    v_filter_to_us numeric;
     v_key_count integer;
     v_key_distinct_count integer;
     v_only_expected_keys boolean;
@@ -660,6 +662,68 @@ BEGIN
         END IF;
     END IF;
 
+    IF p_action IN ('list_rows', 'count_rows') THEN
+        IF NOT aap_workspace_project_query_v1._has_exact_keys(
+            p_parameters,
+            ARRAY['created_from_us', 'created_to_us']::text[]
+        )
+           OR pg_catalog.jsonb_typeof(p_parameters->'created_from_us') NOT IN ('null', 'string')
+           OR pg_catalog.jsonb_typeof(p_parameters->'created_to_us') NOT IN ('null', 'string')
+           OR (
+               pg_catalog.jsonb_typeof(p_parameters->'created_from_us') = 'string'
+               AND (
+                   pg_catalog.char_length(p_parameters->>'created_from_us') > 19
+                   OR (p_parameters->>'created_from_us') !~ '^(0|-?[1-9][0-9]*)$'
+               )
+           )
+           OR (
+               pg_catalog.jsonb_typeof(p_parameters->'created_to_us') = 'string'
+               AND (
+                   pg_catalog.char_length(p_parameters->>'created_to_us') > 19
+                   OR (p_parameters->>'created_to_us') !~ '^(0|-?[1-9][0-9]*)$'
+               )
+           ) THEN
+            RAISE EXCEPTION USING ERRCODE = '22023',
+                MESSAGE = 'invalid Workspace Project date-bound parameters';
+        END IF;
+
+        IF p_created_from IS NULL THEN
+            IF pg_catalog.jsonb_typeof(p_parameters->'created_from_us') IS DISTINCT FROM 'null' THEN
+                RAISE EXCEPTION USING ERRCODE = '22023',
+                    MESSAGE = 'Workspace Project created-from bound does not match';
+            END IF;
+        ELSE
+            IF pg_catalog.jsonb_typeof(p_parameters->'created_from_us') IS DISTINCT FROM 'string' THEN
+                RAISE EXCEPTION USING ERRCODE = '22023',
+                    MESSAGE = 'Workspace Project created-from bound does not match';
+            END IF;
+            v_filter_from_us := (p_parameters->>'created_from_us')::numeric;
+            IF (EXTRACT(EPOCH FROM p_created_from) * 1000000)::numeric
+               IS DISTINCT FROM v_filter_from_us THEN
+                RAISE EXCEPTION USING ERRCODE = '22023',
+                    MESSAGE = 'Workspace Project created-from bound does not match';
+            END IF;
+        END IF;
+
+        IF p_created_to IS NULL THEN
+            IF pg_catalog.jsonb_typeof(p_parameters->'created_to_us') IS DISTINCT FROM 'null' THEN
+                RAISE EXCEPTION USING ERRCODE = '22023',
+                    MESSAGE = 'Workspace Project created-to bound does not match';
+            END IF;
+        ELSE
+            IF pg_catalog.jsonb_typeof(p_parameters->'created_to_us') IS DISTINCT FROM 'string' THEN
+                RAISE EXCEPTION USING ERRCODE = '22023',
+                    MESSAGE = 'Workspace Project created-to bound does not match';
+            END IF;
+            v_filter_to_us := (p_parameters->>'created_to_us')::numeric;
+            IF (EXTRACT(EPOCH FROM p_created_to) * 1000000)::numeric
+               IS DISTINCT FROM v_filter_to_us THEN
+                RAISE EXCEPTION USING ERRCODE = '22023',
+                    MESSAGE = 'Workspace Project created-to bound does not match';
+            END IF;
+        END IF;
+    END IF;
+
     IF v_operation = 'query_projects' AND p_action = 'list_rows' THEN
         IF v_expected_offset > 9223372036854775807::numeric
            OR p_offset IS NULL
@@ -682,7 +746,6 @@ BEGIN
     CASE p_action
         WHEN 'count_rows' THEN
             IF v_operation <> 'query_projects'
-               OR p_parameters IS NOT NULL
                OR p_offset IS NOT NULL OR p_limit IS NOT NULL THEN
                 RAISE EXCEPTION USING ERRCODE = '22023',
                     MESSAGE = 'invalid Workspace Project count_rows step';
@@ -1578,7 +1641,7 @@ BEGIN
             END IF;
 
         ELSE
-            IF p_parameters IS NOT NULL THEN
+            IF p_action <> 'list_rows' AND p_parameters IS NOT NULL THEN
                 RAISE EXCEPTION USING ERRCODE = '22023',
                     MESSAGE = 'Workspace Project row actions do not accept parameters';
             END IF;

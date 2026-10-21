@@ -106,6 +106,32 @@ def _filter_text(filters: dict) -> str:
     )
 
 
+def _filter_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _epoch_microseconds(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    delta = value - datetime(1970, 1, 1, tzinfo=timezone.utc)
+    return str(
+        delta.days * 86_400_000_000 + delta.seconds * 1_000_000 + delta.microseconds
+    )
+
+
+def _date_bound_parameters(filters: dict | None) -> dict:
+    binds = _filter_binds(filters)
+    return {
+        "created_from_us": _epoch_microseconds(binds["created_from"]),
+        "created_to_us": _epoch_microseconds(binds["created_to"]),
+    }
+
+
 def _request(
     actor_id: uuid.UUID,
     actor_role: str,
@@ -139,8 +165,8 @@ def _filter_binds(filters: dict | None) -> dict:
         if filters["member_id"] is not None
         else None,
         "project_role": filters["project_role"],
-        "created_from": None,
-        "created_to": None,
+        "created_from": _filter_datetime(filters["created_from"]),
+        "created_to": _filter_datetime(filters["created_to"]),
     }
 
 
@@ -155,6 +181,8 @@ async def _step(
     limit: int | None = None,
 ) -> dict:
     binds = binds or {}
+    if action in ("list_rows", "count_rows") and parameters is None:
+        parameters = {"created_from_us": None, "created_to_us": None}
     raw = await connection.fetchval(
         f"""SELECT {_STEP}(
             CAST($1 AS jsonb), $2::text, CAST($3 AS jsonb), $4::text,
@@ -560,6 +588,63 @@ async def test_project_query_rows_filters_phases_and_projection_receipts(test_en
             query_request,
             "count_rows",
             binds={**filtered_binds, "status": "completed"},
+        )
+
+        date_filters = _filters(
+            created_from="2000-01-01T00:00:00+00:00",
+            created_to="2099-01-01T00:00:00+00:00",
+        )
+        date_request = _request(
+            world["actor_id"],
+            world["actor_role"],
+            "query_projects",
+            filters=date_filters,
+            pagination={"page": "1", "page_size": 1},
+        )
+        date_binds = _filter_binds(date_filters)
+        date_parameters = _date_bound_parameters(date_filters)
+        date_count = await _step(
+            connection,
+            date_request,
+            "count_rows",
+            parameters=date_parameters,
+            binds=date_binds,
+        )
+        assert date_count == {"count": "1"}
+        date_page = await _step(
+            connection,
+            date_request,
+            "list_rows",
+            parameters=date_parameters,
+            binds=date_binds,
+            offset=0,
+            limit=1,
+        )
+        assert (
+            uuid.UUID(json.loads(date_page["rows_json"])[0]["id"])
+            == (world["shared_project_id"])
+        )
+        await _expect_invalid(
+            connection,
+            date_request,
+            "count_rows",
+            parameters={
+                **date_parameters,
+                "created_from_us": str(int(date_parameters["created_from_us"]) + 1),
+            },
+            binds=date_binds,
+        )
+        await _expect_invalid(
+            connection,
+            date_request,
+            "list_rows",
+            parameters={
+                **date_parameters,
+                "created_to_us": str(int(date_parameters["created_to_us"]) - 1),
+            },
+            binds=date_binds,
+            offset=0,
+            limit=1,
         )
 
         detail_request = _request(
