@@ -1,6 +1,6 @@
 # 0137 — Workspace Template Query Owner
 
-- **Status:** Accepted; source integration verified, artifact qualification in progress
+- **Status:** Accepted; bounded local qualification passed
 - **Date:** 2026-10-21
 - **Deciders:** Backend architecture team
 - **Supersedes:** None
@@ -120,5 +120,44 @@ grant-loss503 and recovery, restart and unavailable-owner failure without local
 fallback, query/receipt projection after backup restore, plus nine affected
 protected restores. Their disposable resources were removed without errors.
 
-Full migration and installed/image qualification remain open. This does not
-complete Workspace, other modules or the full goal.
+Full migration validation passes at0259: fresh installation,173 reversible
+downgrades to base,85 suffix downgrades to0174, forward migration and backup
+restore. All four derived databases were removed without cleanup errors.
+
+Noneditable installed suites pass169 Workspace and27 Inference cases outside
+the source tree. Their29/7 package files plus14 shared dependency files match
+source. No API, SQLAlchemy, Celery, Boto3 or Torch package is installed. The first
+attempt exposed a test's hardcoded source path; using package resources makes
+the same schema comparison valid in both environments.
+
+The owner image matches all50 runtime/schema files. Offline and real HTTP/public
+API checks pass as UID10004, read-only, all capabilities dropped, no new
+privileges,64 PIDs,1 CPU,256 MiB and32 MiB tmpfs, with exactly two read-only
+secret mounts. Public creation commits through a real request session before
+remote receipt projection. Detail and post-restart reads match. Initial test
+attempts exposed a missing required payload field and an external SAVEPOINT
+fixture that hid commits and blocked cleanup; those attempts are retained, and
+the corrected committed-session qualification passes. Containers, secrets and
+disposable database resources were removed without cleanup errors.
+
+A bounded local profile completes16 detail reads at concurrency4 with16
+successes, no failures and no OOM: elapsed403 ms, p50 99 ms and nearest-rank
+p95 108 ms. PostgreSQL and the caller are outside the container budget. This is
+a local fixture observation, not production capacity or an SLO.
+
+The offline API image matches172 installed package files and139 application/
+Native inputs, the unchanged public OpenAPI and migration head0259. Its cold
+proof uses UID10001, network none, a read-only filesystem,1 CPU and512 MiB.
+The container was removed. Runtime code is qualified at `5136a448b314a583846751098a13762e158f42fe`;
+the corrected container test and API image use `6f0f44cebaa383e0dc59b33b2fef74a3aa840e90`.
+The intervening commits change only acceptance tests, with runtime hashes equal.
+
+Owner image: `sha256:0f5604c68b995d1e5da474bdfab9ac0e54bdfe4ab2b0aa9f23c70dd5f74d4eea`.
+API image: `sha256:aa082f7ce387a7df96822962235c77eab327fa26f4f047d3287d51fe3129b350`.
+
+This closes the bounded local template-query slice. Project reads, mentions,
+guide assets, class rename, named pipelines, import creation and adjacent
+writers remain separate work. Full Workspace, other modules, complete provider
+language replacement and independent databases remain unfinished. Primary source,
+shared links and its four original running containers are preserved. There is
+no primary/production cutover, push, release or remote CI result.

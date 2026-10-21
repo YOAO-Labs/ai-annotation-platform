@@ -3589,3 +3589,41 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Installed package, restricted owner/API images and full migration qualification
   remain open. No primary/production cutover, alternate-language provider,
   push, release or remote CI is claimed.
+
+### Workspace template query owner: bounded local qualification closed
+
+- The full all-module objective remains active. Template list/detail and
+  receipt-bound response projection are locally qualified; Project reads and
+  the remaining adjacent Workspace owners are the next work. Go remains an
+  optional experiment, with no new language provider or production cutover.
+- Full migration validation passes at0259: fresh259,173down/base,85suffixdown,
+  forward and restore. All four derived databases were removed with no errors.
+  The12 process/recovery cases already include the nine protected restores;
+  no duplicate count is added for assertions within those tests.
+- Noneditable installed suites pass169 Workspace and27 Inference cases outside
+  source. Their29/7 runtime/schema files plus14 shared dependencies match source;
+  no API, SQLAlchemy, Celery, Boto3 or Torch package is installed. A source-path test
+  was corrected to use the installed schema resource; its earlier failure stays
+  retained separately.
+- The owner image matches50 runtime/schema files. Actual public creation uses
+  committed request sessions before remote projection; detail and post-restart
+  reads match. The first two test attempts exposed a missing type_key and an
+  external SAVEPOINT fixture that hid commits and blocked cleanup. Their failed
+  reports remain; the committed-session acceptance passes and all temporary
+  containers, secrets and database resources are removed without cleanup errors.
+- Restricted owner budget: UID10004/read-only/cap-drop ALL/no-new-privileges,
+  64 PIDs,1 CPU,256 MiB,32 MiB tmpfs and exactly two read-only secret mounts.
+  Sixteen detail reads at concurrency4 all succeed with no OOM: elapsed403 ms,
+  p50 99 ms and p95 108 ms. PostgreSQL/caller are outside budget; this is a
+  bounded local observation, not production capacity or an SLO.
+- The offline API image matches172 installed and139 application/Native files,
+  unchanged public OpenAPI and head0259 under UID10001/network-none/read-only,
+  1 CPU/512 MiB. Its container was removed. Runtime checkpoint5136a448b and
+  acceptance/API-image checkpoint6f0f44ceb differ only in acceptance tests;
+  runtime file hashes remain equal. Final documentation changes no runtime code.
+- Owner image: `sha256:0f5604c68b995d1e5da474bdfab9ac0e54bdfe4ab2b0aa9f23c70dd5f74d4eea`.
+  API image: `sha256:aa082f7ce387a7df96822962235c77eab327fa26f4f047d3287d51fe3129b350`.
+  Primary source, four shared links and four original running containers remain
+  preserved. Four clean modifier worktrees/branches were removed after exact
+  integrated-patch proof. No push, release, remote CI or primary/production
+  runtime cutover occurred. See [ADR-0137](../adr/0137-workspace-template-query-owner.md).

@@ -604,8 +604,8 @@ Node conformance provider 只用于本地替换实验，Native 持有业务策�
 `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE` 两份宿主 secret 文件。
 
 配置写入仍先提交，再用私有成功回执读取响应；查询故障不能撤销已提交的配置。
-公开 DTO 校验继续在 API 完成。当前源码、真实连接与三路径响应对照通过；
-安装包、镜像、故障与恢复资格仍在推进，详见 [ADR-0137](docs/adr/0137-workspace-template-query-owner.md)。
+公开 DTO 校验继续在 API 完成。源码、三路径响应对照、独立安装包、受限镜像、
+故障恢复与0259完整迁移均已完成限定本地验收，详见 [ADR-0137](docs/adr/0137-workspace-template-query-owner.md)。
 
 ### 设计系统
 
