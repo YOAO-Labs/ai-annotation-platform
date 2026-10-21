@@ -89,3 +89,25 @@ not a qualified replacement for existing prediction behavior.
 Primary/production cutover, Go production use, non-Python replacement, independent
 database and full ten-module/seven-gate qualification remain open. This decision
 moves actual execution code and cross-owner reads toward that complete boundary.
+
+## Scoped local qualification
+
+The current local ledger selects121 distinct passing acceptance cases, retaining
+all failed receipts and selecting only named green cases from mixed runs. Source
+and noneditable installed Inference each pass99 cases, including a real controlled
+TCP backend flow; API transport/GPU/interaction passes197 and focused architecture
+selects three passing cases. The two stale frame cases now run against real
+accepted-video manifests and persistence. Native0273 passes allfive full migration
+phases and nonempty two-clone restore with source preservation.
+
+Twenty-two moved methods match the original AST after the declared injected ports,
+grant annotation and docstrings are normalized; the result dataclass and two GPU
+methods match exactly. Current5-package/41-file installed and image manifests agree.
+The API image additionally matches1,238 API/Native inputs, OpenAPI and head0273.
+Both new image proofs use read-only, no-network cold imports and exact execution
+restrictions; these are not load or real-GPU tests. Current image source is
+f7713584f; subsequent documentation changes do not change those code inputs.
+Four integrated child worktrees and all owned DB/Redis/clones/probe containers are
+removed; primary/shared runtime stays unchanged. Canonical local evidence is
+`.worktree/inference-backend-transport-qualification.json`. Remaining full-owner
+and language-replacement scope above is still open.

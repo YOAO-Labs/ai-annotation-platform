@@ -4556,3 +4556,41 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   transport also has no single qualified body budget, so the pipeline16 MiB control
   limit must not be reused blindly. Go remains experimental; primary/production
   cutover and full module completion are not claimed.
+
+### Backend transport and deletion dependencies: scoped local qualification
+
+- Canonical current ledger is .worktree/inference-backend-transport-qualification.json.
+  It selects121 distinct passing acceptance cases from owned verifier runs. The
+  initial119-case mixed run stays failed;116 named passing cases are selected,
+  with the two stale frame cases and updated static schema case selected from
+  later targeted runs. One nonempty restore and one full migration validator
+  complete the count. Observations, retries, source/installed repetitions and
+  older named-pipeline/prerequisite cases are not added.
+- Source and fresh noneditable Inference each pass99, including one actual TCP
+  backend flow covering health challenge, no-cache setup, grant/auth headers,
+  bounded prediction, upstream503/Retry-After and no write repost. This controlled
+  server uses synthetic credentials/grants; it is not GPU or production capacity
+  qualification. API transport/GPU/interaction passes197. Focused architecture has
+  three selected passing cases; initial helper-root assertion failure is retained.
+- Five packages/forty-one files match current source, installation and new owner/
+  API images. Images are built fromf7713584f; the API additionally matches1,238
+  API/Native inputs, public OpenAPI and head0273. Both cold imports run offline,
+  without network/mounts, read-only, with exact UIDs and resource/security limits.
+  Inference has no API/ORM/Celery/Workspace runtime; the existing shared protocol
+  still retains transitive FastAPI. These artifacts supersede older file-count
+  manifests only for current code, not their separate historical qualification.
+- Twenty-two transport methods match the old AST after only the declared injected
+  port names/types and docstrings are normalized. PredictionResult and both GPU
+  assembly methods match the original AST exactly. Current API methods delegate
+  to the installed portable transport, with no duplicate HTTP implementation.
+- Native273 full validation passes allfive phases; nonempty restore compares
+  source/restored retained evaluations and Jobs, definitions/ACL/owner/GUCs and
+  answers, then verifies target-only changes roll back and source data is intact.
+  Owned DB/Redis/clones are removed. Four clean patch-equivalent child worktrees
+  are removed while source branches remain; primary checkout and shared runtime
+  are preserved. Documentation/OpenAPI/static and diff checks pass.
+- This closes the local transport/deletion-dependency work, not complete Backend
+  control, Inference, ten modules/seven gates, an independent database, non-Python
+  replacement, AMD64, production capacity or primary/production cutover. The next
+  work is the real credential-owning Workspace probe and full registry/pool/health/
+  routing/GPU/consumer contract closure described above. Go stays experimental.
