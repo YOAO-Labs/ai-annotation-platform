@@ -30,7 +30,8 @@ from app.services.gpu_arbitration.rollout_state import (
     GPUArbiterRolloutDecision,
     GPUArbiterRolloutUnavailable,
 )
-from app.services.ml_client import MLBackendClient, _get_semaphore
+from aap_inference.backend_transport import get_semaphore
+from app.services.ml_client import MLBackendClient
 
 
 RESOURCE_ID = "node-a/index:0"
@@ -108,7 +109,7 @@ def _patch_async_client(monkeypatch, transport: httpx.MockTransport) -> None:
         kwargs["transport"] = transport
         return real(*args, **kwargs)
 
-    monkeypatch.setattr("app.services.ml_client.httpx.AsyncClient", factory)
+    monkeypatch.setattr("aap_inference.backend_transport.httpx.AsyncClient", factory)
 
 
 @pytest.mark.asyncio
@@ -315,7 +316,7 @@ def test_contended_semaphore_cache_does_not_retain_closed_event_loop() -> None:
         nonlocal loop_ref
         loop = asyncio.get_running_loop()
         loop_ref = weakref.ref(loop)
-        semaphore = _get_semaphore("gc-regression", 1)
+        semaphore = get_semaphore("gc-regression", 1)
         assert semaphore is not None
         await semaphore.acquire()
         waiter = asyncio.create_task(semaphore.acquire())
@@ -1571,7 +1572,7 @@ async def test_managed_transition_keeps_response_when_client_exit_fails(
             return httpx.Response(200, json=_drain_ack_payload())
 
     monkeypatch.setattr(
-        "app.services.ml_client.httpx.AsyncClient",
+        "aap_inference.backend_transport.httpx.AsyncClient",
         lambda **_kwargs: ExitFailureClient(),
     )
     grant = GPUDispatchGrant(generation="9", admission_token="signed-token")

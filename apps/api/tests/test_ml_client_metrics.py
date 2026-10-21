@@ -58,7 +58,9 @@ async def test_predict_observes_success_histogram():
     )
 
     client = MLBackendClient(_backend())
-    with patch("app.services.ml_client.httpx.AsyncClient", side_effect=factory):
+    with patch(
+        "aap_inference.backend_transport.httpx.AsyncClient", side_effect=factory
+    ):
         results = await client.predict([{"id": "t1"}])
 
     assert len(results) == 1
@@ -97,7 +99,9 @@ async def test_predict_observes_error_histogram_and_reraises():
     )
 
     client = MLBackendClient(_backend())
-    with patch("app.services.ml_client.httpx.AsyncClient", side_effect=factory):
+    with patch(
+        "aap_inference.backend_transport.httpx.AsyncClient", side_effect=factory
+    ):
         with pytest.raises(httpx.ConnectError):
             await client.predict([{"id": "t1"}])
 
@@ -133,7 +137,9 @@ async def test_predict_uses_backend_reported_time_when_present():
         return real(*args, **kwargs)
 
     client = MLBackendClient(_backend())
-    with patch("app.services.ml_client.httpx.AsyncClient", side_effect=factory):
+    with patch(
+        "aap_inference.backend_transport.httpx.AsyncClient", side_effect=factory
+    ):
         results = await client.predict([{"id": "t1"}])
     # backend 自报值优先
     assert results[0].inference_time_ms == 42
@@ -170,7 +176,9 @@ async def test_max_concurrency_semaphore_caps_in_flight_predictions():
     backend = _backend(backend_id=bid, extra_params={"max_concurrency": 2})
     client = MLBackendClient(backend)
 
-    with patch("app.services.ml_client.httpx.AsyncClient", side_effect=factory):
+    with patch(
+        "aap_inference.backend_transport.httpx.AsyncClient", side_effect=factory
+    ):
         await asyncio.gather(*(client.predict([{"id": f"t{i}"}]) for i in range(5)))
 
     assert peak <= 2, f"peak in-flight {peak} 超过 max_concurrency=2"

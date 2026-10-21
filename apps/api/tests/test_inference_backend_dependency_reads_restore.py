@@ -122,7 +122,7 @@ async def _row_state(engine, world) -> dict:
         evaluations = await connection.fetch(
             """SELECT id, project_id, dataset_id, model_version_id, deployment_id,
                       request_id, request_digest, name, status, spec, spec_digest,
-                      authorization, generation, created_at, completed_at
+                      "authorization", generation, created_at, completed_at
                FROM public.sample_evaluation_runs
                WHERE id = ANY($1::uuid[])
                ORDER BY id""",
@@ -246,7 +246,9 @@ async def _database_acl(test_engine) -> list[tuple[str, str, bool]]:
             )
         ).all()
     result = [(row[0], row[1], row[2]) for row in rows]
-    assert all(privilege in {"CREATE", "CONNECT", "TEMPORARY"} for _, privilege, _ in result)
+    assert all(
+        privilege in {"CREATE", "CONNECT", "TEMPORARY"} for _, privilege, _ in result
+    )
     return result
 
 
@@ -263,25 +265,18 @@ async def _create_owned_clone(
     async with admin.connect() as connection:
         await connection.execute(text(f"CREATE DATABASE {quoted} TEMPLATE template0"))
         created.add(database)
-        await connection.execute(
-            text(f"COMMENT ON DATABASE {quoted} IS '{ownership}'")
-        )
+        await connection.execute(text(f"COMMENT ON DATABASE {quoted} IS '{ownership}'"))
         await connection.execute(text(f"REVOKE ALL ON DATABASE {quoted} FROM PUBLIC"))
         quote = connection.dialect.identifier_preparer.quote
         for grantee, privilege, grantable in database_acl:
             role = "PUBLIC" if grantee == "PUBLIC" else quote(grantee)
             grant_option = " WITH GRANT OPTION" if grantable else ""
             await connection.execute(
-                text(
-                    f"GRANT {privilege} ON DATABASE {quoted} "
-                    f"TO {role}{grant_option}"
-                )
+                text(f"GRANT {privilege} ON DATABASE {quoted} TO {role}{grant_option}")
             )
 
 
-async def _drop_owned_clone(
-    admin, test_engine, database: str, ownership: str
-) -> None:
+async def _drop_owned_clone(admin, test_engine, database: str, ownership: str) -> None:
     quoted = test_engine.dialect.identifier_preparer.quote_identifier(database)
     _verify_postgres(test_engine.url)
     async with admin.connect() as connection:
@@ -395,7 +390,13 @@ async def _seed_database(engine) -> dict:
             error_message="missing registry payload",
         )
         db.add_all(
-            [*target_jobs, other_job, *nonmatching_jobs, wrong_kind_job, missing_payload_job]
+            [
+                *target_jobs,
+                other_job,
+                *nonmatching_jobs,
+                wrong_kind_job,
+                missing_payload_job,
+            ]
         )
         await db.flush()
 
@@ -539,9 +540,7 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
         restored_engine = create_async_engine(
             test_engine.url.set(database=restored_database), hide_parameters=True
         )
-        await _assert_clone_identity(
-            restored_engine, restored_database, restored_owner
-        )
+        await _assert_clone_identity(restored_engine, restored_database, restored_owner)
         assert await _database_head(restored_engine) == "0273"
         assert await _function_metadata(restored_engine) == source_function_metadata
         assert await _row_state(restored_engine, world) == source_rows
@@ -564,8 +563,7 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
                     world["target_deployment_id"],
                 )
                 await mutation.execute(
-                    "UPDATE public.async_jobs SET status='cancelled' "
-                    "WHERE id=$1::uuid",
+                    "UPDATE public.async_jobs SET status='cancelled' WHERE id=$1::uuid",
                     world["target_job_ids"][0],
                 )
                 await mutation.execute(
@@ -576,32 +574,47 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
                     str(world["target_registry_id"]),
                 )
                 await mutation.execute("SET LOCAL ROLE inference_code")
-                assert await mutation.fetchval(
-                    "SELECT aap_learning_v1.registry_evaluation_reference_exists($1::uuid)",
-                    world["target_registry_id"],
-                ) is True
-                assert await mutation.fetchval(
-                    "SELECT aap_jobs_v1.count_running_registry_predictions($1::uuid)",
-                    world["target_registry_id"],
-                ) == 2
+                assert (
+                    await mutation.fetchval(
+                        "SELECT aap_learning_v1.registry_evaluation_reference_exists($1::uuid)",
+                        world["target_registry_id"],
+                    )
+                    is True
+                )
+                assert (
+                    await mutation.fetchval(
+                        "SELECT aap_jobs_v1.count_running_registry_predictions($1::uuid)",
+                        world["target_registry_id"],
+                    )
+                    == 2
+                )
                 await mutation.execute("RESET ROLE")
                 await mutation.execute(
                     "DELETE FROM public.sample_evaluation_runs WHERE id=$1::uuid",
                     world["target_run_id"],
                 )
                 await mutation.execute("SET LOCAL ROLE inference_code")
-                assert await mutation.fetchval(
-                    "SELECT aap_learning_v1.registry_evaluation_reference_exists($1::uuid)",
-                    world["target_registry_id"],
-                ) is False
-                assert await mutation.fetchval(
-                    "SELECT aap_learning_v1.registry_evaluation_reference_exists($1::uuid)",
-                    world["other_registry_id"],
-                ) is True
-                assert await mutation.fetchval(
-                    "SELECT aap_jobs_v1.count_running_registry_predictions($1::uuid)",
-                    world["target_registry_id"],
-                ) == 2
+                assert (
+                    await mutation.fetchval(
+                        "SELECT aap_learning_v1.registry_evaluation_reference_exists($1::uuid)",
+                        world["target_registry_id"],
+                    )
+                    is False
+                )
+                assert (
+                    await mutation.fetchval(
+                        "SELECT aap_learning_v1.registry_evaluation_reference_exists($1::uuid)",
+                        world["other_registry_id"],
+                    )
+                    is True
+                )
+                assert (
+                    await mutation.fetchval(
+                        "SELECT aap_jobs_v1.count_running_registry_predictions($1::uuid)",
+                        world["target_registry_id"],
+                    )
+                    == 2
+                )
             finally:
                 await transaction.rollback()
         finally:
@@ -631,7 +644,9 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
                             await _drop_owned_clone(
                                 admin, test_engine, database, ownership
                             )
-                        except Exception as exc:  # pragma: no cover - acceptance cleanup path
+                        except (
+                            Exception
+                        ) as exc:  # pragma: no cover - acceptance cleanup path
                             cleanup_errors.append(exc)
         finally:
             if admin is not None:

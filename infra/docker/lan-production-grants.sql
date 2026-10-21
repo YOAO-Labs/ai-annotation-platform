@@ -68,12 +68,14 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO :"applica
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO :"application_role";
 GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_membership_v1,
     aap_workspace_owner_transfer_v1, aap_inference_pipelines_v1,
-    aap_assets_v1, aap_labeling_v1, aap_jobs_v1 TO :"application_role";
+    aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1 TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_inference_pipelines_v1.pipeline_policy(),
     aap_inference_pipelines_v1.pipeline_step(jsonb, text, jsonb, text[], text[])
     TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.clear_primary_backend_bindings(uuid)
     TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_learning_v1.registry_evaluation_reference_exists(uuid),
+    aap_jobs_v1.count_running_registry_predictions(uuid) TO :"application_role";
 -- Embedded Identity adapters use the same owner capabilities as isolated clients.
 GRANT USAGE ON SCHEMA aap_identity_v1, aap_identity_keys_v1,
     aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1,

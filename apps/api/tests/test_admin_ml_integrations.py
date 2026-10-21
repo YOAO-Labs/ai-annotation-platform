@@ -944,7 +944,9 @@ async def test_registry_unload_injects_shadow_factory_and_preserves_numeric_resu
     )
     app_module.dependency_overrides[get_gpu_shadow_session_factory] = lambda: marker
     try:
-        with patch("app.services.ml_client.httpx.AsyncClient", _fake_client(routes)):
+        with patch(
+            "aap_inference.backend_transport.httpx.AsyncClient", _fake_client(routes)
+        ):
             res = await httpx_client.post(
                 f"/api/v1/admin/ml-integrations/registry/{backend.id}/unload",
                 headers={"Authorization": f"Bearer {token}"},

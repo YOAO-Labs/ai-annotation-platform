@@ -16,7 +16,7 @@ from aap_protocol_v2 import (
 from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.project import Project
 from app.db.models.task import Task
-from app.services.ml_client import PredictionResult
+from aap_inference.backend_transport import PredictionResult
 from app.services.ai_mask_session import verify_ai_mask_session
 from app.services.ai_mask_receipt import verify_ai_mask_receipt
 from tests.conftest import create_registry_with_pool

@@ -272,7 +272,7 @@ def _passthrough_session_factory(db_session: AsyncSession):
 async def test_retry_worker_tracks_success_in_async_jobs(
     db_session, super_admin, monkeypatch, controlled
 ):
-    from app.services.ml_client import PredictionResult
+    from aap_inference.backend_transport import PredictionResult
     from app.workers import predictions_retry as retry_worker
 
     user, _ = super_admin
@@ -377,7 +377,7 @@ async def test_retry_uses_retained_input_version_and_verifies_before_write(
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
 
-    from app.services.ml_client import PredictionResult
+    from aap_inference.backend_transport import PredictionResult
     from app.services.prediction import PredictionService
     from app.workers import predictions_retry as retry_worker
 

@@ -221,6 +221,7 @@ SQL_ARTIFACTS = (
     "0270_workspace_project_access_step.sql",
     "0271_inference_pipelines.sql",
     "0272_workspace_backend_bindings.sql",
+    "0273_inference_backend_dependency_reads.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -305,8 +306,11 @@ SCHEMA_ARTIFACTS = (
     "0270_workspace_project_access_step.schema.json",
     "0271_inference_pipelines.schema.json",
     "0272_workspace_backend_bindings.schema.json",
+    "0273_inference_backend_dependency_reads.schema.json",
 )
 TEST_FILES = (
+    "tests/test_inference_backend_dependency_reads_native.py",
+    "tests/test_inference_backend_dependency_reads_restore.py",
     "tests/test_workspace_backend_bindings_native.py",
     "tests/test_workspace_backend_bindings_restore.py",
     "tests/test_inference_pipeline_native.py",
@@ -2132,6 +2136,8 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_workspace_project_query_v1') IS NULL "
             "AND to_regnamespace('aap_inference_pipelines_v1') IS NULL "
             "AND to_regprocedure('aap_workspace_v1.clear_primary_backend_bindings(uuid)') IS NULL "
+            "AND to_regprocedure('aap_learning_v1.registry_evaluation_reference_exists(uuid)') IS NULL "
+            "AND to_regprocedure('aap_jobs_v1.count_running_registry_predictions(uuid)') IS NULL "
             "AND to_regnamespace('aap_workspace_directory_query_v1') IS NULL "
             "AND to_regprocedure('aap_labeling_v1.workspace_project_query_counters(uuid[])') IS NULL "
             "AND to_regprocedure('aap_assets_v1.workspace_project_query_dataset_ids(uuid)') IS NULL "
@@ -2615,8 +2621,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0272"]:
-            raise RuntimeError("module-data acceptance requires migration head 0272")
+        if heads != ["0273"]:
+            raise RuntimeError("module-data acceptance requires migration head 0273")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(

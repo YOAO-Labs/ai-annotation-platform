@@ -226,7 +226,7 @@ async def test_owner_transfer_receipt_replays_after_restore_and_blocks_populated
         async with restored_owner.begin() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0272"
+                == "0273"
             )
             assert (
                 await db.scalar(

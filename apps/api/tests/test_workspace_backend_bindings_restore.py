@@ -125,7 +125,7 @@ async def test_workspace_backend_binding_command_survives_owned_database_restore
             isolation_level="AUTOCOMMIT",
             hide_parameters=True,
         )
-        assert await _database_head(test_engine) == "0272"
+        assert await _database_head(test_engine) == "0273"
         source_function = await _function_metadata(test_engine)
         assert source_function["owner"] == "workspace_code"
         assert source_function["security_definer"] is True
@@ -204,31 +204,34 @@ async def test_workspace_backend_binding_command_survives_owned_database_restore
             test_engine.url.set(database=clone), hide_parameters=True
         )
         await _assert_clone_owner(restored_engine, clone, ownership)
-        assert await _database_head(restored_engine) == "0272"
+        assert await _database_head(restored_engine) == "0273"
         assert await _function_metadata(restored_engine) == source_function
         assert await _snapshot(restored_engine, world) == source_rows
 
         inference = await _connect_inference(restored_engine)
         async with inference.transaction():
-            assert await inference.fetchval(
-                "SELECT aap_workspace_v1.clear_primary_backend_bindings($1::uuid)",
-                world["target_pool_id"],
-            ) == 2
+            assert (
+                await inference.fetchval(
+                    "SELECT aap_workspace_v1.clear_primary_backend_bindings($1::uuid)",
+                    world["target_pool_id"],
+                )
+                == 2
+            )
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
             async with inference.transaction():
-                await inference.fetchval(
-                    "SELECT id FROM public.projects LIMIT 1"
-                )
+                await inference.fetchval("SELECT id FROM public.projects LIMIT 1")
 
         clone_rows = await _snapshot(restored_engine, world)
         assert clone_rows[world["projects"]["target_a"]][0] is None
         assert clone_rows[world["projects"]["target_b"]][0] is None
-        assert clone_rows[world["projects"]["other"]] == source_rows[
-            world["projects"]["other"]
-        ]
-        assert clone_rows[world["projects"]["unbound"]] == source_rows[
-            world["projects"]["unbound"]
-        ]
+        assert (
+            clone_rows[world["projects"]["other"]]
+            == source_rows[world["projects"]["other"]]
+        )
+        assert (
+            clone_rows[world["projects"]["unbound"]]
+            == source_rows[world["projects"]["unbound"]]
+        )
         assert await _snapshot(test_engine, world) == source_rows
     finally:
         if inference is not None:

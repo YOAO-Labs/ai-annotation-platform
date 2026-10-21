@@ -12,7 +12,6 @@ from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.db.models.gpu_backend_fence import GPUBackendFence
 from app.db.models.gpu_backend_membership import GPUBackendMembership
 from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
@@ -23,10 +22,8 @@ from app.services.gpu_arbitration.contracts import (
     GPUShadowSessionFactory,
 )
 from app.services.gpu_arbitration.policy import validate_gpu_claim
-from app.services.ml_client import (
-    GPU_HEALTH_CHALLENGE_ECHO_MARKER,
-    MLBackendClient,
-)
+from aap_inference.backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
+from app.services.ml_client import MLBackendClient
 
 
 class MLBackendDeleteBlocked(Exception):
@@ -134,6 +131,13 @@ _REGISTRY_MUTABLE_FIELDS = {
     "vram_budget_mb",
     "eviction_priority",
 }
+
+_REGISTRY_EVALUATION_REFERENCE = text(
+    "SELECT aap_learning_v1.registry_evaluation_reference_exists(CAST(:registry_id AS uuid))"
+)
+_RUNNING_REGISTRY_PREDICTIONS = text(
+    "SELECT aap_jobs_v1.count_running_registry_predictions(CAST(:registry_id AS uuid))"
+)
 
 
 def _proof_timestamp(value: datetime) -> str:
@@ -860,30 +864,19 @@ class MLBackendService:
 
     async def _count_running_predictions(self, registry_id: uuid.UUID) -> int:
         """Legacy deletion guard only; never an allocation or active-lease truth."""
-
-        running = await self.db.execute(
-            select(AsyncJob.id).where(
-                AsyncJob.kind == "batch_predict",
-                AsyncJob.payload["ml_backend_id"].astext == str(registry_id),
-                AsyncJob.status == AsyncJobStatus.RUNNING.value,
-            )
+        if self.db.autoflush:
+            await self.db.flush()
+        running = await self.db.scalar(
+            _RUNNING_REGISTRY_PREDICTIONS, {"registry_id": registry_id}
         )
-        return len(list(running.scalars().all()))
+        return int(running)
 
     async def validate_delete(self, registry_id: uuid.UUID) -> bool:
         """Run non-mutating legacy job and managed-GPU deletion guards."""
         if await self.get(registry_id) is None:
             return False
-        from app.db.models.sample_evaluation import SampleEvaluationRun
-        from app.db.models.trained_model import ModelDeployment
-
         if await self.db.scalar(
-            select(SampleEvaluationRun.id)
-            .join(
-                ModelDeployment, ModelDeployment.id == SampleEvaluationRun.deployment_id
-            )
-            .where(ModelDeployment.registry_id == registry_id)
-            .limit(1)
+            _REGISTRY_EVALUATION_REFERENCE, {"registry_id": registry_id}
         ):
             raise HTTPException(
                 status_code=409, detail="推理实例被冻结样本评估引用，请先结束并删除评估"

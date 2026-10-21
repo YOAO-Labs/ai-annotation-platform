@@ -293,7 +293,7 @@ async def test_restored_invitation_receipts_jwt_and_durable_mail_lease(
         async with restored.begin() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0272"
+                == "0273"
             )
             await db.execute(
                 text("DELETE FROM public.identity_invitation_operation_receipts")

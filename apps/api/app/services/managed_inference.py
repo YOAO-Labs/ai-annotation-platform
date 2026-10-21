@@ -12,7 +12,8 @@ from app.db.models.trained_model import ModelDeployment
 from app.schemas.sample_evaluation import EvaluationProfile
 from app.services import sample_evaluation_engine as engine, trained_models
 from app.services.gpu_arbitration.dispatch import build_gpu_dispatch_context_factory
-from app.services.ml_client import MLBackendClient, PredictionResult
+from aap_inference.backend_transport import PredictionResult
+from app.services.ml_client import MLBackendClient
 from app.services.ml_routing.client import RoutedMLBackendClient
 from app.services.training_dataset_bridge import content_digest
 from app.services.trained_model_reference_contract import (

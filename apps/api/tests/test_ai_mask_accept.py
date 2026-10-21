@@ -266,7 +266,7 @@ async def test_exemplar_both_accept_uses_original_mask_index(
     media_type,
 ):
     from app.api.v1.ml_backends import _interactive_response
-    from app.services.ml_client import PredictionResult
+    from aap_inference.backend_transport import PredictionResult
 
     user, token = super_admin
     task, backend, pool = await _seed(

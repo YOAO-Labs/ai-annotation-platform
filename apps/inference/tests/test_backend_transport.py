@@ -302,6 +302,12 @@ async def test_health_challenge_fallback_and_response_echo(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_bounded_reply_error_shape_and_upstream_retry_header():
+    statuses = []
+
+    def public_error(*, status_code, detail, headers=None):
+        statuses.append(status_code)
+        return BackendTransportError(status_code, detail, headers)
+
     oversized = httpx.Response(
         200,
         headers={"content-length": "12"},
@@ -312,6 +318,7 @@ async def test_bounded_reply_error_shape_and_upstream_retry_header():
             oversized,
             max_bytes=8,
             reason="evaluation_response_too_large",
+            error_factory=public_error,
         )
     assert limit_error.value.status_code == 413
     assert limit_error.value.detail == {
@@ -334,7 +341,7 @@ async def test_bounded_reply_error_shape_and_upstream_retry_header():
         headers={"Retry-After": "4"},
     )
     with pytest.raises(BackendTransportError) as upstream_error:
-        raise_for_backend_status(upstream)
+        raise_for_backend_status(upstream, error_factory=public_error)
     assert upstream_error.value.status_code == 503
     assert upstream_error.value.headers == {"Retry-After": "4"}
     assert upstream_error.value.detail == {
@@ -342,6 +349,7 @@ async def test_bounded_reply_error_shape_and_upstream_retry_header():
         "message": "queue full",
         "model_id": "sam3",
     }
+    assert statuses == [413, 503]
 
 
 @pytest.mark.asyncio

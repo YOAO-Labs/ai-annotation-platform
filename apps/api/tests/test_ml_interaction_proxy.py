@@ -14,7 +14,7 @@ from aap_protocol_v2 import (
 )
 from fastapi import HTTPException
 
-from app.services.ml_client import _bounded_stream_response
+from aap_inference.backend_transport import bounded_stream_response
 from app.services.ml_interaction_proxy import (
     normalize_native_mask_response,
     prepare_interactive_context,
@@ -422,7 +422,7 @@ def test_native_companion_boxes_are_negotiated_by_platform(output_geometry) -> N
 def test_native_exemplar_both_signs_only_masks_at_original_indices(frame_index) -> None:
     from app.api.v1.ml_backends import _interactive_response
     from app.services.ai_mask_receipt import verify_ai_mask_receipt
-    from app.services.ml_client import PredictionResult
+    from aap_inference.backend_transport import PredictionResult
 
     raw = _native_pairs("revision")
     task_id, backend_id = uuid.uuid4(), uuid.uuid4()
@@ -579,7 +579,9 @@ async def test_bounded_response_rejects_declared_size_before_read() -> None:
         request=httpx.Request("POST", "http://backend/predict"),
     )
     with pytest.raises(HTTPException) as raised:
-        await _bounded_stream_response(response, max_bytes=4)
+        await bounded_stream_response(
+            response, max_bytes=4, error_factory=HTTPException
+        )
     assert raised.value.status_code == 413
     assert raised.value.detail["reason"] == "mask_response_too_large"
 
@@ -592,7 +594,9 @@ async def test_bounded_response_rejects_chunked_overflow() -> None:
         request=httpx.Request("POST", "http://backend/predict"),
     )
     with pytest.raises(HTTPException) as raised:
-        await _bounded_stream_response(response, max_bytes=4)
+        await bounded_stream_response(
+            response, max_bytes=4, error_factory=HTTPException
+        )
     assert raised.value.status_code == 413
     assert raised.value.detail["reason"] == "mask_response_too_large"
 
@@ -604,5 +608,7 @@ async def test_bounded_response_accepts_exact_limit() -> None:
         stream=_ChunkStream([b"12", b"34"]),
         request=httpx.Request("POST", "http://backend/predict"),
     )
-    bounded = await _bounded_stream_response(response, max_bytes=4)
+    bounded = await bounded_stream_response(
+        response, max_bytes=4, error_factory=HTTPException
+    )
     assert bounded.content == b"1234"

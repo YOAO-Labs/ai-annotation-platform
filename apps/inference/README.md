@@ -19,6 +19,16 @@ uv run --project apps/inference --extra test pytest apps/inference/tests
 Tracker window limits are passed as `CapabilityLimits`; defaults match the API
 configuration, while application callers should pass their configured values.
 
+`backend_transport.BackendTransport` owns the existing backend HTTP operations,
+prediction results, health-challenge constants and bounded-response/error helpers.
+Use the `client` or `runtime` extra for HTTP support. Construction requires explicit
+timeout options, dispatch authority and metrics callbacks; the default error type
+is framework-neutral. API assembly injects its public HTTP error factory and
+current GPU authority. Callers do not import API types to use the transport.
+This local port is not an independent Backend control endpoint: registry/pool,
+health persistence, routing and GPU coordination still need their full owner
+protocol and consumer migration.
+
 Named pipeline policy and persistence orchestration use `PipelineManager` with
 the closed `aap-inference-pipelines/v1` contract. Pipeline rows remain raw values
 until the public API validates its response. This retains the legacy ordering

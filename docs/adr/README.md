@@ -193,3 +193,4 @@
 - [0145 — Workspace Project Access Facts for Independent Owners](0145-workspace-project-access-facts.md)
 - [0146 — Independent Inference Named-Pipeline Owner](0146-inference-named-pipeline-owner.md)
 - [0147 — Inference Pool Policy and Workspace Backend Bindings](0147-inference-pool-policy-and-workspace-bindings.md)
+- [0148 — Inference Backend Transport and Deletion Dependencies](0148-inference-backend-transport-and-deletion-dependencies.md)

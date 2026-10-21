@@ -14,7 +14,7 @@ from app.db.models.trained_model import TrainedModelVersion
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.schemas.sample_evaluation import SampleEvaluationCreate
 from app.services import sample_evaluations as service
-from app.services.ml_client import PredictionResult
+from aap_inference.backend_transport import PredictionResult
 from app.services.training_dataset_bridge import content_digest
 from tests.test_trained_models import ready_deployment, seed_source
 from tests.test_training_dataset_analysis import inputs

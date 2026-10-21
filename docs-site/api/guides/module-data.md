@@ -109,6 +109,20 @@ HINT；客户端按 phase 恢复原有冲突原因，不向外暴露数据库异
 没有新增 LOGIN、HTTP endpoint 或 DSN。详见
 [绑定清理边界](/dev/adr/0147-inference-pool-policy-and-workspace-bindings)。
 
+## 注册实例删除的跨域读取
+
+`aap_learning_v1.registry_evaluation_reference_exists(registry_id)` 检查是否存在引用该实例
+部署的样本评估，不按评估或部署状态过滤。
+`aap_jobs_v1.count_running_registry_predictions(registry_id)` 返回 payload 精确指向该实例、
+kind 为 `batch_predict`、status 为 `running` 的作业数。两者分别返回布尔值和 bigint，
+空 UUID 参数返回 SQLSTATE `22023`。
+
+删除工作流在原事务中按 Learning → Jobs 的顺序调用，再检查 GPU 和路由状态；
+这些只读函数不锁定其他业务行、不自行提交，也不能代替 GPU 或路由租约证明。
+函数由各领域持有，Inference 和当前 API 协调器只有显式固定执行权。
+部署先应用当前迁移，再应用 owner 和实际 API 角色的 grants。详见
+[传输与删除依赖边界](/dev/adr/0148-inference-backend-transport-and-deletion-dependencies)。
+
 ## 初始关联与分块建题
 
 新操作使用固定 `schema`、布尔 `ok` 和成功 `data` 或失败 `error.code`。

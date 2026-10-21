@@ -10,7 +10,7 @@ from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
-from app.services.ml_client import PredictionResult
+from aap_inference.backend_transport import PredictionResult
 from app.services.video_tracking.adapters import TrackerContext, TrackerFrameResult
 from app.services.video_tracking.runner import accept_tracker_job, run_tracker_job
 from tests.conftest import create_registry_with_pool

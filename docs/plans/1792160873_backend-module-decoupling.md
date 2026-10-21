@@ -4499,3 +4499,60 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   GPU lifecycle and all actual consumers remain open. Do not count these prerequisites
   as a completed Inference module or ten-module/seven-gate goal; primary/production
   stay unchanged and Go remains experimental.
+
+### Backend control: real HTTP execution and cross-owner deletion reads
+
+- Previous goal turn changed authoritative state: policy and binding prerequisites
+  plus the explicit pool response fix were qualified at8993b28cb. The complete
+  ten-module/seven-gate objective remains active. This turn moves actual execution
+  code rather than exposing a registry query facade.
+- The full registered-client HTTP implementation now lives in
+  aap_inference.backend_transport.BackendTransport. API MLBackendClient contains
+  only its constructor and existing GPU dispatch/observer methods. Both GPU
+  methods retain the original AST; all23 existing result/constant/helper and
+  transport-test callers use the canonical owner definitions. Runtime timeouts,
+  metrics and framework errors are explicit injected ports. Missing GPU dispatch
+  callback is not silently bypassed. No public HTTP contract or new retry was added.
+- Native0273 replaces the real deletion caller's raw Learning evaluation/deployment
+  join and Jobs prediction-ID scan with two exact fixed owner reads. Their role
+  grants, SQL-null behavior, same-transaction reads/rollback and caller autoflush
+  are covered. Learning receives only its needed own columns; Inference gets no
+  foreign raw tables. Existing delete guard order, GPU/Redis quiescence, Workspace
+  cleanup, Audit and caller commit remain unchanged.
+- The pre-change archive and77 transport/GPU API tests are retained. Integrated
+  transport/GPU/interaction checks pass197. Inference source initially passes98;
+  later keyword-only error-factory contract verification covers the integration
+  change without adding another test case. Package installation, loopback HTTP,
+  current image manifests and final cleanup have their own qualification receipts.
+- The mixed119-case owned run remains failed because two pre-existing frame-wiring
+  tests patched removed raw-frame helpers. Both now exercise a real accepted-video
+  manifest and persistence/failure aggregation through the current worker. Targeted
+  later results, including the corrected factory identity observer, remain separate;
+  the original mixed receipt is not relabeled green. Frozen registry/pool corpora
+  retain58+38 observations and the previously declared pool response delta.
+- Nonempty restore seeds two real deployment-linked evaluation rows and nine Jobs
+  in a marked source clone, restores a second marked clone, compares function
+  definitions/ACL/owner/GUC/head and actual answers, then changes only the target
+  inside an outer transaction, rolls back and verifies both clones unchanged.
+  A test-only reserved SQL column required quoting; the failed receipt is retained.
+- The next complete boundary still includes registry/pool commands, health apply,
+  route acquire/heartbeat/finish/cancel and long-video ownership, GPU admission and
+  retirement, trained-model receipt/install/trial and all actual producers. Health
+  must preserve unlocked configuration/membership reads and external probes before
+  database observation time, registry/resource/promotion/membership locks and current
+  state/order rechecks. Canonical fingerprints cannot become jsonb text hashing or
+  an unchecked caller match flag.
+- Current Native closure has an additional credential dependency: Workspace create/
+  update receives URL/auth/token/extra_params only to GET setup and derive modalities.
+  Replace this with a credential-owning Inference probe keyed by registry ID, at both
+  API/borrowed/direct-DSN and standalone Workspace manager assembly, preserving each
+  configured timeout/CapabilityLimits and fail-open modality behavior. Do not keep
+  a credential fallback. Startup sync, capability catalog fallback, unregistered
+  admin probe/observe/smoke-test and stats publishing also have direct HTTP paths.
+- An independent service cannot silently split the transaction-coupled publication,
+  Workspace configuration and registry deletion workflows. The fixed Native phase
+  contract must preserve those boundaries and real observation provenance; a new
+  callback or DTO alone does not satisfy the final cross-language gate. Prediction
+  transport also has no single qualified body budget, so the pipeline16 MiB control
+  limit must not be reused blindly. Go remains experimental; primary/production
+  cutover and full module completion are not claimed.

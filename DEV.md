@@ -717,6 +717,15 @@ URL 与 DSN 不能同时配置；`INFERENCE_PIPELINES_TIMEOUT_SECONDS` 默认30�
 原项目服务池启用关系保留。完整 Backend control 的 health、routing、GPU 与真实消费者
 边界继续推进，见 [ADR-0147](docs/adr/0147-inference-pool-policy-and-workspace-bindings.md)。
 
+### Inference 后端 HTTP 与删除依赖
+
+注册后端 HTTP 的实现位于 `aap_inference.backend_transport`，API 的
+`MLBackendClient` 只装配现有 GPU 权威、动态超时、指标和公开错误。没有新增 endpoint
+或配置；完整 Backend control 的独立运行继续推进。注册删除的 Learning 评估引用与
+Jobs 运行预测计数使用固定 Native 函数；应用当前迁移后需重授 owner 与实际 API 角色
+的精确权限，不能给 Inference 外域原表权限。范围见
+[ADR-0148](docs/adr/0148-inference-backend-transport-and-deletion-dependencies.md)。
+
 ### 设计系统
 
 前端设计系统基于 Tailwind CSS + shadcn/ui。运行时主题 Token 定义在 `apps/web/src/styles/shadcn.css`：

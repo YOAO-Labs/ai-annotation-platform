@@ -255,7 +255,7 @@ async def test_run_batch_accumulates_total_cost(
 ):
     """v0.10.49 · _run_batch 把每条 PredictionResult.meta.total_cost 累加进 async_job.result."""
     from app.db.models.task import Task
-    from app.services.ml_client import PredictionResult
+    from aap_inference.backend_transport import PredictionResult
 
     user, _ = super_admin
     proj, backend = await _seed_project_and_backend(db_session, user.id)
@@ -341,7 +341,7 @@ async def test_manifest_page_failure_after_success_marks_job_failed_with_progres
     )
     from app.db.models.prediction import Prediction
     from app.db.models.task import Task
-    from app.services.ml_client import PredictionResult
+    from aap_inference.backend_transport import PredictionResult
     from app.services.prediction import PredictionService
 
     user, _ = super_admin
@@ -729,7 +729,7 @@ async def test_run_batch_stops_on_cooperative_cancel(
 ):
     """v0.10.51 · batch_predict 在任务边界看到 cancel_requested 后落 cancelled。"""
     from app.db.models.task import Task
-    from app.services.ml_client import PredictionResult
+    from aap_inference.backend_transport import PredictionResult
 
     user, _ = super_admin
     proj, backend = await _seed_project_and_backend(db_session, user.id)
@@ -836,7 +836,7 @@ async def test_run_batch_stops_writing_after_actor_disabled_mid_run(
     from app.db.models.prediction import Prediction
     from app.db.models.task import Task
     from app.db.models.user import User
-    from app.services.ml_client import PredictionResult
+    from aap_inference.backend_transport import PredictionResult
     from app.services.labeling_prediction_contract import ApplyPredictionResultError
     from app.services.prediction import PredictionService
 
@@ -1038,7 +1038,7 @@ async def test_run_batch_merges_params_into_context(
 ):
     """v0.10.38 · _run_batch 把请求 params 合并进 /predict context, 覆盖项目级阈值兜底."""
     from app.db.models.task import Task
-    from app.services.ml_client import PredictionResult
+    from aap_inference.backend_transport import PredictionResult
 
     user, _ = super_admin
     proj, backend = await _seed_project_and_backend(db_session, user.id)
@@ -1106,7 +1106,7 @@ async def test_run_batch_passes_model_id_and_task_type_into_context(
 ):
     """An OCR legacy task input produces a canonical task and model identity."""
     from app.db.models.task import Task
-    from app.services.ml_client import PredictionResult
+    from aap_inference.backend_transport import PredictionResult
 
     user, _ = super_admin
     proj, backend = await _seed_project_and_backend(db_session, user.id)
@@ -1183,7 +1183,7 @@ async def test_run_batch_pure_text_prompt_unchanged_without_v2_args(
 ):
     """v0.14.9 · 回归: 无 model_id / task_type 时纯文本 prompt 现状不变 (type=text)。"""
     from app.db.models.task import Task
-    from app.services.ml_client import PredictionResult
+    from aap_inference.backend_transport import PredictionResult
 
     user, _ = super_admin
     proj, backend = await _seed_project_and_backend(db_session, user.id)
@@ -1280,7 +1280,7 @@ async def test_run_batch_workbench_scope_runs_in_progress_task(
 
     from app.db.models.task import Task
     from app.db.models.task_lock import TaskLock
-    from app.services.ml_client import PredictionResult
+    from aap_inference.backend_transport import PredictionResult
 
     user, _ = super_admin
     proj, backend = await _seed_project_and_backend(db_session, user.id)

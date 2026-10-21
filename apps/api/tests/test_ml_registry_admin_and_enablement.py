@@ -979,6 +979,28 @@ async def test_delete_registry_with_running_prediction_preserves_binding(
     )
 
 
+@pytest.mark.parametrize("autoflush", [True, False])
+async def test_registry_running_work_capability_preserves_caller_autoflush(
+    db_session, autoflush
+):
+    backend = await _seed_registry(db_session, name=f"pending-count-{autoflush}")
+    pending = AsyncJob(
+        kind="batch_predict",
+        status=AsyncJobStatus.RUNNING.value,
+        payload={"ml_backend_id": str(backend.id)},
+    )
+    db_session.add(pending)
+    service = MLBackendService(db_session)
+    if autoflush:
+        assert await service._count_running_predictions(backend.id) == 1
+    else:
+        with db_session.no_autoflush:
+            assert await service._count_running_predictions(backend.id) == 0
+        await db_session.flush()
+        assert await service._count_running_predictions(backend.id) == 1
+    await db_session.rollback()
+
+
 async def test_delete_registry_requires_member_draining(
     httpx_client, db_session, super_admin, monkeypatch
 ):

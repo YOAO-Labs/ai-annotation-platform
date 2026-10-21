@@ -75,7 +75,7 @@ def _predict(monkeypatch, world, *, fail=False, returned_task=None, count=1):
     calls = []
 
     async def predict(client, tasks, **kwargs):
-        from app.services.ml_client import PredictionResult
+        from aap_inference.backend_transport import PredictionResult
 
         calls.append((tasks, kwargs))
         if fail:

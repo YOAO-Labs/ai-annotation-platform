@@ -1052,6 +1052,59 @@ def test_inference_pool_capability_policy_is_portable() -> None:
     assert not offenders, f"pool capability imports nonportable modules {offenders}"
 
 
+def test_backend_http_implementation_lives_in_portable_inference_owner() -> None:
+    source = _REPO_ROOT / "apps/inference/src/aap_inference/backend_transport.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+    forbidden = ("app", "sqlalchemy", "fastapi", "celery", "structlog", "redis")
+    imports = _collect_imports(tree, "aap_inference.backend_transport")
+    assert not [
+        imported
+        for imported, _local in imports
+        if any(
+            imported == root or imported.startswith(root + ".") for root in forbidden
+        )
+    ]
+    assert any(
+        isinstance(node, ast.ClassDef) and node.name == "BackendTransport"
+        for node in tree.body
+    )
+
+    adapter = _SERVICES_DIR / "ml_client.py"
+    api_tree = ast.parse(adapter.read_text(encoding="utf-8"), filename=str(adapter))
+    client = next(
+        node
+        for node in api_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "MLBackendClient"
+    )
+    assert [ast.unparse(base) for base in client.bases] == ["BackendTransport"]
+    assert {
+        node.name
+        for node in client.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    } == {
+        "__init__",
+        "_observe_gpu_dispatch",
+        "_gpu_dispatch",
+    }
+    assert not any(
+        isinstance(node, ast.ClassDef) and node.name == "PredictionResult"
+        for node in api_tree.body
+    )
+    adapter_imports = _collect_imports(api_tree, "app.services.ml_client")
+    assert not any(
+        imported == "httpx" or imported.startswith("httpx.")
+        for imported, _local in adapter_imports
+    )
+    assert {
+        imported
+        for imported, _local in adapter_imports
+        if imported.startswith("aap_inference.")
+    } == {
+        "aap_inference.backend_transport",
+        "aap_inference.backend_transport.BackendTransport",
+    }
+
+
 @pytest.mark.parametrize(
     ("module", "forbidden"),
     [

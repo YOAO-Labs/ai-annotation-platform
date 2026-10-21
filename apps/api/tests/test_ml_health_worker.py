@@ -31,7 +31,7 @@ from app.services.gpu_arbitration.fences import (
     _activate_gpu_backend_membership_in_transaction,
 )
 from app.services.ml_backend import MLBackendService
-from app.services.ml_client import GPU_HEALTH_CHALLENGE_ECHO_MARKER
+from aap_inference.backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
 
 
 async def _make_backend(db: AsyncSession, url: str = "http://example/") -> MLBackend:

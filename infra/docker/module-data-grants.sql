@@ -799,6 +799,8 @@ GRANT SELECT (project_id) ON public.training_studies,
 GRANT SELECT (project_id), DELETE ON public.project_task_datasets,
     public.training_recipes, public.training_recipe_revisions
     TO :"learning_owner";
+GRANT SELECT (deployment_id) ON public.sample_evaluation_runs TO :"learning_owner";
+GRANT SELECT (id, registry_id) ON public.trained_model_deployments TO :"learning_owner";
 
 -- Other owners expose only their project cleanup predicates and row mutations.
 GRANT SELECT (project_id), DELETE ON public.project_ml_backend_pool,
@@ -860,9 +862,11 @@ GRANT USAGE ON SCHEMA aap_labeling_v1 TO :"labeling_owner", :"jobs_owner",
     :"assets_owner", :"learning_owner", :"diagnostics_owner",
     :"workspace_owner", :"workflow_role", :"identity_owner";
 GRANT USAGE ON SCHEMA aap_jobs_v1 TO :"jobs_owner", :"labeling_owner",
-    :"workspace_owner", :"assets_owner", :"workflow_role";
+    :"workspace_owner", :"assets_owner", :"workflow_role", :"inference_owner";
 GRANT USAGE ON SCHEMA aap_learning_v1
-    TO :"learning_owner", :"workspace_owner", :"assets_owner";
+    TO :"learning_owner", :"workspace_owner", :"assets_owner", :"inference_owner";
+GRANT EXECUTE ON FUNCTION aap_learning_v1.registry_evaluation_reference_exists(uuid),
+    aap_jobs_v1.count_running_registry_predictions(uuid) TO :"inference_owner";
 GRANT USAGE ON SCHEMA aap_inference_v1 TO :"inference_owner", :"workspace_owner";
 GRANT USAGE ON SCHEMA aap_workspace_configuration_v1 TO :"workspace_owner";
 GRANT USAGE ON SCHEMA aap_workspace_template_query_v1 TO :"workspace_owner";
@@ -2103,6 +2107,8 @@ ALTER FUNCTION aap_labeling_v1.workspace_project_query_batch_task_counts(uuid)
 REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
 
 GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.count_running_registry_predictions(uuid)
+    OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1._accepted_image_input_job_reply(jsonb, text)
     OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1._video_input_job_reply(jsonb, text)
@@ -2148,6 +2154,8 @@ ALTER FUNCTION aap_jobs_v1.workspace_project_query_latest_job_status(uuid)
 REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
 
 GRANT CREATE ON SCHEMA aap_learning_v1 TO :"learning_owner";
+ALTER FUNCTION aap_learning_v1.registry_evaluation_reference_exists(uuid)
+    OWNER TO :"learning_owner";
 ALTER FUNCTION aap_learning_v1.lock_project_deletion(uuid) OWNER TO :"learning_owner";
 ALTER FUNCTION aap_learning_v1.guard_project_deletion(uuid) OWNER TO :"learning_owner";
 ALTER FUNCTION aap_learning_v1.delete_project_owned_records(uuid)

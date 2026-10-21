@@ -28,9 +28,7 @@ pytestmark = [
     ),
 ]
 
-_EVALUATION_FUNCTION = (
-    "aap_learning_v1.registry_evaluation_reference_exists(uuid)"
-)
+_EVALUATION_FUNCTION = "aap_learning_v1.registry_evaluation_reference_exists(uuid)"
 _JOBS_FUNCTION = "aap_jobs_v1.count_running_registry_predictions(uuid)"
 _SCHEMA_PATH = (
     Path(__file__).resolve().parents[1]
@@ -289,11 +287,14 @@ async def test_inference_role_gets_owner_reads_without_raw_table_access(test_eng
             "public.trained_model_deployments",
             "public.async_jobs",
         ):
-            assert await connection.fetchval(
-                "SELECT pg_catalog.has_table_privilege("
-                "'inference_code', $1::text, 'SELECT')",
-                relation,
-            ) is False
+            assert (
+                await connection.fetchval(
+                    "SELECT pg_catalog.has_table_privilege("
+                    "'inference_code', $1::text, 'SELECT')",
+                    relation,
+                )
+                is False
+            )
 
         inference = await _connect_inference(test_engine)
         try:
@@ -315,22 +316,28 @@ async def test_inference_role_gets_owner_reads_without_raw_table_access(test_eng
                             )
                     assert caught.value.sqlstate == "22023"
 
-                assert await inference.fetchval(
-                    "SELECT aap_learning_v1.registry_evaluation_reference_exists("
-                    "$1::uuid)",
-                    uuid.uuid4(),
-                ) is False
-                assert await inference.fetchval(
-                    "SELECT aap_jobs_v1.count_running_registry_predictions($1::uuid)",
-                    uuid.uuid4(),
-                ) == 0
+                assert (
+                    await inference.fetchval(
+                        "SELECT aap_learning_v1.registry_evaluation_reference_exists("
+                        "$1::uuid)",
+                        uuid.uuid4(),
+                    )
+                    is False
+                )
+                assert (
+                    await inference.fetchval(
+                        "SELECT aap_jobs_v1.count_running_registry_predictions($1::uuid)",
+                        uuid.uuid4(),
+                    )
+                    == 0
+                )
         finally:
             await inference.close()
     finally:
         await connection.close()
 
 
-def test_backend_dependency_catalog_schema_is_closed_and_typed() -> None:
+async def test_backend_dependency_catalog_schema_is_closed_and_typed() -> None:
     schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
     signatures = [_EVALUATION_FUNCTION, _JOBS_FUNCTION]
 

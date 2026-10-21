@@ -19,7 +19,7 @@ import app.services.prediction_context as prediction_context
 import app.services.storage as storage_mod
 from app.services.annotation import AnnotationService
 from app.services.labeling_write_scope import capture_labeling_write_scope
-from app.services.ml_client import PredictionResult
+from aap_inference.backend_transport import PredictionResult
 from app.services.secondary_inference import run_secondary_inference
 from tests.factory import create_project, create_task
 
