@@ -1,0 +1,175 @@
+{
+  "$id": "aap-inference-health-observation-native/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Inference transaction-bound health observation evidence",
+  "$comment": "Provider transport receives only authenticated snapshot subjects and returns sealed raw observation text. The original caller verifies evidence before running its existing health, GPU, pool, flush and commit phases.",
+  "$defs": {},
+  "type": "object",
+  "function_defaults": {
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"],
+    "time_zone": "UTC",
+    "date_style": "ISO, YMD",
+    "extra_float_digits": 3
+  },
+  "tables": [
+    {
+      "name": "aap_inference_health_observation_v1.observation_secret",
+      "columns": [
+        {
+          "name": "singleton",
+          "type": "boolean",
+          "nullable": false,
+          "primary_key": true,
+          "check": "singleton IS TRUE"
+        },
+        {
+          "name": "secret",
+          "type": "bytea",
+          "nullable": false,
+          "check": "octet_length(secret) = 32"
+        }
+      ],
+      "semantics": "One database-local random 32-byte AES256/PGP key; no rotation or per-observation state. Neither dedicated client receives table privileges."
+    }
+  ],
+  "functions": [
+    {
+      "signature": "aap_inference_health_observation_v1.health_observation_policy()",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [],
+      "returns": {
+        "kind": "jsonb",
+        "shape": {
+          "schema": "aap-inference-health-observation-native/v1",
+          "observation_protocol": "aap-inference-health-observation/v1",
+          "subject_protocol": "aap-inference-health-observation-subject/v1",
+          "evidence_protocol": "aap-inference-health-observation-evidence/v1",
+          "origin_transaction": "in_progress",
+          "evidence_protection": "pgcrypto-pgp-aes256-mdc",
+          "functions": [
+            "aap_inference_health_observation_v1.health_observation_policy()",
+            "aap_inference_health_observation_v1.capture_health_observation_subject(uuid,uuid,text,text,double precision)",
+            "aap_inference_health_observation_v1.open_health_observation_subject(text,uuid,uuid)",
+            "aap_inference_health_observation_v1.seal_health_observation(text,uuid,uuid,text)",
+            "aap_inference_health_observation_v1.verify_health_observation(text,uuid,uuid,text)"
+          ],
+          "ready": "boolean"
+        }
+      },
+      "semantics": "Secret-free readiness metadata. ready is true only while the singleton 32-byte key exists."
+    },
+    {
+      "signature": "aap_inference_health_observation_v1.capture_health_observation_subject(uuid,uuid,text,text,double precision)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_request_id", "type": "uuid", "nullable": false },
+        {
+          "name": "p_backend_json",
+          "type": "text",
+          "nullable": false,
+          "description": "Exact JSON text for the caller-loaded seven-field Backend snapshot. JSON syntax and the fixed top-level field types are validated, while the original text is encrypted unchanged."
+        },
+        {
+          "name": "p_gpu_health_challenge",
+          "type": "text",
+          "nullable": true,
+          "description": "Null or 64 lowercase hexadecimal characters."
+        },
+        {
+          "name": "p_timeout_seconds",
+          "type": "double precision",
+          "nullable": false,
+          "description": "Any finite value, including zero or negative values, preserving existing transport behavior."
+        }
+      ],
+      "returns": {
+        "kind": "scalar",
+        "type": "text",
+        "description": "Opaque v1.<canonical-contiguous-base64> AES256/PGP snapshot subject."
+      },
+      "semantics": "Binds the exact JSON text, registry/request ids, optional GPU challenge, finite timeout, current database and assigned origin xid. Performs no registry query, row lock, flush or business write. Input is limited to 16 MiB."
+    },
+    {
+      "signature": "aap_inference_health_observation_v1.open_health_observation_subject(text,uuid,uuid)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_subject", "type": "text", "nullable": false },
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_request_id", "type": "uuid", "nullable": false }
+      ],
+      "returns": {
+        "kind": "scalar",
+        "type": "text",
+        "description": "JSON text with exact fields backend_json, gpu_health_challenge and timeout_seconds. backend_json is returned as a JSON string containing its original bytes after UTF-8 decoding."
+      },
+      "semantics": "Provider-only open. Requires canonical contiguous base64, authenticated header, exact ids/database, and an originating xid still in progress. Subject size is limited to 24 MiB."
+    },
+    {
+      "signature": "aap_inference_health_observation_v1.seal_health_observation(text,uuid,uuid,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_subject", "type": "text", "nullable": false },
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_request_id", "type": "uuid", "nullable": false },
+        {
+          "name": "p_observation_json",
+          "type": "text",
+          "nullable": false,
+          "description": "Raw observation/outcome body text; intentionally not parsed as JSON so NaN/Infinity and legacy decode failures retain their original phase."
+        }
+      ],
+      "returns": {
+        "kind": "scalar",
+        "type": "text",
+        "description": "Opaque v1.<canonical-contiguous-base64> sealed evidence."
+      },
+      "semantics": "Provider-only seal. Binds the raw body to SHA256(subject), database, origin xid and request/registry ids; validates that the subject's originating transaction remains in progress. Body size is limited to 16 MiB."
+    },
+    {
+      "signature": "aap_inference_health_observation_v1.verify_health_observation(text,uuid,uuid,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_subject", "type": "text", "nullable": false },
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_request_id", "type": "uuid", "nullable": false },
+        { "name": "p_evidence", "type": "text", "nullable": false }
+      ],
+      "returns": {
+        "kind": "scalar",
+        "type": "text",
+        "description": "The original raw observation/outcome body, unchanged."
+      },
+      "semantics": "Origin-only verify. Requires matching subject digest, ids, database, origin xid, current assigned transaction xid and in-progress status. Committed/aborted, cross-transaction, cross-database, tampered or mismatched evidence fails generically. Evidence size is limited to 24 MiB."
+    }
+  ],
+  "x-postgresql-functions": [
+    "aap_inference_health_observation_v1.health_observation_policy()",
+    "aap_inference_health_observation_v1.capture_health_observation_subject(uuid,uuid,text,text,double precision)",
+    "aap_inference_health_observation_v1.open_health_observation_subject(text,uuid,uuid)",
+    "aap_inference_health_observation_v1.seal_health_observation(text,uuid,uuid,text)",
+    "aap_inference_health_observation_v1.verify_health_observation(text,uuid,uuid,text)"
+  ],
+  "x-postgresql-private-tables": ["aap_inference_health_observation_v1.observation_secret"],
+  "x-postgresql-errors": {
+    "invalid_subject": {
+      "sqlstate": "22023",
+      "message": "invalid health observation subject"
+    },
+    "invalid_evidence": {
+      "sqlstate": "22023",
+      "message": "invalid health observation evidence"
+    },
+    "capability_unavailable": {
+      "sqlstate": "55000",
+      "message": "health observation capability is unavailable"
+    }
+  }
+}
