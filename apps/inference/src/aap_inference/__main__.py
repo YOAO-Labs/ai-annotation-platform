@@ -8,6 +8,8 @@ from pathlib import Path
 
 from .backend_probe_manager import BackendProbeManager
 from .backend_probe_postgres import BackendProbePostgresData
+from .health_observation_manager import BackendHealthObservationManager
+from .health_observation_postgres import BackendHealthObservationPostgresData
 from .pipeline_manager import PipelineManager
 from .pipeline_postgres import PipelinePostgresData
 from .pipeline_server import PipelineHttpServer
@@ -46,10 +48,17 @@ async def run() -> None:
     token = _environment_value("INFERENCE_CONTROL_TOKEN")
     probe_dsn = _environment_value("INFERENCE_BACKEND_PROBE_DATABASE_URL")
     probe_token = _environment_value("INFERENCE_BACKEND_PROBE_CONTROL_TOKEN")
+    observation_dsn = _environment_value("INFERENCE_HEALTH_OBSERVATION_DATABASE_URL")
+    observation_token = _environment_value("INFERENCE_HEALTH_OBSERVATION_TOKEN")
     if (probe_dsn is None) != (probe_token is None):
         raise ValueError(
             "INFERENCE_BACKEND_PROBE_DATABASE_URL and "
             "INFERENCE_BACKEND_PROBE_CONTROL_TOKEN must be configured together"
+        )
+    if (observation_dsn is None) != (observation_token is None):
+        raise ValueError(
+            "INFERENCE_HEALTH_OBSERVATION_DATABASE_URL and "
+            "INFERENCE_HEALTH_OBSERVATION_TOKEN must be configured together"
         )
     host = os.environ.get("INFERENCE_HOST", "127.0.0.1")
     if not host or any(character.isspace() for character in host):
@@ -67,6 +76,11 @@ async def run() -> None:
     if probe_dsn is not None and probe_token is not None:
         probe_data = BackendProbePostgresData(probe_dsn)
         probe_manager = BackendProbeManager(probe_data)
+    observation_data = None
+    observation_manager = None
+    if observation_dsn is not None and observation_token is not None:
+        observation_data = BackendHealthObservationPostgresData(observation_dsn)
+        observation_manager = BackendHealthObservationManager(observation_data)
 
     server = None
     try:
@@ -79,6 +93,8 @@ async def run() -> None:
             max_concurrency=max_concurrency,
             backend_probe_manager=probe_manager,
             backend_probe_control_token=probe_token,
+            health_observation_manager=observation_manager,
+            health_observation_control_token=observation_token,
         )
         await server.serve_forever()
     finally:
@@ -90,8 +106,12 @@ async def run() -> None:
                 if data is not None:
                     await data.close()
             finally:
-                if probe_data is not None:
-                    await probe_data.close()
+                try:
+                    if probe_data is not None:
+                        await probe_data.close()
+                finally:
+                    if observation_data is not None:
+                        await observation_data.close()
 
 
 def main() -> None:

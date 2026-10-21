@@ -17,6 +17,15 @@ from aap_inference_contract.probe import (
     decode_backend_probe_reply,
     decode_backend_probe_request,
 )
+from aap_inference_contract.health_observation import (
+    HEALTH_OBSERVATION_REPLY_MAX_BYTES,
+    HEALTH_OBSERVATION_REQUEST_MAX_BYTES,
+    BackendHealthObservationInvalidRequest,
+    BackendHealthObservationUnavailable,
+    decode_health_observation_reply,
+    decode_health_observation_request,
+    health_observation_reply_bytes,
+)
 
 from .pipeline_contract import (
     PIPELINE_REQUEST_BODY_MAX_BYTES,
@@ -88,7 +97,7 @@ def _model_bytes(reply: Any) -> bytes:
 
 
 class PipelineHttpServer:
-    """Run the authenticated pipeline and backend-probe routes with bounded work."""
+    """Run authenticated Inference owner routes with bounded work."""
 
     def __init__(
         self,
@@ -104,6 +113,8 @@ class PipelineHttpServer:
         read_timeout_seconds: float = _READ_TIMEOUT_SECONDS,
         backend_probe_manager=None,
         backend_probe_control_token: str | None = None,
+        health_observation_manager=None,
+        health_observation_control_token: str | None = None,
     ) -> None:
         if (
             type(host) is not str
@@ -140,9 +151,33 @@ class PipelineHttpServer:
                 )
             )
             or (
+                health_observation_control_token is not None
+                and (
+                    type(health_observation_control_token) is not str
+                    or not health_observation_control_token.isascii()
+                    or not health_observation_control_token
+                    or any(
+                        character.isspace()
+                        for character in health_observation_control_token
+                    )
+                )
+            )
+            or (
                 control_token is not None
                 and backend_probe_control_token is not None
                 and hmac.compare_digest(control_token, backend_probe_control_token)
+            )
+            or (
+                control_token is not None
+                and health_observation_control_token is not None
+                and hmac.compare_digest(control_token, health_observation_control_token)
+            )
+            or (
+                backend_probe_control_token is not None
+                and health_observation_control_token is not None
+                and hmac.compare_digest(
+                    backend_probe_control_token, health_observation_control_token
+                )
             )
         ):
             raise ValueError("Invalid Inference pipeline HTTP server settings")
@@ -151,6 +186,8 @@ class PipelineHttpServer:
         self.control_token = control_token
         self.backend_probe_manager = backend_probe_manager
         self.backend_probe_control_token = backend_probe_control_token
+        self.health_observation_manager = health_observation_manager
+        self.health_observation_control_token = health_observation_control_token
         self.host = host
         self.port = port
         self.max_concurrency = max_concurrency
@@ -202,6 +239,7 @@ class PipelineHttpServer:
                 pass
             return
         try:
+            path = ""
             try:
                 method, path, headers, body = await self._read_request(reader)
                 status, response_body = await self._dispatch(
@@ -233,7 +271,7 @@ class PipelineHttpServer:
                     500,
                     _json_bytes({"detail": "Internal Server Error"}),
                 )
-            if len(response_body) > self.max_response_bytes:
+            if len(response_body) > self._response_limit(path):
                 status, response_body = (
                     503,
                     _json_bytes({"detail": "Inference pipeline owner unavailable"}),
@@ -278,6 +316,7 @@ class PipelineHttpServer:
             raise _BadRequest() from None
         if version != "HTTP/1.1" or not target.startswith("/"):
             raise _BadRequest()
+        request_limit = self._request_limit(target)
 
         headers: dict[str, str] = {}
         header_size = len(request_line)
@@ -312,12 +351,12 @@ class PipelineHttpServer:
             if not raw_length.isascii() or not raw_length.isdigit():
                 raise _BadRequest()
             significant_length = raw_length.lstrip("0") or "0"
-            if len(significant_length) > len(str(self.max_request_bytes)):
+            if len(significant_length) > len(str(request_limit)):
                 raise _PayloadTooLarge()
             content_length = int(significant_length)
         elif method == "POST":
             raise _BadRequest()
-        if content_length > self.max_request_bytes:
+        if content_length > request_limit:
             raise _PayloadTooLarge()
         if method == "POST":
             content_type = (
@@ -349,12 +388,17 @@ class PipelineHttpServer:
                 self.backend_probe_control_token is not None
                 and self.backend_probe_manager is not None
             )
-            if not probe_configured:
+            observation_configured = (
+                self.health_observation_control_token is not None
+                and self.health_observation_manager is not None
+            )
+            if not probe_configured and not observation_configured:
                 # Preserve the pipeline-only readiness phase and response.
                 pipeline_ready = (
                     await self.data.readiness() if pipeline_configured else False
                 )
                 probe_ready = False
+                observation_ready = False
             else:
                 pipeline_ready = False
                 if pipeline_configured:
@@ -363,15 +407,29 @@ class PipelineHttpServer:
                     except Exception:
                         pipeline_ready = False
                 try:
-                    probe_ready = await self.backend_probe_manager.readiness()
+                    probe_ready = (
+                        await self.backend_probe_manager.readiness()
+                        if probe_configured
+                        else False
+                    )
                 except Exception:
                     probe_ready = False
-            ready = pipeline_ready or probe_ready
+                try:
+                    observation_ready = (
+                        await self.health_observation_manager.readiness()
+                        if observation_configured
+                        else False
+                    )
+                except Exception:
+                    observation_ready = False
+            ready = pipeline_ready or probe_ready or observation_ready
             return (200 if ready else 503), _json_bytes(
                 {"status": "ready" if ready else "not_ready"}
             )
         if method == "POST" and path == "/v1/backends/probe":
             return await self._dispatch_backend_probe(headers, body)
+        if method == "POST" and path == "/v1/backends/health-observation":
+            return await self._dispatch_health_observation(headers, body)
         operation = _ROUTES.get(path)
         if method != "POST" or operation is None:
             return 404, _json_bytes({"detail": "Not Found"})
@@ -419,6 +477,67 @@ class PipelineHttpServer:
         except PipelinePostCommitFailure:
             return 500, _json_bytes({"detail": "Internal Server Error"})
         return 200, _model_bytes(reply)
+
+    def _request_limit(self, path: str) -> int:
+        if path == "/v1/backends/health-observation":
+            return HEALTH_OBSERVATION_REQUEST_MAX_BYTES
+        return self.max_request_bytes
+
+    def _response_limit(self, path: str) -> int:
+        if path == "/v1/backends/health-observation":
+            return HEALTH_OBSERVATION_REPLY_MAX_BYTES
+        return self.max_response_bytes
+
+    async def _dispatch_health_observation(
+        self, headers, body: bytes
+    ) -> tuple[int, bytes]:
+        if (
+            self.health_observation_control_token is None
+            or self.health_observation_manager is None
+        ):
+            return 503, _json_bytes(
+                {"detail": "Inference health observation owner unavailable"}
+            )
+        authorization = headers.get("authorization")
+        expected = f"Bearer {self.health_observation_control_token}"
+        if authorization is None or not hmac.compare_digest(
+            authorization.encode("utf-8"), expected.encode("utf-8")
+        ):
+            return 401, _json_bytes({"detail": "Unauthorized"})
+        if len(body) > HEALTH_OBSERVATION_REQUEST_MAX_BYTES:
+            return 413, _json_bytes({"detail": "Request body too large"})
+        try:
+            request = decode_health_observation_request(body)
+        except (
+            BackendHealthObservationInvalidRequest,
+            ValueError,
+            TypeError,
+            UnicodeError,
+            RecursionError,
+        ):
+            return 400, _json_bytes(
+                {"detail": "Invalid Inference health observation request"}
+            )
+        try:
+            reply = await self.health_observation_manager.execute(request)
+            encoded = health_observation_reply_bytes(reply)
+            decode_health_observation_reply(request, encoded)
+        except (
+            BackendHealthObservationUnavailable,
+            BackendHealthObservationInvalidRequest,
+            ValueError,
+            TypeError,
+            UnicodeError,
+            RecursionError,
+        ):
+            return 503, _json_bytes(
+                {"detail": "Inference health observation owner unavailable"}
+            )
+        if len(encoded) > HEALTH_OBSERVATION_REPLY_MAX_BYTES:
+            return 503, _json_bytes(
+                {"detail": "Inference health observation owner unavailable"}
+            )
+        return 200, encoded
 
     async def _dispatch_backend_probe(self, headers, body: bytes) -> tuple[int, bytes]:
         if (
