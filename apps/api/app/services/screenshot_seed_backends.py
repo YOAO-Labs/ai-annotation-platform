@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-import asyncio
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit
 
-from aap_inference import extract_capabilities
+from aap_inference.registry_ingress import (
+    get_or_create_seed,
+    refresh_candidates as refresh_registry_candidates,
+)
 from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_object_session
 
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
 from app.db.models.project import Project
@@ -18,6 +19,7 @@ from app.config import settings
 from app.services.ml_backend import MLBackendService
 from app.services.ml_client import MLBackendClient
 from app.services.inference_limits import capability_limits_from_settings
+from app.services.inference_registry_ingress_data import InferenceRegistryIngressData
 from app.services.screenshot_seed_spec import (
     BACKEND_REQUIREMENTS,
     PROJECT_SPECS,
@@ -46,15 +48,6 @@ def default_screenshot_stub_url() -> str:
         return DEFAULT_SCREENSHOT_STUB_URL
     rendered_host = f"[{host}]" if ":" in host else host
     return f"http://{rendered_host}:9100"
-
-
-@dataclass(frozen=True)
-class BackendProbe:
-    backend: MLBackendRegistry
-    healthy: bool
-    setup: dict[str, Any] | None
-    health_meta: dict[str, Any] | None
-    error: str | None = None
 
 
 def _capabilities(backend: MLBackendRegistry) -> dict[str, Any]:
@@ -154,54 +147,17 @@ def select_backend_for_requirement(
     return min(matches, key=sort_key)
 
 
-async def _probe_backend(backend: MLBackendRegistry) -> BackendProbe:
-    client = MLBackendClient(backend)
-    try:
-        healthy, health_meta = await client.health_meta()
-        if not healthy:
-            return BackendProbe(
-                backend, False, None, health_meta, "health check failed"
-            )
-        setup = await client.setup()
-        return BackendProbe(backend, True, setup, health_meta)
-    except Exception as exc:  # noqa: BLE001 - every candidate must be reported, not abort gather
-        return BackendProbe(
-            backend,
-            False,
-            None,
-            None,
-            f"{type(exc).__name__}: {exc}",
-        )
-
-
 async def _refresh_candidates(
     backends: list[MLBackendRegistry],
 ) -> list[MLBackendRegistry]:
-    probes = await asyncio.gather(*(_probe_backend(backend) for backend in backends))
-    now = datetime.now(UTC)
-    for probe in probes:
-        backend = probe.backend
-        backend.last_checked_at = now
-        if not probe.healthy:
-            backend.state = "error"
-            backend.error_message = probe.error
-            continue
-        capabilities = extract_capabilities(
-            probe.setup, limits=capability_limits_from_settings()
-        )
-        if not capabilities:
-            backend.state = "error"
-            backend.error_message = "setup response has no usable capabilities"
-            continue
-        backend.name = str((probe.setup or {}).get("name") or backend.name)
-        backend.state = "connected"
-        backend.error_message = None
-        backend.is_interactive = bool(capabilities["is_interactive"])
-        backend.health_meta = {
-            **(probe.health_meta or {}),
-            "capabilities": capabilities,
-        }
-    return backends
+    session = async_object_session(backends[0]) if backends else None
+    return await refresh_registry_candidates(
+        InferenceRegistryIngressData(session),
+        backends,
+        client_factory=MLBackendClient,
+        capability_limits_factory=capability_limits_from_settings,
+        clock=lambda: datetime.now(UTC),
+    )
 
 
 def _format_discovery_failure(
@@ -218,13 +174,7 @@ def _format_discovery_failure(
 
 
 async def _live_candidates(db: AsyncSession) -> list[MLBackendRegistry]:
-    rows = list(
-        (
-            await db.execute(
-                select(MLBackendRegistry).where(MLBackendRegistry.source != "seed")
-            )
-        ).scalars()
-    )
+    rows = await InferenceRegistryIngressData(db).candidates("live")
     return await _refresh_candidates(
         [backend for backend in rows if not _is_owned_stub(backend)]
     )
@@ -232,33 +182,16 @@ async def _live_candidates(db: AsyncSession) -> list[MLBackendRegistry]:
 
 async def _stub_candidate(db: AsyncSession, stub_url: str) -> list[MLBackendRegistry]:
     url = stub_url.rstrip("/")
-    service = MLBackendService(db)
-    backend = await db.scalar(
-        select(MLBackendRegistry).where(MLBackendRegistry.url == url)
+    backend = await get_or_create_seed(
+        InferenceRegistryIngressData(db),
+        url,
+        STUB_BACKEND_NAME,
+        {
+            "managed_by": SEED_MANAGED_BY,
+            "profile": "screenshots",
+            "revision": SEED_REVISION,
+        },
     )
-    if backend is None:
-        backend = await service.create_registry(
-            name=STUB_BACKEND_NAME,
-            url=url,
-            source="seed",
-            extra_params={
-                "seed": {
-                    "managed_by": SEED_MANAGED_BY,
-                    "profile": "screenshots",
-                    "revision": SEED_REVISION,
-                }
-            },
-        )
-    else:
-        backend.extra_params = {
-            **(backend.extra_params or {}),
-            "seed": {
-                "managed_by": SEED_MANAGED_BY,
-                "profile": "screenshots",
-                "revision": SEED_REVISION,
-            },
-        }
-        await service._create_singleton_pool(backend)
     candidates = await _refresh_candidates([backend])
     if backend.name != STUB_BACKEND_NAME:
         raise ScreenshotSeedBackendError(
