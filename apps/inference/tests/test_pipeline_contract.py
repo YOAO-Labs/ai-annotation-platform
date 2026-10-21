@@ -137,6 +137,18 @@ def test_command_operation_target_and_apply_payload_are_closed():
         )
 
 
+def test_actor_role_is_an_opaque_admitted_snapshot_string():
+    actor_id = uuid.uuid4()
+    for role in ("viewer", "reviewer", "legacy_platform_role"):
+        request = pipeline_command_request(
+            "create_pipeline",
+            actor_id=actor_id,
+            actor_role=role,
+            payload={},
+        )
+        assert request.admitted_actor.role == role
+
+
 def test_projection_request_binds_full_command_actor_and_resource():
     actor_id = uuid.uuid4()
     pipeline_id = uuid.uuid4()
@@ -184,7 +196,7 @@ def test_list_query_requires_all_nullable_filter_keys():
     request = pipeline_query_request(
         "list_pipelines",
         actor_id=uuid.uuid4(),
-        actor_role="observer",
+        actor_role="viewer",
         filters={"scope": None, "project_id": None, "organization_id": None},
     )
     assert request.filters is not None
@@ -193,7 +205,7 @@ def test_list_query_requires_all_nullable_filter_keys():
         pipeline_query_request(
             "list_pipelines",
             actor_id=uuid.uuid4(),
-            actor_role="observer",
+            actor_role="viewer",
             filters={"scope": None, "project_id": None},
         )
 

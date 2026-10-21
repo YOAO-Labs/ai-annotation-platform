@@ -250,7 +250,7 @@ class _PipelineWireModel(ClosedModel):
 
 class PipelineActor(_PipelineWireModel):
     id: uuid.UUID
-    role: Literal["super_admin", "project_admin", "employee", "observer"]
+    role: StrictStr
 
 
 class PipelineCommandRequest(_PipelineWireModel):
