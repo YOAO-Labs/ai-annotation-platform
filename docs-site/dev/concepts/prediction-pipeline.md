@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-21
 ---
 
 # 预标注流水线（Prediction Pipeline）
@@ -185,7 +185,7 @@ if params:
 
 `PreannotateRequest.pipeline_stages`（定义于 `apps/inference/src/aap_inference/preannotate.py`）把单阶段批量预标泛化为**平台层跨 backend 编排**：源阶段（如 detect）产框 → 下游阶段（如 classify / box-seg）对每个父框按各自路由方式投递 → 结果合并回同一框。缺省（无 `pipeline_stages`）与单阶段 `batch_predict` 逐字等价，完全向后兼容。决策与边界见 [ADR 0043 — 多阶段预标注编排](../adr/archive/0043-staged-preannotation-pipeline)。
 
-保存流水线结构共用 `aap_inference.pipeline.validate_saved_pipeline`；命名流水线的创建、更新、删除、阶段副本与默认项切换也由该所有者持有。`application/project_pipeline.py::apply_saved_pipeline` 组合当前项目管理权威及 backend 启用校验；这些命令不改变本页所述请求 schema 或 worker 执行合同。
+命名预标编排的保存、读取、apply 与本页描述的执行流水线属于相邻层次：结构仍共用 `aap_inference.pipeline.validate_saved_pipeline`，便携命令由 `aap_inference.pipeline_manager.PipelineManager` 持有，API 路由经 `services/inference_pipelines.py` 选择事务或独立 owner。六个公开路由的 DTO 不变；这些命令不会改变本页所述 `PreannotateRequest` 或 worker 执行合同。
 
 ### 请求形态
 

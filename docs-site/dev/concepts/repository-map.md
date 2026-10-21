@@ -145,10 +145,12 @@ last_reviewed: 2026-10-21
 - 项目配置与模板命令：`apps/workspace` 的 portable manager 与 Native 能力持有配置编排、权限围栏及写入，
   `services/workspace_configuration.py::execute_configuration` 装配调用方事务、专用连接或 HTTP；
   原 API 配置 ORM 命令已移除，HTTP 保留提交与响应。
-- 保存预标流水线写入由 `services/pipeline_template.py` 持有，包括
-  创建/更新/删除、阶段深拷贝与默认项切换，结构校验使用 `aap_inference.pipeline.validate_saved_pipeline`；
-  `application/project_pipeline.py::apply_saved_pipeline` 组合当前项目管理权威与 backend 启用校验。
-  canonical `PipelineStage` / `PreannotateRequest` 位于 `aap_inference.preannotate`。
+- 命名预标编排由 `aap_inference.pipeline_manager.PipelineManager` 与 `pipeline_policy` 持有；
+  `services/inference_pipelines.py` 选择 API 借用事务、专用 DSN 或 HTTP owner，
+  `inference_pipelines_data.py` 只适配固定 Native step。六个 CRUD/apply 公开路由与 DTO 保持原合同，
+  结构校验仍使用 `aap_inference.pipeline.validate_saved_pipeline`；canonical `PipelineStage` /
+  `PreannotateRequest` 位于 `aap_inference.preannotate`。Private Native RPC、Workspace 权威桥接和
+  commit/status/projection 阶段见 [后端分层](./backend-layers#分层规则)。
 - 指引图片：`aap_workspace.configuration.ConfigurationManager` 持有四项无状态命令，
   `aap_workspace.guide_asset_policy` 持有 key、类型、大小与登记规则，Native 持有完整行读取和权限围栏。
   `services/workspace_configuration.py` 选择绑定；`services/workspace_guide_objects.py` 只装配 Assets 字节端口。

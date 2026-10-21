@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: explanation
-since: v0.9.14
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-21
 ---
 
 # 项目模块
@@ -38,21 +37,24 @@ Project 是业务顶层容器。项目可以属于 organization；成员、批�
 
 ## 代码入口
 
-| 位置                                                                     | 作用                                               |
-| ------------------------------------------------------------------------ | -------------------------------------------------- |
-| `apps/api/app/db/models/project.py`                                      | Project 主模型                                     |
-| `apps/api/app/db/models/project_member.py`                               | 项目成员关系                                       |
-| `apps/api/app/db/models/project_pipeline.py`                             | 命名预标编排                                       |
-| `apps/api/app/db/models/ml_backend_pool.py` · `ml_backend_registry.py`   | 服务池、物理实例与项目启用关系                     |
-| `apps/api/app/schemas/project.py`                                        | Project 请求 / 响应 schema                         |
-| `apps/api/app/api/v1/projects.py`                                        | 项目 HTTP 路由                                     |
-| `apps/api/app/api/v1/ml_backends.py` · `project_pipelines.py`            | 项目 ML 服务池与编排 API                           |
-| `apps/inference/src/aap_inference/preannotate.py`                        | `PipelineStage` / `PreannotateRequest` 请求 schema |
-| `apps/api/app/services/pipeline_template.py`                             | 保存流水线校验与写命令所有者                       |
-| `apps/api/app/application/project_pipeline.py`                           | apply 的项目授权与 backend 启用组合                |
-| `apps/api/app/api/v1/dashboard/`(admin/reviewer/annotator 受众子 router) | 项目级统计与聚合                                   |
-| `apps/web/src/api/projects.ts`                                           | 前端 project API wrapper                           |
-| `apps/web/src/pages/Projects/`                                           | 项目设置与管理 UI                                  |
+| 位置                                                                           | 作用                                               |
+| ------------------------------------------------------------------------------ | -------------------------------------------------- |
+| `apps/api/app/db/models/project.py`                                            | Project 主模型                                     |
+| `apps/api/app/db/models/project_member.py`                                     | 项目成员关系                                       |
+| `apps/api/app/db/models/project_pipeline.py`                                   | 保存编排表映射（API 不直接读写 ORM）               |
+| `apps/api/app/db/models/ml_backend_pool.py` · `ml_backend_registry.py`         | 服务池、物理实例与项目启用关系                     |
+| `apps/api/app/schemas/project.py`                                              | Project 请求 / 响应 schema                         |
+| `apps/api/app/api/v1/projects.py`                                              | 项目 HTTP 路由                                     |
+| `apps/api/app/api/v1/ml_backends.py` · `project_pipelines.py`                  | 项目 ML 服务池与编排 API                           |
+| `apps/inference/src/aap_inference/preannotate.py`                              | `PipelineStage` / `PreannotateRequest` 请求 schema |
+| `apps/api/app/services/inference_pipelines.py`                                 | 选择命名编排 owner、提交边界和提交后投影           |
+| `apps/api/app/services/inference_pipelines_data.py`                            | 借用 API Session 的固定 Native 数据适配            |
+| `apps/inference/src/aap_inference/pipeline_manager.py` · `pipeline_policy.py`  | 命名编排便携命令、读取与纯策略                     |
+| `apps/inference/src/aap_inference/pipeline_postgres.py` · `pipeline_server.py` | 独立 owner 的 Native 数据与 HTTP server            |
+| `apps/inference/src/aap_inference/pipeline_client.py`                          | 受限 HTTP client 与状态探测                        |
+| `apps/api/app/api/v1/dashboard/`(admin/reviewer/annotator 受众子 router)       | 项目级统计与聚合                                   |
+| `apps/web/src/api/projects.ts`                                                 | 前端 project API wrapper                           |
+| `apps/web/src/pages/Projects/`                                                 | 项目设置与管理 UI                                  |
 
 ## 数据模型
 
@@ -216,7 +218,9 @@ Project 决定 task 的这些上层语义：
 
 ## 主要 API 面
 
-`apps/api/app/api/v1/projects.py` 当前覆盖项目 CRUD、成员、导出、预标注触发和数据关联；ML 启用 / 服务池由 `ml_backends.py` 管理，命名编排 CRUD 由 `/project-pipelines` 路由装配，写入由 `services/pipeline_template.py` 持有；项目套用端点由 `application/project_pipeline.py::apply_saved_pipeline` 组合当前管理权威与 backend 启用检查。`PipelineStage` 与 `PreannotateRequest` 的权威 schema 位于 `aap_inference.preannotate`，项目内嵌旧配置也复用 `validate_saved_pipeline`。
+`apps/api/app/api/v1/projects.py` 当前覆盖项目 CRUD、成员、导出、预标注触发和数据关联；ML 启用 / 服务池由 `ml_backends.py` 管理。`/project-pipelines` 的五个 CRUD 路由与项目 apply 路由共六个公开路由仍保持原请求 / 响应合同，读写由 `aap_inference.pipeline_manager.PipelineManager` 执行，API 经 `services/inference_pipelines.py` 选择默认借用事务、专用 DSN 或 HTTP owner。命名编排数据不经 `ProjectPipeline` ORM 读写；请求与响应 schema 仍位于 API。项目内嵌旧配置和保存编排结构继续共用 `aap_inference.pipeline.validate_saved_pipeline`，canonical `PipelineStage` 与 `PreannotateRequest` 位于 `aap_inference.preannotate`。
+
+项目 apply 保留 `require_project_owner` 在源编排查询之前的入口检查；manager 读取源和 backend 启用事实后，再经 Workspace 固定能力重读当前账号、项目与成员锁。借用事务由 API 提交成功命令，再以完整命令回执读取新投影，并通过 Identity UserBrief 补充创建者名称；apply 响应沿用 `created_by_name: null`。
 
 项目主路由覆盖的主要能力：
 
