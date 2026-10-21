@@ -7,3 +7,5 @@ The wire is versioned as `aap-inference-backend-probe/v1`. Requests are limited 
 Importing the value and contract modules requires only Pydantic. Install the `client` extra to use `BackendProbeHttpClient` and `BackendHealthObservationHttpClient`, or the `test` extra to run the isolated contract tests.
 
 The health observation contract carries an opaque encrypted subject and returns separately sealed evidence bound to the request, registry, and subject digest. Its request and reply are each limited to 24 MiB; `BackendHealthObservationHttpClient` sends one authenticated `POST /v1/backends/health-observation` without retry, redirect, or provider fallback.
+
+Before sealing, Inference encodes the private health outcome with `health_observation_outcome_text`; the API decodes the verified text with `decode_health_observation_outcome`. This private body is limited to 16 MiB and accepts Python's legacy `NaN`, `Infinity`, and `-Infinity` number tokens to preserve the original response-materialization phase. The HTTP request and reply envelopes remain strict finite JSON and contain only opaque encrypted Native values.

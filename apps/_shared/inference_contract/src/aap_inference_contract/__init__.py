@@ -21,6 +21,11 @@ from .health_observation import (
     health_observation_request_bytes,
     make_health_observation_request,
 )
+from .health_observation_outcome import (
+    HEALTH_OBSERVATION_OUTCOME_MAX_BYTES,
+    decode_health_observation_outcome,
+    health_observation_outcome_text,
+)
 from .probe import (
     BACKEND_PROBE_NATIVE_FUNCTIONS,
     BACKEND_PROBE_NATIVE_POLICY_SCHEMA,
@@ -68,6 +73,7 @@ __all__ = [
     "HEALTH_OBSERVATION_EVIDENCE_PROTOCOL",
     "HEALTH_OBSERVATION_NATIVE_FUNCTIONS",
     "HEALTH_OBSERVATION_NATIVE_POLICY_SCHEMA",
+    "HEALTH_OBSERVATION_OUTCOME_MAX_BYTES",
     "HEALTH_OBSERVATION_PROTOCOL",
     "HEALTH_OBSERVATION_REPLY_MAX_BYTES",
     "HEALTH_OBSERVATION_REQUEST_MAX_BYTES",
@@ -80,6 +86,8 @@ __all__ = [
     "decode_health_observation_reply",
     "decode_health_observation_request",
     "health_observation_policy_ready",
+    "decode_health_observation_outcome",
+    "health_observation_outcome_text",
     "health_observation_reply_bytes",
     "health_observation_request_bytes",
     "make_backend_probe_request",
