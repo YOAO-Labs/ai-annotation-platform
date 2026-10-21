@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from contextlib import asynccontextmanager
@@ -10,6 +11,8 @@ import pytest
 from aap_identity.briefs_client import BriefsClient
 from aap_identity.briefs_contract import (
     BRIEFS_PROTOCOL,
+    GetUserBriefsPayload,
+    GetUserBriefsRequest,
     decode_native_briefs_command,
 )
 from aap_identity.contract import IdentityUnavailable
@@ -50,6 +53,16 @@ class _BorrowedData:
     async def transaction(self):
         self.transactions += 1
         yield _Transaction(self)
+
+
+class _WaitingPolicyData(_BorrowedData):
+    def __init__(self):
+        super().__init__()
+        self.policy_calls = 0
+
+    async def briefs_policy(self):
+        self.policy_calls += 1
+        await asyncio.Event().wait()
 
 
 def _public_user(user_id: uuid.UUID, *, name="Ada"):
@@ -127,6 +140,37 @@ async def test_data_factory_is_resolved_only_for_nonempty_sql_reads():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("wait_stage", ["factory", "policy"])
+async def test_execute_deadline_bounds_sql_factory_and_policy(wait_stage):
+    user_id = uuid.UUID(legacy_fixture()["inputs"][0]["id"])
+    request = briefs_request("get_user_briefs", [user_id])
+    factory_calls = 0
+    data = _WaitingPolicyData()
+
+    async def data_factory():
+        nonlocal factory_calls
+        factory_calls += 1
+        await asyncio.Event().wait()
+
+    client = (
+        BriefsClient(data_factory=data_factory, timeout_seconds=0.01)
+        if wait_stage == "factory"
+        else BriefsClient(data, timeout_seconds=0.01)
+    )
+
+    with pytest.raises(IdentityUnavailable):
+        await asyncio.wait_for(client.execute(request), timeout=1)
+
+    if wait_stage == "factory":
+        assert factory_calls == 1
+        assert data.policy_calls == 0
+    else:
+        assert factory_calls == 0
+        assert data.policy_calls == 1
+    assert data.transactions == 0
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("operation", "project_id"),
     [
@@ -152,6 +196,21 @@ async def test_empty_ids_skip_provider_validation_and_all_io(operation, project_
     assert reply.data.users == []
     assert reply.data.project_id == project_id
     assert factory_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_typed_request_is_redecoded_before_provider_dispatch():
+    request = GetUserBriefsRequest.model_construct(
+        protocol="wrong-protocol",
+        operation="get_user_briefs",
+        payload=GetUserBriefsPayload.model_construct(user_ids=[None]),
+    )
+    data = _Data()
+
+    with pytest.raises(IdentityUnavailable):
+        await BriefsClient(data).execute(request)
+
+    assert data.policy_calls == data.transactions == data.commands == 0
 
 
 @pytest.mark.asyncio

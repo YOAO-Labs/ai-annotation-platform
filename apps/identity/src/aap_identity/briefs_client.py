@@ -13,6 +13,7 @@ from .briefs_contract import (
     BriefsFailure,
     BriefsReply,
     BriefsRequest,
+    decode_briefs_request,
     decode_briefs_reply,
 )
 from .briefs_manager import BriefsData, BriefsManager
@@ -63,14 +64,29 @@ class BriefsClient:
         self._transport = transport
 
     async def execute(self, request: BriefsRequest) -> BriefsReply:
+        try:
+            request = decode_briefs_request(
+                request.model_dump(mode="json", by_alias=True)
+            )
+        except BriefsFailure:
+            raise IdentityUnavailable() from None
+        except (AttributeError, TypeError, ValueError, UnicodeError):
+            raise IdentityUnavailable() from None
+
         if not request.payload.user_ids:
             return await BriefsManager(_UnusedBriefsData()).execute(request)
 
-        # Match IdentityGateway's current selector: an empty URL means no remote
-        # owner; any nonempty URL selects HTTP and must not fall back on failure.
-        if self._identity_url:
-            return await self._execute_http(request)
-        return await self._execute_data(request)
+        try:
+            async with asyncio.timeout(self._timeout_seconds):
+                # Match IdentityGateway's current selector: an empty URL means no
+                # remote owner; any nonempty URL selects HTTP and must not fall back.
+                if self._identity_url:
+                    return await self._execute_http(request)
+                return await self._execute_data(request)
+        except IdentityUnavailable:
+            raise
+        except (TimeoutError, TypeError, ValueError):
+            raise IdentityUnavailable() from None
 
     async def _execute_data(self, request: BriefsRequest) -> BriefsReply:
         try:
@@ -113,26 +129,25 @@ class BriefsClient:
                 separators=(",", ":"),
             )
 
-            async with asyncio.timeout(self._timeout_seconds):
-                async with httpx.AsyncClient(
-                    timeout=self._timeout_seconds,
-                    trust_env=False,
-                    transport=self._transport,
-                ) as client:
-                    async with client.stream(
-                        "POST",
-                        endpoint,
-                        content=payload,
-                        headers={
-                            "Authorization": f"Bearer {self._identity_token}",
-                            "Content-Type": "application/json",
-                        },
-                    ) as response:
-                        if response.status_code != 200:
-                            raise IdentityUnavailable()
-                        body = bytearray()
-                        async for chunk in response.aiter_bytes(chunk_size=65536):
-                            body.extend(chunk)
+            async with httpx.AsyncClient(
+                timeout=self._timeout_seconds,
+                trust_env=False,
+                transport=self._transport,
+            ) as client:
+                async with client.stream(
+                    "POST",
+                    endpoint,
+                    content=payload,
+                    headers={
+                        "Authorization": f"Bearer {self._identity_token}",
+                        "Content-Type": "application/json",
+                    },
+                ) as response:
+                    if response.status_code != 200:
+                        raise IdentityUnavailable()
+                    body = bytearray()
+                    async for chunk in response.aiter_bytes(chunk_size=65536):
+                        body.extend(chunk)
 
             return decode_briefs_reply(request, bytes(body))
         except IdentityUnavailable:
