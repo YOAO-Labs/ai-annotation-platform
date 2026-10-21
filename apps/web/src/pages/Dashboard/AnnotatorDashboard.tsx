@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPagination } from "@/hooks/useListPagination";
+import { listStyles } from "@/components/ui/listStyles";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo, type MouseEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -138,6 +141,7 @@ export function AnnotatorDashboard() {
       }),
     [myProjects],
   );
+  const projectPagination = useListPagination(sortedProjects);
   const myBatches = useMemo(() => batchesQuery.data ?? [], [batchesQuery.data]);
   const checklistProject = useMemo(
     () =>
@@ -401,7 +405,7 @@ export function AnnotatorDashboard() {
             </div>
           ) : (
             <div className="w-full overflow-x-auto [overscroll-behavior-x:contain]">
-              <table className={TABLE_CLASS}>
+              <table className={`${listStyles.table} ${TABLE_CLASS}`}>
                 <thead>
                   <tr>
                     {["项目", "类型", "进度", "待标", ""].map((h, i) => (
@@ -410,7 +414,7 @@ export function AnnotatorDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedProjects.map((p) => {
+                  {projectPagination.items.map((p) => {
                     const remaining = Math.max(0, (p.total_tasks ?? 0) - (p.completed_tasks ?? 0));
                     const pct = p.total_tasks
                       ? Math.round(((p.completed_tasks ?? 0) / p.total_tasks) * 100)
@@ -459,6 +463,14 @@ export function AnnotatorDashboard() {
               </table>
             </div>
           )}
+          <ListPagination
+            label="我的项目"
+            page={projectPagination.page}
+            pageSize={projectPagination.pageSize}
+            total={projectPagination.total}
+            onPageChange={projectPagination.setPage}
+            onPageSizeChange={projectPagination.setPageSize}
+          />
         </Card>
       </div>
     </PageContainer>

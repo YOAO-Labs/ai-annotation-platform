@@ -1,3 +1,6 @@
+import { useListPagination } from "@/hooks/useListPagination";
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterSelect } from "@/components/filters/FilterControls";
 import { FilterPanel } from "@/components/filters/FilterPanel";
@@ -136,7 +139,7 @@ function UsersPageContent() {
     projectId: filters.projectId,
     groupId: filters.groupId,
   });
-  const pageSize = 25;
+  const [pageSize, setPageSize] = useState(20);
   const [editing, setEditing] = useState<UserResponse | null>(null);
   const [deleting, setDeleting] = useState<UserResponse | null>(null);
   const [resettingPwd, setResettingPwd] = useState<UserResponse | null>(null);
@@ -239,12 +242,18 @@ function UsersPageContent() {
     page_size: pageSize,
   });
   const { data: groupsData = [] } = useGroups();
+  const groupPagination = useListPagination(groupsData);
   const { data: usersStats } = useUsersStats(memberParams);
   const usersPaused = usersFetchStatus === "paused";
 
   const allUsers = pageData?.items ?? [];
   const filtered = allUsers;
   const pageMeta = pageData;
+  useEffect(() => {
+    if (!pageData || usersFetching) return;
+    const lastPage = Math.max(1, Math.ceil(pageData.total / pageSize));
+    if (page > lastPage) patch({ page: lastPage }, { replace: true });
+  }, [pageData, usersFetching, pageSize, page, patch]);
   const { data: projects = [] } = useProjects();
   const { data: transferUsers = [] } = useUsers(
     { status: "active" },
@@ -566,7 +575,7 @@ function UsersPageContent() {
               </div>
             )}
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1040px] border-separate border-spacing-0 text-sm">
+              <table className={`${listStyles.table} min-w-[1040px]`}>
                 <thead>
                   <tr>
                     <th className={TH_CLASS}>
@@ -859,29 +868,18 @@ function UsersPageContent() {
                 </tbody>
               </table>
             </div>
-            {pageMeta && pageMeta.pages > 1 && (
-              <div className="flex items-center justify-between border-t border-border px-4 py-3 text-xs text-muted-foreground">
-                <span>
-                  第 {pageMeta.page} / {pageMeta.pages} 页 · 共 {pageMeta.total} 名成员
-                </span>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    disabled={page <= 1}
-                    onClick={() => patch({ page: Math.max(1, page - 1) }, { replace: false })}
-                  >
-                    上一页
-                  </Button>
-                  <Button
-                    size="sm"
-                    disabled={page >= pageMeta.pages}
-                    onClick={() => patch({ page: page + 1 }, { replace: false })}
-                  >
-                    下一页
-                  </Button>
-                </div>
-              </div>
-            )}
+            <ListPagination
+              label="成员"
+              page={page - 1}
+              pageSize={pageSize}
+              total={pageMeta?.total ?? 0}
+              loading={isLoading}
+              onPageChange={(next) => patch({ page: next + 1 }, { replace: false })}
+              onPageSizeChange={(size) => {
+                setPageSize(size);
+                patch({ page: 1 }, { replace: false });
+              }}
+            />
           </div>
         )}
 
@@ -944,7 +942,7 @@ function UsersPageContent() {
                 </Can>
               </div>
             )}
-            {groupsData.map((g) => {
+            {groupPagination.items.map((g) => {
               return (
                 <div
                   key={g.id}
@@ -973,6 +971,14 @@ function UsersPageContent() {
                 </div>
               );
             })}
+            <ListPagination
+              label="数据组"
+              page={groupPagination.page}
+              pageSize={groupPagination.pageSize}
+              total={groupPagination.total}
+              onPageChange={groupPagination.setPage}
+              onPageSizeChange={groupPagination.setPageSize}
+            />
           </div>
         )}
 

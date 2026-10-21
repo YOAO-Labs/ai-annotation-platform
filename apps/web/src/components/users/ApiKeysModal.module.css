@@ -84,7 +84,7 @@
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
 }
 
 .scopeDisabled {
@@ -149,7 +149,7 @@
   min-width: 720px;
   border-spacing: 0;
   border-collapse: separate;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
 }
 
 .th {

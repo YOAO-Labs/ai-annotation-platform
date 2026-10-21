@@ -426,6 +426,8 @@ async def annotator_dashboard(
 
 @router.get("/annotator/batches", response_model=list[MyBatchItem])
 async def my_batches(
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*DASHBOARD_PLATFORM_ROLES)),
 ):
@@ -451,7 +453,11 @@ async def my_batches(
         )
         if batch_scope is not None:
             q = q.where(batch_scope)
-    q = q.order_by(Project.name, TaskBatch.created_at.desc()).limit(100)
+    q = (
+        q.order_by(Project.name, TaskBatch.created_at.desc(), TaskBatch.id)
+        .offset(offset)
+        .limit(limit)
+    )
 
     rows = (await db.execute(q)).all()
 

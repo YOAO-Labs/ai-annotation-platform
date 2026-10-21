@@ -396,7 +396,7 @@ describe("UsersPage", () => {
     await waitFor(() => {
       const query = capturedQuery(captured.pageQueries);
       expect(query.get("page")).toBe("2");
-      expect(query.get("page_size")).toBe("25");
+      expect(query.get("page_size")).toBe("20");
     });
 
     fireEvent.click(screen.getByRole("button", { name: "筛选" }));
@@ -422,6 +422,18 @@ describe("UsersPage", () => {
     expect(exported.get("project_id")).toBe("project-1");
     expect(exported.get("role")).toBe("employee");
     expect(exported.get("status")).toBe("active");
+  });
+
+  it("changes the server page size and returns to page one", async () => {
+    const captured = installUsersApi({ total: 1000, pages: 50 });
+    renderUsers("/users?page=2");
+    await screen.findByText("Alice");
+    fireEvent.change(screen.getByLabelText("每页成员数"), { target: { value: "50" } });
+    await waitFor(() => {
+      const query = capturedQuery(captured.pageQueries);
+      expect(query.get("page")).toBe("1");
+      expect(query.get("page_size")).toBe("50");
+    });
   });
 
   it("clears selected members when filters change and preserves them across pages", async () => {
@@ -497,7 +509,7 @@ describe("UsersPage", () => {
       expect(query.get("project_id")).toBe("project-1");
       expect(query.get("search")).toBe("Alice");
       expect(query.get("page")).toBe("2");
-      expect(query.get("page_size")).toBe("25");
+      expect(query.get("page_size")).toBe("20");
     });
   });
 

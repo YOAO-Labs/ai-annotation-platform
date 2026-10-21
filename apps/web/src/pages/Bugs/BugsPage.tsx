@@ -1,3 +1,7 @@
+import { useListPagination } from "@/hooks/useListPagination";
+import { useOffsetListPagination } from "@/hooks/useOffsetListPagination";
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
 import { FilterGroup, FilterSelect } from "@/components/filters/FilterControls";
 import { lazy, Suspense, useState, useEffect, useMemo, useRef } from "react";
 import { bugReportsApi, type BugReportDetail } from "@/api/bug-reports";
@@ -88,20 +92,28 @@ export function BugsPage() {
   const { state: filters, issues, patch } = urlState;
   const authOwnerId = useAuthStore((state) => state.user?.id ?? null);
   const authToken = useAuthStore((state) => state.token);
+  const pagination = useOffsetListPagination(`${filters.status}\0${filters.severity}`);
   const listParams = useMemo(
     () => ({
       status: filters.status || undefined,
       severity: filters.severity || undefined,
-      limit: 50,
+      limit: pagination.pageSize,
+      offset: pagination.offset,
     }),
-    [filters.severity, filters.status],
+    [filters.severity, filters.status, pagination.pageSize, pagination.offset],
   );
   const listQuery = useBugReports(listParams);
   const items = listQuery.data?.items ?? [];
   const total = listQuery.data?.total ?? 0;
   const loading = listQuery.isLoading;
+  useEffect(() => {
+    if (!listQuery.data || listQuery.isFetching) return;
+    const lastPage = Math.max(0, Math.ceil(total / pagination.pageSize) - 1);
+    if (pagination.page > lastPage) pagination.setPage(lastPage);
+  }, [listQuery.data, listQuery.isFetching, total, pagination]);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<BugReportDetail | null>(null);
+  const comments = useListPagination(detail?.comments ?? [], detailId);
   const [commentText, setCommentText] = useState("");
   const [postingComment, setPostingComment] = useState(false);
   const detailRequestRef = useRef(0);
@@ -265,7 +277,7 @@ export function BugsPage() {
         <div>
           {loading && <div className={styles.emptyState}>加载中...</div>}
           {!loading && items.length === 0 && <div className={styles.emptyState}>暂无反馈</div>}
-          <table className={styles.table}>
+          <table className={`${styles.table} ${listStyles.table}`}>
             <thead>
               <tr className={styles.headerRow}>
                 <th className={styles.th}>ID</th>
@@ -317,6 +329,15 @@ export function BugsPage() {
               ))}
             </tbody>
           </table>
+          <ListPagination
+            label="问题反馈"
+            page={pagination.page}
+            pageSize={pagination.pageSize}
+            total={total}
+            loading={loading}
+            onPageChange={pagination.setPage}
+            onPageSizeChange={pagination.setPageSize}
+          />
         </div>
 
         {/* Detail panel */}
@@ -412,7 +433,7 @@ export function BugsPage() {
             {/* Comments */}
             <div className={styles.commentsSection}>
               <div className={styles.sectionTitle}>评论 ({detail.comments?.length ?? 0})</div>
-              {detail.comments?.map((c) => (
+              {comments.items.map((c) => (
                 <div key={c.id} className={styles.comment}>
                   <div className={styles.commentMeta}>
                     <span className={styles.commentAuthor}>{c.author_name || "未知"}</span>
@@ -425,6 +446,14 @@ export function BugsPage() {
                 </div>
               ))}
             </div>
+            <ListPagination
+              label="反馈评论"
+              page={comments.page}
+              pageSize={comments.pageSize}
+              total={comments.total}
+              onPageChange={comments.setPage}
+              onPageSizeChange={comments.setPageSize}
+            />
             <div className={styles.commentForm}>
               <div>
                 <CompactMarkdownEditor

@@ -1,3 +1,5 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPagination } from "@/hooks/useListPagination";
 import { FilterGroup, FilterToggle } from "@/components/filters/FilterControls";
 // v0.10.14 · E2 · 模板库列表页. 三个 tab (我的 / 组织 / 公共), 搜索 + type
 // filter, 卡片列表. 操作: 应用 (跳 Wizard with template_id) / 克隆 / 编辑 / 删除.
@@ -96,6 +98,7 @@ export function ProjectTemplatesPage() {
   const duplicate = useDuplicateProjectTemplate();
 
   const templates = useMemo(() => list.data ?? [], [list.data]);
+  const pagination = useListPagination(templates, `${currentUrl.scope}\0${searchForRequest}`);
 
   const handleApply = (t: ProjectTemplateOut) => {
     setApplyTemplateId(t.id);
@@ -207,7 +210,7 @@ export function ProjectTemplatesPage() {
         </div>
       ) : (
         <div className={styles.grid}>
-          {templates.map((t) => (
+          {pagination.items.map((t) => (
             <TemplateCard
               key={t.id}
               template={t}
@@ -220,6 +223,15 @@ export function ProjectTemplatesPage() {
           ))}
         </div>
       )}
+
+      <ListPagination
+        label="项目模板"
+        page={pagination.page}
+        pageSize={pagination.pageSize}
+        total={pagination.total}
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+      />
 
       <TemplateEditModal open={editOpen} onClose={() => setEditOpen(false)} initial={editTarget} />
 

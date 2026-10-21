@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPagination } from "@/hooks/useListPagination";
+import { listStyles } from "@/components/ui/listStyles";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { useState, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
@@ -155,6 +158,22 @@ export function MyBatchesCard() {
     });
   };
 
+  // annotating 排前面，rejected 次之，其他靠后；同状态按 display_id 自然序
+  const STATUS_ORDER: Record<string, number> = {
+    annotating: 0,
+    rejected: 1,
+    active: 2,
+    reviewing: 3,
+  };
+  const sorted = [...batches].sort((a, b) => {
+    const ra = STATUS_ORDER[a.status] ?? 9;
+    const rb = STATUS_ORDER[b.status] ?? 9;
+    if (ra !== rb) return ra - rb;
+    return a.batch_display_id.localeCompare(b.batch_display_id);
+  });
+
+  const pagination = useListPagination(sorted);
+
   if (initialPaused) {
     return (
       <div className="mt-4">
@@ -202,20 +221,6 @@ export function MyBatchesCard() {
   }
 
   if (batches.length === 0 && !batchesQuery.isError) return null;
-
-  // annotating 排前面，rejected 次之，其他靠后；同状态按 display_id 自然序
-  const STATUS_ORDER: Record<string, number> = {
-    annotating: 0,
-    rejected: 1,
-    active: 2,
-    reviewing: 3,
-  };
-  const sorted = [...batches].sort((a, b) => {
-    const ra = STATUS_ORDER[a.status] ?? 9;
-    const rb = STATUS_ORDER[b.status] ?? 9;
-    if (ra !== rb) return ra - rb;
-    return a.batch_display_id.localeCompare(b.batch_display_id);
-  });
 
   // B-22 改：可批量提交的批次 = 仍有未送审任务（pending / in_progress）的 annotating /
   // reviewing 批次。用户反馈"提交质检仍无效"是因为旧门槛要求所有任务都送审，这里放宽到
@@ -326,7 +331,7 @@ export function MyBatchesCard() {
           </div>
         )}
         <div className="py-2">
-          {sorted.map((b) => {
+          {pagination.items.map((b) => {
             const meta = STATUS_LABEL[b.status] ?? { label: b.status, variant: "outline" as const };
             // B-20：分三档进度，每档独立条 — "标注中"(已动工含 in_progress) / "送审" / "审核通过"。
             // 旧版只用 completed/total 计算，导致 reviewer 没批复前进度永远 0%，且与后端三态语义脱节。
@@ -348,7 +353,7 @@ export function MyBatchesCard() {
                 key={b.batch_id}
                 type="button"
                 onClick={() => navigate(annotateUrl)}
-                className="flex w-full cursor-pointer appearance-none items-center justify-between gap-3 border-0 border-t border-border bg-transparent px-4 py-2.5 text-left text-inherit [font-family:inherit] first:border-t-0"
+                className={`flex w-full cursor-pointer appearance-none items-center justify-between gap-3 border-0 bg-transparent text-left text-inherit [font-family:inherit] ${listStyles.row}`}
               >
                 {canSelect && (
                   <input
@@ -438,6 +443,14 @@ export function MyBatchesCard() {
             );
           })}
         </div>
+        <ListPagination
+          label="我的批次"
+          page={pagination.page}
+          pageSize={pagination.pageSize}
+          total={pagination.total}
+          onPageChange={pagination.setPage}
+          onPageSizeChange={pagination.setPageSize}
+        />
       </Card>
     </div>
   );

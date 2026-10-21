@@ -1,3 +1,4 @@
+import { listStyles } from "@/components/ui/listStyles";
 import { FilterGroup, FilterToggle } from "@/components/filters/FilterControls";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -485,7 +486,7 @@ export function AdminProjectsDashboard() {
           )
         ) : (
           <div className="w-full overflow-x-auto [overscroll-behavior-x:contain]">
-            <table className="w-full min-w-[1040px] border-separate border-spacing-0 text-sm">
+            <table className={`${listStyles.table} min-w-[1040px]`}>
               <thead>
                 <tr>
                   {["项目", "负责人", "进度", "AI 模型", "状态", "截止 / 更新", ""].map((h, i) => (

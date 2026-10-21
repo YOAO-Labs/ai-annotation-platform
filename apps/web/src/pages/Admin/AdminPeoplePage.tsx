@@ -1,3 +1,6 @@
+import { useOffsetListPagination } from "@/hooks/useOffsetListPagination";
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPagination } from "@/hooks/useListPagination";
 import { FilterGroup, FilterToggle, FilterSelect } from "@/components/filters/FilterControls";
 import {
   useEffect,
@@ -186,6 +189,7 @@ export function AdminPeoplePage() {
   });
 
   const items = data?.items ?? [];
+  const pagination = useListPagination(items, JSON.stringify(peopleParams));
 
   return (
     <PageContainer>
@@ -294,11 +298,20 @@ export function AdminPeoplePage() {
         </Card>
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
-          {items.map((it) => (
+          {pagination.items.map((it) => (
             <PersonCard key={it.user_id} item={it} onClick={() => setActiveUserId(it.user_id)} />
           ))}
         </div>
       )}
+
+      <ListPagination
+        label="成员绩效"
+        page={pagination.page}
+        pageSize={pagination.pageSize}
+        total={pagination.total}
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+      />
 
       {activeUserId && (
         <PersonDrawer
@@ -731,8 +744,20 @@ function DrillTaskList({
   classNameFilter?: string;
 }) {
   const ownerId = useAuthStore((state) => state.user?.id);
+  const taskPagination = useOffsetListPagination(
+    `${projectId}\0${assigneeId}\0${rejectReasonType}\0${classNameFilter}`,
+  );
   const { data, isLoading } = useQuery({
-    queryKey: ["drill-tasks", ownerId, projectId, assigneeId, rejectReasonType, classNameFilter],
+    queryKey: [
+      "drill-tasks",
+      ownerId,
+      projectId,
+      assigneeId,
+      rejectReasonType,
+      classNameFilter,
+      taskPagination.pageSize,
+      taskPagination.offset,
+    ],
     queryFn: ({ signal }) =>
       tasksApi.listByProject(
         projectId,
@@ -740,13 +765,19 @@ function DrillTaskList({
           assignee_id: assigneeId,
           reject_reason_type: rejectReasonType,
           class_name: classNameFilter,
-          limit: 20,
+          limit: taskPagination.pageSize,
+          offset: taskPagination.offset,
         },
         { signal },
       ),
     enabled: Boolean(ownerId),
   });
   const tasks = data?.items ?? [];
+  useEffect(() => {
+    if (!data || data.total == null || isLoading) return;
+    const lastPage = Math.max(0, Math.ceil(data.total / taskPagination.pageSize) - 1);
+    if (taskPagination.page > lastPage) taskPagination.setPage(lastPage);
+  }, [data, isLoading, taskPagination]);
   return (
     <div className="flex flex-col gap-1 px-3.5 pb-2 pt-1">
       {isLoading ? (
@@ -764,6 +795,17 @@ function DrillTaskList({
           </div>
         ))
       )}
+      <ListPagination
+        label="绩效下钻任务"
+        page={taskPagination.page}
+        pageSize={taskPagination.pageSize}
+        total={data?.total ?? undefined}
+        count={tasks.length}
+        hasNext={data?.total == null ? tasks.length === taskPagination.pageSize : undefined}
+        loading={isLoading}
+        onPageChange={taskPagination.setPage}
+        onPageSizeChange={taskPagination.setPageSize}
+      />
     </div>
   );
 }

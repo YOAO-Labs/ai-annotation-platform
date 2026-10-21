@@ -10,6 +10,8 @@ export function useDatasets(params?: {
   search?: string;
   data_type?: string;
   has_scenes?: boolean;
+  limit?: number;
+  offset?: number;
 }) {
   const userId = useAuthStore((state) => state.user?.id ?? null);
   const tokenEpoch = useAuthStore((state) => state.token);

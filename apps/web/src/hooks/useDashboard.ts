@@ -1,6 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
-import { dashboardApi } from "../api/dashboard";
+import { dashboardApi, type MyBatchItem, type ReviewingBatchItem } from "../api/dashboard";
 import { useAuthStore } from "@/stores/authStore";
+
+/** Fetch every batch page before consumers filter and sort the collection. */
+async function allBatches<T extends { batch_id: string }>(
+  fetchPage: (limit: number, offset: number, signal?: AbortSignal) => Promise<T[]>,
+  signal: AbortSignal,
+): Promise<T[]> {
+  const items = new Map<string, T>();
+  const limit = 200;
+  for (let offset = 0; ; offset += limit) {
+    signal.throwIfAborted();
+    const page = await fetchPage(limit, offset, signal);
+    for (const item of page) items.set(item.batch_id, item);
+    if (page.length < limit) return [...items.values()];
+  }
+}
 
 /** Account identity for cache binding; `bindAuthQueryCache` also clears on change. */
 function useAccountScope() {
@@ -21,7 +36,13 @@ export function useReviewerStats() {
   const { userId } = useAccountScope();
   return useQuery({
     queryKey: ["dashboard", "reviewer", userId],
-    queryFn: dashboardApi.getReviewerStats,
+    queryFn: async ({ signal }) => {
+      const [stats, reviewing_batches] = await Promise.all([
+        dashboardApi.getReviewerStats(signal),
+        allBatches<ReviewingBatchItem>(dashboardApi.getReviewerBatches, signal),
+      ]);
+      return { ...stats, reviewing_batches };
+    },
   });
 }
 
@@ -37,7 +58,7 @@ export function useMyBatches() {
   const { userId } = useAccountScope();
   return useQuery({
     queryKey: ["dashboard", "annotator", "batches", userId],
-    queryFn: dashboardApi.getMyBatches,
+    queryFn: ({ signal }) => allBatches<MyBatchItem>(dashboardApi.getMyBatches, signal),
     // B-20：标注员看进度需实时性，10s 轻量轮询；窗口可见时才轮询，避免后台 tab 浪费
     refetchInterval: 10_000,
     refetchIntervalInBackground: false,

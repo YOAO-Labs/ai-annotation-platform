@@ -1,6 +1,10 @@
+import { useOffsetListPagination } from "@/hooks/useOffsetListPagination";
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPagination } from "@/hooks/useListPagination";
+import { listStyles } from "@/components/ui/listStyles";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterToggle } from "@/components/filters/FilterControls";
-import { useState, Fragment, useEffect, useRef } from "react";
+import { useState, Fragment, useEffect, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Icon } from "@/components/ui/Icon";
 import { Button } from "@/components/ui/Button";
@@ -191,17 +195,18 @@ function DatasetRow({
 }
 
 function DatasetDetail({ ds }: { ds: DatasetResponse }) {
-  const [itemPage, setItemPage] = useState(0);
+  const itemPagination = useOffsetListPagination(ds.id);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [confirmUnlink, setConfirmUnlink] = useState<ProjectResponse | null>(null);
   // v0.12.0 · 大 dataset 关联后异步建 task 的进度
   const [linkJob, setLinkJob] = useState<{ jobId: string; projectId: string } | null>(null);
   const queryClient = useQueryClient();
   const { data: itemsData, isLoading: itemsLoading } = useDatasetItems(ds.id, {
-    limit: 10,
-    offset: itemPage * 10,
+    limit: itemPagination.pageSize,
+    offset: itemPagination.offset,
   });
   const { data: linkedProjects = [] } = useDatasetProjects(ds.id);
+  const linkedPagination = useListPagination(linkedProjects, ds.id);
   const { data: allProjects } = useProjects();
   const unlinkMutation = useUnlinkProject(ds.id);
   const linkMutation = useLinkProject(ds.id);
@@ -213,7 +218,11 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
 
   const items = itemsData?.items ?? [];
   const totalItems = itemsData?.total ?? 0;
-  const totalPages = Math.ceil(totalItems / 10);
+  useEffect(() => {
+    if (!itemsData || itemsLoading) return;
+    const lastPage = Math.max(0, Math.ceil(totalItems / itemPagination.pageSize) - 1);
+    if (itemPagination.page > lastPage) itemPagination.setPage(lastPage);
+  }, [itemsData, itemsLoading, totalItems, itemPagination]);
   const isImageDataset = ds.data_type === "image";
   const isVideoDataset = ds.data_type === "video";
   const isPointCloudDataset = ds.data_type === "point_cloud";
@@ -344,7 +353,7 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
                 </div>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] border-separate border-spacing-0 text-sm">
+                <table className={`${listStyles.table} min-w-[720px]`}>
                   <thead>
                     <tr>
                       {["文件名", "类型", "大小", "媒体信息", "上传时间"].map((h, i) => (
@@ -412,27 +421,15 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
                   </tbody>
                 </table>
               </div>
-              {totalPages > 1 && (
-                <div className="mt-2 flex justify-center gap-1">
-                  <Button
-                    size="sm"
-                    onClick={() => setItemPage(Math.max(0, itemPage - 1))}
-                    className={itemPage > 0 ? undefined : "invisible"}
-                  >
-                    <Icon name="chevLeft" size={11} />
-                  </Button>
-                  <span className="px-2 py-1 text-xs text-muted-foreground">
-                    {itemPage + 1} / {totalPages}
-                  </span>
-                  <Button
-                    size="sm"
-                    onClick={() => setItemPage(Math.min(totalPages - 1, itemPage + 1))}
-                    className={itemPage < totalPages - 1 ? undefined : "invisible"}
-                  >
-                    <Icon name="chevRight" size={11} />
-                  </Button>
-                </div>
-              )}
+              <ListPagination
+                label="数据集文件"
+                page={itemPagination.page}
+                pageSize={itemPagination.pageSize}
+                total={totalItems}
+                loading={itemsLoading}
+                onPageChange={itemPagination.setPage}
+                onPageSizeChange={itemPagination.setPageSize}
+              />
             </div>
 
             {/* 关联项目 */}
@@ -477,7 +474,7 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
                   </span>
                 </h4>
               </div>
-              {linkedProjects.map((p) => (
+              {linkedPagination.items.map((p) => (
                 <div
                   key={p.id}
                   className="flex items-center justify-between border-b border-border py-2"
@@ -501,6 +498,14 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
               {linkedProjects.length === 0 && (
                 <div className="py-3 text-xs text-muted-foreground">未关联任何项目</div>
               )}
+              <ListPagination
+                label="关联项目"
+                page={linkedPagination.page}
+                pageSize={linkedPagination.pageSize}
+                total={linkedPagination.total}
+                onPageChange={linkedPagination.setPage}
+                onPageSizeChange={linkedPagination.setPageSize}
+              />
               {availableProjects.length > 0 && (
                 <select
                   onChange={(e) => {
@@ -726,16 +731,71 @@ export function DatasetsPage() {
   const canManageConn = role === "super_admin" || role === "project_admin";
   const queryClient = useQueryClient();
 
-  const { data: datasetsData, isLoading } = useDatasets({
+  const pagination = useOffsetListPagination(filterSignature);
+  const {
+    data: datasetsData,
+    isLoading,
+    isFetching,
+  } = useDatasets({
     search: queryForRequest.trim() || undefined,
     data_type: currentUrl.data_type,
+    limit: pagination.pageSize,
+    offset: pagination.offset,
   });
 
-  const datasets = datasetsData?.items ?? [];
+  const datasets = useMemo(() => datasetsData?.items ?? [], [datasetsData?.items]);
   const total = datasetsData?.total ?? 0;
+  useEffect(() => {
+    if (!datasetsData || isFetching) return;
+    const lastPage = Math.max(0, Math.ceil(total / pagination.pageSize) - 1);
+    if (pagination.page > lastPage) pagination.setPage(lastPage);
+  }, [datasetsData, isFetching, total, pagination]);
 
   // 从通知点入（/datasets?dataset=<id>）时，自动切到「数据集管理」并展开、滚动到该数据集
   const [searchParams, setSearchParams] = useSearchParams();
+  const requestedDataset = searchParams.get("dataset");
+  const resolvedDatasetLink = useRef("");
+  useEffect(() => {
+    if (!requestedDataset || isLoading || datasets.some((ds) => ds.id === requestedDataset)) return;
+    const key = `${requestedDataset}\0${filterSignature}\0${pagination.pageSize}`;
+    if (resolvedDatasetLink.current === key) return;
+    resolvedDatasetLink.current = key;
+    const controller = new AbortController();
+    void (async () => {
+      for (let offset = 0; ; offset += 200) {
+        const response = await datasetsApi.list(
+          {
+            search: queryForRequest.trim() || undefined,
+            data_type: currentUrl.data_type,
+            limit: 200,
+            offset,
+          },
+          { signal: controller.signal },
+        );
+        if (controller.signal.aborted) return;
+        const index = response.items.findIndex((dataset) => dataset.id === requestedDataset);
+        if (index >= 0) {
+          pagination.setPage(Math.floor((offset + index) / pagination.pageSize));
+          return;
+        }
+        if (offset + response.items.length >= response.total || response.items.length < 200) return;
+      }
+    })().catch(() => {
+      /* The normal list query retains its existing error handling. */
+    });
+    return () => {
+      controller.abort();
+      resolvedDatasetLink.current = "";
+    };
+  }, [
+    requestedDataset,
+    isLoading,
+    datasets,
+    filterSignature,
+    queryForRequest,
+    currentUrl.data_type,
+    pagination,
+  ]);
   useEffect(() => {
     const target = searchParams.get("dataset");
     if (!target || isLoading) return;
@@ -819,8 +879,8 @@ export function DatasetsPage() {
           {/* Stats */}
           <div className="mb-5 grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
             <StatCard icon="layers" label="数据集总数" value={total.toLocaleString()} />
-            <StatCard icon="image" label="文件总量" value={totalFiles.toLocaleString()} />
-            <StatCard icon="folder" label="已关联项目" value={String(linkedCount)} />
+            <StatCard icon="image" label="本页文件总量" value={totalFiles.toLocaleString()} />
+            <StatCard icon="folder" label="本页已关联数据集" value={String(linkedCount)} />
             <StatCard icon="db" label="存储后端" value="MinIO" />
           </div>
 
@@ -849,7 +909,7 @@ export function DatasetsPage() {
               />
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px] border-separate border-spacing-0 text-sm">
+              <table className={`${listStyles.table} min-w-[900px]`}>
                 <thead>
                   <tr>
                     {["数据集", "类型", "Scene", "文件数", "关联项目", "创建时间", ""].map(
@@ -892,6 +952,21 @@ export function DatasetsPage() {
                 </tbody>
               </table>
             </div>
+            <ListPagination
+              label="数据集"
+              page={pagination.page}
+              pageSize={pagination.pageSize}
+              total={total}
+              loading={isLoading}
+              onPageChange={(page) => {
+                setExpandedId(null);
+                pagination.setPage(page);
+              }}
+              onPageSizeChange={(size) => {
+                setExpandedId(null);
+                pagination.setPageSize(size);
+              }}
+            />
           </Card>
         </>
       )}

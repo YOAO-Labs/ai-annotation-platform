@@ -147,6 +147,30 @@ describe("BugsPage", () => {
     });
   });
 
+  it("requests feedback pages with limit/offset and resets the page on size changes", () => {
+    mocks.useBugReports.mockReturnValue({
+      data: { items: [item], total: 45 },
+      isLoading: false,
+      isFetching: false,
+    });
+    render(
+      <MemoryRouter>
+        <BugsPage />
+      </MemoryRouter>,
+    );
+    expect(mocks.useBugReports).toHaveBeenLastCalledWith(
+      expect.objectContaining({ limit: 20, offset: 0 }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    expect(mocks.useBugReports).toHaveBeenLastCalledWith(
+      expect.objectContaining({ limit: 20, offset: 20 }),
+    );
+    fireEvent.change(screen.getByLabelText("每页问题反馈数"), { target: { value: "50" } });
+    expect(mocks.useBugReports).toHaveBeenLastCalledWith(
+      expect.objectContaining({ limit: 50, offset: 0 }),
+    );
+  });
+
   it("renders markdown descriptions, markdown comments, and attachment links", async () => {
     render(
       <MemoryRouter>
