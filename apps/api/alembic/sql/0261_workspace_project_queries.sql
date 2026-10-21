@@ -1641,33 +1641,39 @@ BEGIN
             END IF;
 
         ELSE
-            IF p_action <> 'list_rows' AND p_parameters IS NOT NULL THEN
+            NULL;
+    END CASE;
+
+    IF p_action IN (
+        'list_rows', 'visible_rows', 'get_row', 'projection_row', 'search_rows'
+    ) THEN
+        IF p_action <> 'list_rows' AND p_parameters IS NOT NULL THEN
+            RAISE EXCEPTION USING ERRCODE = '22023',
+                MESSAGE = 'Workspace Project row actions do not accept parameters';
+        END IF;
+        IF p_action = 'list_rows' THEN
+            IF v_operation NOT IN ('list_projects', 'query_projects') THEN
                 RAISE EXCEPTION USING ERRCODE = '22023',
-                    MESSAGE = 'Workspace Project row actions do not accept parameters';
+                    MESSAGE = 'Project list action does not match operation';
             END IF;
-            IF p_action = 'list_rows' THEN
-                IF v_operation NOT IN ('list_projects', 'query_projects') THEN
-                    RAISE EXCEPTION USING ERRCODE = '22023',
-                        MESSAGE = 'Project list action does not match operation';
-                END IF;
-            ELSIF p_action = 'search_rows' THEN
-                IF v_operation <> 'search_projects'
-                   OR p_status IS NOT NULL
-                   OR p_type_keys IS NOT NULL OR p_data_types IS NOT NULL
-                   OR p_member_id IS NOT NULL OR p_project_role IS NOT NULL
-                   OR p_created_from IS NOT NULL OR p_created_to IS NOT NULL
-                   OR p_offset IS NOT NULL THEN
-                    RAISE EXCEPTION USING ERRCODE = '22023',
-                        MESSAGE = 'invalid Workspace Project search-row binds';
-                END IF;
-            ELSIF p_status IS NOT NULL OR p_search IS NOT NULL
+        ELSIF p_action = 'search_rows' THEN
+            IF v_operation <> 'search_projects'
+               OR p_status IS NOT NULL
                OR p_type_keys IS NOT NULL OR p_data_types IS NOT NULL
                OR p_member_id IS NOT NULL OR p_project_role IS NOT NULL
                OR p_created_from IS NOT NULL OR p_created_to IS NOT NULL
-               OR p_offset IS NOT NULL OR p_limit IS NOT NULL THEN
+               OR p_offset IS NOT NULL THEN
                 RAISE EXCEPTION USING ERRCODE = '22023',
-                    MESSAGE = 'unused Workspace Project query binds must be null';
+                    MESSAGE = 'invalid Workspace Project search-row binds';
             END IF;
+        ELSIF p_status IS NOT NULL OR p_search IS NOT NULL
+           OR p_type_keys IS NOT NULL OR p_data_types IS NOT NULL
+           OR p_member_id IS NOT NULL OR p_project_role IS NOT NULL
+           OR p_created_from IS NOT NULL OR p_created_to IS NOT NULL
+           OR p_offset IS NOT NULL OR p_limit IS NOT NULL THEN
+            RAISE EXCEPTION USING ERRCODE = '22023',
+                MESSAGE = 'unused Workspace Project query binds must be null';
+        END IF;
 
             IF p_action = 'projection_row'
                AND v_evidence_source = 'owner_transfer'
@@ -1862,8 +1868,8 @@ BEGIN
             ELSE
                 v_facts := pg_catalog.jsonb_build_object('rows_json', v_rows_json);
             END IF;
-            END IF;
-    END CASE;
+        END IF;
+    END IF;
 
     RETURN pg_catalog.jsonb_build_object(
         'schema', 'aap-workspace-project-query/v1',
