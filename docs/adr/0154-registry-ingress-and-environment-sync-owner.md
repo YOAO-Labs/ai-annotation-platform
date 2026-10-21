@@ -1,6 +1,6 @@
 # 0154 — Registry Ingress and Environment Synchronization Owner
 
-- Status: Proposed; implementation under local qualification
+- Status: Proposed; scoped local qualification passed
 - Date: 2026-10-22
 - Deciders: Maintainers
 - Supersedes: None
@@ -94,6 +94,22 @@ status once and never resends the write; `unknown` does not prove rollback.
   requests, long-running leases, project-disable races or unload fencing.
 
 ## Notes
+
+Local qualification passed 64 distinct selected checks, including both actual
+callers, three startup bindings, real restricted LOGIN transactions, atomic
+failed-batch rollback, later caller edits, concurrent untouched JSON keys, original XID
+fences and nonempty restore. The two immutable legacy corpora contain 54 actual
+HTTP/database observations; their comparison explicitly accounts for the internal
+Native macro adaptations above. The other six frozen corpora remain unchanged.
+
+Source Inference/shared checks passed 265 tests. Fresh noneditable Inference and
+Workspace installations passed 265 and 582 tests, with API/ORM/Celery absent.
+Three source-bound images passed nonroot, readonly, no-network cold checks;
+the API image also matched 1,258 API/Native inputs, OpenAPI and migration head.
+Actual startup used the restricted Registry image, survived restart and produced
+18 committed receipts. A 16-request/concurrency-four local sample had no failures;
+API, database and controlled backend were outside the image's CPU/memory budget.
+Stopping the provider failed closed without a borrowed-writer fallback.
 
 Local evidence must distinguish frozen legacy observations, source/installed
 checks, real restricted LOGIN transactions, migrations/restore and actual process
