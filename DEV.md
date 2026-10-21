@@ -1128,7 +1128,7 @@ nuScenes mini 到 `~/.cache/ai-annotation-platform/nuscenes-mini`（约 4 GB，�
 
 `apps/assets-source` 的现有 HTTP runtime 执行单文件上传初始化、条件发布完成、Dataset/Item 删除、同步 ZIP 入库和旧对象桶扫描，也承载六项连接管理操作：列表、读取、创建、更新、删除和连通性测试。公开 API 保留认证、scope、ZIP/扫描各自既有角色规则和同步响应；来源服务不连接 Redis/Celery。连接操作继续使用现有 API 路由和 Source runtime，不另加一个连接服务。协议与重放见[来源控制](docs-site/api/guides/assets-source.md)。
 
-先将迁移应用至当前 head `0218`、完成 module-data owner 授权，再为独立 `asset_source_client` LOGIN 应用：
+先将迁移应用至当前 head、完成 module-data owner 授权，再为独立 `asset_source_client` LOGIN 应用：
 
 ```bash
 psql -v expected_database=annotation_test -v migration_role=owner \
@@ -1154,6 +1154,16 @@ docker compose -p aap-assets-source-dev -f docker-compose.assets-source.yml exec
 ```
 
 该项目不进入默认 Compose，默认只 expose 内部 8767。宿主联调可使用 `uv run --project apps/assets-source --extra server python -m aap_assets_source_runtime`，传入专用环境，再将网关指向实际可达地址。网关 `ASSETS_SOURCE_URL` 留空为本地模式，设置后还需同一 token；刷新 API 生效。默认网关超时 300 秒，上限 3600 秒；服务默认池 1..8、取得连接 2 秒、SQL 5 秒、S3 连接/读取 2/10 秒、请求/响应 1/16 MiB。就绪检查验证 SQL 身份，实际对象权限由业务调用及本地验收验证。
+
+同一二进制还可选择 `ASSETS_SOURCE_MODE=guide-only` 或 `source-and-guide`；默认 `source` 不变。
+`guide-only` 不需要数据库或原来源凭据，只开放健康检查及私有指南对象接口。
+该能力使用独立的 `ASSETS_SOURCE_GUIDE_S3_ENDPOINT`、`_PUBLIC_URL`（默认 `/minio`）、
+`_REGION`（默认 `us-east-1`）、`_BUCKET` 和 `_ACCESS_KEY`／`_SECRET_KEY`（均支持 `_FILE`）。
+凭据只覆盖配置标注桶的 `projects/*/guide/*`，允许 Get/Put/普通 Delete，显式禁止版本删除；
+无需 ListBucket 或桶管理权限。`ASSETS_SOURCE_GUIDE_MAX_IN_FLIGHT` 默认 4，超额立即返回 busy；
+指南 S3 连接／读取超时由 `_CONNECT_TIMEOUT_SECONDS`／`_READ_TIMEOUT_SECONDS` 指定，默认 2／5 秒。
+服务与客户端均不自动重试，网络超时后的对象效果可能不确定。当前公共指南工作流尚未切换，
+本地字节能力的边界和后续验收见 [ADR-0144](docs/adr/0144-workspace-guide-assets-owner.md)。
 
 复制后进程退出或 SQL 回滚可能留下未登记来源拷贝；目前保留这些字节，尚无自动回收。单文件上传重试保持原 Item/操作 UUID，并使用新 publication 代次，不能通过删除原始文件或旧条目恢复。ZIP/扫描在一个外层 SQL 事务中提交素材、Labeling append、计数、ZIP Scene/frame 变更、收据和媒体派发意图。媒体派发由 API maintenance relay 领取，交付回执只表示 broker 接受，不代表媒体已完成。
 

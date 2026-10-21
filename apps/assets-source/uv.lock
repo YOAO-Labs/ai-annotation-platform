@@ -67,6 +67,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+client = [
+    { name = "httpx" },
+]
 importer = [
     { name = "aap-assets-media" },
     { name = "asyncpg" },
@@ -106,6 +109,7 @@ requires-dist = [
     { name = "boto3", marker = "extra == 'server'", specifier = ">=1.43.77" },
     { name = "cryptography", specifier = ">=43.0.0" },
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115.0" },
+    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.27.0" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27.0" },
     { name = "paramiko", marker = "extra == 'importer'", specifier = ">=3.4.0" },
     { name = "paramiko", marker = "extra == 'server'", specifier = ">=3.4.0" },
@@ -117,7 +121,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'test'", specifier = "==0.15.22" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34.0" },
 ]
-provides-extras = ["server", "importer", "test"]
+provides-extras = ["client", "server", "importer", "test"]
 
 [[package]]
 name = "aap-audit-contract"

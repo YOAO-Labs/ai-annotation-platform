@@ -189,3 +189,4 @@
 - [0130 — Identity 认证后的主体上下文读取（限定本地资格）](0130-identity-post-admission-actor-context.md)
 - [0142 — Labeling Class Usage Query Owner](0142-labeling-class-usage-query-owner.md)
 - [0143 — Workspace Project Class Rename Owner](0143-workspace-project-class-rename-owner.md)
+- [0144 — Workspace Guide Assets and Assets Object Capability](0144-workspace-guide-assets-owner.md)

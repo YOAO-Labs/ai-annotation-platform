@@ -276,6 +276,11 @@ Identity 自助注销、传统管理员停用／删除与版本化离职仍保�
 
 `application/project_guide_assets.py::ProjectGuideAssetWorkflow` 显式绑定 storage transport 与 workspace 的 key、登记及移除规则；MIME/大小词表在纯标准库 `guide_asset_contracts`，不由 HTTP schema 拥有。完成的 HEAD 不持有行锁，返回后重取当前管理权威和项目排他锁，再追加最新 JSON；无效对象清理也在最终授权之后。显式 DELETE 则在围栏内执行，保留存储失败仍删登记的现有语义；签名读取使用当前项目可见性及共享项目围栏。对象存储与 SQL 没有跨资源原子性，已签发 URL 的时效不变。
 
+指南素材的下一步 owner 边界已确定：Workspace 持有权限和项目元数据，既有 Assets Source
+运行时提供受限的签名、HEAD 和普通删除接口。`guide-only` 模式无需数据库凭据；
+契约、纯策略和对象适配器正在独立验证，公共路由尚未切换，不能视为已完成指南命令迁移。
+对象操作不提供版本选择、自动重试或跨资源原子性，详见 [指南素材 owner ADR](/dev/adr/0144-workspace-guide-assets-owner)。
+
 `application/project_pipeline.py::apply_saved_pipeline` 组合当前项目管理权威与项目 backend 启用检查，再调用 `services/pipeline_template.py::apply_pipeline` 完成快照复制、使用计数和默认项切换。保存编排的创建、更新、删除、结构校验、阶段深拷贝及默认项命令均由 `services/pipeline_template.py` 持有；HTTP 路由只处理请求/可见性、提交、刷新和响应。
 
 预标注请求的 canonical schema 位于 `aap_inference.preannotate`（`PipelineStage`、`PreannotateRequest`）。`aap_inference.pipeline.validate_saved_pipeline` 同时供项目内嵌配置和命名编排使用，仅校验结构；backend 存在及项目启用仍在 apply / 执行路径校验。
