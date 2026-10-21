@@ -7,6 +7,7 @@ import json
 import secrets
 from urllib.parse import urlsplit
 
+import httpx
 import pytest
 
 from tests.test_asset_storage_cleanup_runtime import (
@@ -170,6 +171,27 @@ async def _guide_container(tmp_path, *, endpoint, bucket, access_key, secret_key
                     (directory / name).unlink()
 
 
+async def _restart_guide_container(origin, token, record):
+    container = record["container_id"]
+    owned = _inspect_docker(container)
+    assert owned["Config"]["Labels"]["org.aap.acceptance-id"] == record["identity"]
+    _docker("restart", "--time", "10", container)
+    await _wait_healthy(container, timeout=45)
+    observed = _inspect_docker(container)
+    assert observed["Image"] == record["image_id"]
+    binding = observed["NetworkSettings"]["Ports"]["8767/tcp"]
+    assert len(binding) == 1 and binding[0]["HostIp"] == "127.0.0.1"
+    current = f"http://127.0.0.1:{int(binding[0]['HostPort'])}"
+    async with httpx.AsyncClient(trust_env=False) as client:
+        assert (await client.get(current + "/ready")).status_code == 200
+    record["restart"] = {
+        "prior_origin": origin,
+        "current_origin": current,
+        "ready": True,
+    }
+    return current
+
+
 async def test_guide_only_restricted_container_scoped_s3_and_storage_failure(
     test_engine, tmp_path
 ):
@@ -177,5 +199,6 @@ async def test_guide_only_restricted_container_scoped_s3_and_storage_failure(
         test_engine,
         tmp_path,
         launch=_guide_container,
-        observation_name="project-guide-object-container-observation.json",
+        observation_name="project-guide-object-container-restart-observation.json",
+        after_upload=_restart_guide_container,
     )

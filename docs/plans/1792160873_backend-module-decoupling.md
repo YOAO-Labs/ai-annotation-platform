@@ -4111,3 +4111,39 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   remains frozen for the next write/byte-owner slice; full Workspace/Labeling,
   language replacement and production capacity are still incomplete. Go stays an
   optional experiment, and the protected primary/shared runtime is unchanged.
+
+### Project guide assets: byte primitive qualified; Workspace command pending
+
+- The existing Assets Source binary now has a closed guide-object contract,
+  fixed-bucket storage adapter, bounded one-attempt client and optional
+  `guide-only` / `source-and-guide` modes. Guide-only starts without PostgreSQL
+  or source credentials. Workspace receives no raw S3 credentials; public Guide
+  routes still use their old workflow until command integration is complete.
+- Source checks pass 449 cases (439 Source plus ten Workspace pure-policy
+  cases); a fresh noneditable Source installation independently passes 439.
+  All fifteen package manifests match 154 source Python/JSON files, with no
+  API/ORM/Celery/Redis/ML dependencies. Source/API locks retain every prior
+  third-party version; only the new client-extra metadata is synchronized.
+- Two distinct selected actual runtime cases pass: installed processes and
+  restricted Source containers with real owned S3 operations, history preservation,
+  namespace/list/version denial and actual denied HEAD/DELETE error classification.
+  The first process driver incorrectly expected Guide HEAD access from the old
+  Catalog identity; the corrected test verifies denial without broadening it.
+  An initial isolated pytest collection failure was a sibling-test import path,
+  corrected without enabling imports from Source src. Failed evidence is kept.
+- The current linux/arm64 image matches the same 154 files in an offline,
+  network-disabled non-root proof. Real one-CPU/256-MiB containers use three
+  read-only secrets, read-only root, dropped capabilities and no database
+  credentials. Actual restart port 56903->56987 is re-inspected; uploaded content
+  survives. Sixteen parallel HEADs yield five successes/eleven expected busy
+  responses in 0.112 seconds, no other failure/OOM. This local bound excludes
+  the API/test driver and S3, with no production capacity/SLO claim.
+- Canonical evidence is `.worktree/project-guide-object-primitive-qualification.json`.
+  Runtime resources and exact object versions are removed; review artifacts remain.
+  The earlier eleven Guide HTTP samples remain immutable old-behavior evidence,
+  and the class-rename 47-case qualification is closed separately. Next are
+  Native/Workspace command integration, actual public callers/removal, three
+  bindings, revocation/lock/error-phase parity and command artifact/recovery
+  gates under [ADR-0144](../adr/0144-workspace-guide-assets-owner.md). Full module
+  extraction and the ten-module/seven-gate objective remain active; primary,
+  production and Go are unchanged.

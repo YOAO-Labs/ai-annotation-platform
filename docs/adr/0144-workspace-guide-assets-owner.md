@@ -106,11 +106,45 @@ public-prefix simulation did not run Vite or a browser and does not qualify
 CORS or a different S3 implementation. Earlier matrix ListBucket requests used
 SigV2 and failed signature validation; they are not listing-authorization proof.
 
-Pure policy, wire, storage and client pieces are prepared. The public Guide
-workflow has not switched, and its old implementation remains in use until the
-owner command is integrated. Installed/process/container qualification of the
-byte primitive, Native/Workspace command integration, frozen response replay,
-actual revocation/lock interleaving and current artifact/recovery gates are
-tracked separately. Neither this slice nor earlier class rename completes
+Pure policy, wire, storage, client and optional runtime assembly are integrated.
+The source suite has 449 passes (439 Assets Source plus ten Workspace policy);
+the fresh noneditable Source installation separately has 439 passes. Its
+fifteen package manifests match all 154 source Python/JSON files. API, ORM,
+Celery, Redis and ML dependencies are absent. The source and API lockfiles add
+only client-extra metadata; existing third-party versions and artifacts remain
+unchanged. An initial isolated pytest import mode could not resolve an existing
+sibling-test import; permitting the test directory, without adding source/src,
+fixed collection. The first partial seven-package manifest remains separate
+from the complete fifteen-package proof.
+
+Two distinct selected actual runtime cases pass, with no valid skips: installed
+Guide-only processes and restricted Source containers against owned MinIO.
+Both exercise real signed PUT/GET, HEAD, ordinary deletion, prefix/list/version
+denial, history preservation and actual storage failures. The first process
+attempt wrongly assumed the verifier's Catalog identity could HEAD the Guide
+bucket; it has no such grant. The corrected case asserts real HEAD and DELETE
+denials without widening it and confirms the object's versions are unchanged.
+Failed-attempt evidence and cleanup results are retained.
+
+The current linux/arm64 image matches the same 154 files, including a
+network-disabled, read-only UID10003 offline proof. Live containers use one CPU,
+256 MiB, three read-only secret mounts, capability drop, no new privileges and
+an owned bridge with no database credentials. A real restart changes the mapped
+port from 56903 to 56987; the driver re-inspects it and reads the previously
+uploaded object before deletion. Sixteen simultaneous HEAD requests settle in
+0.112 seconds with five successes and eleven expected busy replies, no other
+failure and no OOM. API/test driver and S3 are outside this budget; this is not
+a production capacity or SLO qualification. The container signer uses a different
+internal host from the actual HTTP object requests; no browser, Vite or CORS
+qualification is inferred. All owned containers, networks, processes, IAM
+identities and exact object versions are removed. Image and installed artifacts
+are retained for review; canonical evidence is
+`.worktree/project-guide-object-primitive-qualification.json`.
+
+The public Guide workflow has not switched, and its old implementation remains
+in use until the owner command is integrated. Native/Workspace command
+integration, frozen response replay, actual revocation/lock interleaving and
+command artifact/recovery gates remain open. This prepared byte primitive is
+not added to the completed class-rename 47-case union. Neither slice completes
 Workspace, Assets or the ten-module/seven-gate objective. Primary and production
 remain unchanged; Go remains an optional experiment.

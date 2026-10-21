@@ -166,6 +166,7 @@ async def _exercise_guide_runtime(
     *,
     launch=_installed_guide_process,
     observation_name="project-guide-object-runtime-observation.json",
+    after_upload=None,
 ):
     resources = _verified_resource_manifest(
         test_engine, make_url(_legacy_runtime_url(test_engine))
@@ -314,6 +315,38 @@ async def _exercise_guide_runtime(
                     response.status_code == 200
                     and response.content == b"guide-live-object"
                 )
+            if after_upload is not None:
+                origin = await after_upload(origin, token, process)
+                port = GuideObjectHttpClient(origin, token)
+                assert (
+                    await port.execute(_command(project_id, key, "head"))
+                ).result.content_length == len(b"guide-live-object")
+                started = asyncio.get_running_loop().time()
+
+                async def profile_head():
+                    try:
+                        result = await port.execute(_command(project_id, key, "head"))
+                        assert result.result.content_length == len(b"guide-live-object")
+                        return "success"
+                    except GuideObjectFailure as failure:
+                        if failure.code != "busy":
+                            raise
+                        return "busy"
+
+                results = await asyncio.gather(
+                    *(profile_head() for _ in range(16)), return_exceptions=True
+                )
+                assert all(type(value) is str for value in results), (
+                    "bounded guide HEAD profile failed"
+                )
+                assert results.count("success") >= 1
+                process["head_profile"] = {
+                    "requests": 16,
+                    "success": results.count("success"),
+                    "busy": results.count("busy"),
+                    "seconds": round(asyncio.get_running_loop().time() - started, 3),
+                    "production_capacity_or_slo": False,
+                }
             version = owner.head_object(Bucket=bucket, Key=key)["VersionId"]
             owner.put_object(Bucket=bucket, Key=foreign, Body=b"owned-foreign")
             _assert_denied(lambda: client.head_object(Bucket=bucket, Key=foreign))

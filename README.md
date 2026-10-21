@@ -385,6 +385,8 @@ Identity 准入、API key、核心会话、自助账户、注册恢复／邮件�
 
 类别重命名已接入同一个配置 owner，在单一事务内组合项目绑定和 Labeling 类名写入；同名请求由独立提供方持锁完成投影。三路径、独立安装包、受限镜像、重启、恢复与完整迁移已通过限定本地验收，见 [类别改名 ADR](./docs/adr/0143-workspace-project-class-rename-owner.md)。
 
+指南对象的受限签名、HEAD 与普通删除能力已加入既有 Assets Source 运行时，支持无需数据库凭据的 `guide-only` 模式，并通过独立安装进程与受限容器的本地验证。公共指南工作流尚未切换；后续 Workspace 命令与事务围栏迁移见 [指南素材 ADR](./docs/adr/0144-workspace-guide-assets-owner.md)。
+
 模板列表、详情和写入后的响应投影也已接入同一个读取 owner，默认借用调用方事务，可选专用 DSN／HTTP；三条路径的旧响应对照、独立安装包、受限镜像、故障恢复与完整迁移均已完成限定本地验收，见 [模板查询 ADR](./docs/adr/0137-workspace-template-query-owner.md)。
 
 成员列表与提及候选的目录 owner 已通过三路径响应对照、独立安装包、受限镜像、故障与备份恢复的限定本地验收；现有权限、成员排序和停用账号展示规则保留。相邻命令和其他模块继续推进，见 [目录读取 ADR](./docs/adr/0140-workspace-directory-query-owner.md)。

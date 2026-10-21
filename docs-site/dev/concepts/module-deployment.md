@@ -80,6 +80,16 @@ Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事�
 源码与非 editable 安装各通过 273 项 Workspace 检查；本地并发样本不代表生产容量。见
 [ADR-0143](/dev/adr/0143-workspace-project-class-rename-owner)。
 
+## 指南对象能力与待迁移命令
+
+指南签名、HEAD 和普通删除已有独立字节合同，由既有 Assets Source 二进制提供。
+`guide-only` 不需要数据库凭据；Workspace 保留项目权限与元数据，公共指南工作流尚未切换。
+源码 449 项、独立安装的 Source 439 项检查通过，十五个包的 154 个文件指纹一致。
+两个去重选定真实运行案例覆盖独立进程与受限容器；容器重启后重新检查端口并保留上传对象。
+1 CPU／256 MiB 的 16 个并发 HEAD 得到 5 个成功、11 个预期 busy，无其他错误或 OOM；
+这不代表生产容量，也未完成整个指南命令或 Workspace。后续权限围栏、三路径及恢复验收见
+[ADR-0144](/dev/adr/0144-workspace-guide-assets-owner)。
+
 ## Workspace 项目成员生命周期命令
 
 项目成员新增、角色预览／变更与移除已收口到 `apps/workspace` 的可移植 owner。命令协议为 `aap-workspace-membership/v1`，以 prepare → portable policy → apply 在同一 PostgreSQL 事务中组合 Workspace member row、Identity/Project 当前权威、Labeling 工作事实与交接、typed Audit 及不可变成功 receipt。现有 Python preview digest、blocker 顺序、CAS、NOWAIT/rollback 和公开 API/DTO/error mapping 保持；邀请接受继续由 Identity invitation owner 处理，不另建 membership writer。
