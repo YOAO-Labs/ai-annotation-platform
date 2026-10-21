@@ -14,6 +14,7 @@ from .pipeline_manager import PipelineManager
 from .pipeline_postgres import PipelinePostgresData
 from .pipeline_server import PipelineHttpServer
 from .registry_ingress_manager import RegistryEnvSyncManager
+from .routing_runtime import RoutingRuntime
 
 
 def _environment_value(name: str) -> str | None:
@@ -53,6 +54,8 @@ async def run() -> None:
     observation_token = _environment_value("INFERENCE_HEALTH_OBSERVATION_TOKEN")
     registry_ingress_dsn = _environment_value("INFERENCE_REGISTRY_INGRESS_DATABASE_URL")
     registry_ingress_token = _environment_value("INFERENCE_REGISTRY_INGRESS_TOKEN")
+    routing_dsn = _environment_value("INFERENCE_ROUTING_DATABASE_URL")
+    routing_token = _environment_value("INFERENCE_ROUTING_TOKEN")
     if (probe_dsn is None) != (probe_token is None):
         raise ValueError(
             "INFERENCE_BACKEND_PROBE_DATABASE_URL and "
@@ -68,11 +71,22 @@ async def run() -> None:
             "INFERENCE_REGISTRY_INGRESS_DATABASE_URL and "
             "INFERENCE_REGISTRY_INGRESS_TOKEN must be configured together"
         )
+    if (routing_dsn is None) != (routing_token is None):
+        raise ValueError(
+            "INFERENCE_ROUTING_DATABASE_URL and INFERENCE_ROUTING_TOKEN "
+            "must be configured together"
+        )
     host = os.environ.get("INFERENCE_HOST", "127.0.0.1")
     if not host or any(character.isspace() for character in host):
         raise ValueError("Invalid INFERENCE_HOST")
     port = _integer_setting("INFERENCE_PORT", 8768, 1, 65_535)
     max_concurrency = _integer_setting("INFERENCE_MAX_CONCURRENCY", 8, 1, 64)
+    routing_health_max_age_seconds = _integer_setting(
+        "INFERENCE_ROUTING_HEALTH_MAX_AGE_SECONDS", 90, 1, 3600
+    )
+    routing_lease_ttl_seconds = _integer_setting(
+        "INFERENCE_ROUTING_LEASE_TTL_SECONDS", 120, 1, 3600
+    )
 
     data = None
     manager = None
@@ -92,6 +106,13 @@ async def run() -> None:
     registry_ingress_manager = None
     if registry_ingress_dsn is not None and registry_ingress_token is not None:
         registry_ingress_manager = RegistryEnvSyncManager(registry_ingress_dsn)
+    routing_runtime = None
+    if routing_dsn is not None and routing_token is not None:
+        routing_runtime = RoutingRuntime(
+            routing_dsn,
+            health_max_age_seconds=routing_health_max_age_seconds,
+            lease_ttl_ms=routing_lease_ttl_seconds * 1000,
+        )
 
     server = None
     try:
@@ -108,6 +129,8 @@ async def run() -> None:
             health_observation_control_token=observation_token,
             registry_ingress_manager=registry_ingress_manager,
             registry_ingress_control_token=registry_ingress_token,
+            routing_manager=routing_runtime,
+            routing_control_token=routing_token,
         )
         await server.serve_forever()
     finally:
@@ -127,8 +150,12 @@ async def run() -> None:
                         if observation_data is not None:
                             await observation_data.close()
                     finally:
-                        if registry_ingress_manager is not None:
-                            await registry_ingress_manager.close()
+                        try:
+                            if registry_ingress_manager is not None:
+                                await registry_ingress_manager.close()
+                        finally:
+                            if routing_runtime is not None:
+                                await routing_runtime.close()
 
 
 def main() -> None:

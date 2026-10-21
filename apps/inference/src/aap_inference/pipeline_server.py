@@ -36,6 +36,16 @@ from aap_inference_contract.registry_ingress import (
     decode_registry_env_sync_status_result,
     registry_env_sync_result_bytes,
 )
+from aap_inference_contract.routing import (
+    ROUTING_REPLY_MAX_BYTES,
+    ROUTING_REQUEST_MAX_BYTES,
+    RoutingUnavailable,
+    decode_routing_command,
+    decode_routing_result,
+    decode_routing_status_request,
+    decode_routing_status_result,
+    routing_result_bytes,
+)
 
 from .pipeline_contract import (
     PIPELINE_REQUEST_BODY_MAX_BYTES,
@@ -68,6 +78,8 @@ _ROUTES = {
     "/v1/pipelines/query": "query",
     "/v1/pipelines/status": "status",
 }
+_ROUTING_COMMAND_PATH = "/v1/routes/command"
+_ROUTING_STATUS_PATH = "/v1/routes/status"
 
 
 class _BadRequest(Exception):
@@ -127,6 +139,8 @@ class PipelineHttpServer:
         health_observation_control_token: str | None = None,
         registry_ingress_manager=None,
         registry_ingress_control_token: str | None = None,
+        routing_manager=None,
+        routing_control_token: str | None = None,
     ) -> None:
         if (
             type(host) is not str
@@ -187,6 +201,15 @@ class PipelineHttpServer:
                 )
             )
             or (
+                routing_control_token is not None
+                and (
+                    type(routing_control_token) is not str
+                    or not routing_control_token.isascii()
+                    or not routing_control_token
+                    or any(character.isspace() for character in routing_control_token)
+                )
+            )
+            or (
                 control_token is not None
                 and backend_probe_control_token is not None
                 and hmac.compare_digest(control_token, backend_probe_control_token)
@@ -222,6 +245,32 @@ class PipelineHttpServer:
                     health_observation_control_token, registry_ingress_control_token
                 )
             )
+            or (
+                control_token is not None
+                and routing_control_token is not None
+                and hmac.compare_digest(control_token, routing_control_token)
+            )
+            or (
+                backend_probe_control_token is not None
+                and routing_control_token is not None
+                and hmac.compare_digest(
+                    backend_probe_control_token, routing_control_token
+                )
+            )
+            or (
+                health_observation_control_token is not None
+                and routing_control_token is not None
+                and hmac.compare_digest(
+                    health_observation_control_token, routing_control_token
+                )
+            )
+            or (
+                registry_ingress_control_token is not None
+                and routing_control_token is not None
+                and hmac.compare_digest(
+                    registry_ingress_control_token, routing_control_token
+                )
+            )
         ):
             raise ValueError("Invalid Inference pipeline HTTP server settings")
         self.manager = manager
@@ -233,6 +282,8 @@ class PipelineHttpServer:
         self.health_observation_control_token = health_observation_control_token
         self.registry_ingress_manager = registry_ingress_manager
         self.registry_ingress_control_token = registry_ingress_control_token
+        self.routing_manager = routing_manager
+        self.routing_control_token = routing_control_token
         self.host = host
         self.port = port
         self.max_concurrency = max_concurrency
@@ -441,10 +492,15 @@ class PipelineHttpServer:
                 self.registry_ingress_control_token is not None
                 and self.registry_ingress_manager is not None
             )
+            routing_configured = (
+                self.routing_control_token is not None
+                and self.routing_manager is not None
+            )
             if (
                 not probe_configured
                 and not observation_configured
                 and not registry_configured
+                and not routing_configured
             ):
                 # Preserve the pipeline-only readiness phase and response.
                 pipeline_ready = (
@@ -453,6 +509,7 @@ class PipelineHttpServer:
                 probe_ready = False
                 observation_ready = False
                 registry_ready = False
+                routing_ready = False
             else:
                 pipeline_ready = False
                 if pipeline_configured:
@@ -484,7 +541,21 @@ class PipelineHttpServer:
                     )
                 except Exception:
                     registry_ready = False
-            ready = pipeline_ready or probe_ready or observation_ready or registry_ready
+                try:
+                    routing_ready = (
+                        await self.routing_manager.readiness()
+                        if routing_configured
+                        else False
+                    )
+                except Exception:
+                    routing_ready = False
+            ready = (
+                pipeline_ready
+                or probe_ready
+                or observation_ready
+                or registry_ready
+                or routing_ready
+            )
             return (200 if ready else 503), _json_bytes(
                 {"status": "ready" if ready else "not_ready"}
             )
@@ -496,6 +567,10 @@ class PipelineHttpServer:
             return await self._dispatch_registry_ingress_sync(headers, body)
         if method == "POST" and path == "/v1/registry/env-sync-status":
             return await self._dispatch_registry_ingress_status(headers, body)
+        if method == "POST" and path == _ROUTING_COMMAND_PATH:
+            return await self._dispatch_routing_command(headers, body)
+        if method == "POST" and path == _ROUTING_STATUS_PATH:
+            return await self._dispatch_routing_status(headers, body)
         operation = _ROUTES.get(path)
         if method != "POST" or operation is None:
             return 404, _json_bytes({"detail": "Not Found"})
@@ -549,6 +624,11 @@ class PipelineHttpServer:
             return HEALTH_OBSERVATION_REQUEST_MAX_BYTES
         if path in {"/v1/registry/env-sync", "/v1/registry/env-sync-status"}:
             return REGISTRY_ENV_SYNC_REQUEST_MAX_BYTES
+        if path.split("?", 1)[0] in {
+            _ROUTING_COMMAND_PATH,
+            _ROUTING_STATUS_PATH,
+        }:
+            return ROUTING_REQUEST_MAX_BYTES
         return self.max_request_bytes
 
     def _response_limit(self, path: str) -> int:
@@ -556,6 +636,11 @@ class PipelineHttpServer:
             return HEALTH_OBSERVATION_REPLY_MAX_BYTES
         if path in {"/v1/registry/env-sync", "/v1/registry/env-sync-status"}:
             return REGISTRY_ENV_SYNC_REPLY_MAX_BYTES
+        if path.split("?", 1)[0] in {
+            _ROUTING_COMMAND_PATH,
+            _ROUTING_STATUS_PATH,
+        }:
+            return ROUTING_REPLY_MAX_BYTES
         return self.max_response_bytes
 
     def _registry_ingress_authorized(self, headers) -> bool:
@@ -637,6 +722,61 @@ class PipelineHttpServer:
             return 503, _json_bytes(
                 {"detail": "Inference Registry ingress owner unavailable"}
             )
+        return 200, encoded
+
+    def _routing_authorized(self, headers) -> bool:
+        if self.routing_manager is None or self.routing_control_token is None:
+            return False
+        authorization = headers.get("authorization")
+        expected = f"Bearer {self.routing_control_token}"
+        return authorization is not None and hmac.compare_digest(
+            authorization.encode("utf-8"), expected.encode("utf-8")
+        )
+
+    async def _dispatch_routing_command(
+        self, headers, body: bytes
+    ) -> tuple[int, bytes]:
+        if self.routing_manager is None or self.routing_control_token is None:
+            return 503, _json_bytes({"detail": "Inference routing owner unavailable"})
+        if not self._routing_authorized(headers):
+            return 401, _json_bytes({"detail": "Unauthorized"})
+        if len(body) > ROUTING_REQUEST_MAX_BYTES:
+            return 413, _json_bytes({"detail": "Request body too large"})
+        try:
+            command = decode_routing_command(body)
+        except RoutingUnavailable:
+            return 400, _json_bytes({"detail": "Invalid Inference routing command"})
+        try:
+            result = await self.routing_manager.execute(command)
+            encoded = routing_result_bytes(result)
+            decode_routing_result(command, encoded)
+        except RoutingUnavailable:
+            return 503, _json_bytes({"detail": "Inference routing owner unavailable"})
+        if len(encoded) > min(self.max_response_bytes, ROUTING_REPLY_MAX_BYTES):
+            return 503, _json_bytes({"detail": "Inference routing owner unavailable"})
+        return 200, encoded
+
+    async def _dispatch_routing_status(self, headers, body: bytes) -> tuple[int, bytes]:
+        if self.routing_manager is None or self.routing_control_token is None:
+            return 503, _json_bytes({"detail": "Inference routing owner unavailable"})
+        if not self._routing_authorized(headers):
+            return 401, _json_bytes({"detail": "Unauthorized"})
+        if len(body) > ROUTING_REQUEST_MAX_BYTES:
+            return 413, _json_bytes({"detail": "Request body too large"})
+        try:
+            request = decode_routing_status_request(body)
+        except RoutingUnavailable:
+            return 400, _json_bytes(
+                {"detail": "Invalid Inference routing status request"}
+            )
+        try:
+            result = await self.routing_manager.status(request)
+            encoded = routing_result_bytes(result)
+            decode_routing_status_result(request, encoded)
+        except RoutingUnavailable:
+            return 503, _json_bytes({"detail": "Inference routing owner unavailable"})
+        if len(encoded) > min(self.max_response_bytes, ROUTING_REPLY_MAX_BYTES):
+            return 503, _json_bytes({"detail": "Inference routing owner unavailable"})
         return 200, encoded
 
     async def _dispatch_health_observation(
