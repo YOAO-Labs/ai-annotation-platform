@@ -30,6 +30,13 @@ from .configuration_contract import (
     decode_configuration_request,
 )
 from .configuration_postgres import ConfigurationPostgresData
+from .template_queries import TemplateQueryManager
+from .template_query_contract import (
+    TemplateQueryInvalidRequest,
+    TemplateQueryUnavailable,
+    decode_template_query_request,
+)
+from .template_query_postgres import TemplateQueryPostgresData
 
 
 def create_app(
@@ -38,11 +45,13 @@ def create_app(
     data=None,
     owner_transfer_data=None,
     configuration_data=None,
+    template_query_data=None,
 ) -> FastAPI:
     settings = settings or RuntimeSettings()
     control = settings.control_token().encode("utf-8")
     transfer_dsn = settings.transfer_database_url()
     config_dsn = settings.config_database_url()
+    query_dsn = settings.query_database_url()
     if owner_transfer_data is None and transfer_dsn:
         owner_transfer_data = OwnerTransferPostgresData(
             transfer_dsn, command_timeout=settings.timeout_seconds
@@ -51,10 +60,18 @@ def create_app(
         configuration_data = ConfigurationPostgresData(
             config_dsn, command_timeout=settings.timeout_seconds
         )
+    if template_query_data is None and query_dsn:
+        template_query_data = TemplateQueryPostgresData(
+            query_dsn, command_timeout=settings.timeout_seconds
+        )
     if data is None and (
         settings.membership_database_url
         or settings.membership_database_url_file
-        or (owner_transfer_data is None and configuration_data is None)
+        or (
+            owner_transfer_data is None
+            and configuration_data is None
+            and template_query_data is None
+        )
     ):
         data = MembershipPostgresData(
             settings.database_url(), command_timeout=settings.timeout_seconds
@@ -82,11 +99,14 @@ def create_app(
                         await owner_transfer_data.owner_transfer_policy()
                     if configuration_data is not None:
                         await configuration_data.configuration_policy()
+                    if template_query_data is not None:
+                        await template_query_data.template_query_policy()
             return {"status": "ready"}
         except (
             MembershipUnavailable,
             OwnerTransferUnavailable,
             ConfigurationUnavailable,
+            TemplateQueryUnavailable,
             TimeoutError,
         ):
             return JSONResponse({"detail": "Workspace unavailable"}, status_code=503)
@@ -178,5 +198,14 @@ def create_app(
         ConfigurationInvalidRequest,
         ConfigurationUnavailable,
         "configuration",
+    )
+    register_command(
+        "/v1/workspace/template-queries/execute",
+        decode_template_query_request,
+        TemplateQueryManager,
+        template_query_data,
+        TemplateQueryInvalidRequest,
+        TemplateQueryUnavailable,
+        "template query",
     )
     return app

@@ -588,6 +588,25 @@ Node conformance provider 只用于本地替换实验，Native 持有业务策�
 `WORKSPACE_CONFIGURATION_DATABASE_URL(_FILE)` 选择 HTTP／专用数据连接，显式失败不回退；
 `WORKSPACE_CONFIGURATION_TIMEOUT_SECONDS` 默认30秒，默认借用事务不新增超时。
 
+### Workspace 模板查询
+
+模板列表／详情和创建、更新、复制后的响应投影使用 `aap-workspace-template-query/v1`。
+默认借用调用方事务，保留自动刷新与提交边界；可选
+`WORKSPACE_TEMPLATE_QUERY_DATABASE_URL(_FILE)` 或 `WORKSPACE_TEMPLATE_QUERY_URL`，
+两者不能同时配置。显式失败不回退，远程超时由
+`WORKSPACE_TEMPLATE_QUERY_TIMEOUT_SECONDS` 控制，默认30秒。
+
+独立服务可只配置模板读取 DSN，复用 Workspace control bearer。私有端点为
+`POST /v1/workspace/template-queries/execute`，专用账号
+`workspace_template_query_client` 只有 policy 与 step 两项函数权限，并在只读事务中执行。
+`docker-compose.workspace-template-query.yml` 绑定本机8175，使用
+`WORKSPACE_RUNTIME_TEMPLATE_QUERY_DATABASE_URL_FILE` 和
+`WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE` 两份宿主 secret 文件。
+
+配置写入仍先提交，再用私有成功回执读取响应；查询故障不能撤销已提交的配置。
+公开 DTO 校验继续在 API 完成。当前源码、真实连接与三路径响应对照通过；
+安装包、镜像、故障与恢复资格仍在推进，详见 [ADR-0137](docs/adr/0137-workspace-template-query-owner.md)。
+
 ### 设计系统
 
 前端设计系统基于 Tailwind CSS + shadcn/ui。运行时主题 Token 定义在 `apps/web/src/styles/shadcn.css`：

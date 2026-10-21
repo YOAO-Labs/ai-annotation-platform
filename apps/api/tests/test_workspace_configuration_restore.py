@@ -13,6 +13,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from aap_workspace.configuration import ConfigurationManager
 from aap_workspace.configuration_contract import configuration_request
 from aap_workspace.configuration_postgres import ConfigurationPostgresData
+from aap_workspace.template_queries import TemplateQueryManager
+from aap_workspace.template_query_contract import template_query_request
+from aap_workspace.template_query_postgres import TemplateQueryPostgresData
 from app.db.models.project import Project
 from app.db.models.project_template import ProjectTemplate
 from app.db.models.user import User
@@ -20,6 +23,7 @@ from tests.factory import create_user
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_identity_recovery import _alembic, _postgres_tool
 from tests.workspace_configuration_helpers import configuration_dsn
+from tests.workspace_template_query_helpers import template_query_dsn
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -193,6 +197,34 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
         )
         project_id = create_project_reply.result.resource_id
 
+        query_requests = [
+            template_query_request(
+                "list_templates",
+                actor_id,
+                "project_admin",
+                filters={"scope": "private", "type_key": None, "search": None},
+            ),
+            template_query_request(
+                "get_template", actor_id, "project_admin", target_id=template_id
+            ),
+            template_query_request(
+                "get_template_projection",
+                actor_id,
+                "project_admin",
+                target_id=template_id,
+                configuration_receipt={
+                    "operation_id": operation_ids[0],
+                    "operation": "create_template",
+                },
+            ),
+        ]
+        query_data = TemplateQueryPostgresData(template_query_dsn(test_engine))
+        original_query_policy = await query_data.template_query_policy()
+        original_queries = [
+            await TemplateQueryManager(query_data).execute(request)
+            for request in query_requests
+        ]
+
         async with source_maker() as db:
             await _assert_receipt_set(db, operation_ids)
             assert await db.get(ProjectTemplate, deleted_template_id) is None
@@ -218,7 +250,7 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
         async with source_maker() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0257"
+                == "0259"
             )
             assert await db.scalar(
                 text(
@@ -283,10 +315,20 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
         restored_data = ConfigurationPostgresData(clone_dsn)
         restored_manager = ConfigurationManager(restored_data)
         await restored_data.configuration_policy()
+        restored_query_data = TemplateQueryPostgresData(
+            template_query_dsn(test_engine, clone)
+        )
+        assert (
+            await restored_query_data.template_query_policy() == original_query_policy
+        )
+        restored_query_manager = TemplateQueryManager(restored_query_data)
+        assert [
+            await restored_query_manager.execute(request) for request in query_requests
+        ] == original_queries
         async with restored_maker() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0257"
+                == "0259"
             )
             template = await db.get(ProjectTemplate, template_id)
             project = await db.get(Project, project_id)
@@ -331,6 +373,12 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
         assert revoked.ok is False
         assert revoked.error.status_code == 401
         assert revoked.error.headers == {"WWW-Authenticate": "Bearer"}
+        # A previously admitted response readback retains its actor snapshot;
+        # it does not adopt the command owner's new current-account fence.
+        assert (
+            await restored_query_manager.execute(query_requests[2])
+            == original_queries[2]
+        )
         async with restored_maker() as db:
             assert (await db.get(ProjectTemplate, template_id)).name == later_name
             await _assert_receipt_set(db, operation_ids)

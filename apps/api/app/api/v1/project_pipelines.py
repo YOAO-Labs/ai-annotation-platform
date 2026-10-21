@@ -23,10 +23,10 @@ from app.services.pipeline_template import (
     assert_pipeline_visible,
     create_pipeline as create_pipeline_command,
     delete_pipeline as delete_pipeline_command,
-    list_user_org_ids,
     update_pipeline as update_pipeline_command,
 )
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.identity_organization_scope import list_actor_organization_ids
 
 router = APIRouter()
 
@@ -72,7 +72,7 @@ async def list_pipelines(
 ):
     q = select(ProjectPipeline)
     if user.role != UserRole.SUPER_ADMIN:
-        org_ids = await list_user_org_ids(db, user)
+        org_ids = await list_actor_organization_ids(db, user.id)
         visibility_clauses = [
             ProjectPipeline.scope == "public",
             and_(

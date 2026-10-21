@@ -69,6 +69,27 @@ Node conformance provider 以标准 PostgreSQL 协议调用相同的两项函数
 公开配置路由已接入同一个配置 owner，默认借用调用方事务，HTTP 保留提交与响应。
 专用 DSN／HTTP 通过 `WORKSPACE_CONFIGURATION_DATABASE_URL(_FILE)`／
 `WORKSPACE_CONFIGURATION_URL` 选择，不能同时配置；显式失败不回退。
-三条绑定路径各已对照106项原公开响应；独立进程的丢响应重试、重启重放及不可用不回退也已通过本地检查。失败事务、备份恢复、9项关联恢复及0257完整迁移验证均已通过。独立安装包、受限镜像与本地并发执行也已完成限定验收；项目／模板的普通读取与响应投影仍在 API。这一步不代表完整
+三条绑定路径各已对照106项原公开响应；独立进程的丢响应重试、重启重放及不可用不回退也已通过本地检查。失败事务、备份恢复、9项关联恢复及0257完整迁移验证均已通过。独立安装包、受限镜像与本地并发执行也已完成限定验收；项目普通读取仍在 API，模板读取与响应投影的接入状态见后文。这一步不代表完整
 Workspace 已独立部署。状态与事务取舍见
 [ADR-0136](/dev/adr/0136-workspace-configuration-command-owner)。
+
+## 模板列表、详情与响应投影
+
+模板列表、详情和配置提交后的响应已由 `aap-workspace-template-query/v1` owner 提供。
+API 保留参数与身份准入、写入提交和公开 DTO 校验；读取 owner 使用本次已认证的身份快照，
+不增加第二次账号／角色检查。模板可见性、组织成员事实、过滤、排序及创建者显示的读取顺序保持不变。
+
+默认绑定借用调用方事务。独立连接使用 `WORKSPACE_TEMPLATE_QUERY_DATABASE_URL(_FILE)`，
+HTTP 使用 `WORKSPACE_TEMPLATE_QUERY_URL`，二者互斥，显式失败不回退；远程 timeout
+由 `WORKSPACE_TEMPLATE_QUERY_TIMEOUT_SECONDS` 控制。私有服务端点为
+`POST /v1/workspace/template-queries/execute`，复用 Workspace control bearer。
+独立服务可只配置模板读取能力，专用 LOGIN 只有 policy／step 两项函数权限；
+本地 Compose 使用8175和两份只读 secret 文件。
+
+提交后投影绑定成功配置命令的私有回执，不增加公开参数，也不重新校验模板可见性。
+此时查询或公开响应校验失败，不能回滚已经提交的配置；JSONB-null 的旧500行为保留。
+原模板 ORM 读适配器已删除；命名流水线通过 Identity 窄能力读取组织范围，其他命名流水线写入仍由原入口持有。
+
+三条路径各已对照40项实际旧 HTTP 观测，默认绑定另核对调用方自动刷新和时区；
+源码、受限数据账号与实际进程验证通过。完整安装包、容器、恢复与迁移资格继续推进，
+当前范围和信任边界见 [ADR-0137](/dev/adr/0137-workspace-template-query-owner)。

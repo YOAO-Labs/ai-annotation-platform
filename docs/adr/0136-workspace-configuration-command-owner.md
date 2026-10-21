@@ -131,8 +131,9 @@ The Workspace image is `sha256:5de0eca63baa2109f8c0625f085ee73832b2d0c3618945842
 the API image is `sha256:9dc72f68e3d995daeaa217f6727f326c08901fcf204d0c9f07e63e980cfbb3f8`.
 
 This closes the bounded local qualification for six configuration commands.
-Template/project reads and response hydration still use API ORM paths; guide
-assets, class rename, named pipelines, import project creation and adjacent
+Template query and response hydration ownership now follow
+[ADR-0137](0137-workspace-template-query-owner.md). Project reads still use API
+ORM paths; guide assets, class rename, named pipelines, import project creation and adjacent
 writers retain their existing owners. Full Workspace, the other modules and the
 ten-module language-replacement objective remain unfinished. There is no full
 second-language provider, independent database or production capacity claim.

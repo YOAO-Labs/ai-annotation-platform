@@ -27,7 +27,5 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$ref": "#/$defs/WorkspaceTemplateQueryOrganizationIds",
   "$comment": "Returns organization IDs for non-retired organization_members rows, without role, account, or Organization filters; an empty result is an empty array. NULL actor raises SQLSTATE 22023.",
-  "x-postgresql-functions": [
-    "aap_identity_v1.workspace_template_query_org_ids(uuid)"
-  ]
+  "x-postgresql-functions": ["aap_identity_v1.workspace_template_query_org_ids(uuid)"]
 }

@@ -18,7 +18,7 @@ from app.schemas.project_pipeline import (
     _validate_scope_owner,
 )
 from app.services.project_access import resolve_project_access_by_id
-from app.services.project_template import list_user_org_ids
+from app.services.identity_organization_scope import list_actor_organization_ids
 from app.services.identity_contracts import IdentityActorFacts
 
 
@@ -39,7 +39,7 @@ async def assert_pipeline_visible(
     if pipeline.scope == "private" and pipeline.created_by == user.id:
         return
     if pipeline.scope == "organization" and pipeline.organization_id is not None:
-        org_ids = await list_user_org_ids(db, user)
+        org_ids = await list_actor_organization_ids(db, user.id)
         if pipeline.organization_id in org_ids:
             return
     raise HTTPException(status_code=404, detail="编排不存在")
@@ -53,7 +53,7 @@ async def can_edit_pipeline(
     if pipeline.created_by == user.id:
         return True
     if pipeline.scope == "organization" and pipeline.organization_id is not None:
-        org_ids = await list_user_org_ids(db, user)
+        org_ids = await list_actor_organization_ids(db, user.id)
         return pipeline.organization_id in org_ids
     return False
 
@@ -72,7 +72,7 @@ async def assert_can_create_pipeline_scope(
                 status_code=400, detail="organization scope 必须指定 organization_id"
             )
         if user.role != UserRole.SUPER_ADMIN:
-            org_ids = await list_user_org_ids(db, user)
+            org_ids = await list_actor_organization_ids(db, user.id)
             if organization_id not in org_ids:
                 raise HTTPException(status_code=403, detail="无权创建该组织编排")
 

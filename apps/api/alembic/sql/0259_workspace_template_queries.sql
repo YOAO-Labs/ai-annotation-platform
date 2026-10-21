@@ -39,10 +39,11 @@ CREATE FUNCTION aap_workspace_template_query_v1._template_row_json(
 RETURNS jsonb
 LANGUAGE sql
 STABLE
-PARALLEL SAFE
+PARALLEL UNSAFE
 SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 SET TimeZone TO 'UTC'
+SET extra_float_digits TO 3
 AS $function$
     SELECT pg_catalog.jsonb_build_object(
         'id', (p_template).id,
@@ -385,7 +386,7 @@ BEGIN
         END IF;
 
         SELECT COALESCE(
-            pg_catalog.array_agg((item.value #>> '{}')::uuid ORDER BY item.ordinality),
+            pg_catalog.array_agg(item.value::uuid ORDER BY item.ordinality),
             ARRAY[]::uuid[]
         )
         INTO v_organization_ids

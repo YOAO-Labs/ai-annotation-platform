@@ -3535,3 +3535,57 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Guide assets, class rename, named pipelines, import creation and adjacent writers
   remain separate work. Full Workspace, Identity and all-module language replacement
   stay unfinished. Go remains an optional experiment.
+
+### Workspace template query owner: frozen baseline and portable foundation
+
+- The full all-module objective remains active. Public template reads still use
+  the old API ORM path while this read/projection owner is being integrated.
+- Before extraction, actual owned-database capture passed40 HTTP observations,
+  two caller autoflush/no-autoflush probes and a caller-timezone probe. Runtime
+  inputs match pre-port commit `a0317013841ca3aaf1b53b06ce051c6eb07ac798`; the
+  capture itself ran at `bbfb47bf301a6390f788cc3edb736dad383fb71b` after test-only
+  commits. Fixtures are immutable under `workspace_template_queries_legacy`.
+- A separate actual scalar probe confirmed native JSON loses negative zero and
+  formats timestamp zones differently from asyncpg binary reads. The contract
+  now uses float text and fixed timestamp materialization, preserving UTC and
+  naive extrema for timestamp infinities without changing the caller GUC.
+- Portable list/detail/receipt-bound projection policy and strict wire/schema
+  landed with37 new pure cases; the complete Workspace source suite passes169.
+  Raw JSONB-null reaches the original postcommit public validation500. Actor
+  facts are the trusted API's admitted Identity snapshot, with no new active/role
+  recheck or caller-provided visibility booleans. Scope/filter/order/profile read
+  phases are preserved. Stored illegal scope/null-organization cases are excluded
+  because current CHECK constraints prevent them; no schema was weakened.
+- Identity now owns the narrow current organization-ID list fact in0258. Its
+  scoped native value/owner/privilege checks pass. The initial metadata assertion
+  required an explicit internal-character-to-text cast; the failed attempt is
+  retained and replaced only by its focused successful retry. All owned capture
+  and fact-verification resources were cleaned without errors.
+- Native query RPCs, independent/borrowed adapters and actual public routing
+  integration continue. No independent-query deployment, alternate-language
+  provider, production capacity or full-module qualification is claimed at this
+  checkpoint. See [ADR-0137](../adr/0137-workspace-template-query-owner.md).
+
+### Workspace template query owner: public integration
+
+- Public list/detail and postcommit template response projection now use the
+  portable owner. The old API template service was removed; actual named-pipeline
+  consumers use the typed Identity organization-ID capability. Public API and
+  SDK contracts are unchanged. The full all-module objective remains active.
+- Borrowed, dedicated DSN and independent HTTP bindings each match the40 frozen
+  HTTP observations and timezone probe. Borrowed execution also matches both
+  caller autoflush probes. Native checks pass4 cases; real data bindings pass3.
+  A caller `extra_float_digits=0` probe exposed rounding; function-local precision3
+  fixes it while retaining the caller setting. Both focused caller cases pass.
+- The affected public API suite passes43 cases, transport checks pass11, and the
+  configuration-response regression matches its106 frozen HTTP observations and
+  17 borrowed caller records. Architecture checks pass328 cases, with138
+  inapplicable parameter cases skipped. These overlapping groups are not summed.
+  OpenAPI is unchanged; final read-only integration review found no new issue.
+- Query-only and configuration/query coexistence fault/restart tests, backup
+  projection recovery and nine affected protected restore checks at0259 pass12
+  cases without skips. Grant-loss503/recovery and owner outage without fallback
+  pass; all disposable resources were removed without cleanup errors.
+  Installed package, restricted owner/API images and full migration qualification
+  remain open. No primary/production cutover, alternate-language provider,
+  push, release or remote CI is claimed.

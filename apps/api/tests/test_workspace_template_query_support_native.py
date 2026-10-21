@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import uuid
 from datetime import datetime, timezone
@@ -17,12 +18,7 @@ from app.db.models.user import User
 from tests.factory import create_user
 
 _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
-_SQL = _SQL_DIR / "0258_workspace_template_query_support.sql"
 _SCHEMA = _SQL_DIR / "0258_workspace_template_query_support.schema.json"
-_MIGRATION = (
-    Path(__file__).parents[1]
-    / "alembic/versions/0258_workspace_template_query_support.py"
-)
 _PROTOCOL = "aap-identity-workspace-template-query/v1"
 _FUNCTION = "aap_identity_v1.workspace_template_query_org_ids(uuid)"
 
@@ -39,8 +35,6 @@ def _sqlstate(error: BaseException) -> str | None:
 
 def test_template_query_identity_fact_artifacts_are_narrow_and_aligned():
     schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
-    sql = _SQL.read_text(encoding="utf-8")
-    migration = _MIGRATION.read_text(encoding="utf-8")
 
     assert schema["$id"] == _PROTOCOL
     assert schema["$ref"] == "#/$defs/WorkspaceTemplateQueryOrganizationIds"
@@ -50,30 +44,16 @@ def test_template_query_identity_fact_artifacts_are_narrow_and_aligned():
         "organization_ids",
     ]
     assert schema["x-postgresql-functions"] == [_FUNCTION]
-    assert 'revision = "0258"' in migration
-    assert 'down_revision = "0257"' in migration
-    assert (
-        sql.count("CREATE FUNCTION aap_identity_v1.workspace_template_query_org_ids")
-        == 1
-    )
-    assert "RETURNS jsonb" in sql
-    assert "STABLE" in sql
-    assert "PARALLEL UNSAFE" in sql
-    assert "SECURITY DEFINER" in sql
-    assert "SET search_path = pg_catalog, pg_temp" in sql
-    assert "membership.user_id = p_actor_id" in sql
-    assert "membership.deleted_at IS NULL" in sql
-    assert "ERRCODE = '22023'" in sql
-    assert "REVOKE ALL ON FUNCTION" in sql and "FROM PUBLIC" in sql
-    assert "ORDER BY" not in sql.upper()
-    assert "DISTINCT" not in sql.upper()
-    assert "LIMIT" not in sql.upper()
-    assert "public.organizations" not in sql
-    assert "public.users" not in sql
-    assert "membership.role" not in sql
+    fact = schema["$defs"]["WorkspaceTemplateQueryOrganizationIds"]
+    assert fact["additionalProperties"] is False
+    assert set(fact["properties"]) == {"schema", "actor_id", "organization_ids"}
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the owned module-data verifier and function owner grants",
+)
 async def test_template_query_org_ids_returns_current_memberships_only(test_engine):
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     suffix = uuid.uuid4().hex
@@ -182,6 +162,13 @@ async def test_template_query_org_ids_returns_current_memberships_only(test_engi
                     """
                     SELECT namespace.nspname AS schema_name,
                            function.prosecdef AS security_definer,
+                           function.provolatile::text AS volatility,
+                           function.proparallel::text AS parallel_mode,
+                           function.proconfig AS function_settings,
+                           pg_catalog.pg_get_userbyid(function.proowner) AS owner_role,
+                           pg_catalog.has_function_privilege(
+                               'workspace_code', function.oid, 'EXECUTE'
+                           ) AS workspace_can_execute,
                            pg_catalog.has_function_privilege(
                                current_user, function.oid, 'EXECUTE'
                            ) AS current_user_can_execute,
@@ -227,6 +214,11 @@ async def test_template_query_org_ids_returns_current_memberships_only(test_engi
         }
         assert access["schema_name"] == "aap_identity_v1"
         assert access["security_definer"] is True
+        assert access["volatility"] == "s"
+        assert access["parallel_mode"] == "u"
+        assert access["function_settings"] == ["search_path=pg_catalog, pg_temp"]
+        assert access["owner_role"] == "identity_code"
+        assert access["workspace_can_execute"] is True
         assert access["current_user_can_execute"] is True
         assert access["public_can_execute"] is False
         assert access["absent_from_public"] is True

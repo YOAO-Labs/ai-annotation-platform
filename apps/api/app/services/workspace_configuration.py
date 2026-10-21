@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
+import uuid
 
 import httpx
 from fastapi import HTTPException
@@ -22,6 +24,15 @@ from app.services.workspace_configuration_data import WorkspaceConfigurationData
 
 class ConfigurationOwnerInternalError(RuntimeError):
     """Preserve the public plain 500 response from a selected remote owner."""
+
+
+@dataclass(frozen=True)
+class ConfigurationExecution:
+    resource_id: uuid.UUID
+    template_id: uuid.UUID | None
+    operation_id: uuid.UUID
+    operation: str
+    actor_id: uuid.UUID
 
 
 def configuration_manager(data):
@@ -103,7 +114,13 @@ async def execute_configuration(
                 detail=reply.error.detail,
                 headers=reply.error.headers,
             )
-        return reply.result
+        return ConfigurationExecution(
+            resource_id=reply.result.resource_id,
+            template_id=reply.result.template_id,
+            operation_id=request.operation_id,
+            operation=request.operation,
+            actor_id=request.actor_id,
+        )
     except (
         ConfigurationUnavailable,
         httpx.HTTPError,

@@ -1,0 +1,28 @@
+{
+  "kind": "pre-extraction legacy driver/native scalar observation",
+  "source_commit": "a0317013841ca3aaf1b53b06ce051c6eb07ac798",
+  "driver": {
+    "finite": "2020-01-01T12:34:56.123456+00:00",
+    "positive_time": "9999-12-31T23:59:59.999999",
+    "negative_time": "0001-01-01T00:00:00",
+    "negative_zero": "-0.0",
+    "nan_float": "nan",
+    "positive_float": "inf",
+    "negative_float": "-inf"
+  },
+  "native_json": {
+    "finite": "2020-01-01T20:34:56.123456+08:00",
+    "nan_float": "NaN",
+    "negative_time": "-infinity",
+    "negative_zero": 0,
+    "positive_time": "infinity",
+    "negative_float": "-Infinity",
+    "positive_float": "Infinity"
+  },
+  "caller_timezone": "Asia/Shanghai",
+  "public_model_timestamp_serialization": {
+    "finite": "2020-01-01T12:34:56.123456Z",
+    "positive_time": "9999-12-31T23:59:59.999999",
+    "negative_time": "0001-01-01T00:00:00"
+  }
+}

@@ -38,3 +38,10 @@ by default; the old configuration ORM writers are removed. These six commands
 passed bounded local package, restricted database, process, container, restart,
 restore and concurrency qualification. See ADR-0136 for evidence and scope.
 API-side read projections, adjacent writers and the full Workspace module remain open.
+
+Template list/detail and receipt-bound response projection now have a portable
+query contract, policy manager and raw scalar materializer. Public callers now
+select the same owner with borrowed, dedicated DSN or HTTP bindings. All three
+match the frozen40 HTTP observations; default caller/GUC probes pass. Query-only
+runtime startup and the function-only read credential are verified. Artifact,
+fault and restore qualification remains in progress; see ADR-0137 for scope.

@@ -49,7 +49,8 @@
 - [0133](0133-workspace-membership-lifecycle-owner.md) — Workspace 项目成员生命周期命令 owner（成员命令本地限定验收通过）
 - [0134](0134-workspace-project-owner-transfer.md) — Workspace 项目负责人转移命令与本地传输提供方实验（限定本地验收通过）
 - [0135](0135-workspace-configuration-values-and-dependencies.md) — Workspace 配置值、纯策略与跨模块依赖（配置命令 owner 仍在实施）
-- [0136](0136-workspace-configuration-command-owner.md) — Workspace 配置命令协议、分阶段写入与事务边界（本地集成验收中）
+- [0136](0136-workspace-configuration-command-owner.md) — Workspace 配置命令协议、分阶段写入与事务边界（限定本地验收通过）
+- [0137](0137-workspace-template-query-owner.md) — Workspace 模板读取与提交后响应投影（基础实现与冻结基线已完成，接入验收中）
 
 ### 已采纳（Accepted，归档）
 

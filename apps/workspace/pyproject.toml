@@ -33,6 +33,7 @@ aap_workspace = [
     "membership_protocol.schema.json",
     "owner_transfer_protocol.schema.json",
     "configuration_protocol.schema.json",
+    "template_query_protocol.schema.json",
 ]
 
 [tool.pytest.ini_options]
