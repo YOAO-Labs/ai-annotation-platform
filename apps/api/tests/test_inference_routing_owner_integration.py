@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from aap_inference.pipeline_server import PipelineHttpServer
 from aap_inference.routing_backend_control import BackendRoutingControl
 from aap_inference.routing_runtime import RoutingRuntime
-from aap_inference_contract.routing import make_routing_command
+from aap_inference_contract.routing import make_routing_command, RoutingUnavailable
 from aap_inference_contract.routing_client import RoutingHttpClient
 from aap_protocol_v2.routing import ROUTE_ADMISSION_HEADER
 from aap_protocol_v2.routing_runtime import install_backend_routing_controller
@@ -345,7 +345,11 @@ async def test_routing_owner_real_database_http_and_captured_transaction(test_en
 
     # Verify the runtime URL logs in as the provisioned function-only identity. The
     # runtime below receives this URL unchanged; it never emulates the role with SET ROLE.
-    restricted_probe = await asyncpg.connect(routing_dsn, timeout=5, command_timeout=10)
+    restricted_probe = await asyncpg.connect(
+        routing_dsn.replace("postgresql+asyncpg://", "postgresql://", 1),
+        timeout=5,
+        command_timeout=10,
+    )
     try:
         current_user, database = await restricted_probe.fetchrow(
             "SELECT current_user, current_database()"
@@ -370,6 +374,7 @@ async def test_routing_owner_real_database_http_and_captured_transaction(test_en
     borrowed_transaction = None
     backend_server = backend_task = backend_listener = None
     owner_runtime = owner_server = proxy = None
+    native_trace = []
 
     try:
         baseline_user_name = await _insert_user(test_engine, user_id)
@@ -410,6 +415,37 @@ async def test_routing_owner_real_database_http_and_captured_transaction(test_en
             routing_dsn,
             backend_control=BackendRoutingControl(timeout_seconds=8),
         )
+        transaction_factory = owner_runtime._transaction
+
+        @contextlib.asynccontextmanager
+        async def observed_transaction():
+            async with transaction_factory() as data:
+                step = data.step
+
+                async def observed_step(action, arguments):
+                    try:
+                        reply = await step(action, arguments)
+                    except Exception as error:
+                        cause = error
+                        while cause.__context__ is not None:
+                            cause = cause.__context__
+                        # Fixed action names and database error types only; never
+                        # record subjects, SQL arguments, credentials or replies.
+                        native_trace.append(
+                            (
+                                action,
+                                type(cause).__name__,
+                                getattr(cause, "sqlstate", None),
+                            )
+                        )
+                        raise
+                    native_trace.append((action, reply.get("status"), sorted(reply)))
+                    return reply
+
+                data.step = observed_step
+                yield data
+
+        owner_runtime.manager._data_factory = observed_transaction
         assert await owner_runtime.readiness()
         owner_port = _available_port()
         owner_server = PipelineHttpServer(
@@ -524,7 +560,7 @@ async def test_routing_owner_real_database_http_and_captured_transaction(test_en
         assert proxy.counts[_COMMAND_PATH] == commands_before_begin + 1
         assert proxy.counts[_STATUS_PATH] == statuses_before_begin + 1
         assert (
-            await borrowed.fetchval("SELECT pg_xact_status($1::xid8)", origin_xid)
+            await borrowed.fetchval("SELECT pg_xact_status($1::xid8)", int(origin_xid))
             == "in progress"
         )
         route_headers = began.result.headers
@@ -607,6 +643,10 @@ async def test_routing_owner_real_database_http_and_captured_transaction(test_en
         assert closed.result.closed is True
         assert closed.result.state == "finished"
         assert proxy.errors == []
+    except RoutingUnavailable as error:
+        raise AssertionError(
+            f"routing owner failed at Native phases: {native_trace}"
+        ) from error
     finally:
         try:
             if borrowed is not None:

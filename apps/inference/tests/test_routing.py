@@ -298,6 +298,41 @@ async def test_off_mode_tracks_the_legacy_instance_without_health_gating():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("busy_count", [2, 5])
+async def test_admission_retries_only_known_contention_outside_the_transaction(
+    busy_count,
+):
+    native = _Native()
+    calls = []
+
+    def snapshot(arguments):
+        calls.append(True)
+        native.last_admission = dict(arguments)
+        if len(calls) <= busy_count:
+            return _rejected("management_busy")
+        return _success(**native.snapshot)
+
+    native.handlers["admission_snapshot"] = snapshot
+    manager = _manager(native)
+    command = _acquire()
+    result = await manager.execute(command)
+    assert result.state == "committed"
+    assert len(calls) == min(busy_count + 1, 5)
+    if busy_count == 2:
+        assert result.result.registry_id == _LEGACY_ID
+    else:
+        assert isinstance(result.result, RoutingRejectedResult)
+        assert result.result.reason == "management_busy"
+    assert sum(action == "record_command" for action, _ in native.calls) == 1
+    # Replaying the public request reads its one final receipt; it does not retry
+    # admission or execute any backend operation after an ambiguous outcome.
+    assert (await manager.execute(command)).result == result.result
+    assert len(calls) == min(busy_count + 1, 5)
+    exits = [event for event in native.events if event[0] == "exit"]
+    assert sum(event[1] is not None for event in exits) == min(busy_count, 4)
+
+
+@pytest.mark.asyncio
 async def test_direct_mode_tracks_exact_registry_without_a_pool_or_health_gate():
     snapshot = _snapshot(members=[])
     snapshot["pool"] = None

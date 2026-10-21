@@ -156,6 +156,7 @@ CREATE TABLE aap_inference_routing_v1.command_receipts (
     ),
     result jsonb NOT NULL CHECK (pg_catalog.jsonb_typeof(result) = 'object'),
     creating_xid xid8 NOT NULL,
+    realm text NOT NULL,
     created_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp()
 );
 -- aap-statement-break
@@ -322,6 +323,20 @@ BEGIN
         FOR v_pair IN SELECT object.key, object.value
                       FROM pg_catalog.jsonb_each(p_value) AS object(key, value)
         LOOP
+            IF v_pair.key = 'headers' THEN
+                IF v_pair.value = '{}'::jsonb OR (
+                    aap_inference_routing_v1._routing_exact_keys(
+                        v_pair.value, ARRAY['X-AAP-Route-Admission']
+                    )
+                    AND pg_catalog.jsonb_typeof(v_pair.value -> 'X-AAP-Route-Admission') = 'string'
+                    AND pg_catalog.char_length(v_pair.value ->> 'X-AAP-Route-Admission') <= 16384
+                    AND (v_pair.value ->> 'X-AAP-Route-Admission') COLLATE "C"
+                        ~ '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'
+                ) THEN
+                    CONTINUE;
+                END IF;
+                RETURN false;
+            END IF;
             IF pg_catalog.lower(v_pair.key) = ANY(ARRAY[
                 'url', 'auth_method', 'auth_token', 'extra_params', 'gpu_resource_id',
                 'health_meta', 'endpoint', 'signing_key', 'epoch_key',
@@ -1550,7 +1565,6 @@ DECLARE
     v_reply_command uuid;
     v_reply_registry uuid;
     v_reply_epoch uuid;
-    v_reply_retired uuid;
     v_attempt_count bigint;
     v_active_count bigint;
     v_uncertain_count bigint;
@@ -1608,11 +1622,17 @@ BEGIN
             pg_catalog.hashtextextended('aap-routing-command:' || v_request_id::text, 412091)
         );
         SELECT receipt.id, receipt.command_sha256, receipt.operation,
-               receipt.result, receipt.creating_xid
+               receipt.result, receipt.creating_xid, receipt.realm
         INTO v_receipt
         FROM aap_inference_routing_v1.command_receipts AS receipt
         WHERE receipt.id = v_request_id;
         IF NOT FOUND THEN
+            RETURN aap_inference_routing_v1._routing_reply(
+                'ok', pg_catalog.jsonb_build_object('receipt', NULL)
+            );
+        END IF;
+        IF v_receipt.realm IS DISTINCT FROM aap_inference_routing_v1._routing_realm()
+           OR aap_inference_routing_v1._routing_secret() IS NULL THEN
             RETURN aap_inference_routing_v1._routing_reply(
                 'ok', pg_catalog.jsonb_build_object('receipt', NULL)
             );
@@ -1632,6 +1652,9 @@ BEGIN
         ));
 
     WHEN 'record_command' THEN
+        IF aap_inference_routing_v1._routing_secret() IS NULL THEN
+            RETURN aap_inference_routing_v1._routing_rejected('backend_not_ready');
+        END IF;
         IF NOT aap_inference_routing_v1._routing_exact_keys(
             v_args, ARRAY['request_id', 'command_sha256', 'operation', 'result']
         ) THEN
@@ -1655,23 +1678,24 @@ BEGIN
             pg_catalog.hashtextextended('aap-routing-command:' || v_request_id::text, 412091)
         );
         SELECT receipt.id, receipt.command_sha256, receipt.operation,
-               receipt.result, receipt.creating_xid
+               receipt.result, receipt.creating_xid, receipt.realm
         INTO v_receipt
         FROM aap_inference_routing_v1.command_receipts AS receipt
         WHERE receipt.id = v_request_id
         FOR UPDATE;
         IF FOUND THEN
-            IF v_receipt.command_sha256 IS DISTINCT FROM v_sha
+            IF v_receipt.realm IS DISTINCT FROM aap_inference_routing_v1._routing_realm()
+               OR v_receipt.command_sha256 IS DISTINCT FROM v_sha
                OR v_receipt.operation IS DISTINCT FROM v_operation
                OR v_receipt.result IS DISTINCT FROM (v_args -> 'result') THEN
                 RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'routing command identity conflict';
             END IF;
         ELSE
             INSERT INTO aap_inference_routing_v1.command_receipts (
-                id, command_sha256, operation, result, creating_xid
+                id, command_sha256, operation, result, creating_xid, realm
             ) VALUES (
                 v_request_id, v_sha, v_operation, v_args -> 'result',
-                pg_catalog.pg_current_xact_id()
+                pg_catalog.pg_current_xact_id(), aap_inference_routing_v1._routing_realm()
             );
             SELECT v_request_id AS id, v_sha AS command_sha256,
                    v_operation AS operation, (v_args -> 'result') AS result,
@@ -3209,7 +3233,7 @@ BEGIN
         IF NOT aap_inference_routing_v1._routing_exact_keys(v_args, ARRAY['control_id', 'reply'])
            OR NOT aap_inference_routing_v1._routing_exact_keys(
                v_args -> 'reply', ARRAY['schema', 'command_id', 'registry_id',
-                                        'authority_epoch', 'retired_epoch',
+                                        'authority_epoch',
                                         'backend_incarnation', 'challenge',
                                         'phase', 'active_requests']
            ) THEN
@@ -3231,11 +3255,6 @@ BEGIN
         v_reply_registry := aap_inference_routing_v1._routing_uuid(v_reply ->> 'registry_id');
         v_reply_epoch := aap_inference_routing_v1._routing_uuid(v_reply ->> 'authority_epoch');
         v_reply_incarnation := aap_inference_routing_v1._routing_uuid(v_reply ->> 'backend_incarnation');
-        IF v_reply -> 'retired_epoch' <> 'null'::jsonb THEN
-            v_reply_retired := aap_inference_routing_v1._routing_uuid(v_reply ->> 'retired_epoch');
-        ELSE
-            v_reply_retired := NULL;
-        END IF;
         v_status_code := aap_inference_routing_v1._routing_integer(
             v_reply -> 'active_requests', 0, 2147483647
         )::integer;
@@ -3248,7 +3267,6 @@ BEGIN
            OR v_control.id IS DISTINCT FROM v_reply_command
            OR v_control.registry_id IS DISTINCT FROM v_reply_registry
            OR v_control.new_epoch IS DISTINCT FROM v_reply_epoch
-           OR v_control.retired_epoch IS DISTINCT FROM v_reply_retired
            OR v_control.challenge IS DISTINCT FROM (v_reply ->> 'challenge') THEN
             RETURN aap_inference_routing_v1._routing_rejected('invalid_command');
         END IF;

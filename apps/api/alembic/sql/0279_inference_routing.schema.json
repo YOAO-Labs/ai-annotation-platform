@@ -288,6 +288,7 @@
         "operation text",
         "result jsonb",
         "creating_xid xid8",
+        "realm text",
         "created_at timestamptz"
       ],
       "semantics": "Minimal result only; endpoint credentials, raw probe data and signing keys are rejected."

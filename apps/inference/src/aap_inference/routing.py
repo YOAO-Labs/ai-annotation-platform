@@ -87,6 +87,10 @@ class _Rejected(Exception):
         super().__init__(reason)
 
 
+class _RetryAdmission(Exception):
+    """Known pre-dispatch contention; leave the transaction before waiting."""
+
+
 def _json_object(value: Any) -> dict[str, Any]:
     try:
         if type(value) is str:
@@ -247,6 +251,17 @@ class RoutingManager:
         self, command: RoutingCommand | dict | bytes | str
     ) -> RoutingResult:
         request = decode_routing_command(command)
+        for attempt in range(5):
+            try:
+                return await self._execute_once(request, retry_contention=attempt < 4)
+            except _RetryAdmission:
+                await asyncio.sleep(0.01 * (attempt + 1))
+        raise RoutingUnavailable()
+
+    async def _execute_once(
+        self, command: RoutingCommand, *, retry_contention: bool
+    ) -> RoutingResult:
+        request = decode_routing_command(command)
         digest = routing_command_sha256(request)
         if request.operation == "reconcile":
             return await self._execute_reconcile(request, digest)
@@ -261,11 +276,17 @@ class RoutingManager:
                     try:
                         result_body = await self._execute_action(data, request, digest)
                     except _Rejected as rejected:
+                        if (
+                            retry_contention
+                            and rejected.reason == "management_busy"
+                            and request.operation in {"acquire", "begin"}
+                        ):
+                            raise _RetryAdmission() from None
                         result_body = _rejection(rejected.reason)
                     self._result(request, digest, "committed", result_body)
                     await self._record_command(data, request, digest, result_body)
                 body_completed = True
-        except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
+        except (_RetryAdmission, asyncio.CancelledError, KeyboardInterrupt, SystemExit):
             raise
         except Exception as exc:
             if body_completed:
