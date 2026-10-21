@@ -80,16 +80,31 @@ Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事�
 源码与非 editable 安装各通过 273 项 Workspace 检查；本地并发样本不代表生产容量。见
 [ADR-0143](/dev/adr/0143-workspace-project-class-rename-owner)。
 
+## 跨 owner 的项目访问事实
+
+项目访问值、纯规则、Project Query wire、完整 Project／成员行解码及权限读取顺序位于
+`aap_workspace_contract`；Workspace 运行编排继续位于 `apps/workspace`。共享包仅依赖
+标准库和 Pydantic，独立安装也包含原字节的 query schema，不引入 Inference 与 Workspace
+运行时的相互依赖。
+
+`aap_workspace_v1.project_access_step(actor_id, project_id, phase)` 只发布账号 SHARE、
+项目 KEY SHARE、成员 SHARE 三种锁定事实，调用者逐步解码和判断权限，并在同一连接、事务中
+完成最终写入。Inference owner 仅获得此固定函数的执行权，不读取其他 owner 原表。
+这是命名流水线独立 owner 的前置能力；它没有新增远程权限服务或完成整个 Inference。
+15 个去重选定数据库案例通过，包含旧行为兼容、三阶段权限与竞争、完整迁移和非空转储恢复；
+源码与非 editable 安装分别通过 Workspace 299 项、共享包 21 项检查，252 个包文件一致。
+边界与本地验收见 [ADR-0145](/dev/adr/0145-workspace-project-access-facts)。
+
 ## 指南素材命令与对象能力
 
 指南签名、HEAD 和普通删除已有独立字节合同，由既有 Assets Source 二进制提供。
 `guide-only` 不需要数据库凭据；Workspace 保留项目权限与元数据，公共指南工作流已接入。
-源码 449 项、独立安装的 Source 439 项检查通过，十五个包的 154 个文件指纹一致。
+指南切片验收记录中，源码 449 项、独立安装的 Source 439 项检查通过，十五个包的 154 个文件指纹一致。
 两个去重选定真实运行案例覆盖独立进程与受限容器；容器重启后重新检查端口并保留上传对象。
 1 CPU／256 MiB 的 16 个并发 HEAD 得到 5 个成功、11 个预期 busy，无其他错误或 OOM；
 命令的本地选定验收另有 53 个去重 DB/process 案例，包含 12 项既有恢复兼容检查；无有效跳过。
 借用事务、专用 DSN 和独立 HTTP 均匹配 11 个冻结场景，实际权限锁、非空登记的备份恢复、
-克隆库独立写入与撤权均通过。源码与独立 Workspace 安装各通过 314 项，251 个包文件一致；
+克隆库独立写入与撤权均通过。该切片源码与独立 Workspace 安装各通过 314 项，251 个包文件一致；
 Workspace 无 S3 凭据，复用受限 Source 字节能力。两个实际受限容器完成重启读取及 16 次并发签名，
 均返回 200；API、数据库及对象存储在 owner 资源预算之外。它不代表生产容量、完整 Workspace／Assets
 或非 Python 提供方替换资格；精确工件、失败尝试与验收范围见

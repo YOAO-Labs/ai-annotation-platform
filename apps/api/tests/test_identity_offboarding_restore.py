@@ -281,7 +281,7 @@ async def test_restored_offboarding_receipt_replays_and_populated_downgrade_refu
         async with restored.begin() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0269"
+                == "0270"
             )
             await db.execute(
                 text(

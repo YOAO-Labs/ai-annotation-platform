@@ -79,6 +79,23 @@ COMMIT;
 接口不自动重试，也不在锁超时后跳过素材。连接或响应中断时不能仅凭超时推断提交失败；
 使用原操作 ID 和原请求核对结果。外部对象存储不参与这个 SQL 事务。
 
+## 同事务的项目访问锁定事实
+
+跨 owner 写入可在自身的同一 PostgreSQL 连接与读写事务中，调用
+`aap_workspace_v1.project_access_step(actor_id, project_id, phase)`。它按固定 phase 返回
+账号、完整项目行或完整成员行事实；返回信封绑定协议、actor、project 与 phase。
+调用者在每一步后解码，再应用 Workspace 纯权限规则。它不返回授权布尔值，也不自行提交。
+
+phase 只有 `lock_actor_share`、`lock_project_key_share`、`lock_member_share`。
+依次保留账号 SHARE → 项目 KEY SHARE → 必要时成员 SHARE，并将锁保留到业务提交或回滚。
+项目计数来自同一语句中的 Labeling 类型化能力。普通计数更新可以继续，所有权变更的排他锁
+会冲突；不能改用更强的旧 manager SHARE 锁，也不能将远程权限响应当作跨进程的锁凭证。
+
+争用保留 SQLSTATE `55P03`、`40001`、`40P01`，并提供固定的 account／project／membership busy
+HINT；客户端按 phase 恢复原有冲突原因，不向外暴露数据库异常正文。应用当前迁移及
+`module-data-grants.sql` 后，只有 Inference owner 增加这项固定执行权，没有新增 LOGIN 或原表授权。
+完整合同与限制见 [ADR-0145](/dev/adr/0145-workspace-project-access-facts)。
+
 ## 初始关联与分块建题
 
 新操作使用固定 `schema`、布尔 `ok` 和成功 `data` 或失败 `error.code`。

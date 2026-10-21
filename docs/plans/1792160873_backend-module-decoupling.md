@@ -4263,3 +4263,41 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   `.worktree/named-pipeline-legacy-baseline-qualification.json`; failed attempts
   and cleanup reports remain. Inference runtime, new data capabilities,
   independent artifacts, recovery and language replacement are still pending.
+
+### Named pipelines: shared access contracts and same-transaction facts
+
+- The byte-identical Workspace access policy, Project Query wire, complete
+  Project/member codecs and read-authority sequence now belong to the existing
+  `aap_workspace_contract` package. Actual consumers moved and the old module
+  paths were removed. The unchanged query schema is explicit package data;
+  there is no Inference-to-Workspace runtime dependency cycle.
+- Native0270 publishes only the three fixed locked-fact phases for Inference:
+  Account SHARE, Project KEY SHARE and optional Member SHARE. Workspace reuses
+  its private implementations internally. Inference gets no private-helper or
+  raw foreign-table privileges. The caller decodes each fact at the original
+  phase and keeps the same connection/transaction through its eventual write.
+- Fifteen distinct selected database cases pass without skips: ten compatibility
+  cases, three Native cases, one full migration-validation wrapper and one
+  nonempty source/clone dump-and-restore case. The seventy frozen HTTP samples
+  and two frozen lock observations remain byte-identical and are replayed as
+  observations within those cases, not counted again. All five migration phases
+  pass at 0270; recovery preserves function metadata/ACLs and clone-only account
+  or membership changes leave source facts unchanged. The initial recovery test
+  needed an internal-char-to-text catalog cast; its failed receipt and cleanup
+  remain separate from the successful run.
+- Workspace/shared source checks pass 299/21 cases; a fresh noneditable install
+  passes the same checks and matches thirteen packages/252 files. Cold imports
+  prove the shared contract does not import Workspace runtime, API or ORM and
+  can read the unchanged 49,025-byte schema resource. Focused API/architecture
+  checks separately pass 372 cases with 142 existing inapplicable-rule skips;
+  two verifier-selection checks pass. The corrected owned compatibility run
+  replaces the earlier mixed pure selection's unavailable-default-database error.
+- Canonical evidence is
+  `.worktree/workspace-project-access-facts-qualification.json`; design and exact
+  limitations are in [ADR-0145](../adr/0145-workspace-project-access-facts.md).
+  Existing Guide images remain historical artifacts at their qualification
+  commit, rather than current-image evidence after package relocation. The
+  independent named-pipeline manager, receipt/status protocol, Native writes,
+  private runtime, API assembly and complete three-binding qualification remain
+  the next coherent slice. Full ten-module/seven-gate completion, production
+  capacity and language replacement remain open; Go stays experimental.

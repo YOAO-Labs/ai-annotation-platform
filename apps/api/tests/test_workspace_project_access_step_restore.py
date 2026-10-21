@@ -54,7 +54,7 @@ async def _function_metadata(engine) -> dict:
                               function.proacl::text AS acl,
                               function.prosecdef AS security_definer,
                               function.proconfig::text AS configuration,
-                              function.provolatile AS volatility,
+                              function.provolatile::text AS volatility,
                               pg_catalog.pg_get_function_result(function.oid) AS result,
                               pg_catalog.pg_get_functiondef(function.oid) AS definition,
                               pg_catalog.has_function_privilege(

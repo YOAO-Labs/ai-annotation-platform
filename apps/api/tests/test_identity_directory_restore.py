@@ -211,7 +211,7 @@ async def test_restored_directory_export_replays_snapshot_and_rejects_epoch(
         async with restored.begin() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0269"
+                == "0270"
             )
             await db.execute(
                 text(
