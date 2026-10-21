@@ -1156,7 +1156,7 @@ async def _run_scenarios(client, maker, world, monkeypatch) -> list[dict]:
         )
         _assert_generation(accepted_drift, 10, "accepted capability drift")
 
-        drained_legacy = await request(
+        await request(
             "registry_cannot_be_owned_by_two_pools",
             "PUT",
             f"{main_path}/members/{candidate_registry}",
@@ -1173,7 +1173,7 @@ async def _run_scenarios(client, maker, world, monkeypatch) -> list[dict]:
         )
 
         monkeypatch.setattr(settings, "ml_backend_router_mode", "enforce")
-        await request(
+        drained_legacy = await request(
             "drain_legacy_member_before_removal",
             "POST",
             f"{seed_path}/members/{seed_registry}/drain",
