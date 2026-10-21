@@ -192,12 +192,14 @@ def test_decoder_rejects_duplicates_unknown_fields_nonobjects_and_oversize() -> 
     duplicate = valid.replace(
         '"kind":"observed"', '"kind":"observed","kind":"observed"', 1
     )
+    nested_duplicate = valid.replace('"name":"GPU"', '"name":"GPU","name":"other"')
+    assert nested_duplicate != valid
     for raw in (
         "[]",
         "null",
         valid[:-1] + ',"extra":true}',
         duplicate,
-        valid.replace('"gpu":"GPU"', '"gpu":"GPU","gpu":"other"'),
+        nested_duplicate,
         "not-json",
     ):
         with pytest.raises(BackendHealthObservationUnavailable):

@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import re
+import httpx
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import Any, Callable, Protocol
@@ -17,6 +18,10 @@ from aap_inference_contract.health_observation import (
     BackendHealthObservationRequest,
     BackendHealthObservationUnavailable,
     decode_health_observation_request,
+)
+
+from aap_inference_contract.health_observation_outcome import (
+    health_observation_outcome_text,
 )
 
 from .backend_transport import BackendTransport
@@ -153,20 +158,6 @@ def _backend_from_json(backend_json: str):
     return SimpleNamespace(**endpoint, health_meta=None)
 
 
-def _outcome_text(outcome: dict) -> str:
-    try:
-        # NaN and Infinity from a legacy backend stay textual evidence so the API
-        # coordinator retains its original post-clock JSON failure phase.
-        return json.dumps(
-            outcome,
-            ensure_ascii=True,
-            allow_nan=True,
-            separators=(",", ":"),
-        )
-    except (TypeError, ValueError, UnicodeError, RecursionError):
-        raise BackendHealthObservationUnavailable() from None
-
-
 class BackendHealthObservationManager:
     """Observe one backend endpoint snapshot and seal its raw result."""
 
@@ -211,9 +202,23 @@ class BackendHealthObservationManager:
             return await self._seal_reply(request, failure)
 
         try:
-            healthy, meta = await client.health_meta(gpu_health_challenge=challenge)
-        except Exception:
-            raise BackendHealthObservationUnavailable() from None
+            if challenge is None:
+                healthy, meta = await client.health_meta()
+            else:
+                healthy, meta = await client.health_meta(gpu_health_challenge=challenge)
+        except Exception as error:
+            failure = _legacy_constructor_error(error)
+            if failure is None:
+                failure = {
+                    "kind": "legacy_health_error",
+                    "error_type": "InvalidURL"
+                    if isinstance(error, httpx.InvalidURL)
+                    else "RuntimeError",
+                    "error_message": str(error),
+                }
+            else:
+                failure["kind"] = "legacy_health_error"
+            return await self._seal_reply(request, failure)
         if type(healthy) is not bool or (meta is not None and type(meta) is not dict):
             raise BackendHealthObservationUnavailable()
         setup_failed = False
@@ -244,7 +249,7 @@ class BackendHealthObservationManager:
             request.subject,
             request.registry_id,
             request.request_id,
-            _outcome_text(outcome),
+            health_observation_outcome_text(outcome),
         )
         if type(evidence) is not str:
             raise BackendHealthObservationUnavailable()

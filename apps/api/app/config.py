@@ -326,6 +326,14 @@ class Settings(BaseSettings):
     inference_backend_probe_database_url: str = Field(default="", repr=False)
     inference_backend_probe_database_url_file: str = ""
     inference_backend_probe_timeout_seconds: float = Field(default=30, gt=0, le=3600)
+    inference_health_observation_url: str = Field(default="", repr=False)
+    inference_health_observation_token: str = Field(default="", repr=False)
+    inference_health_observation_token_file: str = ""
+    inference_health_observation_database_url: str = Field(default="", repr=False)
+    inference_health_observation_database_url_file: str = ""
+    inference_health_observation_timeout_seconds: float = Field(
+        default=90, gt=0, le=3600
+    )
 
     media_probe_url: str = ""
     media_probe_token: str = Field(default="", repr=False)

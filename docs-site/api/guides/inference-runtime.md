@@ -136,3 +136,25 @@ Subject 由调用方事务内的固定 Native 函数加密生成，绑定数据�
 单次请求、不跟随重定向、不重试。此大小边界只适用于探测元数据，不适用于预测数据，
 也不证明无限大历史 extra_params 的兼容性。详见
 [ADR-0149](/dev/adr/0149-credential-owning-workspace-backend-probe)。
+
+## 健康观察与调用方写回
+
+既有项目、管理员、周期 worker 和 GPU 刷新的健康检查，把实际 `/health` 与条件
+`/setup` 交给同一个 Inference 观察 owner。默认嵌入调用方，或显式选择专用 DSN／HTTP；
+配置及受限 Compose 示例见仓库 `DEV.md` 的 Inference 健康观察一节。
+API 的 `INFERENCE_HEALTH_OBSERVATION_DATABASE_URL(_FILE)` 与
+`INFERENCE_HEALTH_OBSERVATION_URL` 互斥，HTTP bearer 为
+`INFERENCE_HEALTH_OBSERVATION_TOKEN(_FILE)`。整个调用默认90秒，使用
+`INFERENCE_HEALTH_OBSERVATION_TIMEOUT_SECONDS` 调整；每次真实后端请求仍受
+`ML_HEALTH_TIMEOUT` 控制。显式选择失败不回退，调用方收到503并保留原事务回滚边界。
+
+私有 `POST /v1/backends/health-observation` 只接受 registry/request UUID 和加密快照；
+响应只有同一身份、快照摘要及密封证据，没有可伪造的 healthy/capabilities 布尔值或凭据。
+快照保留初次已加载对象的端点和认证值，关闭自动刷新时不强制落库或重新读取。
+专用只读 LOGIN 仅可调用 policy/open/seal；证据按数据库、原事务、请求和快照绑定，
+另一个仍在运行的事务也不能消费它。提交、回滚、错配或修改证据均拒绝。
+
+收到证据后，原调用方才继续能力提取与数据库时钟，再构造生命周期证明、锁定当前
+Registry/GPU membership、写回和对账；观察服务没有健康业务写权限，也不会代替调用方提交。
+嵌入模式的宽 API 数据库角色仍是过渡安排。本协议仅收口外部观察，完整健康写服务、
+路由停流连续性及整个 Inference 模块尚未完成；详情见 [ADR-0152](/dev/adr/0152-credential-owning-health-observations)。

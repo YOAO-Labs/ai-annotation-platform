@@ -839,3 +839,16 @@ last_reviewed: 2026-10-21
 | `INFERENCE_BACKEND_PROBE_CONTROL_TOKEN_FILE` | `—` | — |
 | `INFERENCE_RUNTIME_BACKEND_PROBE_DATABASE_URL_FILE` | `—` | — |
 | `INFERENCE_RUNTIME_BACKEND_PROBE_CONTROL_TOKEN_FILE` | `—` | — |
+
+## Complete health/setup observation: the original caller still applies/commits health.
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `INFERENCE_HEALTH_OBSERVATION_URL` | `—` | Empty selectors embed Inference; select URL or provider-only DSN, never both. |
+| `INFERENCE_HEALTH_OBSERVATION_TOKEN` | `—` | — |
+| `INFERENCE_HEALTH_OBSERVATION_TOKEN_FILE` | `—` | — |
+| `INFERENCE_HEALTH_OBSERVATION_DATABASE_URL` | `—` | — |
+| `INFERENCE_HEALTH_OBSERVATION_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_HEALTH_OBSERVATION_TIMEOUT_SECONDS` | `90` | — |
+| `INFERENCE_RUNTIME_HEALTH_OBSERVATION_DATABASE_URL_FILE` | `—` | The standalone runtime uses the same DATABASE_URL and TOKEN selectors. Use a different bearer from the pipeline and Workspace setup-probe routes. |
+| `INFERENCE_RUNTIME_HEALTH_OBSERVATION_TOKEN_FILE` | `—` | — |

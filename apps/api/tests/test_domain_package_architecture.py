@@ -567,6 +567,12 @@ DOMAIN_PACKAGES = (
         allowed_framework_imports=("sqlalchemy",),
     ),
     DomainSpec(
+        package="inference_health_observation",
+        legacy_facades=(),
+        allowed_app_imports=("app.config",),
+        allowed_framework_imports=("fastapi", "sqlalchemy"),
+    ),
+    DomainSpec(
         package="workspace_template_query",
         legacy_facades=(),
         allowed_app_imports=(

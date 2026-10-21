@@ -44,7 +44,16 @@
     "BackendHealthObservationNativePolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema", "observation_protocol", "subject_protocol", "evidence_protocol", "origin_transaction", "evidence_protection", "functions", "ready"],
+      "required": [
+        "schema",
+        "observation_protocol",
+        "subject_protocol",
+        "evidence_protocol",
+        "origin_transaction",
+        "evidence_protection",
+        "functions",
+        "ready"
+      ],
       "properties": {
         "schema": { "const": "aap-inference-health-observation-native/v1" },
         "observation_protocol": { "const": "aap-inference-health-observation/v1" },
@@ -131,7 +140,14 @@
       "properties": {
         "kind": { "enum": ["legacy_constructor_error", "legacy_health_error"] },
         "error_type": {
-          "enum": ["ValueError", "TypeError", "AttributeError", "OverflowError", "InvalidURL", "RuntimeError"]
+          "enum": [
+            "ValueError",
+            "TypeError",
+            "AttributeError",
+            "OverflowError",
+            "InvalidURL",
+            "RuntimeError"
+          ]
         },
         "error_message": { "type": "string" }
       }

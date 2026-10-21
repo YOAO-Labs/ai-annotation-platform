@@ -1281,11 +1281,16 @@ class MLBackendService:
     ) -> bool:
         from aap_inference.health import BackendHealthCoordinator
         from app.services.inference_health_data import InferenceHealthData
+        from app.services.inference_health_observation import (
+            health_observation_client_factory,
+        )
         from app.services.inference_limits import capability_limits_from_settings
 
         return await BackendHealthCoordinator(
             InferenceHealthData(self.db, get_backend=self.get),
-            client_factory=MLBackendClient,
+            client_factory=health_observation_client_factory(
+                self.db, client_factory=MLBackendClient
+            ),
             capability_limits_factory=capability_limits_from_settings,
         ).check_health(registry_id, gpu_health_challenge=gpu_health_challenge)
 

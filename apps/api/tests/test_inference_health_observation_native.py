@@ -317,6 +317,7 @@ async def test_health_observation_rejects_invalid_snapshot_and_nonfinite_timeout
 ):
     await assert_owned_test_database(test_engine)
     origin = await _connect(test_engine, role=_ORIGIN_ROLE)
+    provider = await _connect(test_engine, role=_PROVIDER_ROLE)
     registry_id = uuid.uuid4()
     request_id = uuid.uuid4()
     valid_backend = json.dumps(
@@ -353,7 +354,7 @@ async def test_health_observation_rejects_invalid_snapshot_and_nonfinite_timeout
             message="invalid health observation subject",
         )
         await _assert_invalid(
-            origin,
+            provider,
             f"SELECT {_OPEN}($1::text,$2::uuid,$3::uuid)",
             None,
             registry_id,
@@ -392,6 +393,7 @@ async def test_health_observation_rejects_invalid_snapshot_and_nonfinite_timeout
         )
     finally:
         await origin.close()
+        await provider.close()
 
 
 async def test_health_observation_roles_receive_only_their_fixed_functions(

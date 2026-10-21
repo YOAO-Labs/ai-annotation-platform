@@ -7,7 +7,6 @@ from uuid import UUID
 
 import pytest
 from aap_inference_contract.health_observation import (
-    BackendHealthObservationUnavailable,
     make_health_observation_request,
 )
 
@@ -179,17 +178,20 @@ async def test_constructor_error_is_sealed_without_exposing_it_on_the_reply():
 
 
 @pytest.mark.asyncio
-async def test_health_transport_failure_is_sanitized_and_not_sealed():
+async def test_legacy_health_failure_is_sealed_without_exposing_it_on_the_wire():
     data = _Data(_snapshot())
     client = _Client(health=RuntimeError("synthetic-secret diagnostic"))
 
-    with pytest.raises(BackendHealthObservationUnavailable) as error:
-        await BackendHealthObservationManager(data, lambda _backend: client).execute(
-            _request()
-        )
-
-    assert "synthetic-secret" not in str(error.value)
-    assert data.seal_calls == []
+    reply = await BackendHealthObservationManager(
+        data, lambda _backend: client
+    ).execute(_request())
+    assert json.loads(data.seal_calls[0][3]) == {
+        "kind": "legacy_health_error",
+        "error_type": "RuntimeError",
+        "error_message": "synthetic-secret diagnostic",
+    }
+    assert "synthetic-secret" not in repr(reply)
+    assert client.calls == [("health_meta", _CHALLENGE)]
 
 
 @pytest.mark.asyncio

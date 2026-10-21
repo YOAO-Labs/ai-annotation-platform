@@ -68,6 +68,8 @@ IDENTITY_CLIENT_ROLES = {
     "LABELING_CLASS_QUERY": "labeling_class_query_client",
     "INFERENCE_PIPELINES": "inference_pipelines_client",
     "INFERENCE_BACKEND_PROBE": "inference_backend_probe_client",
+    "INFERENCE_HEALTH_OBSERVATION": "inference_health_observation_client",
+    "INFERENCE_HEALTH_ORIGIN": "inference_health_origin_client",
 }
 MODULE_ROLES = (
     "identity_code",
@@ -225,6 +227,7 @@ SQL_ARTIFACTS = (
     "0273_inference_backend_dependency_reads.sql",
     "0274_inference_backend_probe.sql",
     "0275_workspace_binding_lock_guard.sql",
+    "0276_inference_health_observation.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -312,6 +315,7 @@ SCHEMA_ARTIFACTS = (
     "0273_inference_backend_dependency_reads.schema.json",
     "0274_inference_backend_probe.schema.json",
     "0275_workspace_binding_lock_guard.schema.json",
+    "0276_inference_health_observation.schema.json",
 )
 TEST_FILES = (
     "tests/test_inference_backend_probe_native.py",
@@ -2143,6 +2147,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_workspace_template_query_v1') IS NULL "
             "AND to_regnamespace('aap_workspace_project_query_v1') IS NULL "
             "AND to_regnamespace('aap_inference_pipelines_v1') IS NULL "
+            "AND to_regnamespace('aap_inference_health_observation_v1') IS NULL "
             "AND to_regnamespace('aap_inference_backend_probe_v1') IS NULL "
             "AND to_regclass('aap_inference_backend_probe_v1.probe_secret') IS NULL "
             "AND to_regprocedure('aap_workspace_v1.clear_primary_backend_bindings(uuid)') IS NULL "
@@ -2394,6 +2399,12 @@ def main(argv: list[str] | None = None) -> int:
         inference_backend_probe_grants_path = (
             ROOT / "infra/docker/inference-backend-probe-grants.sql"
         )
+        inference_health_observation_grants_path = (
+            ROOT / "infra/docker/inference-health-observation-grants.sql"
+        )
+        inference_health_origin_grants_path = (
+            ROOT / "infra/docker/inference-health-origin-grants.sql"
+        )
         identity_deactivation_grants_path = (
             ROOT / "infra/docker/identity-deactivation-grants.sql"
         )
@@ -2439,6 +2450,8 @@ def main(argv: list[str] | None = None) -> int:
             or not labeling_class_query_grants_path.is_file()
             or not inference_pipelines_grants_path.is_file()
             or not inference_backend_probe_grants_path.is_file()
+            or not inference_health_observation_grants_path.is_file()
+            or not inference_health_origin_grants_path.is_file()
             or not identity_account_grants_path.is_file()
             or not identity_recovery_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
@@ -2520,6 +2533,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         inference_backend_probe_grant_sql = (
             inference_backend_probe_grants_path.read_text(encoding="utf-8")
+        )
+        inference_health_observation_grant_sql = (
+            inference_health_observation_grants_path.read_text(encoding="utf-8")
+        )
+        inference_health_origin_grant_sql = (
+            inference_health_origin_grants_path.read_text(encoding="utf-8")
         )
         workspace_project_query_grant_sql = (
             workspace_project_query_grants_path.read_text(encoding="utf-8")
@@ -2638,8 +2657,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0275"]:
-            raise RuntimeError("module-data acceptance requires migration head 0275")
+        if heads != ["0276"]:
+            raise RuntimeError("module-data acceptance requires migration head 0276")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -3228,6 +3247,36 @@ def main(argv: list[str] | None = None) -> int:
                 "inference_backend_probe_role": "inference_backend_probe_client",
             },
         )
+        for label, grant_sql, variable, role in (
+            (
+                "observation",
+                inference_health_observation_grant_sql,
+                "inference_health_observation_role",
+                "inference_health_observation_client",
+            ),
+            (
+                "origin",
+                inference_health_origin_grant_sql,
+                "inference_health_origin_role",
+                "inference_health_origin_client",
+            ),
+        ):
+            phase = "install-inference-health-" + label + "-grants"
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "inference_owner": "inference_code",
+                    variable: role,
+                },
+            )
         phase = "install-workspace-template-query-grants"
         _psql(
             container_id,

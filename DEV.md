@@ -1765,3 +1765,29 @@ Secrets 使用各 overlay 对应的独立数据库/S3 文件，不能共享高�
 自动受理默认关闭；`IMAGE_PYRAMID_PROFILE_VERSION` 默认为 `pyramid-v1`，API 与共享控制端必须使用相同 profile。作业受理时固定 normalization/profile policy，修改 profile 应作为新输出线规划，而不是只切换一台服务。Worker 的 `ASSETS_IMAGES_SRGB_PROFILE`（默认镜像内 `/usr/share/color/icc/sRGB.icc`）必须是可读绝对路径。`VITE_EXPERIMENTAL_LARGE_IMAGE_TILES` 是 Web 构建开关，与自动受理无关，改动后需重建 Web。
 
 Worker `--healthcheck` 仅验证配置、连接及精确 SQL 能力，不证明源/缓存 IAM、解码和发布成功。共享控制的 `/health/ready` 也不能替代 S3 验收。详细启动、profile、重试、回填和保留步骤见[图片金字塔运行手册](docs-site/ops/runbooks/image-pyramid.md)。
+
+### Inference 健康观察
+
+所有既有健康入口复用同一个观察 owner 执行 `/health` 及条件 `/setup`。默认嵌入调用方；
+可选 `INFERENCE_HEALTH_OBSERVATION_DATABASE_URL(_FILE)` 或 `INFERENCE_HEALTH_OBSERVATION_URL`，
+两者互斥。DSN 指向只读三函数的 `inference_health_observation_client`，HTTP 使用
+`INFERENCE_HEALTH_OBSERVATION_TOKEN(_FILE)`。独立进程同样使用这两组 DSN/token selector；
+单个进程可同时提供流水线、Workspace setup probe 和健康观察，但各 bearer 必须不同。
+默认90秒的 `INFERENCE_HEALTH_OBSERVATION_TIMEOUT_SECONDS` 是整个 HTTP 调用预算，
+`ML_HEALTH_TIMEOUT` 仍控制每次实际后端请求；挑战兼容回退与 setup 最多产生三次请求。
+
+先应用当前 Alembic head，再应用 `infra/docker/module-data-grants.sql` 和
+`infra/docker/inference-health-observation-grants.sql`。后者仅授予 policy/open/seal；
+`inference-health-origin-grants.sql` 则测试独立签发与验证的三函数边界，不能用其 LOGIN
+替换整套 API 数据库账号。嵌入模式继续使用 API 的过渡角色，不代表宽表权限已收口。
+
+`docker-compose.inference-health.yml` 提供1 CPU／256 MiB、只读与降权示例，使用
+`INFERENCE_RUNTIME_HEALTH_OBSERVATION_DATABASE_URL_FILE` 和
+`INFERENCE_RUNTIME_HEALTH_OBSERVATION_TOKEN_FILE`。它和其他 Inference Compose 示例共用
+宿主8768，分别启动时只能选其一；secret 文件只读挂载。本地验收不切换日常或生产环境。
+
+请求/响应只携带不透明密封串；快照取自原 ORM 对象的已物化字段，保留关闭自动刷新时
+尚未落库的 URL/凭据。观察回执只能在原连接、原事务内验证，提交或回滚后失效。
+能力提取、数据库观察时钟、GPU 围栏、健康写回、服务池对账、Audit 与最终提交仍由
+既有调用方事务完成。显式提供方不可用时返回503且不回退；后端网络故障与 setup 失败
+继续使用既有行为。完整健康 Native apply、路由连续性与完整 Inference 控制面仍在实施。
