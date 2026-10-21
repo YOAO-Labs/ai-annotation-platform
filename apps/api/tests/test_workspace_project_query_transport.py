@@ -11,7 +11,7 @@ from fastapi import HTTPException
 import httpx
 import pytest
 
-from aap_workspace.project_query_contract import (
+from aap_workspace_contract.project_query_contract import (
     PROJECT_QUERY_PROTOCOL,
     ProjectQuerySuccess,
     decode_project_query_request,

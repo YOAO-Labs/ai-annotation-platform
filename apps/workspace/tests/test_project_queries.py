@@ -13,7 +13,7 @@ from aap_workspace.project_queries import (
     ProjectQueryManager,
     ProjectQueryProfilesUnavailable,
 )
-from aap_workspace.project_query_contract import (
+from aap_workspace_contract.project_query_contract import (
     PROJECT_JSON_COLUMNS,
     PROJECT_QUERY_PROTOCOL,
     PROJECT_ROW_COLUMNS,
@@ -26,7 +26,7 @@ from aap_workspace.project_query_contract import (
     project_query_request,
     project_query_schema,
 )
-from aap_workspace.project_query_values import (
+from aap_workspace_contract.project_query_values import (
     decode_project_row,
     materialize_project_query_data,
 )
@@ -227,7 +227,7 @@ def test_published_step_schema_constrains_action_fact_pairs_and_operation_scope(
     schema = project_query_schema()
     assert (
         json.loads(
-            files("aap_workspace")
+            files("aap_workspace_contract")
             .joinpath("project_query_protocol.schema.json")
             .read_text()
         )

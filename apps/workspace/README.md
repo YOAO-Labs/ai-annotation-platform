@@ -49,12 +49,12 @@ projection, fault recovery, backup restore and full migration qualification pass
 The bounded local concurrency sample is not a production capacity claim;
 see ADR-0137 for scope.
 
-Project access values and capability policy live in `access_contract`, including
-the shared membership compatibility rule. API, service and worker consumers
-import this owner directly; the old API value module is removed. Current SQL
-authority resolution and locks remain with their existing adapters. Fifteen
-typed foreign read capabilities support the Project query owner. See ADR-0138
-for the frozen baseline and remaining integration boundaries.
+Project access values and capability policy live in the shared
+`aap_workspace_contract.access` module, including the membership compatibility
+rule. Workspace, API, service and worker consumers import this owner directly;
+current SQL authority resolution and locks remain with their existing adapters.
+Fifteen typed foreign read capabilities support the Project query owner. See
+ADR-0138 for the frozen baseline and remaining integration boundaries.
 
 uv build-cache keys include package Python/schema sources and README metadata,
 so source-only changes also invalidate a noneditable cached wheel. Independent
@@ -62,15 +62,16 @@ artifact verification compares installed files against the source manifest.
 Hatchling packages the current source directory directly, preventing an old
 setuptools staging directory from retaining removed modules in a later wheel.
 
-Project query requests, typed read facts, raw value codecs and ordered policy are
-implemented in `project_query_contract`, `project_query_values` and
-`project_queries`. API callers select borrowed, dedicated PostgreSQL or HTTP
-bindings. Native0261 and its function-only credential pass owned database checks;
-the standalone runtime resolves Identity Briefs through its explicit public
-client dependency. Fifty frozen HTTP observations match all three bindings;
-noneditable package manifests and bounded process-failure/restart checks pass.
-Restricted owner/API images, real container response projection and restart,
-backup/restore and full migration261 pass. The bounded local concurrency sample
-does not establish production capacity. Directory reads, adjacent writes and the
-remaining cross-domain Project consumers still prevent full Workspace qualification.
+Project query requests, typed read facts, raw value codecs, and row authority
+phases live in the shared `aap_workspace_contract` package. Workspace retains
+the query manager, data/SQL adapters, and runtime bindings. API callers select
+borrowed, dedicated PostgreSQL or HTTP bindings. Native0261 and its
+function-only credential pass owned database checks; the standalone runtime
+resolves Identity Briefs through its explicit public client dependency. Fifty
+frozen HTTP observations match all three bindings; noneditable package
+manifests and bounded process-failure/restart checks pass. Restricted owner/API
+images, real container response projection and restart, backup/restore and full
+migration261 pass. The bounded local concurrency sample does not establish
+production capacity. Directory reads, adjacent writes and the remaining
+cross-domain Project consumers still prevent full Workspace qualification.
 See ADR-0139 for authority phases and the current acceptance boundary.

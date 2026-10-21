@@ -12,7 +12,7 @@ from aap_workspace.project_queries import (
     ProjectQueryManager,
     ProjectQueryProfilesUnavailable,
 )
-from aap_workspace.project_query_contract import (
+from aap_workspace_contract.project_query_contract import (
     ProjectOwnerTransferEvidence,
     ProjectQueryUnavailable,
     decode_project_query_reply,
@@ -20,7 +20,7 @@ from aap_workspace.project_query_contract import (
     project_query_request,
 )
 from aap_workspace.project_query_postgres import ProjectQueryPostgresData
-from aap_workspace.project_query_values import (
+from aap_workspace_contract.project_query_values import (
     decode_project_row,
     materialize_project_query_data,
 )

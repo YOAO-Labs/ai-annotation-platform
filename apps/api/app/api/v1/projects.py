@@ -3,7 +3,7 @@ from aap_inference.capability_registry import INPUT_BBOX_PROMPT, INPUT_CROP
 from aap_inference.pipeline import PipelineValidationError
 import aap_inference.preannotate as preannotate_schemas
 from aap_workspace.configuration_requests import ProjectCreate, ProjectUpdate
-from aap_workspace.project_query_contract import (
+from aap_workspace_contract.project_query_contract import (
     ProjectConfigurationEvidence,
 )
 import logging
@@ -109,7 +109,7 @@ from app.application.project_pipeline import apply_saved_pipeline
 from app.services.workspace_configuration import execute_configuration
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.workspace_project_query import execute_project_query
-from aap_workspace.project_query_values import materialize_project_query_data
+from aap_workspace_contract.project_query_values import materialize_project_query_data
 from app.services.workspace_directory_query import execute_directory_query
 
 router = APIRouter()

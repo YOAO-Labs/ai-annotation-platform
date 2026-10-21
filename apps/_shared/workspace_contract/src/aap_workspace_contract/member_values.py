@@ -7,7 +7,7 @@ from datetime import datetime
 import json
 import uuid
 
-from .contract import _reject_constant, _unique_object
+from .wire import _reject_constant, _unique_object
 
 PROJECT_MEMBER_COLUMNS = (
     "id",

@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import json
 import hashlib
-import math
 import uuid
 from datetime import datetime
 from typing import Literal, TypeAlias
 
+from aap_workspace_contract.wire import (
+    ClosedModel as _ClosedModel,
+    _json_bytes,
+    _unique_object,
+)
 from pydantic import (
     BaseModel,
-    ConfigDict,
     Field,
     JsonValue,
     StrictBool,
@@ -49,11 +52,7 @@ MembershipProjectRole: TypeAlias = Literal["annotator", "reviewer", "viewer"]
 JsonObject: TypeAlias = dict[StrictStr, JsonValue]
 
 
-class ClosedModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-
-class _MembershipModel(ClosedModel):
+class _MembershipModel(_ClosedModel):
     @model_validator(mode="before")
     @classmethod
     def declared_schema_field_only(cls, value):
@@ -62,7 +61,7 @@ class _MembershipModel(ClosedModel):
         return value
 
 
-class _NativeModel(ClosedModel):
+class _NativeModel(_ClosedModel):
     @model_validator(mode="before")
     @classmethod
     def declared_schema_field_only(cls, value):
@@ -71,26 +70,26 @@ class _NativeModel(ClosedModel):
         return value
 
 
-class MembershipAuditContext(ClosedModel):
+class MembershipAuditContext(_ClosedModel):
     method: StrictStr | None
     path: StrictStr | None
     ip: StrictStr | None
     request_id: StrictStr | None
 
 
-class AddMemberPayload(ClosedModel):
+class AddMemberPayload(_ClosedModel):
     target_user_id: uuid.UUID
     project_role: StrictStr
 
 
-class PreviewRoleChangePayload(ClosedModel):
+class PreviewRoleChangePayload(_ClosedModel):
     member_id: uuid.UUID
     target_role: StrictStr
     replacement_annotator_id: uuid.UUID | None
     replacement_reviewer_id: uuid.UUID | None
 
 
-class ChangeRolePayload(ClosedModel):
+class ChangeRolePayload(_ClosedModel):
     member_id: uuid.UUID
     target_role: StrictStr
     replacement_annotator_id: uuid.UUID | None
@@ -100,7 +99,7 @@ class ChangeRolePayload(ClosedModel):
     reason: StrictStr
 
 
-class RemoveMemberPayload(ClosedModel):
+class RemoveMemberPayload(_ClosedModel):
     member_id: uuid.UUID
 
 
@@ -134,7 +133,7 @@ class MembershipRequest(_MembershipModel):
         return self
 
 
-class MembershipRecord(ClosedModel):
+class MembershipRecord(_ClosedModel):
     id: uuid.UUID
     project_id: uuid.UUID
     user_id: uuid.UUID
@@ -163,11 +162,11 @@ class MembershipRecord(ClosedModel):
         return value
 
 
-class MembershipMemberData(ClosedModel):
+class MembershipMemberData(_ClosedModel):
     member: MembershipRecord
 
 
-class MembershipRemovedData(ClosedModel):
+class MembershipRemovedData(_ClosedModel):
     member_id: uuid.UUID
     removed: Literal[True]
 
@@ -201,7 +200,7 @@ _RESOURCE_SNAPSHOT_FIELDS = frozenset(
 )
 
 
-class MembershipPreview(ClosedModel):
+class MembershipPreview(_ClosedModel):
     member_id: uuid.UUID
     user_id: uuid.UUID
     current_role: StrictStr
@@ -226,7 +225,7 @@ MembershipReplyData: TypeAlias = (
 )
 
 
-class MembershipError(ClosedModel):
+class MembershipError(_ClosedModel):
     status_code: StrictInt = Field(ge=400, le=599)
     detail: JsonValue
     headers: dict[StrictStr, StrictStr] | None
@@ -289,7 +288,7 @@ class MembershipPolicyReply(_NativeModel):
         return value
 
 
-class MembershipActorFacts(ClosedModel):
+class MembershipActorFacts(_ClosedModel):
     id: uuid.UUID
     name: StrictStr
     email: StrictStr
@@ -297,18 +296,18 @@ class MembershipActorFacts(ClosedModel):
     is_active: StrictBool
 
 
-class MembershipProjectFacts(ClosedModel):
+class MembershipProjectFacts(_ClosedModel):
     id: uuid.UUID
     owner_id: uuid.UUID | None
 
 
-class MembershipAccountFacts(ClosedModel):
+class MembershipAccountFacts(_ClosedModel):
     id: uuid.UUID
     role: StrictStr
     is_active: StrictBool
 
 
-class MembershipReceiverFacts(ClosedModel):
+class MembershipReceiverFacts(_ClosedModel):
     id: uuid.UUID
     project_id: uuid.UUID
     user_id: uuid.UUID
@@ -316,7 +315,7 @@ class MembershipReceiverFacts(ClosedModel):
     version: StrictInt
 
 
-class MembershipTaskFacts(ClosedModel):
+class MembershipTaskFacts(_ClosedModel):
     id: uuid.UUID
     status: StrictStr
     version: StrictInt
@@ -334,7 +333,7 @@ class MembershipTaskFacts(ClosedModel):
     batch_reviewer_id: uuid.UUID | None
 
 
-class MembershipBatchFacts(ClosedModel):
+class MembershipBatchFacts(_ClosedModel):
     id: uuid.UUID
     status: StrictStr
     annotator_id: uuid.UUID | None
@@ -364,7 +363,7 @@ class MembershipLabelingFacts(_NativeModel):
     review_receiver_contributor_task_ids: list[uuid.UUID]
 
 
-class MembershipFactsData(ClosedModel):
+class MembershipFactsData(_ClosedModel):
     kind: Literal["facts"]
     operation_id: uuid.UUID
     operation: MembershipOperation
@@ -383,7 +382,7 @@ class MembershipFactsData(ClosedModel):
 MembershipPrepareFacts: TypeAlias = MembershipFactsData
 
 
-class MembershipReplayData(ClosedModel):
+class MembershipReplayData(_ClosedModel):
     kind: Literal["replay"]
     operation_id: uuid.UUID
     operation: MembershipOperation
@@ -408,7 +407,7 @@ class NativeMembershipPrepareSuccess(_NativeModel):
         return value
 
 
-class NativeMembershipAppliedData(ClosedModel):
+class NativeMembershipAppliedData(_ClosedModel):
     kind: Literal["applied"]
     operation_id: uuid.UUID
     operation: MembershipOperation
@@ -468,61 +467,6 @@ class MembershipInvalidRequest(ValueError):
 
     def __init__(self):
         super().__init__("Invalid Workspace membership request")
-
-
-def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    value: dict[str, object] = {}
-    for key, item in pairs:
-        if key in value:
-            raise ValueError("Duplicate JSON field")
-        value[key] = item
-    return value
-
-
-def _reject_constant(value: str) -> None:
-    raise ValueError(f"Invalid JSON number: {value}")
-
-
-def _assert_json_value(value: object, *, depth: int = 0) -> None:
-    if depth > 128:
-        raise ValueError("JSON value is too deeply nested")
-    if isinstance(value, dict):
-        if any(type(key) is not str for key in value):
-            raise ValueError("JSON object keys must be strings")
-        for child in value.values():
-            _assert_json_value(child, depth=depth + 1)
-    elif isinstance(value, list):
-        for child in value:
-            _assert_json_value(child, depth=depth + 1)
-    elif type(value) is float and not math.isfinite(value):
-        raise ValueError("Non-finite JSON number")
-    elif value is not None and type(value) not in (str, bool, int, float):
-        raise ValueError("Invalid JSON value")
-
-
-def _json_bytes(payload: dict | bytes | str | BaseModel) -> bytes:
-    if isinstance(payload, bytes):
-        value = json.loads(
-            payload,
-            object_pairs_hook=_unique_object,
-            parse_constant=_reject_constant,
-        )
-    elif isinstance(payload, str):
-        value = json.loads(
-            payload,
-            object_pairs_hook=_unique_object,
-            parse_constant=_reject_constant,
-        )
-    elif isinstance(payload, BaseModel):
-        value = payload.model_dump(mode="json", by_alias=True)
-    else:
-        value = payload
-    _assert_json_value(value)
-    if isinstance(value, dict) and "protocol" in value:
-        raise ValueError("Use only the declared wire field schema")
-    return json.dumps(
-        value, separators=(",", ":"), ensure_ascii=True, allow_nan=False
-    ).encode("ascii")
 
 
 _REQUEST_ADAPTER = TypeAdapter(MembershipRequest)

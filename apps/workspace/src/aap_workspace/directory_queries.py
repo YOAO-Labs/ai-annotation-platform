@@ -29,12 +29,12 @@ from .directory_query_values import (
     member_response_data,
     mention_response_data,
 )
-from .project_query_contract import (
+from aap_workspace_contract.project_query_contract import (
     ProjectQueryRejected,
     ProjectQueryUnavailable,
 )
 from .project_queries import ProjectQueryProfilesUnavailable
-from .project_read_authority import accessible_project_row
+from aap_workspace_contract.project_read_authority import accessible_project_row
 
 
 class DirectoryQueryProfile(Protocol):

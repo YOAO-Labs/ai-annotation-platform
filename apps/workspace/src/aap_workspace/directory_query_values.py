@@ -6,15 +6,15 @@ from datetime import datetime
 import json
 import uuid
 
-from .contract import _reject_constant, _unique_object
+from aap_workspace_contract.wire import _reject_constant, _unique_object
 from .directory_query_contract import (
     DirectoryQueryRequest,
     DirectoryQueryUnavailable,
     decode_directory_query_reply,
 )
-from .project_query_contract import ProjectQueryUnavailable
-from .project_query_values import _timestamp_value
-from .member_values import (
+from aap_workspace_contract.project_query_contract import ProjectQueryUnavailable
+from aap_workspace_contract.project_query_values import _timestamp_value
+from aap_workspace_contract.member_values import (
     PROJECT_MEMBER_COLUMNS as _PROJECT_MEMBER_COLUMNS,
     PROJECT_MEMBER_MENTION_COLUMNS as _PROJECT_MEMBER_MENTION_COLUMNS,
     ProjectMemberMentionRow,

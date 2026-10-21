@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 import logging
 import sys
 
-from .contract import _json_bytes
+from aap_workspace_contract.wire import _json_bytes
 from .directory_query_contract import (
     DirectoryQueryUnavailable,
     decode_directory_query_policy,

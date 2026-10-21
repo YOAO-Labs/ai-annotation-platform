@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_workspace.project_query_contract import project_query_request
+from aap_workspace_contract.project_query_contract import project_query_request
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User

@@ -16,8 +16,8 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from aap_workspace.project_queries import ProjectQueryManager
-from aap_workspace.project_query_contract import project_query_request
-from aap_workspace.project_query_values import materialize_project_query_data
+from aap_workspace_contract.project_query_contract import project_query_request
+from aap_workspace_contract.project_query_values import materialize_project_query_data
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User

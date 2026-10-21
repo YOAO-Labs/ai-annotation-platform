@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_workspace.project_query_contract import ProjectQueryProjectionMissing
+from aap_workspace_contract.project_query_contract import ProjectQueryProjectionMissing
 from app.application.project_workspace import transfer_project_owner
 from app.config import settings
 from app.db.models.project import Project

@@ -17,7 +17,12 @@ from pydantic import (
     model_validator,
 )
 
-from .contract import ClosedModel, _json_bytes, _reject_constant, _unique_object
+from aap_workspace_contract.wire import (
+    ClosedModel,
+    _json_bytes,
+    _reject_constant,
+    _unique_object,
+)
 
 TEMPLATE_QUERY_PROTOCOL = "aap-workspace-template-query/v1"
 TemplateQueryOperation: TypeAlias = Literal[

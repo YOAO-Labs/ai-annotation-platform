@@ -20,7 +20,7 @@ from aap_workspace.configuration_contract import (
     decode_configuration_reply,
 )
 from aap_workspace.project_queries import ProjectQueryManager
-from aap_workspace.project_query_contract import (
+from aap_workspace_contract.project_query_contract import (
     PROJECT_JSON_COLUMNS,
     PROJECT_QUERY_PROTOCOL,
     PROJECT_ROW_COLUMNS,

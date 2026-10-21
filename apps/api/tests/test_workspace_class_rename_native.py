@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from aap_workspace.configuration_contract import configuration_request
 from aap_workspace.configuration import ConfigurationManager
 from aap_workspace.configuration_postgres import ConfigurationPostgresData
-from aap_workspace.project_query_values import decode_project_row
+from aap_workspace_contract.project_query_values import decode_project_row
 from app.db.models.annotation import Annotation
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember

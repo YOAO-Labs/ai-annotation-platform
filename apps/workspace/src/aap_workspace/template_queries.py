@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from typing import Any, AsyncContextManager, Protocol
 
 from .configuration_policy import ConfigurationPolicyError, assert_template_visible
-from .contract import _reject_constant, _unique_object
+from aap_workspace_contract.wire import _reject_constant, _unique_object
 from .template_query_contract import (
     TEMPLATE_ROW_COLUMNS,
     TemplateQueryAction,

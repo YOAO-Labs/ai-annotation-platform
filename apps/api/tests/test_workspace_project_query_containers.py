@@ -17,7 +17,7 @@ import pytest
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_workspace.project_query_contract import project_query_request
+from aap_workspace_contract.project_query_contract import project_query_request
 from app.config import settings
 from app.core.security import create_access_token
 from app.deps import get_db

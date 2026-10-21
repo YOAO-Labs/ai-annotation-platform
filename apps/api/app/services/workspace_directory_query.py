@@ -14,7 +14,7 @@ from aap_workspace.directory_query_contract import (
 )
 from aap_workspace.directory_query_postgres import DirectoryQueryPostgresData
 from aap_workspace.directory_query_values import materialize_directory_query_data
-from aap_workspace.project_query_contract import ProjectQueryUnavailable
+from aap_workspace_contract.project_query_contract import ProjectQueryUnavailable
 from app.config import settings
 from app.services.workspace_directory_query_data import WorkspaceDirectoryQueryData
 from app.services.workspace_project_query import _ApiProfiles

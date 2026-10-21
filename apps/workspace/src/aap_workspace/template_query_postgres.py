@@ -8,7 +8,7 @@ import logging
 import sys
 from contextlib import asynccontextmanager
 
-from .contract import _json_bytes
+from aap_workspace_contract.wire import _json_bytes
 from .template_query_contract import (
     TemplateQueryUnavailable,
     decode_template_query_policy,

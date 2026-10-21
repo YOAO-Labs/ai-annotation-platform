@@ -14,8 +14,8 @@ from pydantic import (
     model_validator,
 )
 
-from .contract import ClosedModel, _json_bytes
-from .project_query_contract import ProjectQueryActorFacts, ProjectQueryMemberFacts
+from aap_workspace_contract.wire import ClosedModel, _json_bytes
+from aap_workspace_contract.project_query_contract import ProjectQueryActorFacts, ProjectQueryMemberFacts
 
 DIRECTORY_QUERY_PROTOCOL = "aap-workspace-directory-query/v1"
 

@@ -18,7 +18,7 @@ from aap_workspace_contract.access import (
     project_role_capabilities,
 )
 from aap_workspace.project_queries import ProjectQueryManager
-from aap_workspace.project_query_contract import (
+from aap_workspace_contract.project_query_contract import (
     PROJECT_QUERY_PROTOCOL,
     PROJECT_ROW_COLUMNS,
     ProjectQueryInvalidRequest,
@@ -28,7 +28,7 @@ from aap_workspace.project_query_contract import (
     project_query_request,
     project_query_schema,
 )
-from aap_workspace.project_query_values import materialize_project_query_data
+from aap_workspace_contract.project_query_values import materialize_project_query_data
 
 ACTOR = uuid.UUID(int=1)
 PROJECT = uuid.UUID(int=2)
@@ -610,7 +610,7 @@ def test_require_visible_reply_has_exact_target_bound_shape():
 def test_project_access_protocol_schema_matches_published_file():
     schema = project_query_schema()
     published = json.loads(
-        files("aap_workspace")
+        files("aap_workspace_contract")
         .joinpath("project_query_protocol.schema.json")
         .read_text()
     )

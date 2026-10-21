@@ -13,8 +13,8 @@ from sqlalchemy import delete, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_workspace.project_query_contract import PROJECT_ROW_COLUMNS
-from aap_workspace.project_query_values import decode_project_row
+from aap_workspace_contract.project_query_contract import PROJECT_ROW_COLUMNS
+from aap_workspace_contract.project_query_values import decode_project_row
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User

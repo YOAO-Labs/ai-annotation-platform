@@ -38,7 +38,7 @@ from .template_query_contract import (
 )
 from .template_query_postgres import TemplateQueryPostgresData
 from .project_queries import ProjectQueryManager
-from .project_query_contract import (
+from aap_workspace_contract.project_query_contract import (
     ProjectQueryInvalidRequest,
     ProjectQueryUnavailable,
     decode_project_query_request,

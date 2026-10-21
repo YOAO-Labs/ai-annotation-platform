@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 
-from .contract import _json_bytes
+from aap_workspace_contract.wire import _json_bytes
 from .owner_transfer_contract import (
     OWNER_TRANSFER_PROTOCOL,
     OwnerTransferError,

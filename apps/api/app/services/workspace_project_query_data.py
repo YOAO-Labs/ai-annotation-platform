@@ -6,7 +6,7 @@ from sqlalchemy import Text, column, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.exc import SQLAlchemyError
 
-from aap_workspace.project_query_contract import (
+from aap_workspace_contract.project_query_contract import (
     ProjectQueryUnavailable,
     decode_project_query_policy,
 )

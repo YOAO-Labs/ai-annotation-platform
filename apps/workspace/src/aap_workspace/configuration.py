@@ -73,13 +73,13 @@ from aap_workspace_contract.access import (
 from .class_rename import rename_class_bindings
 from .configuration_video import validate_project_collaboration_update
 from .configuration_values import VideoCollaborationConfig
-from .member_values import (
+from aap_workspace_contract.member_values import (
     ProjectMemberRowsUnavailable,
     decode_project_member_rows,
 )
 from .mask_configuration_values import MaskQCConfig
 from .point_quality_configuration_values import PointCloudQualityConfig
-from .project_query_contract import (
+from aap_workspace_contract.project_query_contract import (
     ProjectClassRenameEvidence,
     ProjectQueryInvalidRequest,
     ProjectQueryFailure,
@@ -90,7 +90,7 @@ from .project_query_contract import (
     decode_project_query_reply,
     project_query_request,
 )
-from .project_query_values import decode_project_row, project_json_value
+from aap_workspace_contract.project_query_values import decode_project_row, project_json_value
 
 _MANAGER_ROLES = frozenset({"super_admin", "project_admin"})
 _PROJECT_CREATE_COLUMNS = frozenset(

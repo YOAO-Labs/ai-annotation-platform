@@ -12,7 +12,7 @@ from .configuration_contract import (
     ConfigurationUnavailable,
     decode_configuration_policy,
 )
-from .contract import _json_bytes
+from aap_workspace_contract.wire import _json_bytes
 
 CONFIGURATION_SCHEMA = "aap_workspace_configuration_v1"
 CONFIGURATION_FUNCTIONS = {

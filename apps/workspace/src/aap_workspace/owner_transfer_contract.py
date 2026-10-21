@@ -17,7 +17,7 @@ from pydantic import (
     model_validator,
 )
 
-from .contract import ClosedModel, _json_bytes
+from aap_workspace_contract.wire import ClosedModel, _json_bytes
 
 OWNER_TRANSFER_PROTOCOL = "aap-workspace-owner-transfer/v1"
 OwnerTransferStatusCode: TypeAlias = Annotated[StrictInt, Field(ge=400, le=599)]

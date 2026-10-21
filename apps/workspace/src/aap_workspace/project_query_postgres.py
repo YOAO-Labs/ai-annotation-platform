@@ -7,8 +7,8 @@ from contextlib import asynccontextmanager
 import logging
 import sys
 
-from .contract import _json_bytes
-from .project_query_contract import ProjectQueryUnavailable, decode_project_query_policy
+from aap_workspace_contract.wire import _json_bytes
+from aap_workspace_contract.project_query_contract import ProjectQueryUnavailable, decode_project_query_policy
 
 PROJECT_QUERY_SCHEMA = "aap_workspace_project_query_v1"
 PROJECT_QUERY_FUNCTIONS = {

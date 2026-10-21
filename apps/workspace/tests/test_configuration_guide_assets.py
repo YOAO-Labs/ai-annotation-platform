@@ -30,7 +30,7 @@ from aap_workspace.configuration_contract import (
     decode_configuration_reply,
 )
 from aap_workspace.guide_asset_policy import MAX_GUIDE_ASSET_SIZE_BYTES
-from aap_workspace.project_query_contract import (
+from aap_workspace_contract.project_query_contract import (
     PROJECT_JSON_COLUMNS,
     PROJECT_ROW_COLUMNS,
 )

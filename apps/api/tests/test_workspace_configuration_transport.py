@@ -14,7 +14,7 @@ from aap_workspace.configuration_contract import (
     configuration_success_reply,
     decode_configuration_request,
 )
-from aap_workspace.project_query_contract import (
+from aap_workspace_contract.project_query_contract import (
     ProjectClassRenameEvidence,
     ProjectQuerySuccess,
     project_query_request,

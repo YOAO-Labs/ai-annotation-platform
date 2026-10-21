@@ -14,7 +14,7 @@ from aap_workspace_contract.access import (
     MANAGER_PLATFORM_ROLES,
     PROJECT_ROLES,
 )
-from .project_query_contract import (
+from aap_workspace_contract.project_query_contract import (
     PROJECT_QUERY_PROTOCOL,
     ProjectClassRenameEvidence,
     ProjectQueryFailure,
@@ -27,13 +27,13 @@ from .project_query_contract import (
     decode_project_query_request,
     decode_project_query_step,
 )
-from .project_query_values import (
+from aap_workspace_contract.project_query_values import (
     decode_project_row,
     decode_project_rows,
     project_access_data,
     project_json_value,
 )
-from .project_read_authority import accessible_project_row, current_project_access
+from aap_workspace_contract.project_read_authority import accessible_project_row, current_project_access
 
 
 class ProjectOwnerBrief(Protocol):

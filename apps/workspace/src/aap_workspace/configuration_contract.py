@@ -31,8 +31,8 @@ from .guide_asset_policy import (
 )
 from aap_workspace_contract.access import ProjectAccessPolicyFailure, project_manager_access
 from .configuration_policy import ConfigurationPolicyError
-from .contract import ClosedModel, _json_bytes, _reject_constant
-from .project_query_contract import (
+from aap_workspace_contract.wire import ClosedModel, _json_bytes, _reject_constant
+from aap_workspace_contract.project_query_contract import (
     ProjectClassRenameEvidence,
     ProjectQueryInvalidRequest,
     ProjectQuerySuccess,

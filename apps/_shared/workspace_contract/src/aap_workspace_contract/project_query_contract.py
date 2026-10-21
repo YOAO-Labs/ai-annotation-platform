@@ -18,7 +18,7 @@ from pydantic import (
     model_validator,
 )
 
-from .contract import ClosedModel, _json_bytes, _reject_constant, _unique_object
+from .wire import ClosedModel, _json_bytes, _reject_constant, _unique_object
 
 PROJECT_QUERY_PROTOCOL = "aap-workspace-project-query/v1"
 ProjectQueryOperation: TypeAlias = Literal[

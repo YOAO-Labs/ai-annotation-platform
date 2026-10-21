@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.project import Project
 from aap_workspace_contract.access import ProjectAccess
-from aap_workspace.project_query_contract import ProjectOwnerTransferEvidence
+from aap_workspace_contract.project_query_contract import ProjectOwnerTransferEvidence
 from app.services.project_access import (
     lock_current_project_access,
 )
