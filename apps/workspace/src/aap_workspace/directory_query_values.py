@@ -13,7 +13,7 @@ from .directory_query_contract import (
     decode_directory_query_reply,
 )
 from aap_workspace_contract.project_query_contract import ProjectQueryUnavailable
-from aap_workspace_contract.project_query_values import _timestamp_value
+from aap_workspace_contract.project_query_values import decode_postgres_timestamp
 from aap_workspace_contract.member_values import (
     PROJECT_MEMBER_COLUMNS as _PROJECT_MEMBER_COLUMNS,
     PROJECT_MEMBER_MENTION_COLUMNS as _PROJECT_MEMBER_MENTION_COLUMNS,
@@ -86,7 +86,7 @@ def _timestamp(value) -> datetime | None:
     if value is not None and type(value) is not str:
         raise _unavailable()
     try:
-        return _timestamp_value(value)
+        return decode_postgres_timestamp(value)
     except ProjectQueryUnavailable:
         raise _unavailable() from None
 

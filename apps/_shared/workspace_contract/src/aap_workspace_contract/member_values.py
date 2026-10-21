@@ -83,11 +83,11 @@ def _timestamp(value) -> datetime | None:
         raise ProjectMemberRowsUnavailable()
     # Keep the established Project timestamp behavior, including OverflowError for
     # finite years outside Python's datetime range.
-    from .project_query_values import _timestamp_value
+    from .project_query_values import decode_postgres_timestamp
     from .project_query_contract import ProjectQueryUnavailable
 
     try:
-        return _timestamp_value(value)
+        return decode_postgres_timestamp(value)
     except ProjectQueryUnavailable:
         raise ProjectMemberRowsUnavailable() from None
 

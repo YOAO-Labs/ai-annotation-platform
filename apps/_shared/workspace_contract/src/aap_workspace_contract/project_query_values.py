@@ -54,7 +54,7 @@ def _date_value(value):
         raise ProjectQueryUnavailable() from None
 
 
-def _timestamp_value(value):
+def decode_postgres_timestamp(value):
     if value is None:
         return None
     if value in ("infinity", "-infinity"):
@@ -103,8 +103,8 @@ def raw_project_row(value, *, target_id=None):
             except ValueError:
                 raise ProjectQueryUnavailable() from None
     _date_value(value["due_date"])
-    _timestamp_value(value["created_at"])
-    _timestamp_value(value["updated_at"])
+    decode_postgres_timestamp(value["created_at"])
+    decode_postgres_timestamp(value["updated_at"])
     return value
 
 
@@ -162,7 +162,7 @@ def materialize_project_row(row, *, with_my_role=False):
         data[field] = uuid.UUID(data[field]) if data[field] is not None else None
     data["due_date"] = _date_value(data["due_date"])
     for field in ("created_at", "updated_at"):
-        data[field] = _timestamp_value(data[field])
+        data[field] = decode_postgres_timestamp(data[field])
     for field in ("member_count", "ai_completed_tasks"):
         if (
             type(data[field]) is not str
