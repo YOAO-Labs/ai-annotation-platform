@@ -66,6 +66,7 @@ apps/api/app/services/identity_contracts.py
 apps/api/app/services/identity_gateway.py
 apps/api/app/services/project_access.py
 apps/api/app/services/project_workspace.py
+apps/api/app/services/project_write_guard.py
 apps/api/app/services/workspace_project_query.py
 apps/api/app/services/workspace_project_query_data.py
 apps/api/alembic/versions/0174_project_role_conversion.py
@@ -74,6 +75,7 @@ apps/workspace/src/aap_workspace/project_queries.py
 apps/workspace/src/aap_workspace/project_query_contract.py
 apps/workspace/src/aap_workspace/project_query_values.py
 apps/workspace/src/aap_workspace/project_query_postgres.py
+apps/workspace/src/aap_workspace/access_contract.py
 """.split()
 _MISSING = object()
 
