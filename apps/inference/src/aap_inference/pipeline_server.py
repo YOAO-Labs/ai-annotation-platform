@@ -1,0 +1,392 @@
+"""Bounded stdlib HTTP server for the independent Inference pipeline owner."""
+
+from __future__ import annotations
+
+import asyncio
+import hmac
+import json
+import math
+from typing import Any
+
+from .pipeline_contract import (
+    PIPELINE_REQUEST_BODY_MAX_BYTES,
+    PIPELINE_RESPONSE_BODY_MAX_BYTES,
+    PIPELINE_PROTOCOL,
+    PipelineErrorDetails,
+    PipelineInvalidRequest,
+    PipelinePostCommitFailure,
+    PipelineRejected,
+    PipelineStatusFailure,
+    PipelineUnavailable,
+    decode_pipeline_status_reply,
+    decode_pipeline_status_request,
+)
+
+_MAX_HEADER_BYTES = 65_536
+_READ_TIMEOUT_SECONDS = 5.0
+_STATUS_TEXT = {
+    200: "OK",
+    400: "Bad Request",
+    401: "Unauthorized",
+    404: "Not Found",
+    405: "Method Not Allowed",
+    413: "Payload Too Large",
+    500: "Internal Server Error",
+    503: "Service Unavailable",
+}
+_ROUTES = {
+    "/v1/pipelines/execute": "execute",
+    "/v1/pipelines/query": "query",
+    "/v1/pipelines/status": "status",
+}
+
+
+class _BadRequest(Exception):
+    pass
+
+
+class _PayloadTooLarge(Exception):
+    pass
+
+
+def _json_bytes(value: Any) -> bytes:
+    try:
+        return json.dumps(
+            value,
+            ensure_ascii=True,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("ascii")
+    except (TypeError, ValueError, UnicodeError, RecursionError):
+        raise PipelineUnavailable() from None
+
+
+def _model_bytes(reply: Any) -> bytes:
+    if not hasattr(reply, "model_dump"):
+        raise RuntimeError("Invalid Inference pipeline reply")
+    try:
+        return json.dumps(
+            reply.model_dump(mode="json", by_alias=True),
+            ensure_ascii=True,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("ascii")
+    except (TypeError, ValueError, UnicodeError, RecursionError):
+        # Preserve the owner’s generic 500 phase, including legacy materializer
+        # errors such as an integer exceeding Python's JSON conversion limit.
+        raise RuntimeError("Invalid Inference pipeline reply") from None
+
+
+class PipelineHttpServer:
+    """Run the three authenticated owner routes with bounded active requests."""
+
+    def __init__(
+        self,
+        manager,
+        data,
+        control_token: str | None,
+        *,
+        host: str = "127.0.0.1",
+        port: int = 8768,
+        max_concurrency: int = 8,
+        max_request_bytes: int = PIPELINE_REQUEST_BODY_MAX_BYTES,
+        max_response_bytes: int = PIPELINE_RESPONSE_BODY_MAX_BYTES,
+        read_timeout_seconds: float = _READ_TIMEOUT_SECONDS,
+    ) -> None:
+        if (
+            type(host) is not str
+            or not host
+            or type(port) is not int
+            or not 1 <= port <= 65_535
+            or type(max_concurrency) is not int
+            or not 1 <= max_concurrency <= 64
+            or type(max_request_bytes) is not int
+            or not 1 <= max_request_bytes <= PIPELINE_REQUEST_BODY_MAX_BYTES
+            or type(max_response_bytes) is not int
+            or not 1 <= max_response_bytes <= PIPELINE_RESPONSE_BODY_MAX_BYTES
+            or type(read_timeout_seconds) not in {int, float}
+            or not math.isfinite(float(read_timeout_seconds))
+            or read_timeout_seconds <= 0
+            or (
+                control_token is not None
+                and (
+                    type(control_token) is not str
+                    or not control_token.isascii()
+                    or not control_token
+                    or any(character.isspace() for character in control_token)
+                )
+            )
+        ):
+            raise ValueError("Invalid Inference pipeline HTTP server settings")
+        self.manager = manager
+        self.data = data
+        self.control_token = control_token
+        self.host = host
+        self.port = port
+        self.max_concurrency = max_concurrency
+        self.max_request_bytes = max_request_bytes
+        self.max_response_bytes = max_response_bytes
+        self.read_timeout_seconds = float(read_timeout_seconds)
+        self._active = 0
+        self._server = None
+
+    def _reserve_request(self) -> bool:
+        if self._active >= self.max_concurrency:
+            return False
+        self._active += 1
+        return True
+
+    async def start(self):
+        if self._server is not None:
+            return self._server
+        self._server = await asyncio.start_server(
+            self._handle,
+            self.host,
+            self.port,
+            limit=_MAX_HEADER_BYTES,
+        )
+        return self._server
+
+    async def serve_forever(self) -> None:
+        server = await self.start()
+        async with server:
+            await server.serve_forever()
+
+    async def close(self) -> None:
+        server, self._server = self._server, None
+        if server is not None:
+            server.close()
+            await server.wait_closed()
+
+    async def _handle(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        if not self._reserve_request():
+            await self._write_json(
+                writer, 503, {"detail": "Inference pipeline owner busy"}
+            )
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except (ConnectionError, OSError):
+                pass
+            return
+        try:
+            try:
+                method, path, headers, body = await self._read_request(reader)
+                status, response_body = await self._dispatch(
+                    method, path, headers, body
+                )
+            except _BadRequest:
+                status, response_body = (
+                    400,
+                    _json_bytes({"detail": "Invalid HTTP request"}),
+                )
+            except _PayloadTooLarge:
+                status, response_body = (
+                    413,
+                    _json_bytes({"detail": "Request body too large"}),
+                )
+            except PipelineInvalidRequest:
+                status, response_body = (
+                    400,
+                    _json_bytes({"detail": "Invalid Inference pipeline request"}),
+                )
+            except PipelineUnavailable:
+                status, response_body = (
+                    503,
+                    _json_bytes({"detail": "Inference pipeline owner unavailable"}),
+                )
+            except Exception:
+                # Do not expose driver, request, or credential diagnostics.
+                status, response_body = (
+                    500,
+                    _json_bytes({"detail": "Internal Server Error"}),
+                )
+            if len(response_body) > self.max_response_bytes:
+                status, response_body = (
+                    503,
+                    _json_bytes({"detail": "Inference pipeline owner unavailable"}),
+                )
+            await self._write_bytes(writer, status, response_body)
+        finally:
+            self._active -= 1
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except (ConnectionError, OSError):
+                pass
+
+    async def _read_line(self, reader: asyncio.StreamReader) -> bytes:
+        try:
+            value = await asyncio.wait_for(
+                reader.readline(), timeout=self.read_timeout_seconds
+            )
+        except (
+            asyncio.TimeoutError,
+            asyncio.LimitOverrunError,
+            asyncio.IncompleteReadError,
+            ValueError,
+        ):
+            raise _BadRequest() from None
+        if not value or len(value) > _MAX_HEADER_BYTES:
+            raise _BadRequest()
+        return value
+
+    async def _read_request(self, reader: asyncio.StreamReader):
+        request_line = await self._read_line(reader)
+        if not request_line.endswith(b"\r\n"):
+            raise _BadRequest()
+        parts = request_line[:-2].split(b" ")
+        if len(parts) != 3:
+            raise _BadRequest()
+        try:
+            method = parts[0].decode("ascii")
+            target = parts[1].decode("ascii")
+            version = parts[2].decode("ascii")
+        except UnicodeError:
+            raise _BadRequest() from None
+        if version != "HTTP/1.1" or not target.startswith("/"):
+            raise _BadRequest()
+
+        headers: dict[str, str] = {}
+        header_size = len(request_line)
+        while True:
+            line = await self._read_line(reader)
+            header_size += len(line)
+            if header_size > _MAX_HEADER_BYTES:
+                raise _BadRequest()
+            if line == b"\r\n":
+                break
+            if not line.endswith(b"\r\n") or b":" not in line:
+                raise _BadRequest()
+            name, value = line[:-2].split(b":", 1)
+            try:
+                key = name.decode("ascii").strip().lower()
+                text_value = value.decode("latin-1").strip()
+            except UnicodeError:
+                raise _BadRequest() from None
+            if (
+                not key
+                or any(character.isspace() for character in key)
+                or key in headers
+            ):
+                raise _BadRequest()
+            headers[key] = text_value
+
+        if "transfer-encoding" in headers:
+            raise _BadRequest()
+        content_length = 0
+        if "content-length" in headers:
+            raw_length = headers["content-length"]
+            if not raw_length.isascii() or not raw_length.isdigit():
+                raise _BadRequest()
+            significant_length = raw_length.lstrip("0") or "0"
+            if len(significant_length) > len(str(self.max_request_bytes)):
+                raise _PayloadTooLarge()
+            content_length = int(significant_length)
+        elif method == "POST":
+            raise _BadRequest()
+        if content_length > self.max_request_bytes:
+            raise _PayloadTooLarge()
+        if method == "POST":
+            content_type = (
+                headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            )
+            if content_type != "application/json":
+                raise _BadRequest()
+            try:
+                body = await asyncio.wait_for(
+                    reader.readexactly(content_length),
+                    timeout=self.read_timeout_seconds,
+                )
+            except (asyncio.TimeoutError, asyncio.IncompleteReadError):
+                raise _BadRequest() from None
+        else:
+            if content_length:
+                raise _BadRequest()
+            body = b""
+        return method, target, headers, body
+
+    async def _dispatch(self, method: str, path: str, headers, body: bytes):
+        if method == "GET" and path == "/health":
+            ready = (
+                self.control_token is not None
+                and self.manager is not None
+                and self.data is not None
+                and await self.data.readiness()
+            )
+            return (200 if ready else 503), _json_bytes(
+                {"status": "ready" if ready else "not_ready"}
+            )
+        operation = _ROUTES.get(path)
+        if method != "POST" or operation is None:
+            return 404, _json_bytes({"detail": "Not Found"})
+        if self.control_token is None:
+            return 503, _json_bytes({"detail": "Inference pipeline owner unavailable"})
+        authorization = headers.get("authorization")
+        expected = f"Bearer {self.control_token}"
+        if authorization is None or not hmac.compare_digest(
+            authorization.encode("utf-8"), expected.encode("utf-8")
+        ):
+            return 401, _json_bytes({"detail": "Unauthorized"})
+        if self.manager is None:
+            return 503, _json_bytes({"detail": "Inference pipeline owner unavailable"})
+
+        try:
+            if operation == "execute":
+                reply = await self.manager.execute(body)
+            elif operation == "query":
+                reply = await self.manager.query(body)
+            else:
+                reply = await self.manager.status(body)
+        except PipelineRejected as error:
+            if operation != "status":
+                raise
+            request = decode_pipeline_status_request(body)
+            reply = decode_pipeline_status_reply(
+                request,
+                PipelineStatusFailure(
+                    schema=PIPELINE_PROTOCOL,
+                    ok=False,
+                    request_id=request.request_id,
+                    operation=request.operation,
+                    operation_id=request.command.operation_id,
+                    command_operation=request.command.operation,
+                    actor_id=request.command.admitted_actor.id,
+                    target_id=request.command.target_id,
+                    error=PipelineErrorDetails(
+                        status_code=error.status_code,
+                        detail=error.detail,
+                        headers=error.headers,
+                        rollback=error.rollback,
+                    ),
+                ),
+            )
+        except PipelinePostCommitFailure:
+            return 500, _json_bytes({"detail": "Internal Server Error"})
+        return 200, _model_bytes(reply)
+
+    async def _write_json(
+        self, writer: asyncio.StreamWriter, status: int, payload
+    ) -> None:
+        await self._write_bytes(writer, status, _json_bytes(payload))
+
+    async def _write_bytes(
+        self, writer: asyncio.StreamWriter, status: int, body: bytes
+    ) -> None:
+        reason = _STATUS_TEXT.get(status, "Internal Server Error")
+        header = (
+            f"HTTP/1.1 {status} {reason}\r\n"
+            "Content-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\n"
+            "Connection: close\r\n\r\n"
+        ).encode("ascii")
+        try:
+            writer.write(header + body)
+            await writer.drain()
+        except (ConnectionError, OSError):
+            pass
+
+
+__all__ = ["PipelineHttpServer"]
