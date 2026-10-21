@@ -121,6 +121,11 @@ setup。API 支持借用连接、专用 DSN 和 HTTP，独立 Workspace 使用�
 health apply、路由/GPU、发布与部署等其余控制面，也不代表全模块语言替换。运行配置及
 限定验收见 [ADR-0149](/dev/adr/0149-credential-owning-workspace-backend-probe)。
 
+本切片54项去重选定验收通过，三路径各匹配106项原公开响应，借用路径另匹配17项调用方记录；
+源码445项，独立安装的 Inference／Workspace 分别128／445项通过。非空恢复、完整迁移、
+当前三镜像指纹及实际受限容器链路均通过；停止 Inference 后明确503且不新增业务写入。
+单次链路验证不代表容量、优雅交接、真实 GPU、AMD64 或全模块资格。
+
 ## 指南素材命令与对象能力
 
 指南签名、HEAD 和普通删除已有独立字节合同，由既有 Assets Source 二进制提供。
