@@ -788,6 +788,7 @@
             "get_project_projection",
             "get_project_access",
             "require_project_manager",
+            "require_project_visible",
             "search_projects"
           ],
           "title": "Operation",
@@ -1663,6 +1664,28 @@
                 "properties": {
                   "operation": {
                     "const": "require_project_manager"
+                  }
+                },
+                "required": ["operation"]
+              }
+            },
+            "required": ["request"]
+          },
+          "then": {
+            "properties": {
+              "action": {
+                "enum": ["access_member_rows", "actor_status", "get_row"]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "request": {
+                "properties": {
+                  "operation": {
+                    "const": "require_project_visible"
                   }
                 },
                 "required": ["operation"]

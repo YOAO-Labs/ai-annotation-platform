@@ -89,7 +89,11 @@ async def accessible_project_row(request, transaction, step):
 
     access = _manager_access(request, platform_role=actor.platform_role, row=row)
     if access is None:
-        if request.operation in ("get_project_access", "require_project_manager"):
+        if request.operation in (
+            "get_project_access",
+            "require_project_manager",
+            "require_project_visible",
+        ):
             member = _member_rows(
                 request,
                 await step(request, transaction, "access_member_rows"),
