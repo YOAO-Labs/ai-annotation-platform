@@ -85,6 +85,8 @@ REMOVED_MODULES = (
     "app.workers.roi",
     "app.services.project_delete",
     "app.services.project",
+    "app.services.pipeline_template",
+    "app.application.project_pipeline",
     "app.services.dataset_upload_contract",
     "app.services.dataset_source_deletion_contract",
     "app.services.storage_connection",
@@ -113,6 +115,9 @@ class DomainSpec:
     lazy_roots: tuple[str, ...] = ()
     # Optional positive app-dependency boundary for transport-independent owners.
     allowed_app_imports: tuple[str, ...] | None = None
+    # Narrow exceptions for data adapters that must use a framework without
+    # relaxing the rest of the contract package's dependency boundary.
+    allowed_framework_imports: tuple[str, ...] = ()
 
 
 DOMAIN_PACKAGES = (
@@ -568,6 +573,22 @@ DOMAIN_PACKAGES = (
     ),
     DomainSpec(package="workspace_directory_query_data", legacy_facades=()),
     DomainSpec(
+        package="inference_pipelines",
+        legacy_facades=("app.services.pipeline_template",),
+        allowed_app_imports=(
+            "app.config",
+            "app.services.identity_contracts",
+            "app.services.inference_pipelines_data",
+            "app.services.user_brief",
+        ),
+    ),
+    DomainSpec(
+        package="inference_pipelines_data",
+        legacy_facades=(),
+        allowed_app_imports=(),
+        allowed_framework_imports=("sqlalchemy",),
+    ),
+    DomainSpec(
         package="labeling_class_query",
         legacy_facades=(),
         allowed_app_imports=("app.config", "app.services.labeling_class_query_data"),
@@ -886,8 +907,12 @@ def test_domain_package_forbidden_imports(spec: DomainSpec) -> None:
     ids=lambda spec: spec.package,
 )
 def test_data_contracts_do_not_import_runtime_frameworks(spec: DomainSpec) -> None:
-    """Pure contracts cannot hide a session, HTTP error or task behind an import."""
-    forbidden = ("sqlalchemy", "fastapi", "celery")
+    """Pure contracts cannot hide unapproved database, HTTP or task frameworks."""
+    forbidden = tuple(
+        root
+        for root in ("sqlalchemy", "fastapi", "celery")
+        if root not in spec.allowed_framework_imports
+    )
     offenders = []
     for path, module in _iter_domain_files(spec.package):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -967,6 +992,28 @@ def test_domain_package_root_not_eager_importing(spec: DomainSpec) -> None:
         if leaf in forbidden_high_level:
             flagged.append(name)
     assert not flagged, f"package root eager-imports high-level module(s): {flagged}"
+
+
+def test_inference_pipeline_gateways_use_the_portable_inference_owner() -> None:
+    """The API gateways cross into only the dedicated Inference ports."""
+    expected = {
+        "inference_pipelines": {
+            "aap_inference.pipeline_client",
+            "aap_inference.pipeline_contract",
+            "aap_inference.pipeline_manager",
+            "aap_inference.pipeline_postgres",
+        },
+        "inference_pipelines_data": {"aap_inference.pipeline_contract"},
+    }
+    for package, allowed in expected.items():
+        path = _SERVICES_DIR / f"{package}.py"
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        imported = {
+            name
+            for name, _local in _collect_imports(tree, f"app.services.{package}")
+            if name == "aap_inference" or name.startswith("aap_inference.")
+        }
+        assert imported == allowed, f"{package} imports unexpected Inference modules"
 
 
 @pytest.mark.parametrize(
