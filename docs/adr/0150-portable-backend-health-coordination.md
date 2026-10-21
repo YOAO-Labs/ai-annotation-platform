@@ -76,12 +76,15 @@ cutover, Go expansion, real GPU and production capacity remain unqualified here.
 
 ## Scoped local qualification
 
-The local ledger selects197 distinct passing cases:194 database/process cases
-and three focused architecture checks. Source Inference/shared contracts pass132;
+The local ledger selects197 distinct passing cases:194 checks in the owned
+acceptance runs and three focused architecture checks. The owned batches also
+contain pure worker/GPU adapter tests; their count is not a claim of197 database
+or real-device scenarios. Source Inference/shared contracts pass132;
 fresh noneditable Inference and Workspace environments pass132 and449 respectively,
 without API/ORM/Celery imports. All24 frozen old health observations match exactly,
 including SQL/HTTP order and caller flush behavior. The existing38-observation
-pool corpus also replays unchanged; observations and repeated runs are not added
+pool corpus retains its previously qualified replay contract, including the
+previously declared removal-response correction; observations and repeated runs are not added
 to the selected-case count. All27 health and five reconciliation conditions match
 the original AST conditions; the proof timestamp helper AST is identical.
 
