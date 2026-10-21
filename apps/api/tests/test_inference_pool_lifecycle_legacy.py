@@ -154,6 +154,18 @@ def _normalise(value, aliases: dict[str, str], *, field: str | None = None):
     return value
 
 
+def _normalise_tables(value: dict, aliases: dict[str, str]) -> dict:
+    result = _normalise(value, aliases)
+    for table in (
+        "ml_backend_registry",
+        "ml_backend_service_pools",
+        "ml_backend_pool_members",
+        "project_ml_backend_pool",
+    ):
+        result[table].sort(key=lambda row: row["id"])
+    return result
+
+
 def _raw_capabilities(model_id: str) -> dict:
     return {"model_ids": [model_id], "supported_trackers": ["sam3_video"]}
 
@@ -478,7 +490,7 @@ async def _snapshot(maker, world: dict, *, normalize: bool = True) -> dict:
             "project_ml_backend_pool": [dict(row) for row in project_pool_rows],
             "business_audit": [dict(row) for row in audit_rows],
         }
-        return _normalise(result, world["aliases"]) if normalize else result
+        return _normalise_tables(result, world["aliases"]) if normalize else result
 
 
 def _updated_at_changes(before: dict, after: dict, aliases: dict[str, str]) -> dict:
@@ -581,8 +593,8 @@ async def _capture_sample(
         world["aliases"][str(pool_id)] = f"${response_alias}"
 
     after_raw = await _snapshot(maker, world, normalize=False)
-    before = _normalise(before_raw, world["aliases"])
-    after = _normalise(after_raw, world["aliases"])
+    before = _normalise_tables(before_raw, world["aliases"])
+    after = _normalise_tables(after_raw, world["aliases"])
     sample_request = {
         "method": method,
         "path": _normalise(path, world["aliases"]),
@@ -756,8 +768,10 @@ async def _cleanup_owned_redis(world: dict) -> None:
 
 
 async def _cleanup_world(test_engine, world: dict) -> None:
+    await assert_owned_test_database(test_engine)
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     async with maker.begin() as db:
+        await db.execute(text("SET LOCAL app.allow_audit_update='true'"))
         actor_ids = world["actor_ids"]
         project_ids = world["project_ids"]
         pool_ids = list(world["pool_ids"])
@@ -992,7 +1006,7 @@ async def _run_scenarios(client, maker, world, monkeypatch) -> list[dict]:
             expected_status=200,
         )
         _assert_generation(first_no_cap, 2, "first member on empty pool")
-        assert first_no_cap["legacy_instance_id"] == "$registry_no_capabilities"
+        assert first_no_cap["legacy_instance_id"] == str(no_cap_registry)
         assert first_no_cap["capability_fingerprint"] is None
         no_cap_rejected = await request(
             "second_member_rejected_without_capability_baseline",
@@ -1015,7 +1029,7 @@ async def _run_scenarios(client, maker, world, monkeypatch) -> list[dict]:
             expected_status=200,
         )
         _assert_generation(first_candidate, 6, "first matching member")
-        assert first_candidate["legacy_instance_id"] == "$registry_seed"
+        assert first_candidate["legacy_instance_id"] == str(seed_registry)
         assert first_candidate["capability_fingerprint"]
         repeated_candidate = await request(
             "identical_member_upsert_does_not_change_generation",
@@ -1046,7 +1060,7 @@ async def _run_scenarios(client, maker, world, monkeypatch) -> list[dict]:
         candidate_member = next(
             item
             for item in weighted_candidate["members"]
-            if item["registry_id"] == "$registry_candidate"
+            if item["registry_id"] == str(candidate_registry)
         )
         assert candidate_member["traffic_state"] == "draining"
         assert candidate_member["weight"] == 7
@@ -1061,7 +1075,7 @@ async def _run_scenarios(client, maker, world, monkeypatch) -> list[dict]:
         repeated_member = next(
             item
             for item in repeated_weight["members"]
-            if item["registry_id"] == "$registry_candidate"
+            if item["registry_id"] == str(candidate_registry)
         )
         assert repeated_member == candidate_member
         resumed_candidate = await request(
@@ -1074,7 +1088,7 @@ async def _run_scenarios(client, maker, world, monkeypatch) -> list[dict]:
         resumed_member = next(
             item
             for item in resumed_candidate["members"]
-            if item["registry_id"] == "$registry_candidate"
+            if item["registry_id"] == str(candidate_registry)
         )
         assert resumed_member["traffic_state"] == "active"
         mismatch, _ = await _capture_sample(
