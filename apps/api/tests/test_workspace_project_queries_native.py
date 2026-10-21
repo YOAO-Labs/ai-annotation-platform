@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from datetime import datetime, timezone
 
 import asyncpg
 import pytest
@@ -26,7 +27,6 @@ pytestmark = [
 ]
 
 _PROTOCOL = "aap-workspace-project-query/v1"
-_ROLE = "workspace_project_query_role"
 _CLIENT = "workspace_project_query_client"
 _POLICY = "aap_workspace_project_query_v1.project_query_policy()"
 _STEP = "aap_workspace_project_query_v1.project_query_step"
@@ -238,6 +238,21 @@ async def _cleanup_world(test_engine, world: dict) -> None:
         await session.execute(delete(User).where(User.id.in_(world["user_ids"])))
 
 
+async def _replace_transfer_result(test_engine, world: dict, result: dict) -> None:
+    maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    async with maker.begin() as session:
+        await session.execute(
+            text(
+                "UPDATE public.workspace_owner_transfer_operation_receipts "
+                "SET result = CAST(:result AS jsonb) WHERE operation_id = :operation_id"
+            ),
+            {
+                "operation_id": world["transfer_operation_id"],
+                "result": json.dumps(result, separators=(",", ":")),
+            },
+        )
+
+
 async def _seed_world(test_engine) -> dict:
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     suffix = uuid.uuid4().hex
@@ -289,6 +304,7 @@ async def _seed_world(test_engine) -> dict:
             name=f"Unshared project {suffix}",
         )
         world["project_ids"] = [owned.id, shared.id, hidden.id]
+        transfer_updated_at = datetime.now(timezone.utc)
 
         for project_id in (owned.id, shared.id):
             await create_membership(
@@ -316,16 +332,17 @@ async def _seed_world(test_engine) -> dict:
                 "text_threshold = '-Infinity'::double precision, "
                 "due_date = 'infinity'::date, "
                 "created_at = 'infinity'::timestamptz, "
-                "updated_at = '-infinity'::timestamptz, "
+                "updated_at = :updated_at, "
                 "total_tasks = 37, completed_tasks = 12, "
                 "review_tasks = 3, in_progress_tasks = 2 "
                 "WHERE id = :project_id"
             ),
-            {"project_id": owned.id},
+            {"project_id": owned.id, "updated_at": transfer_updated_at},
         )
         await session.execute(
             text(
-                "UPDATE public.projects SET video_collaboration = CAST(:value AS jsonb) "
+                "UPDATE public.projects SET video_collaboration = CAST(:value AS jsonb), "
+                "updated_at = '-infinity'::timestamptz "
                 "WHERE id = :project_id"
             ),
             {
@@ -370,29 +387,27 @@ async def _seed_world(test_engine) -> dict:
             ),
             {
                 "operation_id": transfer_operation_id,
-                "actor_id": actor.id,
+                "actor_id": rename_actor.id,
                 "project_id": owned.id,
-                "new_owner_id": other_owner.id,
+                "new_owner_id": actor.id,
                 "request_hash": "b" * 64,
                 "result": json.dumps(
                     {
                         "schema": "aap-workspace-owner-transfer/v1",
                         "ok": True,
                         "operation_id": str(transfer_operation_id),
-                        "actor_id": str(actor.id),
+                        "actor_id": str(rename_actor.id),
                         "project_id": str(owned.id),
-                        "new_owner_id": str(other_owner.id),
-                        "data": {"changed": True},
+                        "new_owner_id": str(actor.id),
+                        "data": {
+                            "previous_owner_id": str(actor.id),
+                            "updated_at": transfer_updated_at.isoformat(),
+                            "changed": False,
+                        },
                     },
                     separators=(",", ":"),
                 ),
             },
-        )
-        await session.execute(
-            text(
-                "UPDATE public.projects SET owner_id = :owner_id WHERE id = :project_id"
-            ),
-            {"owner_id": other_owner.id, "project_id": owned.id},
         )
 
     world.update(
@@ -406,6 +421,22 @@ async def _seed_world(test_engine) -> dict:
         hidden_project_id=hidden.id,
         configuration_operation_id=configuration_operation_id,
         transfer_operation_id=transfer_operation_id,
+        transfer_actor_id=rename_actor.id,
+        transfer_new_owner_id=actor.id,
+        transfer_updated_at=transfer_updated_at,
+        transfer_result={
+            "schema": "aap-workspace-owner-transfer/v1",
+            "ok": True,
+            "operation_id": str(transfer_operation_id),
+            "actor_id": str(rename_actor.id),
+            "project_id": str(owned.id),
+            "new_owner_id": str(actor.id),
+            "data": {
+                "previous_owner_id": str(actor.id),
+                "updated_at": transfer_updated_at.isoformat(),
+                "changed": False,
+            },
+        },
     )
     return world
 
@@ -414,8 +445,15 @@ async def test_workspace_project_query_login_exposes_only_fixed_step_rpcs(test_e
     connection = await asyncpg.connect(_project_query_dsn(test_engine))
     try:
         assert await connection.fetchval("SELECT current_user") == _CLIENT
-        assert await connection.fetchval(
-            "SELECT pg_catalog.pg_has_role(current_user, $1::name, 'member')", _ROLE
+        assert await connection.fetchval("SELECT current_user = session_user") is True
+        assert (
+            await connection.fetchval(
+                "SELECT NOT EXISTS ("
+                "SELECT 1 FROM pg_catalog.pg_auth_members AS membership "
+                "JOIN pg_catalog.pg_roles AS client ON client.oid = membership.member "
+                "WHERE client.rolname = current_user)"
+            )
+            is True
         )
         function_ids = await connection.fetchrow(
             "SELECT "
@@ -542,7 +580,21 @@ async def test_project_query_rows_filters_phases_and_projection_receipts(test_en
         assert scalar_row["text_threshold"] == "-Infinity"
         assert scalar_row["due_date"] == "infinity"
         assert scalar_row["created_at"] == "infinity"
-        assert scalar_row["updated_at"] == "-infinity"
+        assert (
+            datetime.fromisoformat(scalar_row["updated_at"])
+            == world["transfer_updated_at"]
+        )
+
+        shared_detail = _request(
+            world["actor_id"],
+            world["actor_role"],
+            "get_project",
+            target_id=world["shared_project_id"],
+        )
+        shared_row = json.loads(
+            (await _step(connection, shared_detail, "get_row"))["row_json"]
+        )
+        assert shared_row["updated_at"] == "-infinity"
 
         actor_facts = await _step(connection, detail_request, "actor_status")
         assert actor_facts["actor"] == {
@@ -575,20 +627,22 @@ async def test_project_query_rows_filters_phases_and_projection_receipts(test_en
         )
 
         transfer_request = _request(
-            world["actor_id"],
-            world["actor_role"],
+            world["transfer_actor_id"],
+            "super_admin",
             "get_project_projection",
             target_id=world["owned_project_id"],
             projection_evidence={
                 "source": "owner_transfer",
                 "operation_id": str(world["transfer_operation_id"]),
-                "new_owner_id": str(world["other_owner_id"]),
+                "new_owner_id": str(world["transfer_new_owner_id"]),
                 "snapshot_row_json": None,
             },
         )
         transferred = await _step(connection, transfer_request, "projection_row")
         captured_row_json = transferred["row_json"]
-        assert json.loads(captured_row_json)["owner_id"] == str(world["other_owner_id"])
+        assert json.loads(captured_row_json)["owner_id"] == str(
+            world["transfer_new_owner_id"]
+        )
 
         maker = async_sessionmaker(
             test_engine, class_=AsyncSession, expire_on_commit=False
@@ -602,8 +656,8 @@ async def test_project_query_rows_filters_phases_and_projection_receipts(test_en
                 },
             )
         frozen_transfer_request = _request(
-            world["actor_id"],
-            world["actor_role"],
+            world["transfer_actor_id"],
+            "super_admin",
             "get_project_projection",
             target_id=world["owned_project_id"],
             projection_evidence={
@@ -618,11 +672,17 @@ async def test_project_query_rows_filters_phases_and_projection_receipts(test_en
         assert json.loads(frozen_transfer["row_json"])["name"] != (
             "Renamed after owner-transfer snapshot"
         )
+        for field, invalid_value in (("ok", False), ("schema", "invalid-schema")):
+            tampered_result = dict(world["transfer_result"])
+            tampered_result[field] = invalid_value
+            await _replace_transfer_result(test_engine, world, tampered_result)
+            await _expect_invalid(connection, transfer_request, "projection_row")
+            await _replace_transfer_result(test_engine, world, world["transfer_result"])
         await _expect_invalid(
             connection,
             _request(
-                world["other_owner_id"],
-                "employee",
+                world["actor_id"],
+                world["actor_role"],
                 "get_project_projection",
                 target_id=world["owned_project_id"],
                 projection_evidence=transfer_request["projection_evidence"],
@@ -636,7 +696,7 @@ async def test_project_query_rows_filters_phases_and_projection_receipts(test_en
             "source_operation": "rename_class",
             "actor_id": str(world["rename_actor_id"]),
             "project_id": str(world["owned_project_id"]),
-            "owner_id": str(world["other_owner_id"]),
+            "owner_id": str(world["actor_id"]),
             "platform_role": "super_admin",
             "is_active": True,
         }

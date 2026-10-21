@@ -243,6 +243,10 @@ DECLARE
     v_actor_status record;
     v_member record;
     v_receipt record;
+    v_transfer_result_data jsonb;
+    v_transfer_previous_owner_id uuid;
+    v_transfer_updated_at timestamptz;
+    v_transfer_changed boolean;
     v_evidence jsonb;
     v_evidence_source text;
     v_snapshot_row_json text;
@@ -1412,13 +1416,65 @@ BEGIN
                 IF v_receipt.actor_id IS DISTINCT FROM v_actor_id
                    OR v_receipt.project_id IS DISTINCT FROM v_target_id
                    OR v_receipt.new_owner_id IS DISTINCT FROM v_evidence_new_owner_id
-                   OR pg_catalog.jsonb_typeof(v_receipt.result) IS DISTINCT FROM 'object'
+                   OR NOT aap_workspace_project_query_v1._has_exact_keys(
+                       v_receipt.result,
+                       ARRAY[
+                           'schema', 'ok', 'operation_id', 'actor_id', 'project_id',
+                           'new_owner_id', 'data'
+                       ]::text[]
+                   )
+                   OR pg_catalog.jsonb_typeof(v_receipt.result->'schema') IS DISTINCT FROM 'string'
+                   OR v_receipt.result->>'schema' IS DISTINCT FROM 'aap-workspace-owner-transfer/v1'
+                   OR v_receipt.result->'ok' IS DISTINCT FROM 'true'::jsonb
+                   OR pg_catalog.jsonb_typeof(v_receipt.result->'operation_id') IS DISTINCT FROM 'string'
                    OR (v_receipt.result->>'operation_id') IS DISTINCT FROM v_evidence_operation_id::text
+                   OR pg_catalog.jsonb_typeof(v_receipt.result->'actor_id') IS DISTINCT FROM 'string'
                    OR (v_receipt.result->>'actor_id') IS DISTINCT FROM v_actor_id::text
+                   OR pg_catalog.jsonb_typeof(v_receipt.result->'project_id') IS DISTINCT FROM 'string'
                    OR (v_receipt.result->>'project_id') IS DISTINCT FROM v_target_id::text
+                   OR pg_catalog.jsonb_typeof(v_receipt.result->'new_owner_id') IS DISTINCT FROM 'string'
                    OR (v_receipt.result->>'new_owner_id') IS DISTINCT FROM v_evidence_new_owner_id::text THEN
                     RAISE EXCEPTION USING ERRCODE = '22023',
                         MESSAGE = 'Workspace Project transfer receipt does not bind this projection';
+                END IF;
+                v_transfer_result_data := v_receipt.result->'data';
+                IF NOT aap_workspace_project_query_v1._has_exact_keys(
+                    v_transfer_result_data,
+                    ARRAY['previous_owner_id', 'updated_at', 'changed']::text[]
+                )
+                   OR pg_catalog.jsonb_typeof(v_transfer_result_data->'previous_owner_id') NOT IN ('null', 'string')
+                   OR (pg_catalog.jsonb_typeof(v_transfer_result_data->'previous_owner_id') = 'string'
+                       AND (v_transfer_result_data->>'previous_owner_id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+                   OR pg_catalog.jsonb_typeof(v_transfer_result_data->'updated_at') IS DISTINCT FROM 'string'
+                   OR pg_catalog.jsonb_typeof(v_transfer_result_data->'changed') IS DISTINCT FROM 'boolean' THEN
+                    RAISE EXCEPTION USING ERRCODE = '22023',
+                        MESSAGE = 'Workspace Project transfer result data is invalid';
+                END IF;
+                IF pg_catalog.jsonb_typeof(v_transfer_result_data->'previous_owner_id') = 'string' THEN
+                    v_transfer_previous_owner_id :=
+                        (v_transfer_result_data->>'previous_owner_id')::uuid;
+                ELSE
+                    v_transfer_previous_owner_id := NULL;
+                END IF;
+                BEGIN
+                    v_transfer_updated_at :=
+                        (v_transfer_result_data->>'updated_at')::timestamptz;
+                EXCEPTION WHEN invalid_text_representation
+                             OR invalid_datetime_format
+                             OR datetime_field_overflow THEN
+                    RAISE EXCEPTION USING ERRCODE = '22023',
+                        MESSAGE = 'Workspace Project transfer result timestamp is invalid';
+                END;
+                IF NOT pg_catalog.isfinite(v_transfer_updated_at) THEN
+                    RAISE EXCEPTION USING ERRCODE = '22023',
+                        MESSAGE = 'Workspace Project transfer result timestamp is invalid';
+                END IF;
+                v_transfer_changed :=
+                    (v_transfer_result_data->>'changed')::boolean;
+                IF v_transfer_changed IS DISTINCT FROM
+                   (v_transfer_previous_owner_id IS DISTINCT FROM v_evidence_new_owner_id) THEN
+                    RAISE EXCEPTION USING ERRCODE = '22023',
+                        MESSAGE = 'Workspace Project transfer result change flag is invalid';
                 END IF;
                 IF pg_catalog.jsonb_typeof(v_evidence->'snapshot_row_json') = 'string' THEN
                     v_snapshot_row_json := v_evidence->>'snapshot_row_json';
