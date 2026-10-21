@@ -1,0 +1,59 @@
+{
+  "$id": "aap-workspace-directory-query/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Workspace Directory query native function inventory",
+  "$comment": "Static PostgreSQL function inventory for the Workspace-owned Directory query boundary. Canonical wire DTO definitions are maintained by the Workspace contract owner.",
+  "type": "object",
+  "function_defaults": {
+    "volatility": "STABLE",
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"],
+    "timezone": "UTC",
+    "datestyle": "ISO, YMD"
+  },
+  "functions": [
+    {
+      "signature": "aap_workspace_directory_query_v1.directory_query_policy()",
+      "arguments": [],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Return exactly {\"schema\":\"aap-workspace-directory-query/v1\"}."
+    },
+    {
+      "signature": "aap_workspace_directory_query_v1.directory_query_step(jsonb, text, jsonb)",
+      "arguments": [
+        { "name": "p_request", "type": "jsonb" },
+        { "name": "p_action", "type": "text" },
+        { "name": "p_parameters", "type": "jsonb" }
+      ],
+      "returns": { "kind": "scalar", "type": "jsonb" },
+      "semantics": "Validate the closed Directory request and action bindings, delegate Project get_row/actor_status/member_access phases to the fixed Project query RPC, and return {schema,request,action,parameters,facts}. Directory reads are stable, read-only and scoped to the declared action parameters."
+    }
+  ],
+  "identity_functions": [
+    {
+      "signature": "aap_identity_v1.workspace_directory_superadmins()",
+      "arguments": [],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          { "name": "id", "type": "uuid" },
+          { "name": "name", "type": "text" },
+          { "name": "email", "type": "text" }
+        ]
+      },
+      "semantics": "Return active super-admin accounts ordered by name only; Identity owns this function and grants execution to WorkspaceCode."
+    }
+  ],
+  "internal_functions": [
+    {
+      "signature": "aap_workspace_directory_query_v1._has_exact_keys(jsonb, text[])",
+      "client_executable": false,
+      "semantics": "Reject non-object, missing, duplicate-count, and unknown protocol keys."
+    }
+  ],
+  "client_rpc_signatures": [
+    "aap_workspace_directory_query_v1.directory_query_policy()",
+    "aap_workspace_directory_query_v1.directory_query_step(jsonb, text, jsonb)"
+  ]
+}
