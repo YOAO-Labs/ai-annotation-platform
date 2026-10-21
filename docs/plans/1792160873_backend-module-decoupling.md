@@ -4661,3 +4661,9 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   no-send outcome is unsafe. Durable video handoff/window checkpoints, restore
   rebind and the other ten-module/seven-gate requirements remain active. No
   primary/production cutover, push or Go expansion is performed.
+- A follow-up removes the response-receipt prerequisite for fresh unload health
+  observation. Both lost replies can now converge through the existing strict
+  proof classifier; unavailable health still finalizes Unknown and retains the
+  budget. The91-case dispatch suite passes, including those positive/negative
+  regressions. This is live-call reconciliation, not expired-owner recovery; it
+  does not extend token deadlines, add sends or change frozen eviction branches.

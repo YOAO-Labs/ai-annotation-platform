@@ -1407,18 +1407,18 @@ async def _call_eviction_lifecycle(
     generation: str,
     admission_token: str,
     hard_deadline_ms: int,
-) -> tuple[object | None, bool]:
+) -> object | None:
     for attempt in range(2):
         remaining_seconds = (hard_deadline_ms - int(time.time() * 1000)) / 1000
         if remaining_seconds <= 0:
-            return None, False
+            return None
         grant = GPUDispatchGrant(
             generation=generation,
             admission_token=admission_token,
         )
         try:
             async with asyncio.timeout(remaining_seconds):
-                return await call(grant), True
+                return await call(grant)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 - outcome decides exact retry eligibility
@@ -1426,10 +1426,10 @@ async def _call_eviction_lifecycle(
                 grant.outcome is not None and grant.outcome.kind == "response_received"
             )
             if response_received:
-                return None, True
+                return None
             if attempt == 0:
                 continue
-    return None, False
+    return None
 
 
 def _sign_eviction_grants(
@@ -1705,7 +1705,7 @@ async def _cancel_busy_eviction(
         return None, None
 
     client = MLBackendClient(subject.backend, shadow_session_factory=session_factory)
-    cancel_response, _ = await _call_eviction_lifecycle(
+    cancel_response = await _call_eviction_lifecycle(
         client.lifecycle_cancel_drain,
         generation=cancel_subject.generation,
         admission_token=cancel_token,
@@ -2169,7 +2169,7 @@ async def _evict_one_idle_victim(
         client = MLBackendClient(
             prepared.backend, shadow_session_factory=session_factory
         )
-        drain_response, _ = await _call_eviction_lifecycle(
+        drain_response = await _call_eviction_lifecycle(
             client.lifecycle_drain,
             generation=prepared.generation,
             admission_token=drain_token,
@@ -2234,7 +2234,7 @@ async def _evict_one_idle_victim(
         terminal_result = None
         replay_challenge = None
         _raise_if_heartbeat_failed(heartbeat_task)
-        unload_response, unload_response_received = await _call_eviction_lifecycle(
+        unload_response = await _call_eviction_lifecycle(
             client.lifecycle_unload,
             generation=prepared.generation,
             admission_token=unload_token,
@@ -2244,13 +2244,11 @@ async def _evict_one_idle_victim(
             unload_response,
             ManagedUnloadResponse,
         ) and _unload_ack_matches(prepared, unload_response)
-        unload_challenge = None
-        if unload_response_received:
-            unload_challenge = await _refresh_eviction_health(
-                health_refresher,
-                prepared,
-                phase="unload",
-            )
+        unload_challenge = await _refresh_eviction_health(
+            health_refresher,
+            prepared,
+            phase="unload",
+        )
         replay_challenge = unload_challenge
         terminal_result = await commit_gpu_eviction_phase_from_health(
             session_factory,

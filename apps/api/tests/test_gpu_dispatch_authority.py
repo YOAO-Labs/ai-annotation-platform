@@ -4087,9 +4087,11 @@ async def test_cold_authority_rejects_when_only_higher_priority_victim_exists(
     assert events[-1] == "close"
 
 
+@pytest.mark.parametrize("all_unload_responses_lost", (False, True))
 @pytest.mark.asyncio
 async def test_eviction_retries_same_route_token_with_fresh_outcome_channel(
     monkeypatch,
+    all_unload_responses_lost: bool,
 ) -> None:
     events: list[str] = []
     subject = replace(_cold_subject(), budget_mb=4096)
@@ -4155,7 +4157,7 @@ async def test_eviction_retries_same_route_token_with_fresh_outcome_channel(
 
         async def lifecycle_unload(self, grant):
             attempts["unload"].append(grant)
-            if len(attempts["unload"]) == 1:
+            if all_unload_responses_lost or len(attempts["unload"]) == 1:
                 grant.report_uncertain_if_missing("request_aborted")
                 raise RuntimeError("response lost")
             grant.report_response(200)
@@ -4494,13 +4496,23 @@ async def test_uncertain_victim_stops_before_evicting_another_or_target(
     assert f"eviction_release:{first_victim.backend_id}" in events
 
 
-@pytest.mark.parametrize("failed_phase", ("drain", "unload"))
-@pytest.mark.parametrize("health_failure", ("false", "raise"))
+@pytest.mark.parametrize(
+    ("failed_phase", "health_failure", "lost_unload_responses"),
+    (
+        ("drain", "false", False),
+        ("drain", "raise", False),
+        ("unload", "false", False),
+        ("unload", "raise", False),
+        ("unload", "false", True),
+        ("unload", "raise", True),
+    ),
+)
 @pytest.mark.asyncio
 async def test_phase_health_failure_converges_unknown_and_stops_eviction(
     monkeypatch,
     failed_phase: str,
     health_failure: str,
+    lost_unload_responses: bool,
 ) -> None:
     events: list[str] = []
     subject = replace(_cold_subject(), budget_mb=4096)
@@ -4532,6 +4544,17 @@ async def test_phase_health_failure_converges_unknown_and_stops_eviction(
         (victim,),
         subject.gpu_resource_id,
     )
+    if lost_unload_responses:
+
+        class LostUnloadResponseClient(authority_module.MLBackendClient):
+            async def lifecycle_unload(self, grant):
+                events.append(f"unload:{self.backend_id}")
+                grant.report_uncertain_if_missing("request_aborted")
+                raise TimeoutError("unload response lost")
+
+        monkeypatch.setattr(
+            authority_module, "MLBackendClient", LostUnloadResponseClient
+        )
     commit_calls: list[tuple[str, str | None]] = []
 
     async def commit_phase(
@@ -4596,6 +4619,8 @@ async def test_phase_health_failure_converges_unknown_and_stops_eviction(
         assert victim_health_calls == 2
     else:
         assert any(event.startswith("unload:") for event in events)
+        if lost_unload_responses:
+            assert events.count(f"unload:{victim.backend_id}") == 2
         assert victim_health_calls == 3
 
 
