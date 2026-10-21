@@ -23,6 +23,13 @@ def _tracker_input_owner_test_port(tracker_input_owner_fakes):
     return tracker_input_owner_fakes
 
 
+@pytest.fixture(autouse=True)
+def _staged_routing_owner_test_port(savepoint_routing_owner):
+    # This module replaces backend inference and stages all inputs in a savepoint.
+    # Real owner/HTTP/rollback acceptance uses committed worlds in separate tests.
+    return savepoint_routing_owner
+
+
 async def _make_video_task(db_session, owner_id):
     project = Project(
         display_id=f"P-VTW-{uuid.uuid4().hex[:6]}",
@@ -1302,6 +1309,10 @@ async def test_materialize_tracker_mask_result_stores_rle_and_adds_aabb(monkeypa
 
     expected_job_id, expected_task_id = job_id, task_id
     monkeypatch.setattr(
+        "app.services.video_tracking.runner.read_mask_write_epochs",
+        AsyncMock(return_value={reference["object_key"]: 0}),
+    )
+    monkeypatch.setattr(
         "app.services.video_tracking.runner.retain_tracker_output_mask", retain_root
     )
 
@@ -1372,6 +1383,11 @@ async def test_materialize_tracker_mask_keeps_raw_result_during_fence(
     db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
     running = AsyncMock(return_value=not cancelled)
     monkeypatch.setattr(runner, "store_generated_mask_content", store)
+    monkeypatch.setattr(
+        runner,
+        "read_mask_write_epochs",
+        AsyncMock(return_value={reference["object_key"]: 0}),
+    )
     monkeypatch.setattr(
         runner, "retain_tracker_output_mask", AsyncMock(return_value=None)
     )
@@ -1767,20 +1783,18 @@ async def test_tracker_enforce_mode_acquires_and_finishes_route_lease(
     await db_session.refresh(job)
     # enforce: job completes; the route lease was acquired + finished (no leak).
     assert job.status == VideoTrackerJobStatus.PENDING_REVIEW.value
-    # verify the lease was released: query the Redis ledger for residual inflight.
-    from app.services.ml_routing.ledger import _member_leases_key
-    from app.services.ml_routing.router import make_ledger_from_settings
+    from sqlalchemy import text
 
-    ledger = make_ledger_from_settings()
-    try:
-        # the tracker lease should be gone (finished); ZCARD of the member leases == 0.
-        key = _member_leases_key(str(pool.id), str(backend.id))
-        inflight = await ledger._redis.zcard(key)
-        assert inflight == 0, (
-            f"route lease leaked: {inflight} inflight after job completion"
+    rows = (
+        await db_session.execute(
+            text(
+                "SELECT state, closed FROM aap_inference_routing_v1.scopes "
+                "WHERE owner=:owner"
+            ),
+            {"owner": f"tracker:{job.id}"},
         )
-    finally:
-        await ledger.aclose()
+    ).all()
+    assert rows == [("finished", True)]
 
 
 async def _make_multi_member_tracker_job(db_session, user_id):

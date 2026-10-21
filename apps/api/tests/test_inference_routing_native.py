@@ -293,6 +293,56 @@ async def test_epoch_without_control_auth_does_not_leave_an_unrecoverable_hold(
             await owner.close()
 
 
+async def test_scope_cannot_issue_a_management_operation_token(test_engine):
+    await assert_owned_test_database(test_engine)
+    owner = await _connect(test_engine)
+    world = await _seed(owner)
+    client = await _connect(test_engine, role=_ROLE)
+    try:
+        async with client.transaction():
+            snapshot = await _step(
+                client,
+                "admission_snapshot",
+                {
+                    "pool_id": None,
+                    "registry_id": str(world["registry_id"]),
+                    "project_id": None,
+                    "mode": "direct",
+                    "required_instance_id": None,
+                    "health_max_age_seconds": 60,
+                },
+            )
+            assert snapshot["status"] == "ok"
+            reply = await _step(
+                client,
+                "reserve_scope",
+                {
+                    "snapshot": snapshot["snapshot"],
+                    "candidate_ids": [str(world["registry_id"])],
+                    "scope_id": str(uuid.uuid4()),
+                    "command_sha256": "c" * 64,
+                    "owner": "scope-spoof-test",
+                    "operation": "control:unload",
+                    "ttl_ms": 30000,
+                },
+            )
+            assert reply["status"] == "rejected"
+            assert reply["reason"] == "invalid_command"
+        assert (
+            await owner.fetchval(
+                "SELECT count(*) FROM aap_inference_routing_v1.scopes WHERE registry_id=$1",
+                world["registry_id"],
+            )
+            == 0
+        )
+    finally:
+        await client.close()
+        try:
+            await _cleanup(owner, world)
+        finally:
+            await owner.close()
+
+
 async def test_routing_snapshot_scope_attempt_and_writer_fence(test_engine):
     await assert_owned_test_database(test_engine)
     owner = await _connect(test_engine)

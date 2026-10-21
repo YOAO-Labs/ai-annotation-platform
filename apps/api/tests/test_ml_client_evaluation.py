@@ -33,6 +33,9 @@ class Stream(httpx.AsyncByteStream):
         self.closed = True
 
 
+pytestmark = pytest.mark.usefixtures("isolated_routing_port")
+
+
 def transport_factory(monkeypatch, response):
     real = httpx.AsyncClient
     seen = []

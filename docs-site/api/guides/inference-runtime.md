@@ -189,3 +189,53 @@ HTTP bearer 使用 `INFERENCE_REGISTRY_INGRESS_TOKEN(_FILE)`，整体预算默�
 截图 seed 复用相同 ingress 策略，但写入仍属于原调用方事务，项目选择与绑定继续由
 Workspace 消费者负责。完整 Registry/Pool 管理、健康远程协调、路由排空及租约连续性
 仍未闭合，参见 [ADR-0154](/dev/adr/0154-registry-ingress-and-environment-sync-owner)。
+
+## 持久路由执行权
+
+此能力正在本地联合验收，尚不代表完整 Inference 模块完成独立部署。
+原有 `/api/v1` 预测和管理接口保持不变；私有 owner 增加以下能力：
+
+| 路径                      | 用途                                                  |
+| ------------------------- | ----------------------------------------------------- |
+| `POST /v1/routes/command` | 执行准入、结算、心跳、关闭、管理占用和后端绑定意图    |
+| `POST /v1/routes/status`  | 查询一次命令的持久结果，恢复丢失的回包                |
+| `POST /v1/routes/runtime` | 批量读取最多 512 个实例的运行计数和控制状态；不写回执 |
+
+API 通过 `INFERENCE_ROUTING_URL` 或 `INFERENCE_ROUTING_DATABASE_URL(_FILE)` 选择提供方，
+两者互斥。未指定时，使用 API engine 上独立的执行控制事务，不提交当前业务事务。
+HTTP 采用 `INFERENCE_ROUTING_TOKEN(_FILE)` 和 `INFERENCE_ROUTING_TIMEOUT_SECONDS`；
+显式提供方失败不回退，也不会自动重发推理。
+
+独立运行时使用 `INFERENCE_ROUTING_DATABASE_URL(_FILE)` 与独立
+`INFERENCE_ROUTING_TOKEN(_FILE)`，并配置 `INFERENCE_ROUTING_HEALTH_MAX_AGE_SECONDS`
+和 `INFERENCE_ROUTING_LEASE_TTL_SECONDS`。应用当前迁移后，依次应用
+`module-data-grants.sql` 和 `inference-routing-grants.sql`，将
+`inference_routing_client` 限定为两项固定函数；不要为此角色授予原表或临时对象权限。
+
+后端进程配置 `AAP_ROUTE_CONTROL_TOKEN(_FILE)`，其值与 Registry 中保存的 token 一致。
+可用 `AAP_ROUTE_REGISTRY_ID` 固定身份；一个物理端点对应一个控制器进程。
+每次启动都等待实际认证绑定，拒绝无凭据和旧代次计算，不提供旧流量启动绕过。
+未配置控制凭据的普通旧推理可以运行，但无法确认管理连续性。
+
+首次绑定由运维向私有 command 端点提交以下意图。`request_id` 标识这一次提交，
+`control_id` 标识一次排空与绑定操作；均由调用方生成 UUID：
+
+```json
+{
+  "schema": "aap-inference-routing/v1",
+  "request_id": "<request-uuid>",
+  "operation": "reconcile",
+  "body": {
+    "registry_id": "<registry-uuid>",
+    "control_id": "<control-uuid>"
+  }
+}
+```
+
+提供方实际联系后端，先关闭旧准入并等待工作结束，再绑定新 epoch 和进程身份；
+调用方不能提交声称已空闲的回执。排空未完成时，用新的 `request_id` 查询相同
+`control_id` 的后续进展。旧请求的回执保持原结果，未知提交最多查一次状态，不能据此
+重发写入。控制失败或超时的恢复仍在联合验收，不能手动清空在途记录来解除阻塞。
+
+配置、解绑和删除继续由既有授权入口负责；Actor、Task、标注版本、业务审计和最终提交
+仍属于原业务事务。接口和当前验证边界见 [ADR-0155](/dev/adr/0155-durable-inference-routing-authority)。

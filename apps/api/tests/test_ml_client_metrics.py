@@ -15,6 +15,9 @@ from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.services.ml_client import MLBackendClient
 
 
+pytestmark = pytest.mark.usefixtures("isolated_routing_port")
+
+
 def _backend(
     url="http://fake:9090",
     *,

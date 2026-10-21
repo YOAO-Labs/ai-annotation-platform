@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select
-
 from aap_inference.topology import RegistryTopologySnapshot
+from aap_inference_contract.routing import ROUTING_DATA_PROTOCOL, RoutingUnavailable
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.db.models.ml_backend_registry import MLBackendRegistry
 
-from app.config import settings
-from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
-from app.services.ml_routing.router import make_ledger_from_settings
+from .authority import RoutingAuthority
 
 
 class MLBackendQuiescenceError(Exception):
@@ -26,67 +24,49 @@ class MLBackendQuiescenceError(Exception):
         return {"error_code": self.error_code, "message": str(self)}
 
 
+def quiescence_error(reason):
+    return MLBackendQuiescenceError(
+        "ml_backend_member_draining"
+        if reason == "member_not_draining"
+        else "ml_backend_" + reason,
+        {
+            "member_not_draining": "service-pool member must be draining before unload",
+            "member_not_quiescent": "backend still has unresolved execution scopes",
+            "continuity_unverified": "authenticated backend drain and bind is required before management",
+            "management_busy": "backend management is already in progress",
+            "generation_mismatch": "service-pool topology changed; drain again and retry",
+        }.get(reason, "backend management precondition rejected"),
+    )
+
+
 async def require_registry_quiescent(
     db: AsyncSession, registry_id: uuid.UUID
 ) -> RegistryTopologySnapshot:
-    """Observe enforce + draining + current exact inflight=0 before mutation.
-
-    Unpooled registries cannot receive service-pool leases and retain the legacy
-    direct-unload behavior. Known observation failures block the action; Redis continuity is not proved here.
-    """
-    member = await db.scalar(
-        select(MLBackendPoolMember)
-        .where(MLBackendPoolMember.registry_id == registry_id)
-        .execution_options(populate_existing=True)
-    )
-    if member is None:
+    """Read durable work and verified backend continuity under the owner fence."""
+    if await db.get(MLBackendRegistry, registry_id) is None:
         return RegistryTopologySnapshot(registry_id, None, None, None, None)
-    pool = await db.scalar(
-        select(MLBackendServicePool)
-        .where(MLBackendServicePool.id == member.pool_id)
-        .execution_options(populate_existing=True)
-    )
-    if pool is None:
-        raise MLBackendQuiescenceError(
-            "ml_backend_pool_unavailable",
-            "service-pool membership has no owning pool",
-        )
-    if settings.ml_backend_router_mode != "enforce":
-        raise MLBackendQuiescenceError(
-            "ml_backend_member_draining",
-            "router must be in enforce mode before a managed backend can be unloaded",
-        )
-    if member.traffic_state != "draining":
-        raise MLBackendQuiescenceError(
-            "ml_backend_member_draining",
-            "service-pool member must be draining before unload",
-        )
-
-    observed = RegistryTopologySnapshot(
-        registry_id, member.id, pool.id, pool.routing_generation, member.traffic_state
-    )
-    ledger = None
     try:
-        ledger = make_ledger_from_settings()
-        await ledger.healthcheck()
-        inflight = await ledger.member_inflight(str(pool.id), str(registry_id))
-    except Exception as exc:
+        async with RoutingAuthority(db.bind).data_transaction() as data:
+            result = await data.step("quiescence", {"registry_id": str(registry_id)})
+        if result.get("schema") != ROUTING_DATA_PROTOCOL:
+            raise RoutingUnavailable()
+        if result.get("status") == "rejected":
+            raise quiescence_error(result.get("reason"))
+        if result.get("status") != "ok":
+            raise RoutingUnavailable()
+        topology = result["topology"]
+        return RegistryTopologySnapshot(
+            registry_id,
+            uuid.UUID(topology["member_id"]) if topology["member_id"] else None,
+            uuid.UUID(topology["pool_id"]) if topology["pool_id"] else None,
+            topology["routing_generation"],
+            topology["traffic_state"],
+        )
+    except MLBackendQuiescenceError:
+        raise
+    except Exception:
         raise MLBackendQuiescenceError(
             "ml_backend_router_unavailable",
-            "router ledger is unavailable; quiescence cannot be proven",
+            "durable routing owner unavailable; quiescence cannot be proven",
             unavailable=True,
-        ) from exc
-    finally:
-        if ledger is not None:
-            try:
-                await ledger.aclose()
-            except Exception:
-                # Closing a client cannot invalidate an inflight proof that was
-                # already read successfully, and must not mask the primary error.
-                pass
-    if inflight > 0:
-        raise MLBackendQuiescenceError(
-            "ml_backend_member_not_quiescent",
-            f"service-pool member still has {inflight} active route lease(s)",
-        )
-    return observed
+        ) from None

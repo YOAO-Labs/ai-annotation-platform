@@ -125,12 +125,14 @@ class RouteLease:
     """A granted route lease. Caller must finish() or cancel() exactly once."""
 
     lease_id: str
-    pool_id: uuid.UUID
+    pool_id: uuid.UUID | None
     instance_id: uuid.UUID
     owner: str  # caller identity (e.g. "api:request_id" / "celery:task_id")
     operation: str  # e.g. "predict" / "interactive" / "batch" / "tracker"
     generation: int
     expires_at_ms: int
+    scope: Any = field(default=None, repr=False, compare=False)
+    authority: Any = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)

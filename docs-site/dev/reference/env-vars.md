@@ -863,5 +863,21 @@ last_reviewed: 2026-10-22
 | `INFERENCE_REGISTRY_INGRESS_DATABASE_URL` | `—` | — |
 | `INFERENCE_REGISTRY_INGRESS_DATABASE_URL_FILE` | `—` | — |
 | `INFERENCE_REGISTRY_INGRESS_TIMEOUT_SECONDS` | `90` | — |
+
+## Durable routing owner. Empty selectors use independent transactions on the API engine.
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `INFERENCE_ROUTING_URL` | `—` | URL and DATABASE_URL(_FILE) are exclusive; HTTP never falls back to local ownership. |
+| `INFERENCE_ROUTING_TOKEN` | `—` | — |
+| `INFERENCE_ROUTING_TOKEN_FILE` | `—` | — |
+| `INFERENCE_ROUTING_DATABASE_URL` | `—` | — |
+| `INFERENCE_ROUTING_DATABASE_URL_FILE` | `—` | — |
+| `INFERENCE_ROUTING_TIMEOUT_SECONDS` | `30` | — |
+| `INFERENCE_ROUTING_HEALTH_MAX_AGE_SECONDS` | `90` | Independent owner runtime admission settings (seconds). |
+| `INFERENCE_ROUTING_LEASE_TTL_SECONDS` | `120` | — |
+| `AAP_ROUTE_CONTROL_TOKEN` | `—` | Backend process route controller: configure the same bearer stored in Registry. Direct value and _FILE are exclusive. Configured backends start unbound. |
+| `AAP_ROUTE_CONTROL_TOKEN_FILE` | `—` | — |
+| `AAP_ROUTE_REGISTRY_ID` | `—` | — |
 | `INFERENCE_RUNTIME_REGISTRY_INGRESS_DATABASE_URL_FILE` | `—` | Standalone runtime and Compose use a function-only LOGIN and a distinct bearer. |
 | `INFERENCE_RUNTIME_REGISTRY_INGRESS_TOKEN_FILE` | `—` | — |

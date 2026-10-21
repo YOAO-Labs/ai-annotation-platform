@@ -20,7 +20,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from aap_inference.pipeline_server import PipelineHttpServer
 from aap_inference.routing_backend_control import BackendRoutingControl
 from aap_inference.routing_runtime import RoutingRuntime
-from aap_inference_contract.routing import make_routing_command, RoutingUnavailable
+from aap_inference_contract.routing import (
+    make_routing_command,
+    make_routing_runtime_request,
+    RoutingRejectedResult,
+    RoutingUnavailable,
+)
 from aap_inference_contract.routing_client import RoutingHttpClient
 from aap_protocol_v2.routing import ROUTE_ADMISSION_HEADER
 from aap_protocol_v2.routing_runtime import install_backend_routing_controller
@@ -256,9 +261,10 @@ async def _capture_subject(
     capability: str,
     attempt_id: uuid.UUID,
     identity: dict,
+    control: bool = False,
 ) -> str:
     arguments = {
-        "parent_kind": "scope",
+        "parent_kind": "control" if control else "scope",
         "parent_id": str(scope_id),
         "capability": capability,
         "attempt_id": str(attempt_id),
@@ -336,7 +342,9 @@ def _command(receipt_ids: list[uuid.UUID], operation: str, body: dict):
     return command
 
 
-async def test_routing_owner_real_database_http_and_captured_transaction(test_engine):
+async def test_routing_owner_real_database_http_and_captured_transaction(
+    test_engine, monkeypatch
+):
     ownership = await assert_owned_test_database(test_engine)
     routing_dsn = os.environ.get("AAP_MODULE_DATA_INFERENCE_ROUTING_URL")
     assert routing_dsn, (
@@ -382,11 +390,25 @@ async def test_routing_owner_real_database_http_and_captured_transaction(test_en
         route_owner_token = f"routing-owner-{uuid.uuid4().hex}"
         backend_calls: list[dict] = []
         app = FastAPI()
+        unload_entered, unload_finish = asyncio.Event(), asyncio.Event()
+        unload_calls = []
 
         @app.post("/predict")
         async def predict(payload: dict):
             backend_calls.append(payload)
-            return {"call": len(backend_calls), "received": payload}
+            reply = {"call": len(backend_calls), "received": payload}
+            if "tasks" in payload:
+                reply["results"] = [
+                    {"task": task["id"], "result": []} for task in payload["tasks"]
+                ]
+            return reply
+
+        @app.post("/unload")
+        async def unload():
+            unload_calls.append(True)
+            unload_entered.set()
+            await unload_finish.wait()
+            return {"ok": True, "unloaded": True}
 
         controller = install_backend_routing_controller(
             app,
@@ -492,6 +514,20 @@ async def test_routing_owner_real_database_http_and_captured_transaction(test_en
         replayed_acquire = await routing_client.execute(acquire)
         assert acquired.state == replayed_acquire.state == "committed"
         assert acquired.result.id == replayed_acquire.result.id
+        receipt_count = await owner.fetchval(
+            "SELECT count(*) FROM aap_inference_routing_v1.command_receipts"
+        )
+        runtime = await routing_client.runtime(
+            make_routing_runtime_request([world["registry_id"]])
+        )
+        assert runtime.registries[0].open_scopes == 1
+        assert runtime.registries[0].continuity == "ready"
+        assert (
+            await owner.fetchval(
+                "SELECT count(*) FROM aap_inference_routing_v1.command_receipts"
+            )
+            == receipt_count
+        )
         assert (
             await owner.fetchval(
                 "SELECT count(*) FROM aap_inference_routing_v1.scopes WHERE registry_id=$1",
@@ -642,12 +678,199 @@ async def test_routing_owner_real_database_http_and_captured_transaction(test_en
         assert closed.state == "committed"
         assert closed.result.closed is True
         assert closed.result.state == "finished"
+
+        # An unknown destructive response retains its hold. Recovery reuses that
+        # exact control ID and waits for actual backend work, not database zero.
+        await owner.execute(
+            "UPDATE public.ml_backend_pool_members SET traffic_state='draining' WHERE registry_id=$1",
+            world["registry_id"],
+        )
+        control_id = uuid.uuid4()
+        prepared_control = await routing_client.execute(
+            _command(
+                receipt_ids,
+                "prepare_control",
+                {
+                    "registry_id": str(world["registry_id"]),
+                    "control_id": str(control_id),
+                    "kind": "unload",
+                    "expected_topology": None,
+                },
+            )
+        )
+        management = prepared_control.result
+        assert management.phase == "prepared"
+        control_attempt = uuid.uuid4()
+        async with owner.transaction():
+            subject = await _capture_subject(
+                owner,
+                scope_id=control_id,
+                capability=management.capability,
+                attempt_id=control_attempt,
+                identity=transport_identity,
+                control=True,
+            )
+            control_begin = await routing_client.execute(
+                _command(
+                    receipt_ids,
+                    "begin_control",
+                    {
+                        "control_id": str(control_id),
+                        "capability": management.capability,
+                        "attempt_id": str(control_attempt),
+                        "method": "POST",
+                        "path": "/unload",
+                        "transport_subject": subject,
+                    },
+                )
+            )
+        control_token = control_begin.result.headers["X-AAP-Route-Admission"]
+        async with httpx.AsyncClient(trust_env=False, timeout=0.1) as backend_client:
+            with pytest.raises(httpx.ReadTimeout):
+                await backend_client.post(
+                    f"{backend_url}/unload",
+                    headers={ROUTE_ADMISSION_HEADER: control_token},
+                )
+        assert unload_entered.is_set() and controller.active_requests == 1
+        await routing_client.execute(
+            _command(
+                receipt_ids,
+                "settle_control",
+                {
+                    "control_id": str(control_id),
+                    "capability": management.capability,
+                    "attempt_id": str(control_attempt),
+                    "kind": "uncertain",
+                    "status_code": None,
+                    "reason": "transport_timeout",
+                },
+            )
+        )
+        recovery = await routing_client.execute(
+            _command(
+                receipt_ids,
+                "reconcile",
+                {
+                    "registry_id": str(world["registry_id"]),
+                    "control_id": str(control_id),
+                },
+            )
+        )
+        assert recovery.state == "committed" and recovery.result.phase == "draining"
+        assert controller.active_requests == 1
+        observed = await routing_client.runtime(
+            make_routing_runtime_request([world["registry_id"]])
+        )
+        assert observed.registries[0].control_id == control_id
+        unload_finish.set()
+        async with asyncio.timeout(5):
+            while controller.active_requests:
+                await asyncio.sleep(0.01)
+        recovered = await routing_client.execute(
+            _command(
+                receipt_ids,
+                "reconcile",
+                {
+                    "registry_id": str(world["registry_id"]),
+                    "control_id": str(control_id),
+                },
+            )
+        )
+        assert recovered.result.phase == "completed"
+        assert (
+            await owner.fetchval(
+                "SELECT state FROM aap_inference_routing_v1.control_attempts WHERE id=$1",
+                control_attempt,
+            )
+            == "reconciled"
+        )
+        assert (
+            await owner.fetchval(
+                "SELECT recovered_kind FROM aap_inference_routing_v1.controls WHERE id=$1",
+                control_id,
+            )
+            == "unload"
+        )
+        async with httpx.AsyncClient(trust_env=False, timeout=5) as backend_client:
+            retired = await backend_client.post(
+                f"{backend_url}/unload", headers={ROUTE_ADMISSION_HEADER: control_token}
+            )
+        assert retired.status_code == 401 and unload_calls == [True]
+        late = await routing_client.execute(
+            _command(
+                receipt_ids,
+                "settle_control",
+                {
+                    "control_id": str(control_id),
+                    "capability": management.capability,
+                    "attempt_id": str(control_attempt),
+                    "kind": "response",
+                    "status_code": 200,
+                    "reason": None,
+                },
+            )
+        )
+        assert isinstance(late.result, RoutingRejectedResult)
+
+        # The API's real transport uses this same owner without committing the
+        # caller's already-flushed business update.
+        from app.config import settings, GPUArbiterMode
+        from app.db.models.ml_backend_registry import MLBackendRegistry
+        from app.services.ml_client import MLBackendClient
+
+        for name, value in {
+            "inference_routing_url": proxy_url,
+            "inference_routing_token": route_owner_token,
+            "inference_routing_token_file": "",
+            "inference_routing_database_url": "",
+            "inference_routing_database_url_file": "",
+            "gpu_arbiter_mode": GPUArbiterMode.OFF,
+            "gpu_arbiter_rollout_enabled": False,
+        }.items():
+            monkeypatch.setattr(settings, name, value)
+        before_api_receipts = set(
+            await owner.fetchval(
+                "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM aap_inference_routing_v1.command_receipts"
+            )
+        )
+        try:
+            async with async_sessionmaker(test_engine, expire_on_commit=False)() as db:
+                user = await db.get(User, user_id)
+                backend = await db.get(MLBackendRegistry, world["registry_id"])
+                user.name = "uncommitted real API transport change"
+                await db.flush()
+                result = await MLBackendClient(backend).predict(
+                    [{"id": "api-one", "data": {}}]
+                )
+                assert len(result) == 1 and result[0].task_id == "api-one"
+                assert (
+                    await owner.fetchval(
+                        "SELECT name FROM public.users WHERE id=$1", user_id
+                    )
+                    == baseline_user_name
+                )
+                await db.rollback()
+            assert (
+                await owner.fetchval(
+                    "SELECT name FROM public.users WHERE id=$1", user_id
+                )
+                == baseline_user_name
+            )
+        finally:
+            after_api_receipts = set(
+                await owner.fetchval(
+                    "SELECT COALESCE(array_agg(id),ARRAY[]::uuid[]) FROM aap_inference_routing_v1.command_receipts"
+                )
+            )
+            receipt_ids.extend(after_api_receipts - before_api_receipts)
         assert proxy.errors == []
     except RoutingUnavailable as error:
         raise AssertionError(
             f"routing owner failed at Native phases: {native_trace}"
         ) from error
     finally:
+        if "unload_finish" in locals():
+            unload_finish.set()
         try:
             if borrowed is not None:
                 try:

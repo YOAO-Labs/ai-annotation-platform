@@ -621,8 +621,8 @@ async def unload_ml_backend(
         dispatch_context_factory=dispatch_context_factory,
     )
     try:
-        await require_registry_quiescent(db, backend_id)
-        result = await svc.unload(backend_id)
+        topology = await require_registry_quiescent(db, backend_id)
+        result = await svc.unload(backend_id, expected_topology=topology)
     except MLBackendQuiescenceError as exc:
         raise HTTPException(
             status_code=503 if exc.unavailable else 409, detail=exc.as_detail()
@@ -670,6 +670,8 @@ async def reload_ml_backend(
     鉴权 super_admin only · /reload 会改写「全局 backend 常驻变体」(同 backend 被多项目共用),
     切变体等于换掉其他项目正在用的权重, 属破坏性驻留操作, 与 /unload 同基线收口到平台管理员
     (对齐 super_admin only 的「运行时观测」面板)。"""
+    from app.services.ml_routing.safety import MLBackendQuiescenceError
+
     svc = MLBackendService(
         db,
         shadow_session_factory=shadow_session_factory,
@@ -685,6 +687,10 @@ async def reload_ml_backend(
             dino_variant=dino_variant,
             modality=modality,
         )
+    except MLBackendQuiescenceError as exc:
+        raise HTTPException(
+            status_code=503 if exc.unavailable else 409, detail=exc.as_detail()
+        ) from exc
     except GPUArbiterDispatchError:
         raise
     except Exception as exc:

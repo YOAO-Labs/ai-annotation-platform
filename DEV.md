@@ -1810,3 +1810,26 @@ HTTP 使用 `INFERENCE_REGISTRY_INGRESS_TOKEN(_FILE)`，整体调用预算由
 `INFERENCE_RUNTIME_REGISTRY_INGRESS_*_FILE` 变量指向 DSN 和独立 bearer 文件。
 该进程独立监听，但尚不代表整个 Inference 模块可独立替换语言；截图 seed 的项目绑定、
 普通 Registry/Pool 管理、路由排空和租约连续性仍在后续范围。
+
+### 持久路由执行权（实施中）
+
+路由执行账本使用独立短事务，不提交当前预测、标注、审计或发布事务。
+API 的 `INFERENCE_ROUTING_URL` 与 `INFERENCE_ROUTING_DATABASE_URL(_FILE)` 互斥；均为空
+时在当前 API engine 上开启独立事务。HTTP 使用 `INFERENCE_ROUTING_TOKEN(_FILE)`，
+`INFERENCE_ROUTING_TIMEOUT_SECONDS` 限制 owner 调用；选定提供方失败后不回退。
+HTTP begin 的配置 subject 仍由 API 本地短事务签发，不携带后端明文凭据。
+
+独立 owner 进程使用 `INFERENCE_ROUTING_DATABASE_URL(_FILE)` 与独立的
+`INFERENCE_ROUTING_TOKEN(_FILE)`；准入参数为
+`INFERENCE_ROUTING_HEALTH_MAX_AGE_SECONDS` 与 `INFERENCE_ROUTING_LEASE_TTL_SECONDS`。
+`inference_routing_client` 只允许两项固定 Native 能力，不能授予原表权限。
+
+五个内置后端共享路由控制器。设置 `AAP_ROUTE_CONTROL_TOKEN(_FILE)` 后启动为未绑定，
+可选 `AAP_ROUTE_REGISTRY_ID` 固定实例身份；否则第一次认证管理交换固定身份。
+控制 bearer 需与 Registry 内保存的 token 相同。每次启动均在实际 drain/bind 前拒绝计算，
+不提供旧流量绕过开关；残留的 `AAP_ROUTE_ALLOW_LEGACY_EXECUTION=1` 配置会拒绝启动。
+迁移时先停止旧实例，再配置控制凭据、启动并绑定新实例，不能用空账本或 Redis 零计数作为停流证明。
+未配置控制 token 的普通旧推理仍可运行，管理连续性无法确认。
+
+当前实现与验收状态见 [ADR-0155](docs/adr/0155-durable-inference-routing-authority.md)。
+完整迁移、真实并发、受限部署和故障资格仍需完成；此配置不切换日常或生产环境。

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from copy import deepcopy
 
 from aap_inference.backend_transport import BackendTransport
 from aap_protocol_v2.lifecycle import AdmissionScope
@@ -48,15 +49,31 @@ class MLBackendClient(BackendTransport):
         *,
         shadow_session_factory: GPUShadowSessionFactory | None = None,
         dispatch_context_factory: GPUDispatchContextFactory | None = None,
+        routing_authority=None,
     ) -> None:
         self._shadow_session_factory = shadow_session_factory
         self._dispatch_context_factory = dispatch_context_factory
+        from app.services.ml_routing.authority import backend_request_context
+
+        transport_identity = {
+            "url": backend.url,
+            "auth_method": backend.auth_method,
+            "auth_token": backend.auth_token,
+            "gpu_resource_id": backend.gpu_resource_id,
+            "extra_params": deepcopy(backend.extra_params),
+        }
         super().__init__(
             backend,
             options=settings,
             dispatch_context=self._gpu_dispatch,
             observe=observe_ml_backend,
             error_factory=HTTPException,
+            request_context=backend_request_context(
+                backend,
+                transport_identity,
+                authority=routing_authority,
+                session_factory=self._shadow_session_factory,
+            ),
         )
 
     async def _observe_gpu_dispatch(self, operation: str) -> None:

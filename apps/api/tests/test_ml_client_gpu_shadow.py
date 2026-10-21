@@ -37,6 +37,9 @@ from app.services.ml_client import MLBackendClient
 RESOURCE_ID = "node-a/index:0"
 
 
+pytestmark = pytest.mark.usefixtures("isolated_routing_port")
+
+
 def _backend(*, max_concurrency: int = 4) -> MLBackendRegistry:
     backend = MLBackendRegistry()
     backend.id = uuid.uuid4()

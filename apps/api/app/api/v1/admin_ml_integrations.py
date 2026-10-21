@@ -1120,8 +1120,8 @@ async def unload_registry_backend(
         dispatch_context_factory=dispatch_context_factory,
     )
     try:
-        await require_registry_quiescent(db, registry_id)
-        result = await svc.unload(registry_id)
+        topology = await require_registry_quiescent(db, registry_id)
+        result = await svc.unload(registry_id, expected_topology=topology)
     except MLBackendQuiescenceError as exc:
         raise HTTPException(
             status_code=503 if exc.unavailable else 409, detail=exc.as_detail()
@@ -1390,6 +1390,11 @@ async def smoke_test_backend(
         if registered_backend is not None
         else None
     )
+    registered_service = MLBackendService(
+        db,
+        shadow_session_factory=shadow_session_factory,
+        dispatch_context_factory=dispatch_context_factory,
+    )
 
     async def _audit(result: SmokeTestResponse) -> None:
         await AuditService.log(
@@ -1612,11 +1617,13 @@ async def smoke_test_backend(
         start = time.monotonic()
         try:
             if registered_backend is not None:
-                assert registered_client is not None
-                reload_data = await registered_client.reload(
+                reload_data = await registered_service.reload(
+                    registered_backend.id,
                     sam_variant=payload.sam_variant,
                     dino_variant=payload.dino_variant,
                 )
+                if reload_data is None:
+                    raise ValueError("registered backend unavailable")
             else:
                 record_unregistered_gpu_shadow_dispatch(base, "reload")
                 rresp = await client.post(f"{base}/reload", json=body or None)
@@ -1638,9 +1645,9 @@ async def smoke_test_backend(
         auto_unloaded = False
         try:
             if registered_backend is not None:
-                assert registered_client is not None
-                await registered_client.unload()
-                auto_unloaded = True
+                auto_unloaded = (
+                    await registered_service.unload(registered_backend.id)
+                ) is not None
             else:
                 record_unregistered_gpu_shadow_dispatch(base, "unload")
                 uresp = await client.post(
@@ -2161,10 +2168,11 @@ async def get_runtime_snapshot(
     db: AsyncSession = Depends(get_db),
     _admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> RuntimeSnapshotResponse:
-    """Full runtime snapshot (Super Admin only): router mode + per-pool inflight /
-    circuit / health + a freshness envelope (§12.3 + plan §6.3). Best-effort Redis
-    reads — a Redis failure flips the ``router_ledger`` source to ``stale`` rather
-    than dropping the snapshot. Metrics-driven fields stay ``None`` (plan §4.2)."""
+    """Super Admin runtime observations with per-source freshness.
+
+    Execution counts come from the durable routing owner in every mode; failed
+    owner reads remain unknown. Redis circuit hints are independently best effort.
+    """
     from app.services.ml_routing.diagnostics import build_runtime_snapshot
 
     ledger = None

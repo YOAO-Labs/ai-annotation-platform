@@ -1812,7 +1812,7 @@ BEGIN
                 INTO v_pool_row, v_pool_enabled, v_legacy_instance, v_generation
                 FROM public.ml_backend_service_pools AS pool
                 WHERE pool.id = v_physical_pool_id
-                FOR UPDATE NOWAIT;
+                FOR NO KEY UPDATE NOWAIT;
                 IF NOT FOUND THEN
                     RETURN aap_inference_routing_v1._routing_rejected('pool_unavailable');
                 END IF;
@@ -1979,6 +1979,9 @@ BEGIN
            OR pg_catalog.char_length(v_operation) NOT BETWEEN 1 AND 96 THEN
             RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'invalid routing scope request';
         END IF;
+        IF v_operation LIKE 'control:%' THEN
+            RETURN aap_inference_routing_v1._routing_rejected('invalid_command');
+        END IF;
         v_snapshot := aap_inference_routing_v1._routing_open_snapshot(v_snapshot_token);
         IF NOT aap_inference_routing_v1._routing_exact_keys(
             v_snapshot, ARRAY['schema', 'realm', 'xid', 'mode', 'pool_id',
@@ -2119,7 +2122,7 @@ BEGIN
                 INTO v_generation, v_pool_enabled, v_legacy_instance
                 FROM public.ml_backend_service_pools AS pool
                 WHERE pool.id = v_physical_pool_id
-                FOR UPDATE NOWAIT;
+                FOR NO KEY UPDATE NOWAIT;
                 IF NOT FOUND THEN
                     RETURN aap_inference_routing_v1._routing_rejected('generation_mismatch');
                 END IF;
@@ -2483,7 +2486,7 @@ BEGIN
                     PERFORM pool.id
                     FROM public.ml_backend_service_pools AS pool
                     WHERE pool.id = v_scope.pool_id
-                    FOR UPDATE NOWAIT;
+                    FOR NO KEY UPDATE NOWAIT;
                     IF NOT FOUND THEN
                         RETURN aap_inference_routing_v1._routing_rejected('generation_mismatch');
                     END IF;
@@ -3062,9 +3065,7 @@ BEGIN
         IF v_active_count > 0 THEN
             RETURN aap_inference_routing_v1._routing_rejected('management_busy');
         END IF;
-        IF v_response_count = 0 THEN
-            RETURN aap_inference_routing_v1._routing_rejected('invalid_command');
-        END IF;
+        -- With no attempts, no admission JWT was issued and the hold can cancel.
         UPDATE aap_inference_routing_v1.controls AS control
         SET phase = CASE
                 WHEN v_uncertain_count > 0 OR v_failed_response THEN 'uncertain'
@@ -3688,7 +3689,13 @@ BEGIN
         END IF;
         RETURN aap_inference_routing_v1._routing_reply('ok', pg_catalog.jsonb_build_object(
             'attempt_id', v_attempt_id,
-            'control', aap_inference_routing_v1._routing_control_view(v_control_id, true),
+            'control', pg_catalog.jsonb_build_object(
+                'control_id', v_control_id,
+                'registry_id', v_control.registry_id,
+                'kind', v_control.kind,
+                'phase', v_control.phase,
+                'capability', aap_inference_routing_v1._routing_control_capability(v_control_id)
+            ),
             'headers', pg_catalog.jsonb_build_object(
                 'X-AAP-Route-Admission', v_header_token
             )

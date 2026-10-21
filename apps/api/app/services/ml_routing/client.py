@@ -150,8 +150,7 @@ class RoutedMLBackendClient:
             try:
                 ledger = self.ledger_factory()
             except Exception:
-                # Observe remains non-gating; enforce receives ROUTER_UNAVAILABLE
-                # from MLBackendRouter when the ledger could not be constructed.
+                # Circuit hints cannot gate durable execution ownership.
                 ledger = None
         try:
             routed = MLBackendRouter(self.db, ledger=ledger, mode=self.mode)

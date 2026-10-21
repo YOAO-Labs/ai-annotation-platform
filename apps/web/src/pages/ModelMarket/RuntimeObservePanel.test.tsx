@@ -606,14 +606,10 @@ describe("RuntimeObservePanel · service-pool tree (P4)", () => {
       fireEvent.click(await screen.findByRole("button", { name: /展开服务池成员/ }));
       const unloadBtn = await screen.findByRole("button", { name: /^卸载$/ });
       expect(unloadBtn).not.toBeDisabled();
-      fireEvent.pointerMove(screen.getByLabelText("卸载状态"), {
-        pointerType: "mouse",
-        clientX: 1,
-        clientY: 1,
-      });
-      expect(
-        await screen.findByText("当前观测未见活动执行；可请求卸载，服务端仍会再次核验运行状态"),
-      ).toBeVisible();
+      fireEvent.focus(screen.getByLabelText("卸载状态"));
+      expect(await screen.findByRole("tooltip")).toHaveTextContent(
+        "当前观测未见活动执行；可请求卸载，服务端仍会再次核验运行状态",
+      );
 
       fireEvent.click(unloadBtn);
       await waitFor(() =>

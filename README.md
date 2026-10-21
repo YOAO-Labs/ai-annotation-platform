@@ -405,6 +405,8 @@ Workspace 的后端能力探测通过 Inference 私有协议返回模态，Works
 
 启动时的环境后端同步与截图 seed 共用 Registry ingress 策略及固定写入能力。整个环境同步命令可选择借用连接、专用 DSN 或独立 HTTP owner；seed 保留原调用方事务。配置与未完成范围见 [环境同步指南](./docs-site/api/guides/inference-runtime.md#registry-环境同步)。
 
+推理路由正在接入独立的持久执行账本；运行计数不再依赖 Redis 租约，卸载与重载要求管理占用和真实后端连续性。配置与本地验证边界见[路由执行权指南](./docs-site/api/guides/inference-runtime.md#持久路由执行权)。GPU 自动驱逐、作业重启交接与完整模块资格仍在推进。
+
 类别与属性用量已接入 Labeling 读取边界，先核验当前项目管理权，保留原统计口径和两次顺序读取；独立安装包、三路径响应、语句间提交、受限镜像与备份恢复已完成限定本地验收，见 [Labeling 运行协议](./docs-site/api/guides/labeling-runtime.md)与 [统计 owner ADR](./docs/adr/0142-labeling-class-usage-query-owner.md)。
 
 项目与批次维护、数据回填、成员绩效、搜索、指引资源及预测／标注导入见 [项目、批次与数据运维](./docs-site/dev/sdk/project-workflows.md)。分派绑定原预览版本，项目范围约束先于查询限制，批次导出与项目导出使用相同能力检查。

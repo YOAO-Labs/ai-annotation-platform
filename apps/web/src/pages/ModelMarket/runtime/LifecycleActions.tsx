@@ -145,7 +145,7 @@ export function LifecycleActions({
                 disabled={drain.isPending}
               >
                 <Icon name="pause" size={10} />
-                {drainLabel}
+                停流
               </Button>
             </TooltipTrigger>
             <TooltipContent side="top">{drainTip}</TooltipContent>

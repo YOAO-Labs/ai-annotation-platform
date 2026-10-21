@@ -20,6 +20,9 @@ from aap_inference.backend_transport import (
 from app.services.ml_client import MLBackendClient
 
 
+pytestmark = pytest.mark.usefixtures("isolated_routing_port")
+
+
 def _backend(url="http://fake:9090"):
     b = MLBackendRegistry()
     b.id = "00000000-0000-0000-0000-0000000000aa"

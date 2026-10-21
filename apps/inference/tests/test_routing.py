@@ -288,6 +288,24 @@ async def test_enforce_eligibility_uses_full_rows_and_python_capability_fingerpr
 
 
 @pytest.mark.asyncio
+async def test_scope_cannot_impersonate_a_control_operation():
+    native = _Native()
+    command = _acquire().model_dump(mode="json", by_alias=True)
+    command["body"]["operation"] = "control:unload"
+    manager = _manager(native)
+    result = await manager.execute(command)
+    assert result.state == "committed"
+    assert result.result == RoutingRejectedResult(
+        kind="rejected", reason="invalid_command"
+    )
+    assert not any(
+        event[0] == "step" and event[1] in {"admission_snapshot", "reserve_scope"}
+        for event in native.events
+    )
+    assert (await manager.execute(command)).result == result.result
+
+
+@pytest.mark.asyncio
 async def test_off_mode_tracks_the_legacy_instance_without_health_gating():
     native = _Native()
     result = await _manager(native).execute(_acquire(mode="off"))

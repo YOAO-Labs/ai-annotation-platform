@@ -556,38 +556,57 @@ async def test_restored_routing_authority_is_quarantined_in_owned_clone(
             clone_dsn,
             backend_control=forbidden_backend_control,
         )
-        assert await clone_runtime.readiness()
-        source_begin_status = await clone_runtime.status(
-            make_routing_status_request(world["begin_command"])
-        )
-        source_acquire_status = await clone_runtime.status(
-            make_routing_status_request(world["acquire_command"])
-        )
-        assert source_begin_status.state == "unknown"
-        assert source_begin_status.result is None
-        assert source_acquire_status.state == "unknown"
-        assert source_acquire_status.result is None
-
-        runtime_view = await clone_runtime.runtime(
-            make_routing_runtime_request([world["registry_id"]])
-        )
-        assert len(runtime_view.registries) == 1
-        quarantined = runtime_view.registries[0]
-        assert quarantined.registry_id == world["registry_id"]
-        assert quarantined.continuity == "unverified"
-        assert quarantined.authority_epoch is None
-        assert quarantined.backend_incarnation is None
-        assert quarantined.open_scopes == 1
-        assert quarantined.active_attempts == 1
-        assert quarantined.uncertain_attempts == 0
-        assert quarantined.control_id == world["unresolved_control_id"]
+        # The restored secret is deliberately bound to its source database.
+        # Public owner readiness and data binding remain closed in quarantine.
+        assert await clone_runtime.readiness() is False
+        for source_command in (world["begin_command"], world["acquire_command"]):
+            with pytest.raises(RoutingUnavailable):
+                await clone_runtime.status(make_routing_status_request(source_command))
+        with pytest.raises(RoutingUnavailable):
+            await clone_runtime.runtime(
+                make_routing_runtime_request([world["registry_id"]])
+            )
 
         clone_connection = await asyncpg.connect(
             clone_dsn, timeout=5, command_timeout=15
         )
         clone_transaction = clone_connection.transaction()
         await clone_transaction.start()
-        clone_data = await RoutingPostgresData.bind(clone_connection)
+        with pytest.raises(RoutingUnavailable):
+            await RoutingPostgresData.bind(clone_connection)
+        # The two fixed Native capabilities still allow an operator to inspect
+        # quarantine; they never expose source receipts or permit mutation.
+        for source_command in (world["begin_command"], world["acquire_command"]):
+            status = await _step(
+                clone_connection,
+                "command_status",
+                {
+                    "request_id": str(source_command.request_id),
+                    "command_sha256": routing_command_sha256(source_command),
+                },
+            )
+            assert status["receipt"] is None
+        runtime_view = await _step(
+            clone_connection,
+            "runtime_snapshot",
+            {"registry_ids": [str(world["registry_id"])]},
+        )
+        assert len(runtime_view["registries"]) == 1
+        quarantined = runtime_view["registries"][0]
+        assert quarantined["registry_id"] == str(world["registry_id"])
+        assert quarantined["continuity"] == "unverified"
+        assert quarantined["authority_epoch"] is None
+        assert quarantined["backend_incarnation"] is None
+        assert quarantined["open_scopes"] == 1
+        assert quarantined["active_attempts"] == 1
+        assert quarantined["uncertain_attempts"] == 0
+        assert quarantined["control_id"] == str(world["unresolved_control_id"])
+
+        class CloneNative:
+            async def step(self, action, arguments):
+                return await _step(clone_connection, action, arguments)
+
+        clone_data = CloneNative()
         begin_rejection = await clone_data.step(
             "begin_attempt",
             {

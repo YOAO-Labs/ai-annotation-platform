@@ -200,6 +200,80 @@ async def _add_open_scope(owner, world, scope_id: uuid.UUID) -> None:
     )
 
 
+async def test_unstarted_control_can_close_without_claiming_a_backend_response(
+    test_engine,
+):
+    """Native state machine only: no physical completion proof is fabricated."""
+    await assert_owned_test_database(test_engine)
+    owner = await _connect(test_engine)
+    world = await _seed(owner)
+    client = await _connect(test_engine, role=_ROLE)
+    control_id = uuid.uuid4()
+    try:
+        async with client.transaction():
+            control = await _step(
+                client,
+                "prepare_control",
+                {
+                    "registry_id": str(world["registry_id"]),
+                    "control_id": str(control_id),
+                    "kind": "unload",
+                    "expected_topology": None,
+                },
+            )
+        assert control["status"] == "ok"
+        async with client.transaction():
+            closed = await _step(
+                client,
+                "finish_control",
+                {"control_id": str(control_id), "capability": control["capability"]},
+            )
+        assert closed["phase"] == "completed"
+        assert (
+            await owner.fetchval(
+                "SELECT count(*) FROM aap_inference_routing_v1.control_attempts WHERE control_id=$1",
+                control_id,
+            )
+            == 0
+        )
+        async with client.transaction():
+            late = await _step(
+                client,
+                "begin_control_attempt",
+                {
+                    "control_id": str(control_id),
+                    "capability": control["capability"],
+                    "attempt_id": str(uuid.uuid4()),
+                    "method": "POST",
+                    "path": "/unload",
+                    "transport_identity": {
+                        "identity_sha256": await _identity_hash(
+                            owner, world["registry_id"]
+                        )
+                    },
+                },
+            )
+        assert late["status"] == "rejected"
+        async with client.transaction():
+            successor = await _step(
+                client,
+                "prepare_control",
+                {
+                    "registry_id": str(world["registry_id"]),
+                    "control_id": str(uuid.uuid4()),
+                    "kind": "reload",
+                    "expected_topology": None,
+                },
+            )
+        assert successor["status"] == "ok"
+    finally:
+        await client.close()
+        try:
+            await _cleanup(owner, world)
+        finally:
+            await owner.close()
+
+
 async def test_unresolved_control_recovers_under_same_id_after_scope_gate(test_engine):
     """Exercise Native recovery; Root's HTTP suite proves the real drain/bind exchange."""
     await assert_owned_test_database(test_engine)

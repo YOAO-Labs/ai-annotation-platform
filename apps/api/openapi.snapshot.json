@@ -52976,7 +52976,7 @@
     },
     "/api/v1/admin/ml-integrations/runtime-snapshot": {
       "get": {
-        "description": "Full runtime snapshot (Super Admin only): router mode + per-pool inflight /\ncircuit / health + a freshness envelope (§12.3 + plan §6.3). Best-effort Redis\nreads — a Redis failure flips the ``router_ledger`` source to ``stale`` rather\nthan dropping the snapshot. Metrics-driven fields stay ``None`` (plan §4.2).",
+        "description": "Super Admin runtime observations with per-source freshness.\n\nExecution counts come from the durable routing owner in every mode; failed\nowner reads remain unknown. Redis circuit hints are independently best effort.",
         "operationId": "get_runtime_snapshot_api_v1_admin_ml_integrations_runtime_snapshot_get",
         "responses": {
           "200": {

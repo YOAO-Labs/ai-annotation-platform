@@ -700,7 +700,7 @@ function InstanceConfirmDialog({
                 </p>
               ) : (
                 <>
-                  <p>卸载将触发 GPU 模型驻留回收（residence draining），不影响路由接流。</p>
+                  <p>卸载会释放模型资源，服务端将先核验停止接流和后台任务状态。</p>
                   {unloadBlocked && (
                     <div className="flex items-start gap-1.5 rounded-md border border-status-caution bg-status-caution-soft px-2.5 py-2 text-xs text-status-caution">
                       <Icon name="warning" size={12} className="mt-0.5 flex-shrink-0" />

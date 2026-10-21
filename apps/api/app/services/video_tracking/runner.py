@@ -3153,6 +3153,7 @@ async def run_tracker_job(
     tracker_ledger = None
     tracker_lease = None
     tracker_router = None
+    tracker_scope_context = None
     heartbeat_task: asyncio.Task | None = None
     heartbeat_failed = False
     route_succeeded = False
@@ -3283,7 +3284,7 @@ async def run_tracker_job(
         progress = 0
         # v0.23.3 ADR-0050 §11 · 取得 job-scope route lease (enforce) / 记录 would-select
         # (observe)。tracker 整 job pin 一个实例, lease 周期 heartbeat 续命 (不能中途换实例)。
-        if backend is not None and tracker_pool_id is not None:
+        if backend is not None:
             try:
                 tracker_ledger = (
                     make_ledger_from_settings()
@@ -3298,6 +3299,7 @@ async def run_tracker_job(
                 owner=f"tracker:{job_id}",
                 operation="tracker",
                 project_id=task.project_id,
+                registry_id=backend.id if tracker_pool_id is None else None,
             )
             if _sel.rejection is not None or _sel.instance_id is None:
                 rejection = _sel.rejection or RejectionReason.POOL_UNAVAILABLE
@@ -3317,6 +3319,12 @@ async def run_tracker_job(
                 # tracker pins the acquired instance for the whole job (stateful session).
                 if _sel.lease is not None:
                     tracker_lease = _sel.lease
+                    from app.services.ml_routing.authority import scope_binding
+
+                    tracker_scope_context = scope_binding(
+                        tracker_router.authority, tracker_lease.scope
+                    )
+                    await tracker_scope_context.__aenter__()
 
                     # heartbeat loop: renew lease periodically until job ends.
                     async def _heartbeat_loop():
@@ -3877,6 +3885,8 @@ async def run_tracker_job(
             with suppress(asyncio.CancelledError):
                 await heartbeat_task
         if tracker_lease is not None and tracker_router is not None:
+            if tracker_scope_context is not None:
+                await tracker_scope_context.__aexit__(None, None, None)
             try:
                 if route_succeeded:
                     await tracker_router.finish(

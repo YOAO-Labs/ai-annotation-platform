@@ -1226,17 +1226,25 @@ class MLBackendService:
         return assoc
 
     # ── client 操作 (按 registry id) ─────────────────────────────────────────
-    async def unload(self, registry_id: uuid.UUID) -> dict | None:
+    async def unload(
+        self, registry_id: uuid.UUID, *, expected_topology=None
+    ) -> dict | None:
         backend = await self.get(registry_id)
         if not backend:
             return None
-        # 远程调用前释放只读事务连接，避免 shadow 短会话与请求会话互相挤占池。
-        await self.db.commit()
-        return await MLBackendClient(
-            backend,
-            shadow_session_factory=self.shadow_session_factory,
-            dispatch_context_factory=self.dispatch_context_factory,
-        ).unload()
+        from app.services.ml_routing.authority import lifecycle_control
+
+        async with lifecycle_control(
+            self.db, registry_id, "unload", expected_topology=expected_topology
+        ) as authority:
+            # Keep the existing pre-I/O release of the caller connection.
+            await self.db.commit()
+            return await MLBackendClient(
+                backend,
+                shadow_session_factory=self.shadow_session_factory,
+                dispatch_context_factory=self.dispatch_context_factory,
+                routing_authority=authority,
+            ).unload()
 
     async def reload(
         self,
@@ -1249,17 +1257,21 @@ class MLBackendService:
         backend = await self.get(registry_id)
         if not backend:
             return None
-        await self.db.commit()
-        return await MLBackendClient(
-            backend,
-            shadow_session_factory=self.shadow_session_factory,
-            dispatch_context_factory=self.dispatch_context_factory,
-        ).reload(
-            sam_variant=sam_variant,
-            dino_variant=dino_variant,
-            modality=modality,
-            task_type=task_type,
-        )
+        from app.services.ml_routing.authority import lifecycle_control
+
+        async with lifecycle_control(self.db, registry_id, "reload") as authority:
+            await self.db.commit()
+            return await MLBackendClient(
+                backend,
+                shadow_session_factory=self.shadow_session_factory,
+                dispatch_context_factory=self.dispatch_context_factory,
+                routing_authority=authority,
+            ).reload(
+                sam_variant=sam_variant,
+                dino_variant=dino_variant,
+                modality=modality,
+                task_type=task_type,
+            )
 
     async def warmup(self, registry_id: uuid.UUID, body: dict) -> dict | None:
         """协议 §4.4 · 转发 /warmup. body 原样上抛 backend, 各 backend schema 不同."""

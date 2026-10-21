@@ -399,6 +399,8 @@ class RoutingManager:
     async def _acquire(
         self, data: RoutingTransaction, body: dict[str, Any], digest: str
     ) -> dict[str, Any]:
+        if body["operation"].startswith("control:"):
+            raise _Rejected("invalid_command")
         snapshot_result = await _native_step(
             data,
             "admission_snapshot",
