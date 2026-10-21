@@ -1,4 +1,4 @@
-"""API-side guide, import, class-rename and adjacent project write helpers."""
+"""API-side guide, import and adjacent project write helpers."""
 
 from __future__ import annotations
 
@@ -61,53 +61,6 @@ async def create_import_project(
     db.add(project)
     await db.flush()
     return project
-
-
-def rename_class_bindings(
-    project: Project,
-    *,
-    old_name: str,
-    new_name: str,
-    tool_unit_id: str | None,
-) -> None:
-    """Rename a class in the selected project tool unit(s), preserving aliases."""
-    tool_bindings = dict(project.tool_bindings or {})
-    if tool_unit_id is not None:
-        if tool_unit_id not in tool_bindings:
-            raise HTTPException(
-                status_code=404, detail=f"tool_unit_id '{tool_unit_id}' 不存在"
-            )
-        target_units = [tool_unit_id]
-    else:
-        target_units = list(tool_bindings.keys())
-
-    found_any = False
-    for unit_id in target_units:
-        binding = tool_bindings.get(unit_id)
-        if not isinstance(binding, dict):
-            continue
-        classes_list = list(binding.get("classes") or [])
-        names = [c.get("name") for c in classes_list if isinstance(c, dict)]
-        if old_name not in names:
-            continue
-        if new_name in names:
-            raise HTTPException(
-                status_code=409,
-                detail=f"类别 '{new_name}' 在工具单位 '{unit_id}' 已存在",
-            )
-        renamed = []
-        for item in classes_list:
-            if isinstance(item, dict) and item.get("name") == old_name:
-                renamed.append({**item, "name": new_name})
-            else:
-                renamed.append(item)
-        tool_bindings[unit_id] = {**binding, "classes": renamed}
-        found_any = True
-
-    if not found_any:
-        raise HTTPException(status_code=404, detail=f"类别 '{old_name}' 不存在")
-
-    project.tool_bindings = tool_bindings
 
 
 _GUIDE_KEY_RE = re.compile(r"^projects/[0-9a-f-]{36}/guide/[0-9a-f-]{36}-[^/]+$")

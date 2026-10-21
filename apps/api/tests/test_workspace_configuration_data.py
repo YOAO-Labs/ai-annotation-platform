@@ -24,6 +24,8 @@ class Session:
         self.flush = AsyncMock()
         self.commit = AsyncMock()
         self.rollback = AsyncMock()
+        self.close = AsyncMock()
+        self.begin_nested = AsyncMock()
         self.scalar = AsyncMock(
             side_effect=[
                 {"schema": "aap-workspace-configuration/v1"},
@@ -44,6 +46,29 @@ async def test_borrowed_transaction_keeps_commit_and_rollback_with_caller(autofl
     assert session.flush.await_count == int(autoflush)
     session.commit.assert_not_awaited()
     session.rollback.assert_not_awaited()
+
+
+@pytest.mark.parametrize("autoflush", [True, False])
+async def test_class_rename_prepare_never_flushes_or_owns_the_borrowed_transaction(
+    autoflush,
+):
+    session = Session(autoflush)
+    data = WorkspaceConfigurationData(session)
+    assert data.independent is False
+    result = await data.step(
+        {"operation": "rename_project_class"},
+        "class_rename_prepare",
+        {},
+        [],
+        [],
+    )
+    assert result == {"schema": "aap-workspace-configuration/v1"}
+    assert session.scalar.await_count == 1
+    session.flush.assert_not_awaited()
+    session.commit.assert_not_awaited()
+    session.rollback.assert_not_awaited()
+    session.close.assert_not_awaited()
+    session.begin_nested.assert_not_awaited()
 
 
 async def test_project_insert_hook_flushes_even_when_autoflush_is_disabled():

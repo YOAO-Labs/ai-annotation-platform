@@ -73,6 +73,30 @@ Node conformance provider 以标准 PostgreSQL 协议调用相同的两项函数
 Workspace 已独立部署。状态与事务取舍见
 [ADR-0136](/dev/adr/0136-workspace-configuration-command-owner)。
 
+### 类别重命名
+
+`rename_project_class` 复用同一个配置端点、数据账号和进程。公开入口仍先检查
+项目管理权，再校验非空名称；账户、项目和成员权限围栏保持原顺序。
+实际改名在同一事务内先调用 Labeling 的窄标注类名能力，再写项目绑定。
+公开响应继续在提交后读取项目投影；此时查询失败不会撤销已经提交的改名。
+
+同名请求不写业务数据或操作回执，也不检查类别和工具单位是否存在。
+借用事务时，API 在调用方仍持锁时读取投影。独立连接／HTTP 提供方在自己的
+事务内完成投影，随后回滚这个无写入事务，并把绑定的投影结果交回 API。
+独立提供方因此需要 Project Query 与 Identity Briefs 能力；缺失时返回不可用。
+改名没有持久成功收据，传输失败不会自动重发；原有六种配置命令的重试保持不变。
+
+独立 Configuration 进程可在原 Compose 文件上叠加
+`docker-compose.workspace-class-rename.yml`，为同一服务补充项目查询与身份资料的
+两份只读 secret。四份 secret 分别由
+`WORKSPACE_RUNTIME_CONFIGURATION_DATABASE_URL_FILE`、
+`WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE`、
+`WORKSPACE_RUNTIME_PROJECT_QUERY_DATABASE_URL_FILE` 和
+`WORKSPACE_RUNTIME_PROJECT_QUERY_BRIEFS_DATABASE_URL_FILE` 指定。
+不增加服务或对外端口；原六种配置操作仍可使用原来的两份 secret 部署。
+此切片的集成与验收仍在推进，范围见
+[ADR-0143](/dev/adr/0143-workspace-project-class-rename-owner)。
+
 ## 模板列表、详情与响应投影
 
 模板列表、详情和配置提交后的响应已由 `aap-workspace-template-query/v1` owner 提供。

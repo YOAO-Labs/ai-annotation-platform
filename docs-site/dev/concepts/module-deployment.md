@@ -70,6 +70,15 @@ Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事�
 
 基础 Native 验收通过5项，包含全部六种命令及重放；相关公开 API 通过57项。调用方事务、专用 DSN 和独立 HTTP 三条路径各已对照106项实际旧 HTTP 响应，默认路径另核对17项调用方记录，保留公开错误、外部探测顺序和业务回滚。三项写入转换错误的 SQLAlchemy 内部 active 标记不作兼容承诺；原客户端 SQL trace 无法观测 Native 内部语句，未计为已匹配。实际 PostgreSQL 更新次数、锁竞争、探测期间撤权回滚，以及独立进程的丢响应重试和重启重放均已通过。失败事务与恢复通过4项，另有9项关联恢复无跳过通过；0257 完整迁移验证通过，派生数据库均已清理。非 editable 安装通过132项 Workspace 与27项 Inference 检查，46个包文件指纹匹配。受限 owner/API 镜像和实际容器联调通过；1 CPU／256 MiB 下，16个独立项目、并发4全部完成，无 OOM，本地观察 p95 约114 ms。六项配置命令的限定本地验收已完成，完整 Workspace 的读取投影、相邻写入和全模块资格仍待推进。边界、基线与剩余门槛见 [ADR-0136](/dev/adr/0136-workspace-configuration-command-owner)。
 
+## Workspace 类别重命名
+
+类别重命名正在接入同一个 Configuration owner，使用独立的无状态命令分支，
+在一个事务内组合 Workspace 绑定策略和 Labeling 的窄类名写入。
+同名操作的独立提供方在权限锁释放前完成项目投影，不额外写入成功回执；
+改名传输不自动重发。基础写入能力已通过本地检查，完整命令的三路径、
+故障与恢复、当前工件验收仍在推进，见
+[ADR-0143](/dev/adr/0143-workspace-project-class-rename-owner)。
+
 ## Workspace 项目成员生命周期命令
 
 项目成员新增、角色预览／变更与移除已收口到 `apps/workspace` 的可移植 owner。命令协议为 `aap-workspace-membership/v1`，以 prepare → portable policy → apply 在同一 PostgreSQL 事务中组合 Workspace member row、Identity/Project 当前权威、Labeling 工作事实与交接、typed Audit 及不可变成功 receipt。现有 Python preview digest、blocker 顺序、CAS、NOWAIT/rollback 和公开 API/DTO/error mapping 保持；邀请接受继续由 Identity invitation owner 处理，不另建 membership writer。

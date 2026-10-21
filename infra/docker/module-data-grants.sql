@@ -1664,6 +1664,10 @@ ALTER FUNCTION aap_workspace_configuration_v1._has_exact_keys(jsonb, text[])
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_configuration_v1._configuration_actor(uuid, boolean, text)
     OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_configuration_v1._class_rename_project_row(uuid, text)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_configuration_v1._class_rename_member_rows(uuid, uuid)
+    OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_configuration_v1._configuration_project_snapshot(uuid, text)
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_configuration_v1._configuration_project_access(jsonb, jsonb, boolean)

@@ -45,25 +45,8 @@ class _ApiProfiles:
             raise ProjectQueryProfilesUnavailable() from None
 
 
-async def execute_project_query(
-    db,
-    *,
-    operation,
-    actor,
-    target_id=None,
-    filters=None,
-    pagination=None,
-    projection_evidence=None,
-):
-    request = project_query_request(
-        operation,
-        actor.id,
-        getattr(actor.role, "value", actor.role),
-        target_id=target_id,
-        filters=filters,
-        pagination=pagination,
-        projection_evidence=projection_evidence,
-    )
+async def _select_project_query_reply(db, request):
+    """Return the selected owner's strict private reply without materializing it."""
     try:
         url = settings.workspace_project_query_url
         try:
@@ -112,13 +95,7 @@ async def execute_project_query(
                         ProjectQueryPostgresData(dsn, command_timeout=timeout),
                         _ApiProfiles(db),
                     ).execute(request)
-        if not reply.ok:
-            raise HTTPException(
-                status_code=reply.error.status_code,
-                detail=reply.error.detail,
-                headers=reply.error.headers,
-            )
-        return materialize_project_query_data(reply)
+        return reply
     except (
         ProjectQueryUnavailable,
         httpx.HTTPError,
@@ -126,6 +103,38 @@ async def execute_project_query(
         OSError,
         TimeoutError,
     ):
+        raise ProjectQueryUnavailable() from None
+
+
+async def execute_project_query(
+    db,
+    *,
+    operation,
+    actor,
+    target_id=None,
+    filters=None,
+    pagination=None,
+    projection_evidence=None,
+):
+    request = project_query_request(
+        operation,
+        actor.id,
+        getattr(actor.role, "value", actor.role),
+        target_id=target_id,
+        filters=filters,
+        pagination=pagination,
+        projection_evidence=projection_evidence,
+    )
+    try:
+        reply = await _select_project_query_reply(db, request)
+        if not reply.ok:
+            raise HTTPException(
+                status_code=reply.error.status_code,
+                detail=reply.error.detail,
+                headers=reply.error.headers,
+            )
+        return materialize_project_query_data(reply)
+    except ProjectQueryUnavailable:
         raise HTTPException(status_code=503, detail="项目查询服务暂不可用") from None
 
 

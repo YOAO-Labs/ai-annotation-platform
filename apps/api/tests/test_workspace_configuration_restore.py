@@ -411,7 +411,7 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
         async with source_maker() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0267"
+                == "0268"
             )
             assert await db.scalar(
                 text(
@@ -514,7 +514,7 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
         async with restored_maker() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0267"
+                == "0268"
             )
             template = await db.get(ProjectTemplate, template_id)
             project = await db.get(Project, project_id)

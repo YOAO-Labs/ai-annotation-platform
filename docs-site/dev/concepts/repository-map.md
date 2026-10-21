@@ -138,9 +138,10 @@ last_reviewed: 2026-10-21
 - Invitation MailV2：`services/identity_mail_v2_delivery.py` 在邀请 owner commit 后等待有界私有 pending/sent/failed 状态；`app.workers.identity_mail_v2_delivery.relay_invitation_mail` 每 10 秒在 default queue 执行相同 MailV2 executor。独立 sender 用 `apps/identity/src/aap_identity/{mail_v2_contract,mail_v2_postgres}.py`、`aap_identity_runtime.mail_config_v2` 和 `mail_worker_v2.py`，只有 MAILV2/MAIL_SETTINGS/key/SMTP 能力，不持 AUTH/Invitation/User 表权限。
 - 自有 API key 管理：`services/api_key_contracts.ApiKeyManagementPort` 消费 `aap-identity-keys/v1` 值消息，`api_key_service.IdentityKeyManagement` 装配调用方事务、函数专用连接或独立运行时。`deps.get_current_principal` 提供准入和审计身份；管理路由不水合 User 或写 key ORM。Identity 命令所有者持有五项操作、当前凭据围栏、签发和冻结回执。
 - 核心会话：`services/identity_session_commands.SessionCommandsPort` 消费 `aap-identity-sessions/v1`，装配同一 Identity 提供方的登录、刷新、登出和全端登出；API 保留限流和 Turnstile 验证，不水合 User 或写会话状态。提供方拥有密码验证、失败计数、当前凭据围栏、冻结签发回执和同事务 Audit 能力；三函数 LOGIN 与登录计数 Redis ACL 分离于其他能力。其他公开注册签发、用户目录／平台管理和完整账号生命周期仍待迁移。
-- 类别重命名：`application/project_class_rename.py` 组合 workspace 绑定与
-  `AnnotationService.rename_class_name()`；管理权威及排他项目锁在修改前刷新。
-  工具选择只收窄配置，存量标注的项目级名称迁移及原版本语义保留。
+- 类别重命名：Workspace Configuration 的 `rename_project_class` 组合便携绑定策略与
+  Labeling 窄类名能力；账户、项目和成员围栏先于策略，实际改名再升级排他项目锁。
+  两项写入同事务；同名请求在独立提供方持锁完成项目投影后返回，不写回执或自动重发。
+  工具选择只收窄配置，存量标注的项目级名称迁移及原版本语义保留，原 API 写入副本已移除。
 - 项目配置与模板命令：`apps/workspace` 的 portable manager 与 Native 能力持有配置编排、权限围栏及写入，
   `services/workspace_configuration.py::execute_configuration` 装配调用方事务、专用连接或 HTTP；
   原 API 配置 ORM 命令已移除，HTTP 保留提交与响应。

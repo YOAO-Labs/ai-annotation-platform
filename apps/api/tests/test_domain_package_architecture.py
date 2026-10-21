@@ -535,6 +535,7 @@ DOMAIN_PACKAGES = (
             "app.config",
             "app.services.inference_limits",
             "app.services.workspace_configuration_data",
+            "app.services.workspace_project_query",
         ),
     ),
     DomainSpec(package="workspace_configuration_data", legacy_facades=()),

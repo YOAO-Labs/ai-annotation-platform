@@ -105,11 +105,11 @@ from app.application.project_task_cleanup import (
     cleanup_annotation_orphans as cleanup_project_annotation_orphans,
     delete_source_less_tasks as cleanup_source_less_tasks,
 )
-from app.application.project_class_rename import rename_project_class
 from app.application.project_pipeline import apply_saved_pipeline
 from app.services.workspace_configuration import execute_configuration
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.workspace_project_query import execute_project_query
+from aap_workspace.project_query_values import materialize_project_query_data
 from app.services.workspace_directory_query import execute_directory_query
 
 router = APIRouter()
@@ -519,22 +519,34 @@ async def rename_class(
       region / 旧 schema 残留留下"孤儿"标注: binding 已无该类, 但 annotation 仍引用)
     - 不动 predictions.result (alias 不变)
     """
-    changed, evidence = await rename_project_class(
+    old_name = body.old_name.strip()
+    new_name = body.new_name.strip()
+    if not old_name or not new_name:
+        raise HTTPException(status_code=400, detail="名称不能为空")
+    result = await execute_configuration(
         db,
-        actor=current_user,
-        project_id=project.id,
-        old_name=body.old_name,
-        new_name=body.new_name,
-        tool_unit_id=body.tool_unit_id,
+        operation="rename_project_class",
+        actor_id=current_user.id,
+        target_id=project.id,
+        payload={
+            "old_name": old_name,
+            "new_name": new_name,
+            "tool_unit_id": body.tool_unit_id,
+        },
     )
-    if changed:
+    rename_result = result.rename_result
+    if rename_result is None:
+        raise HTTPException(status_code=503, detail="项目配置服务暂不可用")
+    if rename_result.changed:
         await db.commit()
+    elif rename_result.projection is not None:
+        return materialize_project_query_data(rename_result.projection)
     return await execute_project_query(
         db,
         operation="get_project_projection",
         actor=current_user,
         target_id=project.id,
-        projection_evidence=evidence,
+        projection_evidence=rename_result.evidence,
     )
 
 

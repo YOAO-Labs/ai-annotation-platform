@@ -4048,3 +4048,28 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   all four new cases were rerun successfully; failed-attempt evidence is retained.
   Both disposable acceptance runs report empty cleanup errors. The API route and
   the previously qualified head-0266 images have not switched to the new command.
+
+### Project class rename: command integrated, artifact/recovery gates pending
+
+- Native 0268, the stateless portable branch, strict bound NoOp projection callback,
+  existing API selector and public route are integrated. Removed the old API
+  workflow, binding helper and Annotation method; no forwarding facade remains.
+  Both business writes share the transaction and Labeling executes first.
+- The latest database/process union is 33 distinct selected passing cases. Each of
+  borrowed, dedicated and fresh installed HTTP modes matches the 21 frozen HTTP
+  responses and five actual competing locks. Actual blocked callback/revocation,
+  default caller rollback, Labeling-before-Project failure rollback, full-row
+  temporal precedence, OID/ACL replacement and original six-command regressions
+  pass. Both owned runs destroyed resources with empty cleanup errors.
+- The first run retained four successful Native cases and three failed test-driver
+  cases: temporal seeds required text-first casts, and internal annotation
+  snapshots required stable seed-alias sorting rather than random UUID order.
+  The latter changes no public response ordering or frozen fixture content.
+- Source Workspace and fresh noneditable installation each pass 273 tests with
+  exact installed bytes across eight packages. API pure/architecture/OpenAPI
+  checks have 364 passing cases and 143 existing inapplicable skips. The accidentally
+  selected DB autogeneration test failed on absent annotation_test in that static
+  command, then passed only in the owned DB runner and is counted there.
+- Current owner/API images, current-head restore and full 268 migration validation
+  remain pending. Earlier primitive and class-query evidence is separate; this
+  does not complete Workspace, Labeling or the ten-module/seven-gate objective.

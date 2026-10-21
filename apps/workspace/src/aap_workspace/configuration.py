@@ -25,6 +25,8 @@ from .configuration_contract import (
     ConfigurationRequest,
     ConfigurationStepFailure,
     configuration_failure_reply,
+    configuration_rename_success_reply,
+    configuration_rename_payload,
     configuration_payload,
     configuration_success_reply,
     decode_configuration_request,
@@ -50,10 +52,32 @@ from .configuration_policy import (
     resolve_project_kind,
     scene_mode_allowed,
 )
+from .access_contract import (
+    ProjectAccessPolicyFailure,
+    project_manager_access,
+    project_member_access,
+)
+from .class_rename import rename_class_bindings
 from .configuration_video import validate_project_collaboration_update
 from .configuration_values import VideoCollaborationConfig
+from .member_values import (
+    ProjectMemberRowsUnavailable,
+    decode_project_member_rows,
+)
 from .mask_configuration_values import MaskQCConfig
 from .point_quality_configuration_values import PointCloudQualityConfig
+from .project_query_contract import (
+    ProjectClassRenameEvidence,
+    ProjectQueryInvalidRequest,
+    ProjectQueryFailure,
+    ProjectQueryReply,
+    ProjectQueryRequest,
+    ProjectQuerySuccess,
+    ProjectQueryUnavailable,
+    decode_project_query_reply,
+    project_query_request,
+)
+from .project_query_values import decode_project_row, project_json_value
 
 _MANAGER_ROLES = frozenset({"super_admin", "project_admin"})
 _PROJECT_CREATE_COLUMNS = frozenset(
@@ -131,27 +155,32 @@ class ConfigurationTransaction(Protocol):
 
 
 class ConfigurationData(Protocol):
+    independent: bool
+
     def transaction(
         self, *, write: bool
     ) -> AsyncContextManager[ConfigurationTransaction]: ...
 
 
 SetupProbe = Callable[..., Awaitable[dict[str, Any] | None]]
+NoOpProjection = Callable[[ProjectQueryRequest], Awaitable[ProjectQueryReply]]
 
 
 class ConfigurationManager:
-    """Compose six configuration operations over one owner transaction."""
+    """Compose Workspace configuration commands over one owner transaction."""
 
     def __init__(
         self,
         data: ConfigurationData,
         *,
+        noop_projection: NoOpProjection | None = None,
         setup_probe: SetupProbe | None = None,
         capability_limits: CapabilityLimits = CapabilityLimits(),
         video_segment_size_frames: int = 18_000,
         setup_timeout: float = 10.0,
     ) -> None:
         self.data = data
+        self.noop_projection = noop_projection
         self.setup_probe = setup_probe or probe_backend_capabilities
         self.capability_limits = capability_limits
         self.video_segment_size_frames = video_segment_size_frames
@@ -160,11 +189,290 @@ class ConfigurationManager:
     async def execute(self, request: ConfigurationRequest | dict | bytes | str):
         request = decode_configuration_request(request)
         try:
-            async with self.data.transaction(write=True) as transaction:
-                reply = await self._execute_transaction(request, transaction)
+            if request.operation == "rename_project_class":
+                reply = await self._execute_class_rename(request)
+            else:
+                async with self.data.transaction(write=True) as transaction:
+                    reply = await self._execute_transaction(request, transaction)
         except ConfigurationCommandFailure as failure:
             return configuration_failure_reply(request, failure.error)
+        except ConfigurationPolicyError as error:
+            if request.operation != "rename_project_class":
+                raise
+            return configuration_failure_reply(request, self._policy_error(error))
         return reply
+
+    async def _execute_class_rename(self, request: ConfigurationRequest):
+        old_name, new_name, tool_unit_id = configuration_rename_payload(request)
+        if not old_name or not new_name:
+            raise ConfigurationPolicyError(400, "名称不能为空")
+        if request.target_id is None:
+            raise ConfigurationUnavailable()
+
+        independent = getattr(self.data, "independent", None)
+        if type(independent) is not bool:
+            raise ConfigurationUnavailable()
+
+        request_json = request.model_dump(mode="json", by_alias=True)
+        async with self.data.transaction(write=True) as transaction:
+            prepare = await self._step(
+                transaction, request, request_json, "class_rename_prepare", {}
+            )
+            actor, project = self._decode_class_rename_prepare(
+                prepare, actor_id=request.actor_id, project_id=request.target_id
+            )
+            manager = self._class_rename_manager_access(actor, project)
+            if manager is None:
+                member_facts = await self._step(
+                    transaction, request, request_json, "class_rename_member", {}
+                )
+                member = self._decode_class_rename_member(
+                    member_facts,
+                    actor_id=request.actor_id,
+                    project_id=request.target_id,
+                )
+                manager = self._class_rename_member_access(
+                    actor, request.target_id, member
+                )
+            if not manager.is_manager:
+                raise ConfigurationPolicyError(403, "仅项目负责人或超级管理员可执行")
+
+            changed = old_name != new_name
+            if changed:
+                locked = await self._step(
+                    transaction, request, request_json, "class_rename_lock", {}
+                )
+                project = self._decode_class_rename_locked_project(
+                    locked, request.target_id
+                )
+                try:
+                    tool_bindings = project_json_value(project, "tool_bindings")
+                    renamed_bindings = rename_class_bindings(
+                        tool_bindings,
+                        old_name=old_name,
+                        new_name=new_name,
+                        tool_unit_id=tool_unit_id,
+                    )
+                except ProjectQueryUnavailable:
+                    raise ConfigurationUnavailable() from None
+                except ConfigurationPolicyError:
+                    raise
+                await self._apply_class_rename(
+                    transaction,
+                    request,
+                    request_json,
+                    old_name=old_name,
+                    new_name=new_name,
+                    tool_bindings=renamed_bindings,
+                )
+
+            evidence = self._class_rename_evidence(
+                request, actor=actor, project=project
+            )
+            projection = None
+            if not changed and independent:
+                projection = await self._class_rename_noop_projection(request, evidence)
+                rollback_on_exit = getattr(transaction, "rollback_on_exit", None)
+                if type(rollback_on_exit) is not bool:
+                    raise ConfigurationUnavailable()
+                transaction.rollback_on_exit = True
+
+            reply = configuration_rename_success_reply(
+                request,
+                resource_id=request.target_id,
+                changed=changed,
+                evidence=evidence,
+                projection=projection,
+            )
+            return decode_configuration_reply(request, reply)
+
+    @staticmethod
+    def _decode_class_rename_prepare(
+        facts: Mapping[str, Any], *, actor_id: UUID, project_id: UUID
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        if type(facts) is not dict or set(facts) != {"actor", "row_json"}:
+            raise ConfigurationUnavailable()
+        actor = facts["actor"]
+        if type(actor) is not dict or set(actor) != {
+            "actor_id",
+            "platform_role",
+            "is_active",
+        }:
+            raise ConfigurationUnavailable()
+        if (
+            type(actor["actor_id"]) is not str
+            or type(actor["platform_role"]) is not str
+            or type(actor["is_active"]) is not bool
+        ):
+            raise ConfigurationUnavailable()
+        try:
+            returned_actor_id = UUID(actor["actor_id"])
+        except ValueError:
+            raise ConfigurationUnavailable() from None
+        if returned_actor_id != actor_id:
+            raise ConfigurationUnavailable()
+        if not actor["is_active"]:
+            raise ConfigurationCommandFailure(
+                ConfigurationError(
+                    401,
+                    "账号已停用或不存在",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            )
+        if facts["row_json"] is not None and type(facts["row_json"]) is not str:
+            raise ConfigurationUnavailable()
+        try:
+            project = decode_project_row(facts["row_json"], target_id=project_id)
+        except ProjectQueryUnavailable:
+            raise ConfigurationUnavailable() from None
+        if project is None:
+            raise ConfigurationPolicyError(404, "项目不存在")
+        return {**actor, "actor_id": returned_actor_id}, project
+
+    @staticmethod
+    def _decode_class_rename_locked_project(
+        facts: Mapping[str, Any], project_id: UUID
+    ) -> dict[str, Any]:
+        if type(facts) is not dict or set(facts) != {"row_json"}:
+            raise ConfigurationUnavailable()
+        if facts["row_json"] is not None and type(facts["row_json"]) is not str:
+            raise ConfigurationUnavailable()
+        try:
+            project = decode_project_row(facts["row_json"], target_id=project_id)
+        except ProjectQueryUnavailable:
+            raise ConfigurationUnavailable() from None
+        if project is None:
+            raise ConfigurationPolicyError(404, "项目不存在")
+        return project
+
+    @staticmethod
+    def _decode_class_rename_member(
+        facts: Mapping[str, Any], *, actor_id: UUID, project_id: UUID
+    ):
+        if type(facts) is not dict or set(facts) != {"rows_json"}:
+            raise ConfigurationUnavailable()
+        try:
+            rows = decode_project_member_rows(
+                facts["rows_json"],
+                target_id=project_id,
+                user_id=actor_id,
+                max_rows=1,
+            )
+        except ProjectMemberRowsUnavailable:
+            raise ConfigurationUnavailable() from None
+        return rows[0] if rows else None
+
+    @staticmethod
+    def _class_rename_manager_access(actor, project):
+        owner_value = project["owner_id"]
+        owner_id = UUID(owner_value) if owner_value is not None else None
+        try:
+            return project_manager_access(
+                actor_id=actor["actor_id"],
+                platform_role=actor["platform_role"],
+                project_id=UUID(project["id"]),
+                owner_id=owner_id,
+            )
+        except ProjectAccessPolicyFailure as error:
+            raise ConfigurationPolicyError(error.status_code, error.detail) from None
+
+    @staticmethod
+    def _class_rename_member_access(actor, project_id, member):
+        try:
+            return project_member_access(
+                actor_id=actor["actor_id"],
+                platform_role=actor["platform_role"],
+                project_id=project_id,
+                membership_id=member.id if member is not None else None,
+                project_role=member.role if member is not None else None,
+                membership_version=member.version if member is not None else None,
+            )
+        except ProjectAccessPolicyFailure as error:
+            raise ConfigurationPolicyError(error.status_code, error.detail) from None
+
+    @staticmethod
+    def _class_rename_evidence(request, *, actor, project):
+        owner_id = project["owner_id"]
+        if owner_id is None:
+            raise ValueError("Class rename Project owner_id is null")
+        return ProjectClassRenameEvidence(
+            source="class_rename",
+            operation_id=request.operation_id,
+            source_operation="rename_class",
+            actor_id=actor["actor_id"],
+            project_id=request.target_id,
+            owner_id=UUID(owner_id),
+            platform_role=actor["platform_role"],
+            is_active=actor["is_active"],
+        )
+
+    async def _apply_class_rename(
+        self,
+        transaction,
+        request,
+        request_json,
+        *,
+        old_name: str,
+        new_name: str,
+        tool_bindings: Mapping[str, Any],
+    ) -> None:
+        import json
+
+        encoded = json.dumps(
+            tool_bindings,
+            ensure_ascii=True,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        facts = await self._step(
+            transaction,
+            request,
+            request_json,
+            "class_rename_apply",
+            {
+                "old_name": old_name,
+                "new_name": new_name,
+                "tool_bindings_ascii": encoded,
+            },
+        )
+        if facts:
+            raise ConfigurationUnavailable()
+
+    async def _class_rename_noop_projection(
+        self,
+        request: ConfigurationRequest,
+        evidence: ProjectClassRenameEvidence,
+    ) -> ProjectQuerySuccess:
+        if self.noop_projection is None:
+            raise ConfigurationUnavailable()
+        try:
+            projection_request = project_query_request(
+                "get_project_projection",
+                evidence.actor_id,
+                evidence.platform_role,
+                target_id=evidence.project_id,
+                projection_evidence=evidence,
+                request_id=request.operation_id,
+            )
+            raw_reply = await self.noop_projection(projection_request)
+            projection = decode_project_query_reply(projection_request, raw_reply)
+        except (ProjectQueryInvalidRequest, ProjectQueryUnavailable):
+            raise ConfigurationCommandFailure(
+                ConfigurationError(503, "项目查询服务暂不可用")
+            ) from None
+        if isinstance(projection, ProjectQueryFailure):
+            error = projection.error
+            raise ConfigurationCommandFailure(
+                ConfigurationError(
+                    error.status_code,
+                    error.detail,
+                    headers=error.headers,
+                )
+            )
+        if not isinstance(projection, ProjectQuerySuccess):
+            raise ConfigurationUnavailable()
+        return projection
 
     async def _execute_transaction(
         self,

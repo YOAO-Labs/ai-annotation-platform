@@ -8,7 +8,16 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
-from aap_workspace.configuration_contract import configuration_success_reply
+from aap_workspace.configuration_contract import (
+    configuration_rename_success_reply,
+    configuration_success_reply,
+    decode_configuration_request,
+)
+from aap_workspace.project_query_contract import (
+    ProjectClassRenameEvidence,
+    ProjectQuerySuccess,
+    project_query_request,
+)
 from app.config import settings
 from app.services import workspace_configuration as commands
 
@@ -75,6 +84,162 @@ async def test_remote_transport_retry_reuses_uuid_and_never_calls_local_writer(
     assert result.resource_id == resource
     assert len(seen) == 2
     assert seen[0] == seen[1]
+
+
+async def test_remote_class_rename_transport_failure_is_not_retried(monkeypatch):
+    seen = []
+    client_type = httpx.AsyncClient
+
+    async def handle(request):
+        seen.append(request)
+        raise httpx.ConnectError("Lost rename reply", request=request)
+
+    monkeypatch.setattr(settings, "workspace_configuration_url", "http://owner")
+    monkeypatch.setattr(
+        commands.httpx,
+        "AsyncClient",
+        lambda **kwargs: client_type(transport=httpx.MockTransport(handle), **kwargs),
+    )
+
+    def forbidden(data, **kwargs):
+        raise AssertionError("Selected HTTP owner must not invoke the local writer")
+
+    monkeypatch.setattr(commands, "configuration_manager", forbidden)
+    with pytest.raises(HTTPException) as caught:
+        await commands.execute_configuration(
+            object(),
+            operation="rename_project_class",
+            actor_id=uuid.uuid4(),
+            target_id=uuid.uuid4(),
+            payload={"old_name": "Car", "new_name": "Truck", "tool_unit_id": None},
+        )
+    assert caught.value.status_code == 503
+    assert len(seen) == 1
+
+
+async def test_direct_dsn_rename_uses_full_project_query_reply_callback(monkeypatch):
+    db = object()
+    actor_id, project_id = uuid.uuid4(), uuid.uuid4()
+    observed = []
+    projection = None
+
+    async def select_reply(selected_db, request):
+        assert selected_db is db
+        observed.append(request)
+        return projection
+
+    monkeypatch.setattr(
+        settings, "workspace_configuration_database_url", "postgresql://owner/test"
+    )
+    monkeypatch.setattr(commands, "_select_project_query_reply", select_reply)
+
+    def manager(data, *, noop_projection=None):
+        assert noop_projection is not None
+
+        class BoundManager:
+            async def execute(self, request):
+                evidence = ProjectClassRenameEvidence(
+                    source="class_rename",
+                    operation_id=request.operation_id,
+                    source_operation="rename_class",
+                    actor_id=request.actor_id,
+                    project_id=project_id,
+                    owner_id=actor_id,
+                    platform_role="project_admin",
+                    is_active=True,
+                )
+                query_request = project_query_request(
+                    "get_project_projection",
+                    actor_id,
+                    "project_admin",
+                    target_id=project_id,
+                    projection_evidence=evidence,
+                    request_id=request.operation_id,
+                )
+                nonlocal projection
+                projection = ProjectQuerySuccess(
+                    schema="aap-workspace-project-query/v1",
+                    ok=True,
+                    request=query_request,
+                    data_json="null",
+                )
+                selected = await noop_projection(query_request)
+                return configuration_rename_success_reply(
+                    request,
+                    resource_id=project_id,
+                    changed=False,
+                    evidence=evidence,
+                    projection=selected,
+                )
+
+        return BoundManager()
+
+    monkeypatch.setattr(commands, "configuration_manager", manager)
+    result = await commands.execute_configuration(
+        db,
+        operation="rename_project_class",
+        actor_id=actor_id,
+        target_id=project_id,
+        payload={"old_name": "Car", "new_name": "Car", "tool_unit_id": None},
+    )
+    assert result.rename_result is not None
+    assert result.rename_result.projection == projection
+    assert len(observed) == 1
+    assert observed[0].operation == "get_project_projection"
+    assert observed[0].request_id == result.operation_id
+
+
+async def test_remote_noop_rename_without_nested_projection_is_unavailable(monkeypatch):
+    seen = []
+    client_type = httpx.AsyncClient
+
+    async def handle(incoming):
+        import json
+
+        seen.append(incoming)
+        request = decode_configuration_request(json.loads(incoming.content))
+        evidence = ProjectClassRenameEvidence(
+            source="class_rename",
+            operation_id=request.operation_id,
+            source_operation="rename_class",
+            actor_id=request.actor_id,
+            project_id=request.target_id,
+            owner_id=request.actor_id,
+            platform_role="project_admin",
+            is_active=True,
+        )
+        reply = configuration_rename_success_reply(
+            request,
+            resource_id=request.target_id,
+            changed=False,
+            evidence=evidence,
+            projection=None,
+        )
+        return httpx.Response(200, json=reply.model_dump(mode="json", by_alias=True))
+
+    monkeypatch.setattr(settings, "workspace_configuration_url", "http://owner")
+    monkeypatch.setattr(
+        commands.httpx,
+        "AsyncClient",
+        lambda **kwargs: client_type(transport=httpx.MockTransport(handle), **kwargs),
+    )
+
+    def forbidden(data, **kwargs):
+        raise AssertionError(
+            "Selected HTTP owner must not fall back to the local writer"
+        )
+
+    monkeypatch.setattr(commands, "configuration_manager", forbidden)
+    with pytest.raises(HTTPException) as caught:
+        await commands.execute_configuration(
+            object(),
+            operation="rename_project_class",
+            actor_id=uuid.uuid4(),
+            target_id=uuid.uuid4(),
+            payload={"old_name": "Car", "new_name": "Car", "tool_unit_id": None},
+        )
+    assert caught.value.status_code == 503
+    assert len(seen) == 1
 
 
 @pytest.mark.parametrize(

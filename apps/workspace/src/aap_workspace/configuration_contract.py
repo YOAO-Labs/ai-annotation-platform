@@ -22,10 +22,27 @@ from pydantic import (
     model_validator,
 )
 
+from .access_contract import ProjectAccessPolicyFailure, project_manager_access
 from .contract import ClosedModel, _json_bytes, _reject_constant
+from .project_query_contract import (
+    ProjectClassRenameEvidence,
+    ProjectQueryInvalidRequest,
+    ProjectQuerySuccess,
+    ProjectQueryUnavailable,
+    decode_project_query_reply,
+    project_query_request,
+)
 
 CONFIGURATION_PROTOCOL = "aap-workspace-configuration/v1"
 
+LegacyConfigurationOperation: TypeAlias = Literal[
+    "create_project",
+    "update_project",
+    "create_template",
+    "update_template",
+    "delete_template",
+    "duplicate_template",
+]
 ConfigurationOperation: TypeAlias = Literal[
     "create_project",
     "update_project",
@@ -33,6 +50,7 @@ ConfigurationOperation: TypeAlias = Literal[
     "update_template",
     "delete_template",
     "duplicate_template",
+    "rename_project_class",
 ]
 ConfigurationAction: TypeAlias = Literal[
     "begin",
@@ -54,6 +72,10 @@ ConfigurationAction: TypeAlias = Literal[
     "update",
     "delete",
     "finish",
+    "class_rename_prepare",
+    "class_rename_member",
+    "class_rename_lock",
+    "class_rename_apply",
 ]
 ConfigurationStatusCode: TypeAlias = Annotated[StrictInt, Field(ge=400, le=599)]
 
@@ -125,7 +147,7 @@ class ConfigurationSuccess(_ConfigurationModel):
     protocol: Literal["aap-workspace-configuration/v1"] = Field(alias="schema")
     ok: Literal[True]
     operation_id: uuid.UUID
-    operation: ConfigurationOperation
+    operation: LegacyConfigurationOperation
     result: ConfigurationResult
 
     @field_validator("ok", mode="before")
@@ -151,7 +173,31 @@ class ConfigurationFailure(_ConfigurationModel):
         return value
 
 
-ConfigurationReply: TypeAlias = ConfigurationSuccess | ConfigurationFailure
+class ConfigurationRenameResult(ClosedModel):
+    resource_id: uuid.UUID
+    changed: StrictBool
+    evidence: ProjectClassRenameEvidence
+    projection: ProjectQuerySuccess | None
+
+
+class ConfigurationRenameSuccess(_ConfigurationModel):
+    protocol: Literal["aap-workspace-configuration/v1"] = Field(alias="schema")
+    ok: Literal[True]
+    operation_id: uuid.UUID
+    operation: Literal["rename_project_class"]
+    result: ConfigurationRenameResult
+
+    @field_validator("ok", mode="before")
+    @classmethod
+    def exact_boolean(cls, value):
+        if type(value) is not bool:
+            raise ValueError("ok must be a JSON boolean")
+        return value
+
+
+ConfigurationReply: TypeAlias = (
+    ConfigurationSuccess | ConfigurationRenameSuccess | ConfigurationFailure
+)
 
 
 class ConfigurationStepSuccess(_ConfigurationModel):
@@ -373,6 +419,34 @@ def configuration_payload(request: ConfigurationRequest) -> dict[str, Any]:
         raise ConfigurationInvalidRequest() from None
 
 
+def configuration_rename_payload(
+    request: ConfigurationRequest,
+) -> tuple[str, str, str | None]:
+    request = _validate_internal_request(request)
+    if request.operation != "rename_project_class":
+        raise ConfigurationUnavailable()
+    try:
+        payload = configuration_payload(request)
+    except ConfigurationInvalidRequest:
+        raise ConfigurationUnavailable() from None
+    if (
+        type(payload) is not dict
+        or set(payload) != {"old_name", "new_name", "tool_unit_id"}
+        or type(payload.get("old_name")) is not str
+        or type(payload.get("new_name")) is not str
+        or (
+            payload.get("tool_unit_id") is not None
+            and type(payload.get("tool_unit_id")) is not str
+        )
+    ):
+        raise ConfigurationUnavailable()
+    return (
+        payload["old_name"].strip(),
+        payload["new_name"].strip(),
+        payload["tool_unit_id"],
+    )
+
+
 def configuration_failure_reply(
     request: ConfigurationRequest,
     error: ConfigurationError,
@@ -417,6 +491,34 @@ def configuration_success_reply(
         raise ConfigurationUnavailable() from None
 
 
+def configuration_rename_success_reply(
+    request: ConfigurationRequest,
+    *,
+    resource_id: uuid.UUID,
+    changed: bool,
+    evidence: ProjectClassRenameEvidence,
+    projection: ProjectQuerySuccess | None,
+) -> ConfigurationRenameSuccess:
+    request = _validate_internal_request(request)
+    if request.operation != "rename_project_class":
+        raise ConfigurationUnavailable()
+    try:
+        return ConfigurationRenameSuccess(
+            schema=CONFIGURATION_PROTOCOL,
+            ok=True,
+            operation_id=request.operation_id,
+            operation="rename_project_class",
+            result=ConfigurationRenameResult(
+                resource_id=resource_id,
+                changed=changed,
+                evidence=evidence,
+                projection=projection,
+            ),
+        )
+    except (ValidationError, TypeError, ValueError):
+        raise ConfigurationUnavailable() from None
+
+
 def decode_configuration_reply(
     request: ConfigurationRequest,
     payload: dict | bytes | str | ConfigurationReply,
@@ -446,6 +548,54 @@ def decode_configuration_reply(
         )
         if reply.result.template_id != expected_template_id:
             raise ConfigurationUnavailable()
+    elif isinstance(reply, ConfigurationRenameSuccess):
+        old_name, new_name, _tool_unit_id = configuration_rename_payload(request)
+        expected_changed = bool(old_name and new_name and old_name != new_name)
+        result = reply.result
+        evidence = result.evidence
+        if (
+            request.operation != "rename_project_class"
+            or request.target_id is None
+            or result.resource_id != request.target_id
+            or evidence.operation_id != request.operation_id
+            or evidence.actor_id != request.actor_id
+            or evidence.project_id != request.target_id
+            or not evidence.is_active
+            or not old_name
+            or not new_name
+            or result.changed != expected_changed
+            or (result.changed and result.projection is not None)
+        ):
+            raise ConfigurationUnavailable()
+        try:
+            access = project_manager_access(
+                actor_id=evidence.actor_id,
+                platform_role=evidence.platform_role,
+                project_id=evidence.project_id,
+                owner_id=evidence.owner_id,
+            )
+        except ProjectAccessPolicyFailure:
+            raise ConfigurationUnavailable() from None
+        if access is None or not access.is_manager:
+            raise ConfigurationUnavailable()
+        if result.projection is not None:
+            try:
+                expected = project_query_request(
+                    "get_project_projection",
+                    evidence.actor_id,
+                    evidence.platform_role,
+                    target_id=evidence.project_id,
+                    projection_evidence=evidence,
+                    request_id=request.operation_id,
+                )
+                projection = decode_project_query_reply(expected, result.projection)
+            except (ProjectQueryInvalidRequest, ProjectQueryUnavailable):
+                raise ConfigurationUnavailable() from None
+            if not isinstance(projection, ProjectQuerySuccess):
+                raise ConfigurationUnavailable()
+            reply = reply.model_copy(
+                update={"result": result.model_copy(update={"projection": projection})}
+            )
     return reply
 
 
@@ -505,3 +655,16 @@ def decode_configuration_step_reply(
     ):
         raise ConfigurationUnavailable()
     return reply
+
+
+def configuration_schema() -> dict[str, Any]:
+    """Return the complete closed request, reply and fixed-step JSON Schema."""
+    schema = TypeAdapter(
+        ConfigurationRequest
+        | ConfigurationPolicy
+        | ConfigurationReply
+        | ConfigurationStepReply
+    ).json_schema()
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["$id"] = CONFIGURATION_PROTOCOL
+    return schema

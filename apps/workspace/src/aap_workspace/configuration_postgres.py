@@ -29,6 +29,10 @@ _BUSY_MARKERS = {
 _logger = logging.getLogger(__name__)
 
 
+class _RollbackOnlySignal(Exception):
+    """Tell asyncpg's managed transaction context to roll back normally."""
+
+
 def configuration_busy_error(state: str | None, hint: str | None):
     if state not in _BUSY_SQLSTATES:
         return None
@@ -43,6 +47,7 @@ class ConfigurationPostgresTransaction:
 
     def __init__(self, connection):
         self.connection = connection
+        self.rollback_on_exit = False
 
     async def before_project_insert(self):
         """Standalone transactions have no unrelated ORM unit of work to flush."""
@@ -70,6 +75,8 @@ class ConfigurationPostgresTransaction:
 
 
 class ConfigurationPostgresData:
+    independent = True
+
     def __init__(self, dsn, *, connect_timeout=5, command_timeout=30):
         self.dsn = dsn.replace("postgresql+asyncpg://", "postgresql://", 1)
         self.connect_timeout = connect_timeout
@@ -136,9 +143,15 @@ class ConfigurationPostgresData:
         connection = None
         try:
             connection = await self._connect()
-            async with connection.transaction():
-                await self._verify_policy(connection)
-                yield ConfigurationPostgresTransaction(connection)
+            try:
+                async with connection.transaction():
+                    await self._verify_policy(connection)
+                    transaction = ConfigurationPostgresTransaction(connection)
+                    yield transaction
+                    if transaction.rollback_on_exit:
+                        raise _RollbackOnlySignal()
+            except _RollbackOnlySignal:
+                pass
         except asyncpg.PostgresError as error:
             state = error.sqlstate or ""
             if state.startswith("08") or state in {"57P01", "57P02", "57P03"}:

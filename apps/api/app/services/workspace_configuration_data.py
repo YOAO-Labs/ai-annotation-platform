@@ -31,6 +31,9 @@ def _diagnostic(error):
 
 
 class WorkspaceConfigurationData:
+    # This adapter borrows the API request transaction; the caller owns commit.
+    independent = False
+
     def __init__(self, db):
         self.db = db
 

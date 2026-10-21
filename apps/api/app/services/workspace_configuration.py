@@ -13,6 +13,8 @@ from aap_workspace.config import secret_source
 from aap_workspace.configuration import ConfigurationManager
 from aap_workspace.configuration_contract import (
     ConfigurationUnavailable,
+    ConfigurationRenameResult,
+    ConfigurationRenameSuccess,
     configuration_request,
     decode_configuration_reply,
 )
@@ -20,6 +22,9 @@ from aap_workspace.configuration_postgres import ConfigurationPostgresData
 from app.config import settings
 from app.services.inference_limits import capability_limits_from_settings
 from app.services.workspace_configuration_data import WorkspaceConfigurationData
+from app.services.workspace_project_query import (
+    _select_project_query_reply,
+)
 
 
 class ConfigurationOwnerInternalError(RuntimeError):
@@ -33,14 +38,16 @@ class ConfigurationExecution:
     operation_id: uuid.UUID
     operation: str
     actor_id: uuid.UUID
+    rename_result: ConfigurationRenameResult | None = None
 
 
-def configuration_manager(data):
+def configuration_manager(data, *, noop_projection=None):
     return ConfigurationManager(
         data,
         capability_limits=capability_limits_from_settings(),
         video_segment_size_frames=settings.video_segment_size_frames,
         setup_timeout=settings.ml_health_timeout,
+        noop_projection=noop_projection,
     )
 
 
@@ -85,7 +92,10 @@ async def execute_configuration(
                     async with httpx.AsyncClient(
                         trust_env=False, timeout=timeout
                     ) as client:
-                        for attempt in range(2):
+                        attempts = (
+                            1 if request.operation == "rename_project_class" else 2
+                        )
+                        for attempt in range(attempts):
                             try:
                                 response = await client.post(
                                     url.rstrip("/")
@@ -95,7 +105,7 @@ async def execute_configuration(
                                 )
                                 break
                             except httpx.RequestError:
-                                if attempt:
+                                if attempt + 1 >= attempts:
                                     raise
                     if response.status_code == 500:
                         raise ConfigurationOwnerInternalError(
@@ -105,14 +115,37 @@ async def execute_configuration(
                         raise ConfigurationUnavailable()
                     reply = decode_configuration_reply(request, response.content)
                 else:
-                    reply = await configuration_manager(
-                        ConfigurationPostgresData(dsn, command_timeout=timeout)
-                    ).execute(request)
+
+                    async def noop_projection(project_request):
+                        return await _select_project_query_reply(db, project_request)
+
+                    data = ConfigurationPostgresData(dsn, command_timeout=timeout)
+                    manager = (
+                        configuration_manager(data, noop_projection=noop_projection)
+                        if request.operation == "rename_project_class"
+                        else configuration_manager(data)
+                    )
+                    reply = await manager.execute(request)
         if not reply.ok:
             raise HTTPException(
                 status_code=reply.error.status_code,
                 detail=reply.error.detail,
                 headers=reply.error.headers,
+            )
+        if isinstance(reply, ConfigurationRenameSuccess):
+            if (
+                not reply.result.changed
+                and (url or dsn)
+                and reply.result.projection is None
+            ):
+                raise ConfigurationUnavailable()
+            return ConfigurationExecution(
+                resource_id=reply.result.resource_id,
+                template_id=None,
+                operation_id=request.operation_id,
+                operation=request.operation,
+                actor_id=request.actor_id,
+                rename_result=reply.result,
             )
         return ConfigurationExecution(
             resource_id=reply.result.resource_id,

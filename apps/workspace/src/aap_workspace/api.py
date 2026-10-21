@@ -217,6 +217,13 @@ def create_app(
     def configuration_manager(binding):
         from aap_inference.capabilities import CapabilityLimits
 
+        async def noop_projection(request):
+            if project_query_data is None or project_query_profiles is None:
+                raise ProjectQueryUnavailable()
+            return await ProjectQueryManager(
+                project_query_data, project_query_profiles
+            ).execute(request)
+
         return ConfigurationManager(
             binding,
             setup_timeout=settings.configuration_setup_timeout_seconds,
@@ -229,6 +236,7 @@ def create_app(
                     settings.configuration_video_tracker_sam3_window_size_frames
                 ),
             ),
+            noop_projection=noop_projection,
         )
 
     register_command(

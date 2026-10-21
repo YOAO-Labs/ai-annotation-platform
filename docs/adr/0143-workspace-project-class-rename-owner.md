@@ -1,6 +1,6 @@
 # 0143 — Workspace Project Class Rename Owner
 
-- **Status:** Accepted; implementation in progress
+- **Status:** Accepted; integrated implementation, local qualification in progress
 - **Date:** 2026-10-21
 - **Deciders:** Backend architecture team
 - **Supersedes:** None
@@ -104,17 +104,35 @@ text; an explicit catalog cast fixed the test, and all four new cases then passe
 Both owned acceptance runs cleaned up their resources without errors. This is a
 qualified primitive, not the completed command or a current container qualification.
 
-Current public rename callers have not switched. Native 0268, the dedicated
-Configuration branch/reply, NoOp callback, API selector and removal of the old
-workflow/Annotation method follow as one integration boundary.
+Native 0268 and the dedicated Configuration branch/reply, NoOp callback and API
+selector are integrated. The old API workflow, binding helper and Annotation
+method are removed, without forwarding production facades. The Configuration
+Compose override adds two read-only secrets to the same service and local port;
+the original six-operation deployment can retain its two-secret configuration.
 
-Before qualification, replay both frozen files through borrowed, dedicated and
-installed HTTP bindings; verify actual NoOp lock duration, authority revocation
-and changed/no-op busy behavior, caller rollback, field preservation, post-commit
-projection failure and absence of retry. Old Configuration operations, function
-OID/ACL, current-schema restore, migration reversal, noneditable installs and
-restricted current images remain required gates. Baseline evidence and completed
-class-query qualification are separate and must not be recounted.
+Both frozen files now match through borrowed, dedicated and fresh installed HTTP
+bindings: 21 public responses and five actual competing-lock scenarios per mode.
+Actual callback blocking confirms account and Project fences remain held while
+NoOp projection runs; a competing disable commits only after release and later
+requests return 401. The selected database/process union has 33 distinct passing
+cases, including caller rollback, Labeling-before-Project failure rollback,
+field preservation, OID/ACL replacement, full-row temporal-error precedence and
+old Configuration behavior. Failed attempts are retained: two temporal seeds
+needed text-then-date casts, and internal annotation snapshots needed stable alias
+ordering instead of random UUID ordering. Both runs cleaned up without errors.
+
+Workspace source and a fresh noneditable installation each pass 273 tests; all
+eight installed package manifests match source. Pure API, architecture and exact
+OpenAPI checks have 364 passing cases and 143 existing inapplicable skips. One DB
+test was mistakenly selected in the static run, failed because annotation_test
+was absent, then passed on the owned disposable database; it is counted only in
+the database union. The architecture inventory now permits the explicit same-owner
+Project Query selector used by the new Configuration callback.
+
+Current-schema restore, full migration reversal and restricted current owner/API
+image gates remain open. These tests do not establish production capacity or a
+production cutover. Baseline evidence, the primitive's earlier checks and the
+completed class-query qualification remain separate and must not be recounted.
 
 This does not complete Workspace, Labeling or the ten-module/seven-gate goal.
 Primary runtime and production remain unchanged. Go remains an optional experiment.

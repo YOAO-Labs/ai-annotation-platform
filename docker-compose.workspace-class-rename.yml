@@ -1,0 +1,16 @@
+# Optional override for the existing Configuration process, including NoOp projection.
+# Use with docker-compose.workspace-configuration.yml; no additional service is created.
+services:
+  workspace-configuration:
+    environment:
+      WORKSPACE_PROJECT_QUERY_DATABASE_URL_FILE: /run/secrets/project_query_database_url
+      WORKSPACE_PROJECT_QUERY_IDENTITY_BRIEFS_DATABASE_URL_FILE: /run/secrets/identity_briefs_database_url
+    secrets:
+      - project_query_database_url
+      - identity_briefs_database_url
+
+secrets:
+  project_query_database_url:
+    file: ${WORKSPACE_RUNTIME_PROJECT_QUERY_DATABASE_URL_FILE:?Set Workspace Project-query function-only DSN file}
+  identity_briefs_database_url:
+    file: ${WORKSPACE_RUNTIME_PROJECT_QUERY_BRIEFS_DATABASE_URL_FILE:?Set Identity Briefs function-only DSN file}
