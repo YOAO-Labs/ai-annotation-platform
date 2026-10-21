@@ -160,8 +160,12 @@ async def _installed_guide_process(
     )
 
 
-async def test_guide_only_installed_process_scoped_s3_and_storage_failure(
-    test_engine, tmp_path
+async def _exercise_guide_runtime(
+    test_engine,
+    tmp_path,
+    *,
+    launch=_installed_guide_process,
+    observation_name="project-guide-object-runtime-observation.json",
 ):
     resources = _verified_resource_manifest(
         test_engine, make_url(_legacy_runtime_url(test_engine))
@@ -252,7 +256,7 @@ async def test_guide_only_installed_process_scoped_s3_and_storage_failure(
                 retries={"total_max_attempts": 1},
             ),
         )
-        async with _installed_guide_process(
+        async with launch(
             tmp_path,
             endpoint=endpoint,
             bucket=bucket,
@@ -349,10 +353,11 @@ async def test_guide_only_installed_process_scoped_s3_and_storage_failure(
             observations["guide_process"] = process
             observations["ordinary_delete_preserves_history"] = True
 
-        # The verifier already owns this GET-only identity. Do not broaden it.
+        # Catalog's GET-only grants do not cover this Guide bucket. Reuse its
+        # actual denial for both operations without broadening its authority.
         owner.put_object(Bucket=bucket, Key=key, Body=b"delete-denied")
         prior = _object_versions(owner, bucket, key)
-        async with _installed_guide_process(
+        async with launch(
             tmp_path,
             endpoint=endpoint,
             bucket=bucket,
@@ -360,14 +365,15 @@ async def test_guide_only_installed_process_scoped_s3_and_storage_failure(
             secret_key=_required_env("AAP_MODULE_DATA_ASSET_CATALOG_S3_SECRET_KEY"),
         ) as (origin, token, process):
             port = GuideObjectHttpClient(origin, token)
-            assert (
+            with pytest.raises(GuideObjectFailure) as denied_head:
                 await port.execute(_command(project_id, key, "head"))
-            ).result.content_length == len(b"delete-denied")
+            assert denied_head.value.code == "storage_error"
             with pytest.raises(GuideObjectFailure) as denied:
                 await port.execute(_command(project_id, key, "delete"))
             assert denied.value.code == "storage_error"
             assert _object_versions(owner, bucket, key) == prior
-            observations["readonly_process"] = process
+            observations["existing_catalog_process"] = process
+            observations["actual_guide_head_access_denied"] = True
             observations["actual_delete_access_denied_preserves_object"] = True
     finally:
         if client is not None:
@@ -378,7 +384,7 @@ async def test_guide_only_installed_process_scoped_s3_and_storage_failure(
             _cleanup_objects(owner, bucket, keys)
             owner.close()
     assert not scope["user_created"] and not scope["policy_created"]
-    target = ROOT / ".worktree/project-guide-object-runtime-observation.json"
+    target = ROOT / ".worktree" / observation_name
     assert not target.exists()
     target.write_text(
         json.dumps(
@@ -389,7 +395,7 @@ async def test_guide_only_installed_process_scoped_s3_and_storage_failure(
                 "probe_identity_removed": True,
                 "exact_keys_and_versions_removed": True,
                 "limitations": [
-                    "Local installed process and MinIO",
+                    "Local Source process and MinIO",
                     "Prefix rewrite simulation; no browser/CORS",
                     "No public Guide workflow cutover or Native command qualification",
                 ],
@@ -398,3 +404,9 @@ async def test_guide_only_installed_process_scoped_s3_and_storage_failure(
         )
         + "\n"
     )
+
+
+async def test_guide_only_installed_process_scoped_s3_and_storage_failure(
+    test_engine, tmp_path
+):
+    await _exercise_guide_runtime(test_engine, tmp_path)
