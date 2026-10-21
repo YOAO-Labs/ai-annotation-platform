@@ -4210,3 +4210,24 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Workspace/Assets and non-Python provider replacement remain unfinished. The
   next bounded slice freezes named-pipeline HTTP/data behavior before extracting
   its Inference-owned persistence; Project embedded configuration stays Workspace.
+
+### Named pipelines: actual legacy lock baseline frozen
+
+- The existing eight public endpoint cases pass on owned PostgreSQL at current
+  Native head. Production pipeline code remains unchanged; the full six-entry
+  HTTP/data matrix is being captured before extraction. These are old-behavior
+  checks, not qualification of an independent Inference owner.
+- One additional actual HTTP/PostgreSQL capture contains two observations in
+  `apps/api/tests/fixtures/named_pipeline_legacy/locks.json`. While apply holds its
+  final Project fence, a separate FOR UPDATE NOWAIT fails with SQLSTATE 55P03, but an
+  ordinary counter UPDATE and source-pipeline deletion both commit. The original
+  request still returns 201 and copies its already-read source snapshot; the
+  source usage UPDATE matching zero rows does not reject that copy. A separate
+  insertion fault returns 500 and leaves the source usage, previous default and
+  copied-row set exactly unchanged. The two observations count as one test case.
+- Native 0192's older `lock_project_manager` uses Project SHARE, while this path
+  uses KEY SHARE and complete Project/member decoding. Reusing that function
+  unchanged would alter concurrency; the next owner must preserve the actual
+  lock/decode phases. `project_pipelines` stays Inference-owned, and embedded
+  `projects.preannotate_pipeline` stays Workspace-owned. No public API, worker,
+  production runtime or language provider has been switched by this baseline.
