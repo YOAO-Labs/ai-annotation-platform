@@ -101,6 +101,18 @@
       "title": "ProjectOwnerTransferEvidence",
       "type": "object"
     },
+    "ProjectQueryAccessMemberRowsFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "rows_json": {
+          "title": "Rows Json",
+          "type": "string"
+        }
+      },
+      "required": ["rows_json"],
+      "title": "ProjectQueryAccessMemberRowsFacts",
+      "type": "object"
+    },
     "ProjectQueryAccountStatus": {
       "additionalProperties": false,
       "properties": {
@@ -774,6 +786,7 @@
             "project_stats",
             "project_readiness",
             "get_project_projection",
+            "get_project_access",
             "search_projects"
           ],
           "title": "Operation",
@@ -933,6 +946,7 @@
             "get_row",
             "actor_status",
             "member_access",
+            "access_member_rows",
             "ai_counts",
             "member_count",
             "pool",
@@ -1000,6 +1014,9 @@
             },
             {
               "$ref": "#/$defs/ProjectQueryMemberFacts"
+            },
+            {
+              "$ref": "#/$defs/ProjectQueryAccessMemberRowsFacts"
             },
             {
               "$ref": "#/$defs/ProjectQueryAiCountsFacts"
@@ -1158,6 +1175,26 @@
               },
               "facts": {
                 "$ref": "#/$defs/ProjectQueryMemberFacts"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "access_member_rows"
+              }
+            },
+            "required": ["action"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "type": "null"
+              },
+              "facts": {
+                "$ref": "#/$defs/ProjectQueryAccessMemberRowsFacts"
               }
             }
           }
@@ -1592,6 +1629,28 @@
                   "my_roles",
                   "pool"
                 ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "request": {
+                "properties": {
+                  "operation": {
+                    "const": "get_project_access"
+                  }
+                },
+                "required": ["operation"]
+              }
+            },
+            "required": ["request"]
+          },
+          "then": {
+            "properties": {
+              "action": {
+                "enum": ["access_member_rows", "actor_status", "get_row"]
               }
             }
           }

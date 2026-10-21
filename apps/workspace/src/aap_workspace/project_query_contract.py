@@ -28,6 +28,7 @@ ProjectQueryOperation: TypeAlias = Literal[
     "project_stats",
     "project_readiness",
     "get_project_projection",
+    "get_project_access",
     "search_projects",
 ]
 ProjectQueryAction: TypeAlias = Literal[
@@ -37,6 +38,7 @@ ProjectQueryAction: TypeAlias = Literal[
     "get_row",
     "actor_status",
     "member_access",
+    "access_member_rows",
     "ai_counts",
     "member_count",
     "pool",
@@ -216,6 +218,7 @@ class ProjectQueryRequest(_ProjectQueryModel):
             "get_project",
             "project_readiness",
             "get_project_projection",
+            "get_project_access",
         )
         if (self.filters_ascii is not None) != listed:
             raise ValueError("Filters do not match the operation")
@@ -346,6 +349,10 @@ class ProjectQueryMemberFacts(ClosedModel):
     member: ProjectQueryMembership | None
 
 
+class ProjectQueryAccessMemberRowsFacts(ClosedModel):
+    rows_json: StrictStr
+
+
 class ProjectQueryProjectCount(ClosedModel):
     project_id: uuid.UUID
     count: DecimalCount
@@ -431,6 +438,7 @@ ProjectQueryFacts: TypeAlias = (
     | ProjectQueryCountFacts
     | ProjectQueryActorFacts
     | ProjectQueryMemberFacts
+    | ProjectQueryAccessMemberRowsFacts
     | ProjectQueryAiCountsFacts
     | ProjectQueryPoolFacts
     | ProjectQueryMyRolesFacts
@@ -493,6 +501,7 @@ PROJECT_QUERY_STEPS = {
     "get_row": (type(None), ProjectQueryRowFacts),
     "actor_status": (type(None), ProjectQueryActorFacts),
     "member_access": (type(None), ProjectQueryMemberFacts),
+    "access_member_rows": (type(None), ProjectQueryAccessMemberRowsFacts),
     "ai_counts": (ProjectQueryProjectIds, ProjectQueryAiCountsFacts),
     "member_count": (ProjectQueryProjectId, ProjectQueryCountFacts),
     "pool": (ProjectQueryPoolId, ProjectQueryPoolFacts),
@@ -517,10 +526,12 @@ PROJECT_QUERY_STEPS = {
 }
 _SERIALIZATION_ACTIONS = {"ai_counts", "member_count", "pool"}
 _ACCESS_ACTIONS = {"get_row", "actor_status", "member_access"}
+_PROJECT_ACCESS_ACTIONS = {"get_row", "actor_status", "access_member_rows"}
 PROJECT_QUERY_OPERATION_ACTIONS = {
     "list_projects": {"list_rows", "my_roles"} | _SERIALIZATION_ACTIONS,
     "query_projects": {"count_rows", "list_rows", "my_roles"} | _SERIALIZATION_ACTIONS,
     "get_project": _ACCESS_ACTIONS | _SERIALIZATION_ACTIONS | {"my_roles"},
+    "get_project_access": _PROJECT_ACCESS_ACTIONS,
     "project_stats": {
         "visible_rows",
         "annotation_count",
@@ -554,9 +565,14 @@ class ProjectQueryStep(_ProjectQueryModel):
     @model_validator(mode="after")
     def action_shapes_match(self):
         parameter_type, fact_type = PROJECT_QUERY_STEPS[self.action]
-        if (
-            type(self.parameters) is not parameter_type
-            or type(self.facts) is not fact_type
+        # Both actions carry the same closed rows_json object; Pydantic resolves
+        # that structural union to ProjectQueryRowsFacts at runtime.
+        equivalent_rows_fact = (
+            self.action == "access_member_rows"
+            and type(self.facts) is ProjectQueryRowsFacts
+        )
+        if type(self.parameters) is not parameter_type or (
+            type(self.facts) is not fact_type and not equivalent_rows_fact
         ):
             raise ValueError("Read action arguments/facts do not match")
         if self.action not in PROJECT_QUERY_OPERATION_ACTIONS[self.request.operation]:

@@ -19,6 +19,7 @@ __all__ = [
     "PROJECT_ROLES",
     "ProjectAccess",
     "ProjectCapability",
+    "ProjectAccessPolicyFailure",
     "ProjectWritePolicyFailure",
     "ProjectWritePolicyRequest",
     "ProjectWritePolicyResolver",
@@ -26,6 +27,8 @@ __all__ = [
     "VIEWER_ROLE",
     "membership_role_compatible",
     "platform_role_is_manager",
+    "project_manager_access",
+    "project_member_access",
     "project_role_capabilities",
 ]
 
@@ -120,6 +123,92 @@ class ProjectWritePolicyFailure(Exception):
         self.status_code = status_code
         self.detail = detail
         self.headers = headers
+
+
+class ProjectAccessPolicyFailure(Exception):
+    """Expected read-policy failure facts, independent of HTTP and persistence."""
+
+    def __init__(self, status_code: int, detail: str) -> None:
+        super().__init__(detail)
+        self.status_code = status_code
+        self.detail = detail
+
+
+def project_manager_access(
+    *,
+    actor_id: uuid.UUID,
+    platform_role: str,
+    project_id: uuid.UUID,
+    owner_id: uuid.UUID | None,
+) -> ProjectAccess | None:
+    """Return manager authority for a current actor/project pair, if applicable."""
+
+    if platform_role not in MANAGER_PLATFORM_ROLES | {
+        PLATFORM_ROLE_EMPLOYEE,
+        PLATFORM_ROLE_VIEWER,
+    }:
+        raise ProjectAccessPolicyFailure(403, "账号角色无效，访问被拒绝")
+    if platform_role == "super_admin":
+        return ProjectAccess(
+            user_id=actor_id,
+            project_id=project_id,
+            platform_role=platform_role,
+            project_role=None,
+            membership_id=None,
+            membership_version=None,
+            access_kind=ACCESS_KIND_SUPER_ADMIN,
+            capabilities=MANAGER_CAPABILITIES,
+            is_super_admin=True,
+            is_owner=owner_id == actor_id,
+            is_manager=True,
+        )
+    if platform_role in MANAGER_PLATFORM_ROLES and owner_id == actor_id:
+        return ProjectAccess(
+            user_id=actor_id,
+            project_id=project_id,
+            platform_role=platform_role,
+            project_role=None,
+            membership_id=None,
+            membership_version=None,
+            access_kind=ACCESS_KIND_OWNER,
+            capabilities=MANAGER_CAPABILITIES,
+            is_super_admin=False,
+            is_owner=True,
+            is_manager=True,
+        )
+    return None
+
+
+def project_member_access(
+    *,
+    actor_id: uuid.UUID,
+    platform_role: str,
+    project_id: uuid.UUID,
+    membership_id: uuid.UUID | None,
+    project_role: str | None,
+    membership_version: int | None = None,
+) -> ProjectAccess:
+    """Resolve membership authority with the legacy visibility/error ordering."""
+
+    if membership_id is None:
+        raise ProjectAccessPolicyFailure(404, "项目不存在")
+    if project_role not in PROJECT_ROLES:
+        raise ProjectAccessPolicyFailure(403, "项目职责无效，访问被拒绝")
+    if platform_role == PLATFORM_ROLE_VIEWER and project_role != VIEWER_ROLE:
+        raise ProjectAccessPolicyFailure(403, "账号平台角色与项目职责不兼容")
+    return ProjectAccess(
+        user_id=actor_id,
+        project_id=project_id,
+        platform_role=platform_role,
+        project_role=project_role,
+        membership_id=membership_id,
+        membership_version=membership_version,
+        access_kind=ACCESS_KIND_MEMBER,
+        capabilities=project_role_capabilities(project_role),
+        is_super_admin=False,
+        is_owner=False,
+        is_manager=False,
+    )
 
 
 class ProjectWritePolicyResolver(Protocol):

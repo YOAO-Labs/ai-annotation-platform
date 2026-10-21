@@ -30,9 +30,10 @@ from .project_query_contract import (
 from .project_query_values import (
     decode_project_row,
     decode_project_rows,
+    project_access_data,
     project_json_value,
 )
-from .project_read_authority import accessible_project_row
+from .project_read_authority import accessible_project_row, current_project_access
 
 
 class ProjectOwnerBrief(Protocol):
@@ -151,6 +152,12 @@ class ProjectQueryManager:
                         if request.operation == "project_readiness"
                         else await self._detail(request, transaction, row)
                     )
+                elif request.operation == "get_project_access":
+                    await accessible_project_row(request, transaction, self._step)
+                    access = await current_project_access(
+                        request, transaction, self._step
+                    )
+                    data = project_access_data(access)
                 elif request.operation == "project_stats":
                     data = await self._stats(request, transaction)
                 elif request.operation == "get_project_projection":

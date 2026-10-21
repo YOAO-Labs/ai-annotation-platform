@@ -9,6 +9,16 @@ import re
 import uuid
 
 from .contract import _reject_constant, _unique_object
+from .access_contract import (
+    ACCESS_KIND_MEMBER,
+    ACCESS_KIND_OWNER,
+    ACCESS_KIND_SUPER_ADMIN,
+    MANAGER_CAPABILITIES,
+    MANAGER_PLATFORM_ROLES,
+    PROJECT_ROLES,
+    ProjectAccess,
+    project_role_capabilities,
+)
 from .project_query_contract import (
     PROJECT_ENRICHMENT_COLUMNS,
     PROJECT_JSON_COLUMNS,
@@ -163,6 +173,24 @@ def materialize_project_row(row, *, with_my_role=False):
     return data
 
 
+def project_access_data(access: ProjectAccess) -> dict:
+    """Build the legacy nine-field ProjectAccessOut shape."""
+
+    return {
+        "project_id": str(access.project_id),
+        "user_id": str(access.user_id),
+        "platform_role": access.platform_role,
+        "project_role": access.project_role,
+        "membership_id": (
+            str(access.membership_id) if access.membership_id is not None else None
+        ),
+        "membership_version": access.membership_version,
+        "access_kind": access.access_kind,
+        "is_manager": access.is_manager,
+        "capabilities": sorted(access.capabilities),
+    }
+
+
 _STATS_COUNTS = (
     "total_data",
     "completed",
@@ -314,6 +342,74 @@ def validate_project_query_data(request, data_json):
             raise ProjectQueryUnavailable()
         for field in _READINESS_COUNTS:
             _integer(value[field])
+    elif operation == "get_project_access":
+        expected = {
+            "project_id",
+            "user_id",
+            "platform_role",
+            "project_role",
+            "membership_id",
+            "membership_version",
+            "access_kind",
+            "is_manager",
+            "capabilities",
+        }
+        if (
+            type(value) is not dict
+            or set(value) != expected
+            or type(value["project_id"]) is not str
+            or value["project_id"] != str(request.target_id)
+            or type(value["user_id"]) is not str
+            or value["user_id"] != str(request.admitted_actor.id)
+            or type(value["platform_role"]) is not str
+            or value["platform_role"]
+            not in MANAGER_PLATFORM_ROLES | {"employee", "viewer"}
+            or type(value["is_manager"]) is not bool
+            or type(value["capabilities"]) is not list
+            or any(type(item) is not str for item in value["capabilities"])
+            or value["capabilities"] != sorted(set(value["capabilities"]))
+        ):
+            raise ProjectQueryUnavailable()
+        try:
+            uuid.UUID(value["project_id"])
+            uuid.UUID(value["user_id"])
+        except ValueError:
+            raise ProjectQueryUnavailable() from None
+        if value["access_kind"] in (ACCESS_KIND_SUPER_ADMIN, ACCESS_KIND_OWNER):
+            expected_capabilities = sorted(MANAGER_CAPABILITIES)
+            if (
+                value["project_role"] is not None
+                or value["membership_id"] is not None
+                or value["membership_version"] is not None
+                or not value["is_manager"]
+                or value["capabilities"] != expected_capabilities
+                or (
+                    value["access_kind"] == ACCESS_KIND_SUPER_ADMIN
+                    and value["platform_role"] != "super_admin"
+                )
+                or (
+                    value["access_kind"] == ACCESS_KIND_OWNER
+                    and value["platform_role"] not in MANAGER_PLATFORM_ROLES
+                )
+            ):
+                raise ProjectQueryUnavailable()
+        elif value["access_kind"] == ACCESS_KIND_MEMBER:
+            if (
+                type(value["project_role"]) is not str
+                or value["project_role"] not in PROJECT_ROLES
+                or type(value["membership_id"]) is not str
+                or type(value["membership_version"]) is not int
+                or value["is_manager"]
+                or value["capabilities"]
+                != sorted(project_role_capabilities(value["project_role"]))
+            ):
+                raise ProjectQueryUnavailable()
+            try:
+                uuid.UUID(value["membership_id"])
+            except ValueError:
+                raise ProjectQueryUnavailable() from None
+        else:
+            raise ProjectQueryUnavailable()
     elif operation == "search_projects":
         from .project_query_contract import decode_project_query_filters
 
@@ -393,5 +489,16 @@ def materialize_project_query_data(reply):
             **value,
             "project_id": uuid.UUID(value["project_id"]),
             **{key: int(value[key]) for key in _READINESS_COUNTS},
+        }
+    if request.operation == "get_project_access":
+        return {
+            **value,
+            "project_id": uuid.UUID(value["project_id"]),
+            "user_id": uuid.UUID(value["user_id"]),
+            "membership_id": (
+                uuid.UUID(value["membership_id"])
+                if value["membership_id"] is not None
+                else None
+            ),
         }
     return value

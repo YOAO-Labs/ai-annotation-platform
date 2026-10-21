@@ -94,7 +94,12 @@ def request(operation="list_projects", *, role="project_admin", filters=None, **
             ),
             **(filters or {}),
         }
-    if operation in ("get_project", "project_readiness", "get_project_projection"):
+    if operation in (
+        "get_project",
+        "project_readiness",
+        "get_project_projection",
+        "get_project_access",
+    ):
         kwargs.setdefault("target_id", PROJECT)
     return project_query_request(operation, ACTOR, role, filters=filters, **kwargs)
 
