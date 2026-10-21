@@ -96,6 +96,19 @@ HINT；客户端按 phase 恢复原有冲突原因，不向外暴露数据库异
 `module-data-grants.sql` 后，只有 Inference owner 增加这项固定执行权，没有新增 LOGIN 或原表授权。
 完整合同与限制见 [ADR-0145](/dev/adr/0145-workspace-project-access-facts)。
 
+## 同事务的主后端绑定清理
+
+`aap_workspace_v1.clear_primary_backend_bindings(pool_id)` 只清空指向给定服务池的
+项目主绑定，并按事务时间更新项目时间戳，返回影响行数。空 UUID 参数返回 SQLSTATE
+`22023`；没有匹配项返回0。它使用调用方的同一连接与事务，不自行授权、提交或回滚，
+不移除独立的项目服务池启用关系。
+
+注册实例删除工作流在原有权威、保留和路由静默检查之后调用它，再记录审计并统一提交。
+函数由 Workspace 持有，Inference owner 只有固定执行权，没有 Project 原表权限。
+当前 API 协调器也获得这一个固定函数的显式执行权；部署时先迁移再应用对应 grants。
+没有新增 LOGIN、HTTP endpoint 或 DSN。详见
+[绑定清理边界](/dev/adr/0147-inference-pool-policy-and-workspace-bindings)。
+
 ## 初始关联与分块建题
 
 新操作使用固定 `schema`、布尔 `ok` 和成功 `data` 或失败 `error.code`。

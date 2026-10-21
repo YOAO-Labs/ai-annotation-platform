@@ -705,6 +705,18 @@ URL 与 DSN 不能同时配置；`INFERENCE_PIPELINES_TIMEOUT_SECONDS` 默认30�
 容量资格须由实际验收记录确认。它不替换日常服务或生产部署。
 合同、事务及故障恢复见 [Inference 运行指南](docs-site/api/guides/inference-runtime.md)。
 
+### Inference 服务池策略与项目主绑定清理
+
+能力规范化、指纹及 diff 的单一实现位于 `aap_inference.pool_capability`，API 调用方
+直接使用该包。注册实例删除仍由 API 原事务协调；项目主绑定清理改为 Workspace 固定
+函数 `aap_workspace_v1.clear_primary_backend_bindings(uuid)`。先应用当前迁移，再应用
+`module-data-grants.sql`；本地 compatibility runtime 和 LAN grant source 显式列出
+真实 API 角色所需的这一项执行权。LAN source 修改不等于已应用到生产。
+
+没有新增配置、独立端口或 LOGIN。函数不自行提交，仍与 registry 删除及 Audit 同进退；
+原项目服务池启用关系保留。完整 Backend control 的 health、routing、GPU 与真实消费者
+边界继续推进，见 [ADR-0147](docs/adr/0147-inference-pool-policy-and-workspace-bindings.md)。
+
 ### 设计系统
 
 前端设计系统基于 Tailwind CSS + shadcn/ui。运行时主题 Token 定义在 `apps/web/src/styles/shadcn.css`：

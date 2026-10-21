@@ -1071,6 +1071,8 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_manager(uuid, uuid)
     TO :"assets_owner", :"labeling_owner", :"jobs_owner", :"workflow_role";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.project_access_step(uuid, uuid, text)
     TO :"inference_owner";
+GRANT EXECUTE ON FUNCTION aap_workspace_v1.clear_primary_backend_bindings(uuid)
+    TO :"inference_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_project_query_v1.project_query_step(
     jsonb, text, jsonb, text, text, text[], text[], uuid, text,
     timestamptz, timestamptz, bigint, integer
@@ -1610,6 +1612,8 @@ ALTER FUNCTION aap_workspace_v1.read_project_visibility(uuid, uuid)
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.lock_project_manager(uuid, uuid) OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.project_access_step(uuid, uuid, text)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1.clear_primary_backend_bindings(uuid)
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.lock_group_assignment_scope(uuid, uuid[], boolean)
     OWNER TO :"workspace_owner";

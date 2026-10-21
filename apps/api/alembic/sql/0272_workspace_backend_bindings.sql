@@ -30,9 +30,6 @@ BEGIN
 END;
 $function$;
 -- aap-statement-break
-ALTER FUNCTION aap_workspace_v1.clear_primary_backend_bindings(uuid)
-    OWNER TO workspace_code;
--- aap-statement-break
 REVOKE ALL ON FUNCTION aap_workspace_v1.clear_primary_backend_bindings(uuid)
     FROM PUBLIC;
 -- aap-statement-break

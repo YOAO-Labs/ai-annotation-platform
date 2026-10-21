@@ -120,7 +120,10 @@ async def _assert_inference_scope(engine, world) -> None:
                        'inference_code', function.oid, 'EXECUTE'
                    )"""
         )
-        assert {row["signature"] for row in rows} == {_FUNCTION}
+        assert {row["signature"] for row in rows} == {
+            _FUNCTION,
+            "aap_workspace_v1.clear_primary_backend_bindings(uuid)",
+        }
 
         inference = await _connect_inference(engine)
         raw_reads = (
@@ -272,7 +275,7 @@ async def test_workspace_project_access_step_survives_owned_database_restore(
             isolation_level="AUTOCOMMIT",
             hide_parameters=True,
         )
-        assert await _database_head(test_engine) == "0271"
+        assert await _database_head(test_engine) == "0272"
         source_function = await _assert_function_capability(test_engine)
         await _assert_inference_scope(test_engine, world)
         source_facts = await _decode_all_phases(
@@ -339,7 +342,7 @@ async def test_workspace_project_access_step_survives_owned_database_restore(
             test_engine.url.set(database=clone), hide_parameters=True
         )
         await _assert_clone_owner(restored_engine, clone, ownership)
-        assert await _database_head(restored_engine) == "0271"
+        assert await _database_head(restored_engine) == "0272"
         clone_function = await _assert_function_capability(restored_engine)
         assert clone_function == source_function
         await _assert_inference_scope(restored_engine, world)

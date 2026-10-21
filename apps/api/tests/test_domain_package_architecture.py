@@ -170,6 +170,12 @@ DOMAIN_PACKAGES = (
     ),
     DomainSpec(package="task_access", legacy_facades=()),
     DomainSpec(
+        package="workspace_backend_bindings",
+        legacy_facades=(),
+        allowed_app_imports=(),
+        allowed_framework_imports=("sqlalchemy",),
+    ),
+    DomainSpec(
         package="annotation_create_contract",
         legacy_facades=(),
         allowed_app_imports=(

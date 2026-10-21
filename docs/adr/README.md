@@ -192,3 +192,4 @@
 - [0144 — Workspace Guide Assets and Assets Object Capability](0144-workspace-guide-assets-owner.md)
 - [0145 — Workspace Project Access Facts for Independent Owners](0145-workspace-project-access-facts.md)
 - [0146 — Independent Inference Named-Pipeline Owner](0146-inference-named-pipeline-owner.md)
+- [0147 — Inference Pool Policy and Workspace Backend Bindings](0147-inference-pool-policy-and-workspace-bindings.md)
