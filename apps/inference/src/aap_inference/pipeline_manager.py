@@ -168,6 +168,12 @@ class PipelineManager:
                     resource_id = await self._execute_command(transaction, request)
                 except PipelineRejected as error:
                     raise _CommandRollback(error) from error
+                except (TypeError, ValueError, OverflowError) as error:
+                    # Stored JSON null/scalars and driver-decoded values can
+                    # retain legacy plain-500 failures during command phases.
+                    raise _CommandRollback(
+                        self._legacy_materialization_failure()
+                    ) from error
                 body_completed = True
         except _CommandRollback as rollback:
             return self._command_failure(
@@ -191,6 +197,12 @@ class PipelineManager:
                     commit_state="unknown",
                 )
             raise
+        except PipelineRejected as error:
+            # Acknowledged commit/rollback failures from an owner transaction
+            # are known outcomes. Transport uncertainty remains PipelineUnavailable.
+            if owns_commit is True and error.rollback:
+                return self._command_failure(request, error, commit_state="rolled_back")
+            raise
 
         commit_state = "committed" if owns_commit else "caller_pending"
         return self._command_success(request, resource_id, commit_state)
@@ -213,6 +225,10 @@ class PipelineManager:
                     raise PipelineUnavailable()
         except PipelineRejected as error:
             return self._query_failure(request, error)
+        except (TypeError, ValueError, OverflowError):
+            return self._query_failure(
+                request, self._legacy_materialization_failure(rollback=False)
+            )
         return decode_pipeline_query_reply(
             request,
             PipelineQuerySuccess(

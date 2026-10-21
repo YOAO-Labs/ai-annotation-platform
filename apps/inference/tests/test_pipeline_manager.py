@@ -8,9 +8,11 @@ import pytest
 
 from aap_inference.pipeline_contract import (
     PIPELINE_STEP_PROTOCOL,
+    PipelineRejected,
     PipelineStepSuccess,
     PipelineUnavailable,
     pipeline_command_request,
+    pipeline_query_request,
     pipeline_status_request,
 )
 from aap_inference.pipeline_manager import PipelineManager
@@ -78,6 +80,23 @@ class _Data:
                 self.committed = True
 
 
+class _ExitErrorData(_Data):
+    def __init__(self, *, exit_error, step_handler):
+        super().__init__(owns_commit=True, step_handler=step_handler)
+        self.exit_error = exit_error
+
+    @asynccontextmanager
+    async def transaction(self, *, readonly=False):
+        self.readonly_values.append(readonly)
+        try:
+            yield self.transaction_value
+        except BaseException:
+            raise
+        else:
+            if not readonly:
+                raise self.exit_error
+
+
 def _command(*, operation, actor_id, actor_role, target_id=None, payload):
     return pipeline_command_request(
         operation,
@@ -89,6 +108,9 @@ def _command(*, operation, actor_id, actor_role, target_id=None, payload):
     )
 
 
+_DEFAULT_STAGES = object()
+
+
 def _pipeline_row_json(
     *,
     pipeline_id,
@@ -97,6 +119,7 @@ def _pipeline_row_json(
     project_id=None,
     organization_id=None,
     name="Existing",
+    stages=_DEFAULT_STAGES,
     is_default=False,
 ):
     return json.dumps(
@@ -108,7 +131,7 @@ def _pipeline_row_json(
                 str(organization_id) if organization_id is not None else None
             ),
             "name": name,
-            "stages": [],
+            "stages": [] if stages is _DEFAULT_STAGES else stages,
             "is_default": is_default,
             "created_by": str(actor_id),
             "usage_count": 0,
@@ -296,6 +319,141 @@ async def test_move_default_does_not_dirty_unchanged_default_column():
     assert clear_event[1] == {"project_id": str(new_project_id)}
     update_event = data.transaction_value.events[3]
     assert update_event[2:] == (["project_id"], [str(new_project_id)])
+
+
+@pytest.mark.asyncio
+async def test_stored_null_apply_stages_return_known_generic_500():
+    actor_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    pipeline_id = uuid.uuid4()
+
+    def handle(_request, action, _args):
+        if action == "begin":
+            return {"replay": None}
+        if action == "pipeline_get":
+            return {
+                "row_json": _pipeline_row_json(
+                    pipeline_id=pipeline_id,
+                    actor_id=actor_id,
+                    scope="public",
+                    stages=None,
+                )
+            }
+        raise AssertionError(f"Unexpected pipeline action after null stages: {action}")
+
+    request = _command(
+        operation="apply_pipeline",
+        actor_id=actor_id,
+        actor_role="project_admin",
+        target_id=project_id,
+        payload={"pipeline_id": str(pipeline_id), "set_default": False},
+    )
+    data = _Data(owns_commit=True, step_handler=handle)
+
+    reply = await PipelineManager(data).execute(request)
+
+    assert reply.ok is False
+    assert reply.error.status_code == 500
+    assert reply.error.detail == "Internal Server Error"
+    assert reply.error.rollback is True
+    assert reply.commit_state == "rolled_back"
+    assert [event[0] for event in data.transaction_value.events] == [
+        "begin",
+        "pipeline_get",
+    ]
+    assert data.committed is False
+
+
+@pytest.mark.parametrize(
+    ("exit_error", "expected_status", "expected_state", "expected_rollback"),
+    [
+        (
+            PipelineRejected(500, "Internal Server Error", rollback=True),
+            500,
+            "rolled_back",
+            True,
+        ),
+        (PipelineUnavailable(), 503, "unknown", False),
+    ],
+)
+@pytest.mark.asyncio
+async def test_owner_transaction_exit_preserves_known_failure_vs_unknown(
+    exit_error, expected_status, expected_state, expected_rollback
+):
+    actor_id = uuid.uuid4()
+    pipeline_id = uuid.uuid4()
+
+    def handle(_request, action, _args):
+        if action == "begin":
+            return {"replay": None}
+        if action == "pipeline_get":
+            return {
+                "row_json": _pipeline_row_json(
+                    pipeline_id=pipeline_id,
+                    actor_id=actor_id,
+                    scope="public",
+                )
+            }
+        if action in {"pipeline_delete", "finish"}:
+            return {"resource_id": str(pipeline_id)}
+        raise AssertionError(f"Unexpected pipeline action: {action}")
+
+    request = _command(
+        operation="delete_pipeline",
+        actor_id=actor_id,
+        actor_role="super_admin",
+        target_id=pipeline_id,
+        payload={},
+    )
+    data = _ExitErrorData(exit_error=exit_error, step_handler=handle)
+
+    reply = await PipelineManager(data).execute(request)
+
+    assert reply.ok is False
+    assert reply.error.status_code == expected_status
+    assert reply.error.rollback is expected_rollback
+    assert reply.commit_state == expected_state
+    assert [event[0] for event in data.transaction_value.events] == [
+        "begin",
+        "pipeline_get",
+        "pipeline_delete",
+        "finish",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_query_materialization_typeerror_is_generic_500_but_unavailable_stays_unavailable():
+    actor_id = uuid.uuid4()
+    query = pipeline_query_request(
+        "list_pipelines",
+        actor_id=actor_id,
+        actor_role="super_admin",
+        filters={"scope": None, "project_id": None, "organization_id": None},
+    )
+
+    def type_error(_request, action, _args):
+        if action == "pipeline_list":
+            raise TypeError("legacy stored stages value")
+        raise AssertionError(f"Unexpected pipeline action: {action}")
+
+    reply = await PipelineManager(
+        _Data(owns_commit=True, step_handler=type_error)
+    ).query(query)
+
+    assert reply.ok is False
+    assert reply.error.status_code == 500
+    assert reply.error.detail == "Internal Server Error"
+    assert reply.error.rollback is False
+
+    def unavailable(_request, action, _args):
+        if action == "pipeline_list":
+            raise PipelineUnavailable()
+        raise AssertionError(f"Unexpected pipeline action: {action}")
+
+    with pytest.raises(PipelineUnavailable):
+        await PipelineManager(_Data(owns_commit=True, step_handler=unavailable)).query(
+            query
+        )
 
 
 def _backend_registry_facts(backend_id):
