@@ -46,6 +46,7 @@ class _FakeConnection:
         self.close_error = close_error
         self.calls = []
         self.closed = 0
+        self.terminated = 0
 
     async def fetchval(self, *args):
         self.calls.append(args)
@@ -62,6 +63,9 @@ class _FakeConnection:
         self.closed += 1
         if self.close_error is not None:
             raise self.close_error
+
+    def terminate(self):
+        self.terminated += 1
 
 
 class _FakeTransaction:
@@ -111,11 +115,12 @@ def _fake_asyncpg(monkeypatch, connection):
     )
 
 
-def _request():
+def _request(operation="create_pipeline", target_id=None):
     return pipeline_command_request(
-        "create_pipeline",
+        operation,
         actor_id=uuid.UUID("0f9210aa-91c3-4a26-a78f-16367d4f811d"),
         actor_role="project_admin",
+        target_id=target_id,
         payload={},
     )
 
@@ -164,6 +169,26 @@ def test_step_rejects_unapproved_write_columns_before_calling_native():
     assert connection.calls == []
 
 
+def test_noop_update_keeps_empty_write_rpc_for_legacy_flush_phase():
+    target_id = uuid.UUID("d6df1331-2645-4da1-b1cf-e358e131ab4e")
+    connection = _FakeConnection()
+    transaction = _transaction(connection)
+
+    result = asyncio.run(
+        transaction.step(
+            _request("update_pipeline", target_id),
+            "pipeline_update",
+            {"pipeline_id": str(target_id)},
+            columns=[],
+            values=[],
+        )
+    )
+
+    assert result == {"schema": "native-step"}
+    assert connection.calls[0][2] == "pipeline_update"
+    assert connection.calls[0][4:] == ([], [])
+
+
 def test_only_exact_workspace_lock_hint_maps_to_retryable_409():
     busy = _FakePostgresError("40001", "aap.workspace.project_access.project_busy")
     transaction = _transaction(_FakeConnection(error=busy))
@@ -207,6 +232,66 @@ def test_unknown_commit_error_becomes_unavailable_not_rolled_back(monkeypatch):
     assert connection.closed == 1
 
 
+def test_deferred_constraint_commit_error_is_known_rollback(monkeypatch):
+    commit_error = _FakePostgresError("23514")
+    transaction = _FakeTransaction(readonly=False, commit_error=commit_error)
+    connection = _FakeConnection()
+    connection.transaction_factory = lambda *, readonly: transaction
+    _fake_asyncpg(monkeypatch, connection)
+    data = PipelinePostgresData("postgresql://inference@localhost/db")
+
+    async def run():
+        async with data.transaction(readonly=False):
+            pass
+
+    with pytest.raises(PipelineRejected) as captured:
+        asyncio.run(run())
+    assert captured.value.status_code == 500
+    assert captured.value.detail == "Internal Server Error"
+    assert captured.value.rollback is True
+    assert transaction.committed is False
+    assert connection.closed == 1
+
+
+def test_statement_completion_unknown_commit_error_stays_unavailable(monkeypatch):
+    commit_error = _FakePostgresError("40003")
+    transaction = _FakeTransaction(readonly=False, commit_error=commit_error)
+    connection = _FakeConnection()
+    connection.transaction_factory = lambda *, readonly: transaction
+    _fake_asyncpg(monkeypatch, connection)
+    data = PipelinePostgresData("postgresql://inference@localhost/db")
+
+    async def run():
+        async with data.transaction(readonly=False):
+            pass
+
+    with pytest.raises(PipelineUnavailable):
+        asyncio.run(run())
+    assert transaction.committed is False
+    assert transaction.rolled_back is False
+    assert connection.closed == 1
+
+
+def test_close_failure_after_commit_terminates_and_preserves_unknown_outcome(
+    monkeypatch,
+):
+    transaction = _FakeTransaction(readonly=False)
+    connection = _FakeConnection(close_error=_FakeInterfaceError("cleanup"))
+    connection.transaction_factory = lambda *, readonly: transaction
+    _fake_asyncpg(monkeypatch, connection)
+    data = PipelinePostgresData("postgresql://inference@localhost/db")
+
+    async def run():
+        async with data.transaction(readonly=False):
+            pass
+
+    with pytest.raises(PipelineUnavailable):
+        asyncio.run(run())
+    assert transaction.committed is True
+    assert connection.closed == 1
+    assert connection.terminated == 1
+
+
 def test_body_rejection_rolls_back_and_cleanup_error_does_not_replace_it(monkeypatch):
     transaction = _FakeTransaction(readonly=True)
     connection = _FakeConnection(close_error=_FakeInterfaceError("cleanup"))
@@ -226,3 +311,4 @@ def test_body_rejection_rolls_back_and_cleanup_error_does_not_replace_it(monkeyp
     assert transaction.rolled_back is True
     assert transaction.committed is False
     assert connection.closed == 1
+    assert connection.terminated == 1

@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Mapping, Sequence
 from contextlib import asynccontextmanager
 import json
+import logging
 import math
 from typing import Any
 
@@ -63,6 +64,7 @@ _BUSY_HINTS = {
     "aap.workspace.project_access.membership_busy": "membership_busy",
 }
 _CONNECTION_SQLSTATES = frozenset({"57P01", "57P02", "57P03"})
+_logger = logging.getLogger(__name__)
 
 
 def _json_text(value: Any) -> str:
@@ -125,7 +127,9 @@ def _columns_and_values(action, columns, values) -> tuple[list[str], list[str | 
         if column_list or value_list:
             raise PipelineInvalidRequest()
         return [], []
-    if not column_list or len(set(column_list)) != len(column_list):
+    if (action == "pipeline_insert" and not column_list) or len(
+        set(column_list)
+    ) != len(column_list):
         raise PipelineInvalidRequest()
     if not set(column_list) <= allowed:
         raise PipelineInvalidRequest()
@@ -138,6 +142,18 @@ def _busy_rejection(error: BaseException) -> PipelineRejected | None:
     reason = _BUSY_HINTS.get(hint)
     if sqlstate in {"55P03", "40001", "40P01"} and reason is not None:
         return PipelineRejected(409, {"reason": reason}, rollback=True)
+    return None
+
+
+def _commit_rejection(error: BaseException) -> PipelineRejected | None:
+    busy = _busy_rejection(error)
+    if busy is not None:
+        return busy
+    sqlstate = getattr(error, "sqlstate", None)
+    if isinstance(sqlstate, str) and (
+        sqlstate.startswith("23") or (sqlstate.startswith("40") and sqlstate != "40003")
+    ):
+        return PipelineRejected(500, "Internal Server Error", rollback=True)
     return None
 
 
@@ -238,6 +254,28 @@ class PipelinePostgresData:
         self.connect_timeout = float(connect_timeout)
         self.command_timeout = float(command_timeout)
 
+    async def _close_connection(self, connection, *, primary_failure: bool) -> None:
+        try:
+            await asyncio.shield(connection.close(timeout=2))
+        except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
+            try:
+                connection.terminate()
+            except BaseException:
+                pass
+            if primary_failure:
+                _logger.warning("Inference pipeline connection cleanup failed")
+                return
+            raise
+        except BaseException:
+            try:
+                connection.terminate()
+            except BaseException:
+                pass
+            if primary_failure:
+                _logger.warning("Inference pipeline connection cleanup failed")
+                return
+            raise PipelineUnavailable() from None
+
     async def _open_verified_connection(self):
         import asyncpg
 
@@ -283,11 +321,7 @@ class PipelinePostgresData:
             raise
         finally:
             if primary_error is not None and connection is not None:
-                try:
-                    await asyncio.shield(connection.close(timeout=2))
-                except BaseException:
-                    # Preserve the policy/connection failure that selected this path.
-                    pass
+                await self._close_connection(connection, primary_failure=True)
 
     async def close(self) -> None:
         """Keep the provider interface uniform; transactions close their own connection."""
@@ -299,8 +333,8 @@ class PipelinePostgresData:
             return False
         ready = policy == pipeline_policy()
         try:
-            await asyncio.shield(connection.close(timeout=2))
-        except Exception:
+            await self._close_connection(connection, primary_failure=False)
+        except PipelineUnavailable:
             return False
         return ready
 
@@ -332,12 +366,12 @@ class PipelinePostgresData:
                 raise
             try:
                 await transaction.commit()
-            except (
-                asyncpg.PostgresError,
-                asyncpg.InterfaceError,
-                OSError,
-                TimeoutError,
-            ):
+            except asyncpg.PostgresError as error:
+                rejected = _commit_rejection(error)
+                if rejected is not None:
+                    raise rejected from None
+                raise PipelineUnavailable() from None
+            except (asyncpg.InterfaceError, OSError, TimeoutError):
                 # COMMIT may have reached PostgreSQL. The status RPC resolves this.
                 raise PipelineUnavailable() from None
         except BaseException as error:
@@ -361,27 +395,15 @@ class PipelinePostgresData:
             raise
         finally:
             if connection is not None:
-                try:
-                    await asyncio.shield(connection.close(timeout=2))
-                except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
-                    if primary_error is None:
-                        raise
-                    # Keep an earlier operation failure authoritative.
-                except BaseException:
-                    if primary_error is None:
-                        # A close failure after a completed body may follow COMMIT.
-                        raise PipelineUnavailable() from None
-                    # Never replace the operation failure with cleanup diagnostics.
+                await self._close_connection(
+                    connection,
+                    primary_failure=primary_error is not None,
+                )
 
     async def policy(self) -> PipelinePolicy:
         connection, _asyncpg, policy = await self._open_verified_connection()
-        try:
-            return policy
-        finally:
-            try:
-                await asyncio.shield(connection.close(timeout=2))
-            except Exception:
-                raise PipelineUnavailable() from None
+        await self._close_connection(connection, primary_failure=False)
+        return policy
 
 
 __all__ = ["PipelinePostgresData", "PipelinePostgresTransaction"]
