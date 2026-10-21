@@ -391,6 +391,13 @@ async def get_project_readiness(
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ):
+    """Return the owner-facing, server-observed project start conditions.
+
+    This endpoint intentionally reports task-creation jobs and active member
+    accounts together with counters.  The settings page can therefore explain
+    a pending or failed worker without treating a partially created project as
+    ready.
+    """
     return await execute_project_query(
         db,
         operation="project_readiness",
