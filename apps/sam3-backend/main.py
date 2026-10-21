@@ -31,6 +31,7 @@ Idle Unload (双 backend 并存场景的显存让渡机制):
 from __future__ import annotations
 
 from aap_protocol_v2.predict import normalize_context_task
+from aap_protocol_v2.routing_runtime import install_backend_routing_controller
 
 import asyncio
 import functools
@@ -143,6 +144,7 @@ MANAGED_LIFECYCLE_VERIFIED = deployment_verified_flag("SAM3_MANAGED_LIFECYCLE_VE
 MAX_PREDICT_REQUEST_BYTES = 6 * 1024 * 1024
 
 app = FastAPI(title="sam3-backend", version=BACKEND_VERSION)
+install_backend_routing_controller(app)
 
 
 async def _buffer_bounded_predict_body(request: Request) -> None:
@@ -357,11 +359,22 @@ async def _begin_workload(
     generation_header, token = _managed_lifecycle_headers(request)
     if _gpu_lifecycle is None:
         raise HTTPException(status_code=503, detail="backend not ready")
-    return await _gpu_lifecycle.begin_workload(
+    operation = await _gpu_lifecycle.begin_workload(
         scope,
         generation_header=generation_header,
         token=token,
     )
+    operation._backend_routing_controller = getattr(
+        request.app.state, "backend_routing_controller", None
+    )
+    return operation
+
+
+def _track_operation_future(operation: WorkloadOperation, future: Any) -> None:
+    operation.track_future(future)
+    controller = getattr(operation, "_backend_routing_controller", None)
+    if controller is not None:
+        controller.track_background_future(future)
 
 
 def _request_operation(request: Request) -> WorkloadOperation:
@@ -379,12 +392,12 @@ async def _warm_pool(
     try:
         return await pool.warmup(key)
     except ManagedBuildTimeout as exc:
-        operation.track_future(exc.builder)
+        _track_operation_future(operation, exc.builder)
         raise ModelUnavailableError(key, str(exc)) from exc
     except (ManagedPoolBusyError, DeviceUnavailableError, FileNotFoundError) as exc:
         raise ModelUnavailableError(key, str(exc)) from exc
     except asyncio.CancelledError:
-        operation.track_future(pool.builder_for_now(key))
+        _track_operation_future(operation, pool.builder_for_now(key))
         raise
 
 
@@ -1199,7 +1212,7 @@ async def _run_executor_to_completion(
 
     future = asyncio.get_running_loop().run_in_executor(None, call)
     if operation is not None:
-        operation.track_future(future)
+        _track_operation_future(operation, future)
     cancelled = False
     while not future.done():
         try:
@@ -1466,13 +1479,13 @@ async def _run_prompt(
             )
     except ManagedBuildTimeout as exc:
         if operation is not None:
-            operation.track_future(exc.builder)
+            _track_operation_future(operation, exc.builder)
         raise ModelUnavailableError(_POOL_KEY, str(exc)) from exc
     except (ManagedPoolBusyError, DeviceUnavailableError, FileNotFoundError) as exc:
         raise ModelUnavailableError(_POOL_KEY, str(exc)) from exc
     except asyncio.CancelledError:
         if operation is not None:
-            operation.track_future(_image_pool.builder_for_now(_POOL_KEY))
+            _track_operation_future(operation, _image_pool.builder_for_now(_POOL_KEY))
         raise
 
 
@@ -1702,13 +1715,15 @@ async def _run_video_tracker(
             )
     except ManagedBuildTimeout as exc:
         if operation is not None:
-            operation.track_future(exc.builder)
+            _track_operation_future(operation, exc.builder)
         raise ModelUnavailableError(_MULTIPLEX_KEY, str(exc)) from exc
     except (ManagedPoolBusyError, DeviceUnavailableError, FileNotFoundError) as exc:
         raise ModelUnavailableError(_MULTIPLEX_KEY, str(exc)) from exc
     except asyncio.CancelledError:
         if operation is not None:
-            operation.track_future(_multiplex_pool.builder_for_now(_MULTIPLEX_KEY))
+            _track_operation_future(
+                operation, _multiplex_pool.builder_for_now(_MULTIPLEX_KEY)
+            )
         raise
 
 
@@ -1914,13 +1929,13 @@ async def _run_pvs_video_tracker(
             return result, None
     except ManagedBuildTimeout as exc:
         if operation is not None:
-            operation.track_future(exc.builder)
+            _track_operation_future(operation, exc.builder)
         raise ModelUnavailableError(_PVS_KEY, str(exc)) from exc
     except (ManagedPoolBusyError, DeviceUnavailableError, FileNotFoundError) as exc:
         raise ModelUnavailableError(_PVS_KEY, str(exc)) from exc
     except asyncio.CancelledError:
         if operation is not None:
-            operation.track_future(_pvs_pool.builder_for_now(_PVS_KEY))
+            _track_operation_future(operation, _pvs_pool.builder_for_now(_PVS_KEY))
         raise
 
 

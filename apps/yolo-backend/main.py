@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 from aap_task_contract import normalize_task
+from aap_protocol_v2.routing_runtime import install_backend_routing_controller
 
 import asyncio
 import copy
@@ -311,6 +312,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="yolo-backend", version=BACKEND_VERSION, lifespan=lifespan)
+install_backend_routing_controller(app)
 
 
 def _echo_gpu_health_challenge(request: Request, response: Response) -> None:
@@ -1043,7 +1045,7 @@ async def _run_predict(
             ) from exc
         except ModelBuildTimeout as exc:
             if operation is not None:
-                operation.track_future(exc.builder)
+                _track_operation_future(operation, exc.builder)
             raise ModelUnavailableError(
                 _pool_key(*key),
                 str(exc),
@@ -1055,7 +1057,7 @@ async def _run_predict(
             ) from exc
         except asyncio.CancelledError:
             if operation is not None:
-                operation.track_future(_model_pool.builder_for_now(*key))
+                _track_operation_future(operation, _model_pool.builder_for_now(*key))
             raise
         except HTTPException:
             raise
@@ -1266,11 +1268,22 @@ async def _begin_workload(
     generation_header, token = _managed_lifecycle_headers(request)
     if _gpu_lifecycle is None:
         raise HTTPException(status_code=503, detail="backend not ready")
-    return await _gpu_lifecycle.begin_workload(
+    operation = await _gpu_lifecycle.begin_workload(
         scope,
         generation_header=generation_header,
         token=token,
     )
+    operation._backend_routing_controller = getattr(
+        request.app.state, "backend_routing_controller", None
+    )
+    return operation
+
+
+def _track_operation_future(operation: WorkloadOperation, future: Any) -> None:
+    operation.track_future(future)
+    controller = getattr(operation, "_backend_routing_controller", None)
+    if controller is not None:
+        controller.track_background_future(future)
 
 
 @app.post("/unload")
@@ -1394,7 +1407,7 @@ async def _run_warmup(
             _pool_key(pool_task, series, size), str(exc)
         ) from exc
     except ModelBuildTimeout as exc:
-        operation.track_future(exc.builder)
+        _track_operation_future(operation, exc.builder)
         raise ModelUnavailableError(
             _pool_key(pool_task, series, size), str(exc)
         ) from exc
@@ -1403,7 +1416,9 @@ async def _run_warmup(
             _pool_key(pool_task, series, size), str(exc)
         ) from exc
     except asyncio.CancelledError:
-        operation.track_future(_model_pool.builder_for_now(pool_task, series, size))
+        _track_operation_future(
+            operation, _model_pool.builder_for_now(pool_task, series, size)
+        )
         raise
     return WarmupResponse(
         ok=True,

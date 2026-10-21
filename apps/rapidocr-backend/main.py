@@ -15,6 +15,7 @@ det/cls/rec 三条 ORT session；single-flight builder、borrower、per-entry us
 from __future__ import annotations
 
 from aap_protocol_v2.predict import normalize_context_task
+from aap_protocol_v2.routing_runtime import install_backend_routing_controller
 from aap_task_contract import normalize_task
 
 import asyncio
@@ -155,6 +156,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="rapidocr-backend", version=BACKEND_VERSION, lifespan=lifespan)
+install_backend_routing_controller(app)
 
 
 def _echo_gpu_health_challenge(request: Request, response: Response) -> None:
@@ -355,11 +357,22 @@ async def _begin_workload(
     generation_header, token = _managed_lifecycle_headers(request)
     if _gpu_lifecycle is None:
         raise HTTPException(status_code=503, detail="backend not ready")
-    return await _gpu_lifecycle.begin_workload(
+    operation = await _gpu_lifecycle.begin_workload(
         scope,
         generation_header=generation_header,
         token=token,
     )
+    operation._backend_routing_controller = getattr(
+        request.app.state, "backend_routing_controller", None
+    )
+    return operation
+
+
+def _track_operation_future(operation: WorkloadOperation, future: Any) -> None:
+    operation.track_future(future)
+    controller = getattr(operation, "_backend_routing_controller", None)
+    if controller is not None:
+        controller.track_background_future(future)
 
 
 @app.post("/warmup", response_model=WarmupResponse)
@@ -378,7 +391,7 @@ async def warmup(request: Request) -> WarmupResponse:
         except (ValueError, FileNotFoundError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except EngineBuildTimeout as exc:
-            operation.track_future(exc.builder)
+            _track_operation_future(operation, exc.builder)
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except EnginePoolBusyError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -386,7 +399,9 @@ async def warmup(request: Request) -> WarmupResponse:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except asyncio.CancelledError:
             if resolved is not None:
-                operation.track_future(_engine_pool.builder_for_now(resolved))
+                _track_operation_future(
+                    operation, _engine_pool.builder_for_now(resolved)
+                )
             raise
         return WarmupResponse(
             ok=True,
@@ -454,14 +469,14 @@ async def _run_predict(
                 )
             )
         except EngineBuildTimeout as exc:
-            operation.track_future(exc.builder)
+            _track_operation_future(operation, exc.builder)
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except EnginePoolBusyError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except RapidOCREngineBuildError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except asyncio.CancelledError:
-            operation.track_future(_engine_pool.builder_for_now(resolved))
+            _track_operation_future(operation, _engine_pool.builder_for_now(resolved))
             raise
         except HTTPException:
             raise
