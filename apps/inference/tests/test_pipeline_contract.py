@@ -28,6 +28,7 @@ from aap_inference.pipeline_contract import (
     pipeline_command_request,
     pipeline_policy,
     pipeline_query_request,
+    pipeline_schema,
     pipeline_status_request,
 )
 from aap_inference.pipeline_values import (
@@ -372,6 +373,33 @@ def test_pipeline_timestamps_keep_infinity_extrema_and_finite_overflow_phase():
         decode_pipeline_row(json.dumps(row, ensure_ascii=True))
     with pytest.raises(ProjectQueryUnavailable):
         decode_postgres_timestamp("invalid timestamp")
+
+
+def test_pipeline_schema_and_dto_roundtrip_cover_timestamp_infinity_extrema():
+    extrema = (
+        "infinity",
+        "-infinity",
+        datetime.max.isoformat(),
+        datetime.min.isoformat(),
+    )
+    row_schema = pipeline_schema()["$defs"]["PipelineRow"]["properties"]
+    for field in ("created_at", "updated_at"):
+        alternatives = row_schema[field]["anyOf"]
+        assert {"type": "string", "format": "date-time"} in alternatives
+        assert {"type": "string", "enum": list(extrema)} in alternatives
+        assert {"type": "null"} in alternatives
+
+    for encoded, normalized in (
+        ("infinity", datetime.max),
+        ("-infinity", datetime.min),
+        (datetime.max.isoformat(), datetime.max),
+        (datetime.min.isoformat(), datetime.min),
+    ):
+        payload = _row_payload(created_at=encoded)
+        decoded = decode_pipeline_row(json.dumps(payload, ensure_ascii=True))
+        assert decoded.created_at == normalized
+        dto_json = json.dumps(decoded.model_dump(mode="json", by_alias=True))
+        assert PipelineRow.model_validate_json(dto_json).created_at == normalized
 
 
 def test_oversized_stored_json_integer_keeps_the_driver_value_error_phase():

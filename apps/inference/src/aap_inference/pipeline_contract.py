@@ -127,6 +127,22 @@ PIPELINE_UPDATE_COLUMNS = (
     "stages",
     "is_default",
 )
+_PIPELINE_TIMESTAMP_EXTREMA = (
+    "infinity",
+    "-infinity",
+    datetime.max.isoformat(),
+    datetime.min.isoformat(),
+)
+
+
+def _pipeline_timestamp_json_schema() -> dict:
+    return {
+        "anyOf": [
+            {"type": "string", "format": "date-time"},
+            {"type": "string", "enum": list(_PIPELINE_TIMESTAMP_EXTREMA)},
+            {"type": "null"},
+        ]
+    }
 
 _PIPELINE_OPERATIONS = frozenset(
     {"create_pipeline", "update_pipeline", "delete_pipeline", "apply_pipeline"}
@@ -332,8 +348,12 @@ class PipelineRow(_PipelineWireModel):
     is_default: StrictBool
     created_by: uuid.UUID
     usage_count: StrictInt
-    created_at: datetime | None
-    updated_at: datetime | None
+    created_at: datetime | None = Field(
+        json_schema_extra=_pipeline_timestamp_json_schema()
+    )
+    updated_at: datetime | None = Field(
+        json_schema_extra=_pipeline_timestamp_json_schema()
+    )
 
     @field_validator("created_at", "updated_at", mode="before")
     @classmethod
