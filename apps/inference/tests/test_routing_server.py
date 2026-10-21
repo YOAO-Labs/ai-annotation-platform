@@ -11,6 +11,7 @@ from aap_inference_contract.routing import (
     ROUTING_RESULT_PROTOCOL,
     ROUTING_RUNTIME_RESULT_PROTOCOL,
     RoutingResult,
+    RoutingVideoExecutionProof,
     RoutingRuntimeResult,
     decode_routing_result,
     decode_routing_runtime_result,
@@ -32,6 +33,14 @@ from aap_inference_contract.scope_retirement import (
     make_scope_retirement_request,
     scope_retirement_request_bytes,
 )
+from aap_inference_contract.video_execution import (
+    VIDEO_EXECUTION_DATA_PROTOCOL,
+    VIDEO_EXECUTION_STATUS_PATH,
+    VIDEO_EXECUTION_STATUS_REPLY_MAX_BYTES,
+    VIDEO_EXECUTION_STATUS_REQUEST_MAX_BYTES,
+    decode_video_execution_status_result,
+    video_execution_status_request_bytes,
+)
 
 from aap_inference.pipeline_server import PipelineHttpServer
 
@@ -43,6 +52,7 @@ class _RoutingManager:
         self.commands = []
         self.statuses = []
         self.runtimes = []
+        self.video_statuses = []
 
     async def execute(self, command):
         self.commands.append(command)
@@ -85,6 +95,15 @@ class _RoutingManager:
                 }
             ],
         )
+
+    async def video_execution_status(self, proof):
+        self.video_statuses.append(proof)
+        return {
+            "schema": VIDEO_EXECUTION_DATA_PROTOCOL,
+            "status": "ok",
+            "intent": None,
+            "scope": None,
+        }
 
 
 class _ScopeRetirementManager:
@@ -130,6 +149,16 @@ def _scope_retirement_result(request, *, phase):
             phase=phase,
             closed=True,
         ),
+    )
+
+
+def _video_status_proof():
+    return RoutingVideoExecutionProof(
+        job_id=UUID("10b9f6cc-6424-4b4a-8740-3660cb25db17"),
+        run_id=UUID("9f8f00b4-6d2f-4fe0-a75e-a28c4e923714"),
+        worker_id=UUID("8f87cb4e-636d-4606-983f-e7397cb954f9"),
+        generation=4,
+        lease_token=UUID("cb72f60a-61b0-4e76-b355-f8e8b976c4a2"),
     )
 
 
@@ -284,6 +313,65 @@ def test_scope_retirement_endpoints_use_their_bounded_wire_budget():
     assert (
         server._response_limit("/v1/routes/retire") == SCOPE_RETIREMENT_REPLY_MAX_BYTES
     )
+
+
+def test_video_execution_status_endpoint_uses_bounded_wire_budget():
+    server = PipelineHttpServer(
+        None,
+        None,
+        None,
+        routing_manager=_RoutingManager(),
+        routing_control_token="separate-route-token",
+    )
+
+    assert server._request_limit(f"{VIDEO_EXECUTION_STATUS_PATH}?bad=1") == (
+        VIDEO_EXECUTION_STATUS_REQUEST_MAX_BYTES
+    )
+    assert server._response_limit(VIDEO_EXECUTION_STATUS_PATH) == (
+        VIDEO_EXECUTION_STATUS_REPLY_MAX_BYTES
+    )
+
+
+@pytest.mark.asyncio
+async def test_video_execution_status_endpoint_is_authenticated_proof_bound_read():
+    manager = _RoutingManager()
+    server = PipelineHttpServer(
+        None,
+        None,
+        None,
+        routing_manager=manager,
+        routing_control_token="separate-route-token",
+    )
+    proof = _video_status_proof()
+    body = video_execution_status_request_bytes(proof)
+
+    denied, _ = await server._dispatch(
+        "POST", VIDEO_EXECUTION_STATUS_PATH, {"authorization": "Bearer wrong"}, body
+    )
+    malformed, _ = await server._dispatch(
+        "POST",
+        VIDEO_EXECUTION_STATUS_PATH,
+        {"authorization": "Bearer separate-route-token"},
+        body.replace(
+            b'"job_id":',
+            b'"job_id":"' + str(proof.job_id).encode() + b'","job_id":',
+        ),
+    )
+    status, encoded = await server._dispatch(
+        "POST",
+        VIDEO_EXECUTION_STATUS_PATH,
+        {"authorization": "Bearer separate-route-token"},
+        body,
+    )
+
+    assert denied == 401
+    assert malformed == 400
+    assert status == 200
+    result = decode_video_execution_status_result(proof, encoded)
+    assert result == {"intent": None, "scope": None}
+    assert manager.video_statuses == [proof]
+    assert manager.commands == []
+    assert manager.statuses == []
 
 
 @pytest.mark.asyncio

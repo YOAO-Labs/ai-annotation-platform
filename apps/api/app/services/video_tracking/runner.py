@@ -13,6 +13,15 @@ from datetime import datetime, timezone
 
 import redis.asyncio as aioredis
 from aap_protocol_v2 import CorrectionFramePrompt
+from aap_preannotation_results import contract as video_contract
+from aap_preannotation_results.video_execution_plan import VideoContinuationPostState
+from aap_preannotation_results.video_execution_planner import (
+    build_video_execution_plan,
+    freeze_video_window_settings,
+)
+from aap_preannotation_results.video_window_checkpoint import (
+    make_video_window_checkpoint_payload,
+)
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -73,6 +82,15 @@ from app.services.video_tracking.execution import (
     fence_tracker_write,
     execution_proof,
     tracker_execution,
+)
+from app.services.video_tracking.journal import TrackerWindowJournal
+from app.services.video_tracking.recovery import (
+    recover_tracker_execution,
+    retire_terminal_tracker_execution,
+)
+from app.services.video_tracking.backend_identity import (
+    build_video_backend_compatibility,
+    bind_video_normalization_policy,
 )
 from app.services.mask_gc import read_mask_write_epochs
 from app.services.video_tracks import is_polygon_track
@@ -3154,8 +3172,12 @@ async def _mark_failed(
         job.error_message = message[:2000]
         job.staged_result = None
         job.completed_at = _now()
+    cancelled = job.status == VideoTrackerJobStatus.CANCELLED.value
+    await TrackerWindowJournal(db, job_id).finish(
+        "cancelled" if cancelled else "failed"
+    )
     await db.commit()
-    event = _event(job, "job_failed", error=message)
+    event = _event(job, "job_cancelled" if cancelled else "job_failed", error=message)
     if gpu_arbiter_error is not None:
         event["gpu_arbiter_error"] = gpu_arbiter_error
     await publisher(job.event_channel, event)
@@ -3176,34 +3198,70 @@ async def run_tracker_job(
     | None = None,
 ) -> VideoTrackerJob | None:
     job = await db.get(VideoTrackerJob, job_id)
-    if job is None or job.status not in {
+    active = job is not None and job.status in {
         VideoTrackerJobStatus.QUEUED.value,
         VideoTrackerJobStatus.RUNNING.value,
-    }:
-        await db.commit()
-        return job
+    }
     await db.commit()
     try:
         async with tracker_execution(
             db, job_id, session_factory=shadow_session_factory
         ) as execution:
+            if not active:
+                await retire_terminal_tracker_execution(db, job_id)
+                return job
             if execution.state == "recovery_required":
-                # No replacement inference can run until the exact previous
-                # Native scope has a completed retirement receipt.
-                raise TrackerExecutionDeferred("recovery_required")
-            return await _run_tracker_job_claimed(
-                db,
-                job_id,
-                publisher=publisher,
-                shadow_session_factory=shadow_session_factory,
-                dispatch_context_factory=dispatch_context_factory,
-                failure_recorder=failure_recorder,
-                tracker_input_ready=tracker_input_ready,
-                celery_task_id=celery_task_id,
-                on_started=on_started,
-            )
+                if not await recover_tracker_execution(db, job_id):
+                    return await db.get(VideoTrackerJob, job_id)
+            try:
+                result = await _run_tracker_job_claimed(
+                    db,
+                    job_id,
+                    publisher=publisher,
+                    shadow_session_factory=shadow_session_factory,
+                    dispatch_context_factory=dispatch_context_factory,
+                    failure_recorder=failure_recorder,
+                    tracker_input_ready=tracker_input_ready,
+                    celery_task_id=celery_task_id,
+                    on_started=on_started,
+                )
+            except TrackerExecutionDeferred:
+                raise
+            except Exception:
+                try:
+                    await db.rollback()
+                    canonical = await db.get(
+                        VideoTrackerJob, job_id, populate_existing=True
+                    )
+                except (SQLAlchemyError, OSError):
+                    raise TrackerExecutionDeferred("storage_unavailable") from None
+                if canonical is None or canonical.status not in {
+                    "pending_review",
+                    "partially_reviewed",
+                    "accepted",
+                    "completed",
+                    "discarded",
+                    "failed",
+                }:
+                    raise
+                # The business commit may have succeeded before its reply or
+                # publication was lost. Its canonical outcome still needs the
+                # same proof-bound physical retirement, never a normal None exit.
+                result = canonical
+            if result is None or result.status not in {"queued", "running"}:
+                await retire_terminal_tracker_execution(db, job_id)
+            return result
     except TrackerExecutionLost:
-        await db.rollback()
+        try:
+            await db.rollback()
+            canonical = await db.get(VideoTrackerJob, job_id, populate_existing=True)
+        except (SQLAlchemyError, OSError):
+            raise TrackerExecutionDeferred("storage_unavailable") from None
+        if canonical is not None and canonical.status in {"queued", "running"}:
+            # Renewal may have stopped after an ambiguous response or expiry
+            # without any replacement worker. Stop this proof's writes while
+            # retaining a delivery that can recheck and claim after expiry.
+            raise TrackerExecutionDeferred("execution_recheck_required") from None
         return None
 
 
@@ -3325,6 +3383,7 @@ async def _run_tracker_job_claimed(
     tracker_input_gateway_context = None
     tracker_input_gateway = None
     tracker_input_gateway_entered = False
+    window_journal = TrackerWindowJournal(db, job_id)
     try:
         tracker_input_gateway_context = tracker_video_input_gateway(
             session_factory=shadow_session_factory
@@ -3391,6 +3450,14 @@ async def _run_tracker_job_claimed(
         # 两趟都在 sam3-backend (声明 sam3_video + sam3_video_interactive); 后端按 PVS 能力
         # 解析 (同一 backend), 追踪趟 adapter 用 PVS, 发现趟另取 multiplex adapter (见下)。
         is_combo = execution.model_key == "sam3_video_combo"
+        frozen_plan = await window_journal.read_plan()
+        await db.refresh(job)
+        await db.refresh(task)
+        frozen_registry_id = (
+            frozen_plan.backend_compatibility[0].registry_id
+            if frozen_plan is not None
+            else None
+        )
         # v0.21.25 (阶段 R) · 按 tracker 能力选后端而非项目单一绑定: sam3_video 挑声明了
         # sam3_video 的 backend(sam3-backend), 而非静默落到项目绑定的 grounded-sam2。
         tracker_capability = (
@@ -3402,7 +3469,12 @@ async def _run_tracker_job_claimed(
             if is_correction
             else {}
         )
-        if is_correction:
+        if frozen_registry_id is not None:
+            backend = await ml_svc.get(uuid.UUID(str(frozen_registry_id)))
+            if backend is None:
+                raise TrackerExecutionDeferred("checkpoint_backend_unavailable")
+            tracker_pool_id = await ml_svc.pool_id_for_registry(backend.id)
+        elif is_correction:
             try:
                 requested_backend_id = uuid.UUID(
                     str(frozen_routing["requested_backend_id"])
@@ -3467,6 +3539,9 @@ async def _run_tracker_job_claimed(
                 operation="tracker",
                 project_id=task.project_id,
                 registry_id=backend.id if tracker_pool_id is None else None,
+                required_instance_id=uuid.UUID(str(frozen_registry_id))
+                if frozen_registry_id is not None
+                else None,
                 execution=execution_proof(job_id).model_dump(mode="json"),
             )
             if _sel.rejection is not None or _sel.instance_id is None:
@@ -3523,6 +3598,38 @@ async def _run_tracker_job_claimed(
                 backend.id,
                 settings.ml_backend_router_mode,
             )
+        runtime_snapshot = None
+        if (
+            tracker_router is not None
+            and tracker_lease is not None
+            and tracker_lease.scope is not None
+        ):
+            await db.commit()
+            from aap_inference_contract.routing import RoutingUnavailable
+
+            try:
+                runtime_snapshot = await tracker_router.authority.runtime_snapshot(
+                    [backend.id]
+                )
+            except RoutingUnavailable:
+                raise TrackerExecutionDeferred("routing_unavailable") from None
+        outside_threshold = settings.video_tracker_low_confidence_outside_threshold
+        backend_compatibility = build_video_backend_compatibility(
+            model_key=tracker_capability,
+            selected_backend=backend,
+            model_id=frozen_routing.get("model_id") if is_correction else None,
+            runtime_snapshot=runtime_snapshot,
+            bound_scope=tracker_lease.scope if tracker_lease is not None else None,
+            discovery_backend=backend if is_combo else None,
+        )
+        backend_compatibility = bind_video_normalization_policy(
+            backend_compatibility, outside_threshold=outside_threshold
+        )
+        if (
+            frozen_plan is not None
+            and frozen_plan.backend_compatibility != backend_compatibility
+        ):
+            raise TrackerExecutionDeferred("checkpoint_backend_identity_changed")
         task_data = {
             "id": str(task.id),
             "file_path": tracker_input_reference.url,
@@ -3568,65 +3675,125 @@ async def _run_tracker_job_claimed(
             else "bbox"
         )
 
-        execution_windows = (
-            _correction_execution_windows(
-                job,
-                prompt=accepted_prompt,
-                from_frame=execution.from_frame,
-                to_frame=execution.to_frame,
-                correction_frame=execution.correction_frame,
-                direction=execution.direction,
-                model_key=execution.model_key,
-            )
-            if is_correction
-            else [
-                (start, end, execution.direction, index == 0)
-                for index, (start, end) in enumerate(
-                    _tracker_windows(
-                        job,
-                        from_frame=execution.from_frame,
-                        to_frame=execution.to_frame,
-                        direction=execution.direction,
-                        model_key=execution.model_key,
-                    )
-                )
-            ]
-        )
         correction = accepted_prompt.get("correction") or {}
-        if is_correction and correction.get("seed_mode") == "native_mask":
-            expected_directions = (
-                {"backward", "forward"}
-                if execution.direction == "bidirectional"
-                else {execution.direction}
-            )
-            actual_directions = {window[2] for window in execution_windows}
-            if (
-                len(execution_windows) != len(expected_directions)
-                or actual_directions != expected_directions
-                or any(not window[3] for window in execution_windows)
-            ):
-                raise ValueError("native_correction_must_fit_one_window_per_direction")
-        # v0.21.27 · U-pvs-1 · PVS 点/多目标种子 (画布点 → PVS track) 从 prompt JSONB 读出。
-        # 只在种子窗 (首窗, 含原始种子帧) 下发: points 锚在种子帧, 后续窗靠 last_geometry
-        # (上一窗末帧框) 续追, 不重发点种子。缺省无 seeds 时行为与 B-pvs 框种子完全一致。
         prompt_seeds = correction_seeds or accepted_prompt.get("seeds")
-
-        session_mode, max_context_frames = _tracker_session_capability(
-            backend, tracker_capability
-        )
-        session_spans = (
-            _context_spans(execution_windows, max_context_frames)
-            if session_mode == "session" and not is_combo
-            else {}
-        )
+        facts = await window_journal.input_facts()
+        if (
+            facts.input_id != tracker_input_status.input_id
+            or facts.task_id != tracker_task_id
+            or facts.project_id != tracker_project_id
+            or facts.source_item_id != tracker_dataset_item_id
+            or facts.request_digest != tracker_input_status.request_digest
+            or facts.prompt_digest != tracker_input_status.prompt_digest
+            or facts.source_plan_digest != tracker_input_status.plan_digest
+            or facts.timebase.timebase_digest != tracker_input_status.timebase_digest
+            or facts.source.source_version_id != tracker_input_source_version.version_id
+            or facts.source.source_sha256 != tracker_input_source_version.sha256
+            or facts.source.byte_size != tracker_input_source_version.byte_size
+        ):
+            raise TrackerFailure("input_scope_mismatch")
+        if frozen_plan is None:
+            if is_combo:
+                seed_source, seed_digest = "none", None
+            elif is_correction:
+                seed_source = "correction"
+                seed_digest = hashlib.sha256(
+                    video_contract.json_bytes(correction_seeds)
+                ).hexdigest()
+            elif any(
+                accepted_prompt.get(key)
+                for key in ("seeds", "geometry", "text", "exemplars")
+            ):
+                seed_source, seed_digest = "prompt", tracker_input_status.prompt_digest
+            elif last_geometry:
+                seed_source = "source_geometry"
+                seed_digest = hashlib.sha256(
+                    video_contract.json_bytes(last_geometry)
+                ).hexdigest()
+            else:
+                seed_source, seed_digest = "none", None
+            window_settings = freeze_video_window_settings(
+                requested_model_key=execution.model_key,
+                platform_default_frames=settings.video_tracker_window_size_frames,
+                platform_sam3_frames=settings.video_tracker_sam3_window_size_frames,
+                backend_compatibility=backend_compatibility,
+                combo_discovery_window_frames=COMBO_DISCOVERY_WINDOW_FRAMES
+                if is_combo
+                else None,
+                accepted_correction_max_frames=frozen_routing.get("max_window_frames")
+                if is_correction
+                else None,
+            )
+            frozen_plan = await window_journal.freeze(
+                build_video_execution_plan(
+                    job_id=tracker_job_id,
+                    facts=facts,
+                    window_settings=window_settings,
+                    backend_compatibility=backend_compatibility,
+                    output_geometry=output_geometry,
+                    initial_seed_source=seed_source,
+                    initial_seed_digest=seed_digest,
+                    native_correction=is_correction
+                    and correction.get("seed_mode") == "native_mask",
+                )
+            )
+        elif frozen_plan.output.geometry != output_geometry:
+            raise TrackerExecutionDeferred("checkpoint_output_identity_changed")
+        await window_journal.resume()
+        track_windows = [
+            window for window in frozen_plan.windows if window.phase == "track"
+        ]
+        execution_windows = [
+            (window.from_frame, window.to_frame, window.branch, window.is_seed_window)
+            for window in track_windows
+        ]
+        session_spans = {
+            index: (window.context_span.from_frame, window.context_span.to_frame)
+            for index, window in enumerate(track_windows)
+            if window.context_span.mode == "session"
+        }
         active_session: TrackerSession | None = None
         active_session_span: tuple[int, int, str] | None = None
-        context_boundaries: list[int] = []
+        active_session_span_digest: str | None = None
+        context_boundaries = [
+            window.from_frame if window.branch == "forward" else window.to_frame
+            for index, window in enumerate(track_windows)
+            if index
+            and window.context_span.mode == "session"
+            and window.ordinal == window.context_span.start_ordinal
+        ]
+
+        def restore_checkpoint(payload):
+            nonlocal last_geometry, last_geom_by_instance, mp_prev_boundary
+            state = payload.continuation
+            if state is not None:
+                last_geometry = state.last_geometry or {}
+                last_geom_by_instance = {
+                    item.instance_id: item.geometry
+                    for item in state.last_geom_by_instance
+                }
+                mp_prev_boundary = {
+                    item.instance_id: item.geometry for item in state.mp_prev_boundary
+                }
+                mp_next_global[0] = state.mp_next_global
+            return _deserialize_results(
+                [row.model_dump(mode="json") for row in payload.frame_results]
+            )
+
+        def current_continuation():
+            return VideoContinuationPostState(
+                last_geometry=last_geometry or None,
+                last_geom_by_instance=last_geom_by_instance,
+                mp_prev_boundary=mp_prev_boundary,
+                mp_next_global=mp_next_global[0],
+            )
 
         async def close_active_session() -> None:
-            nonlocal active_session, active_session_span
+            nonlocal active_session, active_session_span, active_session_span_digest
             if active_session is None or active_session_span is None:
                 return
+            if backend is not None:
+                await db.refresh(backend)
             close_ctx = TrackerContext(
                 job_id=tracker_job_id,
                 task_id=tracker_task_id,
@@ -3644,11 +3811,24 @@ async def _run_tracker_job_claimed(
                 dispatch_context_factory=dispatch_context_factory,
                 sam_variant=accepted_prompt.get("sam_variant"),
                 session=replace(active_session, action="close"),
+                model_id=frozen_plan.backend_compatibility[0].model_id,
+                outside_threshold=outside_threshold,
             )
             async for _ in adapter.propagate(close_ctx):
                 pass
+            completed_span = active_session_span_digest
             active_session = None
             active_session_span = None
+            active_session_span_digest = None
+            planned = [
+                window
+                for window in track_windows
+                if window.context_span.span_digest == completed_span
+            ]
+            if planned and all(
+                window.ordinal in window_journal.manifests for window in planned
+            ):
+                await window_journal.close_span(completed_span)
 
         tracker_session_cleanup = close_active_session
 
@@ -3674,6 +3854,7 @@ async def _run_tracker_job_claimed(
                 job.staged_result = None
             job.status = VideoTrackerJobStatus.CANCELLED.value
             job.completed_at = job.completed_at or _now()
+            await window_journal.finish("cancelled")
             await db.commit()
             await publisher(job.event_channel, _event(job, "job_cancelled"))
             return job
@@ -3705,67 +3886,85 @@ async def _run_tracker_job_claimed(
             discovery_text = accepted_prompt.get("text")
             if not discovery_text:
                 raise ValueError("sam3_video_combo requires prompt.text for discovery")
-            await db.commit()
-            tracker_input_reference = await _refresh_tracker_source_reference(
-                tracker_input_gateway,
-                tracker_input_status,
-                db=db,
-                job=job,
-                actor_id=actor_id,
-                task_id=task.id,
-                expected_source_version=tracker_input_source_version,
-            )
-            if tracker_input_reference is None:
-                return await finalize_cancelled_tracker()
-            task_data["file_path"] = tracker_input_reference.url
-            if not await _tracker_work_authorized_and_running(
-                db, job_id=job.id, actor_id=actor_id
-            ):
-                return await finalize_cancelled_tracker()
-            # 发现窗从种子帧向后铺 COMBO_DISCOVERY_WINDOW_FRAMES 帧 (受 job 范围与 backend
-            # 窗上限约束); multiplex 传播这几帧后在种子帧填充 obj_id, 只取种子帧的框铸种。
-            disc_span = min(
-                COMBO_DISCOVERY_WINDOW_FRAMES,
-                max(1, int(settings.video_tracker_sam3_window_size_frames)),
-            )
-            disc_to = min(execution.to_frame, execution.from_frame + disc_span - 1)
-            discovery_ctx = TrackerContext(
-                job_id=tracker_job_id,
-                task_id=tracker_task_id,
-                project_id=tracker_project_id,
-                dataset_item_id=tracker_dataset_item_id,
-                annotation_id=tracker_annotation_id,
-                from_frame=execution.from_frame,
-                to_frame=disc_to,
-                direction="forward",
-                prompt=accepted_prompt,
-                source_geometry={},
-                task_data=task_data,
-                ml_backend=backend,
-                shadow_session_factory=shadow_session_factory,
-                dispatch_context_factory=dispatch_context_factory,
-                text=discovery_text,
-                exemplars=accepted_prompt.get("exemplars"),
-                output_geometry=output_geometry,
-            )
-            discovery_adapter = get_tracker_adapter("sam3_video")
-            discovery_results: list[TrackerFrameResult] = []
-            async for r in discovery_adapter.propagate(discovery_ctx):
-                try:
-                    discovery_results.append(
-                        await _materialize_tracker_mask_result(
-                            r,
-                            db=db,
-                            job_id=tracker_job_id,
-                            task_id=tracker_task_id,
-                            still_running=mask_write_still_running,
-                        )
+            discovery_window = frozen_plan.windows[0]
+            if discovery_window.ordinal in window_journal.reuse_ordinals:
+                discovery_payload = await window_journal.load(discovery_window)
+            else:
+                await db.commit()
+                tracker_input_reference = await _refresh_tracker_source_reference(
+                    tracker_input_gateway,
+                    tracker_input_status,
+                    db=db,
+                    job=job,
+                    actor_id=actor_id,
+                    task_id=tracker_task_id,
+                    expected_source_version=tracker_input_source_version,
+                )
+                if (
+                    tracker_input_reference is None
+                    or not await _tracker_work_authorized_and_running(
+                        db, job_id=tracker_job_id, actor_id=actor_id
                     )
-                except TrackerMaskWriteCancelled:
+                ):
                     return await finalize_cancelled_tracker()
-            prompt_seeds = _combo_seeds_from_discovery(
-                discovery_results, seed_frame=execution.from_frame
-            )
+                task_data["file_path"] = tracker_input_reference.url
+                attempt = await window_journal.begin(discovery_window)
+                if backend is not None:
+                    await db.refresh(backend)
+                observed_response = []
+                discovery_ctx = TrackerContext(
+                    job_id=tracker_job_id,
+                    task_id=tracker_task_id,
+                    project_id=tracker_project_id,
+                    dataset_item_id=tracker_dataset_item_id,
+                    annotation_id=tracker_annotation_id,
+                    from_frame=discovery_window.from_frame,
+                    to_frame=discovery_window.to_frame,
+                    direction="forward",
+                    prompt=accepted_prompt,
+                    source_geometry={},
+                    task_data=task_data,
+                    ml_backend=backend,
+                    shadow_session_factory=shadow_session_factory,
+                    dispatch_context_factory=dispatch_context_factory,
+                    text=discovery_text,
+                    exemplars=accepted_prompt.get("exemplars"),
+                    output_geometry=output_geometry,
+                    response_digest=observed_response,
+                    model_id=frozen_plan.backend_compatibility[1].model_id,
+                    outside_threshold=outside_threshold,
+                )
+                discovery_adapter = get_tracker_adapter("sam3_video")
+                discovery_results = []
+                async for result in discovery_adapter.propagate(discovery_ctx):
+                    try:
+                        discovery_results.append(
+                            await _materialize_tracker_mask_result(
+                                result,
+                                db=db,
+                                job_id=tracker_job_id,
+                                task_id=tracker_task_id,
+                                still_running=mask_write_still_running,
+                            )
+                        )
+                    except TrackerMaskWriteCancelled:
+                        return await finalize_cancelled_tracker()
+                if len(observed_response) != 1:
+                    raise TrackerExecutionDeferred("response_identity_unavailable")
+                discovery_payload = make_video_window_checkpoint_payload(
+                    plan=frozen_plan,
+                    window_ordinal=discovery_window.ordinal,
+                    raw_response_digest=observed_response[0],
+                    frame_results=_serialize_results(discovery_results),
+                    continuation=None,
+                )
+                discovery_payload = await window_journal.save(
+                    discovery_window, attempt, discovery_payload
+                )
+            prompt_seeds = [
+                seed.model_dump(mode="json")
+                for seed in discovery_payload.discovery_seeds
+            ]
             if not prompt_seeds:
                 raise ValueError("sam3_video_combo discovery found no objects")
 
@@ -3775,6 +3974,7 @@ async def _run_tracker_job_claimed(
             window_direction,
             is_seed_window,
         ) in enumerate(execution_windows):
+            window = track_windows[win_idx]
             await db.commit()
             tracker_input_reference = await _refresh_tracker_source_reference(
                 tracker_input_gateway,
@@ -3782,16 +3982,26 @@ async def _run_tracker_job_claimed(
                 db=db,
                 job=job,
                 actor_id=actor_id,
-                task_id=task.id,
+                task_id=tracker_task_id,
                 expected_source_version=tracker_input_source_version,
             )
             if tracker_input_reference is None:
                 return await finalize_cancelled_tracker()
             task_data["file_path"] = tracker_input_reference.url
             if not await _tracker_work_authorized_and_running(
-                db, job_id=job.id, actor_id=actor_id
+                db, job_id=tracker_job_id, actor_id=actor_id
             ):
                 return await finalize_cancelled_tracker()
+            if window.ordinal in window_journal.reuse_ordinals:
+                restored = restore_checkpoint(await window_journal.load(window))
+                staged_bytes += sum(
+                    _tracker_result_json_bytes(result) for result in restored
+                )
+                if staged_bytes > MAX_TRACKER_STAGED_BYTES:
+                    raise ValueError("tracker_candidate_too_large")
+                results.extend(restored)
+                progress += len(restored)
+                continue
             span = session_spans.get(win_idx)
             span_key = (*span, window_direction) if span is not None else None
             if active_session is not None and span_key != active_session_span:
@@ -3802,10 +4012,7 @@ async def _run_tracker_job_claimed(
                     span_end_frame=span[1],
                 )
                 active_session_span = span_key
-                if win_idx:
-                    context_boundaries.append(
-                        from_frame if window_direction == "forward" else to_frame
-                    )
+                active_session_span_digest = window.context_span.span_digest
             # 种子窗下发原始点/框种子; 后续窗若多实例则各自续种 (见 _continuation_seeds),
             # 单实例则靠 source_geometry=last_geometry 兜底 (零回归)。
             if is_correction and is_seed_window:
@@ -3834,6 +4041,10 @@ async def _run_tracker_job_claimed(
                 window_seeds = _continuation_seeds(last_geom_by_instance)
             else:
                 window_seeds = None
+            attempt = await window_journal.begin(window)
+            if backend is not None:
+                await db.refresh(backend)
+            observed_response = []
             ctx = TrackerContext(
                 job_id=tracker_job_id,
                 task_id=tracker_task_id,
@@ -3858,6 +4069,9 @@ async def _run_tracker_job_claimed(
                 # v0.21.27 · U-pvs-1 · 种子窗原始种子 / 后续窗多实例续种 (见上)。
                 seeds=window_seeds,
                 session=active_session,
+                response_digest=observed_response,
+                model_id=frozen_plan.backend_compatibility[0].model_id,
+                outside_threshold=outside_threshold,
             )
             # v0.21.28 · B-mx · 逐窗缓冲结果; 窗末对 text-multiplex 做跨窗 IoU 关联 (remap
             # 窗内 obj_id → 全局 instance_id) 后再并入 results。非 multiplex 时缓冲即透传。
@@ -3964,7 +4178,6 @@ async def _run_tracker_job_claimed(
                     replace(result, instance_id="1", primary=True)
                     for result in primary_results
                 ]
-            results.extend(window_results)
             # PVS 单目标结果会带 instance_id，但不保证额外标记 primary。按与最终落库相同的
             # 主实例规则推断本窗主目标，并始终用它最后一个有效几何续下一窗；否则无源任务
             # 的 source_geometry 会一直为空，第二窗被 backend 以“缺少种子”拒绝。
@@ -3981,6 +4194,18 @@ async def _run_tracker_job_claimed(
                         last_geom_by_instance[result.instance_id] = result.geometry
                     if result.instance_id is None or result.primary:
                         last_geometry = result.geometry
+            if len(observed_response) != 1:
+                raise TrackerExecutionDeferred("response_identity_unavailable")
+            payload = make_video_window_checkpoint_payload(
+                plan=frozen_plan,
+                window_ordinal=window.ordinal,
+                raw_response_digest=observed_response[0],
+                frame_results=_serialize_results(window_results),
+                continuation=current_continuation(),
+                predecessor_checkpoint=window_journal.predecessor(window),
+            )
+            canonical_payload = await window_journal.save(window, attempt, payload)
+            results.extend(restore_checkpoint(canonical_payload))
 
         await close_active_session()
 
@@ -4021,6 +4246,7 @@ async def _run_tracker_job_claimed(
             else VideoTrackerJobStatus.PENDING_REVIEW.value
         )
         job.completed_at = job.completed_at or _now()
+        await window_journal.finish("cancelled" if cancelled else "completed")
         await db.commit()
         await db.refresh(job)
         await publisher(
@@ -4048,13 +4274,14 @@ async def _run_tracker_job_claimed(
             if gpu_arbiter_error is not None
             else safe_message
         )
-        return await _mark_failed(
+        failed_job = await _mark_failed(
             db,
             job_id,
             message,
             publisher,
             gpu_arbiter_error=gpu_arbiter_error,
         )
+        return failed_job
     finally:
         if tracker_session_cleanup is not None:
             try:

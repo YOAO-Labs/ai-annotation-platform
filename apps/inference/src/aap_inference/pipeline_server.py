@@ -57,6 +57,15 @@ from aap_inference_contract.scope_retirement import (
     decode_scope_retirement_result,
     scope_retirement_result_bytes,
 )
+from aap_inference_contract.video_execution import (
+    VIDEO_EXECUTION_STATUS_PATH,
+    VIDEO_EXECUTION_STATUS_REPLY_MAX_BYTES,
+    VIDEO_EXECUTION_STATUS_REQUEST_MAX_BYTES,
+    VideoScopeRejected,
+    decode_video_execution_status_request,
+    decode_video_execution_status_result,
+    video_execution_status_result_bytes,
+)
 
 from .pipeline_contract import (
     PIPELINE_REQUEST_BODY_MAX_BYTES,
@@ -597,6 +606,8 @@ class PipelineHttpServer:
             return await self._dispatch_scope_retirement(headers, body)
         if method == "POST" and path == _ROUTING_RETIREMENT_STATUS_PATH:
             return await self._dispatch_scope_retirement_status(headers, body)
+        if method == "POST" and path == VIDEO_EXECUTION_STATUS_PATH:
+            return await self._dispatch_video_execution_status(headers, body)
         operation = _ROUTES.get(path)
         if method != "POST" or operation is None:
             return 404, _json_bytes({"detail": "Not Found"})
@@ -655,6 +666,8 @@ class PipelineHttpServer:
             _ROUTING_RETIREMENT_STATUS_PATH,
         }:
             return SCOPE_RETIREMENT_REQUEST_MAX_BYTES
+        if path.split("?", 1)[0] == VIDEO_EXECUTION_STATUS_PATH:
+            return VIDEO_EXECUTION_STATUS_REQUEST_MAX_BYTES
         if path.split("?", 1)[0] in {
             _ROUTING_COMMAND_PATH,
             _ROUTING_STATUS_PATH,
@@ -673,6 +686,8 @@ class PipelineHttpServer:
             _ROUTING_RETIREMENT_STATUS_PATH,
         }:
             return SCOPE_RETIREMENT_REPLY_MAX_BYTES
+        if path.split("?", 1)[0] == VIDEO_EXECUTION_STATUS_PATH:
+            return VIDEO_EXECUTION_STATUS_REPLY_MAX_BYTES
         if path.split("?", 1)[0] in {
             _ROUTING_COMMAND_PATH,
             _ROUTING_STATUS_PATH,
@@ -904,6 +919,33 @@ class PipelineHttpServer:
             return 503, _json_bytes(
                 {"detail": "Inference scope-retirement owner unavailable"}
             )
+        return 200, encoded
+
+    async def _dispatch_video_execution_status(
+        self, headers, body: bytes
+    ) -> tuple[int, bytes]:
+        if self.routing_manager is None or self.routing_control_token is None:
+            return 503, _json_bytes({"detail": "Inference routing owner unavailable"})
+        if not self._routing_authorized(headers):
+            return 401, _json_bytes({"detail": "Unauthorized"})
+        if len(body) > VIDEO_EXECUTION_STATUS_REQUEST_MAX_BYTES:
+            return 413, _json_bytes({"detail": "Request body too large"})
+        try:
+            proof = decode_video_execution_status_request(body)
+        except RoutingUnavailable:
+            return 400, _json_bytes(
+                {"detail": "Invalid Inference video execution status request"}
+            )
+        try:
+            data = await self.routing_manager.video_execution_status(proof)
+            encoded = video_execution_status_result_bytes(proof, data)
+            decode_video_execution_status_result(proof, encoded)
+        except (RoutingUnavailable, VideoScopeRejected):
+            return 503, _json_bytes({"detail": "Inference routing owner unavailable"})
+        if len(encoded) > min(
+            self.max_response_bytes, VIDEO_EXECUTION_STATUS_REPLY_MAX_BYTES
+        ):
+            return 503, _json_bytes({"detail": "Inference routing owner unavailable"})
         return 200, encoded
 
     async def _dispatch_health_observation(

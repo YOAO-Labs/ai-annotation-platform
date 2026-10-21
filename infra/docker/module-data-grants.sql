@@ -913,7 +913,8 @@ GRANT USAGE ON SCHEMA aap_jobs_v1 TO :"jobs_owner", :"labeling_owner",
     :"workspace_owner", :"assets_owner", :"workflow_role", :"inference_owner";
 GRANT USAGE ON SCHEMA aap_inference_routing_v1 TO :"jobs_owner";
 GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO :"jobs_owner";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_step(text,text)
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_step(text,text),
+    aap_jobs_v1.video_execution_checkpoint_step(text,text)
     TO :"labeling_owner", :"workflow_role";
 GRANT USAGE ON SCHEMA aap_learning_v1
     TO :"learning_owner", :"workspace_owner", :"assets_owner", :"inference_owner";
@@ -3015,4 +3016,57 @@ GRANT EXECUTE ON FUNCTION
     aap_labeling_v1._retire_prediction_retry_results(uuid),
     aap_labeling_v1._prediction_retry_job_delete_allowed(uuid)
     TO :"jobs_owner";
+-- Video window journals keep input and Mask retention behind owner capabilities.
+GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.video_execution_checkpoint_restore OWNER TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.video_execution_journals OWNER TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.video_execution_window_attempts OWNER TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.video_execution_captures OWNER TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.video_execution_capture_parts OWNER TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.video_execution_windows OWNER TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.video_execution_window_parts OWNER TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.video_execution_span_closures OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.video_execution_checkpoint_step(text,text) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_checkpoint_results_complete(uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.video_execution_running_mask_roots_live(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.video_execution_checkpoint_mask_retained(text) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.video_execution_input_retained(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.video_execution_source_item_retained(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_checkpoint_reply(jsonb,text) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_checkpoint_canonical_json(jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_checkpoint_digest(jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_checkpoint_integer(jsonb,bigint,bigint) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_checkpoint_digest_valid(text) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_checkpoint_plan_identities_complete(jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_checkpoint_manifest_valid(jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_checkpoint_plan_valid(jsonb,jsonb,uuid,jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_checkpoint_input_facts(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_checkpoint_all_routes_retired(uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1._video_execution_checkpoint_terminal() OWNER TO :"jobs_owner";
+REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
+GRANT CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
+ALTER TABLE aap_labeling_v1.video_execution_checkpoint_mask_sets OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.video_execution_request_facts(uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.retain_video_execution_checkpoint_masks(uuid,text,jsonb) OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._mask_gc_root_entry_live(text,text,timestamptz,boolean) OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1._mask_gc_release_tracker_running_outputs() OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.video_tracker_input_referenced(uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.guard_dataset_source_deletion(uuid,uuid) OWNER TO :"labeling_owner";
+REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
+GRANT CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.video_execution_input_facts(uuid) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
+GRANT CREATE ON SCHEMA aap_inference_routing_v1 TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1.video_execution_scope_retired(uuid) OWNER TO :"inference_owner";
+ALTER FUNCTION aap_inference_routing_v1.video_execution_scope_facts(uuid) OWNER TO :"inference_owner";
+REVOKE CREATE ON SCHEMA aap_inference_routing_v1 FROM :"inference_owner";
+GRANT EXECUTE ON FUNCTION aap_labeling_v1.video_execution_request_facts(uuid) TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.video_execution_input_facts(uuid) TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION aap_labeling_v1.retain_video_execution_checkpoint_masks(uuid,text,jsonb) TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION aap_inference_routing_v1.video_execution_scope_retired(uuid) TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION aap_inference_routing_v1.video_execution_scope_facts(uuid) TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_running_mask_roots_live(uuid) TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_checkpoint_mask_retained(text) TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_input_retained(uuid) TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_source_item_retained(uuid) TO :"labeling_owner";
 COMMIT;

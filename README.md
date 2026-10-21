@@ -162,6 +162,8 @@ Ultralytics YOLO11 的配置页可生成原生增强预览，对照冻结原图�
 
 专用视频跟踪、范围传播和 Mask 修正使用各自作业的固定原片输入，逐窗口复用同一保留版本；采样设置变化不会改写已接受请求，候选采纳与派生标注保留原片证据。控制和执行复用现有 Media 工件，见[跟踪原片接口](./docs-site/api/guides/assets-media.md#视频跟踪的原片输入)。
 
+视频执行增加冻结计划与不可变窗口账本；确认旧范围退役且模型兼容身份完整后，可复用已完成窗口或重放未闭合会话。真实进程中断接管已在隔离本地环境验证，最终业务写入仍由 Labeling 原事务持有，见[视频窗口协议](./docs-site/api/guides/module-data.md#视频执行窗口账本)和 [ADR-0158](./docs/adr/0158-video-window-journals-and-replay.md)。
+
 Mask 内容读写提供可选独立工件 `apps/assets-mask-content`，沿用现有引用和业务权限；回收统一使用持久删除围栏与不可变回执，可本地装配或调用独立协调服务。部署与配置见 [DEV.md](./DEV.md#mask-内容的独立字节服务)，协议见 [Mask 字节接口](./docs-site/api/guides/mask-content.md)。
 
 Mask 独立协调工件为 `apps/labeling-mask-gc`；预览返回续扫位置，扫描页数与删除数分别限额，未知删除结果继续保留围栏。素材仍被相机链接、场景轨迹、视频执行或保留输入引用时，删除返回 409，公开 OpenAPI 已列出该冲突响应。须先在对应功能中解除引用；取消执行仍保留历史引用时会继续拒绝删除，见[素材删除规则](./docs-site/user-guide/datasets/index.md#删除素材或数据集)。

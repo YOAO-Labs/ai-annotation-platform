@@ -50,7 +50,10 @@ class VideoExecutionPostgresData:
             await verify_function_only_role(
                 connection,
                 schema=_SCHEMA,
-                functions={(_FUNCTION, "text, text")},
+                functions={
+                    (_FUNCTION, "text, text"),
+                    ("video_execution_checkpoint_step", "text, text"),
+                },
                 role="video_execution_client",
             )
             raw = await connection.fetchval(_STEP_SQL, "policy", "{}")

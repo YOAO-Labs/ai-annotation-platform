@@ -20,6 +20,13 @@ from aap_preannotation_results.video_execution import (
 from aap_preannotation_results_runtime.video_execution_database import (
     VideoExecutionPostgresData,
 )
+from aap_preannotation_results.video_execution_journal import (
+    ReadRequest,
+    VideoJournalFailure,
+)
+from aap_preannotation_results_runtime.video_journal_database import (
+    VideoJournalPostgresData,
+)
 from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.test_video_tracker_input_native import _capture, _seed_tracker_job
 from tests.test_legacy_image_runtime_live import _apply_lan_grants
@@ -65,10 +72,14 @@ async def test_video_owner_login_has_no_raw_writes_and_fence_cannot_escape_trans
             claim = (
                 await data.step("claim", ClaimRequest(job_id=job_id, worker_id=uuid4()))
             )["execution"]
+            journal = await VideoJournalPostgresData.bind(connection)
+            read_plan = ReadRequest(**claim.proof().model_dump())
+            assert await journal.step("read_plan", read_plan) == {"plan": None}
             guard = GuardRequest(**claim.proof().model_dump(), purpose="start")
             assert await data.step("guard", guard) == {"guarded": True}
             for statement in (
                 "SELECT * FROM aap_jobs_v1.video_executions",
+                "SELECT * FROM aap_jobs_v1.video_execution_journals",
                 "SELECT aap_jobs_v1._video_execution_secret()",
                 "CREATE TEMP TABLE forbidden_video_owner(value integer)",
             ):
@@ -77,6 +88,8 @@ async def test_video_owner_login_has_no_raw_writes_and_fence_cannot_escape_trans
                         await connection.execute(statement)
         with pytest.raises(VideoExecutionFailure, match="^storage_unavailable$"):
             await data.step("guard", guard)
+        with pytest.raises(VideoJournalFailure, match="^storage_unavailable$"):
+            await journal.step("read_plan", read_plan)
         async with sessions() as owner:
             await owner.execute(
                 text(
@@ -135,6 +148,12 @@ async def test_compatibility_worker_can_claim_and_fence_without_private_jobs_acc
 
     functions = (
         "aap_jobs_v1.video_execution_step(text,text)",
+        "aap_jobs_v1.video_execution_checkpoint_step(text,text)",
+        "aap_labeling_v1.capture_video_tracker_input(uuid,uuid,integer)",
+        "aap_labeling_v1.lock_video_tracker_input_for_stage(uuid,uuid,uuid,uuid,text,text)",
+        "aap_labeling_v1.lock_video_tracker_input_for_accept(uuid,uuid,uuid,uuid,text,text)",
+        "aap_labeling_v1.attach_annotation_video_tracker_input_source(uuid,uuid,uuid,jsonb)",
+        "aap_labeling_v1.copy_annotation_video_tracker_input_sources(uuid,uuid,uuid)",
         "aap_inference_routing_v1.routing_policy()",
         "aap_inference_routing_v1.routing_step(text,text)",
         "aap_inference_routing_v1.scope_retirement_step(text,text)",

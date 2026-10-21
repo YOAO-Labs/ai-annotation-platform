@@ -35,7 +35,10 @@ from aap_inference_contract.scope_retirement import (
 from aap_inference_contract.video_execution import (
     VIDEO_EXECUTION_SCOPE_ACTIONS,
     VideoScopeRejected,
+    decode_video_execution_status_request,
+    decode_video_execution_status_result,
     decode_video_scope_data,
+    video_execution_status_result_bytes,
 )
 from aap_workspace.config import secret_source
 from sqlalchemy import inspect, text
@@ -433,6 +436,40 @@ class RoutingAuthority:
                 )
             return decode_scope_retirement_result(typed_request, reply)
         except (ValueError, OSError, ScopeRetirementUnavailable):
+            raise RoutingUnavailable() from None
+
+    async def video_execution_status(self, proof):
+        """Read a proof-bound video execution status from its configured owner."""
+        try:
+            typed_proof = decode_video_execution_status_request(proof)
+            url = settings.inference_routing_url
+            if url:
+                if secret_source(
+                    settings.inference_routing_database_url,
+                    settings.inference_routing_database_url_file,
+                ):
+                    raise RoutingUnavailable()
+                client = RoutingHttpClient(
+                    url,
+                    secret_source(
+                        settings.inference_routing_token,
+                        settings.inference_routing_token_file,
+                    ),
+                    timeout_seconds=settings.inference_routing_timeout_seconds,
+                )
+                return await client.video_execution_status(typed_proof)
+
+            from aap_inference.routing import RoutingManager
+
+            manager = RoutingManager(
+                self.data_transaction,
+                health_max_age_seconds=settings.ml_backend_router_health_max_age_seconds,
+                lease_ttl_ms=settings.ml_backend_router_lease_ttl_seconds * 1000,
+            )
+            data = await manager.video_execution_status(typed_proof)
+            encoded = video_execution_status_result_bytes(typed_proof, data)
+            return decode_video_execution_status_result(typed_proof, encoded)
+        except (ValueError, OSError, VideoScopeRejected):
             raise RoutingUnavailable() from None
 
     async def close(self, scope, outcome="success"):

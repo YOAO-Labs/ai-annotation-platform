@@ -22,6 +22,34 @@ _DIGEST = "a" * 64
 _SOURCE_SHA256 = "b" * 64
 
 
+async def yield_tracker_fake_results(ctx, results):
+    """Yield direct fake frames and record the exact fake response observation."""
+    rows = list(results)
+    for result in rows:
+        yield result
+    if ctx.response_digest is not None:
+        from app.services.video_tracking.adapters import _response_digest
+
+        ctx.response_digest.append(
+            _response_digest(
+                {
+                    "result": [
+                        {
+                            "frame_index": result.frame_index,
+                            "geometry": result.geometry,
+                            "confidence": result.confidence,
+                            "outside": result.outside,
+                            "instance_id": result.instance_id,
+                            "primary": result.primary,
+                        }
+                        for result in rows
+                    ],
+                    "meta": {},
+                }
+            )
+        )
+
+
 def tracker_input_evidence_for(job, task):
     return t.TrackerVideoInputEvidence(
         tracker_job_id=job.id,
@@ -55,7 +83,7 @@ def seed_staged_tracker_input(job, task, source_instance_map=None):
 
 def create_tracker_input_owner_fakes(db_session, monkeypatch):
     from sqlalchemy import text
-    from app.services.video_tracking import runner
+    from app.services.video_tracking import recovery, runner
     from tests.test_video_execution_native import _seed_claimable_input
 
     claimed_execution = runner.tracker_execution
@@ -97,6 +125,7 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
             self.staged_evidence = []
             self.attached = []
             self.stage_lock_impl = None
+            self.declare_tracker_backend = False
 
         async def _load(self, tracker_job_id):
             job = await db_session.get(VideoTrackerJob, tracker_job_id)
@@ -112,6 +141,11 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
                 width=(item.width if item else None) or video.get("width", 3),
                 height=(item.height if item else None) or video.get("height", 2),
                 duration_ms=video.get("duration_ms", 3000),
+                selected_frame_count=video.get(
+                    "selected_frame_count", video.get("frame_count", 90)
+                ),
+                sampling_step=video.get("sampling_step", 1),
+                video_stream=video.get("video_stream", video.get("stream_index", 0)),
             )
             prompt = dict(job.prompt or {})
             prompt_snapshot = {
@@ -190,10 +224,14 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
                 origin_actor_id=job.created_by,
                 task_id=task.id,
                 project_id=task.project_id,
+                source_item_id=task.dataset_item_id,
                 file_type="video",
                 execution=execution,
                 request_digest=_DIGEST,
                 prompt_digest=_DIGEST,
+                timebase_digest=_DIGEST,
+                selected_frame_count=frozen_video.selected_frame_count,
+                sampling_step=frozen_video.sampling_step,
                 status="ready",
                 plan_digest=_DIGEST,
             )
@@ -202,6 +240,13 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
                 etag="test-source-etag",
                 byte_size=1024,
                 sha256=_SOURCE_SHA256,
+                video=SimpleNamespace(
+                    frame_count=frozen_video.frame_count,
+                    width=frozen_video.width,
+                    height=frozen_video.height,
+                    duration_ms=frozen_video.duration_ms,
+                ),
+                video_stream=frozen_video.video_stream,
             )
             self.reference = SimpleNamespace(
                 input=SimpleNamespace(
@@ -237,7 +282,54 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
             return job
 
         async def prepare(self, *, tracker_job_id, **_kwargs):
-            await self._load(tracker_job_id)
+            job = await self._load(tracker_job_id)
+            if self.declare_tracker_backend and job.model_key != "mock_bbox":
+                from app.db.models.project import Project
+                from app.db.models.ml_backend_registry import ProjectMLBackendPool
+                from tests.conftest import create_registry_with_pool
+
+                project = await db_session.get(Project, self.status.project_id)
+                if project.ml_backend_pool_id is None:
+                    keys = (
+                        ["sam3_video", "sam3_video_interactive"]
+                        if job.model_key == "sam3_video_combo"
+                        else [job.model_key]
+                    )
+                    # Direct fake adapters declare a test registry, without
+                    # claiming a weight artifact or real backend qualification.
+                    _, pool = await create_registry_with_pool(
+                        db_session,
+                        name="tracker unit provider",
+                        url="http://tracker-unit.test",
+                        state="connected",
+                        enabled_pool=True,
+                        is_interactive=True,
+                        extra_params={"device": "cpu", "max_concurrency": 8},
+                        health_meta={
+                            "capabilities": {
+                                "supported_trackers": keys,
+                                "models": [
+                                    {
+                                        "id": key,
+                                        "supported_trackers": [key],
+                                        "supported_geometric_outputs": [
+                                            "bbox",
+                                            "polygon",
+                                            "mask",
+                                        ],
+                                    }
+                                    for key in keys
+                                ],
+                            }
+                        },
+                    )
+                    project.ml_backend_pool_id = pool.id
+                    db_session.add(
+                        ProjectMLBackendPool(
+                            project_id=project.id, pool_id=pool.id, enabled=True
+                        )
+                    )
+                    await db_session.flush()
             return SimpleNamespace(status=self.status, reference=self.reference)
 
         async def lock_stage(self, _db, request):
@@ -257,6 +349,170 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
             return SimpleNamespace(attached=True)
 
     ports = Ports()
+
+    class InMemoryTrackerWindowJournal:
+        """Typed first-execution journal for ORM-focused runner unit tests.
+
+        This intentionally models no Native checkpoint storage or physical
+        scope retirement. Dedicated owner/role tests cover those contracts.
+        """
+
+        def __init__(self, db, tracker_job_id):
+            self.db = db
+            self.tracker_job_id = tracker_job_id
+            self.status = ports.status
+            self.source_version = getattr(ports, "source_version", None)
+            self.plan = None
+            self.manifests = {}
+            self.payloads = {}
+            self.closed_spans = set()
+            self.reuse_ordinals = frozenset()
+
+        async def read_plan(self):
+            return None
+
+        async def input_facts(self):
+            from aap_preannotation_results.video_execution_planner import (
+                VideoExecutionInputFacts,
+            )
+
+            status = self.status
+            execution = status.execution
+            source = self.source_version
+            video = source.video
+            return VideoExecutionInputFacts(
+                job_id=self.tracker_job_id,
+                input_id=status.input_id,
+                task_id=status.task_id,
+                project_id=status.project_id,
+                source_item_id=status.source_item_id,
+                request_digest=status.request_digest,
+                prompt_digest=status.prompt_digest,
+                source_plan_digest=status.plan_digest,
+                requested_model_key=execution.model_key,
+                job_kind=execution.job_kind,
+                direction=execution.direction,
+                from_frame=execution.from_frame,
+                to_frame=execution.to_frame,
+                grid_step=execution.grid_step,
+                correction_frame=execution.correction_frame,
+                segment_id=execution.segment_id,
+                source={
+                    "source_version_id": source.version_id,
+                    "source_sha256": source.sha256,
+                    "byte_size": source.byte_size,
+                    "frame_count": video.frame_count,
+                    "width": video.width,
+                    "height": video.height,
+                    "duration_ms": video.duration_ms,
+                    "video_stream": source.video_stream,
+                },
+                timebase={
+                    "timebase_digest": status.timebase_digest,
+                    "selected_frame_count": status.selected_frame_count,
+                    "sampling_step": status.sampling_step,
+                    "grid_step": execution.grid_step,
+                },
+            )
+
+        async def freeze(self, plan):
+            from aap_preannotation_results.video_execution_plan import (
+                decode_video_execution_plan,
+            )
+
+            self.plan = decode_video_execution_plan(plan)
+            return self.plan
+
+        async def resume(self):
+            from aap_preannotation_results.video_window_checkpoint import (
+                decide_video_window_resume,
+            )
+
+            if self.plan is None:
+                raise AssertionError("unit journal resumed before plan freeze")
+            decision = decide_video_window_resume(
+                self.plan,
+                (),
+                closed_context_span_digests=(),
+            )
+            self.reuse_ordinals = frozenset(decision.reuse_ordinals)
+            return decision
+
+        def predecessor(self, window):
+            if window.seed_source in {
+                "none",
+                "prompt",
+                "source_geometry",
+                "correction",
+            }:
+                return None
+            return self.manifests.get(window.ordinal - 1)
+
+        async def begin(self, window):
+            if self.plan is None or window.ordinal >= len(self.plan.windows):
+                raise AssertionError("unit journal began an unfrozen window")
+            return SimpleNamespace(
+                capture_id=uuid.uuid4(),
+                mode="execute",
+                checkpoint=None,
+            )
+
+        async def load(self, window):
+            try:
+                return self.payloads[window.ordinal]
+            except KeyError as exc:
+                raise AssertionError("unit journal has no held window payload") from exc
+
+        async def save(self, window, attempt, payload):
+            from aap_preannotation_results.video_window_checkpoint import (
+                decode_video_window_checkpoint_payload,
+                snapshot_video_window_checkpoint,
+            )
+
+            if attempt.mode != "execute" or attempt.checkpoint is not None:
+                raise AssertionError("unit journal only accepts first executions")
+            typed_payload = decode_video_window_checkpoint_payload(payload)
+            with snapshot_video_window_checkpoint(
+                self.plan,
+                typed_payload,
+                predecessor_checkpoint=self.predecessor(window),
+            ) as snapshot:
+                self.manifests[window.ordinal] = snapshot.manifest
+                self.payloads[window.ordinal] = typed_payload
+            return typed_payload
+
+        async def close_span(self, span_digest):
+            span = next(
+                (
+                    window.context_span
+                    for window in self.plan.windows
+                    if window.context_span.span_digest == span_digest
+                ),
+                None,
+            )
+            if span is None or any(
+                ordinal not in self.manifests
+                for ordinal in range(span.start_ordinal, span.end_ordinal + 1)
+            ):
+                raise AssertionError("unit journal closed an incomplete context span")
+            self.closed_spans.add(span_digest)
+
+        async def finish(self, _outcome):
+            # Finish participates in the business transaction; only flush here.
+            await self.db.flush()
+
+        async def retire(self):
+            # ORM-focused runner tests do not qualify physical Native retirement.
+            return None
+
+    monkeypatch.setattr(runner, "TrackerWindowJournal", InMemoryTrackerWindowJournal)
+    monkeypatch.setattr(recovery, "TrackerWindowJournal", InMemoryTrackerWindowJournal)
+
+    async def _unit_scope_retirement(_db, _job_id, **_kwargs):
+        # Native retirement is covered by its owner tests, not this test port.
+        return None
+
+    monkeypatch.setattr(recovery, "retire_tracker_scope", _unit_scope_retirement)
 
     @asynccontextmanager
     async def gateway(**_kwargs):

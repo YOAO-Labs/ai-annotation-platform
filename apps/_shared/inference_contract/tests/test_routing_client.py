@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 import uuid
@@ -11,6 +13,7 @@ from aap_inference_contract.routing import (
     ROUTING_RUNTIME_RESULT_PROTOCOL,
     RoutingResult,
     RoutingUnavailable,
+    RoutingVideoExecutionProof,
     decode_routing_command,
     decode_routing_runtime_request,
     decode_routing_status_request,
@@ -29,6 +32,13 @@ from aap_inference_contract.scope_retirement import (
     make_scope_retirement_request,
     scope_retirement_request_bytes,
     scope_retirement_result_bytes,
+)
+from aap_inference_contract.video_execution import (
+    VIDEO_EXECUTION_DATA_PROTOCOL,
+    VIDEO_EXECUTION_STATUS_PATH,
+    decode_video_execution_status_request,
+    video_execution_status_request_bytes,
+    video_execution_status_result_bytes,
 )
 
 _REQUEST_ID = uuid.UUID("9c4097c8-2b9a-4191-bb48-44b247465172")
@@ -260,6 +270,118 @@ def _runtime_result(request):
             }
         ],
     }
+
+
+def _video_proof():
+    return RoutingVideoExecutionProof(
+        job_id=uuid.UUID("10b9f6cc-6424-4b4a-8740-3660cb25db17"),
+        run_id=uuid.UUID("9f8f00b4-6d2f-4fe0-a75e-a28c4e923714"),
+        worker_id=uuid.UUID("8f87cb4e-636d-4606-983f-e7397cb954f9"),
+        generation=4,
+        lease_token=uuid.UUID("cb72f60a-61b0-4e76-b355-f8e8b976c4a2"),
+    )
+
+
+def _video_status_data(proof):
+    scope_id = uuid.UUID("153d8835-975e-4a2e-b75f-fb9e9b0fc834")
+    registry_id = uuid.UUID("0cab28f1-b3dc-4c94-88e4-0481dc99ca09")
+    epoch_id = uuid.UUID("ef85556e-8977-4096-82b0-d229a3e026df")
+    return {
+        "schema": VIDEO_EXECUTION_DATA_PROTOCOL,
+        "status": "ok",
+        "intent": {
+            "job_id": str(proof.job_id),
+            "run_id": str(proof.run_id),
+            "generation": proof.generation,
+            "request_id": "5dca07e4-533d-4aec-aee6-23bb6ea79454",
+            "command_sha256": "a" * 64,
+            "scope_id": str(scope_id),
+            "state": "bound",
+        },
+        "scope": {
+            "id": str(scope_id),
+            "pool_id": None,
+            "registry_id": str(registry_id),
+            "project_id": None,
+            "mode": "direct",
+            "owner": f"tracker:{proof.job_id}",
+            "operation": "tracker",
+            "generation": None,
+            "config_revision": 1,
+            "eligibility_revision": 1,
+            "authority_epoch": str(epoch_id),
+            "state": "reserved",
+            "closed": False,
+            "heartbeat_deadline_ms": 1782090000000,
+            "capability": "opaque-scope-capability",
+        },
+    }
+
+
+def test_video_execution_status_request_requires_exact_five_proof_fields():
+    proof = _video_proof()
+    encoded = video_execution_status_request_bytes(proof)
+    assert decode_video_execution_status_request(encoded) == proof
+
+    malformed = encoded.replace(
+        b'"job_id":',
+        b'"job_id":"' + str(proof.job_id).encode() + b'","job_id":',
+    )
+    with pytest.raises(RoutingUnavailable):
+        decode_video_execution_status_request(malformed)
+
+
+@pytest.mark.asyncio
+async def test_video_execution_status_uses_authenticated_bound_read_and_echoes_full_proof(
+    monkeypatch,
+):
+    proof = _video_proof()
+    data = _video_status_data(proof)
+    requests = []
+
+    async def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert request.url.path == VIDEO_EXECUTION_STATUS_PATH
+        assert request.headers["authorization"] == "Bearer private-routing-token"
+        typed_proof = decode_video_execution_status_request(await request.aread())
+        assert typed_proof == proof
+        return httpx.Response(
+            200,
+            content=video_execution_status_result_bytes(proof, data),
+            headers={"content-type": "application/json"},
+        )
+
+    _install_mock_transport(monkeypatch, httpx.MockTransport(handle))
+    result = await RoutingHttpClient(
+        "http://routing-owner.local", "private-routing-token"
+    ).video_execution_status(proof)
+
+    assert result["intent"].job_id == proof.job_id
+    assert result["scope"].owner == f"tracker:{proof.job_id}"
+    assert len(requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_video_execution_status_rejects_response_for_different_full_proof(
+    monkeypatch,
+):
+    proof = _video_proof()
+    encoded = video_execution_status_result_bytes(proof, _video_status_data(proof))
+    reply = json.loads(encoded)
+    reply["proof"]["worker_id"] = str(_REGISTRY_ID)
+
+    async def handle(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=reply,
+            headers={"content-type": "application/json"},
+        )
+
+    _install_mock_transport(monkeypatch, httpx.MockTransport(handle))
+    with pytest.raises(RoutingUnavailable):
+        await RoutingHttpClient(
+            "http://routing-owner.local", "token"
+        ).video_execution_status(proof)
 
 
 @pytest.mark.asyncio

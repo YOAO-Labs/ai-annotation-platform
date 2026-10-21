@@ -142,8 +142,11 @@ Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事�
 执行代次、原子路由绑定及当前启动／进度／候选／Mask 根／失败写入的同事务检查；重派发
 复用同一个后台汇总，broker 失败不能替代主作业终态。取消后允许当前执行续租并暂存部分结果，
 新推理准入仍被拒绝。三种实际视频连接来源、重复 acquire、最小权限及迁移回滚的32项本地检查通过。
-冻结计划和检查点目前只有值合同，尚未持久接入 runner；自动退役接管、模型上下文恢复与
-独立 Labeling writer 仍待完成。需要恢复的作业暂缓执行，不能据此宣称完整崩溃续跑或 GPU 预算清理。
+冻结计划与逐窗口结果账本已接入当前 runner。完整兼容身份的提供方可复用闭合分块，重建
+未闭合 session 并比对原始候选和后续状态；旧范围完成实际退役后才允许新的准入。缺少
+身份或重放不一致时保留原结果并暂缓。Jobs LOGIN 使用两项固定函数，最终业务写入仍由
+Labeling 原事务持有，见 [ADR-0158](/dev/adr/0158-video-window-journals-and-replay)。独立
+Labeling writer、提供方资格和完整崩溃续跑验收仍待完成，不能据此清理 GPU 预算。
 后台登记时机是提供方合同的硬前置条件，见 [ADR-0156](/dev/adr/0156-scoped-inference-retirement)。
 执行协议边界见 [ADR-0157](/dev/adr/0157-video-execution-claims-and-route-binding)。
 

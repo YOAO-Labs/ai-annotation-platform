@@ -203,3 +203,6 @@
 - [0153 — Caller-owned Native Health Data](0153-caller-owned-native-health-data.md)
 - [0154 — Registry Ingress and Environment Synchronization Owner](0154-registry-ingress-and-environment-sync-owner.md)
 - [0155 — Durable Inference Routing Authority](0155-durable-inference-routing-authority.md)
+- [0156 — Scoped Inference retirement](0156-scoped-inference-retirement.md)
+- [0157 — 视频执行代次与原子路由绑定](0157-video-execution-claims-and-route-binding.md)
+- [0158 — 视频窗口账本与会话重放](0158-video-window-journals-and-replay.md)

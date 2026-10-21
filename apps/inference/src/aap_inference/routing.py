@@ -34,6 +34,7 @@ from aap_inference_contract.routing import (
 from aap_inference_contract.video_execution import (
     VideoScopeRejected,
     decode_video_scope_data,
+    decode_video_execution_status_request,
 )
 
 from .health_data_postgres import (
@@ -532,6 +533,22 @@ class RoutingManager:
             raise RoutingUnavailable()
         reply = await method(action, arguments)
         return decode_video_scope_data(action, arguments, reply)
+
+    async def video_execution_status(self, proof):
+        """Read the current durable video intent and scope for an exact claim."""
+        typed_proof = decode_video_execution_status_request(proof)
+        arguments = typed_proof.model_dump(mode="json")
+        try:
+            async with self._data_factory() as data:
+                method = getattr(data, "video_execution_scope_step", None)
+                if not callable(method):
+                    raise RoutingUnavailable()
+                reply = await method("status", arguments)
+                return decode_video_scope_data("status", arguments, reply)
+        except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
+            raise
+        except Exception:
+            raise RoutingUnavailable() from None
 
     async def _open_transport_subject(
         self,

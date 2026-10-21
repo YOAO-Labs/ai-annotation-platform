@@ -240,6 +240,7 @@ SQL_ARTIFACTS = (
     "0279_inference_routing.sql",
     "0280_inference_scope_retirement.sql",
     "0281_video_execution.sql",
+    "0282_video_execution_checkpoints.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -333,8 +334,15 @@ SCHEMA_ARTIFACTS = (
     "0279_inference_routing.schema.json",
     "0280_inference_scope_retirement.schema.json",
     "0281_video_execution.schema.json",
+    "0282_video_execution_checkpoints.schema.json",
 )
 TEST_FILES = (
+    "tests/test_video_execution_checkpoints_native.py",
+    "tests/test_video_window_journal_native.py",
+    "tests/test_video_execution_plan_native_validation.py",
+    "tests/test_video_window_recovery_live.py",
+    "tests/test_video_window_delivery_live.py",
+    "tests/test_video_window_journal.py",
     "tests/test_inference_scope_retirement_native.py",
     "tests/test_video_execution_native.py",
     "tests/test_video_execution_fences.py",
@@ -2759,8 +2767,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0281"]:
-            raise RuntimeError("module-data acceptance requires migration head 0281")
+        if heads != ["0282"]:
+            raise RuntimeError("module-data acceptance requires migration head 0282")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(

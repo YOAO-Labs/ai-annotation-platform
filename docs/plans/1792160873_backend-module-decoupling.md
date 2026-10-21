@@ -4736,3 +4736,59 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Labeling writer, restore epochs and the full ten-module/seven-gate goal remain
   active. This is local ARM64/CPU fixture evidence, without a primary/production
   cutover, push, replacement-language provider or Go expansion. See ADR-0157.
+
+### Video window journals and local process takeover
+
+- Native0282 adds a second fixed Jobs capability for immutable frozen plans,
+  generation-bound attempts, bounded result parts, atomic canonical windows and
+  independent context-span closure. Exact source versions and sampling facts come
+  from Assets; accepted request facts and Mask retention come from Labeling. The
+  execution LOGIN has exactly two functions, without raw private-table grants.
+- The real Python runner begins a window before model dispatch and seals held
+  results before advancing. Persistence contention retries the held bytes. A
+  replacement generation first obtains physical scoped retirement through its
+  configured Inference owner, then reuses stateless/closed spans or rebuilds an
+  open session from its original seed and verifies the completed prefix. Original
+  payloads remain immutable; replay observations are separate records.
+- Compatibility binds the actual registry/model/incarnation, explicit paired
+  weight release and SHA, capabilities, dispatch defaults and platform result
+  normalization. Builtin mock execution fingerprints its actual implementation.
+  Missing identity allows initial execution but refuses reuse; transient owner
+  identity reads defer rather than fail a job with saved results.
+- Writer finish joins the Labeling business transaction. Checkpoint Mask roots
+  remain pinned until finish, and inputs/source objects until exact retirement.
+  Successful completion requires every planned window and required session close;
+  cancellation alone does not prove partial staging has finished. Current tracker
+  actor/source checks remain in force, independently of accepted first-link jobs.
+- Two actual SIGKILL scenarios use versioned video bytes, a deterministic CPU bbox
+  artifact, a narrow Inference HTTP owner and compatibility-role workers. Both
+  prove no replacement model admission while the old request is active, then
+  preserve the original first-window bytes, replay or reuse it, stage six unique
+  candidates and retire both scopes. A separate five-case policy run covers a
+  transient runtime-identity outage and frozen outside-threshold consumers; all
+  pass with the migration roundtrip/head0282/grants and owned cleanup recorded.
+  Original failed and interrupted diagnostic receipts remain unchanged.
+- Independent review also found early task acknowledgement and ambiguous terminal
+  commit/renewal responses could drop the remaining delivery or skip retirement.
+  The actual registered Celery task now uses late acknowledgement and rejects a
+  lost worker; a real owned-broker prefork child SIGKILL proves redelivery while
+  replacing only the async business entry. The real window chain separately
+  proves successful final commit with a lost reply still retires exact scopes and
+  releases source pins. Ambiguous renewal stops writes and defers an active Job.
+- Retention regression preserves the existing auxiliary scene/video references
+  and cross-owner capability chain; no raw Learning grant is added. Native
+  autogeneration protects schema-qualified private relations while unrelated
+  control-table drops remain visible. The current ledger selects126 distinct
+  passing owned-environment cases, with prior failures/interruption retained.
+  API/pipeline/architecture source selection has432 passes and148 inapplicable
+  rule skips; scripts pass20. Fresh noneditable Inference/results installations
+  pass430/118 with78/23 exact package files and no API/ORM/Celery. These distinct
+  verification surfaces are not summed. Current evidence entry is
+  .worktree/video-window-checkpoint-qualification.json.
+- This closes a local window-recovery checkpoint, not the full ten-module/seven-
+  gate objective. The final Labeling writer still uses the API ORM. Crash recovery
+  with Mask/correction output, cancellation/revocation during takeover, nonempty
+  window-journal restore/rebind, restricted images, provider conformance and
+  capacity remain separate gates. Go stays experimental; no primary/production
+  cutover, push, GPU, AMD64 or replacement-language qualification is claimed.
+  See ADR-0158 and the current selected-case ledger for bounded evidence.

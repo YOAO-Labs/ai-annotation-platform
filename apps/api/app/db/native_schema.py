@@ -53,10 +53,30 @@ NATIVE_MANAGED_TABLES = frozenset(
         "workspace_configuration_operation_attempts",
         "workspace_configuration_operation_states",
         "workspace_configuration_operation_receipts",
-        "video_execution_authority",
-        "video_executions",
-        "video_execution_route_intents",
-        "video_execution_scope_permits",
+    }
+)
+
+NATIVE_MANAGED_RELATIONS = frozenset(
+    {("public", name) for name in NATIVE_MANAGED_TABLES}
+    | {
+        ("aap_jobs_v1", name)
+        for name in (
+            "video_execution_authority",
+            "video_executions",
+            "video_execution_route_intents",
+            "video_execution_checkpoint_restore",
+            "video_execution_journals",
+            "video_execution_window_attempts",
+            "video_execution_captures",
+            "video_execution_capture_parts",
+            "video_execution_windows",
+            "video_execution_window_parts",
+            "video_execution_span_closures",
+        )
+    }
+    | {
+        ("aap_labeling_v1", "video_execution_checkpoint_mask_sets"),
+        ("aap_inference_routing_v1", "video_execution_scope_permits"),
     }
 )
 
@@ -65,6 +85,6 @@ def include_orm_schema_object(object_, name, type_, reflected, compare_to):
     """Native SQL migrations remain the sole schema owner for these relations."""
     return not (
         type_ == "table"
-        and getattr(object_, "schema", None) in {None, "public"}
-        and name in NATIVE_MANAGED_TABLES
+        and (getattr(object_, "schema", None) or "public", name)
+        in NATIVE_MANAGED_RELATIONS
     )

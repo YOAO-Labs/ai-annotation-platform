@@ -221,8 +221,11 @@ class BackendCompatibilityIdentity(_Value):
     """Non-secret model/backend identity required before checkpoint reuse."""
 
     role: Literal["track", "discovery"]
-    registry_id: CanonicalUUID
+    provider_kind: Literal["registry", "builtin"] = "registry"
+    registry_id: CanonicalUUID | None
     backend_incarnation: CanonicalUUID | None
+    builtin_implementation_id: _BoundedName | None = None
+    builtin_implementation_digest: Digest | None = None
     model_key: Annotated[StrictStr, Field(min_length=1, max_length=80)]
     model_id: _BoundedName | None
     weights_release_id: _BoundedName | None
@@ -240,10 +243,40 @@ class BackendCompatibilityIdentity(_Value):
             raise ValueError("stateless tracker cannot declare context frames")
         if self.tracker_context_mode == "session" and self.max_context_frames < 1:
             raise ValueError("session tracker requires a positive context bound")
+        if self.provider_kind == "registry":
+            if self.registry_id is None or any(
+                value is not None
+                for value in (
+                    self.builtin_implementation_id,
+                    self.builtin_implementation_digest,
+                )
+            ):
+                raise ValueError(
+                    "registry provider requires its actual registry identity"
+                )
+        elif (
+            self.role != "track"
+            or self.model_key != "mock_bbox"
+            or self.model_id != "mock_bbox"
+            or self.registry_id is not None
+            or self.backend_incarnation is not None
+            or self.weights_release_id is not None
+            or self.weights_sha256 is not None
+            or self.tracker_context_mode != "none"
+            or self.builtin_implementation_id != "aap-mock-bbox/v1"
+        ):
+            raise ValueError(
+                "builtin provider must identify the local mock implementation"
+            )
         return self
 
     @property
     def identity_complete(self) -> bool:
+        if self.provider_kind == "builtin":
+            return (
+                self.builtin_implementation_digest is not None
+                and self.capability_digest is not None
+            )
         return (
             self.backend_incarnation is not None
             and self.model_id is not None
@@ -557,7 +590,11 @@ class VideoExecutionPlan(_Value):
         if discoveries and discoveries[0] != self.windows[0]:
             raise ValueError("discovery must be the first frozen phase")
         if discoveries and (
-            discoveries[0].from_frame != self.from_frame
+            (
+                discoveries[0].to_frame != self.to_frame
+                if self.direction == "backward"
+                else discoveries[0].from_frame != self.from_frame
+            )
             or discoveries[0].to_frame > self.to_frame
             or discoveries[0].to_frame - discoveries[0].from_frame + 1
             > (self.window_settings.effective_discovery_max_frames or 0)
@@ -1929,6 +1966,35 @@ def video_execution_schema() -> dict[str, Any]:
         document = model.model_json_schema(ref_template="#/$defs/{model}")
         definitions.update(document.pop("$defs", {}))
         definitions[model.__name__] = document
+    definitions["BackendCompatibilityIdentity"]["allOf"] = [
+        {
+            "if": {
+                "properties": {"provider_kind": {"const": "builtin"}},
+                "required": ["provider_kind"],
+            },
+            "then": {
+                "properties": {
+                    "role": {"const": "track"},
+                    "model_key": {"const": "mock_bbox"},
+                    "model_id": {"const": "mock_bbox"},
+                    "registry_id": {"type": "null"},
+                    "backend_incarnation": {"type": "null"},
+                    "weights_release_id": {"type": "null"},
+                    "weights_sha256": {"type": "null"},
+                    "tracker_context_mode": {"const": "none"},
+                    "builtin_implementation_id": {"const": "aap-mock-bbox/v1"},
+                },
+                "required": ["builtin_implementation_id"],
+            },
+            "else": {
+                "properties": {
+                    "registry_id": {"type": "string", "format": "uuid"},
+                    "builtin_implementation_id": {"type": "null"},
+                    "builtin_implementation_digest": {"type": "null"},
+                }
+            },
+        }
+    ]
     public = (
         "VideoExecutionPlan",
         "VideoCheckpointPayload",

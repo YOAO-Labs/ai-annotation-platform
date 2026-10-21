@@ -475,4 +475,30 @@ Scope 固定 Job、actor、project 和完整排队参数的 SHA-256；租约额�
 
 模型只能返回恰好一个原 Task 的结果。完整 raw 先于来源复核保存，之后的写入等待和进程接管复用同一输出与 Prediction 身份。成功结算同时删除确切原失败行和 Meta，记录精确回执、计数与 Job 终态；永久模型／Mask 错误只计一次。来源、actor、dismiss 或 Job 失效使用放弃结算，清理对应占用及临时根。所有终结均须当前租约，重复或陈旧投递不能删除失败行、递增次数或结束后来的执行。
 
-`PREANNOTATION_RESULTS_DATABASE_URL` 或其 secret 文件同时控制读取、检查点和立即／定时 outbox 的函数专用连接。`aap-prediction-retries` CLI 只开放读取与两项派发能力；准入及业务结算不对 executor 登录开放。运行中视频跟踪另用 `register_tracker_running_mask_root` 在写入事务登记精确 Job/Task 的临时 Mask 根；GC 登录无此能力，结束或删除 Job 时释放，待审结果另有业务根。
+`PREANNOTATION_RESULTS_DATABASE_URL` 或其 secret 文件同时控制读取、检查点和立即／定时 outbox 的函数专用连接。`aap-prediction-retries` CLI 只开放读取与两项派发能力；准入及业务结算不对 executor 登录开放。运行中视频跟踪另用 `register_tracker_running_mask_root` 在写入事务登记精确 Job/Task 的临时 Mask 根；GC 登录无此能力。持久窗口账本在 writer 完成前延续这些根，随后与待审或标注根原子交接。
+
+## 视频执行窗口账本
+
+`video_execution_client` 仅可调用 Jobs 的 `video_execution_step(text,text)` 与
+`video_execution_checkpoint_step(text,text)`，没有私表、序列、DDL 或 TEMP 权限。
+core policy 仍列出自身函数，checkpoint policy 列出这组完整的两函数 LOGIN 配置；升级时
+须同步授权源与适配器。冻结描述位于 `0282_video_execution_checkpoints.schema.json`，
+便携计划、逐窗口 payload/manifest/part 和恢复判断位于 `apps/preannotation-results`。
+
+新 RPC 使用 `aap-video-checkpoint-data/v1` 成功／拒绝信封，每次非 policy 调用都携带
+job/run/worker/generation/lease-token。动作依次覆盖 input facts、freeze/read plan、分页
+resume、begin/capture、put part/seal、read part、verify replay、close span、recovery ready、
+finish 与 retire。请求和响应最多 2 MiB；窗口 payload 最多 64 MiB，每块最多 512 KiB，
+最多 128 块；元数据每页最多 100 窗。过时代次不能封存结果或完成 writer。
+
+canonical window 不可覆盖，checkpoint ID 绑定计划与 ordinal，后继种子绑定原 manifest。
+重放只登记新观察摘要并核对规范化结果／continuation／discovery seed，不替换旧字节。
+成功要求所有窗口及必要的 session 关闭事实完整；取消允许普通追踪的部分候选，后续审阅
+不改写原 writer outcome。finish 与业务终态和最终引用根处于同一事务；输入与素材的
+执行 pin 只在实际 scope 退役后释放，租约或时间间隔不构成完成证明。
+任务延迟确认，并在 worker 丢失时重投；续租结果不明会停止旧执行的写入，仍活跃的作业
+保留重派发机会。业务提交已成功但确认丢失时，以重读的主作业终态继续退役清理。
+
+Inference 的私有 status 经过配置的嵌入、专用 DSN 或 HTTP owner；HTTP 端点为
+`POST /v1/routes/video-execution-status`，沿用路由服务鉴权并校验精确证明回显。它不属于
+公开应用 OpenAPI。完整模块与提供方资格仍分开验收，见 [ADR-0158](/dev/adr/0158-video-window-journals-and-replay)。

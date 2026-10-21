@@ -49,10 +49,10 @@ Inference 增加私有 `video_acquire` 命令及固定 `video_execution_scope_st
 broker failure/revoke 不持有
 执行证明，不能直接将新的受管汇总标记失败或取消；旧汇总保持原逻辑。
 
-冻结计划、结果规范化和 checkpoint 分块目前仅作为 portable 值合同提供。源时间线采样
+该执行权阶段先提供冻结计划、结果规范化和 checkpoint 分块的 portable 值合同。源时间线采样
 与标注网格独立；缺少后端 incarnation、模型、权重或能力身份时可首次运行，但拒绝复用
-checkpoint。当前 runner 没有持久读写这些值；遇到 recovery_required 直接暂缓，尚未
-实现自动退役协调、窗口接续或模型 session 重放。
+checkpoint。窗口持久化、自动退役协调与模型 session 重放由后续
+[ADR-0158](0158-video-window-journals-and-replay.md) 扩展。
 
 ## Consequences
 
@@ -65,8 +65,8 @@ checkpoint。当前 runner 没有持久读写这些值；遇到 recovery_require
 
 当前 Labeling ORM 仍是业务 writer。代码入口已检查代次，不代表旧二进制或任意原表
 writer 已被数据库统一围栏，也不代表独立 Labeling writer、全 Jobs 或完整模块已完成。
-持久 checkpoint、恢复协调、原地还原 epoch、受限镜像、另一语言提供方及生产容量仍有
-各自门槛。Go 仍只作为实验，日常与生产环境不切换。
+窗口恢复的限定资格见 ADR-0158；原地还原 epoch、受限镜像、另一语言提供方及生产容量
+仍有各自门槛。Go 仍只作为实验，日常与生产环境不切换。
 
 ## Notes
 

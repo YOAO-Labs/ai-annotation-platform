@@ -109,6 +109,9 @@ class RoutingRuntime:
     ) -> RoutingRuntimeResult:
         return await self.manager.runtime(request)
 
+    async def video_execution_status(self, proof):
+        return await self.manager.video_execution_status(proof)
+
     async def readiness(self) -> bool:
         return await self.manager.readiness()
 

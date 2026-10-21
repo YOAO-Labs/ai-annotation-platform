@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from aap_protocol_v2 import vocab
 from aap_protocol_v2.lifecycle import ManagedLifecycleCapabilities
 
@@ -51,6 +53,46 @@ def test_capability_limits_keep_app_defaults_and_are_explicitly_overridable():
         ),
     )
     assert [model["max_window_frames"] for model in caps["models"]] == [6, 40]
+
+
+@pytest.mark.parametrize(
+    "identity",
+    [
+        {"weights_version": "legacy", "model_version": "label"},
+        {"weights_release_id": "release"},
+        {"weights_release_id": "release", "weights_sha256": "A" * 64},
+        {"weights_release_id": " release", "weights_sha256": "a" * 64},
+        {"weights_release_id": "release", "weights_sha256": 1},
+        {"weights_release_id": "release", "weights_sha256": "a" * 64},
+    ],
+)
+def test_exact_per_model_weights_identity_survives_normalization_only_as_a_pair(
+    identity,
+):
+    caps = extract_capabilities(
+        {
+            "models": [
+                {
+                    "id": "tracker",
+                    "task": "tracker",
+                    "supported_trackers": ["sam2_video"],
+                    **identity,
+                }
+            ]
+        }
+    )
+    result = caps["models"][0]
+    expected = (
+        identity.get("weights_release_id") == "release"
+        and identity.get("weights_sha256") == "a" * 64
+    )
+    assert ("weights_release_id" in result) is expected
+    assert ("weights_sha256" in result) is expected
+    if expected:
+        assert (
+            ModelCapability.model_validate(result).model_dump()["weights_sha256"]
+            == "a" * 64
+        )
 
 
 def test_capability_snapshot_handles_empty_and_legacy_backends():

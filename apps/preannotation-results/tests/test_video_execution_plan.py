@@ -40,6 +40,45 @@ _INCARNATION_ID = uuid.UUID("66666666-6666-4666-8666-666666666666")
 _PROMPT_DIGEST = "a" * 64
 
 
+def test_builtin_identity_does_not_fabricate_a_registry_or_weights():
+    identity = BackendCompatibilityIdentity(
+        role="track",
+        provider_kind="builtin",
+        registry_id=None,
+        backend_incarnation=None,
+        builtin_implementation_id="aap-mock-bbox/v1",
+        builtin_implementation_digest="a" * 64,
+        model_key="mock_bbox",
+        model_id="mock_bbox",
+        weights_release_id=None,
+        weights_sha256=None,
+        tracker_context_mode="none",
+        max_context_frames=0,
+        max_window_frames=None,
+        capability_digest="b" * 64,
+    )
+    assert identity.identity_complete
+    incomplete = identity.model_dump()
+    incomplete["builtin_implementation_digest"] = None
+    assert not BackendCompatibilityIdentity.model_validate(incomplete).identity_complete
+    for field, changed in (
+        ("registry_id", uuid.uuid4()),
+        ("weights_release_id", "invented-weights"),
+        ("model_key", "sam2_video"),
+    ):
+        with pytest.raises(ValueError):
+            BackendCompatibilityIdentity.model_validate(
+                {**identity.model_dump(), field: changed}
+            )
+
+
+def test_registry_identity_rejects_an_absent_actual_registry():
+    with pytest.raises(ValueError):
+        BackendCompatibilityIdentity.model_validate(
+            {**_compatibility().model_dump(), "registry_id": None}
+        )
+
+
 def _compatibility(
     *,
     role="track",

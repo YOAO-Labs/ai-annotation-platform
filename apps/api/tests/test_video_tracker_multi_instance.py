@@ -28,11 +28,15 @@ from app.services.video_tracking.runner import (
 from app.services.video_context import VideoContext
 from app.schemas.task import VideoMetadata
 from tests.media_owner_fixtures import media_owner as media_owner
-from tests.tracker_input_test_ports import seed_staged_tracker_input
+from tests.tracker_input_test_ports import (
+    seed_staged_tracker_input,
+    yield_tracker_fake_results,
+)
 
 
 @pytest.fixture(autouse=True)
-def _tracker_input_owner_test_port(tracker_input_owner_fakes):
+def _tracker_input_owner_test_port(tracker_input_owner_fakes, savepoint_routing_owner):
+    tracker_input_owner_fakes.declare_tracker_backend = True
     return tracker_input_owner_fakes
 
 
@@ -184,36 +188,43 @@ class _MultiInstanceAdapter:
     async def propagate(self, ctx: TrackerContext):
         self.contexts.append(ctx)
         frames = range(ctx.from_frame, ctx.to_frame + 1)
+        results = []
         for frame_index in frames:
-            yield TrackerFrameResult(
-                frame_index=frame_index,
-                geometry={
-                    "type": "bbox",
-                    "x": float(frame_index),
-                    "y": 0.0,
-                    "w": 10.0,
-                    "h": 10.0,
-                },
-                confidence=1.0,
-                outside=False,
-                instance_id="obj0",
-                primary=True,
-            )
-            for oid in self.extra_ids:
-                yield TrackerFrameResult(
+            results.append(
+                TrackerFrameResult(
                     frame_index=frame_index,
                     geometry={
                         "type": "bbox",
-                        "x": float(frame_index) + 100.0,
+                        "x": float(frame_index),
                         "y": 0.0,
-                        "w": 8.0,
-                        "h": 8.0,
+                        "w": 10.0,
+                        "h": 10.0,
                     },
-                    confidence=0.95,
+                    confidence=1.0,
                     outside=False,
-                    instance_id=oid,
-                    primary=False,
+                    instance_id="obj0",
+                    primary=True,
                 )
+            )
+            for oid in self.extra_ids:
+                results.append(
+                    TrackerFrameResult(
+                        frame_index=frame_index,
+                        geometry={
+                            "type": "bbox",
+                            "x": float(frame_index) + 100.0,
+                            "y": 0.0,
+                            "w": 8.0,
+                            "h": 8.0,
+                        },
+                        confidence=0.95,
+                        outside=False,
+                        instance_id=oid,
+                        primary=False,
+                    )
+                )
+        async for result in yield_tracker_fake_results(ctx, results):
+            yield result
 
 
 async def test_runner_lands_extra_instances_as_new_tracks(
@@ -899,37 +910,44 @@ class _WindowLocalMultiplexAdapter:
 
     async def propagate(self, ctx: TrackerContext):
         first_window = min(ctx.from_frame, ctx.to_frame) == 0
+        results = []
         for f in range(ctx.from_frame, ctx.to_frame + 1):
             left_id = "1" if first_window else "2"
             right_id = "2" if first_window else "1"
-            yield TrackerFrameResult(
-                frame_index=f,
-                geometry={
-                    "type": "bbox",
-                    "x": 0.10 + 0.005 * f,
-                    "y": 0.0,
-                    "w": 0.1,
-                    "h": 0.1,
-                },
-                confidence=1.0,
-                outside=False,
-                instance_id=left_id,
-                primary=True,
+            results.append(
+                TrackerFrameResult(
+                    frame_index=f,
+                    geometry={
+                        "type": "bbox",
+                        "x": 0.10 + 0.005 * f,
+                        "y": 0.0,
+                        "w": 0.1,
+                        "h": 0.1,
+                    },
+                    confidence=1.0,
+                    outside=False,
+                    instance_id=left_id,
+                    primary=True,
+                )
             )
-            yield TrackerFrameResult(
-                frame_index=f,
-                geometry={
-                    "type": "bbox",
-                    "x": 0.50 + 0.005 * f,
-                    "y": 0.0,
-                    "w": 0.1,
-                    "h": 0.1,
-                },
-                confidence=1.0,
-                outside=False,
-                instance_id=right_id,
-                primary=False,
+            results.append(
+                TrackerFrameResult(
+                    frame_index=f,
+                    geometry={
+                        "type": "bbox",
+                        "x": 0.50 + 0.005 * f,
+                        "y": 0.0,
+                        "w": 0.1,
+                        "h": 0.1,
+                    },
+                    confidence=1.0,
+                    outside=False,
+                    instance_id=right_id,
+                    primary=False,
+                )
             )
+        async for result in yield_tracker_fake_results(ctx, results):
+            yield result
 
 
 async def test_runner_associates_window_local_ids_across_windows(
@@ -1023,35 +1041,42 @@ class _MultiSourceAdapter:
     model_key = "sam3_video_interactive"
 
     async def propagate(self, ctx: TrackerContext):
+        results = []
         for f in range(ctx.from_frame, ctx.to_frame + 1):
-            yield TrackerFrameResult(
-                frame_index=f,
-                geometry={
-                    "type": "bbox",
-                    "x": float(f),
-                    "y": 0.0,
-                    "w": 10.0,
-                    "h": 10.0,
-                },
-                confidence=1.0,
-                outside=False,
-                instance_id="1",
-                primary=True,
+            results.append(
+                TrackerFrameResult(
+                    frame_index=f,
+                    geometry={
+                        "type": "bbox",
+                        "x": float(f),
+                        "y": 0.0,
+                        "w": 10.0,
+                        "h": 10.0,
+                    },
+                    confidence=1.0,
+                    outside=False,
+                    instance_id="1",
+                    primary=True,
+                )
             )
-            yield TrackerFrameResult(
-                frame_index=f,
-                geometry={
-                    "type": "bbox",
-                    "x": float(f) + 100.0,
-                    "y": 0.0,
-                    "w": 8.0,
-                    "h": 8.0,
-                },
-                confidence=1.0,
-                outside=False,
-                instance_id="2",
-                primary=False,
+            results.append(
+                TrackerFrameResult(
+                    frame_index=f,
+                    geometry={
+                        "type": "bbox",
+                        "x": float(f) + 100.0,
+                        "y": 0.0,
+                        "w": 8.0,
+                        "h": 8.0,
+                    },
+                    confidence=1.0,
+                    outside=False,
+                    instance_id="2",
+                    primary=False,
+                )
             )
+        async for result in yield_tracker_fake_results(ctx, results):
+            yield result
 
 
 async def _seed_two_source_job(db_session, user, media_owner):
@@ -1360,22 +1385,27 @@ class _MultiSourcePlusDiscoveryAdapter:
     model_key = "sam3_video_interactive"
 
     async def propagate(self, ctx: TrackerContext):
+        results = []
         for f in range(ctx.from_frame, ctx.to_frame + 1):
             for iid, base in (("1", 0.0), ("2", 100.0), ("3", 200.0)):
-                yield TrackerFrameResult(
-                    frame_index=f,
-                    geometry={
-                        "type": "bbox",
-                        "x": float(f) + base,
-                        "y": 0.0,
-                        "w": 8.0,
-                        "h": 8.0,
-                    },
-                    confidence=1.0,
-                    outside=False,
-                    instance_id=iid,
-                    primary=(iid == "1"),
+                results.append(
+                    TrackerFrameResult(
+                        frame_index=f,
+                        geometry={
+                            "type": "bbox",
+                            "x": float(f) + base,
+                            "y": 0.0,
+                            "w": 8.0,
+                            "h": 8.0,
+                        },
+                        confidence=1.0,
+                        outside=False,
+                        instance_id=iid,
+                        primary=(iid == "1"),
+                    )
                 )
+        async for result in yield_tracker_fake_results(ctx, results):
+            yield result
 
 
 async def test_accept_multi_source_touched_covers_sources_and_created(

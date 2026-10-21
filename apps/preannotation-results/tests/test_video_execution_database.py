@@ -49,7 +49,10 @@ def test_binding_cannot_carry_writer_authority_across_transactions(monkeypatch):
         verify.assert_awaited_once_with(
             connection,
             schema="aap_jobs_v1",
-            functions={("video_execution_step", "text, text")},
+            functions={
+                ("video_execution_step", "text, text"),
+                ("video_execution_checkpoint_step", "text, text"),
+            },
             role="video_execution_client",
         )
         connection.transaction_id = "42"

@@ -50,8 +50,10 @@ uses that history when retrying a Job's failed items.
 Video tracking has a separate private `aap-video-execution-data/v1` contract in
 `video_execution.py`. Claim, renew, guard and release use exact job/run/worker,
 generation and lease-token identities. `VideoExecutionPostgresData` binds the
-single `aap_jobs_v1.video_execution_step(text,text)` function to an already active
-asyncpg transaction under `video_execution_client`. A guard's locks remain in
+`aap_jobs_v1.video_execution_step(text,text)` function to an already active
+asyncpg transaction under `video_execution_client`. This LOGIN has exactly that
+function and `video_execution_checkpoint_step(text,text)`; deploy the matching
+two-function grants and adapters together. A guard's locks remain in
 that transaction until the caller commits or rolls back; it is not a standalone
 HTTP authorization result. The API bridge retains the existing business
 transaction. Tokens and encrypted route commands are private execution authority
@@ -61,7 +63,19 @@ and must not enter public Job prompts, errors or events.
 window plans, canonical result snapshots, bounded checkpoint chunks and strict
 recovery compatibility. Source timeline sampling and annotation output-grid step
 are independent. Missing backend incarnation, model, weight or capability
-identity permits an initial run but forbids checkpoint reuse. These are value
-contracts only: the current runner does not persist or consume these checkpoints,
-and defers runs that require recovery. Full crash resume and model-session replay
-remain separate work; see ADR-0157.
+identity permits an initial run but forbids checkpoint reuse. Builtin mock
+execution has its own actual implementation digest and no fabricated registry
+or weight identity.
+
+`video_window_checkpoint.py` and `video-window-checkpoints.schema.json` describe
+immutable per-window results, separate from the original whole-span values.
+`video_execution_journal.py` and `VideoJournalPostgresData` provide the private
+`aap-video-checkpoint-data/v1` storage protocol. They validate bounded parts,
+manifest/payload identity, current claims, seed predecessors and replay replies
+inside the caller's active transaction. Terminal writer handoff does not commit
+a separate transaction. The current API runner freezes the actual selected
+plan, seals windows, reuses closed spans and compares rebuilt session prefixes;
+opaque session tokens and source URLs are not checkpoint data. Physical scope
+retirement precedes replacement admission; unknown retirement or incompatible
+identity defers recovery. This is a sub-boundary rather than a standalone
+Labeling business writer; see ADR-0158.

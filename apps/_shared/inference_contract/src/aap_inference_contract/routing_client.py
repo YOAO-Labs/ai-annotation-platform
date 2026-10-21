@@ -33,6 +33,13 @@ from .scope_retirement import (
     decode_scope_retirement_result,
     scope_retirement_request_bytes,
 )
+from .video_execution import (
+    VIDEO_EXECUTION_STATUS_PATH,
+    VideoScopeRejected,
+    decode_video_execution_status_request,
+    decode_video_execution_status_result,
+    video_execution_status_request_bytes,
+)
 
 
 class _AmbiguousRoutingResponse(Exception):
@@ -241,6 +248,21 @@ class RoutingHttpClient:
             )
             return decode_scope_retirement_result(typed_request, raw)
         except (_AmbiguousRoutingResponse, ScopeRetirementUnavailable):
+            raise RoutingUnavailable() from None
+
+    async def video_execution_status(self, request):
+        proof = decode_video_execution_status_request(request)
+        body = video_execution_status_request_bytes(proof)
+        try:
+            raw = await self._post(
+                VIDEO_EXECUTION_STATUS_PATH,
+                body,
+                max_reply_bytes=ROUTING_REPLY_MAX_BYTES,
+            )
+            return decode_video_execution_status_result(proof, raw)
+        except (_AmbiguousRoutingResponse, VideoScopeRejected):
+            # This is a proof-bound read. Invalid/unknown owner responses never
+            # expose Native details to the caller or trigger a write retry.
             raise RoutingUnavailable() from None
 
 

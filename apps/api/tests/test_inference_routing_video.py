@@ -551,7 +551,41 @@ async def test_committed_video_job_heartbeats_cancels_and_closes_one_route_scope
                     assert scope["pool_id"] == pool_id
                     assert scope["project_id"] == project_id
                     assert scope["operation"] == "tracker"
-                    assert scope["state"] == "cancelled" and scope["closed"] is True
+                    assert scope["state"] == "reconciled" and scope["closed"] is True
+                    assert (
+                        await db.scalar(
+                            text(
+                                f"SELECT phase FROM {_ROUTING_SCHEMA}.scope_retirements WHERE scope_id=:scope"
+                            ),
+                            {"scope": scope["id"]},
+                        )
+                        == "completed"
+                    )
+                    journal = (
+                        await db.execute(
+                            text(
+                                "SELECT writer_terminal,writer_terminal_outcome,execution_retired,"
+                                "plan_document #>> '{source,source_version_id}' AS source_version "
+                                "FROM aap_jobs_v1.video_execution_journals WHERE job_id=:job"
+                            ),
+                            {"job": job_id},
+                        )
+                    ).one()
+                    assert tuple(journal) == (
+                        True,
+                        "cancelled",
+                        True,
+                        reference.source_version.version_id,
+                    )
+                    assert (
+                        await db.scalar(
+                            text(
+                                "SELECT count(*) FROM aap_jobs_v1.video_execution_windows WHERE job_id=:job"
+                            ),
+                            {"job": job_id},
+                        )
+                        == 1
+                    )
                     attempts = (
                         (
                             await db.execute(

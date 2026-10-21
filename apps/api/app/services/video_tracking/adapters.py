@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import uuid
+import hashlib
+import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
@@ -72,6 +74,22 @@ class TrackerContext:
     # 已发 B-pvs 框种子等价, 零回归)。其它 backend 无此键不受影响。
     seeds: list[dict] | None = None
     session: TrackerSession | None = None
+    response_digest: list[str] | None = None
+    model_id: str | None = None
+    outside_threshold: float | None = None
+
+
+def _response_digest(body) -> str:
+    digest, size = hashlib.sha256(), 0
+    for chunk in json.JSONEncoder(
+        sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+    ).iterencode(body):
+        content = chunk.encode("utf-8")
+        size += len(content)
+        if size > 64 * 1024 * 1024:
+            raise ValueError("tracker_response_too_large")
+        digest.update(content)
+    return digest.hexdigest()
 
 
 class TrackerAdapter(Protocol):
@@ -143,13 +161,33 @@ class MockBboxTrackerAdapter:
         if ctx.direction == "backward":
             frames = range(ctx.to_frame, ctx.from_frame - 1, -1)
 
-        for frame_index in frames:
+        observed = hashlib.sha256(b"[")
+        for index, frame_index in enumerate(frames):
+            if index:
+                observed.update(b",")
+            observed.update(
+                json.dumps(
+                    {
+                        "frame_index": frame_index,
+                        "geometry": {"type": "bbox", **bbox},
+                        "confidence": 1.0,
+                        "outside": False,
+                    },
+                    sort_keys=True,
+                    ensure_ascii=False,
+                    allow_nan=False,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            )
             yield TrackerFrameResult(
                 frame_index=frame_index,
                 geometry={"type": "bbox", **bbox},
                 confidence=1.0,
                 outside=False,
             )
+        observed.update(b"]")
+        if ctx.response_digest is not None:
+            ctx.response_digest.append(observed.hexdigest())
 
 
 class MLBackendVideoTrackerAdapter:
@@ -186,6 +224,8 @@ class MLBackendVideoTrackerAdapter:
             "prompt": ctx.prompt,
             "source_geometry": ctx.source_geometry,
         }
+        if ctx.model_id is not None:
+            context["model_id"] = ctx.model_id
         # v0.14.15 · 仅当显式指定时透传模型变体; 缺省让后端回退默认 tiny.
         if ctx.sam_variant:
             context["model_variants"] = {"sam_variant": ctx.sam_variant}
@@ -222,6 +262,10 @@ class MLBackendVideoTrackerAdapter:
             task_data=ctx.task_data,
             context=context,
         )
+        if ctx.response_digest is not None:
+            ctx.response_digest.append(
+                _response_digest({"result": result.result, "meta": result.meta})
+            )
         if ctx.session is not None:
             session_meta = (result.meta or {}).get("tracker_context") or {}
             token = session_meta.get("token")
@@ -232,17 +276,22 @@ class MLBackendVideoTrackerAdapter:
 
         for item in result.result:
             if isinstance(item, dict):
-                yield _frame_result_from_payload(item)
+                yield _frame_result_from_payload(
+                    item, outside_threshold=ctx.outside_threshold
+                )
 
 
-def _frame_result_from_payload(payload: dict) -> TrackerFrameResult:
+def _frame_result_from_payload(
+    payload: dict, *, outside_threshold: float | None = None
+) -> TrackerFrameResult:
     confidence = payload.get("confidence")
     if confidence is not None:
         confidence = float(confidence)
     outside = bool(payload.get("outside", False))
-    if (
-        confidence is not None
-        and confidence < settings.video_tracker_low_confidence_outside_threshold
+    if confidence is not None and confidence < (
+        settings.video_tracker_low_confidence_outside_threshold
+        if outside_threshold is None
+        else outside_threshold
     ):
         outside = True
 

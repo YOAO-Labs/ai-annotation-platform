@@ -1,4 +1,4 @@
--- Give the video execution LOGIN exactly one Jobs Native function.
+-- Give the video execution LOGIN exactly two Jobs Native functions.
 -- Apply module-data-grants.sql first in the same explicitly named database.
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v jobs_owner=jobs_code -v video_execution_role=video_execution_client
@@ -51,18 +51,22 @@ DECLARE
         SELECT oid FROM pg_catalog.pg_roles
         WHERE rolname = current_setting('aap.jobs_owner')
     );
-    function_oid oid := pg_catalog.to_regprocedure(
-        'aap_jobs_v1.video_execution_step(text,text)'
-    );
+    function_oid oid;
+    signature text;
 BEGIN
-    IF function_oid IS NULL OR EXISTS (
+    IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname = 'aap_jobs_v1'
           AND namespace.nspowner IS DISTINCT FROM owner_oid
     ) THEN
         RAISE EXCEPTION 'Video execution Native schema or function is unavailable';
     END IF;
-    IF EXISTS (
+    FOREACH signature IN ARRAY ARRAY[
+        'aap_jobs_v1.video_execution_step(text,text)',
+        'aap_jobs_v1.video_execution_checkpoint_step(text,text)'
+    ] LOOP
+    function_oid := pg_catalog.to_regprocedure(signature);
+    IF function_oid IS NULL OR EXISTS (
         SELECT 1 FROM pg_catalog.pg_proc AS function
         WHERE function.oid = function_oid
           AND (function.proowner IS DISTINCT FROM owner_oid
@@ -76,6 +80,7 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'Jobs video execution capability has unexpected ownership or settings';
     END IF;
+    END LOOP;
 END $$;
 
 REVOKE ALL ON DATABASE :"expected_database" FROM :"video_execution_role";
@@ -96,7 +101,8 @@ BEGIN
     END LOOP;
 END $$;
 GRANT USAGE ON SCHEMA aap_jobs_v1 TO :"video_execution_role";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_step(text,text)
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_step(text,text),
+    aap_jobs_v1.video_execution_checkpoint_step(text,text)
     TO :"video_execution_role";
 
 DO $$
@@ -107,6 +113,7 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
+        'aap_jobs_v1.video_execution_checkpoint_step(text, text)',
         'aap_jobs_v1.video_execution_step(text, text)'
     ];
 BEGIN

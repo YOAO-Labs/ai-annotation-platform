@@ -10,6 +10,7 @@ from pydantic import Field, StrictInt, StrictStr, TypeAdapter
 
 from .routing import (
     ROUTING_REPLY_MAX_BYTES,
+    ROUTING_REQUEST_MAX_BYTES,
     RoutingScopeView,
     RoutingResult,
     ROUTING_RESULT_PROTOCOL,
@@ -20,6 +21,10 @@ from .routing import (
 )
 
 VIDEO_EXECUTION_DATA_PROTOCOL = "aap-video-execution-data/v1"
+VIDEO_EXECUTION_STATUS_RESULT_PROTOCOL = "aap-video-execution-status-result/v1"
+VIDEO_EXECUTION_STATUS_PATH = "/v1/routes/video-execution-status"
+VIDEO_EXECUTION_STATUS_REQUEST_MAX_BYTES = ROUTING_REQUEST_MAX_BYTES
+VIDEO_EXECUTION_STATUS_REPLY_MAX_BYTES = ROUTING_REPLY_MAX_BYTES
 VIDEO_EXECUTION_SCOPE_ACTIONS = frozenset(
     {"policy", "prepare", "reserve", "status", "record"}
 )
@@ -45,6 +50,127 @@ class VideoRouteIntent(_RoutingModel):
     command_sha256: StrictStr = Field(pattern=r"^[0-9a-f]{64}$")
     scope_id: uuid.UUID
     state: Literal["prepared", "bound"]
+
+
+class VideoExecutionStatusResult(_RoutingModel):
+    schema_: Literal["aap-video-execution-status-result/v1"] = Field(alias="schema")
+    proof: RoutingVideoExecutionProof = Field(repr=False)
+    data: dict
+
+
+def decode_video_execution_status_request(
+    value: object,
+) -> RoutingVideoExecutionProof:
+    """Decode the exact five-field private status proof request."""
+    try:
+        _, parsed = _json_input(
+            value, max_bytes=VIDEO_EXECUTION_STATUS_REQUEST_MAX_BYTES
+        )
+        if set(parsed) != set(RoutingVideoExecutionProof.model_fields):
+            raise RoutingUnavailable()
+        return TypeAdapter(RoutingVideoExecutionProof).validate_json(
+            json.dumps(parsed, allow_nan=False, separators=(",", ":"))
+        )
+    except RoutingUnavailable:
+        raise
+    except Exception:
+        raise RoutingUnavailable() from None
+
+
+def video_execution_status_request_bytes(value: object) -> bytes:
+    proof = decode_video_execution_status_request(value)
+    try:
+        encoded = json.dumps(
+            proof.model_dump(mode="json"),
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8", errors="strict")
+    except (UnicodeError, TypeError, ValueError, RecursionError, OverflowError):
+        raise RoutingUnavailable() from None
+    if len(encoded) > VIDEO_EXECUTION_STATUS_REQUEST_MAX_BYTES:
+        raise RoutingUnavailable()
+    return encoded
+
+
+def decode_video_execution_status_result(
+    request: RoutingVideoExecutionProof | object, value: object
+) -> dict:
+    proof = decode_video_execution_status_request(request)
+    try:
+        _, parsed = _json_input(value, max_bytes=VIDEO_EXECUTION_STATUS_REPLY_MAX_BYTES)
+        if set(parsed) != {"schema", "proof", "data"}:
+            raise RoutingUnavailable()
+        result = VideoExecutionStatusResult.model_validate_json(
+            json.dumps(parsed, allow_nan=False, separators=(",", ":"))
+        )
+        if result.proof != proof:
+            raise RoutingUnavailable()
+        data = decode_video_scope_data(
+            "status",
+            proof.model_dump(mode="json"),
+            result.data,
+        )
+        return data
+    except (VideoScopeRejected, RoutingUnavailable):
+        raise
+    except Exception:
+        raise RoutingUnavailable() from None
+
+
+def video_execution_status_result_bytes(
+    request: RoutingVideoExecutionProof | object, data: object
+) -> bytes:
+    proof = decode_video_execution_status_request(request)
+    if type(data) is dict and set(data) == {"intent", "scope"}:
+        data = {
+            "schema": VIDEO_EXECUTION_DATA_PROTOCOL,
+            "status": "ok",
+            "intent": (
+                data["intent"].model_dump(mode="json")
+                if isinstance(data["intent"], VideoRouteIntent)
+                else data["intent"]
+            ),
+            "scope": (
+                data["scope"].model_dump(mode="json")
+                if isinstance(data["scope"], RoutingScopeView)
+                else data["scope"]
+            ),
+        }
+    normalized = decode_video_scope_data("status", proof.model_dump(mode="json"), data)
+    result = VideoExecutionStatusResult(
+        schema=VIDEO_EXECUTION_STATUS_RESULT_PROTOCOL,
+        proof=proof,
+        data={
+            "schema": VIDEO_EXECUTION_DATA_PROTOCOL,
+            "status": "ok",
+            "intent": (
+                normalized["intent"].model_dump(mode="json")
+                if normalized["intent"] is not None
+                else None
+            ),
+            "scope": (
+                normalized["scope"].model_dump(mode="json")
+                if normalized["scope"] is not None
+                else None
+            ),
+        },
+    )
+    try:
+        encoded = json.dumps(
+            result.model_dump(mode="json", by_alias=True),
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8", errors="strict")
+    except (UnicodeError, TypeError, ValueError, RecursionError, OverflowError):
+        raise RoutingUnavailable() from None
+    if len(encoded) > VIDEO_EXECUTION_STATUS_REPLY_MAX_BYTES:
+        raise RoutingUnavailable()
+    decode_video_execution_status_result(proof, encoded)
+    return encoded
 
 
 def decode_video_scope_data(action: str, arguments: dict, value: object) -> dict:

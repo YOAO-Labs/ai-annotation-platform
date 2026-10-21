@@ -272,6 +272,66 @@ async def test_unknown_renewal_stops_subsequent_writes_without_exposing_capabili
         execution.execution_proof(job_id)
 
 
+@pytest.mark.parametrize(
+    "renewal_failure",
+    ["storage_unavailable", "lease_lost", "transport", "canonical_read_outage"],
+)
+async def test_lost_renewal_keeps_active_tracker_delivery_retryable(
+    monkeypatch, renewal_failure
+):
+    job_id = uuid4()
+    job = SimpleNamespace(id=job_id, status="running", staged_result={"original": True})
+    renewal_attempted = asyncio.Event()
+
+    async def native_call(_db, action, request):
+        if action == "claim":
+            return {
+                "execution": ExecutionClaim(
+                    job_id=job_id,
+                    run_id=uuid4(),
+                    worker_id=request.worker_id,
+                    generation=1,
+                    lease_token=uuid4(),
+                    lease_expires_at=datetime.now(timezone.utc),
+                    state="ready",
+                )
+            }
+        assert action == "renew"
+        renewal_attempted.set()
+        if renewal_failure == "transport":
+            raise OSError("test: renewal reply unavailable")
+        raise VideoExecutionFailure(
+            "storage_unavailable"
+            if renewal_failure == "canonical_read_outage"
+            else renewal_failure
+        )
+
+    async def computation(db, job_id, **_kwargs):
+        await asyncio.wait_for(renewal_attempted.wait(), 1)
+        await asyncio.sleep(0)
+        await execution.fence_tracker_write(db, job_id, "stage")
+
+    db = SimpleNamespace(
+        commit=AsyncMock(),
+        rollback=AsyncMock(),
+        get=AsyncMock(return_value=job),
+    )
+    if renewal_failure == "canonical_read_outage":
+        db.get.side_effect = [job, OSError("test: canonical read unavailable")]
+
+    @asynccontextmanager
+    async def sessions():
+        yield db
+
+    monkeypatch.setattr(execution, "_call", native_call)
+    monkeypatch.setattr(execution, "_RENEW_SECONDS", 0)
+    monkeypatch.setattr(runner, "_run_tracker_job_claimed", computation)
+    with pytest.raises(execution.TrackerExecutionDeferred):
+        await runner.run_tracker_job(db, job_id, shadow_session_factory=sessions)
+    assert job.status == "running"
+    assert job.staged_result == {"original": True}
+
+
 @pytest.mark.parametrize("kind", ["video_tracker", "video_correction"])
 @pytest.mark.parametrize("cancelled", [False, True])
 async def test_broker_signal_cannot_terminalize_claimed_tracker_summary(

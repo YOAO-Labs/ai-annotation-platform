@@ -358,6 +358,21 @@ async def test_video_admission_binds_selected_scope_before_receipt_and_reuses_id
 
 
 @pytest.mark.asyncio
+async def test_video_execution_status_is_a_proof_bound_read_in_its_own_transaction():
+    native = _VideoNative()
+    manager = RoutingManager(
+        _DataFactory(native), health_max_age_seconds=60, lease_ttl_ms=60_000
+    )
+    proof = _video_command().body.execution
+
+    reply = await manager.video_execution_status(proof)
+
+    assert reply == {"intent": None, "scope": None}
+    assert [action for action, _ in native.video_calls] == ["status"]
+    assert native.events == [("enter",), ("video", "status", True), ("exit", None)]
+
+
+@pytest.mark.asyncio
 async def test_lost_video_claim_cannot_replay_successful_receipt_through_execute():
     native = _VideoNative()
     manager = RoutingManager(

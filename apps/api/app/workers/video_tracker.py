@@ -152,6 +152,16 @@ async def _run_video_tracker_job(job_id: str, celery_task_id: str | None) -> Non
                 )
             except (TrackerInputDeferred, TrackerExecutionDeferred):
                 await db.rollback()
+                if async_job_id is not None:
+                    try:
+                        await _sync_terminal_summary(
+                            db,
+                            tracker_job_id=uuid.UUID(job_id),
+                            async_job_id=async_job_id,
+                            gpu_arbiter_error=gpu_arbiter_error,
+                        )
+                    except Exception:
+                        await db.rollback()
                 raise
             except Exception as e:
                 gpu_arbiter_error = gpu_arbiter_error or gpu_arbiter_failure_record(e)
@@ -181,7 +191,14 @@ async def _run_video_tracker_job(job_id: str, celery_task_id: str | None) -> Non
         await engine.dispose()
 
 
-@celery_app.task(bind=True, max_retries=None, default_retry_delay=30, queue="gpu")
+@celery_app.task(
+    bind=True,
+    max_retries=None,
+    default_retry_delay=30,
+    queue="gpu",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def run_video_tracker_job(self, job_id: str) -> None:
     try:
         asyncio.run(_run_video_tracker_job(job_id, getattr(self.request, "id", None)))

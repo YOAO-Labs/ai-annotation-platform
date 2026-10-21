@@ -1,0 +1,598 @@
+{
+  "$defs": {
+    "VideoWindowCheckpointManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "checkpoint_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "context_span_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "continuation_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "discovery_output_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "discovery_seeds_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "input_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "manifest_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "payload_byte_size": {
+          "maximum": 67108864,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "payload_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "payload_part_count": {
+          "maximum": 128,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "phase": {
+          "enum": ["discovery", "track"]
+        },
+        "plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "predecessor_checkpoint_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "raw_response_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "request_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "result_byte_size": {
+          "maximum": 67108864,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "result_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-video-window-result/v1"
+        },
+        "seed_input_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "window_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "window_ordinal": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema",
+        "checkpoint_id",
+        "manifest_digest",
+        "request_id",
+        "input_id",
+        "plan_digest",
+        "window_ordinal",
+        "window_digest",
+        "context_span_digest",
+        "phase",
+        "seed_input_digest",
+        "predecessor_checkpoint_digest",
+        "raw_response_digest",
+        "result_digest",
+        "result_byte_size",
+        "payload_digest",
+        "payload_byte_size",
+        "payload_part_count",
+        "continuation_digest",
+        "discovery_output_digest",
+        "discovery_seeds_digest"
+      ],
+      "type": "object"
+    },
+    "VideoWindowCheckpointPart": {
+      "additionalProperties": false,
+      "properties": {
+        "checkpoint_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "data_base64": {
+          "contentEncoding": "base64",
+          "maxLength": 699052,
+          "minLength": 1,
+          "type": "string"
+        },
+        "manifest_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "part_count": {
+          "maximum": 128,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "part_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "part_index": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "payload_byte_size": {
+          "maximum": 67108864,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "payload_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-video-window-result-part/v1"
+        }
+      },
+      "required": [
+        "schema",
+        "checkpoint_id",
+        "manifest_digest",
+        "part_index",
+        "part_count",
+        "payload_digest",
+        "payload_byte_size",
+        "part_digest",
+        "data_base64"
+      ],
+      "type": "object"
+    },
+    "VideoWindowCheckpointPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "enum": ["forward", "backward"]
+        },
+        "checkpoint_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "context_span_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "continuation": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "last_geom_by_instance": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "geometry": {
+                        "type": "object"
+                      },
+                      "instance_id": {
+                        "maxLength": 255,
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": ["instance_id", "geometry"],
+                    "type": "object"
+                  },
+                  "maxItems": 100000,
+                  "type": "array"
+                },
+                "last_geometry": {
+                  "anyOf": [
+                    {
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "mp_next_global": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "mp_prev_boundary": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "geometry": {
+                        "type": "object"
+                      },
+                      "instance_id": {
+                        "maxLength": 255,
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": ["instance_id", "geometry"],
+                    "type": "object"
+                  },
+                  "maxItems": 100000,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "last_geometry",
+                "last_geom_by_instance",
+                "mp_prev_boundary",
+                "mp_next_global"
+              ],
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "discovery_output_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "discovery_seeds": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "geometry": {
+                "type": "object"
+              },
+              "obj_id": {
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": ["obj_id", "geometry"],
+            "type": "object"
+          },
+          "maxItems": 100000,
+          "type": "array"
+        },
+        "discovery_seeds_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "frame_results": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "candidate_key": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "confidence": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "frame_index": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "geometry": {
+                "type": "object"
+              },
+              "geometry_digest": {
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "instance_id": {
+                "anyOf": [
+                  {
+                    "maxLength": 255,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "outside": {
+                "type": "boolean"
+              },
+              "primary": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "frame_index",
+              "geometry",
+              "confidence",
+              "outside",
+              "instance_id",
+              "primary",
+              "geometry_digest",
+              "candidate_key"
+            ],
+            "type": "object"
+          },
+          "maxItems": 1000000,
+          "type": "array"
+        },
+        "input_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "phase": {
+          "enum": ["discovery", "track"]
+        },
+        "plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "predecessor_checkpoint_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "raw_response_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "request_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "result_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-video-window-result-content/v1"
+        },
+        "seed_input_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "window_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "window_ordinal": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema",
+        "checkpoint_id",
+        "request_id",
+        "input_id",
+        "plan_digest",
+        "window_ordinal",
+        "window_digest",
+        "context_span_digest",
+        "phase",
+        "branch",
+        "seed_input_digest",
+        "predecessor_checkpoint_digest",
+        "raw_response_digest",
+        "frame_results",
+        "continuation",
+        "discovery_output_digest",
+        "discovery_seeds_digest",
+        "discovery_seeds",
+        "result_digest"
+      ],
+      "type": "object"
+    },
+    "VideoWindowReplayMatch": {
+      "additionalProperties": false,
+      "properties": {
+        "checkpoint_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "observed_raw_response_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "raw_response_matches": {
+          "type": "boolean"
+        },
+        "result_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-video-window-replay-match/v1"
+        },
+        "stored_manifest_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "stored_raw_response_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "checkpoint_id",
+        "stored_manifest_digest",
+        "stored_raw_response_digest",
+        "observed_raw_response_digest",
+        "result_digest",
+        "raw_response_matches"
+      ],
+      "type": "object"
+    },
+    "VideoWindowResumeDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": ["complete", "execute", "replay"]
+        },
+        "completed_prefix_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "execute_ordinals": {
+          "items": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "replay_context_span_digests": {
+          "items": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "replay_ordinals": {
+          "items": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "reuse_ordinals": {
+          "items": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "schema": {
+          "const": "aap-video-window-resume-decision/v1"
+        }
+      },
+      "required": [
+        "schema",
+        "action",
+        "completed_prefix_count",
+        "reuse_ordinals",
+        "replay_ordinals",
+        "execute_ordinals",
+        "replay_context_span_digests"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "aap-video-window-checkpoints/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/VideoWindowCheckpointPayload"
+    },
+    {
+      "$ref": "#/$defs/VideoWindowCheckpointManifest"
+    },
+    {
+      "$ref": "#/$defs/VideoWindowCheckpointPart"
+    },
+    {
+      "$ref": "#/$defs/VideoWindowReplayMatch"
+    },
+    {
+      "$ref": "#/$defs/VideoWindowResumeDecision"
+    }
+  ],
+  "title": "AAP immutable per-window video checkpoint values",
+  "x-budgets": {
+    "part_base64_chars": 699052,
+    "part_bytes": 524288,
+    "part_count": 128,
+    "payload_bytes": 67108864
+  }
+}

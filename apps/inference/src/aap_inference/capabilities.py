@@ -200,6 +200,20 @@ def _normalize_model(model: dict, backend_infra: str, limits: CapabilityLimits) 
         # 缺字段 = None, 前端按「全支持」向后兼容。
         "exemplar_capabilities": model.get("exemplar_capabilities") or None,
     }
+    release, weights_digest = (
+        model.get("weights_release_id"),
+        model.get("weights_sha256"),
+    )
+    if (
+        type(release) is str
+        and 1 <= len(release) <= 255
+        and release.strip() == release
+        and type(weights_digest) is str
+        and len(weights_digest) == 64
+        and all(character in "0123456789abcdef" for character in weights_digest)
+    ):
+        # Legacy version labels do not prove an exact weight artifact.
+        out.update(weights_release_id=release, weights_sha256=weights_digest)
     out["modality"] = _model_modality(out)
     return out
 
@@ -281,6 +295,8 @@ def _collect_warnings(models: list[dict]) -> list[dict]:
     known_model_keys = set(ModelCapability.model_fields.keys()) | {
         # ModelCapability 用 extra=allow 接以下透传 / 派生字段, 不算未知。
         "exemplar_capabilities",  # 透传给前端 exemplar 控件
+        "weights_release_id",
+        "weights_sha256",
     }
     out: list[dict] = []
 

@@ -21,10 +21,12 @@ from app.services.video_tracking.runner import (
 
 # 复用多实例测试里的视频 task/dataset 建置。
 from tests.test_video_tracker_multi_instance import _make_video_task
+from tests.tracker_input_test_ports import yield_tracker_fake_results
 
 
 @pytest.fixture(autouse=True)
-def _tracker_input_owner_test_port(tracker_input_owner_fakes):
+def _tracker_input_owner_test_port(tracker_input_owner_fakes, savepoint_routing_owner):
+    tracker_input_owner_fakes.declare_tracker_backend = True
     return tracker_input_owner_fakes
 
 
@@ -98,21 +100,26 @@ class _DiscoveryAdapter:
     async def propagate(self, ctx: TrackerContext):
         self.calls.append((ctx.from_frame, ctx.to_frame, ctx.text))
         # multiplex 传播整窗, 每帧吐 N 对象(runner 只取种子帧 from_frame 铸种)。
+        results = []
         for f in range(ctx.from_frame, ctx.to_frame + 1):
             for k in range(self.n):
-                yield TrackerFrameResult(
-                    frame_index=f,
-                    geometry={
-                        "type": "bbox",
-                        "x": float(10 + 100 * k),
-                        "y": 0.0,
-                        "w": 8.0,
-                        "h": 8.0,
-                    },
-                    confidence=1.0,
-                    outside=False,
-                    instance_id=str(k + 1),
+                results.append(
+                    TrackerFrameResult(
+                        frame_index=f,
+                        geometry={
+                            "type": "bbox",
+                            "x": float(10 + 100 * k),
+                            "y": 0.0,
+                            "w": 8.0,
+                            "h": 8.0,
+                        },
+                        confidence=1.0,
+                        outside=False,
+                        instance_id=str(k + 1),
+                    )
                 )
+        async for result in yield_tracker_fake_results(ctx, results):
+            yield result
 
 
 class _PvsCaptureAdapter:
@@ -127,23 +134,28 @@ class _PvsCaptureAdapter:
         self.windows.append((ctx.from_frame, ctx.to_frame, ctx.seeds))
         # 首窗按下发种子数决定对象数; 后续窗靠续种(数量一致)。
         seeds = ctx.seeds or [{"obj_id": 1}]
+        results = []
         for f in range(ctx.from_frame, ctx.to_frame + 1):
             for s in seeds:
                 oid = str(s["obj_id"])
-                yield TrackerFrameResult(
-                    frame_index=f,
-                    geometry={
-                        "type": "bbox",
-                        "x": float(f),
-                        "y": 0.0,
-                        "w": 5.0,
-                        "h": 5.0,
-                    },
-                    confidence=1.0,
-                    outside=False,
-                    instance_id=oid,
-                    primary=(oid == "1"),
+                results.append(
+                    TrackerFrameResult(
+                        frame_index=f,
+                        geometry={
+                            "type": "bbox",
+                            "x": float(f),
+                            "y": 0.0,
+                            "w": 5.0,
+                            "h": 5.0,
+                        },
+                        confidence=1.0,
+                        outside=False,
+                        instance_id=oid,
+                        primary=(oid == "1"),
+                    )
                 )
+        async for result in yield_tracker_fake_results(ctx, results):
+            yield result
 
 
 def _dispatch(discovery: _DiscoveryAdapter, pvs: _PvsCaptureAdapter):

@@ -119,7 +119,8 @@ GRANT EXECUTE ON FUNCTION aap_inference_routing_v1.routing_policy(),
     TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_learning_v1.registry_evaluation_reference_exists(uuid),
     aap_jobs_v1.count_running_registry_predictions(uuid),
-    aap_jobs_v1.video_execution_step(text,text) TO :"application_role";
+    aap_jobs_v1.video_execution_step(text,text),
+    aap_jobs_v1.video_execution_checkpoint_step(text,text) TO :"application_role";
 -- Embedded Identity adapters use the same owner capabilities as isolated clients.
 GRANT USAGE ON SCHEMA aap_identity_v1, aap_identity_keys_v1,
     aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1,
@@ -236,6 +237,11 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
     aap_labeling_v1.begin_mask_content_write(jsonb),
     aap_labeling_v1.lock_mask_write_epochs(jsonb),
     aap_labeling_v1.register_tracker_running_mask_root(jsonb),
+    aap_labeling_v1.capture_video_tracker_input(uuid,uuid,integer),
+    aap_labeling_v1.lock_video_tracker_input_for_stage(uuid,uuid,uuid,uuid,text,text),
+    aap_labeling_v1.lock_video_tracker_input_for_accept(uuid,uuid,uuid,uuid,text,text),
+    aap_labeling_v1.attach_annotation_video_tracker_input_source(uuid,uuid,uuid,jsonb),
+    aap_labeling_v1.copy_annotation_video_tracker_input_sources(uuid,uuid,uuid),
     aap_labeling_v1.claim_mask_gc_sweep(jsonb),
     aap_labeling_v1.stage_mask_gc_page(jsonb),
     aap_labeling_v1.claim_mask_gc_deletes(jsonb),

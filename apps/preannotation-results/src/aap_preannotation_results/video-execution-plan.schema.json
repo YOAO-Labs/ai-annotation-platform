@@ -2,6 +2,64 @@
   "$defs": {
     "BackendCompatibilityIdentity": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "builtin_implementation_digest": {
+                "type": "null"
+              },
+              "builtin_implementation_id": {
+                "type": "null"
+              },
+              "registry_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "provider_kind": {
+                "const": "builtin"
+              }
+            },
+            "required": ["provider_kind"]
+          },
+          "then": {
+            "properties": {
+              "backend_incarnation": {
+                "type": "null"
+              },
+              "builtin_implementation_id": {
+                "const": "aap-mock-bbox/v1"
+              },
+              "model_id": {
+                "const": "mock_bbox"
+              },
+              "model_key": {
+                "const": "mock_bbox"
+              },
+              "registry_id": {
+                "type": "null"
+              },
+              "role": {
+                "const": "track"
+              },
+              "tracker_context_mode": {
+                "const": "none"
+              },
+              "weights_release_id": {
+                "type": "null"
+              },
+              "weights_sha256": {
+                "type": "null"
+              }
+            },
+            "required": ["builtin_implementation_id"]
+          }
+        }
+      ],
       "description": "Non-secret model/backend identity required before checkpoint reuse.",
       "properties": {
         "backend_incarnation": {
@@ -15,6 +73,33 @@
             }
           ],
           "title": "Backend Incarnation"
+        },
+        "builtin_implementation_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Builtin Implementation Digest"
+        },
+        "builtin_implementation_id": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Builtin Implementation Id"
         },
         "capability_digest": {
           "anyOf": [
@@ -66,10 +151,23 @@
           "title": "Model Key",
           "type": "string"
         },
-        "registry_id": {
-          "format": "uuid",
-          "title": "Registry Id",
+        "provider_kind": {
+          "default": "registry",
+          "enum": ["registry", "builtin"],
+          "title": "Provider Kind",
           "type": "string"
+        },
+        "registry_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Registry Id"
         },
         "role": {
           "enum": ["track", "discovery"],
