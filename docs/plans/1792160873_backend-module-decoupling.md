@@ -4894,3 +4894,40 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   proven backend retirement and exact input versions. Human candidate decisions,
   intermediate writes and all ten-module/seven-gate requirements remain active;
   Go stays an experiment and no primary or production cutover occurred.
+
+### Coordinated restore audit and next implementation boundary
+
+- Source review confirms two different realm bindings: Jobs pins DB OID/name and
+  cluster system_identifier in Native0281; Inference pins DB OID/name in0279.
+  Their ordinary recovery APIs cannot authorize a restored target. Rewriting
+  authority rows is not an implemented or qualified recovery procedure. A
+  same-identity PITR must rotate secrets and invalidate copied token hashes too.
+- The first restore implementation must coordinate an idempotent operator receipt
+  (restore ID, backup digest, source/target realm and retained job/run identities),
+  an externally established writer/credential fence, and current live backend
+  status. Native0279 ordinary prepare/finish_epoch rejects copied open scopes;
+  it cannot be reused as proof of restore safety without an owner transition.
+- Backend control must drain/rotate from the authenticated controller's actual
+  current epoch and exact incarnation, using predecessor CAS. A copied epoch or
+  a list of restored scopes cannot cover requests created after the backup. Any
+  active, unknown, foreign or conflicting transition keeps the target fenced.
+  A restore-specific owner transition must retain original scope/attempt facts
+  and record epoch-wide retirement provenance before Jobs recovery_ready can run.
+- Copied foreign-realm scopes must not receive ordinary capabilities. A narrow
+  status path may return scope:null only after verifying an exact completed
+  target-realm restore-retirement proof; existing retire_tracker_scope then skips
+  the per-scope RPC, while recovery_ready independently checks every old intent.
+  Until such proof exists, current Native realm refusals remain mandatory.
+- Jobs must rotate authority without losing the exact encrypted route command,
+  invalidate all old proofs within the changed authority scope, preserve run ID,
+  plan/windows/receipts, and issue a new generation only after proven retirement.
+  Existing per-generation route intents are additive; do not overwrite historical
+  plans or operation receipts to make replay succeed. The current runner's exact
+  model/capability/backend_incarnation check remains required; cold-restarted or
+  unavailable backends are refused for same-job resume.
+- Accepted input must already be READY and its exact VersionId/ETag/size/SHA and
+  restored bytes must verify. The ops runbook now includes accepted-inputs and
+  explains why current-object mirror/sync alone does not preserve this identity;
+  it also distinguishes the health-restart marker from an actual write fence.
+  The coordinated operator capability, exact object-storage restore and resumed
+  unfinished-job acceptance are still unimplemented, not passing gates.
