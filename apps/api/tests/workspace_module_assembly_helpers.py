@@ -240,6 +240,7 @@ class WorkspaceModuleStack:
         self._compose("create", timeout=180)
         self._connect_dependencies()
         self._compose("up", "--detach", timeout=180)
+        self._verify_project_ownership()
         self._refresh_origins()
         for service in _EXPECTED_SERVICES:
             await self._wait_service_ready(service)
