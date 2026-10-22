@@ -11,7 +11,6 @@ from sqlalchemy import Integer, case, select, func, update, delete, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import BatchStatus, WORKBENCH_AI_EDITABLE_TASK_STATUSES
-from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock
@@ -29,6 +28,10 @@ from app.services.labeling_write_scope import LabelingBatchWriteScope
 from app.services.labeling_write_guard import lock_labeling_batch_write
 from app.services.task_lock import TaskLockService
 from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.workspace_member_locks import (
+    lock_project_members,
+    prime_expired_dirty_project_members,
+)
 
 # v0.16.x 拆分：角色权限守卫已抽到 batch_permissions.py，此处冗余别名 re-export，
 # 保持 `from app.services.batch import assert_can_transition/REVERSE_TRANSITIONS/...` 旧入口不变。
@@ -97,26 +100,12 @@ class BatchService:
             return
 
         target_ids = sorted({user_id for _, user_id in targets})
+        await prime_expired_dirty_project_members(self.db, project_id, target_ids)
         users_by_id = await IdentityAccountLockData(self.db).lock_accounts(
             target_ids, mode="share", nowait=False
         )
 
-        members = (
-            (
-                await self.db.execute(
-                    select(ProjectMember)
-                    .where(
-                        ProjectMember.project_id == project_id,
-                        ProjectMember.user_id.in_(target_ids),
-                    )
-                    .order_by(ProjectMember.user_id)
-                    .with_for_update(read=True)
-                    .execution_options(populate_existing=True)
-                )
-            )
-            .scalars()
-            .all()
-        )
+        members = await lock_project_members(self.db, project_id, target_ids)
         members_by_user_id = {member.user_id: member for member in members}
 
         # Responsibility is project-scoped: the membership role is the

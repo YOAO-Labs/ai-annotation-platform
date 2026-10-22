@@ -24,10 +24,9 @@ from __future__ import annotations
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.services.identity_account_lock_data import IdentityAccountLockData
@@ -37,6 +36,7 @@ from app.services.project_access import (
     get_workspace_project,
     restore_project_write_policy_failure,
 )
+from app.services.workspace_member_locks import lock_project_member_reference
 from aap_workspace_contract.access import (
     ProjectWritePolicyFailure,
     ProjectWritePolicyRequest,
@@ -94,14 +94,7 @@ async def lock_actor_scope(
 
     await lock_actor_project_authority(db, actor_id, project_id, nowait=nowait)
     try:
-        await db.execute(
-            select(ProjectMember.id)
-            .where(
-                ProjectMember.project_id == project_id,
-                ProjectMember.user_id == actor_id,
-            )
-            .with_for_update(read=True, nowait=nowait)
-        )
+        await lock_project_member_reference(db, project_id, actor_id, nowait=nowait)
     except DBAPIError as exc:
         if _busy_lock_error(exc):
             raise HTTPException(
