@@ -60,6 +60,72 @@ function fixture(root) {
   return { run, file };
 }
 
+test("private demos retain provenance without writing public assets or the public manifest", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aap-private-demo-"));
+  try {
+    const { run } = fixture(root);
+    const options = {
+      repoRoot: root,
+      runDirectory: run,
+      quality: "standard",
+      assets: ["bbox-draw"],
+      clip: { start: 0, duration: 1 },
+      privateOutputDirectory: ".artifacts/demos/detection",
+      outputs: () => [
+        {
+          target: ".artifacts/demos/detection/demo.mp4",
+          kind: "mp4",
+          role: "docs-video",
+        },
+      ],
+    };
+    assert.throws(
+      () => deriveMedia({ ...options, privateOutputDirectory: ".artifacts/demos/../escape" }),
+      /Private output/,
+    );
+    assert.throws(
+      () => deriveMedia({ ...options, privateOutputDirectory: undefined }),
+      /enrolled media path/,
+    );
+    deriveMedia(options);
+    assert.ok(fs.statSync(path.join(root, ".artifacts/demos/detection/demo.mp4")).size > 0);
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(root, ".artifacts/demos/detection/manifest.json")),
+    );
+    assert.equal(
+      manifest.entries[".artifacts/demos/detection/demo.mp4"].capture.visibility,
+      "private",
+    );
+    assert.equal(
+      manifest.entries[".artifacts/demos/detection/demo.mp4"].source_asset.quality,
+      "standard",
+    );
+    assert.equal(
+      fs.existsSync(path.join(root, "apps/web/e2e/screenshots/outputs/flow-manifest.json")),
+      false,
+    );
+    assert.equal(fs.existsSync(path.join(root, "docs-site/public")), false);
+    assert.throws(
+      () =>
+        deriveMedia({
+          ...options,
+          outputs: () => [{ target: ".artifacts/demos/other/demo.mp4", kind: "mp4" }],
+        }),
+      /enrolled media path/,
+    );
+    assert.throws(
+      () =>
+        deriveMedia({
+          ...options,
+          outputs: () => [{ target: "docs-site/public/media/demo.mp4", kind: "mp4" }],
+        }),
+      /enrolled media path/,
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("one archive derives every format, preserves unrelated entries, and never upscales standard sources", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "aap-derive-test-"));
   try {

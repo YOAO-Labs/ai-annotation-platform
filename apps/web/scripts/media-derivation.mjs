@@ -183,7 +183,13 @@ export function deriveMedia({
   outputs,
   clip,
   posterAt,
+  privateOutputDirectory,
 }) {
+  if (
+    privateOutputDirectory !== undefined &&
+    (!/^\.artifacts\/demos\/[a-z0-9-]+$/.test(privateOutputDirectory) || assets.length !== 1)
+  )
+    throw new Error("Private output requires one asset and .artifacts/demos/<name>");
   if (!["standard", "marketing"].includes(quality)) throw new Error("Unknown source quality");
   if (!assets.length || (clip && assets.length !== 1))
     throw new Error("--clip requires exactly one selected asset");
@@ -217,9 +223,12 @@ export function deriveMedia({
         throw new Error("Unsupported derivative format");
       if (
         typeof recipe.target !== "string" ||
-        !/^(docs-site\/(public|user-guide\/images)\/|docs\/articles\/media\/)/.test(
-          recipe.target,
-        ) ||
+        !(privateOutputDirectory
+          ? recipe.target.startsWith(`${privateOutputDirectory}/`) &&
+            ["mp4", "webp", "png"].includes(recipe.kind)
+          : /^(docs-site\/(public|user-guide\/images)\/|docs\/articles\/media\/)/.test(
+              recipe.target,
+            )) ||
         recipe.target.split(/[\\/]/).includes("..") ||
         path.extname(recipe.target) !== `.${recipe.kind}`
       ) {
@@ -412,6 +421,9 @@ export function deriveMedia({
         seedRevision: job.item.entry.seed_revision ?? null,
         capturedCommit: job.item.commit,
         sourceWorktreeDirty: job.item.dirty,
+        ...(privateOutputDirectory
+          ? { manifestPath: path.join(repoRoot, privateOutputDirectory, "manifest.json") }
+          : {}),
         watchPaths: [
           job.item.entry.source,
           ...(job.item.entry.watch_paths ?? []),
@@ -442,6 +454,7 @@ export function deriveMedia({
             : {}),
         },
         capture: {
+          ...(privateOutputDirectory ? { visibility: "private" } : {}),
           source_quality: quality,
           source_inference:
             job.item.entry.evidence?.inference ?? job.item.entry.capture?.inference ?? "unverified",
