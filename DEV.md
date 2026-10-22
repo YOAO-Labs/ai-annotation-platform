@@ -775,6 +775,19 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 
 创建时间并列仍不规定次序；annotator 是项目职责，不是平台角色。成员事实与启用账号
 必须在同一 SQL 语句内读取，不能先拉取 ID 再单独请求 Identity。
+参照下文 Workspace 组合私网验收表设置当前四项镜像及身份变量后，运行真实 CLI：
+
+```bash
+AAP_IDENTITY_SEED_SELECTION_LIVE=1 \
+  apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/identity-seed-selection-cold.json \
+  --test-file tests/test_identity_seed_selection_live.py
+```
+
+14 项定向检查和一个包含 11 次容器调用的冷案例已通过，包括真实版本化图片对象、
+重复导入、权限拒绝、已提交清理和分阶段写入、137 退出后的实际后端释放与恢复。
+这是本机 ARM64 的有限正确性资格，未验收大规模容量或全部种子工作流。
+收据见 `.worktree/identity-seed-selection-qualification.json`。
 [唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)记录实际资格与剩余项。
 
 ### 媒体种子的 Identity 边界

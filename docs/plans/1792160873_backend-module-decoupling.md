@@ -6962,3 +6962,29 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   acceptance, correct its result parser assertions: the CLI prints project_id,
   not owner_id. Compare that ID to the persisted project and separately verify
   project owner and dataset creator, preserving actual command output.
+- Implementation dce7d425a88fe41f62083ee85439cf7d1bb7d735 passes first cold
+  qualification: one integrated case with eleven real container calls. Actual
+  image imports create two distinct datasets with four items and four object
+  versions; production guard exits 2 in its child process. Tiny scale seed
+  preserves inactive-admin and active-viewer-duty selection, committed purge,
+  staged writes, late-failure recovery and cancellation recovery. Ordinary
+  Identity remains five functions; the trusted role adds only two selectors
+  and has no User table/column access. Other domains retain trusted permissions.
+- Physical cancellation exits 137, externally stopped and not timed out. The
+  real SQL selector, role, application tag, container IP and PostgreSQL PID are
+  correlated before stopping; the exact backend disappears before persisted
+  state assertions. The ten-second SQL gate proves eventual release, not
+  instantaneous cancellation. Migration downgrade, frozen SQL install/rollback,
+  head 0303 re-upgrade and owned cleanup all pass. Receipts:
+  .worktree/identity-seed-selection-cold-first.{json,log,junit.xml,command.json}
+  and .worktree/identity-seed-selection-cold-first-summary.json.
+- New owner artifact verifies 282 files across twelve package namespaces and
+  excludes API/ORM/Celery/Inference provider dependencies. New API artifact
+  verifies 768 app, 514 package and 32 script files, 1,314 total. Existing
+  Inference/Assets-source source manifests and acceptance are reused. Both
+  clean source workers have verified incremental bundles, patches and ignored
+  Ruff-cache archives before removal; original branches remain available.
+  This closes only the two consumers' Identity operations. Continue with the
+  historical audit and guarded recording/fixture rows; whole Identity and the
+  full goal remain active. No primary cutover, push, release, production work
+  or Go expansion is authorized by this evidence.
