@@ -275,7 +275,9 @@ GET /api/v1/dashboard?view=projects        # 超管看全部
 
 归档：`PATCH /projects/:id` 设 `status='archived'`。归档项目对标注员不可见但数据保留。
 
-物理删除仅 super_admin，且需要先移除所有 task。
+`DELETE /api/v1/projects/{project_id}` 由项目负责人或超级管理员按当前管理权限执行，成功返回 204。项目任务、标注和各 owner 清理、审计与回执共同提交，原数据集和素材对象保留；学习证据等保留规则仍会阻止删除。
+
+存在尚未退役的视频执行时返回 409，`detail.code` 为 `video_execution_not_retired`。先取消执行并完成退役后重试；业务终态不能替代退役证明。拒绝时不会删除 Task、Job、输入或检查点，也不留下部分 outbox 或删除审计。旧作业缺少证明时仍拒绝，详见[数据能力协议](./module-data#视频退役与删除围栏)及模块台账。
 
 ## 相关
 

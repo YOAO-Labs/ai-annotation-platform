@@ -674,7 +674,7 @@ GRANT SELECT (
 ), UPDATE (id, status, staged_result, error_message, completed_at, updated_at)
     ON public.video_tracker_jobs TO :"labeling_owner";
 GRANT SELECT (
-    id, status, cancel_requested_at
+    id, status, cancel_requested_at, started_at
 ), UPDATE (id) ON public.video_tracker_jobs TO :"jobs_owner";
 GRANT SELECT (tracker_job_id, project_id, prepare_error)
     ON public.video_tracker_input_scopes TO :"jobs_owner";
@@ -3191,4 +3191,23 @@ BEGIN
 END
 $video_restore_owners$;
 REVOKE CREATE ON SCHEMA aap_inference_routing_v1 FROM :"inference_owner";
+-- Deletion uses current-run retirement proof without exposing Jobs journals.
+GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.video_deletion_clearances OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.guard_video_execution_deletion(uuid[],uuid[],uuid)
+    OWNER TO :"jobs_owner";
+REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_jobs_v1.guard_video_execution_deletion(uuid[],uuid[],uuid)
+    TO :"labeling_owner";
+GRANT CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.guard_project_video_deletion(uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.guard_dataset_video_deletion(uuid,uuid)
+    OWNER TO :"labeling_owner";
+REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_labeling_v1.guard_project_video_deletion(uuid),
+    aap_labeling_v1.guard_dataset_video_deletion(uuid,uuid)
+    TO :"workspace_owner";
 COMMIT;

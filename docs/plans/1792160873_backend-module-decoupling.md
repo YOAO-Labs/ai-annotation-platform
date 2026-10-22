@@ -6065,3 +6065,67 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   after verified incremental bundle/cache archives; branch refs and Root
   correction patches remain. The full goal stays active. Next deliverable is
   the user-confirmed unretired-video409 safety fence for deletion and unlink.
+
+### Video execution retirement fences for destructive Workspace operations
+
+- Root starts at e1c744dd1cc4cab8c66806a98e8158a77227559c. User explicitly
+  chooses409 until cancellation and retirement for both Project delete and
+  Dataset unlink. Source-only isolated commits:48fc6c23ef67663d2d1f5aa18e1cac119abf1f85,
+  a5d673edde390599a0ab58de3f8d82c49263e7c5,
+  4e4a33b00a8500e3ce6d8e4be7ff598837e34957 and
+  c1ddac8fbd81cbb86db8ade54b30b8b943106cef. Root owns source integration,
+  grants/verifier, all actual imports/runtime, regression reproduction, expanded
+  acceptance and final corrections. Read-only design/source review is separate
+  from runtime evidence.
+- Original real PostgreSQL repro: both old coordinators return success and
+  cascade Task/canonical Job while a cancelled execution remains bound and its
+  journal has execution_retired=false. Two failing logs/JUnit/real exits remain.
+  Revision0300 adds three fixed Labeling/Jobs guards; static comparison proves
+  existing coordinator code is retained with only declaration/guard insertions.
+  Frozen SQL, original authority/retention priority, receipts and caller commit
+  remain. Scope locks cover exact Task/Annotation deletion and source sidecars;
+  retained input scopes/current-run journals locate earlier orphan executions.
+- Current and historical runner source confirms terminal commits precede route
+  cleanup/retirement. Every started legacy/no-ledger Job blocks regardless of
+  completed/failed/cancelled/review status; unknown scope-only orphans also
+  block. Existing current-run retired proof plus terminal/missing canonical Job
+  allows deletion even with a live lease. Missing/mismatched journal never does.
+- Strict unknown-orphan blocking initially poisons later deletion after a valid
+  never-started Job unlink. Two additional failing lifecycle cases demonstrate
+  this. Jobs now stores a private no-FK never-started clearance only after the
+  entire group passes, under held locks, in the caller transaction. It never
+  replaces an execution journal. Rejected groups write nothing; rollback and
+  failed operations retain no partial proof. Downgrade refuses nonempty proof
+  tables with55000 before any changes. No synthetic execution retirement exists.
+- Root grants Jobs only additional started_at SELECT and private table ownership;
+  fixed execute chain is Workspace->Labeling->Jobs. App and independent command
+  accounts gain no private/helper access. API maps the stable code to the same
+  409 object for both operations. No service, DSN, auto-cancel/delete dispatcher,
+  storage IO, new worker payload or publication authority is introduced.
+- Effective union:226 distinct passes, zero effective failures/errors/skips:
+  98 Native/concurrency/independent-client,8 actual HTTP,2 mapping and118 existing
+  consumers, including40 pipeline-validation cases. Replays/initial failures are
+  not added. Tests include current and legacy status matrices, pre-journal and
+  wrong-run cases, unrelated scope, annotation/sidecar edges, old orphan scopes,
+  current claim/FK admission races, contention, native retire with live lease,
+  proof rollback/precedence, downgrade evidence retention, real HTTP cancel ->
+  still409 -> native retirement -> success, function-only Python and Node failure
+  envelopes, and Node COMMIT leaving no partial graph/audit/outbox changes.
+  Head0300 owned migration/frozen-install/downgrade roundtrip passes before data;
+  used-proof downgrade refusal is exercised through the actual revision method.
+- Root corrects the test-only cancellation/retirement fixture to use no bound
+  physical route for successful no-scope retirement, then expands it to call the
+  real cancel endpoint; unretired bound routes remain negative cases. Existing
+  consumer tests pass unchanged. Aggregate:
+  .worktree/video-deletion-retirement-qualification.json.
+- ADR-0178 and the sole module ledger close the deletion gate only. Started legacy
+  jobs without durable execution evidence and old unknown orphans still require
+  an explicit reliable drain/repair path; that is the next recovery deliverable.
+  Full Workspace/Jobs credentials/cold artifacts/restore/capacity remain batched.
+  Primary runtime is not cut over; no push/release/production/Go expansion occurs.
+
+- Final focused checks pass:358 applicable architecture cases and150 explicitly
+  inapplicable rules,20 grant/selection units, pinned Ruff/format, Node syntax,
+  explicit unchanged OpenAPI snapshot, documentation build and diff checks.
+  Existing syntax-highlighter fallback and large-chunk warnings remain. No
+  business cases are rerun after formatting and documentation-only changes.

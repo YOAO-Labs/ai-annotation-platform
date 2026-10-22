@@ -38,6 +38,14 @@ def _restore_failure(exc: ProjectDeletionFailure) -> NoReturn:
                 "message": "主动学习历史仍引用此来源；未删除数据或存储对象",
             },
         ) from exc
+    if exc.code == "video_execution_not_retired":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": exc.code,
+                "message": "存在尚未退役的视频执行，请先取消并完成退役后重试",
+            },
+        ) from exc
     if exc.code == "account_not_active":
         raise HTTPException(
             status_code=401,

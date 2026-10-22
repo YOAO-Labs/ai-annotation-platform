@@ -308,8 +308,9 @@ Session 执行既有 Native 函数。独立调用方可用
 公开幂等行为保持。完整字段与作用域见[数据能力协议](./module-data#workspace-数据集解绑与清理回执)
 和 [ADR-0177](/dev/adr/0177-workspace-caller-transaction-dataset-unlink)。
 
-本地资格仅覆盖调用边界。未退役视频执行的删除安全缺口仍开放，完整 Workspace
-凭据、工件与恢复仍按模块台账集中验收。
+本地资格覆盖调用边界及[视频退役门禁](./module-data#视频退役与删除围栏)。未退役时
+返回 video_execution_not_retired 409，锁竞争沿用 project_busy；两者均保留原事务。
+旧作业无证明的排空／修复入口仍缺，完整 Workspace 凭据、工件与恢复继续按台账验收。
 
 ## 项目范围、看板与列表读取
 
@@ -392,5 +393,5 @@ membership_busy 与账号 → 项目 → 成员锁序，不解码无关时间列
 
 公开删除仍要求当前项目管理权，成功为空体 204，后续删除不存在项目返回 404；没有新增
 幂等头。持有原 operation ID 的内部调用方可重放冻结回执，仍受 Native 当前 active-actor
-检查约束。受限 Node、Python 和实际公开 API 定向检查通过；未退役视频执行的删除规则
-与完整资格仍见[唯一模块台账](/dev/concepts/module-deployment#剩余工作台账)。
+检查约束。受限 Node、Python 和实际公开 API 定向检查通过；未退役时由上述门禁返回
+409。无证明旧作业的排空／修复及完整资格仍见[唯一模块台账](/dev/concepts/module-deployment#剩余工作台账)。

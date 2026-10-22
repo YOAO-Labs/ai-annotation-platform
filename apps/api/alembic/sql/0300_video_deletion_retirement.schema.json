@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-video-deletion-retirement-native/v1",
+  "title": "Video execution retirement deletion guards",
+  "$comment": "Project and Dataset deletion require durable retirement proof for every in-scope video execution. Legacy scopes without proof fail closed and require separate recovery; absence of a canonical Job is not retirement proof.",
+  "$defs": {
+    "UuidArray": {
+      "type": "array",
+      "items": { "type": "string", "format": "uuid" }
+    },
+    "VideoDeletionGuardSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "const": "aap-video-deletion-guard/v1" },
+        "ok": { "const": true },
+        "data": {
+          "type": "object",
+          "additionalProperties": false
+        }
+      },
+      "required": ["schema", "ok", "data"]
+    },
+    "VideoDeletionGuardFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "const": "aap-video-deletion-guard/v1" },
+        "ok": { "const": false },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "code": { "const": "video_execution_not_retired" }
+          },
+          "required": ["code"]
+        }
+      },
+      "required": ["schema", "ok", "error"]
+    },
+    "VideoDeletionGuardReply": {
+      "oneOf": [
+        { "$ref": "#/$defs/VideoDeletionGuardSuccess" },
+        { "$ref": "#/$defs/VideoDeletionGuardFailure" }
+      ]
+    }
+  },
+  "type": "object",
+  "function_defaults": {
+    "volatility": "VOLATILE",
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"]
+  },
+  "functions": [
+    {
+      "signature": "aap_jobs_v1.guard_video_execution_deletion(uuid[], uuid[], uuid)",
+      "arguments": [
+        {
+          "name": "p_job_ids",
+          "postgres_type": "uuid[]",
+          "json_schema": { "$ref": "#/$defs/UuidArray" }
+        },
+        {
+          "name": "p_task_ids",
+          "postgres_type": "uuid[]",
+          "json_schema": { "$ref": "#/$defs/UuidArray" }
+        },
+        {
+          "name": "p_project_id",
+          "postgres_type": "uuid",
+          "nullable": true,
+          "json_schema": {
+            "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }]
+          }
+        }
+      ],
+      "returns": {
+        "kind": "jsonb",
+        "schema": { "$ref": "#/$defs/VideoDeletionGuardReply" }
+      },
+      "semantics": "Reject NULL arrays and NULL array elements with 22023. Deduplicate and lock canonical Video Jobs by UUID with FOR UPDATE NOWAIT, then execution rows by UUID, then journals by UUID. Include already-orphaned journals whose task or project matches. Existing execution permits deletion only with a same-run retired journal and a terminal or missing canonical Job; no lease-expiry requirement is added, and clearance never substitutes for that proof. Without execution or journal, a present canonical Job must have started_at NULL and a known queued/cancelled/terminal-history status; any started legacy Job blocks even when its status is terminal. A missing canonical Job with neither journal nor clearance fails closed. After every target passes, insert an immutable clearance only for currently present qualifying never-started Jobs, inside the caller transaction, so a later scope-only orphan remains provably safe. Empty scope succeeds. No Tasks/Annotations reads or writes, retirement mutation, or transaction ownership are added."
+    },
+    {
+      "signature": "aap_labeling_v1.guard_project_video_deletion(uuid)",
+      "arguments": [
+        {
+          "name": "p_project_id",
+          "postgres_type": "uuid",
+          "json_schema": { "type": "string", "format": "uuid" }
+        }
+      ],
+      "returns": {
+        "kind": "jsonb",
+        "schema": { "$ref": "#/$defs/VideoDeletionGuardReply" }
+      },
+      "semantics": "Caller already holds Project FOR UPDATE. Lock Project TaskBatches, Tasks, then every Annotation that project deletion will cascade, all UUID-ordered FOR UPDATE NOWAIT. Collect canonical Video Job IDs from selected Tasks/Annotations, source sidecars for selected Annotations, and matching retained scopes whose canonical Job is absent, then call the Jobs guard with Task IDs and Project ID. Return the guard result without modifying owner data."
+    },
+    {
+      "signature": "aap_labeling_v1.guard_dataset_video_deletion(uuid, uuid)",
+      "arguments": [
+        {
+          "name": "p_dataset_id",
+          "postgres_type": "uuid",
+          "json_schema": { "type": "string", "format": "uuid" }
+        },
+        {
+          "name": "p_project_id",
+          "postgres_type": "uuid",
+          "json_schema": { "type": "string", "format": "uuid" }
+        }
+      ],
+      "returns": {
+        "kind": "jsonb",
+        "schema": { "$ref": "#/$defs/VideoDeletionGuardReply" }
+      },
+      "semantics": "Caller has already locked Dataset/Project/association, locked Dataset unlink scope, and passed Learning/Labeling retention guards. Use the exact _dataset_unlink_task_snapshot, then lock its Annotations by UUID FOR UPDATE NOWAIT. Collect canonical Jobs and source sidecars; include orphan retained scopes matching Project and selected Task IDs or Dataset item IDs from dataset_item_references, comparing the stored item UUID text without casting it. Call the Jobs guard with Project NULL. No deletion or retirement mutation is performed."
+    },
+    {
+      "signature": "aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb)",
+      "arguments": [
+        {
+          "name": "p_operation_id",
+          "postgres_type": "uuid",
+          "json_schema": { "type": "string", "format": "uuid" }
+        },
+        {
+          "name": "p_actor_id",
+          "postgres_type": "uuid",
+          "json_schema": { "type": "string", "format": "uuid" }
+        },
+        {
+          "name": "p_project_id",
+          "postgres_type": "uuid",
+          "json_schema": { "type": "string", "format": "uuid" }
+        },
+        {
+          "name": "p_audit_context",
+          "postgres_type": "jsonb",
+          "nullable": true,
+          "json_schema": { "type": ["object", "null"] }
+        }
+      ],
+      "returns": { "kind": "jsonb" },
+      "semantics": "Preserves the frozen project deletion behavior and adds the Labeling video retirement guard after the existing Learning retention guard, before any owner mutation. The stable blocker remains video_execution_not_retired."
+    },
+    {
+      "signature": "aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb)",
+      "arguments": [
+        {
+          "name": "p_operation_id",
+          "postgres_type": "uuid",
+          "json_schema": { "type": "string", "format": "uuid" }
+        },
+        {
+          "name": "p_actor_id",
+          "postgres_type": "uuid",
+          "json_schema": { "type": "string", "format": "uuid" }
+        },
+        {
+          "name": "p_dataset_id",
+          "postgres_type": "uuid",
+          "json_schema": { "type": "string", "format": "uuid" }
+        },
+        {
+          "name": "p_project_id",
+          "postgres_type": "uuid",
+          "json_schema": { "type": "string", "format": "uuid" }
+        },
+        {
+          "name": "p_cleanup_bucket",
+          "postgres_type": "text",
+          "json_schema": { "type": "string" }
+        },
+        {
+          "name": "p_audit_context",
+          "postgres_type": "jsonb",
+          "nullable": true,
+          "json_schema": { "type": ["object", "null"] }
+        }
+      ],
+      "returns": { "kind": "jsonb" },
+      "semantics": "Preserves the frozen Dataset unlink behavior and adds the Labeling video retirement guard after the existing Learning/Labeling retention guards, before Diagnostics, cleanup, job, or Task changes. The stable blocker remains video_execution_not_retired."
+    }
+  ],
+  "x-postgresql-functions": [
+    "aap_jobs_v1.guard_video_execution_deletion(uuid[], uuid[], uuid)",
+    "aap_labeling_v1.guard_project_video_deletion(uuid)",
+    "aap_labeling_v1.guard_dataset_video_deletion(uuid, uuid)",
+    "aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb)",
+    "aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb)"
+  ],
+  "x-postgresql-replaced-functions": [
+    "aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb)",
+    "aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb)"
+  ],
+  "private_tables": [
+    {
+      "name": "aap_jobs_v1.video_deletion_clearances",
+      "columns": [
+        "job_id uuid primary key (no foreign key)",
+        "never_started_at timestamptz not null default clock_timestamp()"
+      ],
+      "semantics": "Private Jobs-owned evidence that a canonical Job was present, never started, and had no execution or journal when its deletion was admitted. The caller's transaction commits or rolls back the evidence together with the deletion. Rows are immutable, survive canonical Job cascades, and never substitute for same-run retired-journal proof when an execution exists. PUBLIC has no table privileges. Downgrade is refused with SQLSTATE 55000 while any evidence remains."
+    }
+  ],
+  "x-postgresql-errors": {
+    "lock_contention": {
+      "sqlstates": ["55P03", "40001", "40P01"],
+      "translation": "No new translation; existing coordinators retain their current busy mapping."
+    }
+  }
+}

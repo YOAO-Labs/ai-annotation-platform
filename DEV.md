@@ -948,9 +948,35 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
   --test-file tests/test_dataset_unlink_http.py
 ```
 
-这只验证调用边界；未退役视频执行的删除规则与完整模块凭据／工件仍按唯一台账收口。
+这验证调用边界；视频退役门禁的运行授权与回归见下一节，完整模块凭据／工件仍按唯一台账收口。
 不为本切片新增 DSN 或 HTTP 服务配置，见
 [ADR-0177](docs/adr/0177-workspace-caller-transaction-dataset-unlink.md)。
+
+### 视频退役后的项目删除与解绑
+
+两条命令共用 Labeling 的删除足迹锁和 Jobs 当前 run 的退役证明。未退役返回
+`video_execution_not_retired` 409；父行／Job／execution／journal 的 NOWAIT 竞争仍为
+`project_busy`。API、独立 Python／Node 调用方都保留原事务和成功回执，不自行取消
+或退休执行。取消后由现有 worker 完成退役，再重试删除。
+
+迁移安装 guard、原协调器的插入式扩展及 Jobs 私有 `video_deletion_clearances`。
+该表只记录锁内证明未启动的 Job，随删除共同提交／回滚；用于后续识别输入 scope
+留下的合法缺失 Job。已有 execution 时必须继续提供当前 run 的 retired journal。
+权限清单只给 Jobs 增加 started_at 的窄列读取与私表所有权，以及内部 owner 之间的
+固定执行权；API 和独立命令凭据无需新增私表或 helper 权限。
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/video-deletion-retirement.json \
+  --test-file tests/test_video_deletion_retirement_native.py \
+  --test-file tests/test_video_deletion_retirement_http_native.py \
+  --test-file tests/test_video_deletion_retirement_bindings.py
+```
+
+已启动但无账本的旧 Job、无证明的旧孤儿仍返回 409；当前无可靠自动排空／修复入口，
+不能修改状态或伪造 journal 放行。clearance 非空时降级先以 55000 拒绝并保留证据。
+升级、owner 授权和调用方代码须一致；本轮只验证独占测试环境，未切换日常服务。
+范围见 [ADR-0178](docs/adr/0178-video-retirement-deletion-fences.md)及唯一台账。
 
 ### Workspace 同事务成员锁
 
@@ -1004,9 +1030,8 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
   --test-file tests/test_project_labeling_delete_contract.py
 ```
 
-调用边界通过 76 项不同定向案例，含 Node 原始 JSON 整数及实际公开 API。另一个诊断
-已确认未退役视频执行可能留下运行态摘要和输入 pin，该删除规则仍待确认，不能把
-调用边界通过视为整项删除安全验收完成。见
+调用边界通过 76 项不同定向案例，含 Node 原始 JSON 整数及实际公开 API。视频退役
+门禁另通过限定验收；无证明旧作业的排空／修复及完整模块验收仍开放。见
 [ADR-0165](docs/adr/0165-workspace-caller-transaction-project-deletion.md) 和
 [唯一剩余台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
 

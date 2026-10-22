@@ -265,6 +265,7 @@ SQL_ARTIFACTS = (
     "0297_workspace_member_facts.sql",
     "0298_workspace_project_facts.sql",
     "0299_labeling_project_counter_deltas.sql",
+    "0300_video_deletion_retirement.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -376,8 +377,12 @@ SCHEMA_ARTIFACTS = (
     "0297_workspace_member_facts.schema.json",
     "0298_workspace_project_facts.schema.json",
     "0299_labeling_project_counter_deltas.schema.json",
+    "0300_video_deletion_retirement.schema.json",
 )
 TEST_FILES = (
+    "tests/test_video_deletion_retirement_native.py",
+    "tests/test_video_deletion_retirement_bindings.py",
+    "tests/test_video_deletion_retirement_http_native.py",
     "tests/test_workspace_dataset_unlink_native.py",
     "tests/test_labeling_counter_deltas_legacy.py",
     "tests/test_labeling_counter_deltas_native.py",
@@ -2901,8 +2906,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0299"]:
-            raise RuntimeError("module-data acceptance requires migration head 0299")
+        if heads != ["0300"]:
+            raise RuntimeError("module-data acceptance requires migration head 0300")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(

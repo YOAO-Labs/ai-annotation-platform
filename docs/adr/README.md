@@ -48,6 +48,7 @@
 - [0175](0175-workspace-project-fact-relations.md) — Workspace Project 集合与原生事实（限定本地验收通过）
 - [0176](0176-labeling-lifecycle-counter-deltas.md) — Labeling 生命周期与审核原子计数（限定本地验收通过）
 - [0177](0177-workspace-caller-transaction-dataset-unlink.md) — Workspace 数据集解绑的可移植事务绑定（限定本地验收通过）
+- [0178](0178-video-retirement-deletion-fences.md) — 视频退役后的删除与解绑围栏（限定本地验收通过）
 - [0172](0172-project-set-locks-and-labeling-counters.md) — Workspace 项目集合锁与 Labeling 计数持久化（限定本地验收通过）
 - [0171](0171-workspace-actorless-business-snapshots.md) — Workspace 无 actor 的业务快照（限定本地定向验收通过）
 - [0170](0170-workspace-transactional-member-locks.md) — Workspace 同事务成员锁（限定本地定向验收通过）

@@ -286,6 +286,37 @@ actor/project/operation 身份完全一致时才重放原结果；同一 ID 换 
 必须与冻结 payload 相符；有效 v1 作业若丢失必需范围，worker 只能持久化带 `job_scope_mismatch` 的终态失败，不能从 payload 重建范围。
 旧未版本化作业与范围不一致均失败关闭，不做 payload 授权回填；取消后的迟到 worker 不会复活作业。
 
+## 视频退役与删除围栏
+
+项目删除和项目内数据集解绑遇到未退役视频执行时，都返回 HTTP 409：
+
+```json
+{
+  "detail": {
+    "code": "video_execution_not_retired",
+    "message": "存在尚未退役的视频执行，请先取消并完成退役后重试"
+  }
+}
+```
+
+先取消需要停止的作业，并等待现有 worker 完成物理退役后重试。业务状态显示完成、
+失败或取消时，退役仍可能未完成；判据为当前 run 匹配的 Jobs journal 退役证明。
+证明成立后，lease 尚未到期也可删除。拒绝保留原 Task、Job、输入、Mask 运行根及
+检查点，不创建删除回执或清理 outbox。锁竞争继续返回 project_busy，回滚后重试。
+
+Labeling 按原删除足迹锁批次、Task、Annotation，包含跨 Task 的 Annotation 外键与
+来源 sidecar；Jobs 再按 UUID 批量锁 Job、execution、journal。新准入不能越过这些
+外键和执行围栏，保留的输入 scope／日志也能找回已有孤儿。
+
+从未启动且没有执行账本的 Job 可删除，Jobs 在原事务中保存私有未启动证明，避免
+其保留输入快照误挡后续删除；该证明不能替代任何已有 execution 的退役证明。
+已启动但无账本、或已成孤儿且无证明的旧记录继续拒绝，需要独立排空／修复入口。
+降级遇到已提交的未启动证明时返回 55000 并保留对象，防止销毁证据。
+
+运行权限保持内部 Workspace → Labeling → Jobs；应用及两个独立命令账号没有 helper
+或证明私表权限。现有命令、回执和公开成功响应保持。设计与限定本地证据见
+[ADR-0178](/dev/adr/0178-video-retirement-deletion-fences)。
+
 ## Workspace 数据集解绑与清理回执
 
 `DELETE /datasets/{dataset_id}/link/{project_id}` 成功仍返回 HTTP 200 和原有五个字段：
@@ -339,8 +370,8 @@ workflow LOGIN 不能领取或确认 outbox，也不能读取其私有表。
 整数。受限调用、失败提交、冻结重放和实际 API 证据见
 [ADR-0177](/dev/adr/0177-workspace-caller-transaction-dataset-unlink)。
 
-数据集解绑的调用边界已移植；未退役视频执行的删除安全缺口仍开放，不能据此宣布
-完整解绑安全能力、Workspace 或各参与 owner 已可独立部署。
+数据集解绑的调用边界和上述退役门禁已实现；旧作业无证明的排空／修复仍开放，
+完整 Workspace 和各参与 owner 的工件／凭据继续按台账验收。
 公开来源删除、上传与独立清理见下文；完整模块状态见[模块部署台账](/dev/concepts/module-deployment)。
 
 ## Assets 来源删除

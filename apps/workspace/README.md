@@ -115,8 +115,9 @@ remain compatibility aliases. The package explicitly depends on the existing
 shared Audit contract.
 
 The native boundary passes focused Python/Node/public-API, permission, failed-
-commit and replay checks. The video execution deletion prerequisite is still
-unresolved, so this does not close the complete deletion capability or Workspace.
+commit and replay checks. A retirement gate now protects canonical Jobs before
+cascade; legacy no-proof recovery and complete Workspace qualification remain
+open.
 See [ADR-0165](../../docs/adr/0165-workspace-caller-transaction-project-deletion.md)
 and the one module ledger for current scope.
 
@@ -135,7 +136,11 @@ Python UUID/tuple values retain the original validation behavior; raw JSON uses
 strict duplicate-key/non-finite rejection. Node conformance forwards original
 JSON text to preserve receipt integers above JavaScript's safe range.
 Function-only calls, actual API, rollback, failed commit and replay qualify this
-local calling boundary. Unretired video execution still blocks complete deletion
-safety qualification; full module credentials/artifacts/restore remain separate.
+local calling boundary. Both destructive coordinators now require current-run
+retirement proof or a locked never-started fact. Jobs retains private unstarted
+clearances so later deletion can distinguish safe missing Jobs from unknown old
+orphans. Started legacy/no-proof records stay409 pending reliable drain/repair;
+full module credentials/artifacts/restore remain separate. See
+[ADR-0178](../../docs/adr/0178-video-retirement-deletion-fences.md).
 See [ADR-0177](../../docs/adr/0177-workspace-caller-transaction-dataset-unlink.md)
 and the single module ledger.
