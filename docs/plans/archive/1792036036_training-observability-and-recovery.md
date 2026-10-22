@@ -3,13 +3,13 @@
 > Status: completed
 > Priority: current independent reliability node
 > Depends on: existing executor ownership and attempt fencing
-> Parent: [experience roadmap](backlog/1792035920_online-learning-experience-roadmap.md)
+> Parent: [experience roadmap](1792035920_online-learning-experience-roadmap.md)
 
 ## Outcome and existing owners
 
 Managers can see whether training is computing, waiting on data, evaluating, or uploading, and understand the next valid action after failure. This extends current stages and epoch curves without creating another execution state machine.
 
-Reuse [executor worker](../../apps/training-executor/training_executor/worker.py), [runner callbacks](../../apps/training-executor/training_executor/train.py), [event/heartbeat schema](../../apps/api/app/schemas/training_run.py), [training services](../../apps/api/app/services/training_runs.py), [event consumers](../../apps/web/src/pages/Training/useTrainingEvents.ts), and [monitor](../../apps/web/src/pages/Training/TrainingRunMonitor.tsx). Runtime identity currently describes static environment facts, not live utilization.
+Reuse [executor worker](../../../apps/training-executor/training_executor/worker.py), [runner callbacks](../../../apps/training-executor/training_executor/train.py), [event/heartbeat schema](../../../apps/api/app/schemas/training_run.py), [training services](../../../apps/api/app/services/training_runs.py), [event consumers](../../../apps/web/src/pages/Training/useTrainingEvents.ts), and [monitor](../../../apps/web/src/pages/Training/TrainingRunMonitor.tsx). Runtime identity currently describes static environment facts, not live utilization.
 
 ## Telemetry and log contract
 
@@ -340,3 +340,11 @@ were empty; the original two experiments, one dataset and zero policies were pre
 Browser fixtures/authentication, temporary probes/screenshots/state, test caches and docs
 build output were removed. No release version, new service or dependency was introduced.
 Remote CI was not run as part of this local node.
+
+## Outcome
+
+- Delivered scope: Delivered independently fenced telemetry/log ingestion, bounded retention, redaction, attempt-aware monitoring and typed recovery guidance without changing execution ownership.
+- Completion evidence: the existing `Implementation outcome` section above records implementation and verification. Archival on 2026-10-22 reuses that record; application tests and live acceptance were not rerun for this documentation move.
+- Enduring documentation: [experiments.md](../../../docs-site/user-guide/online-learning/experiments.md), [training-datasets.md](../../../docs-site/dev/concepts/training-datasets.md), [0078-attempt-observability-and-redacted-logs.md](../../adr/archive/0078-attempt-observability-and-redacted-logs.md); user impact is recorded in `CHANGELOG.md`.
+- Release milestone: no new milestone or version is assigned by this archival.
+- Remaining boundaries: preserve the exclusions and qualification limits recorded above; new task, inference or deployment scope requires its own plan and acceptance.

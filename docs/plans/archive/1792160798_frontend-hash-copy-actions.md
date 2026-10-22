@@ -1,6 +1,6 @@
 # Frontend hash and internal identifier copy actions
 
-> Status: implemented in the working tree; validation recorded below.
+> Status: completed; local commit and acceptance follow-ups are recorded below.
 > Baseline: `feat/frontend-opt` at `47197fd3b`, inspected on 2026-10-16.
 > Scope: hashes and opaque UUID/internal IDs, authorized by the user's instruction to implement this plan.
 

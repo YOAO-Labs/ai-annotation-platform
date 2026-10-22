@@ -3,9 +3,9 @@
 > Status: initial-scope-accepted
 > 创建日期：2026-10-14
 > 范围：基于用户手绘方案的产品与架构规划；具体阶段由独立实施计划确认，不分配发布版本。
-> 用户已委托实施代理逐阶段确认与验收。阶段 A–E 的首批范围已完成，验收记录见 [A 数据版本](../1791972267_online-learning-phase-a.md)、[B 平台训练](../1791975133_online-learning-phase-b.md)、[C 模型回流](../1791979058_online-learning-phase-c.md)、[D 自动触发](../1791982370_online-learning-phase-d.md)、[E LibreYOLO](../1791983290_online-learning-phase-e.md)。
+> 用户已委托实施代理逐阶段确认与验收。阶段 A–E 的首批范围已完成，验收记录见 [A 数据版本](../archive/1791972267_online-learning-phase-a.md)、[B 平台训练](../archive/1791975133_online-learning-phase-b.md)、[C 模型回流](../archive/1791979058_online-learning-phase-c.md)、[D 自动触发](../archive/1791982370_online-learning-phase-d.md)、[E LibreYOLO](../archive/1791983290_online-learning-phase-e.md)。
 
-后续训练参数、配置体验、实验分析与能力扩展见 [训练体验草案总览](1792035920_online-learning-experience-roadmap.md)。新草案以当前已实现合同为基础，单独记录依赖和启动条件，不沿用首批 A–E 的实施授权，也不改写本文的历史范围。
+后续训练参数、配置体验、实验分析与能力扩展的交付记录见 [已归档的训练体验总览](../archive/1792035920_online-learning-experience-roadmap.md)。T01–T14 已完成各自范围的验收；本文保留初始规划与尚未完成资格验证的任务边界，不将首批 A–E 的授权扩展至新增能力。
 
 在线学习围绕“标注完成 → 数据版本 → 训练 → 模型评估 → 回流预标注 → 人工修正”展开。采用按批次迭代的训练方式，每轮固定数据、参数和模型来源，先支持人工触发与人工发布，再扩展自动触发和其他训练框架。
 

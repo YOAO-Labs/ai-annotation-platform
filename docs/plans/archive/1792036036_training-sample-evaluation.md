@@ -2,7 +2,7 @@
 
 > Status: completed
 > Depends on: [T04](1792035920_training-data-insights.md), [T05](1792036036_training-experiment-comparison.md)
-> Parent: [experience roadmap](backlog/1792035920_online-learning-experience-roadmap.md)
+> Parent: [experience roadmap](1792035920_online-learning-experience-roadmap.md)
 
 ## Fresh audit and promotion evidence
 

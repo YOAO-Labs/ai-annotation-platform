@@ -3,7 +3,7 @@
 > Status: completed — delivered and verified on 2026-10-15
 > Authorization: user requested sequential review and implementation, one commit per node.
 > Depends on: [T01](1792035920_training-parameter-catalog.md), [T02](1792035920_training-configuration-workspace.md)
-> Parent: [experience roadmap](backlog/1792035920_online-learning-experience-roadmap.md)
+> Parent: [experience roadmap](1792035920_online-learning-experience-roadmap.md)
 > Release milestone: not assigned.
 
 ## Fresh audit and outcome
@@ -78,3 +78,11 @@ Acceptance requires API and frontend regression checks, live browser evidence, c
 - Deleting the temporary original experiment left its saved recipe compatible and explicitly reported the missing source. Applying that saved revision still succeeded. The temporary experiment/artifacts, two recipes, policy, AsyncJob and notification, local draft, browser/vault, screenshots and disposable test resources were removed. The original two acceptance runs, data version and running owned development services remain available.
 
 No version bump, push or remote CI result belongs to this node.
+
+## Outcome
+
+- Delivered scope: Delivered immutable project recipe revisions, experiment cloning, configuration differences and explicit automatic-policy adoption.
+- Completion evidence: the existing `Delivery evidence` section above records implementation and verification. Archival on 2026-10-22 reuses that record; application tests and live acceptance were not rerun for this documentation move.
+- Enduring documentation: [configuration.md](../../../docs-site/user-guide/online-learning/configuration.md), [training-datasets.md](../../../docs-site/dev/concepts/training-datasets.md), [training-datasets.md](../../../docs-site/api/guides/training-datasets.md); user impact is recorded in `CHANGELOG.md`.
+- Release milestone: no new milestone or version is assigned by this archival.
+- Remaining boundaries: preserve the exclusions and qualification limits recorded above; new task, inference or deployment scope requires its own plan and acceptance.

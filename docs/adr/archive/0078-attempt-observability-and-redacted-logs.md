@@ -47,4 +47,4 @@ CPU／RSS 只采样已确认 PID 创建时间和进程组的训练子进程；�
 
 - 实现：`apps/_shared/training_contract/training_contract/observability.py`、`apps/api/app/services/training_observability.py`、`apps/training-executor/training_executor/observability.py`、`log_capture.py`。
 - 迁移：`apps/api/alembic/versions/0182_training_observability.py`。
-- 计划：`docs/plans/1792036036_training-observability-and-recovery.md`。
+- 计划：`docs/plans/archive/1792036036_training-observability-and-recovery.md`。

@@ -2,7 +2,7 @@
 
 > Status: accepted
 > Created: 2026-10-14
-> Parent: [Online learning roadmap](backlog/1791971285_online-learning-closed-loop.md)
+> Parent: [Online learning roadmap](../backlog/1791971285_online-learning-closed-loop.md)
 
 ## Outcome and approval boundary
 
@@ -122,3 +122,11 @@ The isolated API and export worker registered the new builder. The browser creat
 The downloaded archive passed the official Ultralytics 8.4.61 CPU dataset loaders: five training images, one validation image, five boxes, two ordered classes, and one explicit negative. The loader ran in a disposable network-disabled container with an isolated virtual environment. Its caches and container were removed.
 
 Python lint, web lint/typecheck and semantic CSS checks, OpenAPI generation/checks, SDK contract checks, documentation build/frontmatter/navigation checks, and diff whitespace checks passed. The existing full web suite passed before the final focused UI checks. No release version was changed. Task-owned dataset fixtures are retained only for the next phase's training acceptance and will be destroyed after the complete workflow.
+
+## Outcome
+
+- Delivered scope: Delivered immutable project-owned image-detection data versions, verified frozen media, grouped train/validation splits and downloadable training ZIPs.
+- Completion evidence: the existing `Acceptance evidence` section above records implementation and verification. Archival on 2026-10-22 reuses that record; application tests and live acceptance were not rerun for this documentation move.
+- Enduring documentation: [data-versions.md](../../../docs-site/user-guide/online-learning/data-versions.md), [training-datasets.md](../../../docs-site/api/guides/training-datasets.md), [training-datasets.md](../../../docs-site/dev/concepts/training-datasets.md); user impact is recorded in `CHANGELOG.md`.
+- Release milestone: no new milestone or version is assigned by this archival.
+- Remaining boundaries: preserve the exclusions and qualification limits recorded above; new task, inference or deployment scope requires its own plan and acceptance.

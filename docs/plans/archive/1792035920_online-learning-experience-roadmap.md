@@ -4,7 +4,7 @@
 > Created: 2026-10-15
 > Scope: T01–T14 reviewed and implemented under sequential user authorization; one commit per node, no release assignment.
 
-This series extends the initial online-learning loop through 14 completed independent outcomes. Each linked root-level plan records its fresh review, implementation and acceptance evidence. No release version is assigned. Further task or inference qualifications require the [promotion gate](README.md#promotion-gate), a fresh repository audit and their own authorization.
+This series extends the initial online-learning loop through 14 completed independent outcomes. Each linked archived plan records its fresh review, implementation and acceptance evidence. No release version is assigned. Further task or inference qualifications require the [promotion gate](../backlog/README.md#promotion-gate), a fresh repository audit and their own authorization.
 
 ## Verified baseline at draft creation
 
@@ -19,26 +19,26 @@ At draft creation, the working tree contained the initial [A–E delivery](17920
 
 ### Existing delivery
 
-See [the original closed-loop draft](1791971285_online-learning-closed-loop.md) and its completed [data](../1791972267_online-learning-phase-a.md), [training](../1791975133_online-learning-phase-b.md), [model return](../1791979058_online-learning-phase-c.md), [automatic policy](../1791982370_online-learning-phase-d.md), and [LibreYOLO](../1791983290_online-learning-phase-e.md) records. The new drafts extend those contracts rather than recreate them.
+See [the original closed-loop draft](../backlog/1791971285_online-learning-closed-loop.md) and its completed [data](1791972267_online-learning-phase-a.md), [training](1791975133_online-learning-phase-b.md), [model return](1791979058_online-learning-phase-c.md), [automatic policy](1791982370_online-learning-phase-d.md), and [LibreYOLO](1791983290_online-learning-phase-e.md) records. The new drafts extend those contracts rather than recreate them.
 
 ## Delivery map
 
 | ID                                                          | Independent outcome                                                                           | Priority  | Hard dependency                                                          | Effort       |
 | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------- | --------- | ------------------------------------------------------------------------ | ------------ |
-| [T01](../1792035920_training-parameter-catalog.md)          | Versioned native parameter inventory, strict validation, reproducible effective configuration | Completed | Existing training adapters                                               | Large        |
-| [T02](../1792035920_training-configuration-workspace.md)    | Full-page grouped configuration, search, draft recovery, configuration import/export          | Completed | T01                                                                      | Medium       |
-| [T03](../1792035920_training-recipes-and-cloning.md)        | Project recipe revisions and traceable experiment cloning                                     | Completed | T01, T02                                                                 | Medium       |
-| [T04](../1792035920_training-data-insights.md)              | Frozen dataset differences, class distributions, quality explanations                         | Completed | Existing immutable data versions                                         | Medium       |
-| [T05](../1792036036_training-experiment-comparison.md)      | Compare 2–4 experiments using explicit evaluation identities and verified final reports       | Completed | Existing runs/artifacts; T01 enriches parameter display                  | Medium       |
-| [T06](../1792036036_training-augmentation-preview.md)       | Reproducible native augmentation previews with transformed boxes                              | Completed | T01, T02, T04; native CPU preview qualification                          | Medium–large |
-| [T07](../1792036036_training-observability-and-recovery.md) | Real resource telemetry, bounded live logs, actionable failure explanations                   | Completed | Existing executor fencing and attempt ownership                          | Medium–large |
-| [T08](../1792036036_training-sample-evaluation.md)          | Verified per-sample evaluation and error review with Workbench return                         | Completed | T04, T05; qualified controlled inference and fixed-threshold rules       | Large        |
-| [T09](../1792036036_training-model-lineage.md)              | Navigate data, experiments, models, deployment checks, and release history                    | Completed | Existing provenance and model APIs                                       | Medium       |
-| [T10](../1792036132_training-controlled-warm-start.md)      | Initialize a new experiment from a compatible project model                                   | Completed | T01, T02, T09; qualified source artifact                                 | Large        |
-| [T11](../1792036132_training-bounded-parameter-sweeps.md)   | Explicit-budget grid searches through the existing resource queue                             | Completed | T01, T03, T05, T07                                                       | Large        |
-| [T12](../1792036132_training-active-learning.md)            | Auditable suggestions for the next human annotation batch                                     | Completed | T04, T08; qualified inference provenance                                 | Large        |
-| [T13](../1792036132_training-libreyolo-model-return.md)     | Qualified LibreYOLO model registration, inference, publication, and rollback                  | Completed | Existing managed model contracts; native inference compatibility         | Large        |
-| [T14](../1792036132_training-task-qualification.md)         | Qualified polygon instance training, full checkpoint resume and separate box/mask reports     | Completed | T01; independently qualified polygon bridge, native training and metrics | Large        |
+| [T01](1792035920_training-parameter-catalog.md)          | Versioned native parameter inventory, strict validation, reproducible effective configuration | Completed | Existing training adapters                                               | Large        |
+| [T02](1792035920_training-configuration-workspace.md)    | Full-page grouped configuration, search, draft recovery, configuration import/export          | Completed | T01                                                                      | Medium       |
+| [T03](1792035920_training-recipes-and-cloning.md)        | Project recipe revisions and traceable experiment cloning                                     | Completed | T01, T02                                                                 | Medium       |
+| [T04](1792035920_training-data-insights.md)              | Frozen dataset differences, class distributions, quality explanations                         | Completed | Existing immutable data versions                                         | Medium       |
+| [T05](1792036036_training-experiment-comparison.md)      | Compare 2–4 experiments using explicit evaluation identities and verified final reports       | Completed | Existing runs/artifacts; T01 enriches parameter display                  | Medium       |
+| [T06](1792036036_training-augmentation-preview.md)       | Reproducible native augmentation previews with transformed boxes                              | Completed | T01, T02, T04; native CPU preview qualification                          | Medium–large |
+| [T07](1792036036_training-observability-and-recovery.md) | Real resource telemetry, bounded live logs, actionable failure explanations                   | Completed | Existing executor fencing and attempt ownership                          | Medium–large |
+| [T08](1792036036_training-sample-evaluation.md)          | Verified per-sample evaluation and error review with Workbench return                         | Completed | T04, T05; qualified controlled inference and fixed-threshold rules       | Large        |
+| [T09](1792036036_training-model-lineage.md)              | Navigate data, experiments, models, deployment checks, and release history                    | Completed | Existing provenance and model APIs                                       | Medium       |
+| [T10](1792036132_training-controlled-warm-start.md)      | Initialize a new experiment from a compatible project model                                   | Completed | T01, T02, T09; qualified source artifact                                 | Large        |
+| [T11](1792036132_training-bounded-parameter-sweeps.md)   | Explicit-budget grid searches through the existing resource queue                             | Completed | T01, T03, T05, T07                                                       | Large        |
+| [T12](1792036132_training-active-learning.md)            | Auditable suggestions for the next human annotation batch                                     | Completed | T04, T08; qualified inference provenance                                 | Large        |
+| [T13](1792036132_training-libreyolo-model-return.md)     | Qualified LibreYOLO model registration, inference, publication, and rollback                  | Completed | Existing managed model contracts; native inference compatibility         | Large        |
+| [T14](1792036132_training-task-qualification.md)         | Qualified polygon instance training, full checkpoint resume and separate box/mask reports     | Completed | T01; independently qualified polygon bridge, native training and metrics | Large        |
 
 Effort records the original scope comparison, not a delivery-date estimate. The promoted plans contain exact implementation surfaces and completed acceptance records. No node introduced a new third-party account or external API key. T14 qualifies polygon instance training/downloads; segmentation inference return and other task types remain independent future work.
 
@@ -94,3 +94,11 @@ The minimal option is a small reviewed expansion of framework-specific parameter
 No new always-on service is proposed. Reuse the existing API, database, Celery coordination, object storage, executor, and inference admission. T13 must stop promotion if dependency compatibility would require a new service; that deployment tradeoff needs a revised concrete plan. Migrations are additive; rollback stops new writes/claims and preserves retained versions, reports, artifacts, recipes, and releases. Legacy parsers remain available for historical records.
 
 Maintainers choose scheduling and release milestones. The implementation owner supplies an exact file/migration/API list, trigger evidence, runtime authorization, validation commands, and rollback procedure at promotion. Unmet triggers keep a draft in backlog without blocking independent work.
+
+## Outcome
+
+- Delivered scope: All T01–T14 outcomes were reviewed, implemented and accepted within their recorded scopes; their linked plans retain the individual evidence and qualification limits.
+- Completion evidence: the existing `Delivery map` section above records implementation and verification. Archival on 2026-10-22 reuses that record; application tests and live acceptance were not rerun for this documentation move.
+- Enduring documentation: [index.md](../../../docs-site/user-guide/online-learning/index.md), [training-datasets.md](../../../docs-site/dev/concepts/training-datasets.md), [training-datasets.md](../../../docs-site/api/guides/training-datasets.md); user impact is recorded in `CHANGELOG.md`.
+- Release milestone: no new milestone or version is assigned by this archival.
+- Remaining boundaries: preserve the exclusions and qualification limits recorded above; new task, inference or deployment scope requires its own plan and acceptance.

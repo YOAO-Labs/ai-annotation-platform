@@ -41,3 +41,11 @@ Verification passed: adapter/supervisor tests, 11 final native adapter regressio
 - [Native trainer and resume](https://github.com/LibreYOLO/libreyolo/blob/809009bc294daa6e75e0976ab7cfdd0057d17d79/libreyolo/training/trainer.py)
 - [Dataset format](https://www.libreyolo.com/docs/train/datasets)
 - [Metric semantics](https://www.libreyolo.com/docs/train/validation)
+
+## Outcome
+
+- Delivered scope: Delivered the qualified native LibreYOLO detection-training adapter, full-epoch cancellation/resume and verified artifact downloads. Managed inference was a later independently qualified scope.
+- Completion evidence: the existing `Acceptance evidence` section above records implementation and verification. Archival on 2026-10-22 reuses that record; application tests and live acceptance were not rerun for this documentation move.
+- Enduring documentation: [libreyolo.md](../../../docs-site/user-guide/online-learning/libreyolo.md), [training-datasets.md](../../../docs-site/dev/concepts/training-datasets.md); user impact is recorded in `CHANGELOG.md`.
+- Release milestone: no new milestone or version is assigned by this archival.
+- Later inference qualification: [T13 managed model return](1792036132_training-libreyolo-model-return.md) records that separate completed scope; this phase's original download-only evidence remains unchanged.

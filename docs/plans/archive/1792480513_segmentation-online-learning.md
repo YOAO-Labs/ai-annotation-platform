@@ -29,20 +29,20 @@
 
 ## 2. 已有基础与真实缺口
 
-[ADR 0085](../adr/0085-qualified-polygon-instance-training.md) 和 [T14](1792036132_training-task-qualification.md) 已交付简单多边形训练，明确没有交付分割推理回流。当前代码优先于历史计划：新数据契约已经是 schema 3，`task=segment`、`media_type=image`、`format=ultralytics-yolo`；旧 schema 2 的 `image-instance-segmentation` 仍作为历史读取身份。
+[ADR 0085](../../adr/0085-qualified-polygon-instance-training.md) 和 [T14](1792036132_training-task-qualification.md) 已交付简单多边形训练，明确没有交付分割推理回流。当前代码优先于历史计划：新数据契约已经是 schema 3，`task=segment`、`media_type=image`、`format=ultralytics-yolo`；旧 schema 2 的 `image-instance-segmentation` 仍作为历史读取身份。
 
 | 链路           | 当前事实与代码锚点                                                                                                                                                                                                                               | 本计划增加的结果                                                            |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
-| 冻结数据       | [dataset.py](../../apps/_shared/training_contract/training_contract/dataset.py)、[training_datasets.py](../../apps/api/app/services/training_datasets.py)；仅合格简单多边形                                                                      | 新增原生实例掩码桥接，保留已有契约和历史摘要                                |
-| 划分与增量     | [training_dataset_bridge.py](../../apps/api/app/services/training_dataset_bridge.py)；内容／场景连通分组、祖先分区、语义摘要已存在                                                                                                               | 掩码像素摘要和桥接身份进入增量语义，不把操作版本噪声算作新样本              |
-| 训练与恢复     | [train.py](../../apps/training-executor/training_executor/train.py)、[catalog.py](../../apps/_shared/training_contract/training_contract/catalog.py)；原生 segment 训练、取消、完整检查点恢复、B/M 报告及下载                                    | raster 数据消费者、对应验证器及受控初始化资格                               |
-| 模型注册与推理 | [model_return.py](../../apps/_shared/training_contract/training_contract/model_return.py)、[trained_models.py](../../apps/api/app/services/trained_models.py)、[managed_models.py](../../apps/yolo-backend/managed_models.py) 多层限制 detection | 分割独立资格、region 类别绑定、严格安装收据与实例掩码输出                   |
-| 普通分割输出   | [predictor.py](../../apps/yolo-backend/predictor.py) 当前读取 `masks.xy` 形成 polygon                                                                                                                                                            | 受控路径读取原生逐实例二值 mask，保留孔与多部件，禁止缺类别／分数时回退为零 |
-| 当前发布       | [trained_model.py](../../apps/api/app/db/models/trained_model.py) 的 selection 主键与 generation 按项目                                                                                                                                          | 按项目与任务独立发布及回退                                                  |
-| 自动策略       | [learning_policy.py](../../apps/api/app/db/models/learning_policy.py) 每项目一条；[learning_policies.py](../../apps/api/app/services/learning_policies.py) 仅 detect                                                                             | 独立 segment 策略和基线；保留项目级自动训练串行上限                         |
-| 样本评估       | [sample_evaluations.py](../../apps/api/app/services/sample_evaluations.py)、[sample_evaluation_engine.py](../../apps/api/app/services/sample_evaluation_engine.py) 使用 bbox 真值及检测匹配                                                      | 掩码真值、像素证据、mask 匹配、错误回链和可比性检查                         |
-| 主动选样       | [active_learning.py](../../apps/api/app/services/active_learning.py)、[active_learning_engine.py](../../apps/api/app/services/active_learning_engine.py) 使用检测启发式                                                                          | 分割独立策略与可解释评分，继续使用随机对照及人工接纳                        |
-| 人工掩码真值   | [ai_mask_accept.py](../../apps/api/app/services/ai_mask_accept.py)、[mask_mutation.py](../../apps/api/app/services/mask_mutation.py)、[raster_mask_storage.py](../../apps/api/app/services/raster_mask_storage.py) 已有原子变更和内容寻址 RLE    | 复用这些所有者处理预测接受、编辑版本、审核及冻结；不另建可写掩码真值        |
+| 冻结数据       | [dataset.py](../../../apps/_shared/training_contract/training_contract/dataset.py)、[training_datasets.py](../../../apps/api/app/services/training_datasets.py)；仅合格简单多边形                                                                      | 新增原生实例掩码桥接，保留已有契约和历史摘要                                |
+| 划分与增量     | [training_dataset_bridge.py](../../../apps/api/app/services/training_dataset_bridge.py)；内容／场景连通分组、祖先分区、语义摘要已存在                                                                                                               | 掩码像素摘要和桥接身份进入增量语义，不把操作版本噪声算作新样本              |
+| 训练与恢复     | [train.py](../../../apps/training-executor/training_executor/train.py)、[catalog.py](../../../apps/_shared/training_contract/training_contract/catalog.py)；原生 segment 训练、取消、完整检查点恢复、B/M 报告及下载                                    | raster 数据消费者、对应验证器及受控初始化资格                               |
+| 模型注册与推理 | [model_return.py](../../../apps/_shared/training_contract/training_contract/model_return.py)、[trained_models.py](../../../apps/api/app/services/trained_models.py)、[managed_models.py](../../../apps/yolo-backend/managed_models.py) 多层限制 detection | 分割独立资格、region 类别绑定、严格安装收据与实例掩码输出                   |
+| 普通分割输出   | [predictor.py](../../../apps/yolo-backend/predictor.py) 当前读取 `masks.xy` 形成 polygon                                                                                                                                                            | 受控路径读取原生逐实例二值 mask，保留孔与多部件，禁止缺类别／分数时回退为零 |
+| 当前发布       | [trained_model.py](../../../apps/api/app/db/models/trained_model.py) 的 selection 主键与 generation 按项目                                                                                                                                          | 按项目与任务独立发布及回退                                                  |
+| 自动策略       | [learning_policy.py](../../../apps/api/app/db/models/learning_policy.py) 每项目一条；[learning_policies.py](../../../apps/api/app/services/learning_policies.py) 仅 detect                                                                             | 独立 segment 策略和基线；保留项目级自动训练串行上限                         |
+| 样本评估       | [sample_evaluations.py](../../../apps/api/app/services/sample_evaluations.py)、[sample_evaluation_engine.py](../../../apps/api/app/services/sample_evaluation_engine.py) 使用 bbox 真值及检测匹配                                                      | 掩码真值、像素证据、mask 匹配、错误回链和可比性检查                         |
+| 主动选样       | [active_learning.py](../../../apps/api/app/services/active_learning.py)、[active_learning_engine.py](../../../apps/api/app/services/active_learning_engine.py) 使用检测启发式                                                                          | 分割独立策略与可解释评分，继续使用随机对照及人工接纳                        |
+| 人工掩码真值   | [ai_mask_accept.py](../../../apps/api/app/services/ai_mask_accept.py)、[mask_mutation.py](../../../apps/api/app/services/mask_mutation.py)、[raster_mask_storage.py](../../../apps/api/app/services/raster_mask_storage.py) 已有原子变更和内容寻址 RLE    | 复用这些所有者处理预测接受、编辑版本、审核及冻结；不另建可写掩码真值        |
 
 现有多边形限制为每实例 512 顶点、每图 300 实例／8,192 顶点；有孔、多部件、raster mask、退化和原生 float32 重复实例均拒绝。训练已固定 `overlap_mask=False`、`mask_ratio=1`，受限空间／组合增强保持关闭；不能因上游框架支持更多参数而扩大平台资格。
 
@@ -161,7 +161,7 @@ S7 does not require S6; S6 can remain disabled permanently.
 
 原图与 mask 共用冻结的 resize／letterbox／水平翻转参数，mask 使用最近邻；颜色变换只作用于图像。bbox 从变换后的 mask 推导。保留 overlap_mask=false、mask_ratio=1 和现有禁用增强；记录缩放后消失的实例及计数，在正式启动前报告，不静默移除正样本。验证器同样读取 mask 真值；标签缓存、batch 索引、顺序、空图、实例筛选和 loss 输入全部纳入资格。
 
-冻结阶段将源 RLE 纳入 GC 保活根，创建快照与取得内容锁在同一事务提交；完整训练包校验并提交 ready 后，保活才转移到独立训练对象。仍可按同一快照重试的 failed／cancelled 数据版本继续保活未物化的源 RLE，包括派发失败场景，不随任务结束或历史版本 TTL 到期释放；只有完成独立物化，或版本显式删除并进入不可重试清理流程后才释放源引用。复用现有 mask 历史版本与存储 GC 所有者，并扩展 [cleanup.py](../../apps/api/app/workers/cleanup.py) 的训练快照引用根；验证失败、取消、重试和删除并发。前台预检不读取无界 RLE，不从已经变化的原标注补数据。
+冻结阶段将源 RLE 纳入 GC 保活根，创建快照与取得内容锁在同一事务提交；完整训练包校验并提交 ready 后，保活才转移到独立训练对象。仍可按同一快照重试的 failed／cancelled 数据版本继续保活未物化的源 RLE，包括派发失败场景，不随任务结束或历史版本 TTL 到期释放；只有完成独立物化，或版本显式删除并进入不可重试清理流程后才释放源引用。复用现有 mask 历史版本与存储 GC 所有者，并扩展 [cleanup.py](../../../apps/api/app/workers/cleanup.py) 的训练快照引用根；验证失败、取消、重试和删除并发。前台预检不读取无界 RLE，不从已经变化的原标注补数据。
 
 首批候选预算：单图最多 16M 像素／300 实例、单样本编码 RLE 总量 16 MiB；单样本所有实例的原尺寸累计解码量最多 128M 像素元素，按实例数乘图像面积预检；batch 的实例 mask 训练平面合计最多 64M 元素。逐实例解码、变换并释放原尺寸 mask，不同时展开全部实例；首批原生数据加载固定 workers=0，不预取、不保留原尺寸 mask 缓存。资格测量计入 RGB 原图、uint8／float32 tensor、collate、loss 临时副本与 GPU 峰值，不能只按压缩 RLE 大小估计。推理和评估也须在实例 mask 重建前约束原尺寸累计输出及峰值。
 
@@ -303,7 +303,7 @@ git diff --check
 
 新增常驻服务、环境变量、CLI 和外部账号均为零。继续使用项目已有数据库／对象存储认证、训练 executor 凭证和模型市场服务认证；外部权重与镜像首次获取沿用现有受控来源和摘要流程，可预先准备以脱离外网运行。编写时只读确认 pnpm、uv、docker 命令和 API venv 存在、官方资料可访问；未确认 Docker daemon、当前 GPU 可用量、镜像与线上认证，均在转实施的 runtime 预检核验，不视为已就绪。
 
-实施相应节点时更新[在线学习用户指南](../../docs-site/user-guide/online-learning/index.md)、[模型回流指南](../../docs-site/user-guide/online-learning/models.md)、[训练 API 指南](../../docs-site/api/guides/training-datasets.md)、[训练架构说明](../../docs-site/dev/concepts/training-datasets.md)、[预标注架构](../../docs-site/dev/concepts/prediction-pipeline.md)及 CHANGELOG Unreleased；任务发布隔离和原生 mask bridge 各自记录 ADR。API 改动同步 README、生成工件和 SDK 契约。只在真实新增环境配置时修改 .env.example／环境变量文档／DEV，不为预留功能新增开关。
+实施相应节点时更新[在线学习用户指南](../../../docs-site/user-guide/online-learning/index.md)、[模型回流指南](../../../docs-site/user-guide/online-learning/models.md)、[训练 API 指南](../../../docs-site/api/guides/training-datasets.md)、[训练架构说明](../../../docs-site/dev/concepts/training-datasets.md)、[预标注架构](../../../docs-site/dev/concepts/prediction-pipeline.md)及 CHANGELOG Unreleased；任务发布隔离和原生 mask bridge 各自记录 ADR。API 改动同步 README、生成工件和 SDK 契约。只在真实新增环境配置时修改 .env.example／环境变量文档／DEV，不为预留功能新增开关。
 
 转实施负责人须按以下顺序核对：最新 HEAD／工作区与已交付节点 → 当前 task／bridge／能力 → 数据迁移和旧客户端兼容 → 精确文件清单与生成工件 → 可丢弃数据库与运行镜像 → 本阶段验收／回退 → 将该阶段计划置于 docs/plans 根目录并取得实施授权。旧 A–E／T01–T14 的历史授权不自动延伸到本草案。
 
@@ -363,7 +363,7 @@ git diff --check
 - 空闲开发 SAM3 仅在独占验收时短暂停止，原容器及镜像已恢复，健康为空池。未开启日常开发实例的生命周期验收开关，未变更生产服务或数据。
 - 夹具 26 项及固定 YOLO 镜像 64 项测试通过，含显式原生 CPU 非方图资格。脱敏 JSON 证据保留在仓库外 `~/.local/state/ai-annotation-platform/acceptance/segmentation-20261020/`；验收容器、临时权重、测试数据库／桶／Redis 和浏览器已清理。
 
-人工两轮回流、训练 GPU 故障矩阵、受控生命周期命令和跨 Backend 仲裁入口见[实例分割在线学习验收](../../docs-site/dev/how-to/validate-segmentation-online-learning.md)。本机 GPU1 结果仅覆盖上述镜像、权重与卡；其他目标配置仍需独立验收。
+人工两轮回流、训练 GPU 故障矩阵、受控生命周期命令和跨 Backend 仲裁入口见[实例分割在线学习验收](../../../docs-site/dev/how-to/validate-segmentation-online-learning.md)。本机 GPU1 结果仅覆盖上述镜像、权重与卡；其他目标配置仍需独立验收。
 
 ### 回归与边界
 

@@ -3,7 +3,7 @@
 > Status: completed — implemented and verified on 2026-10-15
 > Priority: first
 > Depends on: existing qualified training adapters
-> Parent: [experience roadmap](backlog/1792035920_online-learning-experience-roadmap.md)
+> Parent: [experience roadmap](1792035920_online-learning-experience-roadmap.md)
 
 ## Outcome and evidence
 
@@ -19,7 +19,7 @@ Build limitation: the executor image built successfully and its packaged native 
 
 Managers can inspect the complete native configuration inventory for a qualified framework/model/task, edit supported fields, and see why other fields are controlled or unavailable. A submitted value must reach the native runner with the promised meaning.
 
-Current [TrainingParameters](../../apps/api/app/schemas/training_run.py) exposes epochs, batch, imgsz, seed, lr0, and patience. [API adapter options](../../apps/api/app/services/training_adapters.py) and the [executor adapters](../../apps/training-executor/training_executor/adapters.py) separately describe fixed behavior. [Frozen configuration](../../apps/api/app/services/training_runs.py) and [automatic policies](../../apps/api/app/services/learning_policies.py) already protect input identity.
+Current [TrainingParameters](../../../apps/api/app/schemas/training_run.py) exposes epochs, batch, imgsz, seed, lr0, and patience. [API adapter options](../../../apps/api/app/services/training_adapters.py) and the [executor adapters](../../../apps/training-executor/training_executor/adapters.py) separately describe fixed behavior. [Frozen configuration](../../../apps/api/app/services/training_runs.py) and [automatic policies](../../../apps/api/app/services/learning_policies.py) already protect input identity.
 
 The pinned [Ultralytics configuration](https://github.com/ultralytics/ultralytics/blob/v8.4.177/ultralytics/cfg/default.yaml) mixes multiple modes. [LibreYOLO configuration](https://github.com/LibreYOLO/libreyolo/blob/809009bc294daa6e75e0976ab7cfdd0057d17d79/libreyolo/training/config.py) uses inherited family defaults and warns before ignoring unknown keys. A method signature or one global key list is insufficient.
 
@@ -85,3 +85,11 @@ Legacy policies retain their original template comparison and defaults. An expli
 - Clean test databases/buckets, test caches, screenshots and credentials after validation. Retain the user's manual development environment and its data.
 
 Rollback disables v2 creation while retaining v2 readers/runner for accepted runs. Do not remove installed package data, reinterpret JSON, or release an owned GPU lease without process-exit proof. Any field without actual-use evidence remains visible and unqualified.
+
+## Outcome
+
+- Delivered scope: Delivered the versioned native parameter inventory, effective-configuration validation, historical compatibility and qualified framework execution.
+- Completion evidence: the existing `Outcome and evidence` section above records implementation and verification. Archival on 2026-10-22 reuses that record; application tests and live acceptance were not rerun for this documentation move.
+- Enduring documentation: [configuration.md](../../../docs-site/user-guide/online-learning/configuration.md), [training-datasets.md](../../../docs-site/dev/concepts/training-datasets.md); user impact is recorded in `CHANGELOG.md`.
+- Release milestone: no new milestone or version is assigned by this archival.
+- Later build evidence: [unified task/data contracts](1792120837_unified-task-data-contracts.md#completed-verification) records the subsequent API image build; the earlier build limitations above remain historical evidence.

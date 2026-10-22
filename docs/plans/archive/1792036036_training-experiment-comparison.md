@@ -3,13 +3,13 @@
 > Status: completed and verified
 > Priority: delivered; independent analysis branch
 > Depends on: existing runs and verified artifacts; T01 enriches parameter metadata
-> Parent: [experience roadmap](backlog/1792035920_online-learning-experience-roadmap.md)
+> Parent: [experience roadmap](1792035920_online-learning-experience-roadmap.md)
 
 ## Outcome and existing owners
 
 Managers compare two to four experiments, understand the changed inputs, and distinguish progress from final best-weight evaluation. This extends the existing basic two-candidate comparison rather than replaces its compatibility protection.
 
-Reuse [comparisonIdentity](../../apps/web/src/api/trainedModels.ts), [candidate comparison](../../apps/web/src/pages/Projects/ProjectModelsPanel.tsx), [run monitor](../../apps/web/src/pages/Training/TrainingRunMonitor.tsx), [event cursor hook](../../apps/web/src/pages/Training/useTrainingEvents.ts), and [verified artifact lifecycle](../../apps/api/app/services/training_runs.py). `TrainingRun.metrics` contains recent progress; registered-model evaluation contains a final report. Unregistered runs need an authorized final-report reader.
+Reuse [comparisonIdentity](../../../apps/web/src/api/trainedModels.ts), [candidate comparison](../../../apps/web/src/pages/Projects/ProjectModelsPanel.tsx), [run monitor](../../../apps/web/src/pages/Training/TrainingRunMonitor.tsx), [event cursor hook](../../../apps/web/src/pages/Training/useTrainingEvents.ts), and [verified artifact lifecycle](../../../apps/api/app/services/training_runs.py). `TrainingRun.metrics` contains recent progress; registered-model evaluation contains a final report. Unregistered runs need an authorized final-report reader.
 
 ## Contract and UI
 

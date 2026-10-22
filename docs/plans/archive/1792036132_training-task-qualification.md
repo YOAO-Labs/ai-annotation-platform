@@ -3,7 +3,7 @@
 > Status: completed
 > Authorization: sequential draft review and implementation, one commit per node
 > Depends on: [T01](1792035920_training-parameter-catalog.md)
-> Parent: [experience roadmap](backlog/1792035920_online-learning-experience-roadmap.md)
+> Parent: [experience roadmap](1792035920_online-learning-experience-roadmap.md)
 > Release milestone: Not yet determined
 
 ## Fresh review and promotion
@@ -94,7 +94,7 @@ Remove segmentation qualification from the catalog and stop new claims. Preserve
 
 ## Outcome
 
-Delivered the independently qualified polygon instance-segmentation slice across shared contracts, atomic snapshots, native packages/execution, evaluator identity, task-filtered UI, polygon insights and current documentation. Detection canonical requests, snapshots and parameter identities remain unchanged; no migration or new runtime dependency was introduced. [ADR 0085](../adr/0085-qualified-polygon-instance-training.md) records the geometry, rasterization and capability boundaries.
+Delivered the independently qualified polygon instance-segmentation slice across shared contracts, atomic snapshots, native packages/execution, evaluator identity, task-filtered UI, polygon insights and current documentation. Detection canonical requests, snapshots and parameter identities remain unchanged; no migration or new runtime dependency was introduced. [ADR 0085](../../adr/0085-qualified-polygon-instance-training.md) records the geometry, rasterization and capability boundaries.
 
 The owned training image is `sha256:519b36eae1f6b908e048bfdac037ef86fa235e601450a47e7227b16143376dbf`; the rebuilt controlled backend is `sha256:70a3e858d66c48e8f8eb2e984b05cdfc75bb59889ba8af1ddd591e65935a1a14`. Only the owned API, two Celery workers, scheduler and controlled containers were refreshed. The official segmentation base is retained as a controlled runtime input. Primary resources were not changed.
 

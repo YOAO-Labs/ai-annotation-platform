@@ -6,13 +6,13 @@
 > Release milestone: not assigned
 > Priority: after reliable comparison, recipes, and telemetry
 > Depends on: [T01](1792035920_training-parameter-catalog.md), [T03](1792035920_training-recipes-and-cloning.md), [T05](1792036036_training-experiment-comparison.md), [T07](1792036036_training-observability-and-recovery.md)
-> Parent: [experience roadmap](backlog/1792035920_online-learning-experience-roadmap.md)
+> Parent: [experience roadmap](1792035920_online-learning-experience-roadmap.md)
 
 ## Outcome and promotion trigger
 
 Managers deliberately run a small, reproducible parameter search and see which configuration performs best on the same declared validation benchmark. Promotion requires reliable child-run idempotency/cancellation, measured execution time, and explicit project budgets supplied by the initiating manager.
 
-Reuse [ordinary training runs and leases](../../apps/api/app/services/training_runs.py), [fenced attempts](../../apps/api/app/db/models/training_run.py), [Celery coordination](../../apps/api/app/workers/celery_app.py), and the training queue. The current physical-resource allocation stays authoritative; this draft does not authorize another GPU or parallel/distributed training.
+Reuse [ordinary training runs and leases](../../../apps/api/app/services/training_runs.py), [fenced attempts](../../../apps/api/app/db/models/training_run.py), [Celery coordination](../../../apps/api/app/workers/celery_app.py), and the training queue. The current physical-resource allocation stays authoritative; this draft does not authorize another GPU or parallel/distributed training.
 
 ## Domain and scheduling decisions
 

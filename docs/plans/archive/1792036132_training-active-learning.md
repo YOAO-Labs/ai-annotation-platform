@@ -4,7 +4,7 @@
 > Fresh audit: 2026-10-16, local HEAD `e4948a6a4`
 > Authorization: sequential review and implementation of the roadmap, one commit per node; no push or release requested
 > Dependencies: [T04](1792035920_training-data-insights.md), [T08](1792036036_training-sample-evaluation.md); [T13](1792036132_training-libreyolo-model-return.md) only for a LibreYOLO ranking source
-> Parent: [experience roadmap](backlog/1792035920_online-learning-experience-roadmap.md)
+> Parent: [experience roadmap](1792035920_online-learning-experience-roadmap.md)
 > Release milestone: not determined
 
 ## Fresh decision and triggers
@@ -111,7 +111,7 @@ New Web files:
 
 Modified Web files: `apps/web/src/App.tsx`, `apps/web/src/pages/Projects/ProjectModelsPanel.tsx`, `apps/web/src/components/jobs/asyncJobPresentation.ts`, `apps/web/src/components/jobs/AsyncJobDetailModal.tsx`, `apps/web/src/components/shell/NotificationsPopover.tsx`. Dedicated job notifications link directly to their retained round. Generated API files remain ignored checkout-local outputs.
 
-Contracts/documentation: `packages/python-sdk/api-coverage.toml` (watched tags and explicit web-only coverage), `README.md`, `CHANGELOG.md`, `docs-site/user-guide/online-learning/index.md`, `docs-site/api/guides/training-datasets.md`, `docs-site/dev/concepts/training-datasets.md`, `docs/adr/archive/0083-human-reviewed-active-learning.md`, `docs/adr/README.md`, generated `docs-site/dev/adr/archive/0083-human-reviewed-active-learning.md`, generated `docs-site/api/guides/_routes.generated.md`, this plan, `docs/plans/backlog/README.md`, and `docs/plans/backlog/1792035920_online-learning-experience-roadmap.md`.
+Contracts/documentation: `packages/python-sdk/api-coverage.toml` (watched tags and explicit web-only coverage), `README.md`, `CHANGELOG.md`, `docs-site/user-guide/online-learning/index.md`, `docs-site/api/guides/training-datasets.md`, `docs-site/dev/concepts/training-datasets.md`, `docs/adr/archive/0083-human-reviewed-active-learning.md`, `docs/adr/README.md`, generated `docs-site/dev/adr/archive/0083-human-reviewed-active-learning.md`, generated `docs-site/api/guides/_routes.generated.md`, this plan, `docs/plans/backlog/README.md`, and `docs/plans/archive/1792035920_online-learning-experience-roadmap.md`.
 
 Migration 0187 is additive after 0186. Existing specs/reports/hashes and SDK release metadata stay intact. FKs protect project/model/deployment/task/item and historical exclusion/evaluation sources. Dataset item/dataset/unlink, project deletion/orphan cleanup, training-version deletion and held-out evaluation API/purge check references before any object/child-row mutation. Batch deletion retains existing behavior. Test cleanup removes only this pilot's references and rounds before its tasks/model/dataset.
 

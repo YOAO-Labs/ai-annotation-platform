@@ -3,7 +3,7 @@
 > Status: completed
 > Authorization: the user requested sequential fresh review and implementation, one commit per node.
 > Release milestone: Not yet determined
-> Parent: [experience roadmap](backlog/1792035920_online-learning-experience-roadmap.md)
+> Parent: [experience roadmap](1792035920_online-learning-experience-roadmap.md)
 
 ## Fresh review and promotion evidence
 

@@ -4,7 +4,7 @@
 > Audited: 2026-10-15 against local HEAD d96457b21
 > Authorization: user requested sequential audit and implementation, one commit per node.
 > Release milestone: not determined
-> Parent: [experience roadmap](backlog/1792035920_online-learning-experience-roadmap.md)
+> Parent: [experience roadmap](1792035920_online-learning-experience-roadmap.md)
 
 ## Audit and outcome
 

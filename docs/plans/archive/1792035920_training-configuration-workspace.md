@@ -3,13 +3,13 @@
 > Status: completed — delivered and verified on 2026-10-15
 > Priority: first
 > Depends on: [T01 parameter catalog](1792035920_training-parameter-catalog.md)
-> Parent: [experience roadmap](backlog/1792035920_online-learning-experience-roadmap.md)
+> Parent: [experience roadmap](1792035920_online-learning-experience-roadmap.md)
 
 ## Outcome and existing owners
 
 Managers configure a training experiment without navigating a long modal or losing the meaning of advanced options. The project remains the creation entry. Preserve global `/training` browsing and the existing project tabs.
 
-Reuse [ProjectTrainingPanel](../../apps/web/src/pages/Projects/ProjectTrainingPanel.tsx), [ProjectLearningPage](../../apps/web/src/pages/Projects/ProjectLearningPage.tsx), [routing](../../apps/web/src/App.tsx), [typed training API](../../apps/web/src/api/trainingRuns.ts), and current preflight/create semantics. The Workbench [SchemaForm](../../apps/web/src/pages/Workbench/components/SchemaForm/index.tsx) offers patterns but its scalar-only controls and numeric formatting are insufficient for complete training configuration; avoid changing Workbench behavior as collateral work.
+Reuse [ProjectTrainingPanel](../../../apps/web/src/pages/Projects/ProjectTrainingPanel.tsx), [ProjectLearningPage](../../../apps/web/src/pages/Projects/ProjectLearningPage.tsx), [routing](../../../apps/web/src/App.tsx), [typed training API](../../../apps/web/src/api/trainingRuns.ts), and current preflight/create semantics. The Workbench [SchemaForm](../../../apps/web/src/pages/Workbench/components/SchemaForm/index.tsx) offers patterns but its scalar-only controls and numeric formatting are insufficient for complete training configuration; avoid changing Workbench behavior as collateral work.
 
 ## UI and state contract
 
@@ -94,3 +94,11 @@ Verification completed:
 - The temporary run/artifacts, its one AsyncJob and one notification, local drafts, downloaded YAML, screenshots, browser/vault and generated test/build artifacts were removed. The two original acceptance runs, three original unread notifications, data version, theme preference and running development services were preserved.
 
 No API/executor implementation change, database migration, version bump, push or remote CI result belongs to this node.
+
+## Outcome
+
+- Delivered scope: Delivered the project-owned configuration route, grouped native controls, preflight, owned draft recovery and YAML import/export with exact pending-request replay.
+- Completion evidence: the existing `Delivery evidence` section above records implementation and verification. Archival on 2026-10-22 reuses that record; application tests and live acceptance were not rerun for this documentation move.
+- Enduring documentation: [configuration.md](../../../docs-site/user-guide/online-learning/configuration.md), [index.md](../../../docs-site/user-guide/online-learning/index.md); user impact is recorded in `CHANGELOG.md`.
+- Release milestone: no new milestone or version is assigned by this archival.
+- Remaining boundaries: preserve the exclusions and qualification limits recorded above; new task, inference or deployment scope requires its own plan and acceptance.

@@ -46,4 +46,4 @@
 - 领域：`apps/api/app/services/sample_evaluations.py`、`sample_evaluation_engine.py`、`sample_evaluation_sources.py` 与 `workers/sample_evaluations.py`。
 - 原生所有权：`apps/yolo-backend/sample_evaluations.py`、`main.py`、`predictor.py`。
 - 迁移：`apps/api/alembic/versions/0183_sample_evaluations.py`。
-- 计划：`docs/plans/1792036036_training-sample-evaluation.md`。
+- 计划：`docs/plans/archive/1792036036_training-sample-evaluation.md`。

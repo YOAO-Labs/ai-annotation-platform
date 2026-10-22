@@ -32,3 +32,11 @@ The isolated browser saved an explicitly enabled policy with threshold 1, interv
 The owned ordinary and maintenance workers were refreshed and both registered the new periodic task. A real dispatch through the owned broker executed it successfully after the final baseline-cache change. The 390px policy/history view had no horizontal overflow or console errors; inspected screenshots were removed.
 
 Verification passed: 24 initial semantic/policy/bridge cases, four additional authority/resume/dedup cases, 12 fairness/manual-training cases, one baseline-parent cache regression, ten web component cases, Python/web/CSS lint, TypeScript and diff checks. The shared documentation/schema acceptance runs with the final multi-adapter delivery. Temporary test directories, XML reports and caches were cleaned. The idle owned training executor was removed; disposable fixture retention remains limited to the final authorized adapter acceptance.
+
+## Outcome
+
+- Delivered scope: Delivered opt-in automatic training policies, semantic change baselines, fenced triggers, history and disable/claim protection; model publication remains manual.
+- Completion evidence: the existing `Acceptance evidence` section above records implementation and verification. Archival on 2026-10-22 reuses that record; application tests and live acceptance were not rerun for this documentation move.
+- Enduring documentation: [automation.md](../../../docs-site/user-guide/online-learning/automation.md), [training-datasets.md](../../../docs-site/dev/concepts/training-datasets.md); user impact is recorded in `CHANGELOG.md`.
+- Release milestone: no new milestone or version is assigned by this archival.
+- Remaining boundaries: preserve the exclusions and qualification limits recorded above; new task, inference or deployment scope requires its own plan and acceptance.

@@ -3,7 +3,7 @@
 > Status: completed / verified
 > Authorization: user requested sequential review and implementation, one commit per node.
 > Depends on: existing immutable training datasets
-> Parent: [experience roadmap](backlog/1792035920_online-learning-experience-roadmap.md)
+> Parent: [experience roadmap](1792035920_online-learning-experience-roadmap.md)
 > Release milestone: not assigned.
 
 ## Fresh audit and chosen outcome
@@ -80,3 +80,11 @@ Acceptance requires complete analysis/drill-down/comparison behavior, verified i
 - Two bounded fixture versions (six/four members) were built through public APIs, compared and deleted through public APIs. Their storage prefixes, two jobs, two notifications and Celery result keys were removed. The original version's task-created derived cache, test modes, temporary reports/screenshots/files and browser/vault were removed. The original data version, two successful examples, three unread notifications, dark preference and owned manual services remain available.
 
 Historical missing metadata is reported as unknown. Frozen SHA verification is per read; media observation timestamps describe past checks and do not promise continued object availability. Runtime training digests, automatic growth semantics and native runner inputs remain unchanged.
+
+## Outcome
+
+- Delivered scope: Delivered frozen preparation records, versioned insights, sample inspection and compatible version comparison without changing training identities.
+- Completion evidence: the existing `Delivered evidence` section above records implementation and verification. Archival on 2026-10-22 reuses that record; application tests and live acceptance were not rerun for this documentation move.
+- Enduring documentation: [data-versions.md](../../../docs-site/user-guide/online-learning/data-versions.md), [training-datasets.md](../../../docs-site/api/guides/training-datasets.md); user impact is recorded in `CHANGELOG.md`.
+- Release milestone: no new milestone or version is assigned by this archival.
+- Remaining boundaries: preserve the exclusions and qualification limits recorded above; new task, inference or deployment scope requires its own plan and acceptance.

@@ -44,7 +44,7 @@ Completion means a real Ultralytics-trained detector can travel through all thre
 | Model declarations participate in service-pool fingerprints; capability drift can disable a member/pool                                                                                  | `app/services/ml_routing/capability.py`, `app/api/v1/ml_backend.py`                                                                                               | Installing a project model must not append dynamic weights to `/setup.models[]`                                        |
 | Model management is project-manager-only; project members can have task-edit permissions without model-market access                                                                     | `app/api/v1/trained_models.py`, `app/services/project_access.py`, Web permission constants                                                                        | Provide a project-scoped, read-only selection API without granting model-management or runtime-admin permissions       |
 
-The existing architectural constraints remain relevant: [protocol separation](../adr/archive/0037-protocol-capability-catalog-decoupling.md), [global backend registration](../adr/archive/0044-global-ml-backend-registry-and-project-enablement.md), [service pools and routing](../adr/archive/0050-ml-backend-service-pools-and-request-routing.md), [runtime information architecture](../adr/archive/0051-model-market-observability-information-architecture.md), and [controlled model identity](../adr/archive/0076-controlled-trained-model-identity.md). This plan deliberately extends the last ADR's initial single-stage scope; implementation must record that extension in a new ADR rather than silently reinterpret the old boundary.
+The existing architectural constraints remain relevant: [protocol separation](../../adr/archive/0037-protocol-capability-catalog-decoupling.md), [global backend registration](../../adr/archive/0044-global-ml-backend-registry-and-project-enablement.md), [service pools and routing](../../adr/archive/0050-ml-backend-service-pools-and-request-routing.md), [runtime information architecture](../../adr/archive/0051-model-market-observability-information-architecture.md), and [controlled model identity](../../adr/archive/0076-controlled-trained-model-identity.md). This plan deliberately extends the last ADR's initial single-stage scope; implementation must record that extension in a new ADR rather than silently reinterpret the old boundary.
 
 ## 4. Workflow and ownership
 
@@ -222,7 +222,7 @@ The catalog/qualification contract separates model source and framework from tas
 | Video/tracking            | Frame/sequence execution unit, state/session and track identity                                   | Lifecycle, cancellation, temporal consistency, and provenance qualification                   |
 | Another framework         | Artifact format, loader/installation profile, task outputs                                        | A qualified adapter behind existing backend contracts, without exposing arbitrary loader code |
 
-These are interface boundaries, not implementations scheduled into the three increments. Preserve existing supported built-ins and the existing [qualified LibreYOLO return workflow](../adr/archive/0084-qualified-libreyolo-model-return.md); do not disable them because the new pipeline qualification initially covers only Ultralytics detection.
+These are interface boundaries, not implementations scheduled into the three increments. Preserve existing supported built-ins and the existing [qualified LibreYOLO return workflow](../../adr/archive/0084-qualified-libreyolo-model-return.md); do not disable them because the new pipeline qualification initially covers only Ultralytics detection.
 
 ## 9. Independently mergeable delivery increments
 
@@ -317,12 +317,12 @@ Credential requirements are unchanged: the user's existing platform session auth
 
 Update enduring documentation alongside each implemented increment, not by presenting this draft as an already shipped feature:
 
-- [Model-market guide](../../docs-site/user-guide/superadmin/model-market.md): protocol versus model browsing, available actions, role differences, availability reasons, and declared versus checkpoint-verified class metadata.
-- [Model-return guide](../../docs-site/user-guide/online-learning/models.md): publish once, discover and use across entry points, exact version versus current release, class mapping and provenance.
-- [Preannotation guide](../../docs-site/user-guide/projects/ai-preannotate.md), [pipeline workflow](../../docs-site/user-guide/workflows/ai-preannotate-pipeline.md), [pipeline library](../../docs-site/user-guide/projects/pipeline-library.md), and [Workbench guide](../../docs-site/user-guide/workbench/index.md): the actual selection and execution boundaries.
-- [Pipeline architecture](../../docs-site/dev/concepts/prediction-pipeline.md), API reference/OpenAPI artifacts, relevant README overview, ADRs, and `CHANGELOG.md`: identities, snapshot retention, retry semantics, and migration limits.
+- [Model-market guide](../../../docs-site/user-guide/superadmin/model-market.md): protocol versus model browsing, available actions, role differences, availability reasons, and declared versus checkpoint-verified class metadata.
+- [Model-return guide](../../../docs-site/user-guide/online-learning/models.md): publish once, discover and use across entry points, exact version versus current release, class mapping and provenance.
+- [Preannotation guide](../../../docs-site/user-guide/projects/ai-preannotate.md), [pipeline workflow](../../../docs-site/user-guide/workflows/ai-preannotate-pipeline.md), [pipeline library](../../../docs-site/user-guide/projects/pipeline-library.md), and [Workbench guide](../../../docs-site/user-guide/workbench/index.md): the actual selection and execution boundaries.
+- [Pipeline architecture](../../../docs-site/dev/concepts/prediction-pipeline.md), API reference/OpenAPI artifacts, relevant README overview, ADRs, and `CHANGELOG.md`: identities, snapshot retention, retry semantics, and migration limits.
 
-New workflow diagrams in enduring documentation should follow the existing [Excalidraw source/export workflow](../../docs-site/dev/how-to/update-excalidraw-diagrams.md). The ASCII diagram above is only a planning aid.
+New workflow diagrams in enduring documentation should follow the existing [Excalidraw source/export workflow](../../../docs-site/dev/how-to/update-excalidraw-diagrams.md). The ASCII diagram above is only a planning aid.
 
 The implementation was authorized after this draft. No release version or date is assigned; commits, pushes, and production rollout remain outside the current request.
 
@@ -353,3 +353,11 @@ The directory now groups builtin variants within the same service-pool scope, na
 Model and protocol details open in a viewport-anchored right-hand Sheet, with independently scrolling content and focus restoration. Protocol rows separate purpose, input modality, and translated geometry outputs; technical field contracts and reference implementations are in the detail Sheet. Directory counts describe concrete variants/versions, independently of runtime availability. Both search inputs use the same 13px text and placeholder size.
 
 Follow-up evidence: 48 focused Web tests passed, including variant selection, exact action links, cross-API-page grouping, unavailable states, protocol filters, and Escape/focus restoration. TypeScript, targeted ESLint, CSS token checks, formatting, and diff whitespace checks passed. Browser checks covered light/dark themes, a 390px viewport, bottom-row detail visibility, retained list scroll position, and computed input/placeholder font sizes. Browser screenshots and temporary authentication files were removed afterward. These checks extend the earlier implementation acceptance above; they do not replace its backend qualification limits.
+
+## Outcome
+
+- Delivered scope: Delivered the model/protocol catalog separation and the qualified project-model path through ordinary preannotation, Workbench and root/crop pipelines.
+- Completion evidence: the existing `13. Implementation and acceptance record` section above records implementation and verification. Archival on 2026-10-22 reuses that record; application tests and live acceptance were not rerun for this documentation move.
+- Enduring documentation: [model-market.md](../../../docs-site/user-guide/superadmin/model-market.md), [models.md](../../../docs-site/user-guide/online-learning/models.md), [prediction-pipeline.md](../../../docs-site/dev/concepts/prediction-pipeline.md); user impact is recorded in `CHANGELOG.md`.
+- Release milestone: no new milestone or version is assigned by this archival.
+- Limits retained: the recorded host-wide backend suite was not clean, and shared production endpoint rollout and remote CI remain outside this completed local scope. Archival does not convert those limits into acceptance.
