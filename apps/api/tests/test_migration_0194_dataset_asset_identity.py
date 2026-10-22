@@ -31,6 +31,17 @@ async def test_unused_identity_schema_roundtrip(test_engine, monkeypatch):
                 monkeypatch.setattr(
                     child, "op", Operations(MigrationContext.configure(sync))
                 )
+                scan_spec = importlib.util.spec_from_file_location(
+                    "migration_0196",
+                    Path(__file__).parents[1]
+                    / "alembic/versions/0196_dataset_scan_ledger.py",
+                )
+                scan = importlib.util.module_from_spec(scan_spec)
+                scan_spec.loader.exec_module(scan)
+                monkeypatch.setattr(
+                    scan, "op", Operations(MigrationContext.configure(sync))
+                )
+                scan.downgrade()
                 child.downgrade()
                 monkeypatch.setattr(
                     migration, "op", Operations(MigrationContext.configure(sync))
@@ -46,6 +57,7 @@ async def test_unused_identity_schema_roundtrip(test_engine, monkeypatch):
                     == "dataset_assets"
                 )
                 child.upgrade()
+                scan.upgrade()
 
             await connection.run_sync(roundtrip)
         finally:

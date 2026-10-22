@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { exportDownloadState, jobResultSummary } from "./asyncJobPresentation";
+import { exportDownloadState, jobResultSummary, jobProgressText } from "./asyncJobPresentation";
 
 describe("后台任务结果", () => {
+  it("目录扫描只报告观测数量，不伪造精确进度", () => {
+    const job = {
+      kind: "dataset_scan",
+      status: "running",
+      progress_pct: 80,
+      result: { processed_count: 123 },
+    } as Parameters<typeof jobProgressText>[0];
+    expect(jobProgressText(job)).toBe("已扫描 123 项 · 总量未知");
+    expect(jobProgressText({ ...job, status: "failed" })).toContain("未完整扫描");
+    expect(jobProgressText({ ...job, status: "completed", result: { complete: true } })).toContain(
+      "枚举完成",
+    );
+  });
   it("准确保留成功零条，不把未知结果写成零", () => {
     expect(jobResultSummary({ kind: "dataset_import", result: { imported: 0, skipped: 3 } })).toBe(
       "导入 0 / 跳过 3",

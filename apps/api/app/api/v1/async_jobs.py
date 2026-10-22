@@ -42,6 +42,7 @@ CANCELLABLE_KINDS = {
     "predictions_import",
     "audit_archive",
     "dataset_import",
+    "dataset_scan",
     "mask_qc",
     "mask_repair",
     "mask_format_import",
@@ -84,6 +85,7 @@ def _build_async_job_query(
             project_roles=(ProjectRole.REVIEWER.value,),
         )
         query = query.where(
+            AsyncJob.kind != "dataset_scan",
             AsyncJob.user_id == current_user.id,
             or_(
                 # Genuine global non-export jobs stay visible; a global export
@@ -134,6 +136,8 @@ async def _can_access_job(db: AsyncSession, *, job: AsyncJob, user: User) -> boo
     """
     if user.role == PlatformRole.SUPER_ADMIN.value:
         return True
+    if job.kind == "dataset_scan":
+        return False
     if job.project_id is None:
         # Annotation export has no legitimate global mode: a malformed/legacy
         # export row without an actual project must not expose its signed URL.
@@ -287,6 +291,13 @@ async def cancel_async_job(
 
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
+
+    if job.kind == "dataset_scan":
+        from app.services.dataset_scans import cancel_job
+
+        await cancel_job(db, job.id, current_user)
+        await db.commit()
+        return {"status": "cancelled", "id": str(job.id)}
 
     if job.kind == "sample_evaluation":
         from app.api.v1.training_datasets import lock_owner

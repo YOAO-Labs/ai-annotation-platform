@@ -29,6 +29,7 @@ TERMINAL_NOTIFY_KINDS = {
     "audit_archive",
     "prediction_retry",
     "dataset_import",
+    "dataset_scan",
     "mask_qc",
     "mask_repair",
     "mask_repair_rollback",
@@ -75,6 +76,9 @@ _PAYLOAD_SUMMARY_KEYS = (
 )
 
 _RESULT_SUMMARY_KEYS = (
+    "processed_count",
+    "directory_count",
+    "complete",
     "success_count",
     "failed_count",
     "done_count",

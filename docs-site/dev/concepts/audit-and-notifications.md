@@ -470,3 +470,5 @@ WS 握手时会校验 JWT，然后订阅：
 - [WebSocket 协议](/dev/reference/ws-protocol)
 
 存储位置注册、更新和节点探测记录 `storage_location.create / update / probe` 审计；只记录种类、修订、启停与脱敏结果码，不记录绝对根、凭据或内部目录指纹。
+
+目录来源登记/更新和扫描启动/恢复记录 `dataset_source.create / update` 与 `dataset_scan.start / resume`。`dataset_scan` 的终态复用 job 通知，摘要只带ID、计数和完整性，不含目录路径、根身份或原始异常；扫描取消及失联由同一领域 owner 保留不完整状态。

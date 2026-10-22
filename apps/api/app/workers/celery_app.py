@@ -43,6 +43,7 @@ celery_app = Celery(
         # v0.11.15 · 外部连接器数据集导入
         "app.workers.dataset_import",
         "app.workers.storage_probe",
+        "app.workers.dataset_scan",
         # v0.12.0 · B4 建任务异步化（大 dataset link → Celery 建 task）
         "app.workers.create_tasks",
         "app.workers.cross_frame_job",

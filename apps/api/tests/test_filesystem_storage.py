@@ -108,11 +108,23 @@ def test_directory_budget_counts_filtered_entries_and_snapshot_changes(
 
 
 def test_repeated_opens_do_not_leak_descriptors(controlled_root):
-    _, config = controlled_root
-    before = len(list(Path("/proc/self/fd").iterdir()))
+    root, config = controlled_root
+
+    def directory_handles():
+        handles = []
+        for path in Path("/proc/self/fd").iterdir():
+            try:
+                target = os.readlink(path)
+            except FileNotFoundError:
+                continue
+            if target == "/" or target.startswith(str(root)):
+                handles.append(target)
+        return sorted(handles)
+
+    before = directory_handles()
     for _ in range(30):
         fs.probe_directory(config, "missing")
-    assert len(list(Path("/proc/self/fd").iterdir())) == before
+    assert directory_handles() == before
 
 
 def test_unsupported_kernel_fails_closed(controlled_root, monkeypatch):
@@ -129,3 +141,16 @@ def test_non_utf8_name_is_rejected_consistently(controlled_root):
     result = fs.probe_directory(config)
     assert not result["ok"] and result["code"] == "unsupported_path_encoding"
     assert result["capabilities"]["list"] == "unknown"
+
+
+@pytest.mark.parametrize("with_file", [False, True])
+def test_scan_rejects_budget_exceeded_by_final_filesystem_call(
+    controlled_root, monkeypatch, with_file
+):
+    root, config = controlled_root
+    if with_file:
+        (root / "a.jpg").write_bytes(b"a")
+    times = iter([0, 0, 3] if with_file else [0, 3])
+    monkeypatch.setattr(fs.time, "monotonic", lambda: next(times))
+    with pytest.raises(fs.FilesystemStorageError, match="directory_budget_exceeded"):
+        fs.scan_directory(config, "", expected_anchor=fs.capture_anchor(config))

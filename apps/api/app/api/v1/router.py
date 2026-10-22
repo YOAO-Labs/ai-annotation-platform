@@ -45,6 +45,7 @@ from app.api.v1 import (
     storage,
     storage_connections,
     storage_locations,
+    dataset_sources,
     system_settings,
     tasks,
     training_datasets,
@@ -213,3 +214,5 @@ if _e2e_seed_routes_enabled():
     from app.api.v1 import _test_seed  # noqa: E402
 
     api_router.include_router(_test_seed.router, prefix="/__test", tags=["_test_seed"])
+
+api_router.include_router(dataset_sources.router, tags=["dataset-sources"])

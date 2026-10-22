@@ -20,6 +20,7 @@ import {
   JOB_KIND_LABEL,
   JOB_STATUS_LABEL,
   jobNumber,
+  jobProgressText,
   jobResultSummary,
   jobStage,
   jobString,
@@ -237,7 +238,7 @@ export function AsyncJobDetailModal({
           <div className="rounded-md border border-border bg-muted p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span>当前阶段：{jobStage(job)}</span>
-              <span className="tabular-nums">{Math.max(0, Math.min(100, job.progress_pct))}%</span>
+              <span className="tabular-nums">{jobProgressText(job)}</span>
             </div>
             {summary && <p className="mb-0 mt-2 font-medium tabular-nums">{summary}</p>}
             {job.kind === "export" && jobNumber(job.result, "size_bytes") !== null && (

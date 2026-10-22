@@ -824,3 +824,5 @@ PYTHONPATH=. uv run python scripts/seed.py --profile online-training
 `STORAGE_FILESYSTEM_ROOTS` 是根句柄到当前进程可见绝对目录的 JSON 映射，默认 `{}`；示例 `{"ceph":"/mnt/cephfs"}`。`.env.example` 只提供空默认，不给每个数据集配置环境变量。统一挂载后新增子目录、注册位置无需重启；新 volumes/容器环境需重建受影响容器，无需重建镜像。不要修改其他 checkout 的共享 `.env` 或挂载。
 
 新 probe task 使用 Celery `worker_direct`；部署本次代码时刷新受影响 worker 并核对任务注册和实际专属队列，再执行指定 hostname 探测。只重启 API 无法更新 Celery。隔离测试可启动归属当前 checkout 的临时 worker；不得刷新未知共享进程。配置和限制见[存储位置 API](docs-site/api/guides/storage-locations.md)及[部署示例](docs-site/ops/deploy/docker-compose.md#受控存储根目录)。
+
+目录观测扫描复用指定 worker 的专属队列；修改 `workers/dataset_scan.py` 后刷新当前部署的相关 worker 并验证 `app.workers.dataset_scan.run_dataset_scan` 注册。源码挂载时无需重建镜像。来源和扫描账本迁移为0196；验证使用独立 test 环境和临时根，不要对真实业务目录做故障注入。参见[扫描接口](docs-site/api/guides/dataset-sources.md)。

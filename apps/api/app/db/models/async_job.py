@@ -34,6 +34,7 @@ class AsyncJobKind(str, enum.Enum):
     TRAINING_PREVIEW = "training_preview"
     SAMPLE_EVALUATION = "sample_evaluation"
     ACTIVE_LEARNING_ROUND = "active_learning_round"
+    DATASET_SCAN = "dataset_scan"
     DATASET_IMPORT = "dataset_import"  # 外部连接器数据集导入
     CREATE_TASKS = "create_tasks"  # dataset link → 建 task
     MASK_QC = "mask_qc"  # Raster / Video Mask 异步质量扫描

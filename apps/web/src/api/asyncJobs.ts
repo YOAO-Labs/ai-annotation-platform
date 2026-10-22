@@ -11,6 +11,7 @@ export type AsyncJobKind =
   | "audit_archive"
   | "predictions_import"
   | "prediction_retry"
+  | "dataset_scan"
   | "dataset_import"
   | "create_tasks"
   | "point_cloud_cross_frame"
@@ -21,6 +22,7 @@ export const CANCELLABLE_ASYNC_JOB_KINDS = new Set<AsyncJobKind>([
   "training_dataset",
   "batch_predict",
   "dataset_import",
+  "dataset_scan",
   "mask_qc",
   "mask_repair",
   "mask_format_import",

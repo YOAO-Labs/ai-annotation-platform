@@ -1,5 +1,5 @@
 snapshot = "0.24.0"
-watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub", "training-recipes", "training-previews", "sample-evaluations", "training-studies", "active-learning", "storage-locations"]
+watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub", "training-recipes", "training-previews", "sample-evaluations", "training-studies", "active-learning", "storage-locations", "dataset-sources"]
 
 [operations]
 "GET /api/v1/training/catalog" = { status = "excluded", reason = "web-only" }
@@ -361,3 +361,21 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "POST /api/v1/storage-locations/{location_id}/probe" = { status = "excluded", reason = "separate-connector-epic" }
 
 "GET /api/v1/storage-locations/{location_id}/probes" = { status = "excluded", reason = "separate-connector-epic" }
+
+"POST /api/v1/dataset-sources" = { status = "excluded", reason = "separate-connector-epic" }
+
+"GET /api/v1/dataset-sources" = { status = "excluded", reason = "separate-connector-epic" }
+
+"GET /api/v1/dataset-sources/{source_id}" = { status = "excluded", reason = "separate-connector-epic" }
+
+"PATCH /api/v1/dataset-sources/{source_id}" = { status = "excluded", reason = "separate-connector-epic" }
+
+"POST /api/v1/dataset-sources/{source_id}/scans" = { status = "excluded", reason = "separate-connector-epic" }
+
+"GET /api/v1/dataset-sources/{source_id}/scans" = { status = "excluded", reason = "separate-connector-epic" }
+
+"GET /api/v1/dataset-scans/{run_id}" = { status = "excluded", reason = "separate-connector-epic" }
+
+"GET /api/v1/dataset-scans/{run_id}/entries" = { status = "excluded", reason = "separate-connector-epic" }
+
+"POST /api/v1/dataset-scans/{run_id}/resume" = { status = "excluded", reason = "separate-connector-epic" }

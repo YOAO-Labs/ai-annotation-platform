@@ -141,3 +141,5 @@
 - [0091](archive/0091-dataset-content-and-location-identity.md) — 数据集内容身份与固定托管位置分离，旧键兼容回填不改业务快照
 
 - [0092](archive/0092-controlled-storage-registry.md) — 存储位置在受控部署根内动态注册并按节点验证
+
+- [0093](archive/0093-resumable-directory-inventory.md) — 目录观测按完整目录提交并以执行代次恢复

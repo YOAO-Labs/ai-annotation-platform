@@ -20,6 +20,7 @@ import {
   JOB_KIND_LABEL as KIND_LABEL,
   exportDownloadState,
   jobResultSummary,
+  jobProgressText,
   jobStage,
 } from "@/components/jobs/asyncJobPresentation";
 import {
@@ -259,10 +260,10 @@ function JobRow({
           )}
         </div>
       </div>
-      <ProgressBar pct={pct} status={job.status} />
+      {job.kind !== "dataset_scan" && <ProgressBar pct={pct} status={job.status} />}
       <div className="text-xs tabular-nums text-muted-foreground">
         {job.status === "running" || job.status === "pending" ? (
-          `${jobStage(job)} · ${pct}%`
+          `${jobStage(job)} · ${jobProgressText(job)}`
         ) : job.status === "failed" ? (
           <CopyableError message={job.error_message ?? "失败"} truncate className="w-full" />
         ) : (

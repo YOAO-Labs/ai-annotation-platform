@@ -1,35 +1,72 @@
 # EPIC-04：增量同步与后台任务编排
 
-> 状态：research-draft；未排期，未批准实施，未分配发布版本。
+> 状态：E04-A completed；E04-B 待晋升评审；用户已授权推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
-> 实施前须通过 [backlog promotion gate](README.md#promotion-gate)。[草案总览](1792661016_dataset-storage-roadmap.md)、[架构契约](1792661016_dataset-storage-architecture.md)和[交付验收](1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
+> 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 | 项目          | 内容                                                     |
 | ------------- | -------------------------------------------------------- |
-| 状态          | 研究草案，待晋升复核与产品/技术评审                      |
+| 状态          | E04-A 已完成本地验收；其余范围保留草案                   |
 | 日期          | 2026-10-22（Asia/Shanghai）                              |
 | 优先级 / 阶段 | P0：M1 幂等手动扫描与变化保护；P1：M2 周期同步与裁决     |
 | 负责角色      | 后端、任务系统维护者、前端、测试                         |
 | 最小依赖      | E01 身份模型、E02 位置契约、E03 来源配置                 |
 | 协作          | E05 校验与访问；E08 变化列表；E11 删除规则；E12 任务指标 |
 
+## 本轮实施定案：E04-A
+
+基线 `b73fd4a7e`，工作树干净。E01-A/E02-A 已完成；当前 checkout 的 dev/test 服务已停止，不刷新其他 checkout。沿用受控只读根和指定 worker；无新凭据、依赖、环境变量、服务或镜像构建。
+
+最小方案是 worker 内存递归全扫后一次提交，但中断丢失全部进度且无法拒绝旧执行者。本轮采用来源配置 + 持久目录队列 + 每目录原子批提交。复用 PostgreSQL 行锁、现有 AsyncJob 和 Celery worker_direct；消息确认不是数据库幂等保证。
+
+### 合同和边界
+
+- 新 DatasetSource 仅绑定已有数据集、filesystem 位置、相对目录、固定 Celery hostname、递归及过滤规则。此阶段 mode 为 inventory，不是可标注原地引用；不创建 Item/Asset/Task，不修改历史 missing。路径、规则、节点创建后不可重定向；名称/启停带 expected_revision，活动扫描时须先取消。
+- 超管 API：`/dataset-sources` 创建/按数据集列表/详情/元数据修改；`/{id}/scans` 启动或复用活动扫描、列表；`/dataset-scans/{id}` 详情、`/entries` 分页、`/resume` 恢复。任务取消复用 `/async-jobs/{id}/cancel`，扫描详情保留当前 job_id。所有读取、取消、恢复及 worker 批提交复检当前超管身份；通用任务列表也不得向降权账号泄漏目录观测。
+- 三表：DatasetSource、DatasetScanRun、DatasetScanEntry。Run 固定 source/location 修订、节点、根 anchor、规则和预算快照。Entry 以 run_id + 路径 SHA256 唯一，路径为非索引 TEXT，避免长中文路径超出索引上限；目录行承担 pending/captured 队列及目录身份/摘要。文件 stat 仅是观测，content_verified 恒 false。
+- 数据集删除把 source.dataset_id 置空，保留扫描账本；位置被 Source 引用时不得删除/改向。终态 AsyncJob 清理用 SET NULL，不连带删除 Run/Entry。0196 降级在账本已有数据时拒绝破坏性清理。
+- 单目录检查最多5000原始条目、循环预算2秒；每运行最多50000条观测、5000目录、相对路径1000字符/32层。过滤项、链接、特殊类型也记账和计入原始预算；只遍历普通目录，不跟随链接/子挂载，不读取文件字节。固定阈值进入 Run 快照，不借用复制导入的传输字节限额。
+- 检查点是一个完整目录：列举后在同一事务分块写入观测/子目录队列/目录完成标记，事务失败不前进。捕获前后核对目录身份及 mtime/ctime；恢复和收尾重算已捕获目录摘要。目录变化、权限失败、根替换、预算、超时、取消均不完整。活跃文件系统不是全树原子快照，完成不意味着可判 missing。
+- 一个来源仅一个 pending/running Run，数据库部分唯一索引 + 短行锁序列化启动。锁顺序 Location→Source→Job→Run，不跨文件系统 I/O 持锁。每次 claim 使用 source 单调 generation、随机 token 和60秒租约；每批落库检查 task_id/generation/token/有效期/修订/授权。一次 job 仅 claim 一次；失租后通过显式 resume 创建新 job/task_id，旧消息/信号不能结束新尝试。
+- 源根目录首次在固定 worker 固定身份，此后不静默换目录。启动/恢复/claim 需要当前指定节点的 list 已验证证据；运行中固定配置/anchor，每批复核启停及修订。一次 Celery 尝试软限240秒、硬限300秒，阻塞内核 I/O仍有平台限制；失租可显式接管，不新增 beat 调度器。发布失败保留可恢复任务，不虚报启动成功。
+- AsyncJob 记录阶段与累计数，未知总量不展示百分比；补现有铃铛/详情的该 kind 展示、取消与通知文案，不增加管理页面。扫描中断由 fenced signal owner 处理，不走通用无租约状态转换。
+
+### 文件与流程
+
+本轮超过8文件：`db/models/dataset_source.py`/模型注册、`alembic/versions/0196_dataset_scan_ledger.py`、`services/filesystem_storage.py`/`dataset_scans.py`/`storage_location.py`、`schemas/dataset_source.py`、`api/v1/dataset_sources.py`/router/async_jobs、worker/celery/signals、AsyncJob model/notify、Web asyncJobs/presentation/JobsBell/详情、对应测试、API快照/SDK清单、正式API/用户/开发文档、ADR0093、CHANGELOG及计划导航。
+
+```text
+超管 API -> Source / ScanRun -> 指定 Celery hostname
+              ^                       |
+              |  短事务 fence         v
+              +--- 观测/目录队列 <- openat2 只读目录快照
+              |
+              +--- AsyncJob / 现有任务中心（取消、阶段、累计数）
+```
+
+### 验证和回退
+
+在隔离 test 数据库/Redis/临时根验证：重复启动/投递、真实指定节点、离线、逐目录恢复、批事务回滚、失租接管和旧提交/旧失败信号、取消及权限撤销、旧修订、根/子目录替换、目录变化/超限、长中文路径和特殊文件。证明不完整和正常扫描均不创建业务样本/任务，也不修改历史Asset状态；验证AsyncJob清理保留账本。运行旧存储/导入/job回归、0196迁移往返、OpenAPI/SDK、Web展示测试/类型检查、文档构建和diff检查。结束销毁本轮资源并清理产物。
+
+回退仅关闭新入口、停止/取消本轮任务并保留来源和观测账本；不删除源目录、不回退已保存历史，不将相对路径交给旧 S3 拼接器。本轮不开放周期同步、missing裁决、内容hash、原图HTTP读取或数据集UI创建向导。
+
 ## 本项目基线与改造落点
 
 下列为固定提交的静态证据，尚非运行/浏览器验收结果。
 
-| 当前 owner / 代码锚点                                                        | 已有能力、缺口与复用约束                                                                                                                   |
-| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| [dataset_import.py](../../../apps/api/app/workers/dataset_import.py)         | 现有逐文件提交、文件间取消、最多 100 条 JSON 错误摘要；先收集限额内条目，没有持久游标、单项账本或扫描租约，枚举/大文件传输中取消仍需新增。 |
-| [dataset.py](../../../apps/api/app/services/dataset.py)                      | 建任务用 NOT EXISTS 等顺序去重，项目/样本对无数据库唯一约束，不等于并发幂等。\_unique_file_name 逐项查文件名全集可批量优化。               |
-| [async_jobs_cleanup.py](../../../apps/api/app/workers/async_jobs_cleanup.py) | 终态 job 有清理期限，长期扫描/变化审计不能只寄存在 job JSON；仍沿用同一任务中心。                                                          |
+| 当前 owner / 代码锚点                                                     | 已有能力、缺口与复用约束                                                                                                                   |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| [dataset_import.py](../../apps/api/app/workers/dataset_import.py)         | 现有逐文件提交、文件间取消、最多 100 条 JSON 错误摘要；先收集限额内条目，没有持久游标、单项账本或扫描租约，枚举/大文件传输中取消仍需新增。 |
+| [dataset.py](../../apps/api/app/services/dataset.py)                      | 建任务用 NOT EXISTS 等顺序去重，项目/样本对无数据库唯一约束，不等于并发幂等。\_unique_file_name 逐项查文件名全集可批量优化。               |
+| [async_jobs_cleanup.py](../../apps/api/app/workers/async_jobs_cleanup.py) | 终态 job 有清理期限，长期扫描/变化审计不能只寄存在 job JSON；仍沿用同一任务中心。                                                          |
 
-候选修改入口：[dataset_import.py](../../../apps/api/app/workers/dataset_import.py)、[dataset.py](../../../apps/api/app/services/dataset.py)、[async_job.py](../../../apps/api/app/services/async_job.py)、[async_job.py](../../../apps/api/app/db/models/async_job.py)、[async_jobs.py](../../../apps/api/app/api/v1/async_jobs.py)、[AsyncJobDetailModal.tsx](../../../apps/web/src/components/jobs/AsyncJobDetailModal.tsx)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
+候选修改入口：[dataset_import.py](../../apps/api/app/workers/dataset_import.py)、[dataset.py](../../apps/api/app/services/dataset.py)、[async_job.py](../../apps/api/app/services/async_job.py)、[async_job.py](../../apps/api/app/db/models/async_job.py)、[async_jobs.py](../../apps/api/app/api/v1/async_jobs.py)、[AsyncJobDetailModal.tsx](../../apps/web/src/components/jobs/AsyncJobDetailModal.tsx)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
 
 ## 1. 问题与现有基础
 
 原地目录会不断增加、改名、覆盖或丢失文件。“首次可登记”之后，还需要一条可以解释和恢复的同步链路。最危险的情况不是同步稍慢，而是一次网络故障被当成全部删除，或同名新图片直接继承旧图片的标注。
 
-现有系统已有 Celery 导入任务、AsyncJob 历史、阶段、取消、错误和跳转。继续扩展这些能力，并为来源扫描增加逐条结果与幂等状态，不另建一套任务中心。[代码依据：导入 worker](../../../apps/api/app/workers/dataset_import.py)、[JobsBell](../../../apps/web/src/components/shell/JobsBell.tsx)、[任务详情](../../../apps/web/src/components/jobs/AsyncJobDetailModal.tsx)
+现有系统已有 Celery 导入任务、AsyncJob 历史、阶段、取消、错误和跳转。继续扩展这些能力，并为来源扫描增加逐条结果与幂等状态，不另建一套任务中心。[代码依据：导入 worker](../../apps/api/app/workers/dataset_import.py)、[JobsBell](../../apps/web/src/components/shell/JobsBell.tsx)、[任务详情](../../apps/web/src/components/jobs/AsyncJobDetailModal.tsx)
 
 ## 2. 目标与范围
 
@@ -98,7 +135,7 @@
 - 文件错误明细分页存储；日志不把整份失败清单写进单个 JSON 字段。
 - 扫描既有文件名时使用索引/批量查询，避免每处理一项都读一遍整个数据集文件名。
 
-现有 `_unique_file_name` 对逐项查询模式是优化切入点；实际成本需基准测量，不以静态代码推断精确耗时。[代码依据：数据集服务](../../../apps/api/app/services/dataset.py)
+现有 `_unique_file_name` 对逐项查询模式是优化切入点；实际成本需基准测量，不以静态代码推断精确耗时。[代码依据：数据集服务](../../apps/api/app/services/dataset.py)
 
 ## 7. 数据与 API 草案
 
@@ -173,8 +210,19 @@
 
 前置合同不等于等待前置 Epic 全量完成。每个切片合并后系统仍须可用；含新来源的回退保留兼容读取和授权，不能把其相对路径交给旧 S3 拼接逻辑。预计多数切片涉及超过 8 个文件，实施时明确大范围边界与准确清单。
 
-已有回归入口：[test_dataset_import.py](../../../apps/api/tests/test_dataset_import.py)、[test_dataset_link.py](../../../apps/api/tests/test_dataset_link.py)、[test_task_dataset_link.py](../../../apps/api/tests/test_task_dataset_link.py)、[AsyncJobDetailModal.test.tsx](../../../apps/web/src/components/jobs/AsyncJobDetailModal.test.tsx)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
+已有回归入口：[test_dataset_import.py](../../apps/api/tests/test_dataset_import.py)、[test_dataset_link.py](../../apps/api/tests/test_dataset_link.py)、[test_task_dataset_link.py](../../apps/api/tests/test_task_dataset_link.py)、[AsyncJobDetailModal.test.tsx](../../apps/web/src/components/jobs/AsyncJobDetailModal.test.tsx)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
 
-实现时同步：[storage-connections.md](../../../docs-site/dev/concepts/storage-connections.md)、[index.md](../../../docs-site/user-guide/datasets/index.md)、[debug-celery.md](../../../docs-site/dev/how-to/debug-celery.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
+实现时同步：[storage-connections.md](../../docs-site/dev/concepts/storage-connections.md)、[index.md](../../docs-site/user-guide/datasets/index.md)、[debug-celery.md](../../docs-site/dev/how-to/debug-celery.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
 
-完成实施后按[计划规范](../README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+
+## Outcome
+
+- Landed changes: E04-A inventory-only DatasetSource, durable ScanRun/Entry ledger, bounded metadata enumeration, per-directory atomic checkpoints, explicit resume, generation/token/lease fencing, direct-worker routing and current-role checks. Included in the commit containing this outcome; no release milestone assigned.
+- Task center: existing job list/detail, cancellation and notifications support directory scan phases and cumulative counts without invented percentages. No new dataset creation UI or in-place sample ingestion is enabled.
+- User documentation: `docs-site/user-guide/datasets/index.md`. API documentation: `docs-site/api/guides/dataset-sources.md`, `docs-site/api/guides/async-jobs.md`, OpenAPI snapshot and SDK coverage manifest.
+- Developer documentation: `docs-site/dev/concepts/storage-connections.md`, `docs-site/dev/concepts/audit-and-notifications.md`, `docs-site/dev/how-to/debug-celery.md`, `DEV.md` and `README.md`. ADR: `docs/adr/archive/0093-resumable-directory-inventory.md`. CHANGELOG: Unreleased entry added.
+- Verification: focused service/API/filesystem coverage and a real direct Celery worker passed. Final service/API and concurrent retention/resume/start/stale-signal regression: 10 passed, including re-reading the current Job association after Source serialization. Coverage includes atomic rollback, cancellation, expired leases, old workers/signals, directory changes, role/config revocation, budgets, source retention and no business sample creation. The directory handle check was narrowed to task-owned handles to avoid unrelated socket collection affecting its baseline. Compatibility suite: 93 passed; Web presentation/components: 34 passed; SDK OpenAPI contract: 4 passed. Local TypeScript, CSS token lint, documentation build, ADR/frontmatter/navigation and rendered-document link checks passed. Repository-wide link scanning still reports 23 existing links in unchanged ROADMAP/research files; no live browser or remote CI acceptance is claimed.
+- Migration: full fresh, reversible suffix, legacy-forward and dump/restore verification passed through 0196; populated ledgers reject downgrade. Validation databases were removed with no owned leftovers.
+- Cleanup: task-owned worker and temporary fixtures were stopped/removed; isolated test database, Redis and buckets were destroyed, and generated documentation/test outputs were removed. No backend image build, real business mount or shared development runtime change.
+- Remaining work: E04-B periodic synchronization, change classification/resolution, item retries and business ingestion remain gated. Next dependency slice is E05-A content-verified reads, followed by E03-A/E08-A/E09-A dataset and storage UI integration. Completed inventory is not a consistent filesystem snapshot, verified content or authority to mark historical assets missing. This Epic remains in the active root because its remaining contracts still constrain future work.

@@ -262,6 +262,20 @@
 | POST | `/projects/{project_id}/data-manager/tracks/query` |
 | GET | `/projects/{project_id}/data-manager/tracks/{track_ref}/detail` |
 
+## `dataset_sources.py`
+
+| Method | Path |
+|---|---|
+| POST | `/dataset-sources` |
+| GET | `/dataset-sources` |
+| GET | `/dataset-sources/{source_id}` |
+| PATCH | `/dataset-sources/{source_id}` |
+| POST | `/dataset-sources/{source_id}/scans` |
+| GET | `/dataset-sources/{source_id}/scans` |
+| GET | `/dataset-scans/{run_id}` |
+| GET | `/dataset-scans/{run_id}/entries` |
+| POST | `/dataset-scans/{run_id}/resume` |
+
 ## `datasets.py`
 
 | Method | Path |
@@ -928,4 +942,4 @@
 
 ---
 
-_共 85 模块 / 526 路由_
+_共 86 模块 / 535 路由_

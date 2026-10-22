@@ -60,8 +60,15 @@ async def register_connection(db, connection):
 
 
 async def location_is_referenced(db, location_id):
+    from app.db.models.dataset_source import DatasetSource
+
     return bool(
         await db.scalar(
+            select(DatasetSource.id)
+            .where(DatasetSource.location_id == location_id)
+            .limit(1)
+        )
+        or await db.scalar(
             select(DatasetAssetLocation.asset_id)
             .where(DatasetAssetLocation.location_id == location_id)
             .limit(1)

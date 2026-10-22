@@ -127,6 +127,58 @@ def capture_anchor(config):
         return anchor
 
 
+def scan_directory(config, path, *, expected_anchor, expected_identity=None):
+    """Capture one bounded directory; callers commit the whole manifest atomically."""
+    with location_directory(config, path, expected_anchor=expected_anchor) as (fd, _):
+        before = os.fstat(fd)
+        identity = [before.st_dev, before.st_ino]
+        if expected_identity is not None and identity != expected_identity:
+            raise FilesystemStorageError("directory_identity_changed")
+        entries = []
+        deadline = time.monotonic() + 2
+        with os.scandir(fd) as iterator:
+            for entry in iterator:
+                if len(entries) >= MAX_ENTRIES:
+                    raise FilesystemStorageError("directory_too_large")
+                if time.monotonic() > deadline:
+                    raise FilesystemStorageError("directory_budget_exceeded")
+                relative_path(entry.name)
+                info = entry.stat(follow_symlinks=False)
+                kind = (
+                    "directory"
+                    if stat.S_ISDIR(info.st_mode)
+                    else "file"
+                    if stat.S_ISREG(info.st_mode)
+                    else "symlink"
+                    if stat.S_ISLNK(info.st_mode)
+                    else "special"
+                )
+                entries.append(
+                    {
+                        "name": entry.name,
+                        "kind": kind,
+                        "identity": [info.st_dev, info.st_ino],
+                        "mode": info.st_mode,
+                        "size": info.st_size,
+                        "mtime_ns": info.st_mtime_ns,
+                        "ctime_ns": info.st_ctime_ns,
+                    }
+                )
+        after = os.fstat(fd)
+        if (before.st_mtime_ns, before.st_ctime_ns) != (
+            after.st_mtime_ns,
+            after.st_ctime_ns,
+        ):
+            raise FilesystemStorageError("directory_changed")
+        entries.sort(key=lambda item: item["name"])
+        digest = hashlib.sha256(
+            json.dumps([identity, entries], sort_keys=True, ensure_ascii=True).encode()
+        ).hexdigest()
+        if time.monotonic() > deadline:
+            raise FilesystemStorageError("directory_budget_exceeded")
+        return {"identity": identity, "digest": digest, "entries": entries}
+
+
 def browse_directory(
     config, path, *, expected_anchor, limit, after=None, snapshot=None
 ):

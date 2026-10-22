@@ -159,4 +159,14 @@ API/worker 各自加载根映射；Celery `worker_direct` 加实际 hostname 校
 
 位置登记/修改/探测仅超管；项目管理员按 global 或 use_user_ids 使用，员工不得枚举目录。每页重新检查当前授权，游标绑定位置、修订、节点、路径摘要和目录快照。现有连接通过 connection_id 关联位置；凭据仍由 StorageConnection/Fernet 持有，未复制。连接修改按 connection→location 顺序加锁；有内容/用途引用时拒绝配置改向或删除。删除无引用连接级联清理关联与探测，既有项目级外键行为保持一致。
 
-九用途绑定查询只读，缺失不自动 bootstrap，共桶不合并用途。当前没有用途切换入口，也没有接入 DatasetSource、扫描或原地读取。完整接口见[受控存储位置](/api/guides/storage-locations)，决策见[ADR 0092](/dev/adr/archive/0092-controlled-storage-registry)。
+九用途绑定查询只读，缺失不自动 bootstrap，共桶不合并用途。当前没有用途切换或原地读取入口；DatasetSource 仅提供下文的只读观测扫描。完整接口见[受控存储位置](/api/guides/storage-locations)，决策见[ADR 0092](/dev/adr/archive/0092-controlled-storage-registry)。
+
+## 持久目录扫描基座
+
+DatasetSource 以 `inventory` 模式绑定已有数据集、filesystem 位置、相对目录、固定 worker hostname 和规则；这是观测合同，不是可标注样本。API 当前限超管，通用 Job 列表/详情也拒绝降权账号查看扫描任务。每批及 claim 重验操作者、来源/位置修订与启停，启动、恢复和 claim 要求当前节点 list 验证有效。
+
+DatasetScanRun 独立持有快照、代次、60秒租约与随机 token；DatasetScanEntry 同时保存目录队列和文件观测。以 `(run_id, path_digest)` 唯一，路径本身用非索引 TEXT。每次完整目录捕获以一个事务分块写入，目录标记与观测一起提交。恢复和收尾复核目录摘要，stat 不提升内容 verified，也不判 missing。
+
+统一短锁顺序为 Location→Source→Job→Run，与 Job retention 的 Job→Run 外键清理一致；文件系统 I/O 在事务提交后执行。来源行锁加活动运行部分唯一索引防并发启动，任务只 claim 一次；失租后显式 resume 创建新 Job/task_id。每批核对 task ID、来源代次、generation、token、有效期与授权；扫描 signal 在通用 fallback 前分派到同一 owner，旧信号不影响新尝试。
+
+Job 外键 SET NULL，数据集删除只清空来源关联，长期观测账本保留；来源引用参与位置改向/删除保护。无来源数据时0196可降级，有数据则保留表并回退应用入口。接口与支持预算见[目录来源与观测扫描](/api/guides/dataset-sources)，决策见[ADR0093](/dev/adr/archive/0093-resumable-directory-inventory)。

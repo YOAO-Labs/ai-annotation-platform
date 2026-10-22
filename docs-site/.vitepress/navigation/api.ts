@@ -37,6 +37,7 @@ export const apiSidebar: DefaultTheme.SidebarItem[] = [
       { text: "数据集上传与扫描", link: "/api/guides/datasets" },
       { text: "存储连接器", link: "/api/guides/storage-connections" },
       { text: "受控存储位置", link: "/api/guides/storage-locations" },
+      { text: "目录来源与观测扫描", link: "/api/guides/dataset-sources" },
       { text: "系统设置", link: "/api/guides/system-settings" },
     ],
   },

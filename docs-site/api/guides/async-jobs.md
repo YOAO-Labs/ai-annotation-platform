@@ -175,3 +175,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 - 模型：[`apps/api/app/db/models/async_job.py`](../../../apps/api/app/db/models/async_job.py)
 - service：[`apps/api/app/services/async_job.py`](../../../apps/api/app/services/async_job.py)
 - 前端铃铛：[`apps/web/src/components/shell/JobsBell.tsx`](../../../apps/web/src/components/shell/JobsBell.tsx)
+
+## 目录观测扫描任务
+
+`dataset_scan` 复用全局任务入口，但只限当前超级管理员读取和取消。进行中百分比保持未知，使用累计 `processed_count / file_count / directory_count / skipped_count` 与阶段呈现进度；`complete` 单独表示枚举完整性。取消保留已提交目录观测，恢复通过[扫描专属接口](./dataset-sources)，不使用 prediction 的 retry-failed。任务清理不会删除长期扫描账本。
