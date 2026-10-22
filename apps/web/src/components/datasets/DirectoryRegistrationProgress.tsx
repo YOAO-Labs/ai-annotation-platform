@@ -29,16 +29,23 @@ const errorLabels: Record<string, string> = {
   snapshot_capacity_exceeded: "读取繁忙，可重试",
   dispatch_unavailable: "等待后台重新派发，可手动继续",
 };
-const bytes = (value: number) => `${(value / (1024 * 1024)).toFixed(2)} MiB`;
+const bytes = (value: number) =>
+  value < 1024
+    ? `${value} B`
+    : value < 1024 * 1024
+      ? `${(value / 1024).toFixed(2)} KiB`
+      : `${(value / (1024 * 1024)).toFixed(2)} MiB`;
 
 export function DirectoryRegistrationProgress({
   scanId,
   datasetId,
   owner,
+  sourceRevision,
 }: {
   scanId: string;
   datasetId: string;
   owner: string;
+  sourceRevision: number;
 }) {
   const client = useQueryClient();
   const capture = useSessionGuard();
@@ -54,6 +61,7 @@ export function DirectoryRegistrationProgress({
       q.state.data && ["pending", "running"].includes(q.state.data.status) ? 1500 : false,
   });
   const run = registration.data;
+  const stale = !!run && run.source_revision !== sourceRevision;
   const active = !!run && ["pending", "running"].includes(run.status);
   const entries = useQuery({
     queryKey: ["directory-registration-entries", owner, run?.id, offset, errorsOnly],
@@ -102,7 +110,7 @@ export function DirectoryRegistrationProgress({
           <Button
             size="sm"
             variant="primary"
-            disabled={busy}
+            disabled={busy || stale}
             onClick={() => void act(() => api.preflight(scanId))}
           >
             运行接入预检
@@ -128,7 +136,7 @@ export function DirectoryRegistrationProgress({
         {active && run.async_job_id && (
           <Button
             size="sm"
-            disabled={busy}
+            disabled={busy || stale}
             onClick={() => void act(() => asyncJobsApi.cancel(run.async_job_id!))}
           >
             取消当前阶段
@@ -139,13 +147,18 @@ export function DirectoryRegistrationProgress({
             (run.status === "pending" && run.error_code)) && (
             <Button
               size="sm"
-              disabled={busy}
+              disabled={busy || stale}
               onClick={() => void act(() => api.resumeRegistration(run.id))}
             >
               继续执行
             </Button>
           )}
       </div>
+      {stale && (
+        <p role="status" className="mt-2 text-status-caution">
+          来源或位置已变更，本轮历史保留。请重新扫描和预检；旧尝试不能继续。
+        </p>
+      )}
       {registration.isPending && <p role="status">正在读取登记进度…</p>}
       <p className="mt-2 text-muted-foreground">
         预检会读取图片、核验格式与内容，不创建样本。确认后逐项登记；关闭页面或取消会保留已提交结果，可在后台任务及本面板继续查看。
@@ -170,8 +183,16 @@ export function DirectoryRegistrationProgress({
             ))}
           </dl>
           <p>
-            扫描观测体量 {bytes(run.counts.indexed_bytes ?? 0)} · 原图复制量 0 · 预览预计{" "}
-            {bytes(run.counts.preview_estimated_bytes ?? 0)}
+            扫描观测体量 {bytes(run.counts.indexed_bytes ?? 0)} ·{" "}
+            {run.ownership_mode === "managed_copy" ? "托管复制" : "原地引用"} /{" "}
+            {run.cache_policy === "preview" ? "预览缓存" : "无缓存"} · 原图复制预计{" "}
+            {bytes(run.counts.original_estimated_bytes ?? 0)} / 已新增{" "}
+            {bytes(run.counts.original_copy_bytes ?? 0)} · 预览预计{" "}
+            {bytes(run.counts.preview_estimated_bytes ?? 0)}（已测{" "}
+            {run.counts.preview_estimated_count ?? 0} 项，
+            {run.counts.preview_estimate_error_count ?? 0} 项未知）· 本轮路径已存预览{" "}
+            {bytes(run.counts.preview_retained_bytes ?? 0)}，失败{" "}
+            {run.counts.preview_failed_count ?? 0} 项
           </p>
           <p className="mt-1 text-muted-foreground">
             观测时间 {new Date(run.created_at).toLocaleString()}
@@ -190,7 +211,7 @@ export function DirectoryRegistrationProgress({
               <Button
                 size="sm"
                 variant="primary"
-                disabled={!reviewed || busy}
+                disabled={!reviewed || busy || stale}
                 onClick={() => void act(() => api.confirmRegistration(run.id))}
               >
                 确认批量登记
@@ -239,7 +260,7 @@ export function DirectoryRegistrationProgress({
                           </span>{" "}
                           <Button
                             size="sm"
-                            disabled={busy || active}
+                            disabled={busy || active || stale}
                             onClick={() =>
                               void act(() => api.retryRegistrationEntry(run.id, entry.path_digest))
                             }

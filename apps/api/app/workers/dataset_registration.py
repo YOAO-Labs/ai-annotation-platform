@@ -83,10 +83,6 @@ async def process_one(db, run_id, task_id, fence, work):
         await svc.fenced(session, run_id, task_id, fence)
 
     if work["phase"] == "preflight":
-
-        async def verified(session):
-            await svc.record(session, run_id, task_id, fence, digest, "ready")
-
         snapshot = await scan_snapshot(
             db,
             work["scan_run_id"],
@@ -95,10 +91,32 @@ async def process_one(db, run_id, task_id, fence, work):
             verify=True,
             node_id=work["node_id"],
             api_key_id=work["api_key_id"],
-            before_commit=verified,
+            before_commit=guard,
             refresh_unverified=work["refresh_unverified"],
         )
-        snapshot.close()
+        try:
+            estimated, preview_error = 0, None
+            if work["cache_policy"] == "preview":
+                try:
+                    from app.services.directory_previews import encode
+
+                    estimated = len(await encode(snapshot))
+                except Exception:
+                    estimated, preview_error = None, "preview_estimate_failed"
+            await svc.record(
+                db,
+                run_id,
+                task_id,
+                fence,
+                digest,
+                "ready",
+                preview_estimated_bytes=estimated,
+                preview_error=preview_error,
+                original_size=snapshot.size,
+            )
+            await db.commit()
+        finally:
+            snapshot.close()
     else:
 
         async def registered(session, result):

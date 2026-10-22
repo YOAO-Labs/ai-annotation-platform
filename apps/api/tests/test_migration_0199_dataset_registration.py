@@ -3,6 +3,7 @@ from pathlib import Path
 
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
+from tests.migration_helpers import without_later_migrations
 from sqlalchemy import text
 import pytest
 
@@ -28,15 +29,17 @@ async def test_empty_registration_schema_roundtrip(db_session, monkeypatch):
         monkeypatch.setattr(
             migration, "op", Operations(MigrationContext.configure(sync.connection()))
         )
-        migration.downgrade()
-        assert (
-            sync.scalar(text("SELECT to_regclass('dataset_registration_runs')")) is None
-        )
-        migration.upgrade()
-        assert (
-            sync.scalar(text("SELECT to_regclass('dataset_registration_entries')"))
-            is not None
-        )
+        with without_later_migrations(sync, monkeypatch, "0199"):
+            migration.downgrade()
+            assert (
+                sync.scalar(text("SELECT to_regclass('dataset_registration_runs')"))
+                is None
+            )
+            migration.upgrade()
+            assert (
+                sync.scalar(text("SELECT to_regclass('dataset_registration_entries')"))
+                is not None
+            )
 
     await db_session.run_sync(roundtrip)
 

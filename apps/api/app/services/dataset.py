@@ -90,6 +90,7 @@ class LinkProjectResult:
 @dataclass(frozen=True)
 class DatasetDeleteCleanup:
     pyramid_asset_ids: tuple[uuid.UUID, ...]
+    directory_objects: tuple[tuple[str, str], ...] = ()
 
 
 async def build_tasks_for_link(
@@ -417,7 +418,9 @@ class DatasetService:
         return ds
 
     async def delete(self, dataset_id: uuid.UUID) -> DatasetDeleteCleanup | None:
-        ds = await self.db.get(Dataset, dataset_id)
+        ds = await self.db.get(
+            Dataset, dataset_id, with_for_update=True, populate_existing=True
+        )
         if not ds:
             return None
         from app.services.active_learning_pool import guard_source
@@ -439,13 +442,45 @@ class DatasetService:
             .scalars()
             .all()
         )
+        from app.db.models.dataset_source import DatasetSourceItem, DatasetSourcePreview
+
+        directory_objects = tuple(
+            (row.bucket, row.object_key)
+            for row in await self.db.scalars(
+                select(DatasetSourcePreview)
+                .join(
+                    DatasetSourceItem,
+                    (DatasetSourceItem.source_id == DatasetSourcePreview.source_id)
+                    & (
+                        DatasetSourceItem.path_digest
+                        == DatasetSourcePreview.path_digest
+                    ),
+                )
+                .where(
+                    DatasetSourceItem.dataset_item_id.in_(
+                        select(DatasetItem.id).where(
+                            DatasetItem.dataset_id == dataset_id
+                        )
+                    ),
+                    DatasetSourcePreview.object_key.is_not(None),
+                )
+            )
+        )
         await self.db.delete(ds)
         await self.db.flush()
-        return DatasetDeleteCleanup(pyramid_asset_ids=tuple(asset_ids))
+        return DatasetDeleteCleanup(
+            pyramid_asset_ids=tuple(asset_ids), directory_objects=directory_objects
+        )
 
     @staticmethod
     def cleanup_deleted_storage(cleanup: DatasetDeleteCleanup) -> None:
         from app.services.image_pyramid import PYRAMID_PREFIX
+
+        for bucket, key in cleanup.directory_objects:
+            try:
+                storage_service.delete_object(key, bucket=bucket)
+            except Exception:
+                log.exception("failed to clean directory preview %s", key)
 
         for asset_id in cleanup.pyramid_asset_ids:
             try:
@@ -484,6 +519,12 @@ class DatasetService:
         out = []
         for item in items:
             d = _item_dict(item)
+            from app.services.directory_policy import owns_media
+
+            directory_owned = await owns_media(self.db, item.id)
+            if directory_owned:
+                d["blurhash"] = None
+                d["thumbnail_url"] = None
             if is_reference(item.file_path):
                 d["file_url"] = None
                 out.append(d)
@@ -495,7 +536,7 @@ class DatasetService:
                 )
             except Exception:
                 d["file_url"] = None
-            if item.thumbnail_path:
+            if item.thumbnail_path and not directory_owned:
                 try:
                     thumbnail_bucket = storage_service.bucket_for_cache_key(
                         item.thumbnail_path,
@@ -594,6 +635,28 @@ class DatasetService:
             ds.file_count = max((ds.file_count or 0) - 1, 0)
         from app.db.models.image_pyramid import ImagePyramidAsset
         from app.services.image_pyramid import PYRAMID_PREFIX
+        from app.db.models.dataset_source import DatasetSourceItem, DatasetSourcePreview
+
+        previews = list(
+            await self.db.scalars(
+                select(DatasetSourcePreview)
+                .join(
+                    DatasetSourceItem,
+                    (DatasetSourceItem.source_id == DatasetSourcePreview.source_id)
+                    & (
+                        DatasetSourceItem.path_digest
+                        == DatasetSourcePreview.path_digest
+                    ),
+                )
+                .where(
+                    DatasetSourceItem.dataset_item_id == item.id,
+                    DatasetSourcePreview.object_key.is_not(None),
+                )
+            )
+        )
+        self._directory_delete_keys = getattr(self, "_directory_delete_keys", []) + [
+            (row.bucket, row.object_key) for row in previews
+        ]
 
         asset_ids = list(
             (
@@ -614,6 +677,12 @@ class DatasetService:
         await self.db.delete(item)
         await self.db.flush()
         return True
+
+    async def cleanup_directory_previews(self):
+        from app.services.directory_previews import delete_owned
+
+        await delete_owned(getattr(self, "_directory_delete_keys", []))
+        self._directory_delete_keys = []
 
     async def ingest_one(
         self,

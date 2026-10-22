@@ -62,3 +62,5 @@ PATCH 允许 `name / enabled / scope / use_user_ids`，不允许改根或基目�
 `list / read / range` 分别返回 `verified / unknown`；只传目录时不会推断 read 已验证。显式样本以只读方式采样；`write / delete / presign` 为 `unsupported`，不写探针文件。离线返回 `node_timeout` 或 `node_unavailable`，未配置根返回 `root_not_configured`。证据5分钟过期，配置变更或停用后显示 `stale`；API可达不能代替 worker 可扫描。
 
 API本地探测等待窗口3秒，远端等待窗口5秒。超时后台结果不会自行更新有效证据；操作系统阻塞的文件系统调用无法由线程取消，等待窗口不表示底层 I/O 已终止。首次探测某节点信任其部署根映射；跨节点 dev/inode 不比较，能力通过也不代表字节一致或原地预览已验收。
+
+目录位置的 `cache_policy` 为 none/preview，默认 preview；它是来源预览缓存的上限，none 优先于来源请求。修改上限更新位置修订，使旧扫描/登记不能继续发布。已有派生不隐式删除，预览读取实时检查上限；外部原图与已独立托管的副本不受缓存选择影响。

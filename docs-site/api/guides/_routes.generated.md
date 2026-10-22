@@ -270,6 +270,9 @@
 | GET | `/dataset-sources` |
 | GET | `/dataset-sources/{source_id}` |
 | PATCH | `/dataset-sources/{source_id}` |
+| GET | `/dataset-sources/{source_id}/lifecycle-impact` |
+| POST | `/dataset-sources/{source_id}/lifecycle` |
+| GET | `/dataset-sources/{source_id}/entries/{path_digest}/preview` |
 | POST | `/dataset-sources/{source_id}/scans` |
 | GET | `/dataset-sources/{source_id}/scans` |
 | GET | `/dataset-scans/{run_id}` |
@@ -954,4 +957,4 @@
 
 ---
 
-_共 86 模块 / 547 路由_
+_共 86 模块 / 550 路由_

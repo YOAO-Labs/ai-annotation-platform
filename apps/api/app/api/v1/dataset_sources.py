@@ -12,7 +12,8 @@ from app.db.models.dataset_source import (
     DatasetSource,
     DatasetScanRun,
     DatasetScanEntry,
-    DatasetReference,
+    DatasetSourceItem,
+    DatasetSourcePreview,
     DatasetRegistrationRun,
     DatasetRegistrationEntry,
 )
@@ -30,6 +31,8 @@ from app.schemas.dataset_source import (
     RegisteredReferenceOut,
     DatasetRegistrationOut,
     DatasetRegistrationEntryList,
+    SourceLifecycleImpact,
+    SourceLifecycleChange,
 )
 from app.services import dataset_scans as svc
 from app.services import dataset_source_access as access
@@ -134,6 +137,70 @@ async def patch_source(
     return svc.source_out(source)
 
 
+@router.get(
+    "/dataset-sources/{source_id}/lifecycle-impact",
+    response_model=SourceLifecycleImpact,
+)
+async def lifecycle_impact(
+    source_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(manager),
+):
+    from app.services.dataset_source_lifecycle import impact
+
+    source = await access.require_source(db, source_id, actor)
+    return await impact(db, source, actor)
+
+
+@router.post("/dataset-sources/{source_id}/lifecycle", response_model=DatasetSourceOut)
+async def source_lifecycle(
+    source_id: uuid.UUID,
+    payload: SourceLifecycleChange,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(manager),
+):
+    from app.services.dataset_source_lifecycle import change
+
+    source = await change(
+        db, source_id, payload, actor, getattr(request.state, "api_key_id", None)
+    )
+    await audit(db, actor, request, f"dataset_source.{payload.action}", source.id)
+    await db.commit()
+    return svc.source_out(source)
+
+
+@router.get(
+    "/dataset-sources/{source_id}/entries/{path_digest}/preview",
+    response_class=Response,
+    responses=IMAGE_RESPONSES,
+)
+async def read_directory_preview(
+    source_id: uuid.UUID,
+    path_digest: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(manager),
+):
+    from app.services.directory_previews import read_preview
+    from app.services.dataset_content import content_http_error
+    from app.services.content_snapshot import SnapshotResponse
+
+    if request.headers.get("range") is not None:
+        raise HTTPException(416, "Range is not supported for previews")
+    try:
+        snapshot = await read_preview(
+            db,
+            source_id,
+            path_digest,
+            actor,
+            getattr(request.state, "api_key_id", None),
+        )
+    except Exception as exc:
+        raise content_http_error(exc) from None
+    return SnapshotResponse(snapshot)
+
+
 @router.post(
     "/dataset-sources/{source_id}/scans", response_model=DatasetScanOut, status_code=202
 )
@@ -208,9 +275,18 @@ async def list_entries(
     registered = {
         r.path_digest: r.dataset_item_id
         for r in await db.scalars(
-            select(DatasetReference).where(
-                DatasetReference.source_id == run.source_id,
-                DatasetReference.path_digest.in_([row.path_digest for row in rows]),
+            select(DatasetSourceItem).where(
+                DatasetSourceItem.source_id == run.source_id,
+                DatasetSourceItem.path_digest.in_([row.path_digest for row in rows]),
+            )
+        )
+    }
+    previews = {
+        p.path_digest: p
+        for p in await db.scalars(
+            select(DatasetSourcePreview).where(
+                DatasetSourcePreview.source_id == run.source_id,
+                DatasetSourcePreview.path_digest.in_([row.path_digest for row in rows]),
             )
         )
     }
@@ -224,6 +300,12 @@ async def list_entries(
                 "size_bytes": row.observed.get("size"),
                 "content_verified": row.verified_content is not None,
                 "registered_item_id": registered.get(row.path_digest),
+                "preview_state": previews[row.path_digest].state
+                if row.path_digest in previews
+                else None,
+                "preview_bytes": previews[row.path_digest].size_bytes
+                if row.path_digest in previews
+                else None,
                 "verified_content": {
                     k: row.verified_content[k]
                     for k in (
@@ -573,6 +655,8 @@ async def registration_entries(
                 "attempts": unit.attempts,
                 "size_bytes": observed.observed.get("size"),
                 "sha256": (observed.verified_content or {}).get("sha256"),
+                "preview_estimated_bytes": unit.preview_estimated_bytes,
+                "preview_error": unit.preview_error,
             }
             for unit, observed in rows
         ],

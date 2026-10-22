@@ -65,6 +65,7 @@ async def content_world(db_session, super_admin, tmp_path, monkeypatch):
             name="Content",
             node_id="content@test",
             relative_path="source",
+            cache_policy="none",
         ),
         actor,
     )

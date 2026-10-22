@@ -417,6 +417,7 @@ async def upload_complete(
         await svc.delete_item(item_id)
         await recheck_directory_write(request, db, dataset_id)
         await db.commit()
+        await svc.cleanup_directory_previews()
         raise HTTPException(status_code=400, detail="File not found in storage")
 
     from app.services.dataset_assets import (
@@ -470,6 +471,7 @@ async def upload_complete(
         await svc.delete_item(item_id)
         await recheck_directory_write(request, db, dataset_id)
         await db.commit()
+        await svc.cleanup_directory_previews()
         raise HTTPException(
             status_code=409,
             detail={
@@ -992,6 +994,7 @@ async def delete_item(
     if not ok:
         raise HTTPException(status_code=404, detail="Item not found")
     await db.commit()
+    await svc.cleanup_directory_previews()
 
 
 # ── Project linking ─────────────────────────────────────────────────────────

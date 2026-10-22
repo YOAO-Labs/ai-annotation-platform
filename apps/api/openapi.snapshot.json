@@ -12285,6 +12285,28 @@
             "title": "Path Digest",
             "type": "string"
           },
+          "preview_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview Error"
+          },
+          "preview_estimated_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview Estimated Bytes"
+          },
           "relative_path": {
             "title": "Relative Path",
             "type": "string"
@@ -12343,6 +12365,10 @@
             ],
             "title": "Async Job Id"
           },
+          "cache_policy": {
+            "title": "Cache Policy",
+            "type": "string"
+          },
           "completed_at": {
             "anyOf": [
               {
@@ -12387,6 +12413,10 @@
             "title": "Id",
             "type": "string"
           },
+          "ownership_mode": {
+            "title": "Ownership Mode",
+            "type": "string"
+          },
           "phase": {
             "title": "Phase",
             "type": "string"
@@ -12400,6 +12430,10 @@
             "format": "uuid",
             "title": "Source Id",
             "type": "string"
+          },
+          "source_revision": {
+            "title": "Source Revision",
+            "type": "integer"
           },
           "status": {
             "title": "Status",
@@ -12417,7 +12451,10 @@
           "error_code",
           "counts",
           "created_at",
-          "completed_at"
+          "completed_at",
+          "ownership_mode",
+          "cache_policy",
+          "source_revision"
         ],
         "title": "DatasetRegistrationOut",
         "type": "object"
@@ -12457,6 +12494,28 @@
           "path_digest": {
             "title": "Path Digest",
             "type": "string"
+          },
+          "preview_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview Bytes"
+          },
+          "preview_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview State"
           },
           "registered_item_id": {
             "anyOf": [
@@ -12628,6 +12687,15 @@
       "DatasetSourceCreate": {
         "additionalProperties": false,
         "properties": {
+          "cache_policy": {
+            "default": "preview",
+            "enum": [
+              "none",
+              "preview"
+            ],
+            "title": "Cache Policy",
+            "type": "string"
+          },
           "dataset_id": {
             "format": "uuid",
             "title": "Dataset Id",
@@ -12666,6 +12734,15 @@
             "minLength": 1,
             "pattern": "^[a-zA-Z0-9_.@:-]+$",
             "title": "Node Id",
+            "type": "string"
+          },
+          "ownership_mode": {
+            "default": "reference",
+            "enum": [
+              "reference",
+              "managed_copy"
+            ],
+            "title": "Ownership Mode",
             "type": "string"
           },
           "recursive": {
@@ -12712,6 +12789,14 @@
       },
       "DatasetSourceOut": {
         "properties": {
+          "cache_policy": {
+            "enum": [
+              "none",
+              "preview"
+            ],
+            "title": "Cache Policy",
+            "type": "string"
+          },
           "config_revision": {
             "title": "Config Revision",
             "type": "integer"
@@ -12769,6 +12854,18 @@
             "title": "Node Id",
             "type": "string"
           },
+          "ownership_mode": {
+            "enum": [
+              "reference",
+              "managed_copy"
+            ],
+            "title": "Ownership Mode",
+            "type": "string"
+          },
+          "policy_revision": {
+            "title": "Policy Revision",
+            "type": "integer"
+          },
           "recursive": {
             "title": "Recursive",
             "type": "boolean"
@@ -12776,6 +12873,18 @@
           "relative_path": {
             "title": "Relative Path",
             "type": "string"
+          },
+          "unregistered_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unregistered At"
           }
         },
         "required": [
@@ -12788,7 +12897,11 @@
           "relative_path",
           "node_id",
           "recursive",
-          "include_globs"
+          "include_globs",
+          "ownership_mode",
+          "cache_policy",
+          "policy_revision",
+          "unregistered_at"
         ],
         "title": "DatasetSourceOut",
         "type": "object"
@@ -12796,6 +12909,21 @@
       "DatasetSourceUpdate": {
         "additionalProperties": false,
         "properties": {
+          "cache_policy": {
+            "anyOf": [
+              {
+                "enum": [
+                  "none",
+                  "preview"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cache Policy"
+          },
           "enabled": {
             "anyOf": [
               {
@@ -15582,6 +15710,15 @@
       "FilesystemLocationCreate": {
         "additionalProperties": false,
         "properties": {
+          "cache_policy": {
+            "default": "preview",
+            "enum": [
+              "none",
+              "preview"
+            ],
+            "title": "Cache Policy",
+            "type": "string"
+          },
           "name": {
             "maxLength": 100,
             "minLength": 1,
@@ -39550,6 +39687,101 @@
         "title": "SourceFreshness",
         "type": "object"
       },
+      "SourceLifecycleChange": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "pause",
+              "enable",
+              "unregister"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "impact_proof": {
+            "title": "Impact Proof",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "expected_revision",
+          "impact_proof"
+        ],
+        "title": "SourceLifecycleChange",
+        "type": "object"
+      },
+      "SourceLifecycleImpact": {
+        "properties": {
+          "active_attempt_count": {
+            "title": "Active Attempt Count",
+            "type": "integer"
+          },
+          "annotation_count": {
+            "title": "Annotation Count",
+            "type": "integer"
+          },
+          "expected_revision": {
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "item_count": {
+            "title": "Item Count",
+            "type": "integer"
+          },
+          "measured_at": {
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "preview_bytes": {
+            "title": "Preview Bytes",
+            "type": "integer"
+          },
+          "preview_count": {
+            "title": "Preview Count",
+            "type": "integer"
+          },
+          "project_count": {
+            "title": "Project Count",
+            "type": "integer"
+          },
+          "proof": {
+            "title": "Proof",
+            "type": "string"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "task_count": {
+            "title": "Task Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source_id",
+          "expected_revision",
+          "proof",
+          "item_count",
+          "project_count",
+          "task_count",
+          "annotation_count",
+          "active_attempt_count",
+          "preview_count",
+          "preview_bytes",
+          "measured_at"
+        ],
+        "title": "SourceLifecycleImpact",
+        "type": "object"
+      },
       "StorageBindingOut": {
         "properties": {
           "bucket": {
@@ -39873,6 +40105,15 @@
       },
       "StorageLocationOut": {
         "properties": {
+          "cache_policy": {
+            "default": "preview",
+            "enum": [
+              "none",
+              "preview"
+            ],
+            "title": "Cache Policy",
+            "type": "string"
+          },
           "config_revision": {
             "title": "Config Revision",
             "type": "integer"
@@ -39969,6 +40210,21 @@
       "StorageLocationUpdate": {
         "additionalProperties": false,
         "properties": {
+          "cache_policy": {
+            "anyOf": [
+              {
+                "enum": [
+                  "none",
+                  "preview"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cache Policy"
+          },
           "enabled": {
             "anyOf": [
               {
@@ -61175,6 +61431,182 @@
           }
         ],
         "summary": "Patch Source",
+        "tags": [
+          "dataset-sources"
+        ]
+      }
+    },
+    "/api/v1/dataset-sources/{source_id}/entries/{path_digest}/preview": {
+      "get": {
+        "operationId": "read_directory_preview_api_v1_dataset_sources__source_id__entries__path_digest__preview_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "path_digest",
+            "required": true,
+            "schema": {
+              "title": "Path Digest",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Verified full image snapshot"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read Directory Preview",
+        "tags": [
+          "dataset-sources"
+        ]
+      }
+    },
+    "/api/v1/dataset-sources/{source_id}/lifecycle": {
+      "post": {
+        "operationId": "source_lifecycle_api_v1_dataset_sources__source_id__lifecycle_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceLifecycleChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetSourceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Source Lifecycle",
+        "tags": [
+          "dataset-sources"
+        ]
+      }
+    },
+    "/api/v1/dataset-sources/{source_id}/lifecycle-impact": {
+      "get": {
+        "operationId": "lifecycle_impact_api_v1_dataset_sources__source_id__lifecycle_impact_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceLifecycleImpact"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Lifecycle Impact",
         "tags": [
           "dataset-sources"
         ]

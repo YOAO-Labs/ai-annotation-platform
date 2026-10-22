@@ -708,6 +708,8 @@ def _task_with_url(
     from app.services.reference_keys import is_reference, parse_reference
 
     reference = is_reference(task.file_path)
+    if reference:
+        thumbnail_path, blurhash = None, None
     content_sha256 = None
     if reference:
         file_url = None
@@ -765,6 +767,9 @@ async def _attach_dimensions(
 
         item = await db.get(DatasetItem, task.dataset_item_id)
         if item:
+            from app.services.directory_policy import owns_media
+
+            directory_owned = await owns_media(db, item.id)
             video_metadata = (
                 dict((item.metadata_ or {}).get("video") or {})
                 if item.file_type == "video"
@@ -773,8 +778,8 @@ async def _attach_dimensions(
             return (
                 item.width,
                 item.height,
-                item.thumbnail_path,
-                item.blurhash,
+                None if directory_owned else item.thumbnail_path,
+                None if directory_owned else item.blurhash,
                 video_metadata,
             )
     return None, None, task.thumbnail_path, task.blurhash, None
@@ -810,14 +815,15 @@ async def _attach_dimensions_batch(
     item_ids = [t.dataset_item_id for t in tasks if t.dataset_item_id]
     if item_ids:
         from app.db.models.dataset import DatasetItem
+        from app.services.directory_policy import legacy_media_column
 
         rows = await db.execute(
             select(
                 DatasetItem.id,
                 DatasetItem.width,
                 DatasetItem.height,
-                DatasetItem.thumbnail_path,
-                DatasetItem.blurhash,
+                legacy_media_column(DatasetItem.thumbnail_path),
+                legacy_media_column(DatasetItem.blurhash),
                 DatasetItem.file_type,
                 DatasetItem.metadata_,
             ).where(DatasetItem.id.in_(item_ids))

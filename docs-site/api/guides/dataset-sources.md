@@ -82,3 +82,23 @@ Run 的 `completed` 和 `complete=true` 只表示约定范围枚举与复核完�
 同 Source/path 幂等返回 `created=false`；相同摘要的其他路径不会合并样本。来源或内容变化拒绝，繁忙的数据集返回409 `dataset_busy`，可重试。登记在最终锁内复查原始 API Key 和账号权限，不会把轮换后的 Key 认作原请求。接口是逐条事务；中断保留已提交条目，entries 的 `registered_item_id` 可用于恢复。
 
 `GET /dataset-items/{item_id}/content?sha256=...` 仅当前有来源管理权限的管理员及 `datasets:read` 可预览已登记图片；响应、预算与失败语义沿用[严格内容读取](./verified-content)。员工通过 Task 内容接口读取分配任务，不开放此管理入口。
+
+## 原图与缓存策略
+
+创建来源接受 `ownership_mode: reference | managed_copy`（默认 reference）与 `cache_policy: none | preview`（默认 preview）。旧来源迁移为 reference/none。位置的 none 上限优先；登记响应的 `ownership_mode/cache_policy/source_revision` 是本次固定计划，不包含内部凭据。策略独立于路径配置，所有权创建后不可修改；PATCH 缓存策略需 expected_revision，活动尝试须先取消。策略或生命周期变更后，旧扫描/登记历史保留，需要新扫描与预检，旧引用摘要不变。
+
+预检 `preview_estimated_bytes/preview_estimated_count/preview_estimate_error_count` 区分实测估算与未知项；`original_estimated_bytes` 是候选原图复制估算。正式登记的 `original_copy_bytes` 仅计本次新增复制对象，`preview_retained_bytes` 计本轮路径当前持有预览，`preview_failed_count` 独立于原图登记结果。单项结果提供可空 `preview_estimated_bytes` 与 `preview_error`。托管内容去重会影响实际复制量，不能将扫描体量视为新增托管容量。
+
+扫描条目的 `preview_state/preview_bytes` 描述该来源的派生账本。`GET /dataset-sources/{source_id}/entries/{path_digest}/preview` 仅向当前有权管理来源的账号提供完整鉴权 WebP 快照，响应 no-store 并复核自身 SHA；不返回可脱离实时授权的预签名地址。该端点不要求外部原图在线，缓存不可用于标注。none、停用、注销及撤权均拒绝新读。已登记路径再次 register 可重试失败/缺失缓存，不改变 Item 身份。
+
+## 来源生命周期
+
+先 `GET /dataset-sources/{source_id}/lifecycle-impact`，返回当前修订、proof、关联样本/项目/任务/标注记录数、活动尝试数、本来源预览数/字节及观测时间。计数是影响预览，任务数不表示所有任务都会不可用：托管复制原件继续可读。
+
+再 `POST /dataset-sources/{source_id}/lifecycle`：
+
+```json
+{ "action": "pause", "expected_revision": 1, "impact_proof": "从影响预览取得的proof" }
+```
+
+`action` 支持 pause、enable、unregister；修订或影响改变返回409 `source_impact_changed`，需刷新预览。停用/注销在同事务取消活动 Run/Job 并撤销租约，保留已提交样本、任务、标注和回执。停用可以恢复，注销不可恢复。引用停止新读与后续标注；已经核验并持有共享来源锁的标注事务先完成，生命周期操作再返回。托管复制原件独立于来源。全部操作都不修改外部文件；PATCH 的 enabled 实际变化返回409 `lifecycle_impact_required`，须走影响确认端点。

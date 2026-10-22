@@ -13,6 +13,7 @@ from app.db.models.dataset_source import (
     DatasetSource,
     DatasetScanRun,
     DatasetScanEntry,
+    DatasetSourceItem,
 )
 from app.db.models.task import Task
 from app.db.models.project import Project
@@ -36,6 +37,11 @@ async def register_entry(
 ):
     from app.services.dataset_content import scan_snapshot, scan_context, key_authority
     from app.services.project_kind import dataset_has_scenes
+    from app.services.dataset_assets import ensure_legacy_bindings
+    from app.services import directory_previews as previews
+
+    # Binding initialization precedes the Location/Source lock order.
+    binding = await ensure_legacy_bindings(db)
 
     key_proof = await key_authority(db, actor, api_key_id, "datasets:write")
     snapshot = await scan_snapshot(
@@ -96,17 +102,143 @@ async def register_entry(
         ),
         receipt["sha256"],
     )
-    final.close()
-    await scans.require_actor(db, actor.id, source)
-    if await key_authority(db, actor, api_key_id, "datasets:write") != key_proof:
-        raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
-    if before_apply is not None:
-        await before_apply(db)
-    result = await apply_reference(db, source, run, entry, dataset, actor)
-    if on_result is not None:
-        await on_result(db, result)
-    await db.commit()
-    return result
+    uploaded = []
+    retired = []
+    committing = False
+    try:
+        mapping = await db.get(DatasetSourceItem, (source.id, path_digest))
+        if mapping:
+            if (
+                mapping.content_sha256 != receipt["sha256"]
+                or mapping.ownership_mode != source.ownership_mode
+            ):
+                raise snapshots.ContentError("reference_content_changed")
+            result = {
+                "item_id": mapping.dataset_item_id,
+                "created": False,
+                "sha256": mapping.content_sha256,
+            }
+        else:
+            if source.ownership_mode == "managed_copy":
+                result = await apply_copy(
+                    db, source, entry, dataset, final, binding, uploaded
+                )
+            else:
+                result = await apply_reference(db, source, run, entry, dataset, actor)
+            asset = await db.scalar(
+                select(DatasetAsset).where(
+                    DatasetAsset.dataset_item_id == result["item_id"]
+                )
+            )
+            mapping = DatasetSourceItem(
+                source_id=source.id,
+                path_digest=path_digest,
+                run_id=run.id,
+                dataset_item_id=result["item_id"],
+                asset_id=asset.id,
+                content_sha256=receipt["sha256"],
+                ownership_mode=source.ownership_mode,
+                owns_item=result["created"],
+            )
+            db.add(mapping)
+            await db.flush()
+        preview = await previews.generate(
+            db, location, source, mapping, final, uploaded, retired
+        )
+        await scans.require_actor(db, actor.id, source)
+        if await key_authority(db, actor, api_key_id, "datasets:write") != key_proof:
+            raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+        if before_apply is not None:
+            await before_apply(db)
+        result.update(
+            original_copy_bytes=receipt["size_bytes"]
+            if source.ownership_mode == "managed_copy" and result["created"]
+            else 0,
+            preview_bytes=preview.size_bytes
+            if preview and preview.state == "ready"
+            else 0,
+            preview_failed=bool(preview and preview.state == "failed"),
+        )
+        if on_result is not None:
+            await on_result(db, result)
+        committing = True
+        await db.commit()
+        await previews.delete_owned(retired)
+        return result
+    except BaseException:
+        # A lost commit acknowledgement is not proof that the owned object is
+        # unpublished. Leave it for reconciliation rather than deleting data.
+        if not committing:
+            await previews.delete_owned(uploaded)
+        raise
+    finally:
+        final.close()
+
+
+async def apply_copy(db, source, entry, dataset, snapshot, binding, uploaded):
+    from app.services.directory_previews import finish_io
+    from app.services.dataset import DatasetService
+    from app.services.dataset_assets import find_verified_content
+    from app.services.dataset_content import stored_content
+    from botocore.exceptions import ClientError
+    from app.services.dataset_storage_keys import managed_dataset_key
+    from app.services.storage import storage_service
+
+    service = DatasetService(db)
+    existing = await find_verified_content(db, dataset.id, snapshot.sha256)
+    if existing:
+        try:
+            stored = await snapshots.capture(
+                lambda: stored_content(
+                    binding.bucket, existing.file_path, snapshot.size
+                ),
+                snapshot.sha256,
+            )
+            stored.close()
+        except snapshots.ContentError as exc:
+            if exc.code in {"snapshot_capacity_exceeded", "content_read_timeout"}:
+                raise
+            existing = None
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") not in {
+                "NoSuchKey",
+                "404",
+                "NotFound",
+            }:
+                raise
+            existing = None
+        if existing:
+            return {"item_id": existing.id, "created": False, "sha256": snapshot.sha256}
+    name = await service._unique_file_name(dataset.id, entry.relative_path)
+    key = managed_dataset_key(dataset.id, name)
+    uploaded.append((binding.bucket, key))
+    snapshot.file.seek(0)
+    response = await finish_io(
+        storage_service.client.put_object,
+        Bucket=binding.bucket,
+        Key=key,
+        Body=snapshot.file,
+        ContentLength=snapshot.size,
+        ContentType=snapshot.media_type,
+    )
+    snapshot.file.seek(0)
+    item = await service.add_item(
+        dataset.id,
+        name,
+        key,
+        "image",
+        file_size=snapshot.size,
+        width=snapshot.width,
+        height=snapshot.height,
+        sha256=snapshot.sha256,
+        object_etag=response.get("ETag"),
+        storage_binding=binding,
+        logical_path=name,
+    )
+    item.metadata_ = {**item.metadata_, "directory_owned_media": True}
+    await db.flush()
+    await service.create_tasks_for_items(dataset.id, [item.id])
+    return {"item_id": item.id, "created": True, "sha256": snapshot.sha256}
 
 
 async def apply_reference(db, source, run, entry, dataset, actor):
@@ -218,7 +350,12 @@ async def reference_context(db, item_id, actor, *, task_id=None):
     )
     if task_id is None and source is not None:
         await scans.require_actor(db, actor.id, source)
-    if source is None or not source.enabled or source.dataset_id != item.dataset_id:
+    if (
+        source is None
+        or not source.enabled
+        or source.unregistered_at
+        or source.dataset_id != item.dataset_id
+    ):
         raise snapshots.ContentError("source_unavailable")
     location = await db.get(StorageLocation, source.location_id, populate_existing=True)
     if location is None or not location.enabled or location.kind != "filesystem":

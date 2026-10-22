@@ -5,6 +5,7 @@ import uuid
 
 from sqlalchemy import (
     Boolean,
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -38,6 +39,14 @@ class DatasetSource(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     generation: Mapped[int] = mapped_column(default=0, server_default="0")
     root_identity: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    ownership_mode: Mapped[str] = mapped_column(
+        String(20), default="reference", server_default="reference"
+    )
+    cache_policy: Mapped[str] = mapped_column(
+        String(20), default="none", server_default="none"
+    )
+    policy_revision: Mapped[int] = mapped_column(default=1, server_default="1")
+    unregistered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -181,6 +190,18 @@ class DatasetRegistrationRun(Base):
         ),
     )
 
+    @property
+    def source_revision(self):
+        return self.snapshot["source_revision"]
+
+    @property
+    def ownership_mode(self):
+        return self.snapshot.get("ownership_mode", "reference")
+
+    @property
+    def cache_policy(self):
+        return self.snapshot.get("cache_policy", "none")
+
 
 class DatasetRegistrationEntry(Base):
     __tablename__ = "dataset_registration_entries"
@@ -195,10 +216,83 @@ class DatasetRegistrationEntry(Base):
     error_code: Mapped[str | None] = mapped_column(String(60))
     attempts: Mapped[int] = mapped_column(default=0)
     refresh_unverified: Mapped[bool] = mapped_column(Boolean, default=False)
+    preview_estimated_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    preview_error: Mapped[str | None] = mapped_column(String(60))
+    original_estimated_bytes: Mapped[int] = mapped_column(
+        BigInteger, default=0, server_default="0"
+    )
     __table_args__ = (
         CheckConstraint(
             "state IN ('pending','ready','registered','unchanged','error')",
             name="ck_dataset_registration_entry_state",
         ),
         Index("ix_dataset_registration_work", "run_id", "state", "path_digest"),
+    )
+
+
+class DatasetSourceItem(Base):
+    """Immutable source path identity, also for independently managed copies."""
+
+    __tablename__ = "dataset_source_items"
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("dataset_sources.id", ondelete="RESTRICT"), primary_key=True
+    )
+    path_digest: Mapped[str] = mapped_column(String(64), primary_key=True)
+    run_id: Mapped[uuid.UUID] = mapped_column()
+    dataset_item_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("dataset_items.id", ondelete="CASCADE"), index=True
+    )
+    asset_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("dataset_assets.id", ondelete="CASCADE")
+    )
+    content_sha256: Mapped[str] = mapped_column(String(64))
+    ownership_mode: Mapped[str] = mapped_column(String(20))
+    owns_item: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["run_id", "path_digest"],
+            ["dataset_scan_entries.run_id", "dataset_scan_entries.path_digest"],
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "ownership_mode IN ('reference','managed_copy')",
+            name="ck_source_item_ownership",
+        ),
+    )
+
+
+class DatasetSourcePreview(Base):
+    """One source-owned derivative; never an original or a presigned thumbnail."""
+
+    __tablename__ = "dataset_source_previews"
+    source_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    path_digest: Mapped[str] = mapped_column(String(64), primary_key=True)
+    asset_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("dataset_assets.id", ondelete="CASCADE")
+    )
+    source_sha256: Mapped[str] = mapped_column(String(64))
+    spec: Mapped[str] = mapped_column(String(60))
+    policy_revision: Mapped[int] = mapped_column()
+    generation: Mapped[int] = mapped_column(default=1)
+    state: Mapped[str] = mapped_column(String(20))
+    error_code: Mapped[str | None] = mapped_column(String(60))
+    location_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("storage_locations.id")
+    )
+    bucket: Mapped[str | None] = mapped_column(String(255))
+    object_key: Mapped[str | None] = mapped_column(String(1000))
+    sha256: Mapped[str | None] = mapped_column(String(64))
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    measured_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["source_id", "path_digest"],
+            ["dataset_source_items.source_id", "dataset_source_items.path_digest"],
+            ondelete="CASCADE",
+        ),
+        CheckConstraint("state IN ('ready','failed')", name="ck_source_preview_state"),
     )

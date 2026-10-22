@@ -178,6 +178,10 @@ def sha256_digest(data: bytes) -> str:
 
 async def owner_for_task(db: AsyncSession, task: Task) -> ImagePyramidOwner:
     if task.dataset_item_id:
+        from app.services.directory_policy import owns_media
+
+        if await owns_media(db, task.dataset_item_id):
+            raise ImagePyramidError("directory_cache_not_supported")
         item = await db.get(DatasetItem, task.dataset_item_id)
         if item is None:
             raise ImagePyramidError("source_missing")
@@ -215,6 +219,10 @@ async def load_owner(
     db: AsyncSession, owner_kind: OwnerKind, owner_id: uuid.UUID
 ) -> ImagePyramidOwner:
     if owner_kind == "dataset_item":
+        from app.services.directory_policy import owns_media
+
+        if await owns_media(db, owner_id):
+            raise ImagePyramidError("directory_cache_not_supported")
         item = await db.get(DatasetItem, owner_id)
         if item is None:
             raise ImagePyramidError("source_missing")
@@ -291,6 +299,10 @@ async def prepare_generation(
     *,
     force: bool,
 ) -> ImagePyramidGeneration | None:
+    from app.services.directory_policy import owns_media
+
+    if owner.kind == "dataset_item" and await owns_media(db, owner.id):
+        raise ImagePyramidError("directory_cache_not_supported")
     if owner.file_type != "image":
         raise ImagePyramidError("not_image")
     if not force and not pyramid_eligible(owner.width, owner.height):
@@ -450,6 +462,10 @@ async def publish_generation(
         or generation.status != "building"
         or generation.lease_token != lease_token
     ):
+        return False
+    from app.services.directory_policy import owns_media
+
+    if await owns_media(db, asset.dataset_item_id):
         return False
     generation.source_fingerprint = source_fingerprint
     generation.status = "ready"

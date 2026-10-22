@@ -14,6 +14,7 @@ class FilesystemLocationCreate(BaseModel):
     relative_path: str = Field(default="", max_length=1000)
     scope: Literal["restricted", "global"] = "restricted"
     use_user_ids: list[uuid.UUID] = Field(default_factory=list, max_length=100)
+    cache_policy: Literal["none", "preview"] = "preview"
 
 
 class StorageLocationUpdate(BaseModel):
@@ -23,6 +24,7 @@ class StorageLocationUpdate(BaseModel):
     enabled: bool | None = None
     scope: Literal["restricted", "global"] | None = None
     use_user_ids: list[uuid.UUID] | None = Field(default=None, max_length=100)
+    cache_policy: Literal["none", "preview"] | None = None
 
 
 class StorageLocationOut(BaseModel):
@@ -37,6 +39,7 @@ class StorageLocationOut(BaseModel):
     scope: str | None = None
     use_user_ids: list[uuid.UUID] = Field(default_factory=list)
     declared_capabilities: dict[str, bool]
+    cache_policy: Literal["none", "preview"] = "preview"
 
 
 class StorageLocationList(BaseModel):

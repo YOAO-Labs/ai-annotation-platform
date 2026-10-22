@@ -227,6 +227,10 @@ async def _generate_thumbnail(item_id: str) -> None:
             item = await db.get(DatasetItem, uuid.UUID(item_id))
             if not item or item.file_type != "image":
                 return
+            from app.services.directory_policy import owns_media
+
+            if await owns_media(db, item.id):
+                return
 
             from app.services.reference_keys import reject_reference
 
@@ -535,6 +539,10 @@ async def _generate_task_thumbnail(task_id: str) -> None:
         async with SessionLocal() as db:
             task = await db.get(Task, uuid.UUID(task_id))
             if not task or task.file_type != "image":
+                return
+            from app.services.directory_policy import owns_media
+
+            if await owns_media(db, task.dataset_item_id):
                 return
 
             from app.services.reference_keys import reject_reference

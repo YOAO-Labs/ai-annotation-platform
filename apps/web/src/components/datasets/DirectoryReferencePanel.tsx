@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { useAuthStore } from "@/stores/authStore";
 import { useVerifiedImage, verifiedContentError } from "@/hooks/useVerifiedImage";
 import { DirectoryRegistrationProgress } from "./DirectoryRegistrationProgress";
+import { DirectoryCachedPreview, DirectorySourceControls } from "./DirectorySourceControls";
 import { parseReference } from "@/utils/referenceContent";
 
 const field = "rounded-md border border-input bg-background px-2 py-1.5 text-xs text-foreground";
@@ -61,6 +62,8 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
   const [locationId, setLocationId] = useState("");
   const [directory, setDirectory] = useState("");
   const [node, setNode] = useState("");
+  const [ownership, setOwnership] = useState<"reference" | "managed_copy">("reference");
+  const [cache, setCache] = useState<"none" | "preview">("preview");
   const [recursive, setRecursive] = useState(true);
   const [include, setInclude] = useState("*.png,*.jpg,*.jpeg,*.webp,*.PNG,*.JPG,*.JPEG,*.WEBP");
   const [exclude, setExclude] = useState("");
@@ -121,12 +124,12 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
   };
   return (
     <section
-      aria-label="服务器目录原地引用"
+      aria-label="服务器目录接入"
       className="mb-4 rounded-lg border border-border bg-card p-3 text-xs"
     >
-      <h4 className="mb-1 text-sm font-semibold">服务器目录 · 原地引用</h4>
+      <h4 className="mb-1 text-sm font-semibold">服务器目录 · 登记与复制</h4>
       <p className="mb-3 text-muted-foreground">
-        原图保留在来源，复制量为0。先扫描并预检，再确认批量登记，也可逐条登记；已提交结果保留，可关闭后继续。本机文件夹仍通过上传接入。
+        选择原图保留在来源或复制到平台，预览缓存单独设置和计量。先扫描、预检，再确认登记；已提交结果保留。本机文件夹通过上传接入。
       </p>
       <div className="flex flex-wrap items-end gap-2">
         <label className="grid gap-1">
@@ -178,6 +181,30 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
             placeholder="worker 的完整 hostname"
           />
         </label>
+        <label className="grid gap-1">
+          原图策略
+          <select
+            aria-label="原图策略"
+            className={field}
+            value={ownership}
+            onChange={(e) => setOwnership(e.target.value as typeof ownership)}
+          >
+            <option value="reference">原地引用（不复制原图）</option>
+            <option value="managed_copy">托管复制</option>
+          </select>
+        </label>
+        <label className="grid gap-1">
+          预览策略
+          <select
+            aria-label="预览策略"
+            className={field}
+            value={cache}
+            onChange={(e) => setCache(e.target.value as typeof cache)}
+          >
+            <option value="preview">预览缓存</option>
+            <option value="none">无缓存</option>
+          </select>
+        </label>
         <label className="flex items-center gap-1 py-1">
           <input
             type="checkbox"
@@ -220,6 +247,8 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
                 relative_path: directory,
                 node_id: node,
                 recursive,
+                ownership_mode: ownership,
+                cache_policy: cache,
                 include_globs: include
                   .split(",")
                   .map((s) => s.trim())
@@ -291,7 +320,7 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
           {sources.data?.items.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name}
-              {!s.enabled ? "（停用）" : ""}
+              {s.unregistered_at ? "（已注销）" : !s.enabled ? "（停用）" : ""}
             </option>
           ))}
         </select>
@@ -335,12 +364,20 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
           </>
         )}
       </div>
-      {run?.complete && (
+      {source && (
+        <DirectorySourceControls
+          key={`${source.id}/${source.config_revision}`}
+          source={source}
+          act={act}
+        />
+      )}
+      {run?.complete && source?.enabled && !source.unregistered_at && (
         <DirectoryRegistrationProgress
           key={run.id}
           scanId={run.id}
           datasetId={datasetId}
           owner={owner}
+          sourceRevision={source.config_revision}
         />
       )}
       {run?.complete && (
@@ -360,11 +397,14 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
                   <td>{entry.size_bytes ?? "—"}</td>
                   <td>
                     {entry.registered_item_id ? (
-                      "已登记 · 原地引用"
+                      <span>
+                        已登记 ·{" "}
+                        {source?.ownership_mode === "managed_copy" ? "托管复制" : "原地引用"}
+                      </span>
                     ) : entry.kind === "file" && entry.state === "observed" ? (
                       <Button
                         size="sm"
-                        disabled={busy}
+                        disabled={busy || !source?.enabled || !!source.unregistered_at}
                         onClick={() =>
                           void act(async (current) => {
                             const sample = [source!.relative_path, entry.relative_path]
@@ -384,6 +424,40 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
                     ) : (
                       entry.state
                     )}
+                    {entry.preview_state === "ready" &&
+                      source?.enabled &&
+                      !source.unregistered_at &&
+                      source.cache_policy === "preview" && (
+                        <DirectoryCachedPreview
+                          key={`${source.id}/${source.config_revision}/${entry.path_digest}`}
+                          sourceId={source.id}
+                          digest={entry.path_digest}
+                        />
+                      )}
+                    {entry.preview_state === "failed" && (
+                      <span className="text-status-caution">预览生成失败；原图登记已保留</span>
+                    )}
+                    {entry.preview_state === "failed" &&
+                      source?.enabled &&
+                      !source.unregistered_at && (
+                        <Button
+                          size="sm"
+                          disabled={busy}
+                          onClick={() =>
+                            void act(async (current) => {
+                              const sample = [source.relative_path, entry.relative_path]
+                                .filter(Boolean)
+                                .join("/");
+                              const probe = await api.probe(source.location_id, "api", sample);
+                              if (!current()) return;
+                              if (!probe.ok) throw new Error(`API 原图不可读：${probe.code}`);
+                              await api.register(run.id, entry.path_digest);
+                            })
+                          }
+                        >
+                          重新核验并生成预览
+                        </Button>
+                      )}
                   </td>
                 </tr>
               ))}

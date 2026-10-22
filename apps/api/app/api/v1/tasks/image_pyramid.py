@@ -136,7 +136,10 @@ async def get_image_pyramid(
 ):
     task = await _load_task_or_404(db, task_id)
     await _assert_task_visible(db, task, current_user)
-    owner, asset, generation = await get_active_generation_for_task(db, task)
+    try:
+        owner, asset, generation = await get_active_generation_for_task(db, task)
+    except ImagePyramidError as exc:
+        raise HTTPException(409, detail={"reason": exc.code}) from None
     required = pyramid_required(owner.width, owner.height)
     response.headers["Cache-Control"] = "private, no-store"
 
@@ -303,7 +306,10 @@ async def create_image_pyramid_asset_urls(
         )
     task = await _load_task_or_404(db, task_id)
     await _assert_task_visible(db, task, current_user)
-    owner, asset, generation = await get_active_generation_for_task(db, task)
+    try:
+        owner, asset, generation = await get_active_generation_for_task(db, task)
+    except ImagePyramidError as exc:
+        raise HTTPException(409, detail={"reason": exc.code}) from None
     if asset is None or generation is None or generation.status != "ready":
         IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
             operation="asset_urls", outcome="not_ready"
@@ -425,7 +431,10 @@ async def retry_image_pyramid(
 ):
     task = await _load_task_or_404(db, task_id)
     await _assert_task_visible(db, task, current_user)
-    owner, asset, generation = await get_active_generation_for_task(db, task)
+    try:
+        owner, asset, generation = await get_active_generation_for_task(db, task)
+    except ImagePyramidError as exc:
+        raise HTTPException(409, detail={"reason": exc.code}) from None
     if owner.file_type != "image":
         raise HTTPException(status_code=409, detail={"reason": "not_image"})
     if (

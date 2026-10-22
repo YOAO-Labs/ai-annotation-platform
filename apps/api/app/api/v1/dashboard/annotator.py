@@ -482,8 +482,16 @@ async def my_batches(
     # Task.thumbnail_path 为空，故需 LEFT JOIN + COALESCE，否则数据集任务永远拿不到封面。
     cover_map: dict = {}
     if batch_ids:
-        eff_thumb = func.coalesce(DatasetItem.thumbnail_path, Task.thumbnail_path)
-        eff_blur = func.coalesce(DatasetItem.blurhash, Task.blurhash)
+        from app.services.directory_policy import legacy_media_column
+
+        eff_thumb = legacy_media_column(
+            func.coalesce(DatasetItem.thumbnail_path, Task.thumbnail_path).label(
+                "thumbnail_path"
+            )
+        )
+        eff_blur = legacy_media_column(
+            func.coalesce(DatasetItem.blurhash, Task.blurhash).label("blurhash")
+        )
         cover_rows = await db.execute(
             select(Task.batch_id, eff_thumb, eff_blur)
             .outerjoin(DatasetItem, DatasetItem.id == Task.dataset_item_id)

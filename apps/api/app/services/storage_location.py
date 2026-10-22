@@ -143,6 +143,7 @@ async def to_out(db, location, actor):
         "kind": location.kind,
         "enabled": location.enabled,
         "config_revision": location.config_revision,
+        "cache_policy": config.get("cache_policy", "preview"),
         "connection_id": location.connection_id,
         "root_handle": config.get("root_handle")
         if location.kind == "filesystem"
@@ -191,6 +192,7 @@ async def create_filesystem(db, payload):
         "relative_path": fs.relative_path(payload.relative_path),
         "scope": payload.scope,
         "use_user_ids": sorted({str(value) for value in payload.use_user_ids}),
+        "cache_policy": payload.cache_policy,
     }
     anchor = await run_in_threadpool(fs.capture_anchor, config)
     config.update(registration_node=api_node_id(), registration_anchor=anchor)
@@ -215,6 +217,8 @@ async def update_filesystem(db, location, payload):
     if payload.use_user_ids is not None:
         await validate_grants(db, payload.use_user_ids)
     config = dict(location.config)
+    if payload.cache_policy is not None:
+        config["cache_policy"] = payload.cache_policy
     if payload.scope is not None:
         config["scope"] = payload.scope
     if payload.use_user_ids is not None:

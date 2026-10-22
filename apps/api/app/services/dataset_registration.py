@@ -10,7 +10,7 @@ from sqlalchemy import BigInteger, cast, func, insert, literal, select
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset_source import (
-    DatasetReference,
+    DatasetSourceItem,
     DatasetRegistrationEntry as Entry,
     DatasetRegistrationRun as Run,
     DatasetScanEntry,
@@ -76,6 +76,8 @@ async def context(db, run_id):
 
 async def validate(db, location, source, run):
     await scans.validate_context(db, location, source, snapshot=run.snapshot)
+    if source.policy_revision != run.snapshot.get("policy_revision", 1):
+        raise fs.FilesystemStorageError("configuration_changed")
     actor = await scans.require_actor(db, uuid.UUID(run.snapshot["actor_id"]), source)
     proof = await key_authority(
         db, actor, run.snapshot.get("api_key_id"), "datasets:write"
@@ -122,6 +124,8 @@ async def attempt(db, run, source, actor, *, api_key_id=None, key_proof):
 
 
 async def start_preflight(db, scan_id, actor, *, api_key_id=None):
+    from app.services.directory_policy import effective_cache_policy
+
     key_proof = await key_authority(db, actor, api_key_id, "datasets:write")
     location, source, scan, _ = await scans.run_context(db, scan_id)
     await request_authority(db, actor, api_key_id, key_proof, source)
@@ -173,8 +177,9 @@ async def start_preflight(db, scan_id, actor, *, api_key_id=None):
             "source_revision": source.config_revision,
             "location_revision": location.config_revision,
             "node_id": source.config["node_id"],
-            "ownership_mode": "reference",
-            "cache_policy": "none",
+            "ownership_mode": source.ownership_mode,
+            "cache_policy": effective_cache_policy(source, location),
+            "policy_revision": source.policy_revision,
         },
         generation=0,
         phase="preflight",
@@ -190,6 +195,11 @@ async def start_preflight(db, scan_id, actor, *, api_key_id=None):
             "skipped_count": scan.counts.get("skipped_count", 0),
             "original_copy_bytes": 0,
             "preview_estimated_bytes": 0,
+            "preview_estimated_count": 0,
+            "preview_estimate_error_count": 0,
+            "original_estimated_bytes": 0,
+            "preview_retained_bytes": 0,
+            "preview_failed_count": 0,
         },
     )
     db.add(run)
@@ -208,14 +218,14 @@ async def start_preflight(db, scan_id, actor, *, api_key_id=None):
                 literal(run.id),
                 DatasetScanEntry.path_digest,
                 literal("pending"),
-                DatasetReference.dataset_item_id,
+                DatasetSourceItem.dataset_item_id,
                 literal(0),
                 literal(False),
             )
             .outerjoin(
-                DatasetReference,
-                (DatasetReference.source_id == source.id)
-                & (DatasetReference.path_digest == DatasetScanEntry.path_digest),
+                DatasetSourceItem,
+                (DatasetSourceItem.source_id == source.id)
+                & (DatasetSourceItem.path_digest == DatasetScanEntry.path_digest),
             )
             .where(
                 DatasetScanEntry.run_id == scan_id,
@@ -302,6 +312,26 @@ async def claim(db, run_id, task_id, node_id):
 
 def transition(run, entry, state, *, error_code=None, item_id=None):
     counts = dict(run.counts)
+    if (
+        run.phase == "preflight"
+        and entry.state == "ready"
+        and state not in {"ready", "registered", "unchanged"}
+    ):
+        counts["preview_estimated_bytes"] -= entry.preview_estimated_bytes or 0
+        counts["preview_estimated_count"] = counts.get(
+            "preview_estimated_count", 0
+        ) - int(entry.preview_estimated_bytes is not None)
+        counts["preview_estimate_error_count"] = counts.get(
+            "preview_estimate_error_count", 0
+        ) - int(entry.preview_error is not None)
+        counts["original_estimated_bytes"] = (
+            counts.get("original_estimated_bytes", 0) - entry.original_estimated_bytes
+        )
+        (
+            entry.preview_estimated_bytes,
+            entry.preview_error,
+            entry.original_estimated_bytes,
+        ) = None, None, 0
     old = f"{entry.state}_count"
     new = f"{state}_count"
     counts[old] -= 1
@@ -334,11 +364,23 @@ async def next_entry(db, run_id, task_id, fence):
         "actor_id": uuid.UUID(run.snapshot["actor_id"]),
         "api_key_id": run.snapshot.get("api_key_id"),
         "node_id": f"worker:{run.snapshot['node_id']}",
+        "cache_policy": run.cache_policy,
     }
 
 
 async def record(
-    db, run_id, task_id, fence, path_digest, state, *, error_code=None, result=None
+    db,
+    run_id,
+    task_id,
+    fence,
+    path_digest,
+    state,
+    *,
+    error_code=None,
+    result=None,
+    preview_estimated_bytes=None,
+    preview_error=None,
+    original_size=0,
 ):
     _, _, run, job = await fenced(db, run_id, task_id, fence)
     entry = await db.get(Entry, (run.id, path_digest), populate_existing=True)
@@ -352,6 +394,33 @@ async def record(
         error_code=error_code,
         item_id=result["item_id"] if result else None,
     )
+    counts = dict(run.counts)
+    if state == "ready":
+        entry.preview_estimated_bytes = preview_estimated_bytes
+        entry.preview_error = preview_error
+        counts["preview_estimated_bytes"] = counts.get("preview_estimated_bytes", 0) + (
+            preview_estimated_bytes or 0
+        )
+        counts["preview_estimated_count"] = counts.get(
+            "preview_estimated_count", 0
+        ) + int(preview_estimated_bytes is not None)
+        counts["preview_estimate_error_count"] = counts.get(
+            "preview_estimate_error_count", 0
+        ) + int(preview_error is not None)
+        if run.ownership_mode == "managed_copy" and entry.item_id is None:
+            counts["original_estimated_bytes"] = (
+                counts.get("original_estimated_bytes", 0) + original_size
+            )
+            entry.original_estimated_bytes = original_size
+    if result:
+        counts["original_copy_bytes"] += result.get("original_copy_bytes", 0)
+        counts["preview_retained_bytes"] = counts.get(
+            "preview_retained_bytes", 0
+        ) + result.get("preview_bytes", 0)
+        counts["preview_failed_count"] = counts.get("preview_failed_count", 0) + int(
+            result.get("preview_failed", False)
+        )
+    run.counts = counts
     run.lease_expires_at = await scans.now(db) + timedelta(seconds=LEASE_SECONDS)
     job.result = dict(run.counts)
     total = run.counts["indexed_count"]

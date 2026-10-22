@@ -148,3 +148,4 @@
 
 - [0095](0095-immutable-directory-reference-tasks.md) — 目录样本固定内容身份并在任务锁内复核写入
 - [0096](0096-durable-directory-registration.md) — 目录批量登记使用独立的两阶段持久账本
+- [0097](0097-directory-ownership-previews-and-lifecycle.md) — 目录原图所有权、鉴权派生预览与来源生命周期分离

@@ -46,6 +46,10 @@ def source_out(source):
                 "name",
                 "config_revision",
                 "enabled",
+                "ownership_mode",
+                "cache_policy",
+                "policy_revision",
+                "unregistered_at",
             )
         }
         | source.config
@@ -117,6 +121,7 @@ async def run_context(db, run_id):
 async def validate_context(db, location, source, *, snapshot=None):
     if (
         not source.enabled
+        or source.unregistered_at is not None
         or source.dataset_id is None
         or await db.get(Dataset, source.dataset_id, populate_existing=True) is None
     ):
@@ -153,6 +158,8 @@ async def create_source(db, payload, actor, *, api_key_id=None):
         dataset_id=payload.dataset_id,
         location_id=location.id,
         name=payload.name,
+        ownership_mode=payload.ownership_mode,
+        cache_policy=payload.cache_policy,
         config=payload.model_dump(
             include={
                 "relative_path",
@@ -178,6 +185,10 @@ async def update_source(db, source_id, payload, actor, *, api_key_id=None):
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
     if source.config_revision != payload.expected_revision:
         raise HTTPException(409, "Source configuration revision changed")
+    if source.unregistered_at is not None:
+        raise HTTPException(409, "Source has been unregistered")
+    if payload.enabled is not None and payload.enabled != source.enabled:
+        raise HTTPException(409, detail={"code": "lifecycle_impact_required"})
     if await db.scalar(
         select(DatasetScanRun.id)
         .where(DatasetScanRun.source_id == source.id, DatasetScanRun.status.in_(ACTIVE))
@@ -199,6 +210,9 @@ async def update_source(db, source_id, payload, actor, *, api_key_id=None):
         source.name = payload.name
     if payload.enabled is not None:
         source.enabled = payload.enabled
+    if payload.cache_policy is not None and payload.cache_policy != source.cache_policy:
+        source.cache_policy = payload.cache_policy
+        source.policy_revision += 1
     source.config_revision += 1
     await db.flush()
     return source

@@ -1,0 +1,114 @@
+"""Preserve historical reference mappings and refuse destructive rollback."""
+
+import importlib.util
+from pathlib import Path
+
+import pytest
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
+from sqlalchemy import text
+
+from tests.test_dataset_content import content_world as content_world
+from app.services.dataset_references import register_entry
+
+
+def module():
+    spec = importlib.util.spec_from_file_location(
+        "migration_0200",
+        Path(__file__).parents[1] / "alembic/versions/0200_directory_policies.py",
+    )
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    return migration
+
+
+async def test_empty_policy_schema_roundtrip(db_session, monkeypatch):
+    migration = module()
+
+    def verify(sync):
+        monkeypatch.setattr(
+            migration, "op", Operations(MigrationContext.configure(sync.connection()))
+        )
+        migration.downgrade()
+        assert sync.scalar(text("SELECT to_regclass('dataset_source_items')")) is None
+        migration.upgrade()
+        assert (
+            sync.scalar(text("SELECT to_regclass('dataset_source_previews')"))
+            is not None
+        )
+
+    await db_session.run_sync(verify)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "ownership_mode='managed_copy'",
+        "cache_policy='preview'",
+        "policy_revision=2",
+        "unregistered_at=now()",
+    ],
+)
+async def test_source_policy_without_items_prevents_downgrade(
+    db_session, content_world, monkeypatch, change
+):
+    source = content_world[5]
+    await db_session.execute(
+        text(f"UPDATE dataset_sources SET {change} WHERE id=CAST(:id AS uuid)"),
+        {"id": str(source.id)},
+    )
+    migration = module()
+
+    def verify(sync):
+        monkeypatch.setattr(
+            migration, "op", Operations(MigrationContext.configure(sync.connection()))
+        )
+        assert sync.scalar(text("SELECT count(*) FROM dataset_source_items")) == 0
+        with pytest.raises(RuntimeError, match="Retain directory"):
+            migration.downgrade()
+        assert (
+            sync.scalar(text("SELECT to_regclass('dataset_source_previews')"))
+            is not None
+        )
+
+    await db_session.run_sync(verify)
+
+
+async def test_existing_references_backfill_and_prevent_downgrade(
+    db_session, content_world, monkeypatch
+):
+    _, _, actor, _, _, source, scan, entry = content_world
+    result = await register_entry(
+        db_session, scan.id, entry.path_digest, actor, node_id="worker:content@test"
+    )
+    source_id = str(source.id)
+    migration = module()
+
+    def verify(sync):
+        monkeypatch.setattr(
+            migration, "op", Operations(MigrationContext.configure(sync.connection()))
+        )
+        with pytest.raises(RuntimeError, match="Retain directory"):
+            migration.downgrade()
+        # Reproduce the pre-upgrade state, retaining the legacy Reference/Asset.
+        sync.execute(text("DELETE FROM dataset_source_items"))
+        migration.downgrade()
+        migration.upgrade()
+        row = sync.execute(
+            text(
+                "SELECT content_sha256,ownership_mode,owns_item FROM dataset_source_items WHERE source_id=CAST(:id AS uuid)"
+            ),
+            {"id": source_id},
+        ).one()
+        assert row == (result["sha256"], "reference", True)
+        row = sync.execute(
+            text(
+                "SELECT ownership_mode,cache_policy,unregistered_at FROM dataset_sources WHERE id=CAST(:id AS uuid)"
+            ),
+            {"id": source_id},
+        ).one()
+        assert row == ("reference", "none", None)
+        with pytest.raises(RuntimeError, match="Retain directory"):
+            migration.downgrade()
+
+    await db_session.run_sync(verify)

@@ -2,6 +2,9 @@ import { apiClient } from "./client";
 import type {
   DatasetSourceList,
   DatasetSourceCreate,
+  DatasetSourceUpdate,
+  SourceLifecycleImpact,
+  SourceLifecycleChange,
   DatasetScanList,
   DatasetScanEntryList,
   StorageLocationList,
@@ -33,6 +36,12 @@ export const datasetSourcesApi = {
     }),
   create: (payload: DatasetSourceCreate) =>
     apiClient.post<DatasetSourceOut>("/dataset-sources", payload),
+  update: (id: string, payload: DatasetSourceUpdate) =>
+    apiClient.patch<DatasetSourceOut>(`/dataset-sources/${id}`, payload),
+  impact: (id: string) =>
+    apiClient.get<SourceLifecycleImpact>(`/dataset-sources/${id}/lifecycle-impact`),
+  lifecycle: (id: string, payload: SourceLifecycleChange) =>
+    apiClient.post<DatasetSourceOut>(`/dataset-sources/${id}/lifecycle`, payload),
   registration: (scanId: string, signal?: AbortSignal) =>
     apiClient.get<DatasetRegistrationOut | null>(`/dataset-scans/${scanId}/registration`, {
       signal,

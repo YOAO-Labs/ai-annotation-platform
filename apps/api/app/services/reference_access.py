@@ -122,6 +122,34 @@ async def reference_task_guard(
             scope=scope,
         )
         snapshot.close()
+        from app.db.models.dataset_source import DatasetReference, DatasetSource
+        from app.db.models.dataset_asset import StorageLocation
+        from app.services.dataset_references import reference_context
+        from sqlalchemy.exc import DBAPIError
+
+        ref = await db.get(DatasetReference, item_id)
+        source = await db.get(DatasetSource, ref.source_id)
+        # A lifecycle commit cannot overtake an already verified write. Never
+        # wait while holding Task: source writers may be creating linked tasks.
+        try:
+            async with db.begin_nested():
+                await db.execute(
+                    select(StorageLocation.id)
+                    .where(StorageLocation.id == source.location_id)
+                    .with_for_update(read=True, nowait=True)
+                )
+                await db.execute(
+                    select(DatasetSource.id)
+                    .where(DatasetSource.id == source.id)
+                    .with_for_update(read=True, nowait=True)
+                )
+        except DBAPIError as exc:
+            if getattr(exc.orig, "sqlstate", None) != "55P03":
+                raise
+            raise HTTPException(409, detail={"code": "source_busy"}) from None
+        await reference_context(db, item_id, actor, task_id=task.id)
+        if await key_authority(db, actor, key_id, scope) != key_proof:
+            raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
         request.state.reference_verified_task_id = task.id
     except Exception as exc:
         raise content_http_error(exc) from None

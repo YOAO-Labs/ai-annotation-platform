@@ -287,3 +287,27 @@ A2 新增 `DatasetRegistrationRun/Entry` 和迁移0199，不复用扫描 entry.s
 - 文档：README、CHANGELOG Unreleased、用户目录接入/存储连接器/数据集首页、API来源/位置/严格内容及开发存储概念已同步；API响应结构保持兼容，OpenAPI与SDK合同检查通过。无需新迁移，不分配版本。
 - 清理：销毁本轮owned dev/test资源，关闭全部本轮浏览器，清理临时原图、凭据、截图、JUnit、日志及文档构建产物。共享配置、宿主机业务挂载和镜像保持原状。
 - 后续：ownership/cache独立策略、持久派生预览及计量、真实目录托管复制、来源生命周期和外部S3/SFTP持续引用仍需完成；完整E03保持active，本计划不归档。
+
+## 下一实施定案：目录策略、派生预览与来源生命周期
+
+基线 `023279447`，权限阶段已提交，owned运行时已销毁。当前切片仍在已授权完整E03内，默认新来源 reference/preview，保留显式none；已有来源迁移为reference/none。ownership/cache/policy_revision与定位config分列，禁止策略变化改变旧引用路径与摘要。已登记来源不允许原地切ownership，另建来源。Location可设置none/preview缓存上限，effective策略由服务端计算并冻结在登记尝试中，策略变化要求重新预检。
+
+迁移0200增加来源策略/注销时间、统一Source/path→Item/Asset不可变映射及窄派生预览表。旧DatasetReference与Task身份保留，回填映射而不改原件。预览记录源Asset/SHA、派生规格、策略修订和代次、自己的SHA/bytes/位置及状态；不写legacy thumbnail_path，不发可绕过实时授权的签名URL。预检使用严格临时快照编码测量预览估算，登记后持久预览失败独立记录；管理页可查看鉴权只读预览，原图离线时不把预览当作可标注原件。
+
+managed_copy必须真实从受控目录的安全快照复制到平台托管位置，复用现有Asset和目标key规则；持久映射确保重扫幂等，内容变化不改旧身份。最终写入复查账号、Key、配置、policy及lease；取消或失败仅清理本次独占对象。已托管原图后续读取不依赖外部Source在线。none策略在派生生成与最终发布处强制，禁止旧回填入口绕过；共享既有托管Item的派生不由单Source删除。
+
+生命周期提供影响预览、停用、恢复及注销tombstone；最终操作复查影响和expected revision，取消活动尝试并失效租约，保留已有Item/Task/标注和账本，不调用整个Dataset的unlink、不改外部文件。reference管理停用/注销停止新读，恢复重新核验；自然离线仍可读已授权的旧SHA预览，严格原图门禁保持。注销后的Source不可恢复为不同位置。
+
+涉及models/migration、Source/Location schemas、中央策略服务、扫描/登记/引用/派生worker、鉴权预览API和数据集/存储UI及文档，预计超过8文件。验证四种ownership/cache组合、策略撤回与旧generation、预览失败隔离、源离线、重扫幂等、停用恢复/注销、删除边界以及源树不变；使用本地venv和owned dev/test，真实worker与浏览器，不重建镜像。外部S3/SFTP持续引用随后独立验收，不能由复制入口替代。
+
+## Outcome — 目录策略、派生预览与来源生命周期
+
+- 策略：新增0200迁移，原图所有权与预览策略独立；旧来源保留reference/none，新来源默认reference/preview。位置可收紧到none。Source/path→Item/Asset/SHA映射不可变，策略修改要求重扫与重新预检；注销为不可恢复的来源墓碑。
+- 原图与预览：managed_copy从严格快照真实写入托管原图，复用前重读并核验托管内容。预览以独立来源键、父SHA、规格、代次、自身SHA和实际字节入账，经实时鉴权返回；不进入旧thumbnail/金字塔与签名URL链路。预览失败保留原图成功，旧缓存缺失可重新生成，取消等待I/O完成后清理本次对象。
+- 生命周期：影响预览包含关联样本、项目、任务、标注、派生字节与活动尝试，最终动作复查修订及影响摘要。停用/注销失效活动租约但保留业务对象；引用原图停止新读取，恢复后重新核验。托管原件不依赖来源在线；删除Item/Dataset在业务提交后仅清理已捕获的精确派生键。
+- 真实浏览器：隔离API8100/Web3100和本工作树host workers，完成reference/preview、managed_copy/preview、reference/none、managed_copy/none四组合的扫描、预检与批量登记。引用来源自然离线时已授权旧SHA预览仍解码256×160，严格原图409；恢复后200，停用时新增标注409，注销后旧标注保留。托管来源离线且注销后严格原图200，Workbench实际显示640×400并可新增标注。浏览器会话无未捕获异常。
+- 实物核对：4个源文件的名称、目录结构和SHA与登记账本一致。datasets桶6对象中4个为0字节目录占位，仅2个托管原件共3270字节；media-cache仅2个来源预览，各156字节，共312字节。none组合派生0字节。真实worker执行旧媒体回填后仍无legacy thumbnail，引用与复制各1条标注保留。
+- 本地验证：核心策略/登记/引用/内容/金字塔回归74项通过；策略/Asset/授权/关联/Task回归72项通过（两组有重叠）；缓存替换回滚专项1项通过。0194–0200迁移回归12项通过，最后新增无映射策略回滚保护后0200专项6项通过。SDK合同4项、鉴权图片Hook4项通过；Ruff、TypeScript、ESLint、CSS token、OpenAPI导出/校验/客户端生成、文档构建及diff检查通过。CSS仅有训练比较页既有2处z-index建议；不代表远端CI结果。
+- 文档：README、CHANGELOG Unreleased、用户导入说明、来源/位置API、存储架构、ADR0097与SDK覆盖清单已同步。无需新环境变量、镜像重建或版本分配。
+- 清理：关闭本轮浏览器并停止host进程，销毁owned dev/test数据库、Redis和桶；清理本轮临时原图、凭据、截图、日志、JUnit及文档构建产物，保留工作树身份。未改共享配置与宿主机业务目录。
+- 边界与后续：提交结果未知、清理失败或进程崩溃可能留下对象，当前按数据库和精确键人工核对，不声称已具备自动GC。外部S3/SFTP持续引用尚未完成，后续继续E03-B；周期同步、完整原图缓存、Agent和训练冻结仍属相应Epic。本计划不归档，完整E03继续active。

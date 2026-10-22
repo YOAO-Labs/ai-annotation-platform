@@ -123,8 +123,16 @@ async def _reviewing_batches(
     cover_map: dict = {}
     cover_batch_ids = [b.id for b, _ in batch_rows]
     if cover_batch_ids:
-        eff_thumb = func.coalesce(DatasetItem.thumbnail_path, Task.thumbnail_path)
-        eff_blur = func.coalesce(DatasetItem.blurhash, Task.blurhash)
+        from app.services.directory_policy import legacy_media_column
+
+        eff_thumb = legacy_media_column(
+            func.coalesce(DatasetItem.thumbnail_path, Task.thumbnail_path).label(
+                "thumbnail_path"
+            )
+        )
+        eff_blur = legacy_media_column(
+            func.coalesce(DatasetItem.blurhash, Task.blurhash).label("blurhash")
+        )
         cover_rows = await db.execute(
             select(Task.batch_id, eff_thumb, eff_blur)
             .outerjoin(DatasetItem, DatasetItem.id == Task.dataset_item_id)

@@ -2,6 +2,7 @@
 
 from datetime import datetime
 import uuid
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -18,6 +19,8 @@ class DatasetSourceCreate(BaseModel):
         default_factory=lambda: ["*"], min_length=1, max_length=20
     )
     exclude_globs: list[str] = Field(default_factory=list, max_length=20)
+    ownership_mode: Literal["reference", "managed_copy"] = "reference"
+    cache_policy: Literal["none", "preview"] = "preview"
 
 
 class DatasetSourceUpdate(BaseModel):
@@ -25,6 +28,7 @@ class DatasetSourceUpdate(BaseModel):
     expected_revision: int = Field(ge=1)
     name: str | None = Field(default=None, min_length=1, max_length=100)
     enabled: bool | None = None
+    cache_policy: Literal["none", "preview"] | None = None
 
 
 class DatasetSourceOut(BaseModel):
@@ -40,6 +44,10 @@ class DatasetSourceOut(BaseModel):
     recursive: bool
     include_globs: list[str]
     exclude_globs: list[str] = Field(default_factory=list)
+    ownership_mode: Literal["reference", "managed_copy"]
+    cache_policy: Literal["none", "preview"]
+    policy_revision: int
+    unregistered_at: datetime | None
 
 
 class DatasetSourceList(BaseModel):
@@ -75,6 +83,8 @@ class DatasetScanEntryOut(BaseModel):
     size_bytes: int | None
     content_verified: bool = False
     registered_item_id: uuid.UUID | None = None
+    preview_state: str | None = None
+    preview_bytes: int | None = None
     verified_content: dict | None = None
 
 
@@ -110,6 +120,9 @@ class DatasetRegistrationOut(BaseModel):
     counts: dict[str, int]
     created_at: datetime
     completed_at: datetime | None
+    ownership_mode: str
+    cache_policy: str
+    source_revision: int
 
 
 class DatasetRegistrationEntryOut(BaseModel):
@@ -121,6 +134,29 @@ class DatasetRegistrationEntryOut(BaseModel):
     attempts: int
     size_bytes: int | None
     sha256: str | None
+    preview_estimated_bytes: int | None = None
+    preview_error: str | None = None
+
+
+class SourceLifecycleImpact(BaseModel):
+    source_id: uuid.UUID
+    expected_revision: int
+    proof: str
+    item_count: int
+    project_count: int
+    task_count: int
+    annotation_count: int
+    active_attempt_count: int
+    preview_count: int
+    preview_bytes: int
+    measured_at: datetime
+
+
+class SourceLifecycleChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["pause", "enable", "unregister"]
+    expected_revision: int = Field(ge=1)
+    impact_proof: str
 
 
 class DatasetRegistrationEntryList(BaseModel):
