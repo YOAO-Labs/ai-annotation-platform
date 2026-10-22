@@ -344,6 +344,7 @@ TEST_FILES = (
     "tests/test_labeling_video_writer_live.py",
     "tests/test_labeling_video_writer_containers.py",
     "tests/test_labeling_video_writer_restore.py",
+    "tests/test_labeling_video_writer_capacity.py",
     "tests/test_video_execution_checkpoints_native.py",
     "tests/test_video_window_journal_native.py",
     "tests/test_video_execution_plan_native_validation.py",

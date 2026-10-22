@@ -4864,3 +4864,33 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   qualification. Source/image checks, retained restore data, operator rebind,
   bounded write capacity and complete human/intermediate Labeling migration are
   distinct gates. The ten-module/seven-gate objective remains active.
+
+### Finite video-owner write workload checkpoint
+
+- The restricted owner image runs two distinct sixteen-job cohorts through
+  direct PostgreSQL and HTTP. Each job publishes six canonical bbox rows from
+  three sealed windows at concurrency four. All32 immutable receipts,192 staged
+  rows, unchanged review revisions and exact accepted-input fingerprints pass.
+  The producer uses the existing Native mock-bbox fixture, with zero model calls.
+- Direct PostgreSQL performs96 Native function calls; HTTP sends16 requests.
+  Neither binding encounters execution_busy in this sample. Median latency is
+  169.48/178.93ms, nearest-rank p95 is186.75/184.55ms, elapsed703.73/735.12ms.
+  The shared1CPU/768MiB owner budget excludes PostgreSQL and the host HTTP caller;
+  direct PostgreSQL adds a second Python process inside that cgroup. End-of-sample
+  current memory87.08/60.30MiB is not peak memory or an equal-budget comparison.
+  This does not qualify maximum payloads, large Mask, inference, broker queues,
+  legacy-writer performance or production capacity.
+- The actual container test is registered in the module-data verifier. The first
+  two attempts exposed fixture field/timebase assumptions, corrected against the
+  real frozen plan without changing business guards. The third passes with zero
+  skipped cases and complete owned-resource cleanup. Raw attempts remain in
+  `.worktree/labeling-video-writer-capacity-{first,second,third}.json`; closed metrics
+  are in `.worktree/labeling-video-writer-write-samples.json`.
+- The API cold image was rebuilt at9eb499df9 after the terminal-proof fix. Exact
+  480-package/1278-API-native byte checks pass under network-none/read-only,
+  UID10001,1CPU/512MiB. The earlier pending-image gate is closed; no app source or
+  owner package changed in this workload checkpoint.
+- Restore rebind still needs prior process/storage fences, rotated authority,
+  proven backend retirement and exact input versions. Human candidate decisions,
+  intermediate writes and all ten-module/seven-gate requirements remain active;
+  Go stays an experiment and no primary or production cutover occurred.
