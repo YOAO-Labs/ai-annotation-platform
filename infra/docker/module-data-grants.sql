@@ -3000,6 +3000,12 @@ END $$;
 GRANT CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
 ALTER FUNCTION aap_labeling_v1.write_project_counter_projection(uuid, jsonb)
     OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.decrement_project_review_count(uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.decrement_project_completed_count(uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.record_project_review_approval(uuid)
+    OWNER TO :"labeling_owner";
 REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
 
 -- Durable result data stays with its Jobs/Labeling owner. Cross-owner calls

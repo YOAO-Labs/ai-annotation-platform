@@ -288,6 +288,13 @@ READ ONLY、Node、异常回复回滚和实际后台 relay 已通过限定本地
 API／Node 验收见 [ADR-0172](/dev/adr/0172-project-set-locks-and-labeling-counters)。
 这仍是操作级调用边界，完整模块凭据与运行工件尚未集中验收。
 
+撤回、重开与审核的原子增减分别使用 Labeling 的
+`decrement_project_review_count(uuid)`、`decrement_project_completed_count(uuid)`、
+`record_project_review_approval(uuid)`。它们直接更新数据库当前值，使用正常行锁等待，
+保持原 autoflush、计数缓存和 Task／Audit 外层事务；不通过绝对补丁覆盖旧快照。
+受限 API 撤销 Project 私表 SELECT／UPDATE 后，四条实际 HTTP 流程及 Node 调用通过，
+范围见 [ADR-0176](/dev/adr/0176-labeling-lifecycle-counter-deltas)。
+
 ## 项目范围、看板与列表读取
 
 `aap_workspace_v1.actor_project_memberships(uuid)` 只返回 actor 的 `project_id` 与

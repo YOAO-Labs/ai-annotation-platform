@@ -105,6 +105,20 @@ HINT；客户端按 phase 恢复原有冲突原因，不向外暴露数据库异
 [Workspace 运行指南](./workspace-runtime#排序项目集合锁与计数投影)及
 [ADR-0172](/dev/adr/0172-project-set-locks-and-labeling-counters)。
 
+生命周期与审核的增减使用三个独立的 `aap_labeling_v1` 函数：
+
+| 函数                                      | 返回                                                    |
+| ----------------------------------------- | ------------------------------------------------------- |
+| `decrement_project_review_count(uuid)`    | 饱和减一后的 review 整数；缺失为 null                   |
+| `decrement_project_completed_count(uuid)` | 饱和减一后的 completed 整数；缺失为 null                |
+| `record_project_review_approval(uuid)`    | completed 加一、review 饱和减一后的两个整数；缺失为零行 |
+
+每项只执行一次原子 UPDATE，并写事务时间戳；保留正常行锁等待与原生 int32 溢出。
+空 ID 仍尝试匹配零行的写入，因此 READ ONLY 仍返回 25006。调用方保留权限、
+autoflush、缓存及 Task／Audit 的共同提交或回滚。函数不接收任意补丁、不增加连接或
+自行提交。受限 API 与 Node 证据见
+[ADR-0176](/dev/adr/0176-labeling-lifecycle-counter-deltas)。
+
 ## actor 项目成员事实
 
 `aap_workspace_v1.actor_project_memberships(uuid)` 是 STABLE、STRICT 的只读关系，

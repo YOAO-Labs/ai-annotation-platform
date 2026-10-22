@@ -5931,3 +5931,50 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Git bundle; original branch refs remain. Every Root correction is retained
   as a reviewable patch alongside equivalent-source checks. This remains
   operation-level local qualification, with the full goal active.
+
+### Labeling lifecycle and review counter delta qualification
+
+- Root starts at af9c604f015f98f22020661c4df5f8d7c561fdd3. Isolated source
+  workers provide 68ddbeef1a2de6adcf6f6de0a15ff7c561388518,
+  ff672d26cdb5c9bd619c68338917681b9504777b and
+  03a172dfc009802c9ddb96e0c180f5c88f018ad3. Root owns frozen behavior capture,
+  integration, grants, final Native/Node tests, corrections and all runtime work.
+- Revision 0299 adds three fixed Labeling-owned SQL UPDATE functions for review
+  decrement, completed decrement and approval. No generic dispatcher, new DSN,
+  service, table privilege or commit point is introduced. Normal UPDATE waiting,
+  int32 behavior and transaction-time updated_at match the old ORM operations.
+  ORM from_statement preserves autoflush; only the original returned counters
+  are synchronized to the existing mapper cache.
+- All 69 old non-NULL cases replay after integration. A separate immutable-base
+  method AST comparison finds STRICT skipping the write for NULL IDs in READ
+  ONLY transactions. CALLED ON NULL INPUT restores the original 25006 attempt,
+  scalar NULL and approval zero-row behavior. Its three-case minimal replay
+  passes; non-NULL SQL bodies are unchanged, so the 69-case replay is reused.
+- Restricted API LOGIN has no private Project SELECT or UPDATE. Thirty Native
+  cases cover exact ACL/owner, function metadata, NULL/missing/read-only, cache,
+  autoflush, timestamp, same transaction, overflow rollback and four explicit
+  concurrent wait schedules. A direct Node pg client exercises all three
+  operations without a Python provider and rolls back its original transaction.
+- Four actual HTTP flows preserve Task/counter/Audit outcomes with real Identity
+  AUTH/Briefs bindings. Fixture corrections use actual review routes, assign an
+  unbatched reviewer after submission clears it, and bind middleware audit to
+  the function-scoped test connection. An existing counted-auth wrapper also
+  forwards its now-required Identity gateway dependency. Business auth is not
+  mocked or changed. Original failed logs/JUnit/exits remain; smallest repros
+  pass before remaining acceptance. Immutable Audit fixtures leave with the
+  owned disposable database.
+- Effective union: 139 distinct passes, no effective failures/errors/skips:
+  69 legacy replays, 30 Native/Node, four real HTTP and 36 existing consumers,
+  including authority/evidence/QC and actual concurrent task approval. Capture
+  and repeated cases are not added. Full migration roundtrip passes on owned
+  resources. Aggregate: .worktree/labeling-counter-deltas-qualification.json.
+- This closes only these lifecycle/review counter operations. Full-module
+  credentials/cold artifacts/restore/capacity remain batched. ADR-0176 and the
+  sole module ledger track the next portable dataset-unlink binding and pending
+  video-deletion policy separately. No primary cutover, push, release, production
+  deployment or expansion of the Go experiment occurs.
+
+- Final focused checks pass: 358 applicable architecture cases (150 rules are
+  explicitly inapplicable), 20 grant/selection units, pinned Ruff/format, Node
+  syntax, explicit OpenAPI, docs build and diff. Docs retain existing syntax
+  fallback and large-chunk warnings. No business replay follows formatting.

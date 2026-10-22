@@ -890,7 +890,7 @@ Workspace 完整凭据和冷工件不因本轮通过而获得资格，见
 
 部分项目读取使用 `project_facts()`；完整 ORM 行使用 `project_rows()`，在同一条
 SQL 中组合 Workspace 字段和既有 Labeling 计数。两项事实关系的 SELECT 已加入应用
-和 worktree 授权，不增加 DSN 或服务。三个在线计数 UPDATE 仍待独立写入能力迁移。
+和 worktree 授权，不增加 DSN 或服务。在线计数增减使用下述固定写入能力。
 
 ```bash
 apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
@@ -903,6 +903,27 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 验收使用独立测试资源，撤掉 API 的 User／Project／Member 私表 SELECT，实际 HTTP
 认证及资料读取使用既有 Identity owner。旧基线只重放，完整 Workspace 凭据和冷工件
 仍集中验收，见 [ADR-0175](docs/adr/0175-workspace-project-fact-relations.md)。
+
+### Labeling 生命周期与审核计数
+
+撤回／驳回的 review 减一、重开的 completed 减一，以及批准的 completed 加一与
+review 减一分别通过 `aap_labeling_v1` 的三项固定函数执行。每次仍是一条 SQL，
+同一连接／事务；正常行锁等待、autoflush、已缓存计数和数据库时间戳保持原行为。
+不将原子增减改为读取后覆盖，也不新增 DSN 或独立提交。
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/labeling-counter-deltas.json \
+  --test-file tests/test_labeling_counter_deltas_legacy.py \
+  --test-file tests/test_labeling_counter_deltas_native.py \
+  --test-file tests/test_labeling_counter_deltas_workflows_native.py
+```
+
+验收撤销测试 API 的 Project 私表 SELECT／UPDATE，使用真实 Identity owner 及原
+权限围栏；69 项旧行为 fixture 只重放，不设置 `AAP_COUNTER_DELTA_CAPTURE` 重写。
+空／缺失 ID 也会尝试 UPDATE，保留 READ ONLY 的 25006；溢出与 Task 共同回滚。
+迁移与三处运行授权须一致，范围见
+[ADR-0176](docs/adr/0176-labeling-lifecycle-counter-deltas.md)。完整模块工件仍集中验收。
 
 ### Workspace 同事务成员锁
 

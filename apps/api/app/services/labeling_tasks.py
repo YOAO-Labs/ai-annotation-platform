@@ -202,45 +202,39 @@ class LabelingTaskService(LabelingTaskCreationPort):
 
     async def decrement_project_review_count(self, project: Project) -> None:
         count = await self.db.scalar(
-            update(Project)
-            .where(Project.id == project.id)
-            .values(
-                review_tasks=func.greatest(
-                    func.coalesce(Project.review_tasks, 0) - 1, 0
+            select(Project.review_tasks).from_statement(
+                text(
+                    "SELECT aap_labeling_v1.decrement_project_review_count("
+                    "CAST(:project_id AS uuid)) AS review_tasks"
                 )
-            )
-            .returning(Project.review_tasks)
-            .execution_options(synchronize_session=False)
+            ),
+            {"project_id": project.id},
         )
         set_committed_value(project, "review_tasks", count)
 
     async def decrement_project_completed_count(self, project: Project) -> None:
         count = await self.db.scalar(
-            update(Project)
-            .where(Project.id == project.id)
-            .values(
-                completed_tasks=func.greatest(
-                    func.coalesce(Project.completed_tasks, 0) - 1, 0
+            select(Project.completed_tasks).from_statement(
+                text(
+                    "SELECT aap_labeling_v1.decrement_project_completed_count("
+                    "CAST(:project_id AS uuid)) AS completed_tasks"
                 )
-            )
-            .returning(Project.completed_tasks)
-            .execution_options(synchronize_session=False)
+            ),
+            {"project_id": project.id},
         )
         set_committed_value(project, "completed_tasks", count)
 
     async def record_project_review_approval(self, project: Project) -> None:
         counts = (
             await self.db.execute(
-                update(Project)
-                .where(Project.id == project.id)
-                .values(
-                    completed_tasks=func.coalesce(Project.completed_tasks, 0) + 1,
-                    review_tasks=func.greatest(
-                        func.coalesce(Project.review_tasks, 0) - 1, 0
+                select(Project.completed_tasks, Project.review_tasks).from_statement(
+                    text(
+                        "SELECT completed_tasks, review_tasks "
+                        "FROM aap_labeling_v1.record_project_review_approval("
+                        "CAST(:project_id AS uuid))"
                     ),
-                )
-                .returning(Project.completed_tasks, Project.review_tasks)
-                .execution_options(synchronize_session=False)
+                ),
+                {"project_id": project.id},
             )
         ).one()
         set_committed_value(project, "completed_tasks", counts.completed_tasks)
