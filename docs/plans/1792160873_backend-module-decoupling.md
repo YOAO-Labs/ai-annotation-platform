@@ -5791,3 +5791,20 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   batched. Source integration does not cut over the primary runtime. Go remains
   experimental; no push, release or production action occurs. ADR-0173 records
   the precise boundary and the sole ledger identifies the next coherent scope.
+
+- Integrated implementation/documentation commit:
+  `f4532f6c4afce406f240755e9b698ba5775e659b`. The aggregate binds 27 changed
+  files to this source. Architecture passes 355 with 149 inapplicable rules;
+  grant/selection units pass 20. Ruff/format, explicit OpenAPI check, docs build,
+  diff and all applicable normal commit hooks pass. OpenAPI and tracked-doc
+  generators run in the source commit and leave tracked outputs unchanged.
+- Preservation reverified: 13 owned PostgreSQL containers are absent and owned
+  local resources are destroyed; 20 editable AAP bindings, the clean primary,
+  shared symlinks and four shared containers remain unchanged. Root has no
+  persistent API/Celery/provider runtime. Six clean task-owned source worktrees
+  (including the preceding counter/set-lock pair) are removed after archiving
+  ignored caches and verifying an incremental Git bundle; all branches remain.
+  Root's corrective deltas are documented and original source commits remain
+  restorable. This is operation-level local qualification; the full goal remains
+  active and the next coherent scope is nonlocking membership set/projection
+  facts, with all remaining items kept solely in module-deployment.md.
