@@ -65,6 +65,27 @@ class IdentityCommandService:
                 status_code=503, detail="身份认证服务暂不可用"
             ) from None
 
+    async def lookup_seed_accounts(self, emails: set[str]) -> dict[str, uuid.UUID]:
+        return await IdentityProvisioningData(self.db).lookup_seed_accounts(emails)
+
+    async def ensure_seed_persona(
+        self, *, email: str, name: str, password: str, role: str, group_name: str | None
+    ) -> tuple[uuid.UUID, bool]:
+        try:
+            return await AccountProvisioningManager(
+                IdentityProvisioningData(self.db)
+            ).ensure_seed_persona(
+                email=email,
+                name=name,
+                password=password,
+                role=role,
+                group_name=group_name,
+            )
+        except IdentityUnavailable:
+            raise HTTPException(
+                status_code=503, detail="身份认证服务暂不可用"
+            ) from None
+
     async def create_bootstrap_super_admin(
         self,
         *,

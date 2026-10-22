@@ -29,6 +29,7 @@ async def _run(operation: str, arguments: list[str]) -> None:
                 account_ids = await seed._ensure_seed_accounts(db)
             finally:
                 event.remove(db.sync_session, "before_commit", track_commit)
+        await seed.engine.dispose()
         _emit(
             {
                 "operation": operation,

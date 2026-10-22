@@ -135,6 +135,7 @@ async def test_descriptor_and_function_only_login_match_exact_capabilities(test_
                 True,
                 "workspace_code",
             ),
+            ("aap_workspace_v1.write_seed_members", True, "workspace_code"),
         ]
         for query in (
             "SELECT id FROM public.projects",

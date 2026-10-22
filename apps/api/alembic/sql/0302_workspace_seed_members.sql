@@ -29,7 +29,7 @@ BEGIN
        OR pg_catalog.jsonb_typeof(p_request) IS DISTINCT FROM 'object' THEN
         RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'invalid_request';
     END IF;
-    IF pg_catalog.jsonb_object_length(p_request) <> 2
+    IF (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(p_request)) <> 2
        OR NOT (p_request ?& ARRAY['schema', 'operations']::text[])
        OR pg_catalog.jsonb_typeof(p_request->'schema') IS DISTINCT FROM 'string'
        OR p_request->>'schema' IS DISTINCT FROM 'aap-workspace-seed-members/v1'
@@ -52,7 +52,7 @@ BEGIN
         v_kind := v_operation->>'kind';
 
         IF v_kind = 'insert' THEN
-            IF pg_catalog.jsonb_object_length(v_operation) <> 6
+            IF (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(v_operation)) <> 6
                OR NOT (v_operation ?& ARRAY[
                    'kind', 'id', 'project_id', 'user_id', 'role', 'assigned_by'
                ]::text[])
@@ -84,7 +84,7 @@ BEGIN
                 'updated_at', v_updated_at
             );
         ELSIF v_kind = 'update' THEN
-            IF pg_catalog.jsonb_object_length(v_operation) <> 6
+            IF (SELECT pg_catalog.count(*) FROM pg_catalog.jsonb_object_keys(v_operation)) <> 6
                OR NOT (v_operation ?& ARRAY[
                    'kind', 'id', 'role', 'assigned_by',
                    'write_role', 'write_assigned_by'

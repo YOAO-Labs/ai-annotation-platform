@@ -57,6 +57,19 @@ Migration 0251 在 `aap_identity_v1` 提供三项安全函数：`lock_accounts_s
 
 ## 运维账号 provisioning
 
+开发主种子另使用 `aap-identity-seed-persona/v1` 和固定函数
+`create_seed_persona_account(jsonb)`。`seed.py` 先精确查询 email；已有账号（包括停用、
+角色或资料漂移的账号）完整复用，缺失时才计算密码哈希并创建，保留中文 `group_name`
+和 nullable 值，不创建 Group。函数只插入账号，不隐式授权、审计、提交或重试；并发
+重复仍以原始约束错误中止。主脚本继续拒绝 `production`，账号循环后统一提交一次。
+
+迁移新增的函数独立于原 provisioning 合同。可信 `identity_provisioning_client` 当前
+具有三项固定 Identity 函数；普通 Identity API 消费者仍只有两张视图与五项函数。
+已应用普通围栏的可信种子运维连接可通过
+`infra/docker/identity-seed-operator-grants.sql` 追加精确查询与 persona 创建能力；
+该配置拒绝普通 API 账号、角色继承和 User 私表／列权限。
+主种子的限定验收见[模块台账](/dev/concepts/module-deployment#主种子账号与演示成员)。
+
 Identity operational provisioning 是给 bootstrap/import CLI 使用的内部 SQL owner，不是 HTTP/SDK 账号创建接口。Portable protocol `aap-identity-provisioning/v1` 只有 exact-email lookup 与 `bootstrap_admin`／`import_admin` create 两种模式；`AccountProvisioningManager` 通过 `create_bootstrap_super_admin(...)` 返回 UUID 或 `None`，通过 `ensure_import_admin(environment=...)` 返回 UUID。API caller adapter 不返回可变 User 或 password hash。
 
 Bootstrap 按单个 email 判重，不要求全局用户表为空。已有同 email 行无论 role、active 状态、姓名或 hash 都原样复用，不额外 hash、不写 Audit；不同 email 的 bootstrap admin 可共存。CLI 继续 lowercase/trim email、trim name，owner 不增加 normalization、长度或 password-strength policy。新用户保留 role `super_admin`、active、`status=online`、null group、`email_verified_at=caller now`、generation 0、`preferences={}` 和其余 nullable lifecycle fields null；`created_at` 使用 DB transaction time。Identity 与 Audit owners 在同一 caller transaction 原子写固定 `system.bootstrap_admin`，actor 为新用户，target 为 user UUID，detail 只含 `{email}`；method/path/status/IP 为 null，request ID 来自既有 context 或 null，Audit 时间使用 DB 默认值。应用 wrapper 不重复写 Audit。

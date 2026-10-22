@@ -148,6 +148,7 @@ END $$;
 GRANT USAGE ON SCHEMA aap_identity_v1 TO :"identity_provisioning_role";
 GRANT EXECUTE ON FUNCTION
     aap_identity_v1.create_provisioning_account(jsonb),
+    aap_identity_v1.create_seed_persona_account(jsonb),
     aap_identity_v1.read_provisioning_account(text)
     TO :"identity_provisioning_role";
 
@@ -160,6 +161,7 @@ DECLARE
     actual_functions text[];
     expected_functions text[] := ARRAY[
         'aap_identity_v1.create_provisioning_account(jsonb)',
+        'aap_identity_v1.create_seed_persona_account(jsonb)',
         'aap_identity_v1.read_provisioning_account(text)'
     ];
 BEGIN

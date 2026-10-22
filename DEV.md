@@ -681,7 +681,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/workspace-project-maintenance-grants.sql
 ```
 
-这个数据账号有五项业务 Native 执行权，包含下述两项开发种子写入，没有私表／列、
+这个数据账号有六项业务 Native 执行权，包含下述三项开发种子写入，没有私表／列、
 序列、DDL 或 TEMP 权限；系统及历史 public invoker helpers 不计入业务能力。它不承载完整导入工作流的其他
 领域权限。复验使用验收器拥有的新 PostgreSQL／Redis／桶：
 
@@ -711,8 +711,8 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/workspace-seed-operator-grants.sql
 ```
 
-该示例数据库必须由当前任务拥有，不能用于日常开发库的测试重置。此配置只追加两项
-固定 Project 写入，其他领域沿用已有运维权限，不能据此认定整个种子已使用最小凭据。
+该示例数据库必须由当前任务拥有，不能用于日常开发库的测试重置。此配置追加两项
+固定 Project 写入及一项演示成员写入，其他领域沿用已有运维权限，不能据此认定整个种子已使用最小凭据。
 受限数据库复验：
 
 ```bash
@@ -725,6 +725,30 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 调用方回滚，以及 changed/equal/missing 与 autoflush 两种设置。Node 直接调用、原始
 数据库错误、缓存过期字段与加载中本地修改也有定向检查。独立冷运行证据与完整模块
 剩余项见[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
+
+### 主种子账号与演示成员
+
+`seed.py` 自身的账号创建和演示成员写入分别使用固定 Identity／Workspace SQL 能力，
+保留原调用方事务、已有账号完整复用及有变更才提交成员的行为。可信运维连接先应用
+两个普通消费者围栏，再应用上节 Workspace 追加配置及 Identity 追加配置：
+
+```bash
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v identity_owner=identity_code -v consumer_role=legacy_runtime \
+  -f infra/docker/identity-seed-operator-grants.sql
+```
+
+不要把追加配置用于 HTTP／worker 账号。受限数据库复验只使用验收器创建的自有资源：
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/seed-parent-native.json \
+  --test-file tests/test_seed_parent_operator_native.py
+```
+
+22 项旧行为案例已在拒绝 User／Project／Member 私表的凭据下复验；另有 Node 跨 owner
+事务和四项失败后再次提交检查。主脚本的媒体子入口仍单独跟踪，完整状态见
+[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
 
 ### Workspace 锁定权限与会话快照
 

@@ -67,15 +67,10 @@ BEGIN
 
     INSERT INTO public.users (
         id, email, name, password_hash, credential_generation, role,
-        group_name, group_id, status, is_active, disabled_kind, disabled_at,
-        disabled_by, disabled_reason, email_verified_at, last_login_at,
-        last_seen_at, password_admin_reset_at, deactivation_requested_at,
-        deactivation_reason, deactivation_scheduled_at, weekly_target_default,
-        avatar_ref, preferences
+        group_name, group_id, status, is_active, email_verified_at, preferences
     ) VALUES (
         v_account_id, v_email, v_name, v_password_hash, 0, v_role,
-        v_group_name, NULL, 'offline', true, NULL, NULL, NULL, NULL, NULL,
-        NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '{}'::jsonb
+        v_group_name, NULL, 'offline', true, NULL, '{}'::jsonb
     );
 
     RETURN pg_catalog.jsonb_build_object(

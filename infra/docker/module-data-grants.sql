@@ -382,7 +382,7 @@ GRANT SELECT (id, project_id, user_id, role), INSERT (id, project_id, user_id, r
     UPDATE (id), DELETE
     ON public.project_members TO :"workspace_owner";
 GRANT SELECT (assigned_by, version, assigned_at, updated_at, weekly_target),
-    UPDATE (role, version, updated_at)
+    UPDATE (role, assigned_by, version, updated_at)
     ON public.project_members TO :"workspace_owner";
 GRANT SELECT (
     operation_id, actor_id, project_id, operation, request_hash, result, audit_id
@@ -1402,6 +1402,8 @@ ALTER FUNCTION aap_identity_v1.read_provisioning_account(text)
     OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.create_provisioning_account(jsonb)
     OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.create_seed_persona_account(jsonb)
+    OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1._admission_failure(text)
     OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.authentication_policy()
@@ -1710,6 +1712,8 @@ ALTER FUNCTION aap_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb)
 ALTER FUNCTION aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1.write_seed_members(jsonb)
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)
     OWNER TO :"workspace_owner";

@@ -45,6 +45,7 @@ IDENTITY_RUNTIME_CAPABILITIES = (
     "aap_identity_v1.authentication_policy()",
     "aap_identity_v1.read_provisioning_account(text)",
     "aap_identity_v1.create_provisioning_account(jsonb)",
+    "aap_identity_v1.create_seed_persona_account(jsonb)",
     "aap_identity_v1.read_actor_context(uuid,text)",
     "aap_identity_v1.read_actor_facts(uuid)",
     "aap_identity_v1.lock_accounts_share(uuid[],boolean)",
@@ -619,6 +620,7 @@ class LocalResources:
                     "aap_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb), "
                     "aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb), "
                     "aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb), "
+                    "aap_workspace_v1.write_seed_members(jsonb), "
                     "aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb), "
                     "aap_inference_backend_probe_v1.backend_probe_policy(), "
                     "aap_inference_backend_probe_v1.open_backend_probe_subject(text,uuid), "

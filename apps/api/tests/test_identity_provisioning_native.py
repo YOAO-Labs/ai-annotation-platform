@@ -623,6 +623,7 @@ async def test_provisioning_login_has_only_two_functions_and_no_raw_access(test_
         )
         assert [row["signature"] for row in rows] == [
             "aap_identity_v1.create_provisioning_account(jsonb)",
+            "aap_identity_v1.create_seed_persona_account(jsonb)",
             "aap_identity_v1.read_provisioning_account(text)",
         ]
         assert await connection.fetchval(

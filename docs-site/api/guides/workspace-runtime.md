@@ -205,7 +205,7 @@ baseline 与候选修订。Native setter 只写精确配置与事务时间戳，
 或回滚，错绑定回复不能确认整个工作流。能力不增加 CAS、授权检查、提交或回滚。
 
 预建的 `workspace_project_maintenance_client` 通过
-`infra/docker/workspace-project-maintenance-grants.sql` 获取五项固定业务 owner 执行权，
+`infra/docker/workspace-project-maintenance-grants.sql` 获取六项固定业务 owner 执行权，
 没有私表／列、序列、DDL 或 TEMP 权限；PostgreSQL/public invoker helpers 不属于这项
 业务能力计数。迁移、owner grants 与精确授权入口见 `DEV.md`。严格回复及 Native／Node／
 真实消费者的限定本地证据见 [ADR-0164](/dev/adr/0164-workspace-transactional-project-maintenance)。
@@ -224,13 +224,24 @@ baseline 与候选修订。Native setter 只写精确配置与事务时间戳，
 目录建题保留内部提交，nuScenes 保留外层提交，旧 S3 对象仍只在外层提交后显式清理。
 
 这两项固定运维写入不提供用户授权、通用字段补丁或提交能力。maintenance LOGIN
-现有五项固定函数；其最初三项合同与快照保持不变。原开发兼容角色继续可运行脚本；
+现有六项固定函数；其最初三项合同与快照保持不变。原开发兼容角色继续可运行脚本；
 已应用普通消费者围栏的**可信运维账号**可显式追加
 `infra/docker/workspace-seed-operator-grants.sql`。普通 API／worker 的配置仍只有原来的
 32 项函数和两张事实视图；不能把运维追加配置用于 HTTP／worker 账号。
 这不代表开发种子的 Assets 私表操作或其他运维脚本已完成模块提取。
 匹配冷 API 工件的实际种子入口已通过受限凭据、真实 S3、后置失败／回滚、提交后清理
 及漂移重跑验收，范围见[开发点云种子](/dev/concepts/module-deployment#workspace-开发点云种子)。
+
+主脚本 `seed.py` 的演示成员写入使用 `aap-workspace-seed-members/v1`，通过
+`write_seed_members(jsonb)` 在调用方同一事务中按序插入或修改成员。更新仅写原有脏字段
+`role`／`assigned_by` 及事务时间戳，保留 `version`、`weekly_target` 和 `assigned_at`。
+同角色不修复分配人；缺失 persona／项目跳过。保留 autoflush、重复插入约束错误和
+有变更才提交的行为；缺失更新目标或无效 owner 回复使本次 flush 回滚，调用方捕获异常
+后再次提交也不会落下部分结果。读取使用既有公开事实关系。
+
+可信运维追加配置现有三项 Workspace 写能力，普通 API／worker 仍是 32 项函数。
+账号创建由独立的 Identity 种子能力持有。此范围只包含主脚本自身的账号和成员操作；
+媒体子脚本及完整模块资格见[唯一台账](/dev/concepts/module-deployment#剩余工作台账)。
 
 ## 锁定权限与会话快照
 

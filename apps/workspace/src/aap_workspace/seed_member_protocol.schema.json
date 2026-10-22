@@ -1,0 +1,280 @@
+{
+  "$defs": {
+    "SeedMemberInsertResult": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "insert",
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "assigned_at": {
+          "format": "date-time",
+          "title": "Assigned At",
+          "type": "string",
+          "x-source-timezone": "UTC",
+          "x-timezone-aware": true
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string",
+          "x-source-timezone": "UTC",
+          "x-timezone-aware": true
+        }
+      },
+      "required": ["kind", "id", "assigned_at", "updated_at"],
+      "title": "SeedMemberInsertResult",
+      "type": "object"
+    },
+    "SeedMemberUpdateResult": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "update",
+          "title": "Kind",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "found": {
+          "title": "Found",
+          "type": "boolean"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Updated At",
+          "x-source-timezone": "UTC",
+          "x-timezone-aware": true
+        }
+      },
+      "required": ["kind", "id", "found", "updated_at"],
+      "title": "SeedMemberUpdateResult",
+      "type": "object"
+    },
+    "SeedMemberWriteReply": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-seed-members/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "results": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "insert": "#/$defs/SeedMemberInsertResult",
+                "update": "#/$defs/SeedMemberUpdateResult"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/SeedMemberInsertResult"
+              },
+              {
+                "$ref": "#/$defs/SeedMemberUpdateResult"
+              }
+            ]
+          },
+          "title": "Results",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "results"],
+      "title": "SeedMemberWriteReply",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "aap-workspace-seed-members/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "results": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "insert": "#/$defs/SeedMemberInsertResult",
+            "update": "#/$defs/SeedMemberUpdateResult"
+          },
+          "propertyName": "kind"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/SeedMemberInsertResult"
+          },
+          {
+            "$ref": "#/$defs/SeedMemberUpdateResult"
+          }
+        ]
+      },
+      "title": "Results",
+      "type": "array"
+    }
+  },
+  "required": ["schema", "results"],
+  "title": "SeedMemberWriteReply",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-workspace-seed-members/v1",
+  "x-native-capabilities": {
+    "protocol": "aap-workspace-seed-members/v1",
+    "postgres_schema": "aap_workspace_v1",
+    "functions": [
+      {
+        "name": "write_seed_members",
+        "signature": "aap_workspace_v1.write_seed_members(jsonb)",
+        "arguments": [
+          {
+            "name": "p_request",
+            "postgres_type": "jsonb",
+            "json_schema": {
+              "$defs": {
+                "SeedMemberInsert": {
+                  "additionalProperties": false,
+                  "description": "One exact insert from the ordered trusted seed operation list.",
+                  "properties": {
+                    "kind": {
+                      "const": "insert",
+                      "title": "Kind",
+                      "type": "string"
+                    },
+                    "id": {
+                      "format": "uuid",
+                      "title": "Id",
+                      "type": "string"
+                    },
+                    "project_id": {
+                      "format": "uuid",
+                      "title": "Project Id",
+                      "type": "string"
+                    },
+                    "user_id": {
+                      "format": "uuid",
+                      "title": "User Id",
+                      "type": "string"
+                    },
+                    "role": {
+                      "title": "Role",
+                      "type": "string"
+                    },
+                    "assigned_by": {
+                      "format": "uuid",
+                      "title": "Assigned By",
+                      "type": "string"
+                    }
+                  },
+                  "required": ["kind", "id", "project_id", "user_id", "role", "assigned_by"],
+                  "title": "SeedMemberInsert",
+                  "type": "object"
+                },
+                "SeedMemberUpdate": {
+                  "additionalProperties": false,
+                  "description": "One mapper-mask update; flags preserve whether each column was dirty.",
+                  "properties": {
+                    "kind": {
+                      "const": "update",
+                      "title": "Kind",
+                      "type": "string"
+                    },
+                    "id": {
+                      "format": "uuid",
+                      "title": "Id",
+                      "type": "string"
+                    },
+                    "role": {
+                      "title": "Role",
+                      "type": "string"
+                    },
+                    "assigned_by": {
+                      "format": "uuid",
+                      "title": "Assigned By",
+                      "type": "string"
+                    },
+                    "write_role": {
+                      "title": "Write Role",
+                      "type": "boolean"
+                    },
+                    "write_assigned_by": {
+                      "title": "Write Assigned By",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "id",
+                    "role",
+                    "assigned_by",
+                    "write_role",
+                    "write_assigned_by"
+                  ],
+                  "title": "SeedMemberUpdate",
+                  "type": "object"
+                }
+              },
+              "additionalProperties": false,
+              "description": "Ordered caller-owned ProjectMember insert/update operations.",
+              "properties": {
+                "schema": {
+                  "const": "aap-workspace-seed-members/v1",
+                  "title": "Schema",
+                  "type": "string"
+                },
+                "operations": {
+                  "items": {
+                    "discriminator": {
+                      "mapping": {
+                        "insert": "#/$defs/SeedMemberInsert",
+                        "update": "#/$defs/SeedMemberUpdate"
+                      },
+                      "propertyName": "kind"
+                    },
+                    "oneOf": [
+                      {
+                        "$ref": "#/$defs/SeedMemberInsert"
+                      },
+                      {
+                        "$ref": "#/$defs/SeedMemberUpdate"
+                      }
+                    ]
+                  },
+                  "title": "Operations",
+                  "type": "array"
+                }
+              },
+              "required": ["schema", "operations"],
+              "title": "SeedMemberWriteRequest",
+              "type": "object"
+            }
+          }
+        ],
+        "result_postgres_type": "jsonb",
+        "result_model": "SeedMemberWriteReply",
+        "result_schema_ref": "#/$defs/SeedMemberWriteReply",
+        "transaction_semantics": "Apply the supplied ProjectMember insert/update operations in array order inside the caller's transaction. Inserts use the existing ProjectMember defaults; updates write only their explicit changed-column mask and stamp updated_at with now() without incrementing version. A missing update target returns found=false with a null updated_at for the caller to map to its legacy stale-row error. This fixed capability adds no authorization, audit, commit, retry, upsert, role policy, or generic unit-of-work behavior. Uniqueness, foreign-key, and length errors remain database errors."
+      }
+    ],
+    "authorization_boundary": "The trusted seed caller retains authorization and chooses the ordered operations; this fixed capability adds no application authorization.",
+    "transaction_boundary": "The caller owns the active transaction and commit."
+  }
+}

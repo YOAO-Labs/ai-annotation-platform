@@ -6777,3 +6777,29 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   The bounded seed Project capability is closed; the overall goal remains
   active. Other development seed consumers, the named remaining cold workers
   and genuine historical video-retirement evidence remain in the sole ledger.
+
+### Parent seed Identity and Workspace operations
+
+- Migration 0302 adds two closed Native contracts, separately from frozen 0252
+  and 0288 artifacts. Identity inserts missing development personas only;
+  Workspace accepts ordered membership inserts and exact dirty-column updates.
+  Neither capability authorizes end users, commits, deduplicates or retries.
+- The actual seed.py parent helpers use owner capabilities and public facts.
+  Preserve existing accounts, nullable Chinese group names, caller work,
+  autoflush/no_autoflush, duplicate SQLSTATE, cached dirty values, timestamps,
+  member version/target/assignment time, and changed-only membership commits.
+  A failed bridge flush rolls back even when the caller catches and commits.
+- Immutable original baseline driver SHA256 is
+  6f85d77cd829368cb9d5c426b454e8bcfa69b7ad918a986e6341933c6650816e.
+  The checked-in oracle contains 22 cases and 23 snapshots. Its capture failures
+  and fixture corrections remain in seed-parent-baseline-\* receipts.
+- All 22 old cases replay under User/Project/Member private-table-denied roles.
+  Four additional atomic cases cover stale/malformed replies at commit and
+  before-read flush; a Node producer directly composes both owner protocols and
+  rolls back. Native third/fourth, atomic, peer, profiles-fixed and read-phase
+  receipts preserve individual results rather than adding repeated counts.
+- Source contract/binding/architecture checks pass 420 cases with 150 existing
+  inapplicable architecture rules skipped. No changed public REST contract.
+  Cold test source is integrated but has not yet received runtime qualification.
+  It invokes installed parent helpers only; media children and the full parent
+  CLI are outside this bounded qualification. The sole ledger records closure.

@@ -42,10 +42,7 @@ from seed_screenshot_profile import (  # noqa: E402
 )
 
 from app.config import settings
-from app.core.security import hash_password
-from app.db.models.project import Project
-from app.db.models.project_member import ProjectMember
-from app.db.models.user import User
+from app.services.identity_commands import IdentityCommandService
 from app.services.screenshot_seed_catalog import (
     ScreenshotSeedCatalogError,
     build_screenshot_seed_catalog,
@@ -66,7 +63,7 @@ if settings.environment == "production":
     print("[seed] refusing to run with environment=production", file=sys.stderr)
     raise SystemExit(2)
 
-engine = create_async_engine(settings.database_url, echo=False)
+engine = create_async_engine(settings.database_url, echo=False, hide_parameters=True)
 Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 # ── 种子用户 ──────────────────────────────────────────────────────────────────
@@ -158,59 +155,79 @@ async def _ensure_demo_memberships(
     super administrator act through ownership, so they are deliberately not
     given member rows.
 
-    Users are re-read here instead of reusing the ORM instances created above:
-    a fixture ``rollback()`` expires those instances, and touching an expired
-    attribute inside an async session raises ``MissingGreenlet``.  ``members``
-    and ``display_ids`` default to the seeded demo contract; tests pass their
-    own values because persona emails are globally unique.
+    Persona references are resolved again after the fixture transactions.
+    ``members`` and ``display_ids`` default to the seeded demo contract; tests
+    pass their own values because persona emails are globally unique.
     """
 
     wanted_emails = {email for email, _ in members} | set(assigner_emails)
-    by_email = {
-        user.email: user
-        for user in (
-            await db.execute(select(User).where(User.email.in_(wanted_emails)))
-        ).scalars()
-    }
+    identity = IdentityCommandService(db)
+    by_email = await identity.lookup_seed_accounts(wanted_emails)
     assigner = next(
         (by_email.get(email) for email in assigner_emails if by_email.get(email)), None
     )
     if assigner is None:
         return 0
+    from sqlalchemy.orm import aliased
+    from app.db.models.project import Project
+    from app.db.models.project_member import ProjectMember
+    from app.services.seed_membership_data import SeedMembershipWrites
+    from app.services.workspace_read_relations import project_member_facts, project_rows
+
+    project_row = aliased(Project, project_rows(), adapt_on_names=True)
+    member_row = aliased(ProjectMember, project_member_facts(), adapt_on_names=True)
     projects = list(
         (
-            await db.execute(select(Project).where(Project.display_id.in_(display_ids)))
+            await db.execute(
+                select(project_row).where(project_row.display_id.in_(display_ids))
+            )
         ).scalars()
     )
+    writes = SeedMembershipWrites(db)
     changed = 0
     for project in projects:
         for email, role in members:
-            user = by_email.get(email)
-            if user is None:
+            user_id = by_email.get(email)
+            if user_id is None:
                 continue
+            await writes.flush_before_read()
             member = await db.scalar(
-                select(ProjectMember).where(
-                    ProjectMember.project_id == project.id,
-                    ProjectMember.user_id == user.id,
+                select(member_row).where(
+                    member_row.project_id == project.id,
+                    member_row.user_id == user_id,
                 )
             )
             if member is None:
-                db.add(
-                    ProjectMember(
-                        project_id=project.id,
-                        user_id=user.id,
-                        role=role,
-                        assigned_by=assigner.id,
-                    )
+                writes.add(
+                    project_id=project.id,
+                    user_id=user_id,
+                    role=role,
+                    assigned_by=assigner,
                 )
                 changed += 1
-            elif member.role != role:
-                member.role = role
-                member.assigned_by = assigner.id
+            elif writes.role(member) != role:
+                writes.change(member, role=role, assigned_by=assigner)
                 changed += 1
     if changed:
-        await db.commit()
+        await writes.commit()
     return changed
+
+
+async def _ensure_seed_accounts(db: AsyncSession) -> dict[str, uuid.UUID]:
+    """Create missing personas while retaining existing identities and parent commit."""
+    created_users: dict[str, uuid.UUID] = {}
+    identity = IdentityCommandService(db)
+
+    for data in USERS:
+        user_id, created = await identity.ensure_seed_persona(**data)
+        created_users[data["email"]] = user_id
+        if not created:
+            print(f"  skip  {data['email']} (已存在)")
+            continue
+        print(f"  add   {data['email']}  [{data['role']}]")
+
+    await db.commit()
+    return created_users
 
 
 # ── 主逻辑 ────────────────────────────────────────────────────────────────────
@@ -258,39 +275,13 @@ async def seed(
     strict = profile == "screenshots"
 
     async with Session() as db:
-        created_users: dict[str, User] = {}
-
-        for data in USERS:
-            existing = await db.scalar(select(User).where(User.email == data["email"]))
-            if existing:
-                print(f"  skip  {data['email']} (已存在)")
-                created_users[data["email"]] = existing
-                continue
-
-            user = User(
-                id=uuid.uuid4(),
-                email=data["email"],
-                name=data["name"],
-                password_hash=hash_password(data["password"]),
-                role=data["role"],
-                group_name=data["group_name"],
-                is_active=True,
-            )
-            db.add(user)
-            await db.flush()  # 拿到 id，后续项目引用
-            created_users[data["email"]] = user
-            print(f"  add   {data['email']}  [{data['role']}]")
-
+        created_users = await _ensure_seed_accounts(db)
         owner = created_users.get("pm") or created_users.get("pm@test.com")
-        await db.commit()
 
-        # 固化 owner/admin 主键为本地 uuid:下面任一夹具失败都会 await db.rollback(),而
-        # rollback 会 expire 掉 session 内所有 ORM 对象;之后再读 user.id 会触发同步
-        # lazy-load(_load_expired → 同步 session.execute),在 async 上下文即抛 greenlet_spawn,
-        # 连锁使其后的夹具全被误判“跳过”。提前取主键(commit 后仍有效)后全程传值规避。
+        # 传递稳定 UUID，后续夹具回滚不依赖身份实体的缓存状态。
         admin_user = created_users.get("admin")
-        owner_id = owner.id if owner is not None else None
-        admin_id = admin_user.id if admin_user is not None else None
+        owner_id = owner
+        admin_id = admin_user
         preparation = None
         if strict:
             preparation = await prepare_screenshot_seed(db, repair=repair)

@@ -1,5 +1,5 @@
 -- Compose after workspace-consumer-grants.sql only for a trusted seed operator.
--- Ordinary API/worker credentials do not receive these two fixed writes.
+-- Ordinary API/worker credentials do not receive these three fixed writes.
 -- psql -v expected_database=... -v migration_role=... -v workspace_owner=...
 --      -v consumer_role=... -f workspace-seed-operator-grants.sql
 \set ON_ERROR_STOP on
@@ -46,7 +46,8 @@ BEGIN
     END IF;
     FOREACH v_signature IN ARRAY ARRAY[
         'aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)',
-        'aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)'
+        'aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)',
+        'aap_workspace_v1.write_seed_members(jsonb)'
     ] LOOP
         IF NOT EXISTS (
             SELECT 1 FROM pg_proc p JOIN pg_roles owner ON owner.oid=p.proowner

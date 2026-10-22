@@ -13,6 +13,11 @@ from .provisioning_contract import (
     decode_provisioning_reply,
 )
 from .security import hash_password
+from .seed_persona_contract import (
+    SEED_PERSONA_PROTOCOL,
+    SeedPersonaRequest,
+    decode_seed_persona_reply,
+)
 
 _PRODUCTION_IMPORT_ERROR = (
     "生产环境下未找到 admin 用户,拒绝自动创建弱口令 admin/123456。"
@@ -25,6 +30,10 @@ class AccountProvisioningData(Protocol):
 
     async def create_account(self, request: ProvisioningCreateRequest) -> dict: ...
 
+    async def create_seed_persona_account(
+        self, request: SeedPersonaRequest
+    ) -> dict: ...
+
 
 class AccountProvisioningManager:
     def __init__(self, data: AccountProvisioningData):
@@ -34,6 +43,24 @@ class AccountProvisioningManager:
         request = ProvisioningLookupRequest(schema=PROVISIONING_PROTOCOL, email=email)
         raw = await self.data.lookup_account(request)
         return decode_provisioning_reply(raw, request)
+
+    async def ensure_seed_persona(
+        self, *, email: str, name: str, password: str, role: str, group_name: str | None
+    ) -> tuple[uuid.UUID, bool]:
+        existing = await self._lookup(email)
+        if existing is not None:
+            return existing, False
+        request = SeedPersonaRequest(
+            schema=SEED_PERSONA_PROTOCOL,
+            account_id=uuid.uuid4(),
+            email=email,
+            name=name,
+            password_hash=hash_password(password),
+            role=role,
+            group_name=group_name,
+        )
+        raw = await self.data.create_seed_persona_account(request)
+        return decode_seed_persona_reply(raw, request), True
 
     async def _create(self, request: ProvisioningCreateRequest) -> uuid.UUID:
         raw = await self.data.create_account(request)

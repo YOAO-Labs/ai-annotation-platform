@@ -657,7 +657,7 @@ async def test_seed_parent_helpers_run_with_operator_only_capabilities(
                 in missing["error"].lower()
             ), missing
             assert missing["pending_id_materialized"] is True
-            assert missing["commit_attempts"] == 1
+            assert missing["commit_attempts"] == 0
             await _assert_pending_dataset_absent(test_engine, missing_dataset)
             assert await _membership_rows(test_engine) == []
         finally:
@@ -689,7 +689,7 @@ async def test_seed_parent_helpers_run_with_operator_only_capabilities(
             late = _probe_result(late_run)
             assert "controlled seed-parent late membership failure" in late["error"]
             assert late["pending_id_materialized"] is True
-            assert late["commit_attempts"] == 1
+            assert late["commit_attempts"] == 0
             await _assert_pending_dataset_absent(test_engine, late_dataset)
             assert await _membership_rows(test_engine) == []
         finally:
