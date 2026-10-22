@@ -796,7 +796,11 @@ AAP_IDENTITY_E2E_FIXTURE_LIVE=1 \
 ```
 
 此显式测试使用验收器创建的独占桶 IAM 身份，只追加固定 E2E 对象前缀与 mask 内容
-前缀；其他 API bootstrap 验收的默认元数据策略保持（对象读写仍拒绝）。冷运行资格按
+前缀；其他 API bootstrap 验收的默认元数据策略保持（对象读写仍拒绝）。八次独立
+API 容器运行已通过，含真实 HTTP、完整启动生命周期、撤权失败、取消 137、实际
+后端释放、回滚、恢复，以及邻居／token／对象版本清理。安装核对为 owner 288、
+API 1,322、Inference 88、Assets-source 154 个文件。
+收据见 `.worktree/identity-e2e-qualification.json`，整体状态按
 [唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)记录，日常主环境
 不因本地验收切换。
 

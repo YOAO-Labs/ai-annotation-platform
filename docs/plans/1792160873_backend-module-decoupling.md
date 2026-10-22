@@ -7220,6 +7220,32 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   IAM profile permits four E2E dataset prefixes and the mask content prefix in this
   run's exclusive owned buckets. Other assemblies keep the default metadata-only
   object policy. No shared administrator credential enters the API container.
-- Cold installation/actual HTTP cancellation recovery and final artifact/cleanup
-  audit remain pending. Do not infer whole Identity, primary runtime cutover,
-  remote CI, production capacity or Go-provider qualification from this source slice.
+- Root implementation commit 3cde5b95e00220a64926e0ccdcd146f92e2c879c passed normal
+  hooks and includes the pre-cold ledger, operational docs and prerequisites.
+- New owner/API/Inference/Assets-source images matched 288/1322/88/154 installed
+  files respectively. The narrow Docker context change affects every image input
+  manifest, so all four coherent images were rebuilt; unchanged dependency/source
+  layers were reused from cache. API totals include the exact original video asset.
+- First cold attempt completed disabled routes, missing-capability failure,
+  correlated physical cancellation/recovery and normal HTTP operations, then failed
+  while serializing a neighboring HTTP Response as a dict. The original receipt is
+  retained. A minimal evaluation of the actual probe expression with a Response
+  reproduced the defect; correction commit 3799e37e3ea011a06c941edae708856d19d00d57
+  changed only that fixture result access and passed normal hooks.
+- The second full cold case passed eight actual installed-image container runs:
+  real Uvicorn/TCP, the full application lifespan, original owned/login/peek/roles/
+  filtering/lidar/tracker/raster/advance/cleanup routes, complete inactive UserOut,
+  invitation/reset-token dependency cleanup, neighbor preservation and exact newly
+  created mask/dataset versions. A revoked create capability failed and rolled back;
+  restore recovered it. Physical exit137 was correlated with the exact Native call,
+  LOGIN, container IP and PostgreSQL PID; the backend disappeared, the uncommitted
+  namespace remained absent and the original route recovered. All owned resources
+  were removed; frozen SQL installation/rollback and migrations passed at head0306.
+- The four clean integrated workers have verified incremental Git bundles, exact
+  source patches and ignored Ruff-cache archives before checkout removal. Branches
+  remain. The read-only closure inventory found no further runtime private Identity
+  table operations, but legacy/default roles still receive broad public-table CRUD.
+  That existing binding's private-table privileges and compatibility need isolated
+  local qualification next; do not equate the five-function/two-view module
+  consumer's qualification with default-runtime closure. No primary cutover, push,
+  release, production deployment, remote CI or Go expansion occurred.
