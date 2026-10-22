@@ -5850,3 +5850,18 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   union is 358 passes with 150 explicitly inapplicable rules, with the original
   failed report retained. Business acceptance is not repeated for this static
   dependency declaration or formatting-only changes.
+
+- Integrated source/documentation commit:
+  `dfb2d1a2b8b150bc984424358fcbbf0cd98114f3`. All 31 changed files match the
+  aggregate's source manifest. Normal commit hooks pass, including actual
+  OpenAPI and tracked-doc regeneration; tracked generated outputs are unchanged.
+- Preservation reverified: all five owned PostgreSQL containers are absent,
+  owned test resources are destroyed with no cleanup errors, all 20 editable
+  AAP bindings and shared symlinks match the previous milestone, and the clean
+  primary HEAD plus four shared running containers are unchanged. Root has no
+  persistent API/Celery/provider process. Exactly three clean source worktrees
+  are removed after semantic integration checks, verified cache archives and
+  an incremental Git bundle; original branch refs remain. JSON schema field
+  titles are Root's documented source correction. The Docker absence checker
+  is corrected to match the lowercase error plus exit code and empty JSON;
+  the five containers were already absent. No deployment state is changed.
