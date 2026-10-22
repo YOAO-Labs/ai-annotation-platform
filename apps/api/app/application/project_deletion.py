@@ -3,15 +3,15 @@
 from typing import NoReturn
 from uuid import UUID, uuid4
 
+from aap_workspace.project_deletion_contract import (
+    ProjectDeletionFailure,
+    ProjectDeletionReceipt,
+)
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aap_audit_contract import ProjectDeletionAuditContext
 from app.db.models.project import Project
-from app.services.project_deletion_contract import (
-    ProjectDeletionFailure,
-    ProjectDeletionReceipt,
-)
 from app.services.project_deletion_data import ProjectDeletionData
 
 _RETAINED = {
