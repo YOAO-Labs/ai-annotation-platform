@@ -39,6 +39,7 @@ from app.db.models.notification_preference import NotificationPreference
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.async_job_access import GLOBAL_ASYNC_JOB_KINDS
 from aap_workspace_contract.access import platform_role_is_manager
 from app.services.project_aggregates import valid_membership_conditions
@@ -631,7 +632,7 @@ class NotificationService:
         limit: int = 30,
         offset: int = 0,
     ) -> tuple[list[Notification], int, int]:
-        user = await self.db.get(User, user_id)
+        user = await IdentityAccountLockData(self.db).read_actor_status(user_id)
         if user is None:
             return [], 0, 0
         scope = self._scope_conditions(user)
@@ -656,7 +657,7 @@ class NotificationService:
         return items, int(total), int(unread)
 
     async def unread_count(self, user_id: uuid.UUID) -> int:
-        user = await self.db.get(User, user_id)
+        user = await IdentityAccountLockData(self.db).read_actor_status(user_id)
         if user is None:
             return 0
         scope = self._scope_conditions(user)

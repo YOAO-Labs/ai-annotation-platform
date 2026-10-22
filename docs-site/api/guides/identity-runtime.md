@@ -513,3 +513,28 @@ API／独立 Identity runtime 的自助 DSN 分别使用 `IDENTITY_DEACTIVATION_
 已投递和确定拒绝为终态；临时故障、DATA 后断线等结果不明状态继续使用同一挑战、密文与 Message-ID 重试。投递属于至少一次语义，用户可能收到多封相同有效链接。错误 key epoch 保留待投递项，不破坏仍有效的挑战；轮换前应排空旧邮件或保留对应旧 key 的执行器。缺少 SMTP 配置或确定拒绝只使对应重置挑战作废，验证挑战保持有效。
 
 `RECOVERY` LOGIN 仅有 `recovery_policy`、`prepare_recovery_command`、`apply_recovery_command`；`MAIL` 仅有 `mail_policy`、`claim_mail`、`renew_mail`、`finish_mail`；`MAIL_SETTINGS` 仅有 Settings 的 `mail_delivery_policy`。客户端均无直接表、序列或 DDL 权限。内嵌装配与专用连接选择、Compose secret 文件和授权命令见 [DEV.md](https://github.com/yyq19990828/ai-annotation-platform/blob/main/DEV.md#注册密码恢复与凭据邮件)。设计与剩余模块边界见 [ADR-0119](/dev/adr/0119-independent-identity-recovery-and-mail)及[模块台账](/dev/concepts/module-deployment)。
+
+## 已接受 API-key 的最终授权与当前账号读取
+
+已受理的训练数据、评估及相关持久操作只保留 key ID。最终写入前由 Identity 的
+`aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])` 检查当前 owner、撤销、
+过期和所需 scopes。它不重新证明凭据持有、不读取或返回 key hash；hash 轮换的原有
+接受语义保持。请求／SQL 结果描述使用 `aap-identity-accepted-api-key/v1`，包内
+`accepted_api_key_protocol.schema.json` 与 Native 冻结描述由同一 owner 生成。
+
+调用方先持有账号 SHARE 与项目 KEY SHARE，然后等待 key SHARE。所有锁保持到调用方
+commit／rollback，函数不改事务范围；等待后以 `clock_timestamp()` 检查过期。
+空 scope 集合法，无新增数量上限；非法参数为 SQLSTATE `22023`，锁错误与失败事务状态
+原样保留。Learning owner 和过渡应用连接得到固定执行权限，普通 AUTH／key-management／
+建题客户端没有该权限；不新增 DSN 或 HTTP 路由。
+
+单账号读取复用已有的 Identity 最小状态与锁能力，保留当前权限、原查询／锁序、取消和
+错误语义。Mask Repair 等原来仅检查账号存在的入口不增加 active 拒绝；作业取消的停用
+账号保持 401 与 Bearer 错误。集合查询和展示投影仍按[剩余台账](/dev/concepts/module-deployment#剩余工作台账)
+继续收口，当前定向结果不代表完整 Identity 独立部署完成。详见
+[ADR-0161](/dev/adr/0161-identity-current-authority-consumers)。
+
+独立 HTTP Identity 保管自己的签发／派生 secret；API edge 的 `SECRET_KEY` 可以不同，
+RPC 使用独立的 `IDENTITY_TOKEN`。API 的远程响应解码不重新派生 Identity 输出。
+这项源码边界的不同密钥真实验收仍待模块里程碑补齐。已有 Identity secret 影响 JWT、
+派生凭据和持久回执，不能为此改动已有部署或静默恢复旧结果。

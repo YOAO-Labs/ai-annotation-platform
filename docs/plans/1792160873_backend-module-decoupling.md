@@ -5012,3 +5012,55 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   deployment path. Partial capability selectors keep working; no new deployment
   mode is required merely to make full-module acceptance fail when incomplete.
   Complete Identity before unrelated slices. Go remains experimental.
+
+### Identity current-authority consumers and accepted-key fence
+
+- Native0285 adds the fixed Identity-owned accepted-key-ID final check. Account
+  SHARE/project KEY SHARE remain caller-owned; the key SHARE waits and checks
+  real-clock expiry after waiting. No credential/hash/authentication step,
+  arbitrary scope cap, commit/rollback, HTTP endpoint, DSN or LOGIN is introduced.
+  The portable schema generator supplies installed and frozen SQL descriptors.
+- Current single-account reads now use existing Identity facts/locks across
+  prediction/retry, scheduler/preannotation, tracker, Mask Repair, export,
+  WebSocket, job read/cancellation, legacy upload, bulk clear, event recovery and
+  discussion/comment/notification entry checks. Existence-only checks retain
+  their original absence of an active gate. Tracker NOWAIT, export lock order,
+  the second super-admin read, cancellation401/Bearer and caller transactions
+  remain explicit. ORM key and account table reads are removed from these paths.
+- Latest selected union passes406 distinct cases with no effective failures or
+  skips. Native/account-lock/key checks pass46 plus one additional restricted Learning owner-role case;
+  related learning/WS104,
+  execution-consumer136, read-tail53 and discussion/notification66 retain their
+  original cohort reports. Focused successful retries replace three failing
+  cases, not whole failed cohorts. Source adapter/schema47 and runtime grant18
+  checks are separate and not added to this union. The legacy-upload fixture
+  failure was reproduced with the exact old reader/fixture; its seed transaction
+  now commits before testing caller rollback. Production commit behavior is
+  unchanged. Earlier preflight/schema and fixture failures remain retained.
+- Evidence: `.worktree/identity-closure-current-authority-qualification.json`,
+  the original cohort JUnit files and cancellation/export/upload reproducer
+  reports. Implementation scope and pending gates are in ADR-0161. Cold install,
+  container, full migration and backup/restore qualification are intentionally
+  batched at the coherent complete-Identity milestone, not repeated per helper.
+- A deeper audit corrects the earlier shared-secret conclusion: remote Identity
+  already authenticates RPCs by control Bearer and decodes/rederives owned output
+  in the owner, so its private signing/derivation key can differ from API
+  SECRET_KEY. Existing live fixtures use a shared value and must prove the
+  distinct-key deployment path. No new secret abstraction/protocol is needed;
+  preserve existing issuer/receipt keys and rotation behavior.
+- Remaining actual reads need only the seven public account fields
+  id/name/email/role/is_active/status/avatar_ref and invitation id/project_id.
+  Existing catalog owner views provide a precedent for narrowly granted readonly
+  relations that preserve same-statement sets/joins/search/count/cursors. The
+  next bounded deliverable closes these remaining source consumers and their
+  private-table grants, then addresses registration policy and complete existing
+  runtime assembly. Only the module-deployment ledger tracks outstanding work.
+  Complete Identity before unrelated slices; no primary cutover/push/Go expansion.
+
+- Bounded final review found and closed the missing learning_owner EXECUTE on
+  read_actor_facts. One additional actual restricted-role probe confirms the
+  account SHARE/status/key sequence in the same transaction while raw User
+  SELECT remains denied. It passes separately and brings the selected union to
+
+406.  No broader User table grant or new client role was added. Architecture
+      passes352 with148 existing inapplicable rules skipped; docs build passes.

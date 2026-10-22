@@ -33,8 +33,8 @@ from app.db.models.export_artifact import ExportArtifact
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
-from app.db.models.user import User
 from app.services import async_job as async_job_svc
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.exporting import cache as export_cache
 from app.services.exporting.packaging import (
     PRESIGN_EXPIRES_SECONDS,
@@ -472,7 +472,11 @@ async def _assert_export_task_scope(
     job = await db.get(AsyncJob, job_uuid)
     if project is None or job is None or job.project_id != project_id:
         raise ValueError("export scope owner or project is unavailable")
-    actor = await db.get(User, job.user_id) if job.user_id is not None else None
+    actor = (
+        await IdentityAccountLockData(db).read_actor_status(job.user_id)
+        if job.user_id is not None
+        else None
+    )
     if actor is None or not actor.is_active:
         raise ValueError("export scope owner is unavailable")
     # Export is a fixed project capability: reviewer or legitimate manager.
@@ -535,13 +539,12 @@ async def _reauthorize_export_final_write(
 
     from fastapi import HTTPException
 
-    from app.db.models.user import User
     from app.services.project_write_guard import lock_actor_scope
 
     job = await db.get(AsyncJob, job_uuid)
     if job is None or job.project_id is None or job.user_id is None:
         raise ValueError("export scope is no longer valid")
-    actor = await db.get(User, job.user_id)
+    actor = await IdentityAccountLockData(db).read_actor_status(job.user_id)
     if actor is None or not actor.is_active:
         raise ValueError("export scope owner is unavailable")
     try:

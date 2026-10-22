@@ -1439,7 +1439,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 
 该 LOGIN 只有策略、登录候选和会话执行三项能力，不含准入、key、Audit 或表权限。登录／刷新／登出／全端登出的当前账号、密码 hash、generation、JTI 和 key 校验与在线状态、业务审计和成功操作回执共同提交。有效登录失败也保留业务审计；格式或主体绑定错误不能确认事务。内嵌装配可设 `IDENTITY_SESSION_DATABASE_URL(_FILE)` 使用该角色，远程服务故障不会回退。
 
-独立进程显式设置 `IDENTITY_DATABASE_URL(_FILE)`、`IDENTITY_TOKEN(_FILE)`、`IDENTITY_SIGNING_SECRET(_FILE)`，每对恰好一项；它不读取 API `.env`。key 命令另设 `IDENTITY_KEY_DATABASE_URL(_FILE)`；会话另设 `IDENTITY_SESSION_DATABASE_URL(_FILE)` 和 `IDENTITY_LOGIN_REDIS_URL(_FILE)`。账户与在线扫描分别设置 `IDENTITY_ACCOUNT_DATABASE_URL(_FILE)`、`IDENTITY_PRESENCE_DATABASE_URL(_FILE)`。未配置某类命令 DSN 时，该 RPC 返回 503，已配置能力仍可就绪。签名 secret 与所有剩余签发端一致。运行 `uv run --project apps/identity --locked --extra runtime python -m aap_identity_runtime`，或使用可选 `docker-compose.identity.yml` 并提供所启用 capability 的 `IDENTITY_RUNTIME_*_FILE` selector。`/health` 是进程存活，`/ready` 检查原生协议及已配置能力的精确函数权限。Secret 文件须对容器用户可读，源码目录不挂入运行镜像。
+独立进程显式设置 `IDENTITY_DATABASE_URL(_FILE)`、`IDENTITY_TOKEN(_FILE)`、`IDENTITY_SIGNING_SECRET(_FILE)`，每对恰好一项；它不读取 API `.env`。key 命令另设 `IDENTITY_KEY_DATABASE_URL(_FILE)`；会话另设 `IDENTITY_SESSION_DATABASE_URL(_FILE)` 和 `IDENTITY_LOGIN_REDIS_URL(_FILE)`。账户与在线扫描分别设置 `IDENTITY_ACCOUNT_DATABASE_URL(_FILE)`、`IDENTITY_PRESENCE_DATABASE_URL(_FILE)`。未配置某类命令 DSN 时，该 RPC 返回 503，已配置能力仍可就绪。独立 Identity 的签发／派生 secret 不必等于 API edge 的 `SECRET_KEY`；远程调用以 `IDENTITY_TOKEN` 鉴权。现有 Identity 发行与回执账本仍须使用稳定密钥，不能把新隔离环境的不同密钥验收当作已有部署的轮换方案。运行 `uv run --project apps/identity --locked --extra runtime python -m aap_identity_runtime`，或使用可选 `docker-compose.identity.yml` 并提供所启用 capability 的 `IDENTITY_RUNTIME_*_FILE` selector。`/health` 是进程存活，`/ready` 检查原生协议及已配置能力的精确函数权限。Secret 文件须对容器用户可读，源码目录不挂入运行镜像。
 
 会话计数的 Redis 身份只需 `~login_failed:*`、`+get +incrby +expire +del +ping +select +client|setinfo +client|setname`，清除其他命令和频道权限。客户端的 `incr()` 实际发送 `INCRBY key 1`。API 边缘与提供方使用同一计数实例／命名空间；提供方拥有增量、清零及阈值复查，API 保留通用限流和 Turnstile 验证。Redis 不可用时维持现有计数 fail-open。直启配置 `IDENTITY_EXPIRE_MINUTES=1440`、`IDENTITY_EMAIL_VERIFICATION_REQUIRED=false`、`IDENTITY_LOGIN_CAPTCHA_THRESHOLD=5`、`IDENTITY_LOGIN_FAILED_WINDOW_SECONDS=3600`；Compose 使用相应的 `IDENTITY_RUNTIME_*`。这些值须与 API 的签发时长、有效邮箱验证策略、阈值和窗口一致，生产模式下有效邮箱策略可能为 true。Web 登录页收到 HTTP 400、`detail: "captcha_required"` 后展示验证，不从失败次数推算阈值；`X-Login-Failed-Count` 仅用于提示。挑战后的失败会清除已用证明并重建组件；登录成功清除本地挑战。
 
@@ -1915,3 +1915,16 @@ backend 的 epoch／incarnation 都需重新核验，完成后由普通 claim �
 完整契约、实施中的本地验收与尚未完成的对象存储恢复见
 [Inference 运行协议](docs-site/api/guides/inference-runtime.md#离线视频恢复-operator实施中)
 和 [ADR-0160](docs/adr/0160-coordinated-video-restore.md)。
+
+### Identity 已接受 API-key 的最终授权
+
+训练及相关持久操作的 key ID 最终检查通过
+`aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])` 执行。先应用当前迁移和
+`module-data-grants.sql`；过渡应用连接的工作树／LAN 权限清单已包含该固定函数，
+不增加新的连接或服务。函数只给出 boolean，不返回 key hash 或凭据明文。
+
+调用方继续持有账号 SHARE、项目 KEY SHARE，再等待 key SHARE；过期以取得锁后的真实
+数据库时间判断。Native 锁错误与事务失败状态原样保留，适配器不提交或回滚。
+普通 AUTH、key-management 与建题 LOGIN 不获得这项能力。源码及定向验收见
+[ADR-0161](docs/adr/0161-identity-current-authority-consumers.md)，完整 Identity 的冷安装、
+容器和恢复验收在模块一致里程碑集中进行，不能用这里的定向结果替代。

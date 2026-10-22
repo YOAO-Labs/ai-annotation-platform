@@ -581,3 +581,12 @@ READ COMMITTED。完成事务保存目标 realm 的不可变 scope 退休证明�
 实际 CPU 后台及独立 CLI 的本地验收已覆盖中断续跑，未验证对象存储备份恢复。
 操作顺序见 [Inference 运行协议](/api/guides/inference-runtime#离线视频恢复-operator)，
 完整恢复语义见 [ADR-0160](/dev/adr/0160-coordinated-video-restore)。
+
+## Identity 已接受 key 的写入前围栏
+
+`aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])` 由 Identity 持有，返回
+boolean。Learning owner 有固定执行权；过渡 API 连接沿用原运行授权清单，不新增 LOGIN。
+函数不向 AUTH、key-management 或建题客户端开放，也不返回 key/hash/private data。
+调用方保留账号／项目资格与事务，key SHARE 等待后再核对当前撤销、scope 和真实过期时间。
+SQLSTATE 与失败事务状态不被吞掉。冻结描述为 `0285_identity_accepted_api_key.schema.json`。
+完整合同、消费者范围和定向证据见 [ADR-0161](/dev/adr/0161-identity-current-authority-consumers)。

@@ -245,6 +245,7 @@ SQL_ARTIFACTS = (
     "0282_video_execution_checkpoints.sql",
     "0283_labeling_video_writer.sql",
     "0284_video_restore.sql",
+    "0285_identity_accepted_api_key.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -341,8 +342,11 @@ SCHEMA_ARTIFACTS = (
     "0282_video_execution_checkpoints.schema.json",
     "0283_labeling_video_writer.schema.json",
     "0284_video_restore.schema.json",
+    "0285_identity_accepted_api_key.schema.json",
 )
 TEST_FILES = (
+    "tests/test_identity_accepted_api_key_native.py",
+    "tests/test_training_authority_contract.py",
     "tests/test_video_restore_native.py",
     "tests/test_video_restore_live.py",
     "tests/test_video_restore_worker_live.py",
@@ -2270,6 +2274,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regprocedure('aap_identity_v1.lock_accounts_share(uuid[],boolean)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.lock_accounts_update(uuid[],boolean)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.lock_accounts_key_share(uuid[],boolean)') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])') IS NULL "
             "AND to_regnamespace('aap_identity_mail_v2') IS NULL "
             "AND to_regnamespace('aap_workspace_v1') IS NULL "
             "AND to_regnamespace('aap_assets_v1') IS NULL "
@@ -2791,8 +2796,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0284"]:
-            raise RuntimeError("module-data acceptance requires migration head 0284")
+        if heads != ["0285"]:
+            raise RuntimeError("module-data acceptance requires migration head 0285")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(

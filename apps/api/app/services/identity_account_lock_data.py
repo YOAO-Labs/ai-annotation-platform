@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aap_identity.account_lock_contract import (
     ACCOUNT_LOCK_PROTOCOL,
+    ACCEPTED_API_KEY_PROTOCOL,
+    AcceptedApiKeyRequest,
     AccountLockMode,
     AccountLockRequest,
     decode_account_lock_reply,
@@ -39,6 +41,37 @@ class IdentityAccountLockData:
 
     def __init__(self, db: AsyncSession):
         self.db = db
+
+    async def accepted_api_key_authorized(
+        self,
+        actor_id: uuid.UUID,
+        api_key_id: uuid.UUID,
+        required_scopes: Iterable[str],
+    ) -> bool:
+        """Retain the accepted key's SHARE fence without reading credential data."""
+        request = AcceptedApiKeyRequest(
+            schema=ACCEPTED_API_KEY_PROTOCOL,
+            actor_id=actor_id,
+            api_key_id=api_key_id,
+            required_scopes=sorted(set(required_scopes)),
+        )
+        if self.db.autoflush:
+            await self.db.flush()
+        authorized = await self.db.scalar(
+            text(
+                "SELECT aap_identity_v1.check_accepted_api_key("
+                "CAST(:actor_id AS uuid), CAST(:api_key_id AS uuid), "
+                "CAST(:required_scopes AS text[]))"
+            ),
+            {
+                "actor_id": request.actor_id,
+                "api_key_id": request.api_key_id,
+                "required_scopes": request.required_scopes,
+            },
+        )
+        if type(authorized) is not bool:
+            raise _unavailable()
+        return authorized
 
     async def lock_accounts(
         self,

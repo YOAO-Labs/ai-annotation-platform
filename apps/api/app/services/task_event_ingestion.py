@@ -21,11 +21,11 @@ from app.services import task_access
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_event import TaskEvent
-from app.db.models.user import User
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.schemas.task_event import TaskEventIn
 from aap_workspace_contract.access import ProjectCapability
 from app.services.project_access import resolve_project_access
-from app.services.identity_contracts import IdentityActorFacts
+from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 
 MAX_EVENT_DURATION_MS = 4 * 60 * 60 * 1000
 MAX_ANNOTATION_COUNT = 1_000_000
@@ -149,7 +149,7 @@ async def assert_task_event_access(
     db: AsyncSession,
     *,
     task: Task,
-    user: User | IdentityActorFacts,
+    user: IdentityActorFacts | IdentityActorStatus,
     kind: str,
     started_at: datetime | None = None,
     ended_at: datetime | None = None,
@@ -247,7 +247,7 @@ def _fingerprint(payload: Mapping[str, Any]) -> tuple[Any, ...]:
 async def validate_api_events(
     db: AsyncSession,
     *,
-    user: User | IdentityActorFacts,
+    user: IdentityActorFacts | IdentityActorStatus,
     events: Iterable[TaskEventIn],
     now: datetime | None = None,
 ) -> tuple[list[dict[str, Any]], list[TaskEventRejection]]:
@@ -421,7 +421,7 @@ async def validate_worker_event(
     except HTTPException:
         return None
 
-    user = await db.get(User, user_id)
+    user = await IdentityAccountLockData(db).read_actor_status(user_id)
     task = await db.get(Task, task_id)
     if user is None or not user.is_active or task is None:
         return None

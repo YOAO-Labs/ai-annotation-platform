@@ -30,6 +30,8 @@ from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.task import Task
 from app.db.models.user import User
+from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.identity_contracts import IdentityActorStatus
 from app.schemas.annotation_comment import (
     AnnotationCommentOut,
     TaskDiscussionItem,
@@ -48,9 +50,11 @@ _MAX_CURSOR_LENGTH = 2048
 _DISCUSSION_SOURCES = frozenset(("annotation_comment", "feedback"))
 
 
-async def _cached_request_user(db: AsyncSession, actor_id: uuid.UUID) -> User:
-    """Resolve the authenticated user already loaded in this request session."""
-    user = await db.get(User, actor_id)
+async def _read_request_actor(
+    db: AsyncSession, actor_id: uuid.UUID
+) -> IdentityActorStatus:
+    """Read current Identity facts inside the request transaction."""
+    user = await IdentityAccountLockData(db).read_actor_status(actor_id)
     if user is None:
         raise HTTPException(
             status_code=401,
@@ -195,7 +199,7 @@ async def require_visible_task(
     task = await db.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    user = await _cached_request_user(db, actor_id)
+    user = await _read_request_actor(db, actor_id)
     # Task visibility applies batch/status and assignment rules, but it is
     # intentionally usable by a few cross-project task flows and does not establish
     # project membership.  Discussion routes must require both checks.
@@ -390,7 +394,7 @@ async def list_task_discussion(
     cursor: str | None = None,
 ) -> TaskDiscussionPage:
     """Read one correctly ordered page from both authoritative comment sources."""
-    user = await _cached_request_user(db, actor_id)
+    user = await _read_request_actor(db, actor_id)
 
     source_selects = _identifier_selects(
         task_id=task.id,

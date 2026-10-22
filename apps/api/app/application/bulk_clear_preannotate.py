@@ -11,7 +11,8 @@ from app.db.enums import UserRole
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
-from app.db.models.user import User
+from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 from app.services.annotation_cleanup import detach_prediction_parents_for_tasks
 from app.services.async_job import delete_batch_predict_jobs
 from app.services.audit import AuditAction, AuditService
@@ -38,7 +39,7 @@ async def bulk_clear_preannotate(
 
     project_ids = sorted({batch.project_id for batch in batches_by_id.values()})
     projects_by_id: dict[uuid.UUID, Project] = {}
-    actor: User | None = None
+    actor: IdentityActorFacts | IdentityActorStatus | None = None
     for project_id in project_ids:
         try:
             actor, project = await lock_current_project_rows(
@@ -54,7 +55,7 @@ async def bulk_clear_preannotate(
 
     batch_service = BatchService(db)
     if actor is None:
-        actor = await db.get(User, actor_id)
+        actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
         if actor is None:
             raise HTTPException(status_code=401, detail="账号已停用或不存在")
     is_super = actor.role == UserRole.SUPER_ADMIN

@@ -57,7 +57,7 @@ from app.services.video_tracks import (
     resolve_mask_track_state_at_frame,
 )
 from app.utils.raster_mask_rle import coco_rle_area
-from app.services.identity_contracts import IdentityActorFacts
+from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 
 
 PLAN_TTL = timedelta(minutes=15)
@@ -1122,7 +1122,7 @@ async def execute_repair_shard(
     *,
     batch_id: uuid.UUID,
     shard: dict[str, Any],
-    actor: User,
+    actor: User | IdentityActorFacts | IdentityActorStatus,
     async_job_id: uuid.UUID,
 ) -> dict[str, Any] | None:
     batch = (
@@ -1382,7 +1382,7 @@ async def rollback_repair_shard(
     *,
     plan_items: list[dict[str, Any]],
     shard_result: dict[str, Any],
-    actor: User,
+    actor: User | IdentityActorFacts | IdentityActorStatus,
     batch_id: uuid.UUID | None = None,
     rollback_job_id: uuid.UUID | None = None,
 ) -> int | None:

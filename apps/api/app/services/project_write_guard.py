@@ -31,7 +31,7 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.services.identity_account_lock_data import IdentityAccountLockData
-from app.services.identity_contracts import IdentityActorFacts
+from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 from app.services.project_access import (
     bind_project_write_policy_resolver,
     restore_project_write_policy_failure,
@@ -105,7 +105,7 @@ async def lock_actor_scope(
 
 async def lock_actor_project_authority(
     db: AsyncSession, actor_id, project_id, *, nowait: bool = True
-) -> None:
+) -> IdentityActorFacts | None:
     """Account-first bounded share locks covering owner-based authority.
 
     Order is account -> project row, matching the lifecycle model.  The project
@@ -119,7 +119,7 @@ async def lock_actor_project_authority(
     from app.db.models.project import Project
 
     try:
-        await IdentityAccountLockData(db).lock_accounts(
+        accounts = await IdentityAccountLockData(db).lock_accounts(
             [actor_id] if actor_id is not None else [], mode="share", nowait=nowait
         )
         await db.execute(
@@ -133,6 +133,7 @@ async def lock_actor_project_authority(
                 status_code=409, detail={"reason": "project_busy"}
             ) from exc
         raise
+    return accounts.get(actor_id)
 
 
 async def lock_project_manager(
@@ -157,7 +158,7 @@ async def lock_project_manager(
 async def assert_phase_write_allowed(
     db: AsyncSession,
     task: Task,
-    actor: User | IdentityActorFacts,
+    actor: User | IdentityActorFacts | IdentityActorStatus,
     *,
     action: str = "write",
     lock_membership: bool = True,

@@ -18,7 +18,7 @@ from app.db.models.api_key import ApiKey
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
-from app.services.identity_contracts import IdentityActorFacts
+from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 from app.services.identity_gateway import IdentityGateway
 from app.services.notification import NotificationService
 from tests.factory import create_api_key, create_project, create_task, create_user
@@ -285,10 +285,8 @@ async def test_load_active_user_returns_facts_after_session_closes(
         )
         inactive.is_active = False
         active_id, inactive_id = active.id, inactive.id
-        expected = IdentityActorFacts(
+        expected = IdentityActorStatus(
             id=active.id,
-            name=active.name,
-            email=active.email,
             role=active.role,
             is_active=True,
         )
@@ -298,10 +296,9 @@ async def test_load_active_user_returns_facts_after_session_closes(
     try:
         actor = await ws._load_active_user(str(active_id))
         assert actor == expected
-        assert isinstance(actor, IdentityActorFacts)
+        assert isinstance(actor, IdentityActorStatus)
         assert not isinstance(actor, User)
-        assert actor.name == "Active socket actor"
-        assert actor.email == expected.email
+        assert actor.role == "super_admin"
         assert await ws._load_active_user(None) is None
         assert await ws._load_active_user("not-a-uuid") is None
         assert await ws._load_active_user(str(uuid.uuid4())) is None
@@ -333,7 +330,7 @@ async def test_task_stream_rechecks_account_after_identity_fact_snapshot(
 
     async def load_then_revoke(user_id):
         facts = await load_active_user(user_id)
-        assert isinstance(facts, IdentityActorFacts)
+        assert isinstance(facts, IdentityActorStatus)
         assert facts.is_active
         captured.append(facts)
         async with sessions() as revoke:

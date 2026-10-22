@@ -34,9 +34,12 @@ Install the current migration head and the exact Identity owner/runtime grants
 for the enabled capabilities first.
 Provide exactly one direct value or secret file for each of
 `IDENTITY_DATABASE_URL`, `IDENTITY_TOKEN` and `IDENTITY_SIGNING_SECRET` (file
-variants append `_FILE`). The DSN uses `postgresql://` and the signing secret
-matches the API's `SECRET_KEY`; configuration errors never fall back. The
-runtime does not load an API `.env` file.
+variants append `_FILE`). The DSN uses `postgresql://`. A remote Identity
+service owns its signing/derivation secret; it need not equal the API edge's
+`SECRET_KEY`. The edge authenticates RPCs with `IDENTITY_TOKEN` and does not
+rederive Identity credentials. Keep the existing Identity secret stable for
+live issuers and durable receipts; this is not a key-rotation procedure.
+Configuration errors never fall back. The runtime does not load an API `.env` file.
 
 ```sh
 uv run --project apps/identity --locked --extra runtime python -m aap_identity_runtime
@@ -516,3 +519,29 @@ for other owners. Empty requests do not initialize a provider; selected HTTP err
 never fall back to SQL, and a shared deadline covers the selected provider.
 uv cache keys include Python/schema sources and metadata so source-only client
 changes also invalidate a noneditable wheel.
+
+## Accepted API-key final authority
+
+`aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])` confirms current owner,
+revocation, expiry and required scopes for already accepted work holding only a
+key ID. It is not credential authentication. The caller first retains its
+account/project authority locks, then this capability waits on the key's SHARE
+lock until that same caller transaction commits or rolls back. Expiry uses the
+real clock after any wait. Hash rotation preserves the existing accepted-key-ID
+semantics; neither plaintext nor a key hash crosses this boundary.
+
+The portable request and SQL boolean result descriptor use
+`aap-identity-accepted-api-key/v1`; `accepted_api_key_schema()` generates both the
+package artifact and the migration snapshot. The fixed function belongs to
+Identity; Learning and the transitional application runtime have explicit
+execution grants. AUTH, key-management and task-creation clients gain no new
+permission. No new runtime, LOGIN, DSN or HTTP endpoint is added.
+
+Current single-account reads in prediction, scheduling, tracker, Mask Repair,
+export, sockets, jobs, uploads, events and discussion entry points reuse the
+existing `read_actor_facts` or caller-transaction account locks. Existing lack of
+an active check in existence-only paths is preserved; project/task authorization
+still runs at its original boundary. Focused source/Native acceptance is recorded
+in [ADR-0161](../../docs/adr/0161-identity-current-authority-consumers.md).
+Complete-module installation/container/restore qualification is batched with the
+remaining set-query and display consumers; this is not full Identity closure.

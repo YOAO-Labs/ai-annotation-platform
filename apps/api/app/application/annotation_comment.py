@@ -16,7 +16,7 @@ from app.db.enums import ProjectRole
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.task import Task
-from app.db.models.user import User
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.schemas.annotation_comment import (
     AnnotationCommentCreate,
     AnnotationCommentUpdate,
@@ -30,7 +30,7 @@ from app.services.discussion_notifications import (
     prepare_annotation_comment_mention_notifications,
 )
 from app.services.feedback import FeedbackService
-from app.services.identity_contracts import IdentityActorFacts
+from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 from app.services.notification import NotificationService
 from aap_workspace_contract.access import ProjectAccess
 from app.services.task_discussion import require_visible_annotation
@@ -51,7 +51,7 @@ class AnnotationCommentWorkflow:
         *,
         origin: AuditOriginContext,
     ) -> tuple[AnnotationComment, IdentityActorFacts]:
-        actor = await self.db.get(User, actor_id)
+        actor = await IdentityAccountLockData(self.db).read_actor_status(actor_id)
         if actor is None:
             raise HTTPException(
                 status_code=401,
@@ -193,7 +193,7 @@ class AnnotationCommentWorkflow:
     def _assert_action(
         self,
         comment: AnnotationComment,
-        actor: User | IdentityActorFacts,
+        actor: IdentityActorFacts | IdentityActorStatus,
         access: ProjectAccess,
         *,
         operation: Literal["edit", "delete"],
@@ -219,11 +219,11 @@ class AnnotationCommentWorkflow:
         actor_id: uuid.UUID,
         *,
         operation: Literal["edit", "delete"],
-    ) -> tuple[AnnotationComment, Annotation, Task, User, ProjectAccess]:
+    ) -> tuple[AnnotationComment, Annotation, Task, IdentityActorStatus, ProjectAccess]:
         comment = await self.db.get(AnnotationComment, comment_id)
         if comment is None or not comment.is_active:
             raise HTTPException(status_code=404, detail="Comment not found")
-        actor = await self.db.get(User, actor_id)
+        actor = await IdentityAccountLockData(self.db).read_actor_status(actor_id)
         if actor is None:
             raise HTTPException(
                 status_code=401,
@@ -241,7 +241,7 @@ class AnnotationCommentWorkflow:
         self,
         annotation: Annotation,
         task: Task,
-        actor: User,
+        actor: IdentityActorFacts | IdentityActorStatus,
         *,
         expected_access: ProjectAccess,
         require_active: bool,
@@ -284,7 +284,7 @@ class AnnotationCommentWorkflow:
         comment: AnnotationComment,
         annotation: Annotation,
         task: Task,
-        actor: User,
+        actor: IdentityActorFacts | IdentityActorStatus,
         *,
         expected_access: ProjectAccess,
         operation: Literal["edit", "delete"],

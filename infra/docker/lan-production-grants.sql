@@ -140,6 +140,7 @@ GRANT EXECUTE ON FUNCTION
     aap_identity_v1.read_actor_context(uuid,text),
     aap_identity_v1.read_actor_facts(uuid),
     aap_identity_v1.lock_accounts_share(uuid[],boolean),
+    aap_identity_v1.check_accepted_api_key(uuid,uuid,text[]),
     aap_identity_v1.lock_accounts_update(uuid[],boolean),
     aap_identity_v1.lock_accounts_key_share(uuid[],boolean),
     aap_identity_v1.lock_super_admin_invariant(),

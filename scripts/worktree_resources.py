@@ -41,6 +41,7 @@ from worktree_runtime import (
 OWNER_LABEL = "org.aap.worktree-owner"
 OWNER_TAG = "aap-worktree-owner"
 IDENTITY_RUNTIME_CAPABILITIES = (
+    "aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])",
     "aap_identity_v1.authentication_policy()",
     "aap_identity_v1.read_provisioning_account(text)",
     "aap_identity_v1.create_provisioning_account(jsonb)",

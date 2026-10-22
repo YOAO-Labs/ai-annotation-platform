@@ -1347,7 +1347,7 @@ async def _tracker_work_authorized_and_running(
     from fastapi import HTTPException
 
     from app.db.models.project import Project
-    from app.db.models.user import User
+    from app.services.identity_account_lock_data import IdentityAccountLockData
     from app.services.project_access import resolve_project_access
 
     try:
@@ -1385,7 +1385,11 @@ async def _tracker_work_authorized_and_running(
         if status != VideoTrackerJobStatus.RUNNING.value:
             await db.commit()
             raise TrackerFailure("job_not_active")
-        actor = await db.get(User, actor_id) if actor_id is not None else None
+        actor = (
+            await IdentityAccountLockData(db).read_actor_status(actor_id)
+            if actor_id is not None
+            else None
+        )
         task = await db.get(Task, task_id)
         project = await db.get(Project, task.project_id) if task is not None else None
         if actor is None or not actor.is_active or task is None or project is None:
@@ -1573,7 +1577,7 @@ async def _lock_actor_share(db: AsyncSession, actor_id: uuid.UUID | None):
 
     from sqlalchemy.exc import DBAPIError
 
-    from app.db.models.user import User
+    from app.services.identity_account_lock_data import IdentityAccountLockData
 
     if actor_id is None:
         raise TrackerJobStateConflict(
@@ -1581,14 +1585,10 @@ async def _lock_actor_share(db: AsyncSession, actor_id: uuid.UUID | None):
             reason="permission_changed",
         )
     try:
-        actor = (
-            await db.execute(
-                select(User)
-                .where(User.id == actor_id)
-                .with_for_update(read=True, nowait=True)
-                .execution_options(populate_existing=True)
-            )
-        ).scalar_one_or_none()
+        accounts = await IdentityAccountLockData(db).lock_accounts(
+            [actor_id], mode="share", nowait=True
+        )
+        actor = accounts.get(actor_id)
     except DBAPIError as exc:
         if _busy_lock_error(exc):
             raise TrackerJobStateConflict(
@@ -1659,7 +1659,7 @@ async def _assert_tracker_actor_authority(
 
     from fastapi import HTTPException
 
-    from app.db.models.user import User
+    from app.services.identity_account_lock_data import IdentityAccountLockData
     from app.services.project_write_guard import assert_phase_write_allowed
 
     if actor_id is None:
@@ -1667,7 +1667,7 @@ async def _assert_tracker_actor_authority(
             "an explicit actor is required for tracker final writes",
             reason="permission_changed",
         )
-    actor = await db.get(User, actor_id)
+    actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
     if actor is None or not actor.is_active:
         raise TrackerJobStateConflict(
             "tracker actor is unavailable", reason="permission_changed"
@@ -3077,10 +3077,10 @@ async def _run_tracker_job_claimed(
             raise TrackerFailure("permission_denied")
         from fastapi import HTTPException
         from app.db.models.project import Project
-        from app.db.models.user import User
+        from app.services.identity_account_lock_data import IdentityAccountLockData
         from app.services.project_access import resolve_project_access
 
-        actor = await db.get(User, actor_id)
+        actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
         task = await db.get(Task, task_id)
         project = await db.get(Project, task.project_id) if task is not None else None
         try:

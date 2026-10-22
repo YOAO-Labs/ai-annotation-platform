@@ -152,6 +152,7 @@ async def test_image_admission_failure_rolls_back_task_pending_transition(
     )
     db_session.add(task)
     await db_session.flush()
+    await db_session.commit()
     monkeypatch.setattr(
         storage_service,
         "verify_upload",

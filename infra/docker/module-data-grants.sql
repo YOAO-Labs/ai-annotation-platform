@@ -1110,7 +1110,7 @@ GRANT EXECUTE ON FUNCTION aap_notifications_v1.create_identity_deactivation_noti
 GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_active_actor(uuid)
     TO :"workspace_owner", :"assets_owner", :"labeling_owner";
 GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
-    TO :"workspace_owner", :"assets_owner", :"labeling_owner";
+    TO :"workspace_owner", :"assets_owner", :"labeling_owner", :"learning_owner";
 GRANT EXECUTE ON FUNCTION
     aap_identity_v1.workspace_configuration_org_scope(uuid, uuid),
     aap_identity_v1.workspace_template_query_org_ids(uuid)
@@ -1122,6 +1122,8 @@ GRANT EXECUTE ON FUNCTION
     TO :"workspace_owner", :"workflow_role";
 GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_accounts_share(uuid[], boolean)
     TO :"labeling_owner", :"learning_owner";
+GRANT EXECUTE ON FUNCTION aap_identity_v1.check_accepted_api_key(uuid, uuid, text[])
+    TO :"learning_owner";
 GRANT EXECUTE ON FUNCTION aap_identity_v1.lock_accounts_update(uuid[], boolean)
     TO :"inference_owner";
 GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
@@ -1388,6 +1390,8 @@ GRANT CREATE ON SCHEMA aap_identity_briefs_v1 TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.lock_active_actor(uuid) OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.lock_audit_actor(uuid) OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.read_actor_facts(uuid) OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.check_accepted_api_key(uuid, uuid, text[])
+    OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.workspace_configuration_org_scope(uuid, uuid)
     OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.workspace_template_query_org_ids(uuid)

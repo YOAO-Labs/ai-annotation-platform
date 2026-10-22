@@ -11,16 +11,16 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 from app.config import settings
 from app.db.enums import PlatformRole
 from app.services.identity_contracts import (
-    IdentityActorFacts,
+    IdentityActorStatus,
     IdentityCredentialRejected,
     IdentityGatewayUnavailable,
 )
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.identity_gateway import get_identity_gateway
 from app.services.notification import channel_for
 
 if TYPE_CHECKING:
     from aap_identity.contract import Principal
-    from app.db.models.user import User
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ _ADMIN_SOCKET_ROLES = (
 _NOTIFICATION_GATE_RETRY_SECONDS = 0.15
 
 
-async def _load_active_user(user_id: str | None) -> IdentityActorFacts | None:
+async def _load_active_user(user_id: str | None) -> IdentityActorStatus | None:
     """Resolve the current database account for a socket handshake.
 
     Socket tokens are long-lived: a JWT ``role`` claim can outlive a role
@@ -49,28 +49,16 @@ async def _load_active_user(user_id: str | None) -> IdentityActorFacts | None:
     if not user_id:
         return None
     from app.db.base import async_session
-    from app.db.models.user import User
 
     try:
         user_uuid = uuid.UUID(str(user_id))
     except (TypeError, ValueError):
         return None
     async with async_session() as db:
-        user = await db.get(User, user_uuid)
+        user = await IdentityAccountLockData(db).read_actor_status(user_uuid)
         if user is None or not user.is_active:
             return None
-        return _identity_actor_facts(user)
-
-
-def _identity_actor_facts(user: "User") -> IdentityActorFacts:
-    """Project only stable account facts while the owning Session is open."""
-    return IdentityActorFacts(
-        id=user.id,
-        name=user.name,
-        email=user.email,
-        role=user.role,
-        is_active=user.is_active,
-    )
+        return user
 
 
 async def _authenticate_socket_token(
@@ -165,12 +153,13 @@ async def _revalidate_project_access(project_id: uuid.UUID, user_id: str) -> boo
 
     from app.db.base import async_session
     from app.db.models.project import Project
-    from app.db.models.user import User
     from app.services.project_access import resolve_project_access
 
     async with async_session() as db:
         project = await db.get(Project, project_id)
-        user = await db.get(User, uuid.UUID(str(user_id)))
+        user = await IdentityAccountLockData(db).read_actor_status(
+            uuid.UUID(str(user_id))
+        )
         if project is None or user is None:
             return False
         try:
@@ -478,11 +467,10 @@ async def video_tracker_job_socket(
         from app.services import task_access
         from app.db.base import async_session
         from app.db.models.task import Task
-        from app.db.models.user import User
         from app.db.models.video_tracker_job import VideoTrackerJob
 
         async with async_session() as db:
-            user = await db.get(User, user_uuid)
+            user = await IdentityAccountLockData(db).read_actor_status(user_uuid)
             job = await db.get(VideoTrackerJob, job_id)
             task = await db.get(Task, job.task_id) if job is not None else None
             if user is None or not user.is_active or job is None or task is None:

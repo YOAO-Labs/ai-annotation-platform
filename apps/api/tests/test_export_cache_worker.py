@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from app.services.exporting import cache
+from app.services.identity_contracts import IdentityActorStatus
 from app.workers import export as export_worker
 from app.workers.celery_app import celery_app
 
@@ -148,7 +149,12 @@ async def test_export_worker_rejects_removed_member_before_cache_or_build(
         user_id=actor_id,
         payload={"scope": {"task_ids": [str(task_id)]}},
     )
-    actor = SimpleNamespace(id=actor_id, is_active=True, role="annotator")
+    actor = IdentityActorStatus(id=actor_id, is_active=True, role="annotator")
+    monkeypatch.setattr(
+        export_worker.IdentityAccountLockData,
+        "read_actor_status",
+        AsyncMock(return_value=actor),
+    )
     db = SimpleNamespace(
         commit=AsyncMock(),
         rollback=AsyncMock(),
@@ -161,8 +167,6 @@ async def test_export_worker_rejects_removed_member_before_cache_or_build(
             return project
         if model is export_worker.AsyncJob:
             return job
-        if model is export_worker.User:
-            return actor
         return None
 
     db.get = AsyncMock(side_effect=get)

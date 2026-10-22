@@ -11,7 +11,8 @@ from app.application.async_job_contracts import AsyncJobOperationFailure
 from app.db.enums import PlatformRole, ProjectRole
 from app.db.models.async_job import AsyncJob
 from app.db.models.project import Project
-from app.db.models.user import User
+from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 from app.schemas.async_job import AsyncJobListResponse, AsyncJobOut
 from app.services import async_job_access
 from app.services.project_aggregates import project_scope_clause
@@ -19,7 +20,7 @@ from app.services.project_aggregates import project_scope_clause
 
 def _build_async_job_query(
     *,
-    current_user: User,
+    current_user: IdentityActorFacts | IdentityActorStatus,
     status: list[str] | None,
     kind: list[str] | None,
     project_id: uuid.UUID | None,
@@ -140,7 +141,7 @@ class SqlAsyncJobReadAdapter:
         limit: int,
         offset: int,
     ) -> AsyncJobListResponse:
-        user = await self._db.get(User, actor_id, populate_existing=True)
+        user = await IdentityAccountLockData(self._db).read_actor_status(actor_id)
         if user is None or not user.is_active:
             return AsyncJobListResponse(items=[], total=0)
 

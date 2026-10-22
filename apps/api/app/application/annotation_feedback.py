@@ -17,7 +17,8 @@ from app.db.models.mask_qc import MaskQCIssue
 from app.db.models.point_cloud_quality import PointCloudQualityIssue
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
-from app.db.models.user import User
+from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.identity_contracts import IdentityActorFacts
 from app.schemas.annotation_feedback import (
     AnnotationFeedbackCreate,
     AnnotationFeedbackPatch,
@@ -83,7 +84,7 @@ class AnnotationFeedbackWorkflow:
         self.feedback = FeedbackService(db)
 
     @staticmethod
-    def _assert_platform_role(actor: User) -> None:
+    def _assert_platform_role(actor: IdentityActorFacts) -> None:
         if actor.role not in _FEEDBACK_PLATFORM_ROLES:
             roles = "或".join(_FEEDBACK_PLATFORM_ROLES)
             raise TaskWorkflowError(403, f"需要角色权限: {roles}")
@@ -514,7 +515,7 @@ class AnnotationFeedbackWorkflow:
             entry_id, missing_detail=_FEEDBACK_NOT_FOUND
         )
         root_snapshot = snapshots[-1]
-        actor = await self.db.get(User, actor_id, populate_existing=True)
+        actor = await IdentityAccountLockData(self.db).read_actor_status(actor_id)
         if actor is None:
             raise TaskWorkflowError(401, "Authentication required")
         _project, access = await resolve_project_access_by_id(
@@ -574,7 +575,11 @@ class AnnotationFeedbackWorkflow:
     async def _admit_feedback_target(
         self, feedback_id: uuid.UUID, *, actor_id: uuid.UUID
     ) -> tuple[
-        User, ProjectAccess, AnnotationFeedback, AnnotationFeedback, Task | None
+        IdentityActorFacts,
+        ProjectAccess,
+        AnnotationFeedback,
+        AnnotationFeedback,
+        Task | None,
     ]:
         snapshots = await self._read_feedback_lineage(
             feedback_id, missing_detail=_FEEDBACK_NOT_FOUND
@@ -605,7 +610,7 @@ class AnnotationFeedbackWorkflow:
         project_id: uuid.UUID,
         task_id: uuid.UUID | None,
         *,
-        actor: User,
+        actor: IdentityActorFacts,
         access: ProjectAccess,
         missing_detail: str,
     ) -> Task | None:
@@ -825,7 +830,11 @@ class AnnotationFeedbackWorkflow:
         )
 
     async def _assert_reply_anchor_is_current(
-        self, parent: AnnotationFeedback, *, actor: User, task: Task | None
+        self,
+        parent: AnnotationFeedback,
+        *,
+        actor: IdentityActorFacts,
+        task: Task | None,
     ) -> None:
         mask_qc_issue_id = (parent.anchor_position or {}).get("mask_qc_issue_id")
         if mask_qc_issue_id:

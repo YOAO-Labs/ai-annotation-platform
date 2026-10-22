@@ -17,7 +17,6 @@ from aap_workspace.configuration_values import TOOL_UNIT_IDS as _SCHEMA_TOOL_UNI
 
 from app.db.enums import UserRole
 from app.db.models.project import Project
-from app.db.models.user import User
 from app.db.models.prediction import Prediction, PredictionMeta, FailedPrediction
 from app.db.models.task import Task
 from app.services.annotation_propagation import _new_track_id
@@ -32,6 +31,7 @@ from app.services.labeling_prediction_contract import (
 from app.services.mask_gc import mask_fence_error
 from app.services.test_seed_access import assert_isolated_test_seed_database
 from app.services.project_access import resolve_project_access
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.raster_mask_storage import (
     RasterMaskContractError,
     prepare_mask_payload_for_write,
@@ -117,25 +117,25 @@ async def assert_can_manage_failed_prediction(
     db: AsyncSession, fp: FailedPrediction, actor_id: uuid.UUID
 ) -> None:
     """Authorize retry, dismissal and restoration against current project management."""
-    user = await db.get(User, actor_id)
-    if user is None:
+    actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
+    if actor is None:
         raise HTTPException(
             status_code=403,
             detail="仅项目负责人或超级管理员可管理失败预测",
         )
-    if user.role == UserRole.SUPER_ADMIN.value:
-        user = await db.get(User, actor_id, populate_existing=True)
-        if user is None:
+    if actor.role == UserRole.SUPER_ADMIN.value:
+        actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
+        if actor is None:
             raise HTTPException(
                 status_code=403,
                 detail="仅项目负责人或超级管理员可管理失败预测",
             )
-        if user.is_active and user.role == UserRole.SUPER_ADMIN.value:
+        if actor.is_active and actor.role == UserRole.SUPER_ADMIN.value:
             return
     project = await db.get(Project, fp.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
-    access = await resolve_project_access(db, actor_id=user.id, project=project)
+    access = await resolve_project_access(db, actor_id=actor.id, project=project)
     if access.is_manager:
         return
     raise HTTPException(

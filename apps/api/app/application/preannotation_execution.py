@@ -31,10 +31,10 @@ _WRITE_ATTEMPTS = 3
 async def _preannotation_actor_revoked(db, actor_id, project_uuid) -> bool:
     """Read current initiating-account and project authority without holding ML locks."""
     from app.db.models.project import Project
-    from app.db.models.user import User
+    from app.services.identity_account_lock_data import IdentityAccountLockData
     from app.services.project_access import is_privileged_for_project
 
-    actor = await db.get(User, actor_id, populate_existing=True)
+    actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
     project = await db.get(Project, project_uuid, populate_existing=True)
     return (
         actor is None
@@ -1621,7 +1621,8 @@ async def _execute_preannotation(
     from app.db.models.project import Project
     from app.db.models.task import Task
     from app.db.models.task_batch import TaskBatch
-    from app.db.models.user import User
+    from app.services.identity_account_lock_data import IdentityAccountLockData
+    from app.services.identity_contracts import IdentityActorStatus
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
     from app.services.gpu_arbitration.dispatch import (
@@ -1679,9 +1680,11 @@ async def _execute_preannotation(
         if project is not None:
             project_name = project.name
         project_uuid = uuid.UUID(project_id)
-        actor: User | None = None
+        actor: IdentityActorStatus | None = None
         if user_id:
-            actor = await db.get(User, uuid.UUID(user_id))
+            actor = await IdentityAccountLockData(db).read_actor_status(
+                uuid.UUID(user_id)
+            )
             if (
                 actor is None
                 or not actor.is_active

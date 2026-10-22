@@ -16,9 +16,9 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
 from app.db.models.prediction import FailedPrediction
 from app.db.models.project import Project
-from app.db.models.user import User
 from app.schemas.async_job import AsyncJobRetryFailedResponse
 from app.services import prediction as prediction_service
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.pipeline_validation import resolve_preannotate_queue
 from app.services.prediction_retry import MAX_RETRY_COUNT, PredictionRetryDispatcher
 
@@ -151,14 +151,14 @@ class SqlPredictionRetry(PredictionRetryPort):
                 project = await db.get(Project, job.project_id)
                 if project is None:
                     raise HTTPException(status_code=404, detail="async_job not found")
-                user = await db.get(User, actor_id)
-                if user is None:
+                actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
+                if actor is None:
                     raise HTTPException(status_code=403, detail="not your job")
                 from app.services.project_access import resolve_project_access
 
                 try:
                     access = await resolve_project_access(
-                        db, actor_id=user.id, project=project
+                        db, actor_id=actor.id, project=project
                     )
                 except HTTPException:
                     raise HTTPException(status_code=403, detail="not your job")
@@ -167,12 +167,12 @@ class SqlPredictionRetry(PredictionRetryPort):
                         status_code=403, detail="requires project admin"
                     )
             else:
-                user = await db.get(User, actor_id, populate_existing=True)
+                actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
                 if (
-                    user is None
-                    or not user.is_active
+                    actor is None
+                    or not actor.is_active
                     or (
-                        user.role != PlatformRole.SUPER_ADMIN.value
+                        actor.role != PlatformRole.SUPER_ADMIN.value
                         and job.user_id != actor_id
                     )
                 ):

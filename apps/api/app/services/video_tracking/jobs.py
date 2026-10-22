@@ -60,7 +60,7 @@ from app.services.video_tracks import (
     resolve_track_at_frame,
 )
 from app.utils.raster_mask_rle import coco_rle_bbox_norm
-from app.services.identity_contracts import IdentityActorFacts
+from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 
 
 log = logging.getLogger(__name__)
@@ -737,7 +737,7 @@ async def create_video_mask_correction_job(
     ctx: VideoContext,
     annotation_id: uuid.UUID,
     payload: VideoMaskCorrectionRequest,
-    user: User | IdentityActorFacts,
+    user: User | IdentityActorFacts | IdentityActorStatus,
 ) -> VideoTrackerJobOut:
     _assert_frame_range(ctx, payload.from_frame, payload.to_frame)
     annotation = (

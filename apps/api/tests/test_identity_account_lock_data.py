@@ -165,3 +165,39 @@ async def test_initial_actor_status_keeps_absence_and_raw_inactive_role():
     assert db.flush.await_count == 2
     db.scalar.assert_not_awaited()
     _caller_transaction_retained(db)
+
+
+@pytest.mark.parametrize("autoflush", [True, False])
+@pytest.mark.parametrize("authorized", [True, False])
+async def test_accepted_key_retains_caller_transaction_and_flush_policy(
+    autoflush, authorized
+):
+    db = _session(authorized, autoflush=autoflush)
+    key_id = uuid.UUID(int=12)
+    result = await IdentityAccountLockData(db).accepted_api_key_authorized(
+        _ACTOR_ID, key_id, ["datasets:read", "annotations:read", "datasets:read"]
+    )
+    assert result is authorized
+    statement, bindings = db.scalar.await_args.args
+    assert "aap_identity_v1.check_accepted_api_key(" in str(statement)
+    assert bindings == {
+        "actor_id": _ACTOR_ID,
+        "api_key_id": key_id,
+        "required_scopes": ["annotations:read", "datasets:read"],
+    }
+    assert db.flush.await_count == int(autoflush)
+    db.execute.assert_not_awaited()
+    _caller_transaction_retained(db)
+
+
+@pytest.mark.parametrize("reply", [None, 0, 1, "true", {}, []])
+async def test_accepted_key_untrusted_result_is_503_without_fallback(reply):
+    db = _session(reply)
+    with pytest.raises(HTTPException) as rejected:
+        await IdentityAccountLockData(db).accepted_api_key_authorized(
+            _ACTOR_ID, uuid.UUID(int=12), []
+        )
+    assert rejected.value.status_code == 503
+    assert db.scalar.await_count == 1
+    db.execute.assert_not_awaited()
+    _caller_transaction_retained(db)

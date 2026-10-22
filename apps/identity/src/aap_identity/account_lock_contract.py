@@ -3,15 +3,47 @@
 from __future__ import annotations
 
 import uuid
-from typing import Literal, TypeAlias
+from typing import Annotated, Literal, TypeAlias
 
-from pydantic import Field, ValidationError, model_validator
+from pydantic import Field, StrictBool, TypeAdapter, ValidationError, model_validator
 
 from .actor_contract import _json_bytes
 from .contract import ClosedModel, IdentityUnavailable
 
 ACCOUNT_LOCK_PROTOCOL = "aap-identity-account-locks/v1"
 AccountLockMode: TypeAlias = Literal["share", "update", "key_share"]
+ACCEPTED_API_KEY_PROTOCOL = "aap-identity-accepted-api-key/v1"
+
+
+class AcceptedApiKeyRequest(ClosedModel):
+    """Current key authority for accepted work, inside its caller transaction."""
+
+    protocol: Literal["aap-identity-accepted-api-key/v1"] = Field(alias="schema")
+    actor_id: uuid.UUID
+    api_key_id: uuid.UUID
+    required_scopes: list[Annotated[str, Field(strict=True)]]
+
+
+def accepted_api_key_schema() -> dict:
+    schema = TypeAdapter(AcceptedApiKeyRequest | StrictBool).json_schema(by_alias=True)
+    schema.update(
+        {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": ACCEPTED_API_KEY_PROTOCOL,
+            "$comment": (
+                "Confirms an already accepted key ID, not credential possession. "
+                "The caller retains account/project authority locks. The key FOR "
+                "SHARE lock waits and remains in the caller transaction. Expiry "
+                "is checked against the real clock after any lock wait. Invalid "
+                "arguments raise SQLSTATE 22023; database errors propagate."
+            ),
+            "x-postgresql-functions": [
+                "aap_identity_v1.check_accepted_api_key(uuid, uuid, text[])"
+            ],
+            "x-postgresql-result": {"type": "boolean"},
+        }
+    )
+    return schema
 
 
 class AccountLockRequest(ClosedModel):

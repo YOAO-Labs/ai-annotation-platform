@@ -56,7 +56,7 @@ from app.services.scheduler import task_visibility_clause
 from app.services.feedback import unresolved_issue_count_sq
 from app.services.task_discussion import task_comment_count_sq
 from app.services.assets_spatial_views import spatial_item_references
-from app.services.identity_contracts import IdentityActorFacts
+from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 
 _STRING_OPS = {"eq", "ne", "in"}
 
@@ -1098,7 +1098,7 @@ def _comment_count_sq() -> ColumnElement[int]:
 
 def apply_task_visibility(
     stmt: Select,
-    user: User | IdentityActorFacts,
+    user: User | IdentityActorFacts | IdentityActorStatus,
     project: Project,
     *,
     project_role: str | None = None,
@@ -1121,7 +1121,7 @@ def apply_task_visibility(
 def visible_tasks_stmt(
     project_id: uuid.UUID,
     *,
-    user: User | IdentityActorFacts,
+    user: User | IdentityActorFacts | IdentityActorStatus,
     project: Project,
     project_role: str | None = None,
 ) -> Select:
