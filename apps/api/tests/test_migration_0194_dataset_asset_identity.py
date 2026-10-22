@@ -21,6 +21,17 @@ async def test_unused_identity_schema_roundtrip(test_engine, monkeypatch):
         try:
 
             def roundtrip(sync):
+                child_spec = importlib.util.spec_from_file_location(
+                    "migration_0195",
+                    Path(__file__).parents[1]
+                    / "alembic/versions/0195_controlled_storage_locations.py",
+                )
+                child = importlib.util.module_from_spec(child_spec)
+                child_spec.loader.exec_module(child)
+                monkeypatch.setattr(
+                    child, "op", Operations(MigrationContext.configure(sync))
+                )
+                child.downgrade()
                 monkeypatch.setattr(
                     migration, "op", Operations(MigrationContext.configure(sync))
                 )
@@ -34,6 +45,7 @@ async def test_unused_identity_schema_roundtrip(test_engine, monkeypatch):
                     sync.scalar(text("SELECT to_regclass('public.dataset_assets')"))
                     == "dataset_assets"
                 )
+                child.upgrade()
 
             await connection.run_sync(roundtrip)
         finally:

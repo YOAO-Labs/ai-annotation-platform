@@ -249,3 +249,9 @@ last_reviewed: 2026-09-10
 - [图像数据集导入](/user-guide/datasets/import-images) — 多文件 / ZIP 上传方式
 - [点云 / 多模态数据集导入格式](/user-guide/datasets/import-formats) — scene 目录布局
 - 开发视角：[概念 · 存储连接器](/dev/concepts/storage-connections)
+
+## 已挂载目录的存储位置
+
+服务器目录、CephFS 和 NFS 可由运维统一挂载为少量受控根，再由超级管理员通过[存储位置 API](/api/guides/storage-locations)登记名称、根句柄、相对目录和使用人员。例如根句柄 `ceph` 对应 `/mnt/cephfs`，位置登记 `traffic`，目录浏览选择其下 `vehicle_detection`。新建根内目录和登记已有目录无需重启容器；新增未挂载的宿主机目录仍需运维先补挂载。
+
+当前已提供注册、权限过滤、只读目录浏览和指定节点探测 API；数据集页面尚未提供选择位置创建原地引用数据集的向导。现有连接器导入仍会复制文件。管理员不能仅凭 API 节点可读就认定扫描节点可用，必须探测指定 worker；外部目录不接受平台写入或删除。

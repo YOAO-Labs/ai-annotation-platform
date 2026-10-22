@@ -30,4 +30,4 @@ last_reviewed: 2026-10-22
 
 外部写入流程可在新根下直接写 `sub/image.jpg`，无需伪造平台上传 UUID；扫描保留真实键并计算正确逻辑相对目录。已登记 file_path 的重复扫描跳过；扫描 ETag 仅作观测，不自动写成 content_hash。此接口补登记已有托管对象，不提供服务器目录原地引用。
 
-管理映射和核验状态当前是内部数据，不新增公开 Asset/Location API。既有 Item/Task 的 file_path 与冻结版本输入保持原样。运维回填见[存储连接架构](/dev/concepts/storage-connections#内容身份与兼容回填)。
+内容及其物理位置映射和核验状态仍是内部数据。[受控存储位置](./storage-locations)另行提供目录登记、浏览与节点探测，不改变数据集原图读取路径。既有 Item/Task 的 file_path 与冻结版本输入保持原样。运维回填见[存储连接架构](/dev/concepts/storage-connections#内容身份与兼容回填)。

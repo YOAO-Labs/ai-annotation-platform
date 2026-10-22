@@ -1,33 +1,67 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：research-draft；未排期，未批准实施，未分配发布版本。
+> 状态：E02-A completed locally；E02-B pending review；用户已授权本轮推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
-> 实施前须通过 [backlog promotion gate](README.md#promotion-gate)。[草案总览](1792661016_dataset-storage-roadmap.md)、[架构契约](1792661016_dataset-storage-architecture.md)和[交付验收](1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
+> 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 > 优先级：P0（M1 基础）；负责人角色：后端、运维，前端协作。
 > 依赖：EPIC-01 的标识与适配契约；EPIC-11 的最小权限规则必须随 M1 一起交付。
 > 下游：EPIC-03 原地注册、EPIC-05 读取、EPIC-07 迁移、EPIC-09 存储控制台。
 
+## 本轮实施定案：E02-A
+
+基线 `fde06cd33`。动态注册采用“部署允许根 + 数据库内位置/子目录”，不把每个数据集路径写进环境变量。新增根内子目录无需重启；新增未挂载宿主机目录仍先由运维映射。当前没有经用户授权可用于验收的真实业务根，本轮用隔离临时目录验证，不改实际 Compose volumes。
+
+最小替代是仅配置一个根并做字符串前缀判断；它不能满足动态注册、节点可达性和路径替换保护。本轮复用 E01 四表中的 StorageLocation/Binding、现有连接器授权与 Fernet，并使用 Linux openat2 的 beneath/no-symlinks 限制。默认允许根为空；不支持安全打开的节点明确不可用。
+
+### 范围与契约
+
+- 新配置 `STORAGE_FILESYSTEM_ROOTS` 是 root handle 到部署绝对路径的 JSON 映射，默认 `{}`。只在服务端配置保存绝对根；API 仅收 handle 和规范相对路径。受控根下拒绝符号链接、跨子挂载和非常规文件；只读代码不写探针或缓存。
+- Alembic 0195 扩展 StorageLocation 的 connection_id/enabled，新增逐节点探测记录；老 S3/SFTP 连接保持原 ID、owner/global 权限和加密凭据 owner，只关联位置、不复制秘密。旧连接更新增加位置修订、失效旧探测；删除仅清理无引用关联，有内容/绑定引用则拒绝。
+- 新 `/api/v1/storage-locations` 提供过滤列表、详情、超管注册 filesystem、带 expected_revision 的元数据/授权/启停更新、单层目录浏览、超管节点探测与探测查询；`/roots` 只列允许根句柄，`/bindings` 只读列出全部九用途，不在 GET 中 bootstrap。
+- filesystem 位置仅 super_admin 管理；project_admin 仅按 global 或显式 user ID 授权浏览；员工的任务读取权限不授予目录浏览。连接关联位置继续委托旧 can_use_connection。输出不含绝对根、连接凭据或原始文件系统异常。
+- 目录浏览默认 100、最多 200 项，一层最多检查 5000 个原始条目；超限明确失败。游标绑定位置、修订、路径、目录身份和条目摘要，目录变化要求重读。每页复核权限，临时 FD 始终关闭。
+- 节点探测分别记录 api 与指定 Celery hostname。使用 Celery worker_direct 专属队列，执行端校验真实 hostname、权限和修订；离线/超时/晚到/旧修订不能成为有效证据。list/read/range 分开报告；只有显式 sample_file 的常规文件会被只读采样，空目录不会把 read 标成已验证。证据有效期 5 分钟。
+- 根和位置子目录按每个节点的路径指纹、dev/inode 固定身份；不同节点不直接比较 dev/inode。首次 worker 探测信任部署者的同名根映射，后续变化拒绝静默重绑；它只证明节点能力，不证明多节点字节相同，该门由 E05 内容核验负责。
+- 不增加 DatasetSource、原图 HTTP resolver、原地注册任务、用途切换或 UI 页面；后继 E04/E05/E03/E09 消费这批接口。现有复制导入保持可用，S3/SFTP 不能凭关联位置冒充原地读取已验收。
+
+### 文件 owner 与验证
+
+本切片超过 8 文件：模型/迁移（dataset_asset、models 注册、0195）、配置（config、.env.example）、filesystem 安全打开器、storage_location 服务/schema/router、storage_connection 服务和路由、Celery probe/配置、audit、API 快照/生成客户端、SDK 覆盖清单、专项测试、正式文档/ADR/CHANGELOG/DEV 及本系列导航。不新增依赖、密钥或外部服务。
+
+```text
+部署根映射 -> 安全打开器 <- API 注册/浏览 <- 当前位置授权
+                 ^             |
+                 |             v
+指定 worker 专属队列 -> 节点探测 -> StorageLocation + 版本化节点证据
+既有连接器 ----------> 关联位置（权限/凭据仍由原 owner 管理）
+九用途固定绑定 ------> 只读展示；历史对象定位不切换
+```
+
+验证覆盖正常目录/中文空格、新增子目录、路径穿越/绝对路径/链接/替换/特殊文件、预算/游标/FD 释放；授权与撤销、配置 CAS、旧连接更新/删除、九用途缺失与共桶、GET 零写入；API 可达 worker 不可达、指定节点与过期/旧修订拒绝。使用隔离 test 数据库及临时根；运行旧连接器与 E01 回归、迁移往返、OpenAPI/SDK 契约、文档构建及 diff 检查。若启用本 checkout worker，核对任务注册并执行真实指定节点探测，结束清理所拥有的进程、资源和构建产物。
+
+回退应用时保留新位置元数据并关闭新登记入口；旧复制导入与固定平台桶继续可用。仅无内容/绑定引用的关联位置能清理，不能为回退删除原目录。本轮不分配发布版本，不构建后端镜像。
+
 ## 本项目基线与改造落点
 
 下列为固定提交的静态证据，尚非运行/浏览器验收结果。
 
-| 当前 owner / 代码锚点                                                         | 已有能力、缺口与复用约束                                                                                        |
-| ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| [storage_connection.py](../../../apps/api/app/services/storage_connection.py) | 复用 can_use_connection/assert_connection_admin；当前 owner/global、create 写 project_id=None，未实现项目共享。 |
-| [crypto.py](../../../apps/api/app/core/crypto.py)                             | 复用 Fernet；访问凭据轮换与 CONNECTOR_ENCRYPTION_KEY 轮换分别处理，后者需要重加密和恢复材料。                   |
-| [connector_guard.py](../../../apps/api/app/services/connector_guard.py)       | 保留白名单与多入口复检；客户端实际连接仍会重新解析 DNS，不能将 DNS pinning 写成已有能力。                       |
-| [sftp.py](../../../apps/api/app/services/sources/sftp.py)                     | 现有测试主要验证列举；list/open 不能直接当作本地安全根打开器或持续原地读取证明。                                |
+| 当前 owner / 代码锚点                                                      | 已有能力、缺口与复用约束                                                                                        |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| [storage_connection.py](../../apps/api/app/services/storage_connection.py) | 复用 can_use_connection/assert_connection_admin；当前 owner/global、create 写 project_id=None，未实现项目共享。 |
+| [crypto.py](../../apps/api/app/core/crypto.py)                             | 复用 Fernet；访问凭据轮换与 CONNECTOR_ENCRYPTION_KEY 轮换分别处理，后者需要重加密和恢复材料。                   |
+| [connector_guard.py](../../apps/api/app/services/connector_guard.py)       | 保留白名单与多入口复检；客户端实际连接仍会重新解析 DNS，不能将 DNS pinning 写成已有能力。                       |
+| [sftp.py](../../apps/api/app/services/sources/sftp.py)                     | 现有测试主要验证列举；list/open 不能直接当作本地安全根打开器或持续原地读取证明。                                |
 
-候选修改入口：[storage_connection.py](../../../apps/api/app/db/models/storage_connection.py)、[storage_connection.py](../../../apps/api/app/services/storage_connection.py)、[storage_connections.py](../../../apps/api/app/api/v1/storage_connections.py)、[config.py](../../../apps/api/app/config.py)、[docker-compose.yml](../../../docker-compose.yml)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
+候选修改入口：[storage_connection.py](../../apps/api/app/db/models/storage_connection.py)、[storage_connection.py](../../apps/api/app/services/storage_connection.py)、[storage_connections.py](../../apps/api/app/api/v1/storage_connections.py)、[config.py](../../apps/api/app/config.py)、[docker-compose.yml](../../docker-compose.yml)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
 
 ## 1. 问题与代码依据
 
-当前外部 S3/SFTP 连接配置已提供个人和全局作用域、密钥加密等能力，适合复用；它主要服务拉取导入，尚不能表达所有原图长期存放位置。当前 `project_id` 字段不能直接解释为已经实现项目级连接共享。[连接模型](../../../apps/api/app/db/models/storage_connection.py)
+当前外部 S3/SFTP 连接配置已提供个人和全局作用域、密钥加密等能力，适合复用；它主要服务拉取导入，尚不能表达所有原图长期存放位置。当前 `project_id` 字段不能直接解释为已经实现项目级连接共享。[连接模型](../../apps/api/app/db/models/storage_connection.py)
 
-平台内部业务对象通过全局 `StorageService` 和多个桶分流。应让“数据在哪里”和“平台某类文件写到哪里”成为两个可明确维护的概念。[存储服务](../../../apps/api/app/services/storage.py)
+平台内部业务对象通过全局 `StorageService` 和多个桶分流。应让“数据在哪里”和“平台某类文件写到哪里”成为两个可明确维护的概念。[存储服务](../../apps/api/app/services/storage.py)
 
-Docker 部署已支持选择 MinIO 宿主机数据目录；本 Epic 新增的是受控目录和多位置注册，不是修补“容器不能持久化”的问题。[部署配置](../../../docker-compose.yml)
+Docker 部署已支持选择 MinIO 宿主机数据目录；本 Epic 新增的是受控目录和多位置注册，不是修补“容器不能持久化”的问题。[部署配置](../../docker-compose.yml)
 
 ## 2. 目标与边界
 
@@ -163,8 +197,18 @@ Docker 部署已支持选择 MinIO 宿主机数据目录；本 Epic 新增的是
 
 前置合同不等于等待前置 Epic 全量完成。每个切片合并后系统仍须可用；含新来源的回退保留兼容读取和授权，不能把其相对路径交给旧 S3 拼接逻辑。预计多数切片涉及超过 8 个文件，实施时明确大范围边界与准确清单。
 
-已有回归入口：[test_storage_connections_api.py](../../../apps/api/tests/test_storage_connections_api.py)、[test_connector_crypto_guard.py](../../../apps/api/tests/test_connector_crypto_guard.py)、[test_storage_public_url.py](../../../apps/api/tests/test_storage_public_url.py)、[StorageConnectionsPanel.test.tsx](../../../apps/web/src/components/connections/StorageConnectionsPanel.test.tsx)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
+已有回归入口：[test_storage_connections_api.py](../../apps/api/tests/test_storage_connections_api.py)、[test_connector_crypto_guard.py](../../apps/api/tests/test_connector_crypto_guard.py)、[test_storage_public_url.py](../../apps/api/tests/test_storage_public_url.py)、[StorageConnectionsPanel.test.tsx](../../apps/web/src/components/connections/StorageConnectionsPanel.test.tsx)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
 
-实现时同步：[connector-security.md](../../../docs-site/dev/reference/connector-security.md)、[storage-connections.md](../../../docs-site/user-guide/datasets/storage-connections.md)、[docker-compose.md](../../../docs-site/ops/deploy/docker-compose.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
+实现时同步：[connector-security.md](../../docs-site/dev/reference/connector-security.md)、[storage-connections.md](../../docs-site/user-guide/datasets/storage-connections.md)、[docker-compose.md](../../docs-site/ops/deploy/docker-compose.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
 
 完成实施后按[计划规范](../README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+
+## Outcome
+
+- Landed changes: E02-A dynamic filesystem registry, legacy connector association, ACL/CAS, read-only directory pagination, versioned per-node capability probes and read-only nine-purpose bindings. Included in the commit containing this outcome; no release milestone assigned.
+- User documentation: `docs-site/user-guide/datasets/storage-connections.md`; current UI remains upload/copy import.
+- API and developer documentation: `docs-site/api/guides/storage-locations.md`, `docs-site/dev/concepts/storage-connections.md`, `DEV.md`, generated environment/API references and SDK coverage manifest.
+- Deployment documentation: `docs-site/ops/deploy/docker-compose.md`; unified roots and explicit container/image distinction. No real business mount or backend image was changed.
+- ADR: `docs/adr/archive/0092-controlled-storage-registry.md`. CHANGELOG: Unreleased entry added.
+- Verification: 29 focused tests passed, including two real direct workers with readable/missing-root configurations; 106 compatibility checks passed and the shared-bucket case passed after correcting its fixture owner. SDK OpenAPI contract: 4 passed. Fresh/reversible/forward/restore migration validation passed through 0195 with no leftover owned databases. Final real offline-worker timeout and referenced-location rollback guard passed. Documentation build, ADR/frontmatter and internal-link checks passed. Base/production Compose parsed with empty/synthetic root maps.
+- Remaining work: E02-B binding-switch safety, impact analysis and full connector editing concurrency; E04-A scan jobs; E05-A content-verified reads; E03/E09 dataset/storage UI. These remain separately gated. This Epic stays active because these constraints still apply.

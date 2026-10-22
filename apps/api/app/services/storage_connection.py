@@ -146,6 +146,9 @@ class StorageConnectionService:
         await connector_guard.assert_connection_target_allowed(db, target_host(conn))
         db.add(conn)
         await db.flush()
+        from app.services.storage_location import register_connection
+
+        await register_connection(db, conn)
         return conn
 
     @staticmethod
@@ -178,6 +181,32 @@ class StorageConnectionService:
         config: dict | None,
         secret: dict | None,
     ) -> StorageConnection:
+        # All linked configuration writers serialize on connection, then location.
+        conn = await db.scalar(
+            select(StorageConnection)
+            .where(StorageConnection.id == conn.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        from app.db.models.dataset_asset import StorageLocation
+        from app.services.storage_location import location_is_referenced
+        from fastapi import HTTPException
+
+        if conn is None:
+            raise HTTPException(404, "Storage connection not found")
+        location = await db.scalar(
+            select(StorageLocation)
+            .where(StorageLocation.connection_id == conn.id)
+            .with_for_update()
+        )
+        if (
+            config is not None
+            and location
+            and await location_is_referenced(db, location.id)
+        ):
+            raise HTTPException(
+                409, "Referenced storage configuration cannot be redirected"
+            )
         if name is not None:
             conn.name = name
         if config is not None:
@@ -188,11 +217,35 @@ class StorageConnectionService:
         if secret is not None:
             _validate_secret(conn.kind, secret)
             conn.secret_enc = encrypt_secret(secret)
+        if location and (config is not None or secret is not None):
+            location.config_revision += 1
         await db.flush()
         return conn
 
     @staticmethod
     async def delete(db: AsyncSession, conn: StorageConnection) -> None:
+        from app.db.models.dataset_asset import StorageLocation
+        from app.services.storage_location import location_is_referenced
+        from fastapi import HTTPException
+
+        conn = await db.scalar(
+            select(StorageConnection)
+            .where(StorageConnection.id == conn.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if conn is None:
+            raise HTTPException(404, "Storage connection not found")
+        location = await db.scalar(
+            select(StorageLocation)
+            .where(StorageLocation.connection_id == conn.id)
+            .with_for_update()
+        )
+        if location:
+            if await location_is_referenced(db, location.id):
+                raise HTTPException(409, "Storage location is still referenced")
+            await db.delete(location)
+            await db.flush()
         await db.delete(conn)
 
     @staticmethod

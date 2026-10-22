@@ -66,6 +66,7 @@ last_reviewed: 2026-07-12
 - [WebSocket](./guides/websocket) — 实时事件与推送
 - [导出](./guides/export) — 导出标注结果
 - [存储连接器](./guides/storage-connections) — S3 / OSS / SFTP 连接器
+- [受控存储位置](./guides/storage-locations) — 已挂载目录动态登记、授权浏览与节点探测
 - [路由索引（自动生成）](./guides/_routes.generated) — 全部路由清单
 
 ## 静态契约

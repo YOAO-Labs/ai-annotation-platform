@@ -133,6 +133,7 @@ from app.db.models.dataset_asset import (
     DatasetAssetLocation,
     StorageBinding,
     StorageLocation,
+    StorageLocationProbe,
 )
 
 __all__ = [
@@ -250,4 +251,10 @@ __all__ += ["ModelDecision"]
 __all__ += ["TrainingStudy", "TrainingTrial"]
 
 
-__all__ += ["DatasetAsset", "DatasetAssetLocation", "StorageBinding", "StorageLocation"]
+__all__ += [
+    "DatasetAsset",
+    "DatasetAssetLocation",
+    "StorageBinding",
+    "StorageLocation",
+    "StorageLocationProbe",
+]

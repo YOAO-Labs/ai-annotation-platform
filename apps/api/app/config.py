@@ -157,6 +157,24 @@ class Settings(BaseSettings):
     connector_host_allowlist: Annotated[list[str], NoDecode] = []
     # 部署主机 SFTP 快捷项。只存 API 与 worker 共同可达的非敏感 hostname/IP；空值关闭。
     connector_deployment_sftp_host: str = ""
+    # Deployment roots only. Runtime registrations store handles and subpaths.
+    storage_filesystem_roots: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("storage_filesystem_roots")
+    @classmethod
+    def _validate_filesystem_roots(cls, value):
+        import re
+
+        for handle, path in value.items():
+            if (
+                not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", handle)
+                or not path.startswith("/")
+                or path == "/"
+                or "\x00" in path
+                or any(part in {".", "..", ""} for part in path[1:].split("/"))
+            ):
+                raise ValueError("Invalid controlled storage root")
+        return value
 
     @field_validator("connector_host_allowlist", mode="before")
     @classmethod

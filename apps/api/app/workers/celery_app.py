@@ -42,6 +42,7 @@ celery_app = Celery(
         "app.workers.export_cleanup",
         # v0.11.15 · 外部连接器数据集导入
         "app.workers.dataset_import",
+        "app.workers.storage_probe",
         # v0.12.0 · B4 建任务异步化（大 dataset link → Celery 建 task）
         "app.workers.create_tasks",
         "app.workers.cross_frame_job",
@@ -63,6 +64,7 @@ celery_app.conf.update(
     timezone="UTC",
     task_track_started=True,
     worker_max_memory_per_child=512_000,
+    worker_direct=True,
     # v0.10.25 · 默认队列从 Celery 内置 "celery" 改为 "default"。worker 订阅
     # default,ml,media,gpu,cleanup,audit —— 不含 "celery", 故任何未在 task_routes 显式
     # 路由的任务(beat 的 ensure_future_*_partitions / mark_inactive_offline

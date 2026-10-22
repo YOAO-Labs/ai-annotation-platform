@@ -148,3 +148,15 @@ cd apps/api
 退出码：0 表示该模式检查无待处理错误；1 表示配置/定位不一致或 verify 尚有待映射项；2 表示运行异常，已提交批次保留。dry-run 的 pending 数允许非零；映射工具不执行字节校验。应用回退保留 Alembic 0194；仅尚无内容身份和用途绑定的未使用 schema 可 downgrade，已使用则明确拒绝。
 
 设计决策见 [ADR 0091](/dev/adr/archive/0091-dataset-content-and-location-identity)，接口见[数据集上传与扫描](/api/guides/datasets)。
+
+## 受控目录与动态注册
+
+`STORAGE_FILESYSTEM_ROOTS` 将稳定句柄映射到部署者允许的绝对根，默认 `{}`。StorageLocation 仅保存句柄、相对基目录、授权、修订和内部节点指纹；公开 API 不返回根路径或指纹。统一挂载后，新建子目录和数据库注册都无需重启；全新宿主机根必须先由运维挂载，修改 Compose volumes 通常需重建受影响容器，无需重建镜像。
+
+`services/filesystem_storage.py` 使用 Linux openat2，要求 Linux5.6+、x86_64/aarch64；不支持时拒绝访问，无普通 open fallback。打开根时拒绝路径中的链接；根内使用 BENEATH / NO_SYMLINKS / NO_XDEV，拒绝链接及跨子挂载。根与位置基目录按节点固定路径摘要、dev/inode；节点内替换拒绝静默重新绑定。读取样本先验证常规文件，目录预算包含被过滤条目，FD 均按调用释放。支持有效 UTF-8 名称。
+
+API/worker 各自加载根映射；Celery `worker_direct` 加实际 hostname 校验提供指定节点探测。首次节点探测信任部署映射，后续保留首次取得的有效根身份；失败、超时、配置变化与晚到结果不能重新绑定。数据库按 `(location_id, node_id)` 保留最新观察，证据有效5分钟。API本地等待3秒，远端等待5秒；超时线程结果不会自行落库，阻塞文件系统调用仍依赖内核恢复。跨节点能力证据不能证明字节相同，后续原地读取仍需内容核验。
+
+位置登记/修改/探测仅超管；项目管理员按 global 或 use_user_ids 使用，员工不得枚举目录。每页重新检查当前授权，游标绑定位置、修订、节点、路径摘要和目录快照。现有连接通过 connection_id 关联位置；凭据仍由 StorageConnection/Fernet 持有，未复制。连接修改按 connection→location 顺序加锁；有内容/用途引用时拒绝配置改向或删除。删除无引用连接级联清理关联与探测，既有项目级外键行为保持一致。
+
+九用途绑定查询只读，缺失不自动 bootstrap，共桶不合并用途。当前没有用途切换入口，也没有接入 DatasetSource、扫描或原地读取。完整接口见[受控存储位置](/api/guides/storage-locations)，决策见[ADR 0092](/dev/adr/archive/0092-controlled-storage-registry)。

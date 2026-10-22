@@ -1,0 +1,266 @@
+"""Controlled registry. No arbitrary host paths or source writes are exposed."""
+
+import asyncio
+from datetime import datetime, timezone
+import uuid
+
+from celery.exceptions import TimeoutError as CeleryTimeoutError
+from celery.utils.nodenames import worker_direct
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import settings
+from app.db.enums import UserRole
+from app.db.models.dataset_asset import StorageLocation, StorageLocationProbe
+from app.db.models.user import User
+from app.deps import get_db, require_roles
+from app.schemas.storage_location import (
+    FilesystemLocationCreate,
+    StorageBindingOut,
+    StorageDirectoryPage,
+    StorageLocationList,
+    StorageLocationOut,
+    StorageLocationUpdate,
+    StorageProbeOut,
+    StorageProbeRequest,
+)
+from app.services import storage_location as svc
+from app.services.audit import AuditAction, AuditService
+from app.services.filesystem_storage import FilesystemStorageError
+
+router = APIRouter()
+manager = require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
+super_admin = require_roles(UserRole.SUPER_ADMIN)
+
+
+def filesystem_error(exc):
+    return HTTPException(409, detail={"code": exc.code})
+
+
+@router.get("/roots", response_model=list[str])
+async def roots(_: User = Depends(super_admin)):
+    return sorted(settings.storage_filesystem_roots)
+
+
+@router.get("/bindings", response_model=list[StorageBindingOut])
+async def bindings(db: AsyncSession = Depends(get_db), _: User = Depends(super_admin)):
+    return await svc.binding_rows(db)
+
+
+@router.get("", response_model=StorageLocationList)
+async def list_locations(
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(manager),
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    clause = svc.visible_clause(actor)
+    total = await db.scalar(
+        select(func.count()).select_from(StorageLocation).where(clause)
+    )
+    rows = list(
+        await db.scalars(
+            select(StorageLocation)
+            .where(clause)
+            .order_by(StorageLocation.name, StorageLocation.id)
+            .limit(limit)
+            .offset(offset)
+        )
+    )
+    return {"items": [await svc.to_out(db, row, actor) for row in rows], "total": total}
+
+
+@router.post("", response_model=StorageLocationOut, status_code=201)
+async def create_location(
+    payload: FilesystemLocationCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    try:
+        location = await svc.create_filesystem(db, payload)
+    except FilesystemStorageError as exc:
+        raise filesystem_error(exc) from None
+    except IntegrityError:
+        raise HTTPException(409, "Storage location name already exists") from None
+    await AuditService.log(
+        db,
+        actor=actor,
+        action=AuditAction.STORAGE_LOCATION_CREATE,
+        target_type="storage_location",
+        target_id=str(location.id),
+        request=request,
+        status_code=201,
+        detail={"kind": "filesystem"},
+    )
+    await db.commit()
+    return await svc.to_out(db, location, actor)
+
+
+@router.get("/{location_id}", response_model=StorageLocationOut)
+async def get_location(
+    location_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(manager),
+):
+    return await svc.to_out(db, await svc.get_visible(db, location_id, actor), actor)
+
+
+@router.patch("/{location_id}", response_model=StorageLocationOut)
+async def update_location(
+    location_id: uuid.UUID,
+    payload: StorageLocationUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    location = await svc.get_visible(db, location_id, actor, lock=True)
+    try:
+        await svc.update_filesystem(db, location, payload)
+    except IntegrityError:
+        raise HTTPException(409, "Storage location name already exists") from None
+    await AuditService.log(
+        db,
+        actor=actor,
+        action=AuditAction.STORAGE_LOCATION_UPDATE,
+        target_type="storage_location",
+        target_id=str(location.id),
+        request=request,
+        status_code=200,
+        detail={
+            "config_revision": location.config_revision,
+            "enabled": location.enabled,
+        },
+    )
+    await db.commit()
+    return await svc.to_out(db, location, actor)
+
+
+@router.get("/{location_id}/directories", response_model=StorageDirectoryPage)
+async def directories(
+    location_id: uuid.UUID,
+    path: str = Query("", max_length=1000),
+    limit: int = Query(100, ge=1, le=200),
+    cursor: str | None = Query(None, max_length=4096),
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(manager),
+):
+    location = await svc.get_visible(db, location_id, actor)
+    try:
+        return await svc.browse(db, location, path=path, limit=limit, cursor=cursor)
+    except FilesystemStorageError as exc:
+        raise filesystem_error(exc) from None
+
+
+def _probe_worker(location_id, revision, actor_id, node_id, sample_file):
+    from app.workers.storage_probe import probe_location
+
+    task = None
+    try:
+        with probe_location.app.connection_for_write(
+            connect_timeout=1,
+            transport_options={
+                "socket_connect_timeout": 1,
+                "socket_timeout": 1,
+                "max_retries": 0,
+            },
+        ) as connection:
+            task = probe_location.apply_async(
+                args=[str(location_id), revision, str(actor_id), node_id, sample_file],
+                queue=worker_direct(node_id),
+                connection=connection,
+                retry=False,
+                expires=10,
+            )
+        return task.get(timeout=3)
+    except CeleryTimeoutError:
+        return {"ok": False, "code": "node_timeout", "capabilities": {}}
+    except Exception:
+        return {"ok": False, "code": "node_unavailable", "capabilities": {}}
+    finally:
+        if task is not None:
+            try:
+                task.forget()
+            except Exception:
+                pass  # Cleanup must not replace the probe outcome.
+
+
+@router.post("/{location_id}/probe", response_model=StorageProbeOut)
+async def probe(
+    location_id: uuid.UUID,
+    payload: StorageProbeRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    location = await svc.get_visible(db, location_id, actor)
+    svc.require_filesystem(location)
+    if payload.sample_file is not None:
+        try:
+            from app.services.filesystem_storage import relative_path
+
+            relative_path(payload.sample_file)
+        except FilesystemStorageError as exc:
+            raise filesystem_error(exc) from None
+    revision, actor_id = location.config_revision, actor.id
+    observed_at = datetime.now(timezone.utc)
+    node_id = (
+        svc.api_node_id() if payload.node_id == "api" else f"worker:{payload.node_id}"
+    )
+    try:
+        result = (
+            await svc.perform_probe(db, location, node_id, payload.sample_file)
+            if payload.node_id == "api"
+            else await asyncio.wait_for(
+                asyncio.to_thread(
+                    _probe_worker,
+                    location_id,
+                    revision,
+                    actor_id,
+                    payload.node_id,
+                    payload.sample_file,
+                ),
+                timeout=5,
+            )
+        )
+    except TimeoutError:
+        result = {"ok": False, "code": "node_timeout", "capabilities": {}}
+    await db.refresh(actor)
+    if not actor.is_active or actor.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(403, "Storage management permission revoked")
+    location = await svc.get_visible(db, location_id, actor, lock=True)
+    if location.config_revision != revision or not location.enabled:
+        raise HTTPException(409, "Storage configuration revision changed")
+    await svc.store_probe(db, location, node_id, result, observed_at)
+    await AuditService.log(
+        db,
+        actor=actor,
+        action=AuditAction.STORAGE_LOCATION_PROBE,
+        target_type="storage_location",
+        target_id=str(location_id),
+        request=request,
+        status_code=200,
+        detail={"ok": result["ok"], "code": result["code"]},
+    )
+    await db.commit()
+    row = await db.get(
+        StorageLocationProbe, (location_id, node_id), populate_existing=True
+    )
+    return svc.probe_out(row, location)
+
+
+@router.get("/{location_id}/probes", response_model=list[StorageProbeOut])
+async def probes(
+    location_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    location = await svc.get_visible(db, location_id, actor)
+    rows = await db.scalars(
+        select(StorageLocationProbe)
+        .where(StorageLocationProbe.location_id == location_id)
+        .order_by(StorageLocationProbe.node_id)
+    )
+    return [svc.probe_out(row, location) for row in rows]

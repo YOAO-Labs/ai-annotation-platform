@@ -789,3 +789,44 @@ docker compose -f docker-compose.training.yml --profile training up -d training-
 - 真正的 K8s helm chart / terraform module — 暂未维护，进 P3
 
 如团队需要，请先开 issue 讨论需求边界。
+
+## 受控存储根目录
+
+对 CephFS、NFS 或本地数据目录，推荐统一挂载少量受控根，再通过[存储位置 API](/api/guides/storage-locations)动态登记根内目录。下面是额外 Compose override 示例，部署者按实际节点填写；仓库默认不挂载业务数据根：
+
+```yaml
+services:
+  api:
+    environment:
+      STORAGE_FILESYSTEM_ROOTS: '{"ceph":"/mnt/cephfs"}'
+    volumes:
+      - type: bind
+        source: /cephfsdata
+        target: /mnt/cephfs
+        read_only: true
+        bind:
+          create_host_path: false
+  celery-worker:
+    environment:
+      STORAGE_FILESYSTEM_ROOTS: '{"ceph":"/mnt/cephfs"}'
+    volumes:
+      - type: bind
+        source: /cephfsdata
+        target: /mnt/cephfs
+        read_only: true
+        bind:
+          create_host_path: false
+```
+
+只给需要访问数据的 API 和指定 worker 挂载，保留其原有 volumes；其他服务器需独立配置同名根并探测。以宿主机进程运行的 API 应填写它实际可见的路径。根路径必须是非 `/` 的绝对目录，路径中不得包含符号链接；根内子挂载不允许跨越，需要分别配置成根。
+
+| 操作                          | 重建镜像 | 重建容器 |
+| ----------------------------- | -------- | -------- |
+| 已挂载根内新增子目录          | 不需要   | 不需要   |
+| 通过平台 API 注册已有挂载路径 | 不需要   | 不需要   |
+| 修改 Compose volumes          | 不需要   | 通常需要 |
+| 挂载全新的宿主机目录          | 不需要   | 通常需要 |
+
+改变容器环境变量也需重建受影响容器，宿主机进程需重启以加载映射。根内动态登记不改环境变量。此机制不会自动挂载宿主机目录，也不会赋予容器访问整个宿主机的权限。部署需 Linux5.6+、x86_64/aarch64 及 openat2 支持；不满足时接口返回不可用，不退回不安全路径打开。
+
+挂载完成后分别验证 API 与指定 Celery hostname 的 list/read/range；只测 API 或普通共享队列不能证明扫描节点可读。能力证据5分钟过期，修改配置后重新探测。节点路径或目录身份变化会拒绝访问，应由运维核查映射和数据后重新登记位置，不能用重试掩盖替换。

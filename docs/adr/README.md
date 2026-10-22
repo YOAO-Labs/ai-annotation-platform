@@ -139,3 +139,5 @@
 - [0090](archive/0090-versioned-yolo-identities-and-content-assets.md) — YOLO 家族按冻结运行时核验，权重按内容寻址并独立准备节点
 
 - [0091](archive/0091-dataset-content-and-location-identity.md) — 数据集内容身份与固定托管位置分离，旧键兼容回填不改业务快照
+
+- [0092](archive/0092-controlled-storage-registry.md) — 存储位置在受控部署根内动态注册并按节点验证

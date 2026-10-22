@@ -148,3 +148,7 @@ POST /api/v1/datasets/{dataset_id}/import-from-connection   →  202 Accepted
 ## 审计
 
 `create / update / delete / test` 与 `allowlist` 更新均写审计日志，动作名见 [审计与通知 · AuditAction](/dev/concepts/audit-and-notifications#auditaction)。
+
+## 关联存储位置
+
+每个连接自动关联一份存储位置，复用原 ID 关系、owner/global 授权及加密凭据；位置接口不返回 endpoint 或密钥。修改连接配置或密钥递增位置修订，旧能力证据失效。连接被内容位置或用途绑定引用后，修改配置改向和删除返回409；名称更新与密钥轮换仍可用。无引用连接删除会清理关联位置及探测记录。参见[受控存储位置](./storage-locations)。

@@ -569,6 +569,18 @@
 | DELETE | `/{conn_id}` |
 | POST | `/{conn_id}/test` |
 
+## `storage_locations.py`
+
+| Method | Path |
+|---|---|
+| GET | `/roots` |
+| GET | `/bindings` |
+| GET | `/{location_id}` |
+| PATCH | `/{location_id}` |
+| GET | `/{location_id}/directories` |
+| POST | `/{location_id}/probe` |
+| GET | `/{location_id}/probes` |
+
 ## `storage.py`
 
 | Method | Path |
@@ -916,4 +928,4 @@
 
 ---
 
-_共 84 模块 / 519 路由_
+_共 85 模块 / 526 路由_

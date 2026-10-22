@@ -5,6 +5,7 @@ import uuid
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -27,6 +28,26 @@ class StorageLocation(Base):
     kind: Mapped[str] = mapped_column(String(20), nullable=False)
     config_revision: Mapped[int] = mapped_column(nullable=False, server_default="1")
     config: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    connection_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("storage_connections.id", ondelete="CASCADE"), unique=True
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
+
+
+class StorageLocationProbe(Base):
+    __tablename__ = "storage_location_probes"
+
+    location_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("storage_locations.id", ondelete="CASCADE"), primary_key=True
+    )
+    node_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    config_revision: Mapped[int] = mapped_column(nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    result: Mapped[dict] = mapped_column(JSONB, nullable=False)
 
 
 class StorageBinding(Base):

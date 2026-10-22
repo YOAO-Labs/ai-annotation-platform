@@ -818,3 +818,9 @@ PYTHONPATH=. uv run python scripts/seed.py --profile online-training
 详见 [CHANGELOG.md](CHANGELOG.md) 顶部的 roadmap 与 [docs/plans/](docs/plans/) 下的具体计划。
 
 自动训练策略默认关闭。部署迁移后刷新 default/export worker 与 beat，确认注册 `app.workers.learning_policy.check_policies`；beat 每分钟分批检查策略，独立训练执行器仍按固定 GPU 领取。负责人明确保存门槛、检查间隔和冷却时间后才启用；没有 beat 的工作树环境可通过「立即检查与同步」验收相同路径。关闭策略不要求训练目录仍在线，成功训练不会自动发布。
+
+### 受控存储根与节点探测
+
+`STORAGE_FILESYSTEM_ROOTS` 是根句柄到当前进程可见绝对目录的 JSON 映射，默认 `{}`；示例 `{"ceph":"/mnt/cephfs"}`。`.env.example` 只提供空默认，不给每个数据集配置环境变量。统一挂载后新增子目录、注册位置无需重启；新 volumes/容器环境需重建受影响容器，无需重建镜像。不要修改其他 checkout 的共享 `.env` 或挂载。
+
+新 probe task 使用 Celery `worker_direct`；部署本次代码时刷新受影响 worker 并核对任务注册和实际专属队列，再执行指定 hostname 探测。只重启 API 无法更新 Celery。隔离测试可启动归属当前 checkout 的临时 worker；不得刷新未知共享进程。配置和限制见[存储位置 API](docs-site/api/guides/storage-locations.md)及[部署示例](docs-site/ops/deploy/docker-compose.md#受控存储根目录)。

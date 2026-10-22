@@ -468,3 +468,5 @@ WS 握手时会校验 JWT，然后订阅：
 - [批次生命周期（端到端）](./batch-lifecycle-end-to-end)
 - [可见性与权限](./visibility-and-permissions)
 - [WebSocket 协议](/dev/reference/ws-protocol)
+
+存储位置注册、更新和节点探测记录 `storage_location.create / update / probe` 审计；只记录种类、修订、启停与脱敏结果码，不记录绝对根、凭据或内部目录指纹。
