@@ -1208,7 +1208,7 @@ try:
                 "raster": raster.json(),
                 "advance": advanced.json(),
                 "neighbor_admin_id": neighbor_admin["user"]["id"],
-                "neighbor_admin_email": neighbor["admin_email"],
+                "neighbor_admin_email": neighbor.json()["admin_email"],
             }
         elif mode == "cleanup":
             namespace_a, namespace_b = sys.argv[2:4]
