@@ -13,16 +13,17 @@ from collections import Counter
 import httpx
 import pytest
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from aap_identity.security import create_access_token
-from app.db.models.user import User
-from tests.factory import create_user
 from tests.project_guide_asset_owner_helpers import (
     assert_workspace_identity,
     create_guide_storage_scope,
 )
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
+from tests.test_workspace_module_assembly_live import (
+    _assert_restricted_api_consumer,
+    _seed_users,
+    _token,
+)
 from tests.workspace_module_assembly_helpers import WorkspaceModuleStack
 
 
@@ -39,53 +40,9 @@ _PHASE_SECONDS = 15.0
 _EXPECTED_LIVE_SERVICES = 9
 
 
-def _token(user: User, secret: str) -> str:
-    return create_access_token(
-        str(user.id), user.role, secret=secret, expire_minutes=60
-    )
-
-
-async def _seed_users(test_engine):
-    maker = async_sessionmaker(test_engine, expire_on_commit=False)
-    suffix = uuid.uuid4().hex
-    async with maker.begin() as db:
-        actors = {
-            "owner": await create_user(
-                db,
-                "project_admin",
-                f"workspace-capacity-owner-{suffix}@example.test",
-                "Workspace capacity owner",
-            ),
-            "successor": await create_user(
-                db,
-                "project_admin",
-                f"workspace-capacity-successor-{suffix}@example.test",
-                "Workspace capacity successor",
-            ),
-            "member": await create_user(
-                db,
-                "employee",
-                f"workspace-capacity-member-{suffix}@example.test",
-                "Workspace capacity member",
-            ),
-            "revoked": await create_user(
-                db,
-                "employee",
-                f"workspace-capacity-revoked-{suffix}@example.test",
-                "Workspace capacity revoked member",
-            ),
-            "super_admin": await create_user(
-                db,
-                "super_admin",
-                f"workspace-capacity-super-{suffix}@example.test",
-                "Workspace capacity test actor",
-            ),
-        }
-    return maker, actors
-
-
 def _new_metrics() -> dict:
     return {
+        "started_monotonic": time.monotonic(),
         "requests": 0,
         "operations": Counter(),
         "statuses": Counter(),
@@ -153,6 +110,8 @@ def _phase_report(metrics: dict, elapsed: float, concurrency: int) -> dict:
         "concurrency": concurrency,
         "target_seconds": _PHASE_SECONDS,
         "actual_seconds": round(elapsed, 3),
+        "started_monotonic": metrics["started_monotonic"],
+        "finished_monotonic": metrics["started_monotonic"] + elapsed,
         "requests": metrics["requests"],
         "operation_counts": dict(metrics["operations"]),
         "status_counts": dict(metrics["statuses"]),
@@ -202,6 +161,28 @@ async def _wait_for_service_connections_to_drain(test_engine) -> None:
     raise AssertionError(f"Workspace service connections did not drain: {remaining}")
 
 
+async def _database_snapshot(test_engine) -> list[dict]:
+    async with test_engine.connect() as db:
+        rows = (
+            (
+                await db.execute(
+                    text(
+                        "SELECT usename, state, wait_event_type, count(*) AS connections "
+                        "FROM pg_catalog.pg_stat_activity "
+                        "WHERE datname=current_database() "
+                        "AND backend_type='client backend' AND usename<>:owner "
+                        "GROUP BY usename, state, wait_event_type "
+                        "ORDER BY usename, state, wait_event_type"
+                    ),
+                    {"owner": test_engine.url.username},
+                )
+            )
+            .mappings()
+            .all()
+        )
+    return [dict(row) for row in rows]
+
+
 async def _verify_final_database(maker, lanes: list[dict], revoked_project_id):
     async with maker() as db:
         for lane in lanes:
@@ -230,6 +211,46 @@ async def _verify_final_database(maker, lanes: list[dict], revoked_project_id):
                 )
                 == 0
             )
+            updates = await db.scalar(
+                text(
+                    "SELECT count(*) FROM public.workspace_configuration_operation_receipts "
+                    "WHERE operation='update_project' AND target_id=:id"
+                ),
+                {"id": lane["project_id"]},
+            )
+            transfers = await db.scalar(
+                text(
+                    "SELECT count(*) FROM public.workspace_owner_transfer_operation_receipts "
+                    "WHERE project_id=:id"
+                ),
+                {"id": lane["project_id"]},
+            )
+            memberships = (
+                await db.execute(
+                    text(
+                        "SELECT operation, count(*) AS receipts, "
+                        "count(audit.id) AS retained_audits, "
+                        "count(DISTINCT receipt.audit_id) AS distinct_audits "
+                        "FROM public.workspace_membership_operation_receipts AS receipt "
+                        "LEFT JOIN public.audit_logs AS audit ON audit.id=receipt.audit_id "
+                        "WHERE receipt.project_id=:id GROUP BY operation"
+                    ),
+                    {"id": lane["project_id"]},
+                )
+            ).mappings()
+            expected = lane["sequence"]
+            assert updates == transfers == expected
+            assert {
+                row["operation"]: (
+                    row["receipts"],
+                    row["retained_audits"],
+                    row["distinct_audits"],
+                )
+                for row in memberships
+            } == {
+                "add_member": (expected, expected, expected),
+                "remove_member": (expected, expected, expected),
+            }
         assert (
             await db.scalar(
                 text(
@@ -240,6 +261,11 @@ async def _verify_final_database(maker, lanes: list[dict], revoked_project_id):
             )
             == 0
         )
+        for table in (
+            "workspace_configuration_operation_states",
+            "workspace_configuration_operation_attempts",
+        ):
+            assert await db.scalar(text(f"SELECT count(*) FROM public.{table}")) == 0
 
 
 async def test_workspace_module_bounded_capacity_and_revocation_under_load(
@@ -252,6 +278,7 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
         assert await db.scalar(text("SELECT count(*) FROM public.projects")) == 0
 
     resources, guide_bucket, owner_s3 = await assert_workspace_identity(test_engine)
+    await _assert_restricted_api_consumer(test_engine)
     maker, actors = await _seed_users(test_engine)
     api_secret = secrets.token_urlsafe(32)
     control_token, inference_token, guide_token = [
@@ -371,8 +398,15 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
             assert preview.status_code == 200, preview.text
             preview_data = preview.json()
 
-            async def sample_runtime(label: str) -> None:
+            async def sample_runtime(label: str, live_tasks=None) -> None:
                 snapshot = await asyncio.to_thread(stack.sample_runtime)
+                snapshot["database_connections"] = await _database_snapshot(test_engine)
+                snapshot["label"] = label
+                snapshot["active_lanes"] = (
+                    sum(not task.done() for task in live_tasks)
+                    if live_tasks is not None
+                    else 0
+                )
                 services = snapshot["services"]
                 assert len(services) == _EXPECTED_LIVE_SERVICES
                 if runtime_samples:
@@ -384,8 +418,6 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
                         assert current["started_at"] == previous[service]["started_at"]
                 runtime_samples.append(snapshot)
                 record_property(label, snapshot)
-                if len(runtime_samples) < 4:
-                    await asyncio.sleep(2)
 
             await sample_runtime("workspace_capacity_runtime_baseline")
 
@@ -513,6 +545,7 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
                 phase_name = f"c{concurrency}"
                 metrics = _new_metrics()
                 started = time.monotonic()
+                metrics["started_monotonic"] = started
                 deadline = started + _PHASE_SECONDS
                 ready_count = 0
                 ready = asyncio.Event()
@@ -535,6 +568,20 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
                     )
                     for index in range(concurrency)
                 ]
+                stop_observer = asyncio.Event()
+
+                async def observe_load():
+                    while not stop_observer.is_set():
+                        await sample_runtime(
+                            f"workspace_capacity_runtime_{phase_name}_{len(runtime_samples)}",
+                            live_tasks=tasks,
+                        )
+                        try:
+                            await asyncio.wait_for(stop_observer.wait(), timeout=2)
+                        except TimeoutError:
+                            pass
+
+                observer = asyncio.create_task(observe_load())
                 revocation_metrics = _new_metrics()
                 revocation_elapsed = 0.0
                 try:
@@ -542,6 +589,7 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
                         await asyncio.wait_for(ready.wait(), timeout=10)
                         assert all(not task.done() for task in tasks)
                         revocation_started = time.monotonic()
+                        revocation_metrics["started_monotonic"] = revocation_started
                         revoked_headers = headers["owner"]
                         await _request(
                             client,
@@ -588,10 +636,20 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
                         assert all(not task.done() for task in tasks)
                         revocation_elapsed = time.monotonic() - revocation_started
                     await asyncio.gather(*tasks)
+                    stop_observer.set()
+                    await observer
                 except BaseException:
                     for task in tasks:
                         task.cancel()
                     await asyncio.gather(*tasks, return_exceptions=True)
+                    stop_observer.set()
+                    await asyncio.gather(observer, return_exceptions=True)
+                    phases[f"concurrency_{concurrency}"] = {
+                        **_phase_report(
+                            metrics, time.monotonic() - started, concurrency
+                        ),
+                        "incomplete": True,
+                    }
                     raise
 
                 elapsed = time.monotonic() - started
@@ -604,6 +662,14 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
                     )
                     report["revocation_completed_while_lane_tasks_active"] = True
                 assert metrics["errors"] == []
+                assert metrics["completed_cycles"] >= concurrency
+                assert any(
+                    snapshot["label"].startswith(
+                        f"workspace_capacity_runtime_{phase_name}_"
+                    )
+                    and snapshot["active_lanes"] > 0
+                    for snapshot in runtime_samples
+                )
                 return report
 
             phases["concurrency_1"] = await run_phase(1)

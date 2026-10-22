@@ -6531,3 +6531,70 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   The full-module goal stays active; remaining scope is only tracked in the
   rendered module-deployment ledger. No primary cutover, push, release, production
   deployment, or expansion of the Go experiment occurred.
+
+## Workspace bounded independent-load qualification
+
+- Previous goal turn is verified progress: cold operational CLI source 3ea9d4b21,
+  documentation b35cb04c6 and evidence 563efb855. Root starts clean at 563efb855;
+  no live execution handle remains. The full cross-module objective stays active.
+- Rechecked legacy no-proof feasibility against authoritative current source:
+  all eight source anchors in .worktree/legacy-video-retirement-feasibility.json
+  have no diff from its 64c8c22b8 base. Current proof-bound recovery, old durable
+  scopes without a complete worker fence, and older/off/observe requests lacking
+  durable physical identity remain distinct. No absent-row inference, synthetic
+  journal, status flip or operator assertion is accepted. This is reuse of the
+  existing source audit, not a new runtime retirement qualification.
+- Next independent deliverable is a bounded mixed-load correctness/capacity
+  profile on the existing nine-process private Workspace assembly. Reuse the
+  current six Workspace owner images and API/Inference/Guide artifacts, fixed
+  roles, network isolation and Compose fragments; no new deployment mode.
+  API has 768 MiB and the other eight services 256 MiB each, all 1 CPU and 64 PIDs.
+- Freeze before execution: concurrency 1, 4, 8 phases run 15 seconds each over up to
+  eight independent projects. Real public API calls mix configuration name writes,
+  project reads, private template reads, membership writes/directory reads and
+  owner transfer; the mixed traffic uses a super-admin JWT and explicitly says
+  so. Under independent-project traffic, ordinary employee membership is removed,
+  and fresh requests plus the previously admitted role preview must stay denied.
+  Last acknowledged names/owners and membership absence are checked against owner SQL.
+- Record operation/status counts, actual wall time/throughput, latency quantiles,
+  and current exact-ID resource/health/restart samples plus DB connection usage.
+  Preserve failures and actual exits. No unexpected 5xx/timeouts/OOM/restarts or
+  unauthorized/resurrected state are accepted. Sampling is bounded observation,
+  not continuous high-water accounting, container CPU timing, an invented SLO or
+  production capacity. Existing restore/worker/importer checks are not repeated
+  merely for a larger count.
+- One isolated source-only worker based at 563efb855 writes only the new capacity
+  test. Root changes shared sampling helper, verifier selection and documentation,
+  and owns every import, test, install, build, DB, Docker and runtime operation.
+  A tiny owned Docker-only stats schema probe passes and cleans up; runtime
+  qualification has not yet run. A separate read-only audit is making remaining
+  operator/worker entrypoints concrete without treating every migrated getter as
+  a new unqualified operation. The sole rendered ledger remains authoritative.
+- Source worker a70d9c210 is integrated as d571cff35. Root reuses existing
+  actors/token/restricted-credential helpers, adds during-load exact-ID resource
+  and DB connection samples, and checks immutable configuration/transfer/member
+  receipt counts against acknowledged cycles, retained membership Audit IDs,
+  final names/owners and empty transient command state. Samples carry active-lane
+  counts and phase monotonic bounds; failures preserve partial metrics. Static
+  Ruff/format/whitespace checks pass; no load acceptance has run yet.
+- The read-only operation inventory finds no additional ordinary production
+  Project table access or missing Workspace operation. Concrete remaining
+  consumers are development seed_pointcloud's direct Project creation/mutation
+  and export/cross_frame_job/video_tracker cold worker coverage of the existing
+  snapshot capability. Other explicit seed/demo operators remain separately
+  classified; source inspection is not cold runtime evidence.
+- A genuine replacement-boundary prerequisite is found before the next batched
+  cold qualification: Workspace configuration imports validate_saved_pipeline
+  from aap-inference. Its Stage/Preannotate models, task normalization, tree and
+  key-conflict checks are pure structural contract rules, not dynamic Inference
+  authority. Existing named-pipeline CRUD adds scope/persistence and is not an
+  equivalent operation. Publish the unchanged models/rules in the existing
+  aap-inference-contract package, retain old Inference re-exports, and let
+  Workspace depend on the public contract. Keep exact normalized JSON,422 detail,
+  validation phase, flush order and rollback. No validation HTTP endpoint or new
+  contract package is needed. Batch matching owner/API/Inference artifacts and
+  the fixed load case after this prerequisite rather than rerunning cold images.
+- Central frozen SQL migration assembly remains the documented ADR-0092 path;
+  no new migration framework is introduced. Identity Briefs' DSN client binding
+  and its explicit HTTP alternative are distinguished from the structural
+  Inference-provider import. Full remaining scope stays in the sole ledger.

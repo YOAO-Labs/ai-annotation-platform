@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -311,6 +312,63 @@ class WorkspaceModuleStack:
         path.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
         path.chmod(0o600)
         return str(path)
+
+    def sample_runtime(self) -> dict:
+        """Sample only the current verified assembly's live resource usage."""
+        self._refresh_inspection_evidence()
+        expected = set(self._service_ids.values())
+        if len(expected) != len(_EXPECTED_SERVICES):
+            raise RuntimeError("Workspace capacity sample has an incomplete assembly")
+        output = self._run_docker(
+            [
+                "stats",
+                "--no-stream",
+                "--no-trunc",
+                "--format",
+                "{{json .}}",
+                *sorted(expected),
+            ],
+            operation="resource sample",
+            timeout=20,
+        )
+        rows = [json.loads(line) for line in output.splitlines() if line]
+        if len(rows) != len(expected) or {row.get("ID") for row in rows} != expected:
+            raise RuntimeError("Workspace capacity sample has missing or foreign IDs")
+        by_id = {row["ID"]: row for row in rows}
+        services = {}
+        for service, details in self._inspection_evidence.items():
+            if (
+                not details["running"]
+                or details["oom_killed"]
+                or details["health"] != "healthy"
+                or details["restart_count"] != 0
+            ):
+                raise RuntimeError(f"{service} became unhealthy under Workspace load")
+            row = by_id[details["container_id"]]
+            cpu = float(row["CPUPerc"].removesuffix("%"))
+            memory = float(row["MemPerc"].removesuffix("%"))
+            pids = int(row["PIDs"])
+            if (
+                not all(math.isfinite(value) and value >= 0 for value in (cpu, memory))
+                or not 0 < pids <= details["limits"]["pids_limit"]
+            ):
+                raise RuntimeError(f"{service} returned invalid resource statistics")
+            services[service] = {
+                "container_id": details["container_id"],
+                "image_id": details["image_id"],
+                "started_at": details["started_at"],
+                "health": details["health"],
+                "oom_killed": details["oom_killed"],
+                "restart_count": details["restart_count"],
+                "limits": details["limits"],
+                "cpu_percent": cpu,
+                "memory_percent": memory,
+                "memory_usage": row["MemUsage"],
+                "pids": pids,
+                "network_io": row["NetIO"],
+                "block_io": row["BlockIO"],
+            }
+        return {"monotonic_seconds": time.monotonic(), "services": services}
 
     def service_origin(self, service: str) -> str:
         if service not in self._origins:
@@ -927,12 +985,15 @@ secrets:
                 item.split("=", 1) for item in (config.get("Env") or []) if "=" in item
             )
             evidence[service] = {
+                "container_id": details.get("Id"),
                 "image_id": details.get("Image"),
                 "user": config.get("User"),
                 "read_only": host.get("ReadonlyRootfs"),
                 "running": state.get("Running") is True,
                 "health": (state.get("Health") or {}).get("Status"),
                 "oom_killed": state.get("OOMKilled") is True,
+                "restart_count": details.get("RestartCount"),
+                "started_at": state.get("StartedAt"),
                 "environment_names": sorted(env),
                 "mount_targets": sorted(
                     mount.get("Destination", "")

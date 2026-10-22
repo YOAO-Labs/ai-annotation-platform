@@ -380,6 +380,7 @@ SCHEMA_ARTIFACTS = (
     "0300_video_deletion_retirement.schema.json",
 )
 TEST_FILES = (
+    "tests/test_workspace_capacity_live.py",
     "tests/test_workspace_import_cli_live.py",
     "tests/test_workspace_worker_assembly_live.py",
     "tests/test_workspace_module_assembly_live.py",
@@ -3929,11 +3930,18 @@ def main(argv: list[str] | None = None) -> int:
             },
         )
         if (
-            "tests/test_workspace_module_assembly_live.py" in selected_test_paths
-            and os.environ.get("AAP_WORKSPACE_MODULE_ASSEMBLY_LIVE") == "1"
-        ) or (
-            "tests/test_workspace_worker_assembly_live.py" in selected_test_paths
-            and os.environ.get("AAP_WORKSPACE_WORKER_ASSEMBLY_LIVE") == "1"
+            (
+                "tests/test_workspace_module_assembly_live.py" in selected_test_paths
+                and os.environ.get("AAP_WORKSPACE_MODULE_ASSEMBLY_LIVE") == "1"
+            )
+            or (
+                "tests/test_workspace_worker_assembly_live.py" in selected_test_paths
+                and os.environ.get("AAP_WORKSPACE_WORKER_ASSEMBLY_LIVE") == "1"
+            )
+            or (
+                "tests/test_workspace_capacity_live.py" in selected_test_paths
+                and os.environ.get("AAP_WORKSPACE_CAPACITY_LIVE") == "1"
+            )
         ):
             phase = "install-workspace-api-consumer-fence-last"
             workspace_consumer_path = (
