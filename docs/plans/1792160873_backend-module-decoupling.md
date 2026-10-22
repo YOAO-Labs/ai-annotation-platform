@@ -5282,3 +5282,39 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   the clean primary stays at its original commit, and four shared containers
   remain running. Complete-Workspace independent artifact/restore qualification
   and primary cutover are not inferred from these focused checks.
+
+### Workspace caller-transaction project deletion (2026-10-22)
+
+- Moved the frozen four-field deletion command, receipt decoder and scope binding
+  into the existing Workspace package. API compatibility imports and the same
+  request Session remain; all pending work is flushed before the original Native
+  coordinator, with commit still owned by the public route. A separate HTTP or
+  autonomous DSN command would break the required outer rollback and failed-final-
+  commit semantics, so this capability instead borrows an active caller transaction.
+- Added the exact `workspace_project_deletion_client` LOGIN grant and verifier
+  support for its single business owner function. It has no private relation,
+  sequence, DDL, TEMP or constituent cleanup capability. The adapter explicitly
+  selects the role rather than deriving the generic Workspace role from the shared
+  schema. No new migration, service, runtime selector or public API is introduced.
+- Source workers committed `54b35d619` and `1b54f66df`; integrated as `66d1af7f4`
+  and `d9e1a3367`. Root owns the grant, actual-consumer and final integration checks.
+  The effective passing union contains 76 distinct selected cases with no failures,
+  errors or skips: contract/adapter, exact restricted LOGIN, rollback/commit/frozen
+  replay, failed outer commit, bad reply scope, Node transaction modes and integer
+  fidelity, actual public API and existing deletion/retention regressions.
+- Retained initial failures separately. A legacy cross-project annotation fixture
+  now disables only its two lineage triggers inside a savepoint on a verified owned
+  database, restores them and proves that fresh invalid writes are still rejected.
+  The first role inference failure was corrected and minimally reproduced before
+  rerunning the remaining consumer cases. Frozen Native SQL remains unchanged.
+- A separate diagnosis proves an unresolved safety defect: deleting the canonical
+  video Job fences further writes but can leave an unretired execution, retained
+  input and running detached summary. That diagnosis is excluded from passing
+  qualification. The project-deletion policy question remains unanswered; the
+  selected Assets auxiliary-reference 409 policy is distinct and is recorded as
+  decided, not implemented. The deletion capability is not marked closed.
+- Evidence aggregate: `.worktree/workspace-project-deletion-qualification.json`.
+  ADR-0165 records the caller-transaction boundary. Full Workspace cold artifacts,
+  migration and restore remain batched at the coherent module milestone. Only
+  `docs-site/dev/concepts/module-deployment.md` holds remaining work. No primary
+  cutover, push, production deployment, release or Go expansion is claimed.

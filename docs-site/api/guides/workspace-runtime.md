@@ -198,3 +198,22 @@ baseline 与候选修订。Native setter 只写精确配置与事务时间戳，
 没有私表／列、序列、DDL 或 TEMP 权限；PostgreSQL/public invoker helpers 不属于这项
 业务能力计数。迁移、owner grants 与精确授权入口见 `DEV.md`。严格回复及 Native／Node／
 真实消费者的限定本地证据见 [ADR-0164](/dev/adr/0164-workspace-transactional-project-maintenance)。
+
+## 项目删除的调用方事务
+
+项目删除使用已有 `aap-project-delete/v1` 和
+`aap_workspace_v1.delete_project(uuid,uuid,uuid,jsonb)`，不提供独立提交的 HTTP 命令。
+命令只有 `operation_id/actor_id/project_id/audit_context` 四字段；Audit context 为 null
+时绑定 SQL NULL。回复保留 schema、严格 ok、成功回执或稳定业务错误。API 的兼容导入
+仍可用，实际验证和 UUID 绑定由 Workspace 包持有。
+
+调用方须保持同一外层事务：API 先 flush 原 pending work，Native 执行当前权威、保留
+检查、各 owner 清理、Audit 和回执，原路由最后提交。连接式
+`ProjectDeletionPostgresData(connection)` 要求已开启的 asyncpg 事务，并在同一事务中
+检查 `workspace_project_deletion_client` 及唯一协调器权限；不会新建或结束事务。
+提交失败必须由调用方处理，不把事务内回执当成已完成提交。
+
+公开删除仍要求当前项目管理权，成功为空体 204，后续删除不存在项目返回 404；没有新增
+幂等头。持有原 operation ID 的内部调用方可重放冻结回执，仍受 Native 当前 active-actor
+检查约束。受限 Node、Python 和实际公开 API 定向检查通过；未退役视频执行的删除规则
+与完整资格仍见[唯一模块台账](/dev/concepts/module-deployment#剩余工作台账)。

@@ -40,6 +40,7 @@
 
 ### 待决（Proposed / Draft）
 
+- [0165](0165-workspace-caller-transaction-project-deletion.md) — Workspace 项目删除的调用方事务边界（调用边界定向通过，视频前置未闭合）
 - [0164](0164-workspace-transactional-project-maintenance.md) — Workspace 相邻项目写入的同事务能力（限定本地定向验收通过）
 - [0163](0163-identity-registration-policy-owner.md) — Identity 注册状态与部署默认值的统一读取（限定本地定向验收通过）
 - [0162](0162-identity-read-relations-and-consumer-grants.md) — Identity 集合读取关系与独立 API 消费者权限（限定本地定向验收通过）

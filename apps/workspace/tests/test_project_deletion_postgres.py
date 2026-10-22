@@ -87,7 +87,8 @@ class FakeConnection:
 def _install_verifier(monkeypatch, *, error=None, end_transaction=False):
     calls = []
 
-    async def verify(connection, *, schema, functions):
+    async def verify(connection, *, schema, functions, role):
+        assert role == "workspace_project_deletion_client"
         calls.append((connection, schema, functions, connection.is_in_transaction()))
         connection.events.append("verify")
         if end_transaction:

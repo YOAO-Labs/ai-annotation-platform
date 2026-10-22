@@ -698,6 +698,41 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 [ADR-0164](docs/adr/0164-workspace-transactional-project-maintenance.md)。完整 Workspace
 冷安装／容器／完整迁移／恢复仍在一致模块里程碑集中验收，日常主环境未切换。
 
+### Workspace 调用方事务内的项目删除
+
+`aap-project-delete/v1` 的可移植命令和回执位于 `aap-workspace`。API 继续使用原请求
+Session；连接式客户端 `ProjectDeletionPostgresData` 只借用调用方已经开启的 asyncpg
+事务。调用成功后仍须由调用方提交，外层回滚或最终提交失败会同时恢复项目图、Audit
+与回执。不要把它替换成提前提交的独立 HTTP／DSN 请求。
+
+安装当前迁移及 `module-data-grants.sql` 后，为预建且无成员关系的 LOGIN 应用：
+
+```bash
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v workspace_owner=workspace_code \
+  -v workspace_project_deletion_role=workspace_project_deletion_client \
+  -f infra/docker/workspace-project-deletion-grants.sql
+```
+
+该账号仅有 `aap_workspace_v1.delete_project(uuid,uuid,uuid,jsonb)` 一项业务 owner
+函数执行权，无私表／列、序列、DDL、TEMP 或子清理函数权限。自动提交连接会被便携
+客户端拒绝；该绑定不拥有连接、提交、回滚或重试。限定复验入口使用验收器独占资源：
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/workspace-project-deletion.json \
+  --test-file tests/test_workspace_project_deletion_native.py \
+  --test-file tests/test_project_deletion_data.py \
+  --test-file tests/test_project_deletion_retention.py \
+  --test-file tests/test_project_labeling_delete_contract.py
+```
+
+调用边界通过 76 项不同定向案例，含 Node 原始 JSON 整数及实际公开 API。另一个诊断
+已确认未退役视频执行可能留下运行态摘要和输入 pin，该删除规则仍待确认，不能把
+调用边界通过视为整项删除安全验收完成。见
+[ADR-0165](docs/adr/0165-workspace-caller-transaction-project-deletion.md) 和
+[唯一剩余台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
+
 ### Labeling 类别与属性统计查询
 
 `class-usage` 的 API 先调用 Workspace `require_project_manager`，再调用独立 Labeling

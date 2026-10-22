@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import uuid
 from datetime import UTC, datetime
@@ -19,6 +20,7 @@ from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_event import TaskEvent
 from app.db.models.task_lock import AnnotationDraft, TaskLock
+from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 
 
 _SQL_ARTIFACT = (
@@ -68,8 +70,11 @@ async def _delete_owned_records(db: AsyncSession, project_id: uuid.UUID) -> dict
 
 @pytest.mark.asyncio
 async def test_project_labeling_delete_cleans_owned_children_and_uses_outer_transaction(
-    db_session: AsyncSession, super_admin
+    db_session: AsyncSession, super_admin, test_engine
 ):
+    if os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1":
+        pytest.skip("legacy cross-project lineage requires the owned verifier")
+    _verify_postgres(test_engine.url)
     owner, _ = super_admin
     project = _new_project(owner.id, "Labeling deletion target")
     other_project = _new_project(owner.id, "Unrelated project")
@@ -103,8 +108,46 @@ async def test_project_labeling_delete_cleans_owned_children_and_uses_outer_tran
         geometry={"type": "bbox", "x": 0, "y": 0, "width": 1, "height": 1},
         parent_annotation_id=target_annotation.id,
     )
-    db_session.add_all([target_annotation, other_annotation])
+    db_session.add(target_annotation)
     await db_session.flush()
+    # Seed historical lineage without weakening the live parent-input guards.
+    lineage_guards = (
+        "trg_inherit_annotation_input_sources",
+        "trg_inherit_annotation_video_input_sources",
+    )
+    async with db_session.begin_nested():
+        for guard in lineage_guards:
+            await db_session.execute(
+                text(f"ALTER TABLE public.annotations DISABLE TRIGGER {guard}")
+            )
+        db_session.add(other_annotation)
+        await db_session.flush()
+        for guard in lineage_guards:
+            await db_session.execute(
+                text(f"ALTER TABLE public.annotations ENABLE TRIGGER {guard}")
+            )
+    assert (
+        await db_session.execute(
+            text(
+                "SELECT tgname,tgenabled::text FROM pg_trigger WHERE tgrelid='public.annotations'::regclass AND tgname=ANY(CAST(:names AS text[])) ORDER BY tgname"
+            ),
+            {"names": list(lineage_guards)},
+        )
+    ).all() == [(guard, "O") for guard in sorted(lineage_guards)]
+    with pytest.raises(DBAPIError) as rejected:
+        async with db_session.begin_nested():
+            db_session.add(
+                Annotation(
+                    id=uuid.uuid4(),
+                    project_id=other_project.id,
+                    task_id=other_task.id,
+                    class_name="object",
+                    geometry={"type": "bbox", "x": 0, "y": 0, "width": 1, "height": 1},
+                    parent_annotation_id=target_annotation.id,
+                )
+            )
+            await db_session.flush()
+    assert getattr(rejected.value.orig, "sqlstate", None) == "23514"
 
     target_feedback = AnnotationFeedback(
         id=uuid.uuid4(),

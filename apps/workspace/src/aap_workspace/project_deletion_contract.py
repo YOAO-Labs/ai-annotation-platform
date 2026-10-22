@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import json
-import math
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -18,6 +17,7 @@ from pydantic import (
 )
 
 from aap_audit_contract import ProjectDeletionAuditContext
+from aap_workspace_contract.wire import _json_bytes
 
 PROJECT_DELETION_PROTOCOL = "aap-project-delete/v1"
 NATIVE_SCHEMA = "aap_workspace_v1"
@@ -93,34 +93,9 @@ class _FailureReply(_Value):
     error: _Error
 
 
-def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    value: dict[str, object] = {}
-    for key, item in pairs:
-        if key in value:
-            raise ValueError("Duplicate JSON field")
-        value[key] = item
-    return value
-
-
-def _finite_float(value: str) -> float:
-    parsed = float(value)
-    if not math.isfinite(parsed):
-        raise ValueError("Non-finite JSON number")
-    return parsed
-
-
-def _reject_constant(value: str) -> None:
-    raise ValueError(f"Invalid JSON number: {value}")
-
-
 def _payload_value(payload: object) -> object:
     if isinstance(payload, (bytes, str)):
-        return json.loads(
-            payload,
-            object_pairs_hook=_unique_object,
-            parse_constant=_reject_constant,
-            parse_float=_finite_float,
-        )
+        return json.loads(_json_bytes(payload))
     if isinstance(payload, BaseModel):
         return payload.model_dump(mode="json", by_alias=True)
     if isinstance(payload, Mapping):
@@ -177,14 +152,16 @@ def project_deletion_schema() -> dict[str, Any]:
                 "result_postgres_type": "jsonb",
                 "transaction_semantics": (
                     "The binding borrows the caller's already-active transaction. "
-                    "Authorization and commit remain caller-owned; a failed outer "
+                    "Credential admission and commit remain caller-owned; the "
+                    "Native coordinator rechecks current authority. A failed outer "
                     "commit rolls back the project graph, audit row, and receipt."
                 ),
             }
         ],
         "authorization_boundary": (
-            "The existing application caller owns authorization; this capability "
-            "adds no application policy or authorization decision."
+            "The application caller retains credential admission. The Native "
+            "coordinator rechecks the active account and current project manager "
+            "before first deletion; receipt replay retains its existing active-actor rule."
         ),
         "transaction_boundary": "The caller owns the active transaction and commit.",
     }

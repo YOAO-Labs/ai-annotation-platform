@@ -103,3 +103,19 @@ The portable descriptor and migration snapshot are generated together. Source,
 restricted Native, actual API/import, Node and transaction/lock checks pass;
 complete-module artifact/restore qualification remains a coherent milestone.
 See [ADR-0164](../../docs/adr/0164-workspace-transactional-project-maintenance.md).
+
+Project deletion retains the existing `aap-project-delete/v1` Native coordinator
+and its caller-owned transaction. `ProjectDeletionManager` owns the portable
+command/receipt validation; the API supplies its borrowed SQLAlchemy session.
+`ProjectDeletionPostgresData(connection)` borrows an already-active asyncpg
+transaction and checks the exact deletion-only LOGIN before mutation. It never
+connects, commits, rolls back, retries or closes the caller connection. The command
+keeps the original four fields and SQL NULL Audit context; legacy API imports
+remain compatibility aliases. The package explicitly depends on the existing
+shared Audit contract.
+
+The native boundary passes focused Python/Node/public-API, permission, failed-
+commit and replay checks. The video execution deletion prerequisite is still
+unresolved, so this does not close the complete deletion capability or Workspace.
+See [ADR-0165](../../docs/adr/0165-workspace-caller-transaction-project-deletion.md)
+and the one module ledger for current scope.
