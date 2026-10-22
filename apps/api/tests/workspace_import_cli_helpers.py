@@ -255,18 +255,17 @@ class WorkspaceImportCli:
         )
         self.container_id = container_id
         self._current_container_stopped = False
-        self._verify_container(self._inspect(container_id), run_id=run_id)
-        self.assert_private_network(
-            {
-                self._peer_id(self.postgres_container),
-                self._peer_id(self.redis_container),
-                self._peer_id(container_id),
-            }
-        )
         start_result = None
         start_error = None
         timed_out = False
         try:
+            self._verify_container(self._inspect(container_id), run_id=run_id)
+            self.assert_private_network(
+                {
+                    self._peer_id(self.postgres_container),
+                    self._peer_id(self.redis_container),
+                }
+            )
             try:
                 start_result = subprocess.run(
                     ["docker", "start", "--attach", container_id],
@@ -308,7 +307,6 @@ class WorkspaceImportCli:
                 {
                     self._peer_id(self.postgres_container),
                     self._peer_id(self.redis_container),
-                    record["Id"],
                 }
             )
             stdout = self.redact(start_result.stdout or "")
@@ -365,8 +363,15 @@ class WorkspaceImportCli:
         self._verify_container(record, run_id=run_id)
         if not (record.get("State") or {}).get("Running"):
             return False
-        self._docker("stop", "--time", "5", self.container_id, timeout=15)
+        self.assert_private_network(
+            {
+                self._peer_id(self.postgres_container),
+                self._peer_id(self.redis_container),
+                record["Id"],
+            }
+        )
         self._current_container_stopped = True
+        self._docker("stop", "--time", "5", self.container_id, timeout=15)
         return True
 
     def assert_private_network(self, expected: set[str]) -> None:
@@ -465,6 +470,7 @@ class WorkspaceImportCli:
                 for mount in extra_mounts
             )
             or expected_network is None
+            or len(record.get("NetworkSettings", {}).get("Networks") or {}) != 1
         ):
             raise RuntimeError(
                 "nuScenes CLI container does not match its owned runtime"

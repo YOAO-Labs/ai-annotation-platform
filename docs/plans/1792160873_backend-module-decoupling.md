@@ -6459,3 +6459,32 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   verified archives and are removed with branches retained. Receipt:
   .worktree/workspace-module-preservation.json. No push, release, production,
   primary-runtime cutover or Go expansion occurred. The full goal stays active.
+
+## Workspace cold operational importer qualification
+
+- Previous goal turn is verified progress: the private Workspace assembly/restore
+  and selected cold Celery worker pass, with source/evidence checkpoint94d0d4ae1.
+  Root rechecks that checkpoint and the clean integration branch before starting
+  the next ledger item. The full cross-module goal remains unchanged and active.
+- The actual nuScenes CLI provisions its import administrator, writes Assets
+  source/Scene data, creates or reuses its Workspace Project, associates the
+  dataset and creates Labeling Tasks in one caller transaction. The new bounded
+  qualification uses the existing API cold image, synthetic filesystem input and
+  real S3, with no source mounts or alternate deployment mode.
+- The caller is the existing trusted operational legacy_runtime profile. The
+  verifier applies the existing Identity and Workspace consumer fences only to
+  this selected case, then restores only its two published provisioning functions
+  so the existing empty-development-DB fallback stays in that transaction. User
+  and Workspace private data remain denied; ordinary identity_api_consumer is
+  unchanged. Worktree runtime setup already grants the six Assets operator
+  functions; the separate ordinary LAN API profile is not the import operator.
+- Planned actual-process checks cover missing Workspace capability/no private
+  fallback, a late Labeling failure rolling back SQL account/source/project/task
+  state, successful two-scene import and state-idempotent replay. Existing Scene
+  replay may re-PUT objects and append operation receipts; failed imports retain
+  uncertain external bytes until owned-bucket teardown. No S3 transaction or
+  real nuScenes dataset/ML/capacity qualification is inferred from this fixture.
+- One isolated source-only worker is based at94d0d4ae1 and writes only the two new
+  importer test/helper files. Root owns verifier/docs integration and all imports,
+  dependency operations, builds, DB, Docker and runtime checks. The fixture and
+  grant setup are not yet executed or claimed qualified.

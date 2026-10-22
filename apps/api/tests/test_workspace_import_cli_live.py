@@ -42,6 +42,13 @@ _PROVISIONING_FUNCTIONS = (
     "aap_identity_v1.read_provisioning_account(text)",
     "aap_identity_v1.create_provisioning_account(jsonb)",
 )
+_IDENTITY_CONSUMER_FUNCTIONS = (
+    "aap_identity_v1.read_actor_facts(uuid)",
+    "aap_identity_v1.lock_accounts_share(uuid[],boolean)",
+    "aap_identity_v1.lock_accounts_update(uuid[],boolean)",
+    "aap_identity_v1.lock_accounts_key_share(uuid[],boolean)",
+    "aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])",
+)
 _WORKSPACE_FUNCTIONS = (
     "aap_workspace_v1.read_import_project(text)",
     "aap_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb)",
@@ -206,7 +213,10 @@ async def _assert_operational_role(test_engine) -> None:
                     )
                 ).all()
             )
-            assert identity_functions == set(_PROVISIONING_FUNCTIONS)
+            assert identity_functions == {
+                *_IDENTITY_CONSUMER_FUNCTIONS,
+                *_PROVISIONING_FUNCTIONS,
+            }
             for table in ("users", "projects", "project_members", "project_templates"):
                 for privilege in ("SELECT", "INSERT", "UPDATE", "DELETE"):
                     assert (
