@@ -5675,3 +5675,18 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   ledger: Project/member set and scalar reads, sorted reference locks, Labeling
   counter-write prerequisites, unlink binding and unretired-video delete policy.
   No primary cutover, push, release, production or Go expansion occurs.
+
+- Source/grant/fixture/documentation checkpoint:
+  `9f47a64123a9e376a2ae2ed479eb310bbd5b600d`. The aggregate binds 77 changed
+  files to this source commit. Grant/selection units pass 20; architecture passes
+  355 with 149 inapplicable rules. Ruff, format, explicit OpenAPI consistency,
+  docs build, final diff and normal applicable commit hooks pass. Documentation
+  prebuild regenerates route index/hotkeys/settings with unchanged tracked output;
+  public generator commit hooks naturally skip at Root because the API lane was
+  already integrated. Three owned source worktrees are removed after exact clean
+  branch/HEAD, patch and scoped-tree equivalence checks; caches are archived and
+  branches retained. All six owned PostgreSQL containers are absent. Twenty
+  editable bindings still point to Root; the clean primary and four shared
+  containers are preserved. No persistent Root API/Celery/Workspace provider
+  needs refresh. This closes the ordinary read-only Project getter operation,
+  not set/scalar reads, counter writes, complete Workspace assembly or the goal.
