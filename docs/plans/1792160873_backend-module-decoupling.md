@@ -6226,3 +6226,20 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Cleanup grant corrections. Architecture remains358+150 and explicit OpenAPI
   unchanged; completed package/architecture checks are reused. No cold install
   or image rebuild is claimed for this SQL deployment-profile milestone.
+
+- Integrated source/documentation commit:
+  `4bd5ddca1557e83549fdbec42c6d1ecbf311c418`. All15 files match the
+  recorded SHA256 manifest after normal hooks. Final qualification remains local
+  SQL/API/independent-client evidence, with all failures and setup corrections
+  retained. Source-only audits are not counted as runtime evidence.
+- Preservation verifies all20 editable bindings, both shared symlinks, protected
+  primary HEAD/clean state and all four shared running containers unchanged. All
+  eleven task-owned PostgreSQL containers are absent and verifier cleanup has no
+  errors. No persistent Root backend process remains. No modifying source
+  worktree was created in this slice. Receipt:
+  .worktree/workspace-consumer-profile-preservation.json.
+- The full goal stays active. Next bounded deliverable is coherent complete
+  Workspace cold artifacts, combined owner/API credential assembly and recovery
+  qualification. Legacy no-proof drain still needs machine-verifiable external
+  fencing evidence; no unsafe clearance is introduced. No primary cutover, push,
+  release, production deployment or expansion of the Go experiment occurs.
