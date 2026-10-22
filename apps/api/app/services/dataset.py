@@ -38,6 +38,7 @@ from app.services.project_kind import (
 from app.services.storage import TRUSTED_NUSCENES_PREFIX, storage_service
 from app.services.system_settings_service import SystemSettingsService
 from app.services.reference_keys import is_reference, PREFIX
+from app.services.dataset_source_access import validate_dataset_write
 
 _STREAM_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024
 _IMAGE_HEAD_BYTES = 256 * 1024
@@ -98,6 +99,7 @@ async def build_tasks_for_link(
     project_id: uuid.UUID,
     job_id: uuid.UUID | None = None,
     chunk_size: int = 5000,
+    directory_authority=None,
 ) -> dict:
     """v0.12.0 · 为 dataset link 分块建 task（worker / 同步快路径共用）。
 
@@ -108,6 +110,9 @@ async def build_tasks_for_link(
     v0.13.1 · 点云项目（project.data_type == "lidar"）分流到 scene 感知建任务器：
     先写各相机标定，再按帧建 Task + 多文件 link（见 services/pointcloud_import.py）。
     """
+    await validate_dataset_write(
+        db, dataset_id, directory_authority, project_id=project_id
+    )
     await db.execute(
         select(Dataset.id).where(Dataset.id == dataset_id).with_for_update()
     )
@@ -134,6 +139,9 @@ async def build_tasks_for_link(
         # 标定独立落库：build_pointcloud 在「帧全已建过 task」时 total==0 早退且不 commit，
         # 若不在此 commit，attach_calibration 的 flush 会在 session 关闭时回滚 —— 重导入
         # （如修正 calib 文件后重跑）将刷不掉旧标定。commit 在这让标定持久化与建任务解耦。
+        await validate_dataset_write(
+            db, dataset_id, directory_authority, project_id=project_id
+        )
         await db.commit()
         return await build_pointcloud_tasks_for_link(
             db,
@@ -170,6 +178,9 @@ async def build_tasks_for_link(
     last_pct = 0
     for start in range(0, total, chunk_size):
         chunk = items[start : start + chunk_size]
+        await validate_dataset_write(
+            db, dataset_id, directory_authority, project_id=project_id
+        )
         await db.execute(
             select(Dataset.id).where(Dataset.id == dataset_id).with_for_update()
         )
@@ -219,6 +230,9 @@ async def build_tasks_for_link(
                 await async_job_svc.update_progress(db, job_id, pct)
                 last_pct = pct
 
+        await validate_dataset_write(
+            db, dataset_id, directory_authority, project_id=project_id
+        )
         await db.commit()
 
     return {"created": created, "total": total}
@@ -611,6 +625,7 @@ class DatasetService:
         storage_key: str | None = None,
         object_etag: str | None = None,
         dest_relpath: str | None = None,
+        directory_authority=None,
     ) -> IngestOutcome:
         """Ingest one source object into a dataset.
 
@@ -620,6 +635,7 @@ class DatasetService:
         `dest_relpath` 给定时（连接器/扫描导入）保留源子目录结构作为 file_name 与
         storage_key 后缀（如 `a/img.jpg`）；不给时退回纯文件名（basename），其它调用零影响。
         """
+        await validate_dataset_write(self.db, dataset_id, directory_authority)
         ds = await self.db.get(Dataset, dataset_id)
         if not ds:
             return IngestOutcome(
@@ -674,6 +690,17 @@ class DatasetService:
             )
             uploaded_storage = True
 
+        async def check_authority():
+            try:
+                await validate_dataset_write(self.db, dataset_id, directory_authority)
+            except HTTPException:
+                if uploaded_storage:
+                    storage_service.delete_object(
+                        storage_key, bucket=storage_service.datasets_bucket
+                    )
+                raise
+
+        await check_authority()
         if sha256:
             existing = await find_verified_content(
                 self.db, dataset_id, sha256, legacy_md5=content_hash
@@ -726,6 +753,7 @@ class DatasetService:
             logical_path=final_name,
         )
         linked_tasks = await self.create_tasks_for_items(dataset_id, [item.id])
+        await check_authority()
         return IngestOutcome(
             status="added",
             relpath=relpath,
@@ -902,7 +930,10 @@ class DatasetService:
 
     # ── Scan & import from bucket ─────────────────────────────────────────
 
-    async def scan_and_import(self, dataset_id: uuid.UUID) -> list[IngestOutcome]:
+    async def scan_and_import(
+        self, dataset_id: uuid.UUID, *, directory_authority=None
+    ) -> list[IngestOutcome]:
+        await validate_dataset_write(self.db, dataset_id, directory_authority)
         ds = await self.db.get(Dataset, dataset_id)
         if not ds:
             return []
@@ -933,6 +964,7 @@ class DatasetService:
                         storage_key=key,
                         object_etag=obj.get("etag"),
                         dest_relpath=rel_under_ds,
+                        directory_authority=directory_authority,
                     )
                 )
         return outcomes
@@ -940,7 +972,7 @@ class DatasetService:
     # ── Project linking ─────────────────────────────────────────────────────
 
     async def link_project(
-        self, dataset_id: uuid.UUID, project_id: uuid.UUID
+        self, dataset_id: uuid.UUID, project_id: uuid.UUID, *, directory_authority=None
     ) -> LinkProjectResult:
         """v0.12.0 · 建 ProjectDataset link，并按 item 数决定同步 / 异步建 task。
 
@@ -948,8 +980,14 @@ class DatasetService:
         > 阈值：不在本请求里建 task，改为创建 CREATE_TASKS async_job 并由 endpoint
         在 db.commit() 之后 enqueue。返回 LinkProjectResult 让 endpoint 决策。
         """
+        await validate_dataset_write(
+            self.db, dataset_id, directory_authority, project_id=project_id
+        )
         dataset = await self.db.scalar(
             select(Dataset).where(Dataset.id == dataset_id).with_for_update()
+        )
+        await validate_dataset_write(
+            self.db, dataset_id, directory_authority, project_id=project_id
         )
         existing = (
             await self.db.execute(
@@ -1002,13 +1040,17 @@ class DatasetService:
                     "dataset_id": str(dataset_id),
                     "project_id": str(project_id),
                     "mode": "link",
+                    "directory_authority": directory_authority,
                 },
             )
             return LinkProjectResult(link=link, async_job_id=job.id)
 
         # 同步快路径：build_tasks_for_link 内部分块 commit（job_id=None 不上报进度）。
         result = await build_tasks_for_link(
-            self.db, dataset_id=dataset_id, project_id=project_id
+            self.db,
+            dataset_id=dataset_id,
+            project_id=project_id,
+            directory_authority=directory_authority,
         )
         return LinkProjectResult(link=link, created_tasks=result["created"])
 

@@ -6,6 +6,7 @@ import asyncio
 from contextlib import suppress
 import logging
 import uuid
+from fastapi import HTTPException
 from datetime import datetime, timezone
 from typing import Any, BinaryIO, Iterable
 
@@ -23,6 +24,7 @@ from app.db.models.storage_connection import StorageConnection
 from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
 from app.services.dataset import DatasetService, IngestOutcome
+from app.services.dataset_source_access import validate_dataset_write
 from app.services.sources import build_adapter
 from app.services.sources.base import SourceObject
 from app.services.system_settings_service import SystemSettingsService
@@ -222,6 +224,8 @@ async def _run_dataset_import(
                 )
                 await db.commit()
                 dataset_id = uuid.UUID(str(payload["dataset_id"]))
+                authority = payload.get("directory_authority")
+                await validate_dataset_write(db, dataset_id, authority)
                 connection_id = uuid.UUID(str(payload["connection_id"]))
                 source_path = str(payload.get("source_path") or "")
                 recursive = bool(payload.get("recursive", True))
@@ -243,6 +247,7 @@ async def _run_dataset_import(
                     max_total_bytes=max_total_bytes,
                 )
                 total = len(objects)
+                await validate_dataset_write(db, dataset_id, authority)
 
                 await async_job_svc.update_progress(
                     db,
@@ -266,6 +271,7 @@ async def _run_dataset_import(
                 last_pct = 5
 
                 for index, obj in enumerate(objects, start=1):
+                    await validate_dataset_write(db, dataset_id, authority)
                     if await _cancel_requested(db, job_uuid):
                         await _finish_cancelled(
                             db,
@@ -303,6 +309,7 @@ async def _run_dataset_import(
                                 stream,
                                 size=obj.size,
                                 dest_relpath=dest_rel or None,
+                                directory_authority=authority,
                             )
                         finally:
                             _close_stream(stream)
@@ -328,6 +335,8 @@ async def _run_dataset_import(
                             error_count += 1
                             _append_error(errors, outcome)
                             await db.rollback()
+                    except HTTPException:
+                        raise
                     except Exception as exc:  # noqa: BLE001
                         await db.rollback()
                         error_count += 1

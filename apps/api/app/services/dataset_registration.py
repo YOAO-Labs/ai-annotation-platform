@@ -76,7 +76,7 @@ async def context(db, run_id):
 
 async def validate(db, location, source, run):
     await scans.validate_context(db, location, source, snapshot=run.snapshot)
-    actor = await scans.require_actor(db, uuid.UUID(run.snapshot["actor_id"]))
+    actor = await scans.require_actor(db, uuid.UUID(run.snapshot["actor_id"]), source)
     proof = await key_authority(
         db, actor, run.snapshot.get("api_key_id"), "datasets:write"
     )
@@ -85,14 +85,14 @@ async def validate(db, location, source, run):
     return actor
 
 
-async def request_authority(db, actor, api_key_id, proof):
-    await scans.require_actor(db, actor.id)
+async def request_authority(db, actor, api_key_id, proof, source=None):
+    await scans.require_actor(db, actor.id, source)
     if await key_authority(db, actor, api_key_id, "datasets:write") != proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
 
 
 async def attempt(db, run, source, actor, *, api_key_id=None, key_proof):
-    await request_authority(db, actor, api_key_id, key_proof)
+    await request_authority(db, actor, api_key_id, key_proof, source)
     run.snapshot = {
         **run.snapshot,
         "actor_id": str(actor.id),
@@ -124,7 +124,7 @@ async def attempt(db, run, source, actor, *, api_key_id=None, key_proof):
 async def start_preflight(db, scan_id, actor, *, api_key_id=None):
     key_proof = await key_authority(db, actor, api_key_id, "datasets:write")
     location, source, scan, _ = await scans.run_context(db, scan_id)
-    await request_authority(db, actor, api_key_id, key_proof)
+    await request_authority(db, actor, api_key_id, key_proof, source)
     await scans.validate_context(db, location, source, snapshot=scan.snapshot)
     if not scan.complete or scan.status != "completed":
         raise HTTPException(409, detail={"code": "scan_incomplete"})
@@ -158,7 +158,7 @@ async def start_preflight(db, scan_id, actor, *, api_key_id=None):
     result = await probe_candidates(
         db, location, source, scan.id, locations.api_node_id()
     )
-    await request_authority(db, actor, api_key_id, key_proof)
+    await request_authority(db, actor, api_key_id, key_proof, source)
     await locations.store_probe(
         db, location, locations.api_node_id(), result, await scans.now(db)
     )
@@ -287,6 +287,7 @@ async def claim(db, run_id, task_id, node_id):
         raise fs.FilesystemStorageError("wrong_execution_node")
     node = f"worker:{node_id}"
     result = await probe_candidates(db, location, source, run.scan_run_id, node)
+    await validate(db, location, source, run)
     await locations.store_probe(db, location, node, result, await scans.now(db))
     if not result["ok"]:
         raise fs.FilesystemStorageError("worker_source_unavailable")
@@ -423,9 +424,10 @@ async def confirm(db, run_id, actor, *, api_key_id=None):
 
     key_proof = await key_authority(db, actor, api_key_id, "datasets:write")
     preflight_version = None
+    source = None
 
     async def authorize_request(current_db):
-        await request_authority(current_db, actor, api_key_id, key_proof)
+        await request_authority(current_db, actor, api_key_id, key_proof, source)
 
     async def authorize(current_db):
         await authorize_request(current_db)
@@ -535,7 +537,7 @@ async def confirm(db, run_id, actor, *, api_key_id=None):
 async def resume(db, run_id, actor, *, api_key_id=None, path_digest=None):
     key_proof = await key_authority(db, actor, api_key_id, "datasets:write")
     location, source, run, old_job = await context(db, run_id)
-    await request_authority(db, actor, api_key_id, key_proof)
+    await request_authority(db, actor, api_key_id, key_proof, source)
     await scans.validate_context(db, location, source, snapshot=run.snapshot)
     await other_active(db, run)
     if (
@@ -571,8 +573,8 @@ async def cancel_job(db, job_id, actor):
     run_id = await db.scalar(select(Run.id).where(Run.async_job_id == job_id))
     if not run_id:
         raise HTTPException(409, "Registration attempt has been superseded")
-    _, _, run, job = await context(db, run_id)
-    await scans.require_actor(db, actor.id)
+    _, source, run, job = await context(db, run_id)
+    await scans.require_actor(db, actor.id, source)
     if run.async_job_id != job_id or run.status not in ACTIVE:
         raise HTTPException(409, "Registration attempt is no longer active")
     await finish(db, run, job, "cancelled", "cancelled_by_user")

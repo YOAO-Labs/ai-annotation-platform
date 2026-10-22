@@ -1,5 +1,5 @@
 ---
-audience: [dev, super_admin]
+audience: [dev, project_admin, super_admin]
 type: reference
 status: stable
 last_reviewed: 2026-10-23
@@ -7,7 +7,7 @@ last_reviewed: 2026-10-23
 
 # 目录来源与观测扫描
 
-这些接口提供只读目录清单、可恢复扫描及两阶段批量登记，均仅限当前超级管理员。来源的 `mode` 固定为 `inventory`：扫描不创建 DatasetItem、Asset 或标注任务，不读取原图字节，扫描本身不生成内容摘要，也不把历史文件判为 missing。扫描完成后可运行内容预检并确认后台登记，也可逐条登记；扫描、预检和登记是独立步骤。
+这些接口提供只读目录清单、可恢复扫描及两阶段批量登记，要求当前活跃超级管理员，或数据集创建者为本人的活跃项目管理员且拥有该存储位置的使用权。来源的 `mode` 固定为 `inventory`：扫描不创建 DatasetItem、Asset 或标注任务，不读取原图字节，扫描本身不生成内容摘要，也不把历史文件判为 missing。扫描完成后可运行内容预检并确认后台登记，也可逐条登记；扫描、预检和登记是独立步骤。
 
 先用[存储位置 API](./storage-locations)登记受控根内位置，成功探测指定 worker 的 list 能力，再创建来源。所有路径均以 `/api/v1` 为前缀。
 
@@ -22,6 +22,10 @@ last_reviewed: 2026-10-23
 | GET   | `/dataset-scans/{run_id}`            | 查看状态、阶段、完整性、累计数和当前 async_job_id                 |
 | GET   | `/dataset-scans/{run_id}/entries`    | limit/offset 分页读取观测、verified_content 与 registered_item_id |
 | POST  | `/dataset-scans/{run_id}/resume`     | 恢复未完成运行，保留目录检查点，返回202和新任务ID                 |
+
+来源、扫描、登记与明细的直接 ID 访问和列表/total 使用同一管理范围；权限不足返回404，员工不能枚举来源。读接口要求 `datasets:read`，写接口要求 `datasets:write`。后台任务按真实 Run→Source 关联授权，包括恢复前的历史尝试，不以任务提交者代替当前来源权限；缺少读取 scope 的 Key 不会在任务列表取得这些记录。
+
+撤回位置使用权后，项目管理员不能继续浏览、扫描、登记或管理预览，排队与在途执行在读取前后复查授权。已分配任务仍按任务权限读图；如需停止全部业务读取，应停用来源或位置。目录数据集的旧修改、删除、上传和关联入口同样检查数据集创建者；混合上传、ZIP、桶扫描、连接器复制导入和分块建任务保留初始授权，在 I/O 后和提交前复查。撤权后保留已提交部分，后续未提交部分停止，公开作业 payload 不返回内部授权证明。
 
 ## 创建来源
 
@@ -54,7 +58,7 @@ Run 的 `completed` 和 `complete=true` 只表示约定范围枚举与复核完�
 
 ## 后台预检与批量登记
 
-以下写接口均要求 `datasets:write`，读接口要求 `datasets:read`。JWT 沿用当前超管角色；API Key 的初始凭据证明贯穿 I/O、排队和逐项提交，轮换、撤销或降权后旧尝试不能继续写入。
+以下写接口均要求 `datasets:write`，读接口要求 `datasets:read`。JWT 沿用上述当前角色、创建者和位置权限；API Key 的初始凭据证明贯穿 I/O、排队和逐项提交，轮换、撤销或降权后旧尝试不能继续写入。
 
 | 方法 | 路径                                                                   | 行为                                                         |
 | ---- | ---------------------------------------------------------------------- | ------------------------------------------------------------ |
@@ -73,8 +77,8 @@ Run 的 `completed` 和 `complete=true` 只表示约定范围枚举与复核完�
 
 ## 逐条登记原地图片
 
-`POST /dataset-scans/{run_id}/entries/{path_digest}/register` 要求当前超级管理员及 `datasets:write`，返回200：`{item_id, created, sha256}`。Run 必须完整，条目为匹配的已观测文件；API 当前节点须有有效 read 探测。登记会重新核验字节与图片，创建不可变 Reference、verified Asset 和 DatasetItem，复用已有项目关联创建 Task，不上传原图或创建 S3 副本。只接受普通图片数据集及普通图片项目。
+`POST /dataset-scans/{run_id}/entries/{path_digest}/register` 要求上述当前来源管理权限及 `datasets:write`，返回200：`{item_id, created, sha256}`。Run 必须完整，条目为匹配的已观测文件；API 当前节点须有有效 read 探测。登记会重新核验字节与图片，创建不可变 Reference、verified Asset 和 DatasetItem，复用已有项目关联创建 Task，不上传原图或创建 S3 副本。只接受普通图片数据集及普通图片项目。
 
 同 Source/path 幂等返回 `created=false`；相同摘要的其他路径不会合并样本。来源或内容变化拒绝，繁忙的数据集返回409 `dataset_busy`，可重试。登记在最终锁内复查原始 API Key 和账号权限，不会把轮换后的 Key 认作原请求。接口是逐条事务；中断保留已提交条目，entries 的 `registered_item_id` 可用于恢复。
 
-`GET /dataset-items/{item_id}/content?sha256=...` 仅当前超管及 `datasets:read` 可预览已登记图片；响应、预算与失败语义沿用[严格内容读取](./verified-content)。员工通过 Task 内容接口读取分配任务，不开放此管理入口。
+`GET /dataset-items/{item_id}/content?sha256=...` 仅当前有来源管理权限的管理员及 `datasets:read` 可预览已登记图片；响应、预算与失败语义沿用[严格内容读取](./verified-content)。员工通过 Task 内容接口读取分配任务，不开放此管理入口。

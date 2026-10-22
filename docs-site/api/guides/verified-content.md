@@ -1,8 +1,8 @@
 ---
-audience: [dev, super_admin]
+audience: [dev, project_admin, super_admin]
 type: reference
 status: stable
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-23
 ---
 
 # 内容核验与严格图片读取
@@ -11,10 +11,12 @@ last_reviewed: 2026-10-22
 
 ## 目录观测条目
 
-| 方法 | 路径                                                               | 授权与行为                                                          |
-| ---- | ------------------------------------------------------------------ | ------------------------------------------------------------------- |
-| POST | `/dataset-scans/{run_id}/entries/{path_digest}/verify`             | 当前超管和 `datasets:write`；为完整扫描中的匹配文件核验当前图片内容 |
-| GET  | `/dataset-scans/{run_id}/entries/{path_digest}/content?sha256=...` | 当前超管和 `datasets:read`；按已登记摘要严格读取                    |
+| 方法 | 路径                                                               | 授权与行为                                                                  |
+| ---- | ------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| POST | `/dataset-scans/{run_id}/entries/{path_digest}/verify`             | 当前来源管理权限和 `datasets:write`；为完整扫描中的匹配文件核验当前图片内容 |
+| GET  | `/dataset-scans/{run_id}/entries/{path_digest}/content?sha256=...` | 当前来源管理权限和 `datasets:read`；按已登记摘要严格读取                    |
+
+来源管理权限为活跃超管，或创建该数据集且拥有位置使用权的活跃项目管理员；读取前后再次检查。撤回位置使用权阻止管理预览，已分配任务仍按下文任务权限读取。
 
 从[观测条目列表](./dataset-sources)取得 `path_digest`。verify 返回 `sha256 / size_bytes / media_type / width / height`（尺寸按浏览器 EXIF 旋转后的逻辑方向）；条目列表增加 `verified_content` 与 `content_verified`。核验结果与原始 stat 观测分开保存，不包含绝对路径、节点指纹或文件内容。
 

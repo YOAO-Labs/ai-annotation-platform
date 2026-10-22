@@ -17,7 +17,7 @@ from app.db.models.dataset_source import (
     DatasetRegistrationEntry,
 )
 from app.db.models.user import User
-from app.deps import get_db, require_roles, require_scopes
+from app.deps import get_db, require_roles, require_scopes, assert_request_scopes
 from app.schemas.dataset_source import (
     DatasetSourceCreate,
     DatasetSourceUpdate,
@@ -32,12 +32,21 @@ from app.schemas.dataset_source import (
     DatasetRegistrationEntryList,
 )
 from app.services import dataset_scans as svc
+from app.services import dataset_source_access as access
 from app.services.audit import AuditAction, AuditService
 from app.services.filesystem_storage import FilesystemStorageError
 from app.services.content_snapshot import IMAGE_RESPONSES
 
-router = APIRouter()
-super_admin = require_roles(UserRole.SUPER_ADMIN)
+manager = require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
+
+
+async def source_scopes(request: Request, actor: User = Depends(manager)):
+    assert_request_scopes(
+        request, "datasets:read" if request.method == "GET" else "datasets:write"
+    )
+
+
+router = APIRouter(dependencies=[Depends(source_scopes)])
 
 
 async def audit(db, actor, request, action, target_id):
@@ -61,10 +70,12 @@ async def create_source(
     payload: DatasetSourceCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(super_admin),
+    actor: User = Depends(manager),
 ):
     try:
-        source = await svc.create_source(db, payload, actor)
+        source = await svc.create_source(
+            db, payload, actor, api_key_id=getattr(request.state, "api_key_id", None)
+        )
     except FilesystemStorageError as exc:
         raise conflict(exc) from None
     await audit(db, actor, request, AuditAction.DATASET_SOURCE_CREATE, source.id)
@@ -78,9 +89,10 @@ async def list_sources(
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(super_admin),
+    actor: User = Depends(manager),
 ):
-    stmt = select(DatasetSource)
+    actor = await access.require_manager(db, actor.id)
+    stmt = select(DatasetSource).where(access.source_scope_clause(actor))
     if dataset_id:
         stmt = stmt.where(DatasetSource.dataset_id == dataset_id)
     total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
@@ -96,11 +108,9 @@ async def list_sources(
 async def get_source(
     source_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(super_admin),
+    actor: User = Depends(manager),
 ):
-    source = await db.get(DatasetSource, source_id)
-    if source is None:
-        raise HTTPException(404, "Dataset source not found")
+    source = await access.require_source(db, source_id, actor)
     return svc.source_out(source)
 
 
@@ -110,9 +120,15 @@ async def patch_source(
     payload: DatasetSourceUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(super_admin),
+    actor: User = Depends(manager),
 ):
-    source = await svc.update_source(db, source_id, payload)
+    source = await svc.update_source(
+        db,
+        source_id,
+        payload,
+        actor,
+        api_key_id=getattr(request.state, "api_key_id", None),
+    )
     await audit(db, actor, request, AuditAction.DATASET_SOURCE_UPDATE, source_id)
     await db.commit()
     return svc.source_out(source)
@@ -125,10 +141,12 @@ async def start_scan(
     source_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(super_admin),
+    actor: User = Depends(manager),
 ):
     try:
-        run, created = await svc.start_scan(db, source_id, actor)
+        run, created = await svc.start_scan(
+            db, source_id, actor, api_key_id=getattr(request.state, "api_key_id", None)
+        )
     except FilesystemStorageError as exc:
         raise conflict(exc) from None
     await audit(db, actor, request, AuditAction.DATASET_SCAN_START, source_id)
@@ -146,10 +164,9 @@ async def list_scans(
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(super_admin),
+    actor: User = Depends(manager),
 ):
-    if await db.get(DatasetSource, source_id) is None:
-        raise HTTPException(404, "Dataset source not found")
+    await access.require_source(db, source_id, actor)
     query = select(DatasetScanRun).where(DatasetScanRun.source_id == source_id)
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
     rows = await db.scalars(
@@ -164,11 +181,9 @@ async def list_scans(
 async def get_scan(
     run_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(super_admin),
+    actor: User = Depends(manager),
 ):
-    run = await db.get(DatasetScanRun, run_id)
-    if run is None:
-        raise HTTPException(404, "Dataset scan not found")
+    run = await access.require_run(db, DatasetScanRun, run_id, actor)
     return run
 
 
@@ -178,10 +193,9 @@ async def list_entries(
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(super_admin),
+    actor: User = Depends(manager),
 ):
-    if await db.get(DatasetScanRun, run_id) is None:
-        raise HTTPException(404, "Dataset scan not found")
+    run = await access.require_run(db, DatasetScanRun, run_id, actor)
     query = select(DatasetScanEntry).where(
         DatasetScanEntry.run_id == run_id, DatasetScanEntry.relative_path != ""
     )
@@ -191,7 +205,6 @@ async def list_entries(
             query.order_by(DatasetScanEntry.path_digest).limit(limit).offset(offset)
         )
     )
-    run = await db.get(DatasetScanRun, run_id)
     registered = {
         r.path_digest: r.dataset_item_id
         for r in await db.scalars(
@@ -238,10 +251,12 @@ async def resume_scan(
     run_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(super_admin),
+    actor: User = Depends(manager),
 ):
     try:
-        run = await svc.resume_scan(db, run_id, actor)
+        run = await svc.resume_scan(
+            db, run_id, actor, api_key_id=getattr(request.state, "api_key_id", None)
+        )
     except FilesystemStorageError as exc:
         raise conflict(exc) from None
     await audit(db, actor, request, AuditAction.DATASET_SCAN_RESUME, run.source_id)
@@ -262,7 +277,7 @@ async def verify_scan_content(
     path_digest: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(super_admin),
+    actor: User = Depends(manager),
 ):
     from app.services.dataset_content import scan_snapshot, content_http_error
 
@@ -295,7 +310,7 @@ async def read_scan_content(
     request: Request,
     sha256: str = Query(pattern=r"^[0-9a-f]{64}$"),
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(super_admin),
+    actor: User = Depends(manager),
 ):
     from app.services.dataset_content import scan_snapshot, content_http_error
     from app.services.content_snapshot import SnapshotResponse
@@ -326,7 +341,7 @@ async def register_reference(
     path_digest: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(super_admin),
+    actor: User = Depends(manager),
 ):
     from app.services.dataset_references import register_entry
     from app.services.dataset_content import content_http_error
@@ -354,7 +369,7 @@ async def reference_item_content(
     request: Request,
     sha256: str = Query(pattern=r"^[0-9a-f]{64}$"),
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(super_admin),
+    actor: User = Depends(manager),
 ):
     from app.services.dataset_references import reference_snapshot
     from app.services.dataset_content import content_http_error
@@ -384,8 +399,9 @@ async def reference_item_content(
 async def get_scan_registration(
     scan_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(super_admin),
+    actor: User = Depends(manager),
 ):
+    await access.require_run(db, DatasetScanRun, scan_id, actor)
     return await db.scalar(
         select(DatasetRegistrationRun).where(
             DatasetRegistrationRun.scan_run_id == scan_id
@@ -413,7 +429,7 @@ async def preflight_registration(
     scan_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(super_admin),
+    actor: User = Depends(manager),
 ):
     from app.services import dataset_registration as registration
     from app.services.dataset_content import content_http_error
@@ -438,7 +454,7 @@ async def confirm_registration(
     registration_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(super_admin),
+    actor: User = Depends(manager),
 ):
     from app.services import dataset_registration as registration
     from app.services.dataset_content import content_http_error
@@ -466,7 +482,7 @@ async def resume_registration(
     registration_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(super_admin),
+    actor: User = Depends(manager),
 ):
     from app.services import dataset_registration as registration
     from app.services.dataset_content import content_http_error
@@ -495,7 +511,7 @@ async def retry_registration_entry(
     path_digest: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(super_admin),
+    actor: User = Depends(manager),
 ):
     from app.services import dataset_registration as registration
     from app.services.dataset_content import content_http_error
@@ -526,11 +542,9 @@ async def registration_entries(
     limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(super_admin),
+    actor: User = Depends(manager),
 ):
-    run = await db.get(DatasetRegistrationRun, registration_id)
-    if run is None:
-        raise HTTPException(404, "Registration not found")
+    run = await access.require_run(db, DatasetRegistrationRun, registration_id, actor)
     entry = DatasetRegistrationEntry
     stmt = (
         select(entry, DatasetScanEntry)

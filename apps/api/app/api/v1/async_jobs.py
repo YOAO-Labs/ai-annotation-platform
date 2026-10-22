@@ -24,6 +24,7 @@ from app.db.models.mask_format_import import MaskFormatImport
 from app.db.models.user import User
 from app.deps import get_current_user, get_db, assert_request_scopes
 from app.services.async_job_terminal import reconcile_domain_terminal
+from app.services import dataset_source_access as source_access
 from app.services.project_aggregates import project_scope_clause
 from app.schemas.async_job import (
     AsyncJobListResponse,
@@ -86,24 +87,24 @@ def _build_async_job_query(
             project_roles=(ProjectRole.REVIEWER.value,),
         )
         query = query.where(
-            AsyncJob.kind.not_in(["dataset_scan", "dataset_registration"]),
-            AsyncJob.user_id == current_user.id,
             or_(
-                # Genuine global non-export jobs stay visible; a global export
-                # row has no legitimate mode and must fail closed.
+                source_access.job_scope_clause(current_user),
                 and_(
-                    AsyncJob.kind != EXPORT_JOB_KIND,
-                    AsyncJob.project_id.is_(None),
+                    AsyncJob.kind.not_in(["dataset_scan", "dataset_registration"]),
+                    AsyncJob.user_id == current_user.id,
+                    or_(
+                        and_(
+                            AsyncJob.kind != EXPORT_JOB_KIND,
+                            AsyncJob.project_id.is_(None),
+                        ),
+                        project_scope,
+                    ),
+                    or_(
+                        AsyncJob.kind != EXPORT_JOB_KIND,
+                        and_(AsyncJob.project_id.is_not(None), export_scope),
+                    ),
                 ),
-                project_scope,
-            ),
-            or_(
-                AsyncJob.kind != EXPORT_JOB_KIND,
-                and_(
-                    AsyncJob.project_id.is_not(None),
-                    export_scope,
-                ),
-            ),
+            )
         )
     if status:
         query = query.where(AsyncJob.status.in_(status))
@@ -138,7 +139,17 @@ async def _can_access_job(db: AsyncSession, *, job: AsyncJob, user: User) -> boo
     if user.role == PlatformRole.SUPER_ADMIN.value:
         return True
     if job.kind in {"dataset_scan", "dataset_registration"}:
-        return False
+        try:
+            user = await source_access.require_manager(db, user.id)
+        except HTTPException:
+            return False
+        return bool(
+            await db.scalar(
+                select(AsyncJob.id).where(
+                    AsyncJob.id == job.id, source_access.job_scope_clause(user)
+                )
+            )
+        )
     if job.project_id is None:
         # Annotation export has no legitimate global mode: a malformed/legacy
         # export row without an actual project must not expose its signed URL.
@@ -212,6 +223,7 @@ async def _to_async_job_out(
 
 @router.get("/async-jobs", response_model=AsyncJobListResponse)
 async def list_async_jobs(
+    request: Request,
     status: list[AsyncJobStatusParam] | None = Query(default=None),
     kind: list[str] | None = Query(default=None),
     project_id: uuid.UUID | None = Query(default=None),
@@ -232,6 +244,11 @@ async def list_async_jobs(
         project_id=project_id,
         search=search,
     )
+    scopes = getattr(request.state, "api_key_scopes", None)
+    if scopes is not None and "*" not in scopes and "datasets:read" not in scopes:
+        stmt = stmt.where(
+            AsyncJob.kind.not_in(["dataset_scan", "dataset_registration"])
+        )
     count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
 
     stmt = (
@@ -252,6 +269,7 @@ async def list_async_jobs(
 @router.get("/async-jobs/{job_id}", response_model=AsyncJobOut)
 async def get_async_job(
     job_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AsyncJobOut:
@@ -260,6 +278,8 @@ async def get_async_job(
         raise HTTPException(status_code=404, detail="async_job not found")
     if not await _can_access_job(db, job=job, user=current_user):
         raise HTTPException(status_code=403, detail="not your job")
+    if job.kind in {"dataset_scan", "dataset_registration"}:
+        assert_request_scopes(request, "datasets:read")
     return await _to_async_job_out(db, job)
 
 

@@ -58,6 +58,7 @@ async def key_authority(db, actor, key_id, scope):
 async def scan_context(db, run_id, path_digest, actor, *, lock=False, node_id=None):
     await scans.require_actor(db, actor.id)
     location, source, run, _ = await scans.run_context(db, run_id)
+    await scans.require_actor(db, actor.id, source)
     await scans.validate_context(db, location, source, snapshot=run.snapshot)
     if run.status != "completed" or not run.complete:
         raise snapshots.ContentError("scan_incomplete")

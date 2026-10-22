@@ -37,7 +37,12 @@ async def reference_world(db_session, content_world, annotator):
     )
     db_session.add(project)
     await db_session.flush()
-    await DatasetService(db_session).link_project(dataset.id, project.id)
+    from app.services.dataset_source_access import capture_dataset_write
+
+    authority = await capture_dataset_write(db_session, dataset.id, actor, None)
+    await DatasetService(db_session).link_project(
+        dataset.id, project.id, directory_authority=authority
+    )
     task = await db_session.scalar(select(Task).where(Task.project_id == project.id))
     task.assignee_id = annotator[0].id
     task.status = "in_progress"

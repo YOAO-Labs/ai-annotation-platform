@@ -1,5 +1,6 @@
 import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
 import { useState } from "react";
+import { StorageLocationAccessFields } from "./StorageLocationAccessFields";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/api/client";
 import { datasetSourcesApi } from "@/api/datasetSources";
@@ -26,6 +27,11 @@ function FilesystemLocationsPanelOwner() {
   const [path, setPath] = useState("");
   const [node, setNode] = useState("api");
   const [sample, setSample] = useState("");
+  const [scope, setScope] = useState<"restricted" | "global">("restricted");
+  const [userIds, setUserIds] = useState<string[]>([]);
+  const [editing, setEditing] = useState<StorageLocationOut | null>(null);
+  const [editScope, setEditScope] = useState<"restricted" | "global">("restricted");
+  const [editUsers, setEditUsers] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [probe, setProbe] = useState<{ name: string; result: StorageProbeOut } | null>(null);
@@ -97,8 +103,8 @@ function FilesystemLocationsPanelOwner() {
                 name: name.trim(),
                 root_handle: root,
                 relative_path: path,
-                scope: "restricted",
-                use_user_ids: [],
+                scope,
+                use_user_ids: userIds,
               });
               if (current()) setName("");
             })
@@ -107,6 +113,14 @@ function FilesystemLocationsPanelOwner() {
           登记目录位置
         </Button>
       </div>
+      <StorageLocationAccessFields
+        session={session}
+        scope={scope}
+        userIds={userIds}
+        disabled={busy}
+        onScope={setScope}
+        onUsers={setUserIds}
+      />
       {roots.data?.length === 0 && (
         <p className="mt-2 text-xs text-muted-foreground">
           当前 API 没有可用受控根，请由运维配置根映射与只读挂载。
@@ -142,6 +156,17 @@ function FilesystemLocationsPanelOwner() {
               </span>
               <Button
                 size="sm"
+                disabled={busy}
+                onClick={() => {
+                  setEditing(l);
+                  setEditScope(l.scope === "global" ? "global" : "restricted");
+                  setEditUsers(l.use_user_ids ?? []);
+                }}
+              >
+                配置使用范围 {l.name}
+              </Button>
+              <Button
+                size="sm"
                 disabled={busy || !l.enabled || !node}
                 onClick={() =>
                   void act(async (current) => {
@@ -155,6 +180,47 @@ function FilesystemLocationsPanelOwner() {
             </li>
           ))}
       </ul>
+      {editing && (
+        <div
+          className="mt-3 rounded-md border border-border p-3"
+          aria-label={`配置使用范围 ${editing.name}`}
+        >
+          <h3 className="text-sm font-medium">{editing.name} · 配置使用范围</h3>
+          <StorageLocationAccessFields
+            key={editing.id}
+            session={session}
+            scope={editScope}
+            userIds={editUsers}
+            disabled={busy}
+            onScope={setEditScope}
+            onUsers={setEditUsers}
+          />
+          <p className="my-2 text-xs text-muted-foreground">
+            保存会更新位置修订，使旧扫描与登记任务停止继续写入；已登记样本和外部原图保留。撤回人员使用权不撤销既有任务的分配权限。
+          </p>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              disabled={busy}
+              onClick={() =>
+                void act(async (current) => {
+                  await apiClient.patch(`/storage-locations/${editing.id}`, {
+                    expected_revision: editing.config_revision,
+                    scope: editScope,
+                    use_user_ids: editUsers,
+                  });
+                  if (current()) setEditing(null);
+                })
+              }
+            >
+              保存使用范围
+            </Button>
+            <Button size="sm" disabled={busy} onClick={() => setEditing(null)}>
+              取消使用范围修改
+            </Button>
+          </div>
+        </div>
+      )}
       {probe && (
         <p role="status" className="mt-2 text-xs">
           {probe.name} · {probe.result.node_id} · {probe.result.ok ? "探测成功" : probe.result.code}{" "}

@@ -11,15 +11,14 @@ from fastapi import HTTPException
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
-from app.db.enums import UserRole
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset
 from app.db.models.dataset_source import DatasetSource, DatasetScanEntry, DatasetScanRun
 from app.db.models.dataset_asset import StorageLocation, StorageLocationProbe
-from app.db.models.user import User
 from app.services import async_job as jobs
 from app.services import filesystem_storage as fs
 from app.services import storage_location as locations
+from app.services import dataset_source_access as access
 from app.services.async_job_notify import notify_job_terminal
 
 KIND = "dataset_scan"
@@ -58,10 +57,10 @@ async def now(db):
     return await db.scalar(select(func.clock_timestamp()))
 
 
-async def require_actor(db, actor_id):
-    actor = await db.get(User, actor_id, populate_existing=True)
-    if actor is None or not actor.is_active or actor.role != UserRole.SUPER_ADMIN:
-        raise fs.FilesystemStorageError("access_revoked")
+async def require_actor(db, actor_id, source=None):
+    actor = await access.require_manager(db, actor_id)
+    if source is not None:
+        await access.require_source(db, source.id, actor)
     return actor
 
 
@@ -131,8 +130,16 @@ async def validate_context(db, location, source, *, snapshot=None):
         raise fs.FilesystemStorageError("configuration_changed")
 
 
-async def create_source(db, payload, actor):
+async def create_source(db, payload, actor, *, api_key_id=None):
+    from app.services.dataset_content import key_authority
+
+    proof = await key_authority(db, actor, api_key_id, "datasets:write")
+    actor = await access.assert_dataset_manage(db, payload.dataset_id, actor)
     location = await locations.get_visible(db, payload.location_id, actor, lock=True)
+    actor = await access.assert_dataset_manage(db, payload.dataset_id, actor)
+    location = await locations.get_visible(db, payload.location_id, actor)
+    if await key_authority(db, actor, api_key_id, "datasets:write") != proof:
+        raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
     locations.require_filesystem(location)
     if await db.get(Dataset, payload.dataset_id) is None:
         raise HTTPException(404, "Dataset not found")
@@ -161,8 +168,14 @@ async def create_source(db, payload, actor):
     return source
 
 
-async def update_source(db, source_id, payload):
+async def update_source(db, source_id, payload, actor, *, api_key_id=None):
+    from app.services.dataset_content import key_authority
+
+    proof = await key_authority(db, actor, api_key_id, "datasets:write")
     _, source = await source_context(db, source_id)
+    await require_actor(db, actor.id, source)
+    if await key_authority(db, actor, api_key_id, "datasets:write") != proof:
+        raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
     if source.config_revision != payload.expected_revision:
         raise HTTPException(409, "Source configuration revision changed")
     if await db.scalar(
@@ -191,7 +204,17 @@ async def update_source(db, source_id, payload):
     return source
 
 
-async def new_job(db, run, source, actor):
+async def new_job(db, run, source, actor, *, api_key_id=None, key_proof=None):
+    from app.services.dataset_content import key_authority
+
+    await require_actor(db, actor.id, source)
+    if await key_authority(db, actor, api_key_id, "datasets:write") != key_proof:
+        raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+    run.snapshot = {
+        **run.snapshot,
+        "api_key_id": str(api_key_id) if api_key_id else None,
+        "key_proof": key_proof,
+    }
     task_id = str(uuid.uuid4())
     job = await jobs.create_job(
         db,
@@ -216,8 +239,12 @@ async def new_job(db, run, source, actor):
     return job
 
 
-async def start_scan(db, source_id, actor):
+async def start_scan(db, source_id, actor, *, api_key_id=None):
+    from app.services.dataset_content import key_authority
+
+    key_proof = await key_authority(db, actor, api_key_id, "datasets:write")
     location, source = await source_context(db, source_id)
+    await require_actor(db, actor.id, source)
     await validate_context(db, location, source)
     existing = await db.scalar(
         select(DatasetScanRun).where(
@@ -257,7 +284,7 @@ async def start_scan(db, source_id, actor):
             observed={},
         )
     )
-    await new_job(db, run, source, actor)
+    await new_job(db, run, source, actor, api_key_id=api_key_id, key_proof=key_proof)
     await db.flush()
     return run, True
 
@@ -283,8 +310,12 @@ async def finish(db, run, job, status, code=None):
         await notify_job_terminal(db, job_id=job.id)
 
 
-async def resume_scan(db, run_id, actor):
+async def resume_scan(db, run_id, actor, *, api_key_id=None):
+    from app.services.dataset_content import key_authority
+
+    key_proof = await key_authority(db, actor, api_key_id, "datasets:write")
     location, source, run, job = await run_context(db, run_id)
+    await require_actor(db, actor.id, source)
     await validate_context(db, location, source, snapshot=run.snapshot)
     if run.status == "completed":
         raise HTTPException(409, "Completed scans cannot be resumed")
@@ -308,7 +339,7 @@ async def resume_scan(db, run_id, actor):
     )
     if job and job.status in ACTIVE:
         await finish(db, run, job, "failed", "attempt_superseded")
-    await new_job(db, run, source, actor)
+    await new_job(db, run, source, actor, api_key_id=api_key_id, key_proof=key_proof)
     await db.flush()
     return run
 
@@ -320,7 +351,8 @@ async def cancel_job(db, job_id, actor):
     )
     if run_id is None:
         raise HTTPException(409, "Scan attempt has been superseded")
-    _, _, run, job = await run_context(db, run_id)
+    _, source, run, job = await run_context(db, run_id)
+    await require_actor(db, actor.id, source)
     if run.async_job_id != job_id or run.status not in ACTIVE:
         raise HTTPException(409, "Scan attempt is no longer active")
     await finish(db, run, job, "cancelled", "cancelled_by_user")
@@ -355,7 +387,13 @@ async def claim(db, run_id, task_id, node_id):
     ):
         return None
     try:
-        await require_actor(db, job.user_id)
+        actor = await require_actor(db, job.user_id, source)
+        from app.services.dataset_content import key_authority
+
+        if await key_authority(
+            db, actor, run.snapshot.get("api_key_id"), "datasets:write"
+        ) != run.snapshot.get("key_proof"):
+            raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
         await validate_context(db, location, source, snapshot=run.snapshot)
         if node_id != source.config["node_id"]:
             raise fs.FilesystemStorageError("wrong_execution_node")
@@ -366,9 +404,7 @@ async def claim(db, run_id, task_id, node_id):
             run,
             job,
             "failed",
-            exc.code
-            if isinstance(exc, fs.FilesystemStorageError)
-            else "node_not_verified",
+            failure_code(exc, "node_not_verified"),
         )
         return None
     source.generation += 1
@@ -381,6 +417,17 @@ async def claim(db, run_id, task_id, node_id):
     job.status = "running"
     job.started_at = await now(db)
     return (run.generation, run.lease_token)
+
+
+def failure_code(exc, fallback):
+    if isinstance(exc, fs.FilesystemStorageError):
+        return exc.code
+    if isinstance(exc, HTTPException):
+        if isinstance(exc.detail, dict) and "code" in exc.detail:
+            return exc.detail["code"]
+        if exc.status_code in {403, 404}:
+            return "access_revoked"
+    return fallback
 
 
 async def fenced_context(db, run_id, task_id, fence):
@@ -396,8 +443,14 @@ async def fenced_context(db, run_id, task_id, fence):
         or run.lease_expires_at <= await now(db)
     ):
         raise LostScanLease()
-    await require_actor(db, job.user_id)
+    actor = await require_actor(db, job.user_id, source)
     await validate_context(db, location, source, snapshot=run.snapshot)
+    from app.services.dataset_content import key_authority
+
+    if await key_authority(
+        db, actor, run.snapshot.get("api_key_id"), "datasets:write"
+    ) != run.snapshot.get("key_proof"):
+        raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
     return location, source, run, job
 
 

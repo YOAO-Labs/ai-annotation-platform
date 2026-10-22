@@ -103,12 +103,11 @@ async def execute_scan(run_id, task_id, node_id):
                 await db.rollback()
             except Exception as exc:
                 await db.rollback()
-                code = (
-                    exc.code
-                    if isinstance(exc, fs.FilesystemStorageError)
-                    else "filesystem_timeout"
+                code = svc.failure_code(
+                    exc,
+                    "filesystem_timeout"
                     if isinstance(exc, TimeoutError)
-                    else "scan_interrupted"
+                    else "scan_interrupted",
                 )
                 await svc.fail_attempt(db, run_id, task_id, fence, code)
                 await db.commit()

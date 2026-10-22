@@ -1,19 +1,19 @@
 ---
-audience: [dev, super_admin]
+audience: [dev, project_admin, super_admin]
 type: reference
 status: stable
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-23
 ---
 
 # 受控存储位置
 
 存储位置登记 API 或指定 worker 已挂载的只读目录。部署者配置少量允许根，超级管理员登记根内相对目录；新建子目录或登记已有路径无需重启服务。挂载方法见[生产部署](/ops/deploy/docker-compose#受控存储根目录)。
 
-这些接口提供注册、目录浏览和节点能力证据。当前数据集 UI 仍使用上传与连接器复制导入；注册位置尚不会创建原地引用数据集或改变原图读取路径。S3/SFTP 关联位置复用[连接器](./storage-connections)的凭据与权限，不重复保存密钥。
+这些接口提供注册、目录浏览和节点能力证据。存储页可配置位置使用范围与人员；获授权的项目管理员可在自己创建的数据集上接入该位置，扫描、预检并确认原地登记。S3/SFTP 关联位置复用[连接器](./storage-connections)的凭据与权限，不重复保存密钥。
 
 ## 端点和权限
 
-所有路径前缀为 `/api/v1/storage-locations`。无权访问的位置返回 `404`；员工无目录浏览权限。
+所有路径前缀为 `/api/v1/storage-locations`。无权访问的位置返回 `404`；员工无目录浏览权限。所有 GET 要求 `datasets:read`，POST/PATCH 要求 `datasets:write`；JWT 保留当前角色权限。
 
 | 方法  | 路径                | 权限与行为                                                                        |
 | ----- | ------------------- | --------------------------------------------------------------------------------- |
@@ -24,8 +24,8 @@ last_reviewed: 2026-10-22
 | GET   | `/{id}`             | 可见该位置的管理员；读取脱敏详情                                                  |
 | PATCH | `/{id}`             | 超管；更新 filesystem 名称、授权、启停，必须提供 expected_revision                |
 | GET   | `/{id}/directories` | 可见该位置的管理员；根内单层子目录分页                                            |
-| POST  | `/{id}/probe`       | 超管；探测 API 或指定 Celery hostname                                             |
-| GET   | `/{id}/probes`      | 超管；查看按位置、修订、执行节点记录的证据                                        |
+| POST  | `/{id}/probe`       | 可见该位置的管理员；探测 API 或指定 Celery hostname                               |
+| GET   | `/{id}/probes`      | 可见该位置的管理员；查看按位置、修订、执行节点记录的证据                          |
 
 ## 登记和修改
 
@@ -41,7 +41,7 @@ last_reviewed: 2026-10-22
 }
 ```
 
-`restricted` 默认仅超管可用；`use_user_ids` 可授权活跃项目管理员，`global` 允许所有平台管理员使用。授权不等于普通员工的任务读取权限。位置只读；绝对路径、父级跳转、符号链接和跨子挂载被拒绝。根目录和位置基目录在每个节点固定身份，替换后返回 `root_identity_changed`，不能通过重试静默重新绑定。
+`restricted` 默认仅超管可用；`use_user_ids` 可授权活跃项目管理员，`global` 允许所有平台管理员使用。授权只允许项目管理员管理自己创建的数据集，不授予其他数据集管理权；普通员工沿用任务读取权限。浏览及探测在 I/O 前后复查账号、位置授权和最初 API Key，撤权后不交付目录结果或发布探测证据。位置只读；绝对路径、父级跳转、符号链接和跨子挂载被拒绝。根目录和位置基目录在每个节点固定身份，替换后返回 `root_identity_changed`，不能通过重试静默重新绑定。
 
 PATCH 允许 `name / enabled / scope / use_user_ids`，不允许改根或基目录。每次更新递增 `config_revision`；旧 `expected_revision` 返回409。S3/SFTP 位置需通过原连接器端点更新，配置或密钥变化使位置修订递增；已被内容或用途引用的连接配置不能改向其他目标，也不能删除。
 

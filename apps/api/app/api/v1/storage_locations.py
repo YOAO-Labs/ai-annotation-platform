@@ -15,7 +15,7 @@ from app.config import settings
 from app.db.enums import UserRole
 from app.db.models.dataset_asset import StorageLocation, StorageLocationProbe
 from app.db.models.user import User
-from app.deps import get_db, require_roles
+from app.deps import get_db, require_roles, assert_request_scopes
 from app.schemas.storage_location import (
     FilesystemLocationCreate,
     StorageBindingOut,
@@ -27,12 +27,22 @@ from app.schemas.storage_location import (
     StorageProbeRequest,
 )
 from app.services import storage_location as svc
+from app.services.dataset_source_access import require_manager
+from app.services.dataset_content import key_authority
 from app.services.audit import AuditAction, AuditService
 from app.services.filesystem_storage import FilesystemStorageError
 
-router = APIRouter()
 manager = require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
 super_admin = require_roles(UserRole.SUPER_ADMIN)
+
+
+async def location_scopes(request: Request, _: User = Depends(manager)):
+    assert_request_scopes(
+        request, "datasets:read" if request.method == "GET" else "datasets:write"
+    )
+
+
+router = APIRouter(dependencies=[Depends(location_scopes)])
 
 
 def filesystem_error(exc):
@@ -141,20 +151,41 @@ async def update_location(
 @router.get("/{location_id}/directories", response_model=StorageDirectoryPage)
 async def directories(
     location_id: uuid.UUID,
+    request: Request,
     path: str = Query("", max_length=1000),
     limit: int = Query(100, ge=1, le=200),
     cursor: str | None = Query(None, max_length=4096),
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(manager),
 ):
+    assert_request_scopes(request, "datasets:read")
+    proof = await key_authority(
+        db, actor, getattr(request.state, "api_key_id", None), "datasets:read"
+    )
+    actor = await require_manager(db, actor.id)
     location = await svc.get_visible(db, location_id, actor)
+    revision = location.config_revision
     try:
-        return await svc.browse(db, location, path=path, limit=limit, cursor=cursor)
+        result = await svc.browse(db, location, path=path, limit=limit, cursor=cursor)
     except FilesystemStorageError as exc:
         raise filesystem_error(exc) from None
+    actor = await require_manager(db, actor.id)
+    location = await svc.get_visible(db, location_id, actor, lock=True)
+    if location.config_revision != revision or not location.enabled:
+        raise HTTPException(409, "Storage configuration revision changed")
+    if (
+        await key_authority(
+            db, actor, getattr(request.state, "api_key_id", None), "datasets:read"
+        )
+        != proof
+    ):
+        raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+    return result
 
 
-def _probe_worker(location_id, revision, actor_id, node_id, sample_file):
+def _probe_worker(
+    location_id, revision, actor_id, node_id, sample_file, api_key_id, key_proof
+):
     from app.workers.storage_probe import probe_location
 
     task = None
@@ -168,7 +199,15 @@ def _probe_worker(location_id, revision, actor_id, node_id, sample_file):
             },
         ) as connection:
             task = probe_location.apply_async(
-                args=[str(location_id), revision, str(actor_id), node_id, sample_file],
+                args=[
+                    str(location_id),
+                    revision,
+                    str(actor_id),
+                    node_id,
+                    sample_file,
+                    str(api_key_id) if api_key_id else None,
+                    key_proof,
+                ],
                 queue=worker_direct(node_id),
                 connection=connection,
                 retry=False,
@@ -193,8 +232,12 @@ async def probe(
     payload: StorageProbeRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(super_admin),
+    actor: User = Depends(manager),
 ):
+    assert_request_scopes(request, "datasets:write")
+    key_id = getattr(request.state, "api_key_id", None)
+    key_proof = await key_authority(db, actor, key_id, "datasets:write")
+    actor = await require_manager(db, actor.id)
     location = await svc.get_visible(db, location_id, actor)
     svc.require_filesystem(location)
     if payload.sample_file is not None:
@@ -221,15 +264,17 @@ async def probe(
                     actor_id,
                     payload.node_id,
                     payload.sample_file,
+                    key_id,
+                    key_proof,
                 ),
                 timeout=5,
             )
         )
     except TimeoutError:
         result = {"ok": False, "code": "node_timeout", "capabilities": {}}
-    await db.refresh(actor)
-    if not actor.is_active or actor.role != UserRole.SUPER_ADMIN:
-        raise HTTPException(403, "Storage management permission revoked")
+    actor = await require_manager(db, actor.id)
+    if await key_authority(db, actor, key_id, "datasets:write") != key_proof:
+        raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
     location = await svc.get_visible(db, location_id, actor, lock=True)
     if location.config_revision != revision or not location.enabled:
         raise HTTPException(409, "Storage configuration revision changed")
@@ -255,7 +300,7 @@ async def probe(
 async def probes(
     location_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(super_admin),
+    actor: User = Depends(manager),
 ):
     location = await svc.get_visible(db, location_id, actor)
     rows = await db.scalars(

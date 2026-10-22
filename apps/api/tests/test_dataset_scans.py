@@ -248,7 +248,7 @@ async def test_revocation_configuration_change_and_budget_block_batches(
     original_role = actor.role
     actor.role = "employee"
     await db_session.flush()
-    with pytest.raises(fs.FilesystemStorageError, match="access_revoked"):
+    with pytest.raises(HTTPException, match="access_revoked"):
         await svc.apply_directory(
             db_session, run.id, job.celery_task_id, fence, work, manifest(work)
         )
@@ -286,7 +286,7 @@ async def test_job_retention_and_dataset_removal_preserve_inventory(db_session, 
     )
 
 
-async def test_source_api_is_super_admin_only_and_reports_dispatch_failure(
+async def test_source_api_hides_unauthorized_sources_and_reports_dispatch_failure(
     httpx_client, db_session, world, super_admin, project_admin, monkeypatch
 ):
     headers = {"Authorization": f"Bearer {super_admin[1]}"}
@@ -309,7 +309,7 @@ async def test_source_api_is_super_admin_only_and_reports_dispatch_failure(
         await httpx_client.get(
             f"/api/v1/dataset-scans/{data['id']}/entries", headers=manager
         )
-    ).status_code == 403
+    ).status_code == 404
     job = await db_session.get(AsyncJob, uuid.UUID(data["async_job_id"]))
     job.user_id = project_admin[0].id
     await db_session.flush()
@@ -327,12 +327,14 @@ async def test_source_cas_and_active_edit_guard(db_session, world):
             db_session,
             world[-1].id,
             DatasetSourceUpdate(expected_revision=1, enabled=False),
+            world[1],
         )
     await svc.cancel_job(db_session, job.id, world[1])
     source = await svc.update_source(
         db_session,
         world[-1].id,
         DatasetSourceUpdate(expected_revision=1, enabled=False),
+        world[1],
     )
     assert source.config_revision == 2 and not source.enabled
     with pytest.raises(HTTPException):
@@ -340,4 +342,5 @@ async def test_source_cas_and_active_edit_guard(db_session, world):
             db_session,
             source.id,
             DatasetSourceUpdate(expected_revision=1, enabled=True),
+            world[1],
         )

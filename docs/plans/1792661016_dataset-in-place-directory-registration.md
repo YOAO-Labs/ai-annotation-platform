@@ -267,3 +267,23 @@ A2 新增 `DatasetRegistrationRun/Entry` 和迁移0199，不复用扫描 entry.s
 - 文档：`README.md`、`CHANGELOG.md` Unreleased、`docs-site/user-guide/datasets/import-images.md`、`docs-site/api/guides/dataset-sources.md`、`docs-site/dev/concepts/storage-connections.md`、`docs/adr/0096-durable-directory-registration.md`；OpenAPI与SDK覆盖清单已同步。
 - 清理：检查后销毁本轮owned dev/test模式，清理临时来源、凭据、JUnit、日志及浏览器截图；不改共享配置、业务挂载或镜像。
 - 继续：最小位置/数据集授权、ownership/cache策略与派生计量、来源生命周期及外部S3/SFTP持续引用；完整E03验收矩阵仍未全部闭合，计划留根目录，不归档。
+
+## 下一实施定案：E03 最小授权与位置可见范围
+
+基线 `a0b3e11c0`，A2已提交且隔离资源已清理。本阶段不改表结构，采用现有 Dataset.created_by 作为最小数据集管理边界：活跃超管可管理；活跃项目管理员仅管理自己创建的数据集，来源操作另需对应位置使用权。位置停用与授权可见性分开，历史原因仍可查询。任务读取保留当前分派/成员权限，不套管理ACL；停止全部业务读取通过来源/位置停用表达。
+
+新增 `services/dataset_source_access.py` 统一SQL谓词与直接ID断言；修改 `dataset_scans.py`、`dataset_content.py`、`dataset_references.py`、`dataset_registration.py`，在I/O前后及worker fence复查具体来源；`api/v1/dataset_sources.py` 以同一谓词过滤列表/total并保护Scan/Registration/Entry；`async_jobs.py` 按真实Run→Source关联授权当前和历史尝试；旧 `datasets.py` 对已含来源的数据集写操作补创建者守卫。来源读写叠加datasets scopes，扫描尝试固定原Key证明。`storage_locations.py`、`workers/storage_probe.py` 补位置浏览/探测前后授权；`FilesystemLocationsPanel.tsx` 提供使用范围及人员配置，`DatasetsPage.tsx` 对获授权创建者开放目录入口与管理预览。新增权限与撤权回归、原有扫描测试适配，更新用户/API/架构文档、OpenAPI及SDK合同证据。
+
+跨API/worker/UI且超过8文件，依赖顺序为中央owner→具体资源入口→worker/I/O复查→UI→隔离正反向测试及双账号浏览器验收。保留已有非目录数据集行为；不借本阶段重做全站ACL。验证撤回位置使用权后不再能枚举/扫描/登记/管理预览，旧worker不能提交；员工分配任务读取仍通过。回退收回项目管理员的新入口，保留既有引用与A2账本。
+
+## Outcome — E03 最小授权与位置使用范围
+
+- 权限：统一 DatasetSource/Scan/Registration/Entry 与历史 AsyncJob 的 SQL 管理范围；超管全量，活跃项目管理员须为 Dataset 创建者并拥有位置使用权。列表与 total 同范围，直接 ID 不绕过。位置可见性与启停分离；Task 读图继续沿用当前任务分派与成员权限。
+- 撤权：浏览、探测、来源配置等锁、扫描、预检、登记和管理预览复查账号与最初 Key；旧数据集上传、ZIP、桶扫描、连接器复制导入及分块关联保留内部 authority，在 I/O 后与提交前复查，公开作业 payload 隐去证明。旧排队作业后来增加目录来源而缺少证明时拒绝。ZIP 混合上传不自动把普通目录图片数据集变为 Scene；取消与撤权保留已提交部分。
+- UI：存储位置可设 restricted/global，按姓名/邮箱搜索、分页授权活跃项目管理员，修改时提示修订对旧扫描和登记的影响；目录入口和预览向有权创建者开放。实际浏览器发现预检完成时明细停止轮询而滞留旧状态，已补终态/统计变化时刷新。
+- 真实浏览器：隔离 API8100/Web3100，超管登记位置并授权项目管理员；项目管理员浏览、指定真实 worker 探测、扫描、预检、批量登记3张图片，管理预览解码640×400，关联项目生成3个Task。超管在位置使用范围 UI 撤权后，项目管理员重读原图返回404且旧Blob回收，扫描历史刷新亦拒绝。为员工分配既有Task后，其严格内容接口200、Workbench实际显示640×400原图并启用工具；最终员工会话无未捕获异常。
+- 数据证据：3个来源文件摘要与登记身份一致；datasets桶仅有1个0字节数据集目录占位，无原图副本，media-cache桶0对象。存储页业务统计为0对象/0字节，不把外部目录体量当作桶容量。检查使用本工作树新启动的host API/Celery，无镜像重建。
+- 自动验证：相关授权/登记/引用/Asset/连接器导入/关联/任务137项在修正新增测试拦截位置后全部闭合；扫描/内容/位置及后台任务相关108项通过；建任务兼容4项、补充锁后授权与ZIP/Asset19项、上传错误清理2项、SDK契约4项通过。Ruff、TypeScript、ESLint、CSS token、OpenAPI快照/客户端生成、文档构建和diff检查通过。CSS检查仅有训练比较页既有2处z-index建议。以上是本地结果，不代表远端CI。
+- 文档：README、CHANGELOG Unreleased、用户目录接入/存储连接器/数据集首页、API来源/位置/严格内容及开发存储概念已同步；API响应结构保持兼容，OpenAPI与SDK合同检查通过。无需新迁移，不分配版本。
+- 清理：销毁本轮owned dev/test资源，关闭全部本轮浏览器，清理临时原图、凭据、截图、JUnit、日志及文档构建产物。共享配置、宿主机业务挂载和镜像保持原状。
+- 后续：ownership/cache独立策略、持久派生预览及计量、真实目录托管复制、来源生命周期和外部S3/SFTP持续引用仍需完成；完整E03保持active，本计划不归档。

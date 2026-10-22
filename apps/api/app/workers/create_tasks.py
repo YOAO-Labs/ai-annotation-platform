@@ -68,6 +68,7 @@ async def _run_create_tasks(
                     dataset_id=dataset_id,
                     project_id=project_id,
                     job_id=job_uuid,
+                    directory_authority=payload.get("directory_authority"),
                 )
 
                 # created_tasks 与前端 LinkJobProgress 读取的字段名对齐（完成 toast 显示数量）。

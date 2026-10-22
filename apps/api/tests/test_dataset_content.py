@@ -5,6 +5,7 @@ import os
 import uuid
 
 from PIL import Image
+from fastapi import HTTPException
 import pytest
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
@@ -150,14 +151,14 @@ async def test_verify_and_read_exact_content_without_creating_business_samples(
             )
 
 
-async def test_read_requires_current_api_capability_and_super_admin(
+async def test_read_requires_current_api_capability_and_source_authority(
     httpx_client, db_session, super_admin, project_admin, content_world
 ):
     _, _, _, _, location, _, run, entry = content_world
     base = f"/api/v1/dataset-scans/{run.id}/entries/{entry.path_digest}/verify"
     assert (
         await httpx_client.post(base, headers=headers(project_admin))
-    ).status_code == 403
+    ).status_code == 404
     probe = await db_session.get(
         StorageLocationProbe, (location.id, locations.api_node_id())
     )
@@ -209,7 +210,9 @@ async def test_changes_during_read_cannot_commit_receipt(
         return snapshot
 
     monkeypatch.setattr(svc.snapshots, "capture", altered)
-    with pytest.raises((fs.FilesystemStorageError, svc.snapshots.ContentError)):
+    with pytest.raises(
+        (fs.FilesystemStorageError, svc.snapshots.ContentError, HTTPException)
+    ):
         await svc.scan_snapshot(
             db_session, run.id, entry.path_digest, actor, verify=True
         )

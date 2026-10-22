@@ -72,7 +72,7 @@ async def register_entry(
             409,
             detail={"code": "dataset_busy", "message": "数据集正在变更，请稍后重试"},
         ) from None
-    await scans.require_actor(db, actor.id)
+    await scans.require_actor(db, actor.id, source)
     if await key_authority(db, actor, api_key_id, "datasets:write") != key_proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
     if (
@@ -97,7 +97,7 @@ async def register_entry(
         receipt["sha256"],
     )
     final.close()
-    await scans.require_actor(db, actor.id)
+    await scans.require_actor(db, actor.id, source)
     if await key_authority(db, actor, api_key_id, "datasets:write") != key_proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
     if before_apply is not None:
@@ -216,6 +216,8 @@ async def reference_context(db, item_id, actor, *, task_id=None):
     entry = await db.get(
         DatasetScanEntry, (ref.run_id, ref.path_digest), populate_existing=True
     )
+    if task_id is None and source is not None:
+        await scans.require_actor(db, actor.id, source)
     if source is None or not source.enabled or source.dataset_id != item.dataset_id:
         raise snapshots.ContentError("source_unavailable")
     location = await db.get(StorageLocation, source.location_id, populate_existing=True)

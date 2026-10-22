@@ -204,6 +204,9 @@ function DatasetRow({
 
 function DatasetDetail({ ds }: { ds: DatasetResponse }) {
   const { role } = usePermissions();
+  const actorId = useAuthStore((s) => s.user?.id);
+  const canManageDirectory =
+    role === "super_admin" || (role === "project_admin" && ds.created_by === actorId);
   const sessionId = useAuthStore((s) => s.sessionId);
   const itemPagination = useOffsetListPagination(ds.id);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -270,7 +273,7 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
     <tr className="block xl:table-row">
       <td colSpan={7} className="block border-b border-border p-0! whitespace-normal xl:table-cell">
         <div className="bg-background px-3 py-4 sm:px-5">
-          {role === "super_admin" && isImageDataset && !ds.is_temporal && (
+          {canManageDirectory && isImageDataset && !ds.is_temporal && (
             <DirectoryReferencePanel key={`${ds.id}/${sessionId}`} datasetId={ds.id} />
           )}
           <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(220px,1fr)]">
@@ -396,10 +399,9 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
                                 height={32}
                               />
                               <span className="max-w-[240px] truncate">{item.file_name}</span>
-                              {role === "super_admin" &&
-                                item.metadata.storage_mode === "reference" && (
-                                  <ReferenceItemPreview filePath={item.file_path} />
-                                )}
+                              {canManageDirectory && item.metadata.storage_mode === "reference" && (
+                                <ReferenceItemPreview filePath={item.file_path} />
+                              )}
                             </div>
                           </td>
                           <td className={ITEM_TD_CLASS}>
@@ -860,7 +862,7 @@ export function DatasetsPage() {
         </div>
         {activeTab === "数据集管理" && (
           <div className="flex gap-2">
-            {role === "super_admin" && (
+            {canManageConn && (
               <Button onClick={() => setShowReferenceCreate(true)}>接入服务器目录</Button>
             )}
             <Button variant="primary" onClick={() => setShowCreate(true)}>
@@ -881,7 +883,7 @@ export function DatasetsPage() {
       </div>
 
       {/* Create dataset wizard：新建数据集 + 上传/导入文件 */}
-      {showReferenceCreate && role === "super_admin" && (
+      {showReferenceCreate && canManageConn && (
         <CreateReferenceDatasetModal
           key={referenceSession}
           onClose={() => setShowReferenceCreate(false)}

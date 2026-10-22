@@ -63,6 +63,10 @@ export function DirectoryRegistrationProgress({
   });
   const registeredCount = (run?.counts.registered_count ?? 0) + (run?.counts.unchanged_count ?? 0);
   useEffect(() => {
+    if (!run?.id) return;
+    void client.invalidateQueries({ queryKey: ["directory-registration-entries", owner, run.id] });
+  }, [client, owner, run?.id, run?.phase, run?.status, run?.counts]);
+  useEffect(() => {
     setReviewed(false);
   }, [run?.phase, run?.status, run?.counts.ready_count, run?.counts.error_count]);
   useEffect(() => {

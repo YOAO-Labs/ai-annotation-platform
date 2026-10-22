@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class AsyncJobOut(BaseModel):
@@ -28,6 +28,13 @@ class AsyncJobOut(BaseModel):
     completed_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("payload")
+    @classmethod
+    def public_payload(cls, payload):
+        return {
+            key: value for key, value in payload.items() if key != "directory_authority"
+        }
 
 
 class AsyncJobListResponse(BaseModel):

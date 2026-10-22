@@ -15,6 +15,7 @@ from app.deps import (
     require_project_owner,
     require_roles,
     require_scopes,
+    assert_request_scopes,
 )
 from app.db.enums import UserRole
 from app.db.models.project import Project
@@ -49,7 +50,45 @@ from app.services.mask_formats.safe_archive import (
 from app.services.storage import storage_service
 from app.services.system_settings_service import SystemSettingsService
 
-router = APIRouter()
+
+async def directory_dataset_write_access(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    if (
+        request.method in {"GET", "HEAD", "OPTIONS"}
+        or "dataset_id" not in request.path_params
+    ):
+        return
+    from app.services.dataset_source_access import (
+        capture_dataset_write,
+        has_directory_source,
+    )
+
+    try:
+        dataset_id = uuid.UUID(str(request.path_params["dataset_id"]))
+    except ValueError:
+        raise HTTPException(422, "Invalid dataset ID") from None
+    if await has_directory_source(db, dataset_id):
+        assert_request_scopes(request, "datasets:write")
+        request.state.directory_dataset_authority = await capture_dataset_write(
+            db, dataset_id, actor, getattr(request.state, "api_key_id", None)
+        )
+
+
+async def recheck_directory_write(request, db, dataset_id, *, project_id=None):
+    from app.services.dataset_source_access import validate_dataset_write
+
+    await validate_dataset_write(
+        db,
+        dataset_id,
+        getattr(request.state, "directory_dataset_authority", None),
+        project_id=project_id,
+    )
+
+
+router = APIRouter(dependencies=[Depends(directory_dataset_write_access)])
 
 _MANAGERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
 
@@ -277,6 +316,9 @@ async def import_from_connection(
             "recursive": payload.recursive,
             "include_globs": clean_globs,
             "settings_snapshot": import_limits,
+            "directory_authority": getattr(
+                request.state, "directory_dataset_authority", None
+            ),
         },
     )
     await AuditService.log(
@@ -296,6 +338,7 @@ async def import_from_connection(
             "settings_version": import_limits["version"],
         },
     )
+    await recheck_directory_write(request, db, dataset_id)
     await db.commit()
 
     task = run_dataset_import.delay(str(job.id))
@@ -353,6 +396,7 @@ async def upload_init(
 async def upload_complete(
     dataset_id: uuid.UUID,
     item_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -369,7 +413,9 @@ async def upload_complete(
     )
     if not meta:
         # 上传未完成 — 清理占位 DatasetItem
+        await recheck_directory_write(request, db, dataset_id)
         await svc.delete_item(item_id)
+        await recheck_directory_write(request, db, dataset_id)
         await db.commit()
         raise HTTPException(status_code=400, detail="File not found in storage")
 
@@ -390,6 +436,7 @@ async def upload_complete(
         content_hash, sha256, size, etag = await run_in_threadpool(
             hash_stored_object, item.file_path, meta
         )
+        await recheck_directory_write(request, db, dataset_id)
         await register_item_asset(db, item, sha256=sha256, size_bytes=size, etag=etag)
     except ValueError as exc:
         raise HTTPException(
@@ -412,6 +459,7 @@ async def upload_complete(
     )
     if existing:
         # 删除刚上传的对象与占位记录，返回 409 告知前端
+        await recheck_directory_write(request, db, dataset_id)
         try:
             if item.file_path.startswith(managed_dataset_prefix(dataset_id)):
                 storage_service.delete_object(
@@ -420,6 +468,7 @@ async def upload_complete(
         except Exception:
             pass
         await svc.delete_item(item_id)
+        await recheck_directory_write(request, db, dataset_id)
         await db.commit()
         raise HTTPException(
             status_code=409,
@@ -439,7 +488,9 @@ async def upload_complete(
         if dims:
             item.width, item.height = dims
 
+    await recheck_directory_write(request, db, dataset_id)
     linked_tasks = await svc.create_tasks_for_items(dataset_id, [item.id])
+    await recheck_directory_write(request, db, dataset_id)
     await db.commit()
 
     if item.file_type == "image":
@@ -510,6 +561,7 @@ def _normalize_zip_relpath(name: str) -> str | None:
 @router.post("/{dataset_id}/items/upload-zip")
 async def upload_zip(
     dataset_id: uuid.UUID,
+    request: Request,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
@@ -605,6 +657,21 @@ async def upload_zip(
 
     binding = await ensure_legacy_bindings(db)
 
+    async def check_authority():
+        try:
+            await recheck_directory_write(request, db, dataset_id)
+        except HTTPException:
+            archive.close()
+            await db.rollback()
+            for key in written_keys:
+                try:
+                    storage_service.delete_object(
+                        key, bucket=storage_service.datasets_bucket
+                    )
+                except Exception:
+                    pass
+            raise
+
     for info in infos:
         name = info.source_name
         safe_relpath = info.normalized_path
@@ -647,6 +714,7 @@ async def upload_zip(
         )
         storage_key = managed_dataset_key(dataset_id, logical_path)
 
+        await check_authority()
         try:
             storage_service.client.put_object(
                 Bucket=storage_service.datasets_bucket,
@@ -697,7 +765,16 @@ async def upload_zip(
     # - 纯 image / video 帧序列 → 1 scene + 自然排序 frame_index
     # 幂等:若 dataset 已有 scene → 整体跳过(下次上传不重赋)。
     scene_inference_notes: list[str] = []
-    if added > 0:
+    from app.services.dataset_source_access import has_directory_source
+
+    directory_images = (
+        ds.data_type == "image"
+        and not ds.is_temporal
+        and await has_directory_source(db, dataset_id)
+    )
+    if added > 0 and directory_images:
+        scene_inference_notes.append("目录图片数据集保留原地引用，不自动创建 Scene。")
+    if added > 0 and not directory_images:
         from app.services import scene_inference as _scene_inference
 
         reserved_top_levels = sorted(
@@ -738,6 +815,7 @@ async def upload_zip(
                 pass
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    await check_authority()
     await db.commit()
 
     if new_image_item_ids:
@@ -765,6 +843,7 @@ async def upload_zip(
 @router.post("/{dataset_id}/items/scan")
 async def scan_items(
     dataset_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
 ):
@@ -772,13 +851,17 @@ async def scan_items(
     ds = await svc.get(dataset_id)
     if not ds:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    outcomes = await svc.scan_and_import(dataset_id)
+    outcomes = await svc.scan_and_import(
+        dataset_id,
+        directory_authority=getattr(request.state, "directory_dataset_authority", None),
+    )
     new_ids = [
         outcome.item_id
         for outcome in outcomes
         if outcome.status == "added" and outcome.item_id is not None
     ]
     linked_tasks = sum(outcome.linked_tasks for outcome in outcomes)
+    await recheck_directory_write(request, db, dataset_id)
     await db.commit()
 
     if new_ids:
@@ -936,7 +1019,11 @@ async def link_project(
         raise HTTPException(
             status_code=403, detail="仅项目负责人或超级管理员可关联数据集"
         )
-    link_result = await svc.link_project(dataset_id, data.project_id)
+    link_result = await svc.link_project(
+        dataset_id,
+        data.project_id,
+        directory_authority=getattr(request.state, "directory_dataset_authority", None),
+    )
     await AuditService.log(
         db,
         actor=current_user,
@@ -947,6 +1034,7 @@ async def link_project(
         status_code=200,
         detail={"project_id": str(data.project_id)},
     )
+    await recheck_directory_write(request, db, dataset_id, project_id=data.project_id)
     await db.commit()
 
     # v0.12.0 · enqueue-after-commit：大 dataset 的建 task 走 Celery，必须在 commit
