@@ -208,6 +208,15 @@ async def task_identity(db, task_id, actor, expected_sha256):
         raise snapshots.ContentError("content_unverified")
     if asset.media_type != "image" or asset.checksum_algorithm != "sha256":
         raise snapshots.ContentError("image_format_unsupported", 415)
+    from app.services.reference_keys import is_reference
+
+    if is_reference(task.file_path):
+        from app.services.dataset_references import reference_context
+
+        context = await reference_context(
+            db, task.dataset_item_id, actor, task_id=task.id
+        )
+        return (asset.id, context["sha256"], context["size"], None, task.file_path)
     replica = await db.scalar(
         select(DatasetAssetLocation)
         .where(
@@ -254,6 +263,19 @@ def stored_content(bucket, key, size):
 
 async def task_snapshot(db, task_id, actor, expected_sha256, *, api_key_id=None):
     identity = await task_identity(db, task_id, actor, expected_sha256)
+    if identity[3] is None:
+        from app.services.dataset_references import reference_snapshot
+        from app.services.reference_keys import parse_reference
+
+        item_id, _ = parse_reference(identity[4])
+        return await reference_snapshot(
+            db,
+            item_id,
+            actor,
+            expected_sha256=expected_sha256,
+            task_id=task_id,
+            api_key_id=api_key_id,
+        )
     key_proof = await key_authority(db, actor, api_key_id, "tasks:read")
     await db.commit()
     _, sha, size, bucket, key = identity

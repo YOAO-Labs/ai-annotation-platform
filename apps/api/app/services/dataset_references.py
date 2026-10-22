@@ -1,0 +1,281 @@
+"""Register immutable business references and read without committing caller state."""
+
+import uuid
+from pathlib import PurePosixPath
+
+from fastapi import HTTPException
+from sqlalchemy import select
+
+from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
+from app.db.models.dataset_asset import DatasetAsset, StorageLocation
+from app.db.models.dataset_source import (
+    DatasetReference,
+    DatasetSource,
+    DatasetScanRun,
+    DatasetScanEntry,
+)
+from app.db.models.task import Task
+from app.db.models.project import Project
+from app.services import content_snapshot as snapshots
+from app.services import dataset_scans as scans
+from app.services import filesystem_storage as fs
+from app.services import storage_location as locations
+from app.services.reference_keys import reference_key
+
+
+async def register_entry(db, run_id, path_digest, actor, *, api_key_id=None):
+    from app.services.dataset_content import scan_snapshot, scan_context, key_authority
+    from app.services.dataset import DatasetService
+    from app.services.audit import AuditService
+    from app.services.project_kind import dataset_has_scenes
+
+    key_proof = await key_authority(db, actor, api_key_id, "datasets:write")
+    snapshot = await scan_snapshot(
+        db, run_id, path_digest, actor, verify=True, api_key_id=api_key_id
+    )
+    observation = dict(snapshot.observation)
+    snapshot.close()
+    # Serialize registrations in the same Location -> Source order as scans.
+    location, source, run, entry, node, anchor = await scan_context(
+        db, run_id, path_digest, actor, lock=True
+    )
+    # Source deletion takes the inverse FK lock order: never wait on Dataset.
+    from sqlalchemy.exc import DBAPIError
+
+    try:
+        async with db.begin_nested():
+            dataset = await db.scalar(
+                select(Dataset)
+                .where(Dataset.id == source.dataset_id)
+                .with_for_update(nowait=True)
+                .execution_options(populate_existing=True)
+            )
+    except DBAPIError as exc:
+        if getattr(exc.orig, "sqlstate", None) != "55P03":
+            raise
+        raise HTTPException(
+            409,
+            detail={"code": "dataset_busy", "message": "数据集正在变更，请稍后重试"},
+        ) from None
+    await scans.require_actor(db, actor.id)
+    if await key_authority(db, actor, api_key_id, "datasets:write") != key_proof:
+        raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+    if (
+        dataset is None
+        or dataset.data_type != "image"
+        or dataset.is_temporal
+        or await dataset_has_scenes(db, dataset.id)
+    ):
+        raise HTTPException(409, detail={"code": "reference_requires_image_dataset"})
+    receipt = entry.verified_content
+    final = await snapshots.capture(
+        lambda: fs.content_file(
+            dict(location.config),
+            source.config["relative_path"],
+            entry.relative_path,
+            expected_anchor=anchor,
+            expected=observation,
+            expected_source_identity=observation["source_identity"],
+        ),
+        receipt["sha256"],
+    )
+    final.close()
+    await scans.require_actor(db, actor.id)
+    if await key_authority(db, actor, api_key_id, "datasets:write") != key_proof:
+        raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+    existing = await db.scalar(
+        select(DatasetReference).where(
+            DatasetReference.source_id == source.id,
+            DatasetReference.path_digest == path_digest,
+        )
+    )
+    if existing:
+        item = await db.get(DatasetItem, existing.dataset_item_id)
+        if item is None or item.file_path != reference_key(item.id, receipt["sha256"]):
+            raise snapshots.ContentError("reference_content_changed")
+        return {"item_id": item.id, "created": False, "sha256": receipt["sha256"]}
+    projects = await db.scalars(
+        select(Project)
+        .join(ProjectDataset, ProjectDataset.project_id == Project.id)
+        .where(ProjectDataset.dataset_id == dataset.id)
+    )
+    if any(p.data_type != "image" or p.scene_mode for p in projects):
+        raise HTTPException(409, detail={"code": "reference_requires_image_project"})
+    item_id = uuid.uuid4()
+    item = DatasetItem(
+        id=item_id,
+        dataset_id=dataset.id,
+        file_name=PurePosixPath(entry.relative_path).name,
+        file_path=reference_key(item_id, receipt["sha256"]),
+        file_type="image",
+        file_size=receipt["size_bytes"],
+        width=receipt["width"],
+        height=receipt["height"],
+        metadata_={
+            "storage_mode": "reference",
+            "storage_relative_path": entry.relative_path,
+        },
+    )
+    db.add(item)
+    await db.flush()
+    db.add(
+        DatasetAsset(
+            id=uuid.uuid4(),
+            dataset_item_id=item.id,
+            media_type="image",
+            size_bytes=item.file_size,
+            checksum_algorithm="sha256",
+            checksum_value=receipt["sha256"],
+            verification_state="verified",
+        )
+    )
+    db.add(
+        DatasetReference(
+            dataset_item_id=item.id,
+            source_id=source.id,
+            run_id=run.id,
+            path_digest=path_digest,
+            source_revision=run.snapshot["source_revision"],
+            location_revision=run.snapshot["location_revision"],
+        )
+    )
+    dataset.file_count += 1
+    await db.flush()
+    await DatasetService(db).create_tasks_for_items(dataset.id, [item.id])
+    await AuditService.log(
+        db,
+        actor=actor,
+        action="dataset_reference.register",
+        target_type="dataset_item",
+        target_id=str(item.id),
+        detail={"source_id": str(source.id), "path_digest": path_digest},
+        status_code=201,
+    )
+    await db.commit()
+    return {"item_id": item.id, "created": True, "sha256": receipt["sha256"]}
+
+
+async def reference_context(db, item_id, actor, *, task_id=None):
+    if task_id is None:
+        await scans.require_actor(db, actor.id)
+    else:
+        from app.api.v1.tasks._shared import _assert_task_visible
+
+        task = await db.get(Task, task_id, populate_existing=True)
+        if task is None or task.dataset_item_id != item_id:
+            raise HTTPException(404, "Task not found")
+        await _assert_task_visible(db, task, actor)
+    ref = await db.get(DatasetReference, item_id, populate_existing=True)
+    item = await db.get(DatasetItem, item_id, populate_existing=True)
+    asset = await db.scalar(
+        select(DatasetAsset)
+        .where(DatasetAsset.dataset_item_id == item_id)
+        .execution_options(populate_existing=True)
+    )
+    if (
+        ref is None
+        or item is None
+        or asset is None
+        or asset.verification_state != "verified"
+    ):
+        raise snapshots.ContentError("content_unverified")
+    source = await db.get(DatasetSource, ref.source_id, populate_existing=True)
+    run = await db.get(DatasetScanRun, ref.run_id, populate_existing=True)
+    entry = await db.get(
+        DatasetScanEntry, (ref.run_id, ref.path_digest), populate_existing=True
+    )
+    if source is None or not source.enabled or source.dataset_id != item.dataset_id:
+        raise snapshots.ContentError("source_unavailable")
+    location = await db.get(StorageLocation, source.location_id, populate_existing=True)
+    if location is None or not location.enabled or location.kind != "filesystem":
+        raise snapshots.ContentError("location_unavailable")
+    if (
+        run is None
+        or run.source_id != source.id
+        or not run.complete
+        or entry is None
+        or not entry.verified_content
+    ):
+        raise snapshots.ContentError("content_unverified")
+    receipt = entry.verified_content
+    if (
+        source.config != run.snapshot["config"]
+        or ref.source_revision != run.snapshot["source_revision"]
+        or ref.location_revision != run.snapshot["location_revision"]
+        or asset.checksum_algorithm != "sha256"
+        or asset.checksum_value != receipt["sha256"]
+        or asset.size_bytes != receipt["size_bytes"]
+        or item.file_path != reference_key(item.id, asset.checksum_value)
+        or (task_id is not None and task.file_path != item.file_path)
+    ):
+        raise snapshots.ContentError("content_binding_changed")
+    node = locations.api_node_id()
+    anchor = await locations.node_anchor(db, location, node)
+    if anchor is None:
+        raise snapshots.ContentError("api_read_not_verified")
+    # The pinned anchor and actual per-request verified read are the API's
+    # capability proof; probe expiry does not authorize a new anchor or locator.
+    same_host = run.snapshot.get("scan_host_id") == fs.host_identity()
+    expected = (
+        receipt["observation"]
+        if receipt["node_id"] == node
+        else {k: entry.observed[k] for k in ("size", "mtime_ns", "ctime_ns")}
+    )
+    expected_source = (
+        expected.get("source_identity")
+        if receipt["node_id"] == node
+        else source.root_identity
+        if same_host
+        else None
+    )
+    return dict(
+        config=dict(location.config),
+        base=source.config["relative_path"],
+        path=entry.relative_path,
+        anchor=anchor,
+        expected=dict(expected),
+        source_identity=expected_source,
+        sha256=asset.checksum_value,
+        asset_id=asset.id,
+        size=asset.size_bytes,
+        source_revision=source.config_revision,
+        location_revision=location.config_revision,
+    )
+
+
+async def reference_snapshot(
+    db,
+    item_id,
+    actor,
+    *,
+    expected_sha256=None,
+    task_id=None,
+    api_key_id=None,
+    scope="tasks:read",
+):
+    from app.services.dataset_content import key_authority
+
+    context = await reference_context(db, item_id, actor, task_id=task_id)
+    proof = await key_authority(db, actor, api_key_id, scope)
+    if expected_sha256 is not None and expected_sha256 != context["sha256"]:
+        raise snapshots.ContentError("content_mismatch")
+    snapshot = await snapshots.capture(
+        lambda: fs.content_file(
+            context["config"],
+            context["base"],
+            context["path"],
+            expected_anchor=context["anchor"],
+            expected=context["expected"],
+            expected_source_identity=context["source_identity"],
+        ),
+        context["sha256"],
+    )
+    try:
+        if await reference_context(db, item_id, actor, task_id=task_id) != context:
+            raise snapshots.ContentError("content_binding_changed")
+        if await key_authority(db, actor, api_key_id, scope) != proof:
+            raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+        return snapshot
+    except BaseException:
+        snapshot.close()
+        raise

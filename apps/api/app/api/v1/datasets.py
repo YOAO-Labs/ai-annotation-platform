@@ -843,6 +843,10 @@ async def backfill_media_endpoint(
     if not ds:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
+    from app.services.reference_access import reject_reference_scope
+
+    await reject_reference_scope(db, dataset_id=dataset_id)
+
     from app.workers.media import backfill_media
 
     backfill_media.delay(str(dataset_id))
@@ -873,6 +877,10 @@ async def backfill_scenes_endpoint(
     ds = await svc.get(dataset_id)
     if not ds:
         raise HTTPException(status_code=404, detail="Dataset not found")
+
+    from app.services.reference_access import reject_reference_scope
+
+    await reject_reference_scope(db, dataset_id=dataset_id)
 
     try:
         result: InferenceResult = await infer_and_apply(

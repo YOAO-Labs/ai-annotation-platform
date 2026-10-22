@@ -63,7 +63,7 @@ task lock 的目标是让“同一时刻谁在编辑这题”有一个明确答�
 
 ### 写入边界
 
-写路径按资源类型遵循以下四类并发与锁序契约：
+写路径按资源类型遵循以下并发与锁序契约：
 
 - **账号启用状态重检与凭证代数**：
   - 任务、独立标注、视频章节、追踪任务、标注反馈和个人 API Key 路由先通过 `require_active_task_actor` 重新读取账号启用状态，并取得用户行的共享锁，再进入 handler 的资源锁；scheduler 的旧锁复用与任务领取服务也执行同一检查。
@@ -75,6 +75,9 @@ task lock 的目标是让“同一时刻谁在编辑这题”有一个明确答�
 - **普通标注创建的幂等键守卫**：
   - 普通标注创建复用 `annotation_operations` 持久记录。带 `Idempotency-Key` 的请求在 `Task` 行锁下复核权限和请求摘要，再创建标注或返回首次响应；唯一键为 `(task_id, actor_id, idempotency_key)`。
   - 浏览器离线队列在支持 Web Locks 的环境中跨标签页串行执行请求与本机确认，服务端记录同时覆盖响应丢失或本机确认失败后的重试。
+- **目录引用的内容复核**：
+  - 引用 Task 的手工标注及单任务生命周期写入先按 `account → membership → task edit advisory → Task` 加锁，再完整捕获并核对固定摘要，保持 Task 锁直到 handler 提交。advisory 必须先于 Task，避免与派发持有 advisory 后插入 `task_locks` 所需的 Task 外键锁形成等待环。
+  - 来源不可读或已变化时拒绝保存；释放编辑锁仍可在核对当前账号与权限后执行，无需读取坏源。尚未适配的批次送审和 Mask 多对象写入明确拒绝引用 Task，不进入下述托管内容的锁序。详见[内容合同](../../api/guides/verified-content.md#已登记目录引用)和[ADR0095](../adr/0095-immutable-directory-reference-tasks.md)。
 - **单题写锁复核与 Mask 多对象固定锁序**：
   - 需要把“检查当前锁持有人”和后续 annotation 写入视为原子决定的路径（如原生 AI Mask 接受、多对象 Mask 原子 mutation）会调用 `assert_write_allowed()`：先取得按 task 派生的 PostgreSQL transaction advisory lock（将 acquire、release、heartbeat 与写入串行化），再锁定当前 task lock 行复核持有人。
   - 多对象 Mask 原子 mutation、标注转换 execute、视频关键帧操作与 RLE 内容上传必须严格遵循以下**固定加锁顺序**（新的多对象写路径不得调换）：

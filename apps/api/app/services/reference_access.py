@@ -1,0 +1,127 @@
+"""Early reference gates for supported manual task operations."""
+
+import re
+import uuid
+
+from fastapi import Depends, HTTPException, Request
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.models.annotation import Annotation
+from app.db.models.task import Task
+from app.db.models.user import User
+from app.deps import get_current_user, get_db
+from app.services.dataset_content import content_http_error
+from app.services.dataset_references import reference_snapshot
+from app.services.reference_keys import is_reference, parse_reference, PREFIX
+
+
+async def reject_reference_scope(
+    db, *, project_id=None, task_ids=None, item_ids=None, dataset_id=None
+):
+    from app.db.models.dataset import DatasetItem
+
+    if item_ids is not None or dataset_id is not None:
+        stmt = select(DatasetItem.id).where(
+            DatasetItem.file_path.startswith(PREFIX, autoescape=True)
+        )
+        if item_ids is not None:
+            stmt = stmt.where(DatasetItem.id.in_(item_ids))
+        if dataset_id is not None:
+            stmt = stmt.where(DatasetItem.dataset_id == dataset_id)
+    else:
+        stmt = select(Task.id).where(Task.file_path.startswith(PREFIX, autoescape=True))
+        if project_id is not None:
+            stmt = stmt.where(Task.project_id == project_id)
+        if task_ids is not None:
+            stmt = stmt.where(Task.id.in_(task_ids))
+    if await db.scalar(stmt.limit(1)):
+        raise HTTPException(
+            409,
+            detail={
+                "code": "reference_operation_not_supported",
+                "message": "此操作尚未接入原地引用图片，请使用手动标注与严格原图读取",
+            },
+        )
+
+
+async def reference_task_guard(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return
+    task_id = request.path_params.get("task_id")
+    try:
+        task = (
+            await db.get(Task, uuid.UUID(str(task_id)), populate_existing=True)
+            if task_id
+            else None
+        )
+    except ValueError:
+        return
+    if task is None and request.url.path.endswith("/annotations/bulk-update"):
+        try:
+            payload = await request.json()
+            if not isinstance(payload, dict):
+                return
+            ids = [uuid.UUID(str(v)) for v in payload.get("ids", [])]
+        except (TypeError, ValueError):
+            return  # The endpoint's schema owns validation errors.
+        task = await db.scalar(
+            select(Task)
+            .join(Annotation, Annotation.task_id == Task.id)
+            .where(Annotation.id.in_(ids))
+        )
+    if task is None or not is_reference(task.file_path):
+        return
+    from app.api.v1.tasks._shared import _assert_task_visible, _resolve_task_access
+    from app.services.dataset_content import key_authority
+
+    scope = "annotations:write" if "/annotations" in request.url.path else "tasks:write"
+    key_id = getattr(request.state, "api_key_id", None)
+    key_proof = await key_authority(db, actor, key_id, scope)
+    await _resolve_task_access(db, task, actor, lock_membership=True)
+    from app.services.task_lock import TaskLockService
+
+    # Dispatch also takes this advisory lock before TaskLock's Task FK lock.
+    await TaskLockService(db)._lock_task_scope(task.id)
+    task = await db.scalar(
+        select(Task)
+        .where(Task.id == task.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if task is None:
+        raise HTTPException(404, "Task not found")
+    await _assert_task_visible(db, task, actor)
+    if await key_authority(db, actor, key_id, scope) != key_proof:
+        raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+    path = request.url.path
+    # Releasing an edit lease must remain possible when its source goes offline.
+    if request.method == "DELETE" and path.endswith("/lock"):
+        return
+    manual = re.fullmatch(
+        r"/api/v1/tasks/[^/]+/(annotations(?:/[0-9a-f-]{36})?|submit|skip|withdraw|reopen|accept-rejection|lock(?:/heartbeat)?)",
+        path,
+    )
+    bulk = path.endswith("/annotations/bulk-update")
+    if not manual and not bulk:
+        await reject_reference_scope(db, task_ids=[task.id])
+    try:
+        item_id, sha = parse_reference(task.file_path)
+        scope = "annotations:write" if "/annotations" in path else "tasks:write"
+        snapshot = await reference_snapshot(
+            db,
+            item_id,
+            actor,
+            expected_sha256=sha,
+            task_id=task.id,
+            api_key_id=getattr(request.state, "api_key_id", None),
+            scope=scope,
+        )
+        snapshot.close()
+        request.state.reference_verified_task_id = task.id
+    except Exception as exc:
+        raise content_http_error(exc) from None

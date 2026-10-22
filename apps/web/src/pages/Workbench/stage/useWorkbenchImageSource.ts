@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { tasksApi } from "@/api/tasks";
+import { useVerifiedImage } from "@/hooks/useVerifiedImage";
 import type { TaskResponse } from "@/types";
 import {
   imageTileDeviceBudget,
@@ -148,7 +149,14 @@ export function useWorkbenchImageSource(
   /** Read fresh metadata and signed URLs without requesting a pyramid rebuild. */
   refresh: () => Promise<void>;
   retry: (() => Promise<void>) | undefined;
+  contentBlockedReason?: string | null;
 } {
+  const reference = task?.storage_mode === "reference";
+  const verified = useVerifiedImage(
+    reference && task?.content_sha256
+      ? `/files/tasks/${task.id}/content?sha256=${task.content_sha256}`
+      : null,
+  );
   const queryClient = useQueryClient();
   const [retryWindow, setRetryWindow] = useState<{ taskId: string; untilMs: number } | null>(null);
   const summary = task?.image_pyramid;
@@ -180,16 +188,22 @@ export function useWorkbenchImageSource(
   });
   const source = useMemo(
     () =>
-      resolveWorkbenchImageSource(task, query.data, {
-        mediaIdentity,
-        maxSingleDecodedBytes,
-      }),
-    [maxSingleDecodedBytes, mediaIdentity, query.data, task],
+      resolveWorkbenchImageSource(
+        reference ? (verified.url ? { ...task!, file_url: verified.url } : undefined) : task,
+        query.data,
+        {
+          mediaIdentity: reference ? `${mediaIdentity ?? task?.id}/${verified.url}` : mediaIdentity,
+          maxSingleDecodedBytes,
+        },
+      ),
+    [maxSingleDecodedBytes, mediaIdentity, query.data, task, reference, verified.url],
   );
   const refetch = query.refetch;
+  const retryContent = verified.retry;
   const refresh = useCallback(async () => {
+    if (reference) retryContent();
     if (shouldQuery) await refetch();
-  }, [refetch, shouldQuery]);
+  }, [refetch, shouldQuery, reference, retryContent]);
   const retry = useCallback(async () => {
     if (!task?.id) return;
     const result = await tasksApi.retryImagePyramid(task.id);
@@ -215,6 +229,12 @@ export function useWorkbenchImageSource(
   return {
     source,
     refresh,
-    retry: source?.kind === "pyramid-failed" && source.retryable ? retry : undefined,
+    contentBlockedReason:
+      reference && !verified.ready ? (verified.error ?? "正在核验并读取原图，请稍候") : null,
+    retry: reference
+      ? refresh
+      : source?.kind === "pyramid-failed" && source.retryable
+        ? retry
+        : undefined,
   };
 }

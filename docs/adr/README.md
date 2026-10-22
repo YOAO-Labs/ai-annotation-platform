@@ -145,3 +145,5 @@
 - [0093](archive/0093-resumable-directory-inventory.md) — 目录观测按完整目录提交并以执行代次恢复
 
 - [0094](archive/0094-verified-request-content-snapshots.md) — 可变原图通过有界请求快照核验后交付
+
+- [0095](0095-immutable-directory-reference-tasks.md) — 目录样本固定内容身份并在任务锁内复核写入

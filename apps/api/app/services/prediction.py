@@ -476,6 +476,9 @@ class PredictionService:
         model_provenance: dict | None = None,
     ) -> Prediction:
         # v0.21.1 · 检测式追踪原生 int track_id → trk_<uuid> (读路径不得再生 uuid, 见 _remap_track_ids)。
+        from app.services.reference_access import reject_reference_scope
+
+        await reject_reference_scope(self.db, task_ids=[task_id])
         result = _remap_track_ids(result)
         task = await self.db.scalar(
             select(Task).where(Task.id == task_id).with_for_update()

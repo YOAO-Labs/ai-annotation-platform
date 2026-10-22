@@ -81,7 +81,11 @@ from app.utils.raster_mask_rle import (
     MAX_VIDEO_MASK_PIXELS,
 )
 
-router = APIRouter(dependencies=[Depends(require_active_task_actor)])
+from app.services.reference_access import reference_task_guard
+
+router = APIRouter(
+    dependencies=[Depends(require_active_task_actor), Depends(reference_task_guard)]
+)
 logger = logging.getLogger(__name__)
 
 # v0.23.5 · WS-D · D3 · per-task cap on unclaimed raster-mask uploads.
@@ -562,6 +566,9 @@ async def import_annotations(
     from app.services.async_job_notify import notify_job_terminal
     from app.services.annotations_import import import_aap_json_annotations
 
+    from app.services.reference_access import reject_reference_scope
+
+    await reject_reference_scope(db, project_id=project.id)
     max_import_bytes = 64 * 1024 * 1024
     raw = await file.read(max_import_bytes + 1)
     if len(raw) > max_import_bytes:

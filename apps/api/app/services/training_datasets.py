@@ -253,6 +253,12 @@ async def freeze_selection(
     if selection.task_ids:
         stmt = stmt.where(Task.id.in_(selection.task_ids))
     rows = (await db.execute(stmt.execution_options(populate_existing=True))).all()
+    from app.services.reference_keys import is_reference
+
+    if any(is_reference(row[0].file_path) for row in rows):
+        raise TrainingDatasetError(
+            "reference_not_supported", "原地引用图片尚未接入训练冻结", status_code=409
+        )
     if len(rows) > MAX_SAMPLES:
         raise TrainingDatasetError("sample_limit", "单个版本最多包含 20000 张图片")
     if selection.task_ids and {row[0].id for row in rows} != set(selection.task_ids):

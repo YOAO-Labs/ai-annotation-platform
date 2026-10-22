@@ -1,0 +1,174 @@
+import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiClient } from "@/api/client";
+import { datasetSourcesApi } from "@/api/datasetSources";
+import { usePermissions } from "@/hooks/usePermissions";
+import { useAuthStore } from "@/stores/authStore";
+import { verifiedContentError } from "@/hooks/useVerifiedImage";
+import { Button } from "@/components/ui/Button";
+import type { StorageLocationOut, StorageProbeOut } from "@/api/generated/types.gen";
+
+const field = "rounded-md border border-input bg-background px-2 py-1.5 text-xs text-foreground";
+export function FilesystemLocationsPanel() {
+  const revision = useSessionRevision();
+  return <FilesystemLocationsPanelOwner key={revision} />;
+}
+
+function FilesystemLocationsPanelOwner() {
+  const capture = useSessionGuard();
+  const { role } = usePermissions();
+  const session = useAuthStore((s) => s.sessionId);
+  const client = useQueryClient();
+  const allowed = role === "super_admin";
+  const [name, setName] = useState("");
+  const [root, setRoot] = useState("");
+  const [path, setPath] = useState("");
+  const [node, setNode] = useState("api");
+  const [sample, setSample] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [probe, setProbe] = useState<{ name: string; result: StorageProbeOut } | null>(null);
+  const roots = useQuery({
+    queryKey: ["storage-roots", session],
+    queryFn: () => apiClient.get<string[]>("/storage-locations/roots"),
+    enabled: allowed,
+  });
+  const locations = useQuery({
+    queryKey: ["filesystem-locations", session],
+    queryFn: ({ signal }) => datasetSourcesApi.locations(signal),
+    enabled: allowed,
+  });
+  const act = async (work: (current: () => boolean) => Promise<unknown>) => {
+    const current = capture();
+    setBusy(true);
+    setError("");
+    try {
+      await work(current);
+      if (!current()) return;
+      await client.invalidateQueries({ queryKey: ["filesystem-locations", session] });
+    } catch (e) {
+      if (current()) setError(verifiedContentError(e));
+    } finally {
+      if (current()) setBusy(false);
+    }
+  };
+  if (!allowed) return null;
+  return (
+    <section aria-label="受控目录位置" className="mb-5 rounded-lg border border-border bg-card p-4">
+      <h2 className="mb-1 text-sm font-semibold">受控目录位置</h2>
+      <p className="mb-3 text-xs text-muted-foreground">
+        仅登记部署时已挂载的根内子目录。新增子目录和平台登记无需重启；新增宿主机挂载通常需重建相关容器，无需重建镜像。
+      </p>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="grid gap-1 text-xs">
+          位置名称
+          <input
+            className={field}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={100}
+          />
+        </label>
+        <label className="grid gap-1 text-xs">
+          受控根
+          <select className={field} value={root} onChange={(e) => setRoot(e.target.value)}>
+            <option value="">选择已挂载根</option>
+            {roots.data?.map((r) => (
+              <option key={r}>{r}</option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-xs">
+          根内相对目录
+          <input
+            className={field}
+            value={path}
+            onChange={(e) => setPath(e.target.value)}
+            placeholder="留空使用受控根"
+          />
+        </label>
+        <Button
+          size="sm"
+          disabled={!name.trim() || !root || busy}
+          onClick={() =>
+            void act(async (current) => {
+              await apiClient.post<StorageLocationOut>("/storage-locations", {
+                name: name.trim(),
+                root_handle: root,
+                relative_path: path,
+                scope: "restricted",
+                use_user_ids: [],
+              });
+              if (current()) setName("");
+            })
+          }
+        >
+          登记目录位置
+        </Button>
+      </div>
+      {roots.data?.length === 0 && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          当前 API 没有可用受控根，请由运维配置根映射与只读挂载。
+        </p>
+      )}
+      <div className="my-3 flex flex-wrap gap-2 text-xs">
+        <label className="grid gap-1">
+          探测节点
+          <input
+            className={field}
+            value={node}
+            onChange={(e) => setNode(e.target.value)}
+            placeholder="api 或 worker hostname"
+          />
+        </label>
+        <label className="grid gap-1">
+          可选样例文件
+          <input
+            className={field}
+            value={sample}
+            onChange={(e) => setSample(e.target.value)}
+            placeholder="相对位置路径，用于验证 read"
+          />
+        </label>
+      </div>
+      <ul className="divide-y divide-border text-xs">
+        {locations.data?.items
+          .filter((l) => l.kind === "filesystem")
+          .map((l) => (
+            <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+              <span>
+                {l.name} · {l.enabled ? "已启用" : "已停用"} · {l.root_handle}/{l.relative_path}
+              </span>
+              <Button
+                size="sm"
+                disabled={busy || !l.enabled || !node}
+                onClick={() =>
+                  void act(async (current) => {
+                    const result = await datasetSourcesApi.probe(l.id, node, sample || undefined);
+                    if (current()) setProbe({ name: l.name, result });
+                  })
+                }
+              >
+                探测位置 {l.name}
+              </Button>
+            </li>
+          ))}
+      </ul>
+      {probe && (
+        <p role="status" className="mt-2 text-xs">
+          {probe.name} · {probe.result.node_id} · {probe.result.ok ? "探测成功" : probe.result.code}{" "}
+          ·{" "}
+          {Object.entries(probe.result.capabilities)
+            .map(([k, v]) => `${k}: ${v}`)
+            .join("，")}
+        </p>
+      )}
+      {(error || roots.error || locations.error) && (
+        <p role="alert" className="mt-2 text-xs text-status-danger">
+          {error || verifiedContentError(roots.error || locations.error)}
+        </p>
+      )}
+    </section>
+  );
+}

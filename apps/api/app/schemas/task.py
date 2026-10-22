@@ -41,6 +41,8 @@ class TaskOut(BaseModel):
     display_id: str
     file_name: str
     file_url: str | None = None
+    storage_mode: str = "managed"
+    content_sha256: str | None = None
     file_type: str
     tags: list = []
     status: str

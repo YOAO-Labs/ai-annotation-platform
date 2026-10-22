@@ -230,5 +230,28 @@ class CommandTests(unittest.TestCase):
                 runtime.parse_arguments(args)
 
 
+class WorkerQueueTests(unittest.TestCase):
+    def test_only_own_direct_inbox_is_accepted_in_addition_to_exact_queues(self):
+        from worktree_runtime import worker_queues_match
+        from celery.utils.nodenames import worker_direct
+
+        node = "owned@local"
+        queues = [{"name": "default"}, {"name": "media"}]
+        self.assertTrue(worker_queues_match(node, "default,media", queues))
+        self.assertTrue(
+            worker_queues_match(
+                node, "default,media", queues + [{"name": worker_direct(node).name}]
+            )
+        )
+        self.assertFalse(
+            worker_queues_match(
+                node,
+                "default,media",
+                queues + [{"name": worker_direct("other@local").name}],
+            )
+        )
+        self.assertFalse(worker_queues_match(node, "default,media", queues[:1]))
+
+
 if __name__ == "__main__":
     unittest.main()

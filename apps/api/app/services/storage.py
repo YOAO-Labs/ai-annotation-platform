@@ -10,6 +10,22 @@ import boto3
 from botocore.exceptions import ClientError
 
 from app.config import settings
+from app.services.reference_keys import reject_reference
+
+
+def _reject_reference_s3(params, **kwargs):
+    for field in ("Key", "Prefix"):
+        reject_reference(params.get(field))
+    for obj in params.get("Delete", {}).get("Objects", []):
+        reject_reference(obj.get("Key"))
+    copy = params.get("CopySource")
+    if isinstance(copy, dict):
+        reject_reference(copy.get("Key"))
+    elif isinstance(copy, str):
+        from urllib.parse import unquote
+
+        reject_reference(unquote(copy).lstrip("/").partition("/")[2])
+
 
 if TYPE_CHECKING:
     from app.db.models.task import Task
@@ -44,6 +60,9 @@ class StorageService:
             endpoint_url=f"{scheme}://{settings.minio_endpoint}",
             aws_access_key_id=settings.minio_access_key,
             aws_secret_access_key=settings.minio_secret_key,
+        )
+        self.client.meta.events.register(
+            "before-parameter-build.s3", _reject_reference_s3
         )
         self.bucket = settings.minio_bucket
         self.datasets_bucket = settings.minio_datasets_bucket
@@ -261,6 +280,7 @@ class StorageService:
         align: bool = True,
     ) -> str:
         # v0.10.43 · download_name 经 ResponseContentDisposition 给浏览器一个友好文件名。
+        reject_reference(key)
         params: dict = {"Bucket": bucket or self.bucket, "Key": key}
         if download_name:
             params["ResponseContentDisposition"] = (
@@ -496,6 +516,12 @@ def resolve_task_url(task: "Task") -> str:
     让 router、worker 与 video tracker runner 共用同一 helper, 消除 service → API
     反向依赖。行为与原 router 内私有函数逐字一致。
     """
+    from app.services.reference_keys import is_reference
+
+    if is_reference(task.file_path):
+        from fastapi import HTTPException
+
+        raise HTTPException(409, detail={"code": "reference_operation_not_supported"})
     bucket = (
         storage_service.datasets_bucket
         if task.dataset_item_id

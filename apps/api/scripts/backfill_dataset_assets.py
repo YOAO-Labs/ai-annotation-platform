@@ -50,7 +50,14 @@ async def backfill_batch(db, *, mode, dataset_id=None, after=None, batch_size=10
         raise ValueError("Invalid backfill mode or batch size")
     # Bootstrap bindings before item locks, matching online import lock order.
     binding = await ensure_legacy_bindings(db) if mode == "apply" else None
-    stmt = select(DatasetItem).order_by(DatasetItem.id).limit(batch_size)
+    from app.services.reference_keys import PREFIX
+
+    stmt = (
+        select(DatasetItem)
+        .where(~DatasetItem.file_path.startswith(PREFIX, autoescape=True))
+        .order_by(DatasetItem.id)
+        .limit(batch_size)
+    )
     if dataset_id:
         stmt = stmt.where(DatasetItem.dataset_id == dataset_id)
     if after:

@@ -343,6 +343,9 @@ class AnnotationService:
         ).scalar_one_or_none()
         if not prediction:
             return None
+        from app.services.reference_access import reject_reference_scope
+
+        await reject_reference_scope(self.db, task_ids=[prediction.task_id])
         if prediction.source == INTERACTIVE_ACCEPT_PREDICTION_SOURCE:
             return None
 
@@ -951,6 +954,10 @@ class AnnotationService:
         """
         from fastapi import HTTPException
 
+        from app.services.reference_access import reject_reference_scope
+
+        await reject_reference_scope(self.db, task_ids=[src_task.id, target_task.id])
+
         if target_task.id == src_task.id:
             raise HTTPException(
                 status_code=422, detail="propagate 目标不能是源 task 自身"
@@ -1329,6 +1336,9 @@ class AnnotationService:
             t = await self.db.get(Task, frame_to_task[f])
             if t is None:
                 continue
+            from app.services.reference_access import reject_reference_scope
+
+            await reject_reference_scope(self.db, task_ids=[t.id])
             if assert_task_visible is not None:
                 await assert_task_visible(t)
             if assert_task_editable is not None:

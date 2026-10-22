@@ -828,3 +828,5 @@ PYTHONPATH=. uv run python scripts/seed.py --profile online-training
 目录观测扫描复用指定 worker 的专属队列；修改 `workers/dataset_scan.py` 后刷新当前部署的相关 worker 并验证 `app.workers.dataset_scan.run_dataset_scan` 注册。源码挂载时无需重建镜像。来源和扫描账本迁移为0196；验证使用独立 test 环境和临时根，不要对真实业务目录做故障注入。参见[扫描接口](docs-site/api/guides/dataset-sources.md)。
 
 内容核验账本迁移为0197；无新 worker task 或镜像构建；目录首次核验还需刷新使用 mounted 源码的扫描/probe worker、重新探测并扫描，记录实际主机证据，旧未知证据明确拒绝。托管严格读取只需当前 API。目录读取要求该 API 实例完成有效 read 探测；只挂载扫描 worker 时明确不可用。每进程快照上限256MiB临时字节，部署时给系统临时目录留出对应空间，多进程需累加；不写业务来源。见[严格读取接口](docs-site/api/guides/verified-content.md)。
+
+目录原地引用使用 Alembic0198：应用回退须保留已有 Reference/Asset 身份，仅空引用表可 schema downgrade。管理员逐条登记后，普通手工标注会在 Task 锁内重新捕获有界图片；慢挂载会延长锁占用。按节点配置只读根和检查 API/worker 访问，详见[引用内容合同](docs-site/api/guides/verified-content.md#已登记目录引用)。工作树启动器接受 Celery 自动创建的本节点定向队列，仍拒绝缺失职责队列或意外订阅，避免指定节点扫描/探测造成就绪误判。

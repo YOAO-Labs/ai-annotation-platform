@@ -437,6 +437,10 @@ async def submit_batch_review(
         ).all()
     ]
 
+    from app.services.reference_access import reject_reference_scope
+
+    await reject_reference_scope(db, task_ids=candidate_ids)
+
     now = datetime.now(timezone.utc)
     submitted = 0
     for start in range(0, len(candidate_ids), _SUBMIT_REVIEW_CHUNK_SIZE):

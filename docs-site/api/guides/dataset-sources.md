@@ -7,21 +7,21 @@ last_reviewed: 2026-10-22
 
 # 目录来源与观测扫描
 
-这些接口提供只读目录清单和可恢复扫描，均仅限当前超级管理员。来源的 `mode` 固定为 `inventory`：扫描不创建 DatasetItem、Asset 或标注任务，不读取原图字节，扫描本身不生成内容摘要，也不把历史文件判为 missing。数据集页面继续使用上传或连接器复制导入；原地引用向导尚未接入。
+这些接口提供只读目录清单和可恢复扫描，均仅限当前超级管理员。来源的 `mode` 固定为 `inventory`：扫描不创建 DatasetItem、Asset 或标注任务，不读取原图字节，扫描本身不生成内容摘要，也不把历史文件判为 missing。数据集页面可在扫描完成后逐条核验并登记引用样本；扫描与登记是独立步骤。
 
 先用[存储位置 API](./storage-locations)登记受控根内位置，成功探测指定 worker 的 list 能力，再创建来源。所有路径均以 `/api/v1` 为前缀。
 
-| 方法  | 路径                                 | 行为                                                        |
-| ----- | ------------------------------------ | ----------------------------------------------------------- |
-| POST  | `/dataset-sources`                   | 为已有数据集创建只读观测来源，返回201                       |
-| GET   | `/dataset-sources`                   | 按 dataset_id 可选过滤，limit 默认100、最多200，offset 分页 |
-| GET   | `/dataset-sources/{source_id}`       | 查看来源配置，不返回绝对根或内部节点指纹                    |
-| PATCH | `/dataset-sources/{source_id}`       | expected_revision + name/enabled；活动扫描须先取消          |
-| POST  | `/dataset-sources/{source_id}/scans` | 启动手动扫描，返回202；同来源已有活动运行时复用             |
-| GET   | `/dataset-sources/{source_id}/scans` | 分页查看独立扫描历史                                        |
-| GET   | `/dataset-scans/{run_id}`            | 查看状态、阶段、完整性、累计数和当前 async_job_id           |
-| GET   | `/dataset-scans/{run_id}/entries`    | limit/offset 分页读取观测，不包含文件内容或已核验摘要       |
-| POST  | `/dataset-scans/{run_id}/resume`     | 恢复未完成运行，保留目录检查点，返回202和新任务ID           |
+| 方法  | 路径                                 | 行为                                                              |
+| ----- | ------------------------------------ | ----------------------------------------------------------------- |
+| POST  | `/dataset-sources`                   | 为已有数据集创建只读观测来源，返回201                             |
+| GET   | `/dataset-sources`                   | 按 dataset_id 可选过滤，limit 默认100、最多200，offset 分页       |
+| GET   | `/dataset-sources/{source_id}`       | 查看来源配置，不返回绝对根或内部节点指纹                          |
+| PATCH | `/dataset-sources/{source_id}`       | expected_revision + name/enabled；活动扫描须先取消                |
+| POST  | `/dataset-sources/{source_id}/scans` | 启动手动扫描，返回202；同来源已有活动运行时复用                   |
+| GET   | `/dataset-sources/{source_id}/scans` | 分页查看独立扫描历史                                              |
+| GET   | `/dataset-scans/{run_id}`            | 查看状态、阶段、完整性、累计数和当前 async_job_id                 |
+| GET   | `/dataset-scans/{run_id}/entries`    | limit/offset 分页读取观测、verified_content 与 registered_item_id |
+| POST  | `/dataset-scans/{run_id}/resume`     | 恢复未完成运行，保留目录检查点，返回202和新任务ID                 |
 
 ## 创建来源
 
@@ -50,3 +50,11 @@ Run 的 `completed` 和 `complete=true` 只表示约定范围枚举与复核完�
 取消复用 `POST /async-jobs/{async_job_id}/cancel`，已提交观测保留。失去60秒租约后可调用 resume 创建新 job/task_id；仍有有效租约时返回409。旧消息、旧 worker 和旧失败信号不能写入新尝试。发布失败返回的 Run 标记 `failed / dispatch_unavailable`，可显式恢复；API在提交后、发布前中断所留的 pending 同样可恢复。
 
 任务中心显示“已扫描数量 / 总量未知”，不展示伪造百分比。终态任务可能被30天保留策略删除，ScanRun 和观测继续保留，async_job_id 会变为 null；失败/取消运行仍可在当前配置和节点验证有效时恢复。数据集删除后来源失效，账本保留，外部原图不受影响。
+
+## 逐条登记原地图片
+
+`POST /dataset-scans/{run_id}/entries/{path_digest}/register` 要求当前超级管理员及 `datasets:write`，返回200：`{item_id, created, sha256}`。Run 必须完整，条目为匹配的已观测文件；API 当前节点须有有效 read 探测。登记会重新核验字节与图片，创建不可变 Reference、verified Asset 和 DatasetItem，复用已有项目关联创建 Task，不上传原图或创建 S3 副本。只接受普通图片数据集及普通图片项目。
+
+同 Source/path 幂等返回 `created=false`；相同摘要的其他路径不会合并样本。来源或内容变化拒绝，繁忙的数据集返回409 `dataset_busy`，可重试。登记在最终锁内复查原始 API Key 和账号权限，不会把轮换后的 Key 认作原请求。接口是逐条事务；中断保留已提交条目，entries 的 `registered_item_id` 可用于恢复。
+
+`GET /dataset-items/{item_id}/content?sha256=...` 仅当前超管及 `datasets:read` 可预览已登记图片；响应、预算与失败语义沿用[严格内容读取](./verified-content)。员工通过 Task 内容接口读取分配任务，不开放此管理入口。

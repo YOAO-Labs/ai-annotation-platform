@@ -124,6 +124,9 @@ async def register_item_asset(
     db, item, *, sha256=None, size_bytes=None, etag=None, binding=None
 ):
     """The item lock serializes backfill and completion, without touching its row."""
+    from app.services.reference_keys import reject_reference
+
+    reject_reference(item.file_path)
     binding = binding or await ensure_legacy_bindings(db)
     await db.execute(
         select(DatasetItem.id).where(DatasetItem.id == item.id).with_for_update()
@@ -179,11 +182,14 @@ async def register_item_asset(
 async def find_verified_content(
     db, dataset_id, sha256, *, exclude_item_id=None, legacy_md5=None
 ):
+    from app.services.reference_keys import PREFIX
+
     stmt = (
         select(DatasetItem)
         .join(DatasetAsset, DatasetAsset.dataset_item_id == DatasetItem.id)
         .where(
             DatasetItem.dataset_id == dataset_id,
+            ~DatasetItem.file_path.startswith(PREFIX, autoescape=True),
             DatasetAsset.verification_state == "verified",
             DatasetAsset.checksum_value == sha256,
         )
@@ -199,6 +205,7 @@ async def find_verified_content(
         .outerjoin(DatasetAsset, DatasetAsset.dataset_item_id == DatasetItem.id)
         .where(
             DatasetItem.dataset_id == dataset_id,
+            ~DatasetItem.file_path.startswith(PREFIX, autoescape=True),
             DatasetItem.content_hash == legacy_md5,
             (
                 DatasetAsset.id.is_(None)

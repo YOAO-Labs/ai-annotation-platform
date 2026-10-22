@@ -1,4 +1,4 @@
-"""Super-admin inventory preview; no sample ingestion or original-byte delivery."""
+"""Administrator inventories, verified content and explicit reference registration."""
 
 import uuid
 
@@ -7,7 +7,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import UserRole
-from app.db.models.dataset_source import DatasetSource, DatasetScanRun, DatasetScanEntry
+from app.db.models.dataset_source import (
+    DatasetSource,
+    DatasetScanRun,
+    DatasetScanEntry,
+    DatasetReference,
+)
 from app.db.models.user import User
 from app.deps import get_db, require_roles, require_scopes
 from app.schemas.dataset_source import (
@@ -19,6 +24,7 @@ from app.schemas.dataset_source import (
     DatasetScanList,
     DatasetScanEntryList,
     VerifiedScanContent,
+    RegisteredReferenceOut,
 )
 from app.services import dataset_scans as svc
 from app.services.audit import AuditAction, AuditService
@@ -175,9 +181,21 @@ async def list_entries(
         DatasetScanEntry.run_id == run_id, DatasetScanEntry.relative_path != ""
     )
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
-    rows = await db.scalars(
-        query.order_by(DatasetScanEntry.path_digest).limit(limit).offset(offset)
+    rows = list(
+        await db.scalars(
+            query.order_by(DatasetScanEntry.path_digest).limit(limit).offset(offset)
+        )
     )
+    run = await db.get(DatasetScanRun, run_id)
+    registered = {
+        r.path_digest: r.dataset_item_id
+        for r in await db.scalars(
+            select(DatasetReference).where(
+                DatasetReference.source_id == run.source_id,
+                DatasetReference.path_digest.in_([row.path_digest for row in rows]),
+            )
+        )
+    }
     return {
         "items": [
             {
@@ -187,6 +205,7 @@ async def list_entries(
                 "state": row.state,
                 "size_bytes": row.observed.get("size"),
                 "content_verified": row.verified_content is not None,
+                "registered_item_id": registered.get(row.path_digest),
                 "verified_content": {
                     k: row.verified_content[k]
                     for k in (
@@ -286,6 +305,66 @@ async def read_scan_content(
             actor,
             expected_sha256=sha256,
             api_key_id=getattr(request.state, "api_key_id", None),
+        )
+    except Exception as exc:
+        raise content_http_error(exc) from None
+    return SnapshotResponse(snapshot)
+
+
+@router.post(
+    "/dataset-scans/{run_id}/entries/{path_digest}/register",
+    response_model=RegisteredReferenceOut,
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
+async def register_reference(
+    run_id: uuid.UUID,
+    path_digest: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services.dataset_references import register_entry
+    from app.services.dataset_content import content_http_error
+
+    try:
+        return await register_entry(
+            db,
+            run_id,
+            path_digest,
+            actor,
+            api_key_id=getattr(request.state, "api_key_id", None),
+        )
+    except Exception as exc:
+        raise content_http_error(exc) from None
+
+
+@router.get(
+    "/dataset-items/{item_id}/content",
+    response_class=Response,
+    responses=IMAGE_RESPONSES,
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
+async def reference_item_content(
+    item_id: uuid.UUID,
+    request: Request,
+    sha256: str = Query(pattern=r"^[0-9a-f]{64}$"),
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services.dataset_references import reference_snapshot
+    from app.services.dataset_content import content_http_error
+    from app.services.content_snapshot import SnapshotResponse
+
+    if request.headers.get("range") is not None:
+        raise HTTPException(416, "Range is not supported for verified snapshots")
+    try:
+        snapshot = await reference_snapshot(
+            db,
+            item_id,
+            actor,
+            expected_sha256=sha256,
+            api_key_id=getattr(request.state, "api_key_id", None),
+            scope="datasets:read",
         )
     except Exception as exc:
         raise content_http_error(exc) from None

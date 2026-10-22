@@ -96,6 +96,8 @@ export interface TaskResponse {
   display_id: string;
   file_name: string;
   file_url: string | null;
+  storage_mode?: "managed" | "reference";
+  content_sha256?: string | null;
   file_type: string;
   tags: string[];
   status: TaskStatus;

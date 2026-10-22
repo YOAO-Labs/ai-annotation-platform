@@ -705,10 +705,23 @@ def _task_with_url(
         if task.dataset_item_id or task.file_type == "point_cloud"
         else storage_service.bucket
     )
-    try:
-        file_url = storage_service.generate_download_url(task.file_path, bucket=bucket)
-    except Exception:
+    from app.services.reference_keys import is_reference, parse_reference
+
+    reference = is_reference(task.file_path)
+    content_sha256 = None
+    if reference:
         file_url = None
+        try:
+            _, content_sha256 = parse_reference(task.file_path)
+        except ValueError:
+            pass
+    else:
+        try:
+            file_url = storage_service.generate_download_url(
+                task.file_path, bucket=bucket
+            )
+        except Exception:
+            file_url = None
 
     thumbnail_url: str | None = None
     if thumbnail_path:
@@ -725,6 +738,8 @@ def _task_with_url(
 
     out = TaskOut.model_validate(task, from_attributes=True)
     out.file_url = file_url
+    out.storage_mode = "reference" if reference else "managed"
+    out.content_sha256 = content_sha256
     out.thumbnail_url = thumbnail_url
     out.image_width = width
     out.image_height = height
@@ -732,7 +747,7 @@ def _task_with_url(
     out.video_metadata = (
         VideoMetadata.model_validate(video_metadata) if video_metadata else None
     )
-    out.image_pyramid = image_pyramid
+    out.image_pyramid = None if reference else image_pyramid
     if briefs is not None:
         if task.assignee_id is not None:
             out.assignee = briefs.get(str(task.assignee_id))
@@ -853,6 +868,7 @@ async def perform_task_submit(
     task: Task,
     *,
     actor: User,
+    reference_verified: bool = False,
     now: datetime | None = None,
 ) -> dict:
     """Apply the pending/in_progress → review transition for one task.
@@ -864,6 +880,12 @@ async def perform_task_submit(
     """
     from app.services.task_lock import TaskLockService
 
+    from app.services.reference_keys import is_reference
+
+    if is_reference(task.file_path) and not reference_verified:
+        from app.services.reference_access import reject_reference_scope
+
+        await reject_reference_scope(db, task_ids=[task.id])
     now = now or datetime.now(timezone.utc)
     if task.assignee_id is None:
         # Preserve the effective assignee (task-level, else the batch annotator)

@@ -71,6 +71,9 @@ def materialize_image(
     except ClientError as exc:
         if exc.response["Error"]["Code"] not in {"404", "NoSuchKey", "NotFound"}:
             raise
+        from app.services.reference_keys import reject_reference
+
+        reject_reference(sample["source_key"])
         params = {
             "Bucket": sample["source_bucket"],
             "Key": sample["source_key"],

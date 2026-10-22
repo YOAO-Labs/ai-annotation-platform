@@ -159,7 +159,7 @@ API/worker 各自加载根映射；Celery `worker_direct` 加实际 hostname 校
 
 位置登记/修改/探测仅超管；项目管理员按 global 或 use_user_ids 使用，员工不得枚举目录。每页重新检查当前授权，游标绑定位置、修订、节点、路径摘要和目录快照。现有连接通过 connection_id 关联位置；凭据仍由 StorageConnection/Fernet 持有，未复制。连接修改按 connection→location 顺序加锁；有内容/用途引用时拒绝配置改向或删除。删除无引用连接级联清理关联与探测，既有项目级外键行为保持一致。
 
-九用途绑定查询只读，缺失不自动 bootstrap，共桶不合并用途。当前没有用途切换或原地读取入口；DatasetSource 仅提供下文的只读观测扫描。完整接口见[受控存储位置](/api/guides/storage-locations)，决策见[ADR 0092](/dev/adr/archive/0092-controlled-storage-registry)。
+九用途绑定查询只读，缺失不自动 bootstrap，共桶不合并用途。当前没有用途切换入口；DatasetSource 提供下文的只读观测扫描及显式登记。完整接口见[受控存储位置](/api/guides/storage-locations)，决策见[ADR 0092](/dev/adr/archive/0092-controlled-storage-registry)。
 
 ## 持久目录扫描基座
 
@@ -175,4 +175,14 @@ Job 外键 SET NULL，数据集删除只清空来源关联，长期观测账本�
 
 目录观测的 stat 不证明内容一致。`content_snapshot.py` 为目录及固定托管 S3 共用有界 TemporaryFile，完整 SHA-256/图片验证后才交付同一快照。`dataset_content.py` 处理真实当前权限、来源/位置修订、绑定与响应前复检，I/O 在数据库锁外。ScanEntry.verified_content 与原始观测独立，旧摘要不改写；首次核验只证明此次捕获字节。API 使用自身 read 探测和 anchor，不把 worker 的 dev/inode 当跨节点内容身份。扫描 claim 固定实际内核主机证据；首次核验必须与 API 同主机，再比对来源目录及文件 identity，未知/跨主机先拒绝；已核验摘要可跨节点验证相同字节。回执在数据库触发器中禁止改写。
 
-现有任务内容身份与严格读取接口要求当前任务可见性，不开放整个来源或数据集。Range/持久缓存、原地样本注册、工作台 Blob 生命周期及标注提交的内容上下文仍须独立接入。详见[接口合同](/api/guides/verified-content)与 [ADR0094](/dev/adr/archive/0094-verified-request-content-snapshots)。
+现有任务内容身份与严格读取接口要求当前任务可见性，不开放整个来源或数据集。Range/持久缓存尚未提供；原地样本注册、工作台 Blob 生命周期及标注提交保护见下文。详见[接口合同](/api/guides/verified-content)与 [ADR0094](/dev/adr/archive/0094-verified-request-content-snapshots)。
+
+## 可标注的目录引用
+
+完整观测中的图片可通过 register 逐条登记。DatasetReference 固定 Item→Source/Run/Entry，Asset 固定已核验 SHA-256；同 Source/path 幂等，不创建 S3 原件副本。Item 与 Task 保存专用不透明引用标识，通用 S3 resolver 及未适配的后台消费者拒绝该标识。legacy 去重与 asset 回填排除引用项，不根据标识猜桶。
+
+登记和项目关联共用 Dataset 锁；登记按扫描锁序取得来源后对 Dataset 使用 NOWAIT，繁忙返回409。Link 在锁后查重，各建档批次在锁内再次查已有 Task。普通标注写入与单任务生命周期在 Task 锁内完成有界原图核验并保持原事务，避免等待锁期间来源变化仍被保存；快照 helper 不 commit。独立扫描与 verify 仍锁外读取。最初 API Key 身份、当前授权和绑定在 I/O 后复查。
+
+业务读取使用当前 API 节点已固定锚点与实际完整读取，不因探测 TTL 到期自动重绑目录；缺失锚点、来源定位改变、停用或摘要不符会失败。来源改名、停用后恢复保留内容身份。首次登记仍需有效 read 探测。工作台按登录/任务/请求代次持有鉴权 Blob URL，原图未就绪禁用编辑；退休请求不能污染新任务或新账号，URL 按 owner 回收。
+
+应用回退保留0198及引用账本；空表才可降级。更多取舍见 [ADR0095](/dev/adr/0095-immutable-directory-reference-tasks)，管理员流程见[服务器目录原地引用](/user-guide/datasets/import-images#服务器目录原地引用)。大目录批量登记、周期同步、持久缓存和训练冻结另行交付。

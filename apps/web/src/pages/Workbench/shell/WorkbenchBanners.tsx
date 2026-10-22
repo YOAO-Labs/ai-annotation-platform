@@ -7,6 +7,8 @@ const BANNER_BASE = "flex items-center gap-1.5 border-b border-border px-3.5 py-
 interface WorkbenchBannersProps {
   mode: "annotate" | "review";
   task: TaskResponse | undefined;
+  contentBlockedReason?: string | null;
+  onRetryContent?: () => unknown;
   lockError: string | null;
   lockConflict?: TaskLockConflictDetail | null;
   claimInfo: ReviewClaimResponse | null;
@@ -28,6 +30,8 @@ function lockErrorText(lockError: string, lockConflict?: TaskLockConflictDetail 
 export function WorkbenchBanners({
   mode,
   task,
+  contentBlockedReason,
+  onRetryContent,
   lockError,
   lockConflict,
   claimInfo,
@@ -41,6 +45,15 @@ export function WorkbenchBanners({
 }: WorkbenchBannersProps) {
   return (
     <>
+      {contentBlockedReason && (
+        <div role="status" className={`${BANNER_BASE} bg-status-caution-soft text-foreground`}>
+          <Icon name="warning" size={13} />
+          <span className="flex-1">{contentBlockedReason}</span>
+          <Button size="sm" onClick={onRetryContent}>
+            重读原图
+          </Button>
+        </div>
+      )}
       {lockError && (
         <div className={`${BANNER_BASE} bg-status-danger-soft text-status-danger`}>
           <Icon name="warning" size={13} />

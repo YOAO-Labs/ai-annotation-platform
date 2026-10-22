@@ -277,6 +277,8 @@
 | POST | `/dataset-scans/{run_id}/resume` |
 | POST | `/dataset-scans/{run_id}/entries/{path_digest}/verify` |
 | GET | `/dataset-scans/{run_id}/entries/{path_digest}/content` |
+| POST | `/dataset-scans/{run_id}/entries/{path_digest}/register` |
+| GET | `/dataset-items/{item_id}/content` |
 
 ## `datasets.py`
 
@@ -946,4 +948,4 @@
 
 ---
 
-_共 86 模块 / 539 路由_
+_共 86 模块 / 541 路由_

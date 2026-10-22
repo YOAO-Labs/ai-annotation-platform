@@ -10,6 +10,8 @@ last_reviewed: 2026-08-27
 
 标注数据导出为下游训练可用格式。除 VOC 同步返回 blob 外，导出通过后台 job 执行：`POST` 创建 job 返回 `202 {job_id}`，产物 ZIP 生成后在任务铃用 7 天预签名 URL 下载。导出目标可多选，一个 job 产一个 ZIP。
 
+服务器目录原地引用图片尚未接入后台导出。后台任务在读取原图或复用缓存前，若本次导出范围包含引用 Task，会以 `reference_operation_not_supported` 明确失败；即使选择纯标注目标也遵循此限制，不会将引用标识当作 S3 key。普通手工标注与严格原图读取的支持范围见[引用内容合同](verified-content.md#已登记目录引用)。
+
 ## 导出数据契约
 
 新 ZIP 包含 `data_contract.json`，单文档 JSON 在自身保留等价元数据。每个目标分别记录 `task`、`media_type`、`format`、可用任务和来源；多目标 ZIP 的 `contracts[]` 不能简化成全局单一任务。普通标注导出标记 `training_qualified=false`，训练仍须经过专门的数据预检与严格几何桥接。

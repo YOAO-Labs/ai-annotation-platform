@@ -17,6 +17,7 @@ import type { BucketSummary, VideoAssetFailureItem, VideoAssetKind } from "@/api
 import type { IconName } from "@/components/ui/Icon";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { CopyableError } from "@/components/ui/CopyableError";
+import { FilesystemLocationsPanel } from "@/components/connections/FilesystemLocationsPanel";
 
 const TYPE_ICONS: Record<string, IconName> = {
   image: "image",
@@ -332,6 +333,7 @@ export function StoragePage() {
         </Button>
       </div>
 
+      <FilesystemLocationsPanel />
       {/* Stats */}
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard icon="db" label="存储后端" value="MinIO (S3)" />

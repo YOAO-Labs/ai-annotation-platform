@@ -31,6 +31,12 @@ import {
 } from "@/hooks/useDatasets";
 import { datasetsApi } from "@/api/datasets";
 import { ImportDatasetWizard } from "@/components/datasets/ImportDatasetWizard";
+import {
+  DirectoryReferencePanel,
+  ReferenceItemPreview,
+} from "@/components/datasets/DirectoryReferencePanel";
+import { useAuthStore } from "@/stores/authStore";
+import { CreateReferenceDatasetModal } from "@/components/datasets/CreateReferenceDatasetModal";
 import { LinkJobProgress } from "@/components/datasets/LinkJobProgress";
 import { StorageConnectionsPanel } from "@/components/connections/StorageConnectionsPanel";
 import { AxisConventionPicker } from "@/components/datasets/AxisConventionPicker";
@@ -197,6 +203,8 @@ function DatasetRow({
 }
 
 function DatasetDetail({ ds }: { ds: DatasetResponse }) {
+  const { role } = usePermissions();
+  const sessionId = useAuthStore((s) => s.sessionId);
   const itemPagination = useOffsetListPagination(ds.id);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [confirmUnlink, setConfirmUnlink] = useState<ProjectResponse | null>(null);
@@ -262,6 +270,9 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
     <tr className="block xl:table-row">
       <td colSpan={7} className="block border-b border-border p-0! whitespace-normal xl:table-cell">
         <div className="bg-background px-3 py-4 sm:px-5">
+          {role === "super_admin" && isImageDataset && !ds.is_temporal && (
+            <DirectoryReferencePanel key={`${ds.id}/${sessionId}`} datasetId={ds.id} />
+          )}
           <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(220px,1fr)]">
             {/* 文件列表 */}
             <div className="min-w-0">
@@ -385,6 +396,10 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
                                 height={32}
                               />
                               <span className="max-w-[240px] truncate">{item.file_name}</span>
+                              {role === "super_admin" &&
+                                item.metadata.storage_mode === "reference" && (
+                                  <ReferenceItemPreview filePath={item.file_path} />
+                                )}
                             </div>
                           </td>
                           <td className={ITEM_TD_CLASS}>
@@ -686,9 +701,11 @@ function UnlinkConfirmModal({
 const PAGE_TABS = ["数据集管理", "数据连接器"] as const;
 
 export function DatasetsPage() {
+  const referenceSession = useAuthStore((s) => s.sessionId);
   const [activeTab, setActiveTab] = useState<string>("数据集管理");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [showReferenceCreate, setShowReferenceCreate] = useState(false);
   const [showConnForm, setShowConnForm] = useState(false);
   const urlState = useUrlFilterState({
     codec: datasetsUrlCodec,
@@ -842,9 +859,14 @@ export function DatasetsPage() {
           <p className="text-sm text-muted-foreground">管理标注数据集，上传文件并关联到标注项目</p>
         </div>
         {activeTab === "数据集管理" && (
-          <Button variant="primary" onClick={() => setShowCreate(true)}>
-            <Icon name="plus" size={13} /> 新建数据集
-          </Button>
+          <div className="flex gap-2">
+            {role === "super_admin" && (
+              <Button onClick={() => setShowReferenceCreate(true)}>接入服务器目录</Button>
+            )}
+            <Button variant="primary" onClick={() => setShowCreate(true)}>
+              <Icon name="plus" size={13} /> 新建数据集
+            </Button>
+          </div>
         )}
         {activeTab === "数据连接器" && canManageConn && (
           <Button variant="primary" onClick={() => setShowConnForm(true)}>
@@ -859,6 +881,16 @@ export function DatasetsPage() {
       </div>
 
       {/* Create dataset wizard：新建数据集 + 上传/导入文件 */}
+      {showReferenceCreate && role === "super_admin" && (
+        <CreateReferenceDatasetModal
+          key={referenceSession}
+          onClose={() => setShowReferenceCreate(false)}
+          onCreated={(ds) => {
+            queryClient.invalidateQueries({ queryKey: ["datasets"] });
+            setExpandedId(ds.id);
+          }}
+        />
+      )}
       <ImportDatasetWizard
         open={showCreate}
         onClose={() => setShowCreate(false)}

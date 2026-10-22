@@ -807,8 +807,11 @@ export function useWorkbenchShellModel({
   const imageMediaKey = task?.dataset_item_id ?? task?.id ?? null;
   const blurhash = task?.blurhash ?? null;
   const thumbnailUrl = task?.thumbnail_url ?? null;
-  const { source: workbenchImageSource, retry: retryWorkbenchImagePyramid } =
-    useWorkbenchImageSource(task, imageMediaKey);
+  const {
+    source: workbenchImageSource,
+    retry: retryWorkbenchImagePyramid,
+    contentBlockedReason,
+  } = useWorkbenchImageSource(task, imageMediaKey);
   const workbenchImagePreview = workbenchImagePreviewUrl(workbenchImageSource);
   const isVideoTask = task?.file_type === "video" || currentProject?.type_key === "video-track";
   const stageKind = currentProject?.type_key === "lidar" ? "3d" : isVideoTask ? "video" : "image";
@@ -2759,6 +2762,7 @@ export function useWorkbenchShellModel({
   } = offlineQ;
 
   const isLockedForActions =
+    !!contentBlockedReason ||
     projectWriteBlocked ||
     sceneWriteBlocked ||
     (mode === "review"
@@ -4257,6 +4261,7 @@ export function useWorkbenchShellModel({
     [currentProject?.tool_bindings, toolView.attributeSchema],
   );
   const submitBlockedReason = useMemo(() => {
+    if (contentBlockedReason) return contentBlockedReason;
     if (!queueReady) return "正在检查本机待同步记录，请稍候";
     return resolveSubmitBlockedReason({
       pendingWrites: pendingAnnotationWrites,
@@ -4267,6 +4272,7 @@ export function useWorkbenchShellModel({
       syncError,
     });
   }, [
+    contentBlockedReason,
     hasPendingMaskDraft,
     imageActions.hasManualDraft,
     maskEditor.phase,
@@ -4417,7 +4423,7 @@ export function useWorkbenchShellModel({
   });
   const modeState = mode === "review" ? reviewModeState : annotateModeState;
   const { topbarActions, bannerActions } = modeState;
-  const isLocked = modeState.isLocked || sceneWriteBlocked;
+  const isLocked = modeState.isLocked || sceneWriteBlocked || !!contentBlockedReason;
   // 章节 × 时间轴联动控制器 (状态/handler 声明在前, 此处 isLocked 就绪后组装并 gate 编辑)。
   const canEditChapters = !isLocked && isOwner;
   const videoTimelineChapterControls = useMemo<VideoTimelineChapterControls | undefined>(() => {
@@ -5598,6 +5604,8 @@ export function useWorkbenchShellModel({
     banners: {
       mode,
       task,
+      contentBlockedReason,
+      onRetryContent: retryWorkbenchImagePyramid,
       lockError,
       lockConflict,
       claimInfo: modeState.claimInfo,

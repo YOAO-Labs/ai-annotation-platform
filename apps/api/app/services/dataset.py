@@ -37,6 +37,7 @@ from app.services.project_kind import (
 )
 from app.services.storage import TRUSTED_NUSCENES_PREFIX, storage_service
 from app.services.system_settings_service import SystemSettingsService
+from app.services.reference_keys import is_reference, PREFIX
 
 _STREAM_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024
 _IMAGE_HEAD_BYTES = 256 * 1024
@@ -49,7 +50,9 @@ log = logging.getLogger(__name__)
 
 def ensure_dataset_storage_name_is_writable(name: str) -> None:
     first_part = name.strip("/").split("/", 1)[0]
-    if first_part.startswith((TRUSTED_NUSCENES_PREFIX, MANAGED_DATASET_PREFIX)):
+    if first_part.startswith(
+        (TRUSTED_NUSCENES_PREFIX, MANAGED_DATASET_PREFIX, PREFIX.rstrip("/"))
+    ):
         raise HTTPException(
             status_code=422,
             detail="Dataset name uses a reserved storage namespace",
@@ -105,7 +108,22 @@ async def build_tasks_for_link(
     v0.13.1 · 点云项目（project.data_type == "lidar"）分流到 scene 感知建任务器：
     先写各相机标定，再按帧建 Task + 多文件 link（见 services/pointcloud_import.py）。
     """
+    await db.execute(
+        select(Dataset.id).where(Dataset.id == dataset_id).with_for_update()
+    )
     project = await db.get(Project, project_id)
+    if project and (project.data_type != "image" or project.scene_mode):
+        if await db.scalar(
+            select(DatasetItem.id)
+            .where(
+                DatasetItem.dataset_id == dataset_id,
+                DatasetItem.file_path.startswith(PREFIX, autoescape=True),
+            )
+            .limit(1)
+        ):
+            raise HTTPException(
+                409, detail={"code": "reference_requires_image_project"}
+            )
     if project and project.data_type == "lidar":
         from app.services.pointcloud_import import (
             attach_calibration,
@@ -152,6 +170,20 @@ async def build_tasks_for_link(
     last_pct = 0
     for start in range(0, total, chunk_size):
         chunk = items[start : start + chunk_size]
+        await db.execute(
+            select(Dataset.id).where(Dataset.id == dataset_id).with_for_update()
+        )
+        present = set(
+            await db.scalars(
+                select(Task.dataset_item_id).where(
+                    Task.project_id == project_id,
+                    Task.dataset_item_id.in_([i.id for i in chunk]),
+                )
+            )
+        )
+        chunk = [i for i in chunk if i.id not in present]
+        if not chunk:
+            continue
         seq_result = await db.execute(
             text("SELECT nextval('display_seq_tasks') FROM generate_series(1, :n)"),
             {"n": len(chunk)},
@@ -438,6 +470,10 @@ class DatasetService:
         out = []
         for item in items:
             d = _item_dict(item)
+            if is_reference(item.file_path):
+                d["file_url"] = None
+                out.append(d)
+                continue
             try:
                 d["file_url"] = storage_service.generate_download_url(
                     item.file_path,
@@ -701,6 +737,9 @@ class DatasetService:
         )
 
     async def enqueue_media_for_items(self, item_ids: list[uuid.UUID]) -> None:
+        from app.services.reference_access import reject_reference_scope
+
+        await reject_reference_scope(self.db, item_ids=item_ids)
         unique_item_ids = list(dict.fromkeys(item_ids))
         if not unique_item_ids:
             return
@@ -909,6 +948,9 @@ class DatasetService:
         > 阈值：不在本请求里建 task，改为创建 CREATE_TASKS async_job 并由 endpoint
         在 db.commit() 之后 enqueue。返回 LinkProjectResult 让 endpoint 决策。
         """
+        dataset = await self.db.scalar(
+            select(Dataset).where(Dataset.id == dataset_id).with_for_update()
+        )
         existing = (
             await self.db.execute(
                 select(ProjectDataset).where(
@@ -920,7 +962,6 @@ class DatasetService:
         if existing:
             return LinkProjectResult(link=existing)
 
-        dataset = await self.db.get(Dataset, dataset_id)
         project = await self.db.get(Project, project_id)
         if dataset is None or project is None:
             raise HTTPException(status_code=404, detail="Dataset or project not found")
@@ -986,6 +1027,9 @@ class DatasetService:
         `link_project` handles the initial backfill. This method covers the append path:
         upload / zip / scan can add new DatasetItem rows after a dataset is already linked.
         """
+        await self.db.execute(
+            select(Dataset.id).where(Dataset.id == dataset_id).with_for_update()
+        )
         unique_item_ids = list(dict.fromkeys(item_ids))
         if not unique_item_ids:
             return 0
@@ -1013,6 +1057,18 @@ class DatasetService:
         items = items_result.all()
         if not items:
             return 0
+        if any(is_reference(item.file_path) for item in items):
+            if await self.db.scalar(
+                select(Project.id)
+                .where(
+                    Project.id.in_(project_ids),
+                    (Project.data_type != "image") | Project.scene_mode.is_(True),
+                )
+                .limit(1)
+            ):
+                raise HTTPException(
+                    409, detail={"code": "reference_requires_image_project"}
+                )
 
         existing_rows = await self.db.execute(
             select(Task.project_id, Task.dataset_item_id).where(

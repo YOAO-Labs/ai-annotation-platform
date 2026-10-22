@@ -195,6 +195,10 @@ async def owner_for_task(db: AsyncSession, task: Task) -> ImagePyramidOwner:
 
 
 def owner_for_dataset_item(item: DatasetItem) -> ImagePyramidOwner:
+    from app.services.reference_keys import is_reference
+
+    if is_reference(item.file_path):
+        raise ImagePyramidError("reference_operation_not_supported")
     return ImagePyramidOwner(
         kind="dataset_item",
         id=item.id,

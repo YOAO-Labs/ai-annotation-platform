@@ -8,9 +8,11 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     String,
     Text,
+    UniqueConstraint,
     func,
     text,
 )
@@ -108,4 +110,30 @@ class DatasetScanEntry(Base):
         Index(
             "ix_dataset_scan_work", "run_id", "kind", "state", "validated_generation"
         ),
+    )
+
+
+class DatasetReference(Base):
+    """A business item permanently names one observed, verified content revision."""
+
+    __tablename__ = "dataset_references"
+
+    dataset_item_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("dataset_items.id", ondelete="CASCADE"), primary_key=True
+    )
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("dataset_sources.id", ondelete="RESTRICT"), index=True
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    path_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_revision: Mapped[int] = mapped_column(nullable=False)
+    location_revision: Mapped[int] = mapped_column(nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["run_id", "path_digest"],
+            ["dataset_scan_entries.run_id", "dataset_scan_entries.path_digest"],
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint("source_id", "path_digest", name="uq_reference_source_path"),
     )

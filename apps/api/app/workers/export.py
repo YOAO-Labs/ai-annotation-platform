@@ -527,6 +527,10 @@ async def _assert_export_task_scope(
     if ProjectCapability.EXPORT_ANNOTATIONS.value not in access.capabilities:
         raise ValueError("export capability is no longer valid")
 
+    from app.services.reference_access import reject_reference_scope
+
+    await reject_reference_scope(db, project_id=project_id, task_ids=task_ids)
+
     if task_ids is None:
         return
     if not task_ids:

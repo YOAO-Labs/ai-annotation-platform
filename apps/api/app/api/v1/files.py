@@ -88,6 +88,11 @@ async def get_file_url(
 
     await _assert_task_visible(db, task, current_user)
 
+    from app.services.reference_keys import is_reference
+
+    if is_reference(task.file_path):
+        raise HTTPException(409, detail={"code": "reference_requires_verified_content"})
+
     url = storage_service.generate_download_url(task.file_path)
     return TaskFileUrlResponse(url=url, expires_in=3600)
 

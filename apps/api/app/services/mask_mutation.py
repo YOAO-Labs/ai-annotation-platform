@@ -641,6 +641,9 @@ class MaskMutationService:
         self.db = db
 
     async def _lock_task(self, task_id: uuid.UUID) -> Task:
+        from app.services.reference_access import reject_reference_scope
+
+        await reject_reference_scope(self.db, task_ids=[task_id])
         task = (
             await self.db.execute(
                 select(Task).where(Task.id == task_id).with_for_update()

@@ -72,6 +72,7 @@ class DatasetScanEntryOut(BaseModel):
     state: str
     size_bytes: int | None
     content_verified: bool = False
+    registered_item_id: uuid.UUID | None = None
     verified_content: dict | None = None
 
 
@@ -86,3 +87,9 @@ class VerifiedScanContent(BaseModel):
 class DatasetScanEntryList(BaseModel):
     items: list[DatasetScanEntryOut]
     total: int
+
+
+class RegisteredReferenceOut(BaseModel):
+    item_id: uuid.UUID
+    created: bool
+    sha256: str
