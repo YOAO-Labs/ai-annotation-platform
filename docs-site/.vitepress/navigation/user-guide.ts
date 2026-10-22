@@ -1,6 +1,6 @@
 import type { DefaultTheme } from "vitepress";
 
-// 侧栏按「任务流程」组织；物理目录继续按稳定产品归属维护。
+// Organize the sidebar by user workflow, with online learning as a dedicated chapter.
 export const userGuideSidebar: DefaultTheme.SidebarItem[] = [
   {
     text: "开始使用",
@@ -32,8 +32,6 @@ export const userGuideSidebar: DefaultTheme.SidebarItem[] = [
       { text: "Data Manager", link: "/user-guide/projects/data-manager" },
       { text: "批次与分配", link: "/user-guide/projects/batch" },
       { text: "AI 预标注", link: "/user-guide/projects/ai-preannotate" },
-      { text: "在线学习与模型训练", link: "/user-guide/projects/online-learning" },
-      { text: "训练模型回流与发布", link: "/user-guide/projects/model-return" },
       { text: "全局编排库", link: "/user-guide/projects/pipeline-library" },
       { text: "ML 后端绑定", link: "/user-guide/projects/ml-backends" },
       { text: "项目模板", link: "/user-guide/projects/project-templates" },
@@ -85,14 +83,32 @@ export const userGuideSidebar: DefaultTheme.SidebarItem[] = [
     collapsed: true,
     items: [
       { text: "AI 能力总览", link: "/user-guide/ai/" },
-      { text: "当前题 AI 与二次推理", link: "/user-guide/ai/current-task-inference" },
+      { text: "单图／单帧 AI 与二次推理", link: "/user-guide/ai/current-task-inference" },
       { text: "审阅 AI 候选", link: "/user-guide/ai/candidate-review" },
       { text: "交互式智能工具 (SAM)", link: "/user-guide/workbench/sam-tool" },
       { text: "批量与多阶段预标", link: "/user-guide/projects/ai-preannotate" },
-      { text: "在线学习与模型训练", link: "/user-guide/projects/online-learning" },
-      { text: "训练模型回流与发布", link: "/user-guide/projects/model-return" },
       { text: "视频 AI 追踪", link: "/user-guide/workbench/video-propagate" },
       { text: "失败预测恢复", link: "/user-guide/workflows/failed-prediction-recovery" },
+    ],
+  },
+  {
+    text: "在线学习",
+    collapsed: false,
+    items: [
+      { text: "在线学习总览", link: "/user-guide/online-learning/" },
+      { text: "完成第一轮与第二轮", link: "/user-guide/online-learning/quick-start" },
+      { text: "训练数据版本", link: "/user-guide/online-learning/data-versions" },
+      { text: "创建与管理实验", link: "/user-guide/online-learning/experiments" },
+      { text: "训练配置与复用", link: "/user-guide/online-learning/configuration" },
+      { text: "Ultralytics 训练容器", link: "/user-guide/online-learning/ultralytics" },
+      { text: "LibreYOLO 训练容器", link: "/user-guide/online-learning/libreyolo" },
+      { text: "训练监控与指标", link: "/user-guide/online-learning/metrics" },
+      { text: "实验比较与参数搜索", link: "/user-guide/online-learning/comparison" },
+      { text: "模型回流与默认预标", link: "/user-guide/online-learning/models" },
+      { text: "逐样本评估", link: "/user-guide/online-learning/sample-evaluation" },
+      { text: "自动训练策略", link: "/user-guide/online-learning/automation" },
+      { text: "主动学习选样", link: "/user-guide/online-learning/active-learning" },
+      { text: "常见问题与能力边界", link: "/user-guide/online-learning/troubleshooting" },
     ],
   },
   {

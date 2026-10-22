@@ -55,15 +55,22 @@ export function TrainingParameterField({
   return (
     <div className="min-w-0 border-b border-border py-3 last:border-b-0">
       <div className="mb-1.5 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <label
-            id={`${id}-label`}
-            htmlFor={value.kind === "scalar" ? id : undefined}
-            className="text-xs font-medium"
-          >
-            {field.label}
-          </label>
-          <code className="ml-2 break-all text-2xs text-muted-foreground">{field.key}</code>
+        <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-1">
+          <div className="min-w-0">
+            <label
+              id={`${id}-label`}
+              htmlFor={value.kind === "scalar" ? id : undefined}
+              className="text-xs font-medium"
+            >
+              {field.label}
+            </label>
+            <code className="ml-2 break-all text-2xs text-muted-foreground">{field.key}</code>
+          </div>
+          <p id={`${id}-help`} className="min-w-0 text-2xs leading-relaxed text-muted-foreground">
+            {describeRule(rules)} · 默认 {trainingValueLabel(field.default)}
+            {JSON.stringify(field.default) !== JSON.stringify(field.native_default) &&
+              ` · 原生默认 ${trainingValueLabel(field.native_default)}`}
+          </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {changed && <span className="text-xs text-primary">已修改</span>}
@@ -189,11 +196,6 @@ export function TrainingParameterField({
           onChange={(event) => onChange({ kind: "scalar", text: event.target.value })}
         />
       )}
-      <p id={`${id}-help`} className="mt-1.5 text-2xs leading-relaxed text-muted-foreground">
-        {describeRule(rules)} · 默认 {trainingValueLabel(field.default)}
-        {JSON.stringify(field.default) !== JSON.stringify(field.native_default) &&
-          ` · 原生默认 ${trainingValueLabel(field.native_default)}`}
-      </p>
       {error && (
         <p id={`${id}-error`} role="alert" className="mt-1 text-xs text-status-danger">
           {error}

@@ -1,9 +1,12 @@
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Layers } from "lucide-react";
-import { modelMetrics, type TrainedModelOut } from "@/api/trainedModels";
+import { modelMetrics, record, type ModelTask, type TrainedModelOut } from "@/api/trainedModels";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { listStyles } from "@/components/ui/listStyles";
 import { TrainingError, TrainingLoading } from "../Training/TrainingFeedback";
+import { trainingTaskOf } from "../Training/trainingPresentation";
 import {
   TrainingListControls,
   TrainingListPagination,
@@ -24,9 +27,15 @@ export function ProjectModelList({
   onRetry,
   page,
   onPage,
+  pageSize,
+  onPageSize,
   params,
-  lineageHref,
   onRegister,
+  onSetDefault,
+  task,
+  taskFilter,
+  defaultPreannotation,
+  children,
 }: {
   projectId: string;
   filters: TrainingListFilters;
@@ -40,74 +49,141 @@ export function ProjectModelList({
   onRetry: () => void;
   page: number;
   onPage: (page: number) => void;
+  pageSize: number;
+  onPageSize: (size: number) => void;
   params: URLSearchParams;
-  lineageHref: (id: string) => string;
   onRegister: () => void;
+  onSetDefault: (modelId: string, trigger: HTMLButtonElement) => void;
+  task: ModelTask | "all";
+  taskFilter: ReactNode;
+  defaultPreannotation?: {
+    modelId: string | null | undefined;
+    loading: boolean;
+    pending: boolean;
+    onDisable: (modelId: string) => void;
+  };
+  children?: ReactNode;
 }) {
-  const filtered = archive !== "exclude" || Object.values(filters).some(Boolean);
+  const taskFiltered = !!filters.task && task !== "all";
+  const filtered =
+    archive !== "exclude" ||
+    taskFiltered ||
+    Object.entries(filters).some(([key, value]) => key !== "task" && !!value);
+  const modelParams = new URLSearchParams(params);
+  modelParams.set("model_task", task);
   return (
     <section
-      aria-label="候选模型"
+      aria-label="模型列表"
       className="mt-5 min-w-0 overflow-hidden rounded-xl border border-border bg-card"
     >
       <TrainingListControls
         kind="模型"
-        filters={filters}
+        filters={{ ...filters, task: "" }}
         onChange={onChange}
         onReset={onReset}
-        hasExtraFilters={archive !== "exclude"}
+        hasExtraFilters={archive !== "exclude" || taskFiltered}
       >
+        {taskFilter}
         <select
-          aria-label="候选显示范围"
+          aria-label="模型显示范围"
           className="min-w-0 rounded-md border border-border bg-background px-2.5 py-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           value={archive}
           onChange={(event) => onArchive(event.target.value)}
         >
-          <option value="exclude">默认候选（保留当前发布）</option>
-          <option value="include">全部候选，包含归档</option>
-          <option value="only">仅已归档候选</option>
+          <option value="exclude">未归档及默认模型</option>
+          <option value="include">全部模型，包含归档</option>
+          <option value="only">仅已归档模型</option>
         </select>
       </TrainingListControls>
+      {defaultPreannotation?.loading && (
+        <p role="status" className="px-3 pb-3 text-xs text-muted-foreground">
+          正在读取默认预标设置…
+        </p>
+      )}
       {error ? (
         <TrainingError message={error} onRetry={onRetry} />
       ) : loading ? (
-        <TrainingLoading label="正在加载候选模型…" />
+        <TrainingLoading label="正在加载模型列表…" />
       ) : models && models.items.length > 0 ? (
-        <div className="overflow-x-auto">
-          <table className="w-full whitespace-nowrap text-left text-xs">
+        <div className="overflow-x-auto border-t border-border">
+          <table className={listStyles.table}>
             <thead className="bg-muted/40 text-2xs text-muted-foreground">
               <tr>
-                {["模型名称", "状态", "框架", "类别", "mAP50-95", "创建时间", "操作"].map(
-                  (title) => (
-                    <th key={title} scope="col" className="px-4 py-3 font-medium">
-                      {title}
-                    </th>
-                  ),
-                )}
+                {[
+                  "模型名称",
+                  "型号",
+                  "类型",
+                  "状态",
+                  "框架",
+                  "类别",
+                  task === "segment" ? "掩码 mAP50-95" : "mAP50-95",
+                  "创建时间",
+                ].map((title) => (
+                  <th key={title} scope="col" className="px-4 py-3 font-medium">
+                    {title}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {models.items.map((model) => {
+                const modelTask = trainingTaskOf({ task: model.task ?? model.provenance.task });
+                const baseModel = model.provenance.base_model;
+                const modelSpec = typeof baseModel === "string" ? baseModel : record(baseModel).id;
+                const isDefault =
+                  !defaultPreannotation || defaultPreannotation.loading
+                    ? !!model.is_current_release
+                    : model.id === defaultPreannotation.modelId;
                 const metrics = modelMetrics(model);
-                const score = metrics["metrics/mAP50-95(B)"] ?? metrics["metrics/mAP50-95"];
+                const score =
+                  modelTask === "segment"
+                    ? metrics["metrics/mAP50-95(M)"]
+                    : (metrics["metrics/mAP50-95(B)"] ?? metrics["metrics/mAP50-95"]);
                 return (
                   <tr key={model.id} className="hover:bg-muted/20">
                     <td className="px-4 py-3">
                       <Link
                         className="block max-w-64 truncate font-medium text-primary hover:underline"
                         title={model.name}
-                        to={trainingRecordPath(projectId, "models", model.id, params)}
+                        to={trainingRecordPath(projectId, "models", model.id, modelParams)}
                       >
                         {model.name}
                       </Link>
                     </td>
+                    <td className="px-4 py-3 font-mono">
+                      {typeof modelSpec === "string" && modelSpec.trim() ? modelSpec : "—"}
+                    </td>
                     <td className="px-4 py-3">
-                      <span className="flex gap-1">
-                        {model.is_current_release && <Badge variant="success">当前发布</Badge>}
+                      {modelTask === "segment" ? "实例分割" : "目标检测"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="flex flex-wrap items-center gap-2">
+                        {isDefault && <Badge variant="success">默认预标</Badge>}
                         {model.archived ? (
                           <Badge>已归档</Badge>
                         ) : (
-                          !model.is_current_release && <Badge>候选</Badge>
+                          !isDefault && <Badge>已注册</Badge>
+                        )}
+                        {isDefault && defaultPreannotation && (
+                          <Button
+                            size="xs"
+                            variant="ghost"
+                            className="text-muted-foreground hover:text-foreground"
+                            disabled={defaultPreannotation.pending}
+                            onClick={() => defaultPreannotation.onDisable(model.id)}
+                          >
+                            停用默认预标
+                          </Button>
+                        )}
+                        {!isDefault && (
+                          <Button
+                            size="xs"
+                            variant="ghost"
+                            className="text-muted-foreground hover:text-foreground"
+                            onClick={(event) => onSetDefault(model.id, event.currentTarget)}
+                          >
+                            设为默认预标
+                          </Button>
                         )}
                       </span>
                     </td>
@@ -121,11 +197,6 @@ export function ProjectModelList({
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
                       {new Date(model.created_at).toLocaleString("zh-CN", { hour12: false })}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Link className="text-primary hover:underline" to={lineageHref(model.id)}>
-                        来源与使用记录
-                      </Link>
                     </td>
                   </tr>
                 );
@@ -141,13 +212,13 @@ export function ProjectModelList({
               {filtered
                 ? "没有符合筛选条件的模型"
                 : page > 0
-                  ? "当前页没有候选模型"
+                  ? "当前页没有模型"
                   : "尚未注册模型版本"}
             </h3>
             <p className="mt-2 text-xs text-muted-foreground">
               {filtered
-                ? "调整筛选条件，或重置后查看全部候选。"
-                : "成功训练后注册权重，完成评估与加载试用，再由负责人发布。"}
+                ? "调整筛选条件，或重置后查看全部模型。"
+                : "成功训练后注册权重，完成评估与加载试用后，可设置对应类型的默认预标模型。"}
             </p>
             <Button
               size="sm"
@@ -166,7 +237,10 @@ export function ProjectModelList({
         total={models?.total ?? 0}
         pending={loading || !!error}
         onPage={onPage}
+        pageSize={pageSize}
+        onPageSize={onPageSize}
       />
+      {children}
     </section>
   );
 }

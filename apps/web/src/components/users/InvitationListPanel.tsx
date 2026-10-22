@@ -1,3 +1,5 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
 import { FilterGroup, FilterSelect, FilterToggle } from "@/components/filters/FilterControls";
 import { FilterPanel } from "@/components/filters/FilterPanel";
 import { FilterTrigger } from "@/components/filters/FilterTrigger";
@@ -60,6 +62,7 @@ export function InvitationListPanel() {
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const scope = role === "super_admin" ? filters.scope : "me";
   const page = filters.page;
+  const [pageSize, setPageSize] = useState(20);
 
   useEffect(() => {
     if (lastUrlQuery.current === filters.q) return;
@@ -96,11 +99,16 @@ export function InvitationListPanel() {
     }),
     [filters.projectId, filters.q, filters.role, filters.status, scope],
   );
-  const query = useInvitationPage({ ...appliedFilters, page, page_size: 25 });
+  const query = useInvitationPage({ ...appliedFilters, page, page_size: pageSize });
   const statsQuery = useInvitationStats(appliedFilters);
   const { data: projects = [] } = useProjects();
   const invites = query.data?.items ?? [];
   const stats = statsQuery.data;
+  useEffect(() => {
+    if (!query.data || query.isFetching) return;
+    const lastPage = Math.max(1, Math.ceil(query.data.total / pageSize));
+    if (page > lastPage) patch({ page: lastPage }, { replace: true });
+  }, [query.data, query.isFetching, pageSize, page, patch]);
   const revoke = useRevokeInvitation();
   const resend = useResendInvitation();
   const sendEmail = useSendInvitationEmail();
@@ -361,7 +369,7 @@ export function InvitationListPanel() {
         </label>
       )}
       <div className={styles.tableScroller}>
-        <table className={styles.table}>
+        <table className={`${styles.table} ${listStyles.table}`}>
           <thead>
             <tr>
               {["邮箱", "角色", "数据组", "项目", "状态", "邀请人", "过期时间", "操作"].map(
@@ -471,29 +479,18 @@ export function InvitationListPanel() {
           </tbody>
         </table>
       </div>
-      {query.data && query.data.pages > 1 && (
-        <div className="flex items-center justify-between border-t border-border px-4 py-3 text-xs text-muted-foreground">
-          <span>
-            第 {query.data.page} / {query.data.pages} 页 · 共 {query.data.total} 条
-          </span>
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              disabled={page <= 1}
-              onClick={() => patch({ page: Math.max(1, page - 1) }, { replace: false })}
-            >
-              上一页
-            </Button>
-            <Button
-              size="sm"
-              disabled={page >= query.data.pages}
-              onClick={() => patch({ page: page + 1 }, { replace: false })}
-            >
-              下一页
-            </Button>
-          </div>
-        </div>
-      )}
+      <ListPagination
+        label="邀请"
+        page={page - 1}
+        pageSize={pageSize}
+        total={query.data?.total ?? 0}
+        loading={query.isLoading}
+        onPageChange={(next) => patch({ page: next + 1 }, { replace: false })}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          patch({ page: 1 }, { replace: false });
+        }}
+      />
     </div>
   );
 }

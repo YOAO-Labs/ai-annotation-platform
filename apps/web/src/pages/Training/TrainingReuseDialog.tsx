@@ -1,3 +1,4 @@
+import { listStyles } from "@/components/ui/listStyles";
 import { CopyableError } from "@/components/ui/CopyableError";
 import type { ReusableSnapshot, TrainingReuseCandidate } from "@/api/trainingRecipes";
 import { Modal } from "@/components/ui/Modal";
@@ -110,7 +111,7 @@ export function TrainingReuseDialog({
             : "当前尚无完整配置；以下为来源的全部生效参数。"}
         </p>
         <div className="max-h-72 overflow-auto rounded-md border border-border">
-          <table className="w-full text-left text-xs">
+          <table className={listStyles.table}>
             <thead>
               <tr className="border-b border-border">
                 <th scope="col" className="p-2">

@@ -73,6 +73,7 @@ it("preserves native segment selector keys without activating overflow menu acti
       onSubmit={vi.fn()}
       onSmartNextOpen={onSmartNextOpen}
       videoSegments={[]}
+      activeVideoSegmentId="segment-1"
       onSelectVideoSegment={onSelectVideoSegment}
     />,
   );
@@ -80,6 +81,7 @@ it("preserves native segment selector keys without activating overflow menu acti
   fireEvent.click(trigger);
   const menu = screen.getByRole("menu");
   const select = within(menu).getByRole("combobox", { name: "当前视频分段" });
+  expect(within(select).getByRole("option", { name: "退出当前分段" })).toBeEnabled();
   select.focus();
   for (const key of ["ArrowDown", "ArrowUp", "Home", "End", "Enter", " "]) {
     expect(fireEvent.keyDown(select, { key })).toBe(true);
@@ -103,7 +105,80 @@ it("preserves native segment selector keys without activating overflow menu acti
 });
 
 describe("Topbar · AI 工具入口", () => {
-  it("将 AI 追踪放在 AI 单题左侧，并复用同一按钮样式", () => {
+  it("updates the inference scope when switching between image and video tasks", () => {
+    const props: ComponentProps<typeof Topbar> = {
+      projectName: "测试",
+      projectDisplayId: "P-1",
+      task: undefined,
+      taskIdx: 0,
+      taskTotal: 1,
+      aiRunning: false,
+      isSubmitting: false,
+      onShowHotkeys: vi.fn(),
+      onPrev: vi.fn(),
+      onNext: vi.fn(),
+      onSubmit: vi.fn(),
+      onRunAi: vi.fn(),
+    };
+    const { rerender } = render(<Topbar {...props} />);
+    const button = screen.getByTestId("workbench-ai-single");
+    expect(button).toHaveTextContent("单图");
+    expect(button).toHaveAccessibleName("单图");
+    expect(button).toHaveAttribute("title", "打开单图 AI 面板，对当前图片运行 AI");
+    rerender(<Topbar {...props} isVideoTask />);
+    expect(button).toHaveTextContent("单帧");
+    expect(button).toHaveAccessibleName("单帧");
+    expect(button).toHaveAttribute("title", "打开单帧 AI 面板，对当前帧运行 AI");
+    rerender(<Topbar {...props} isVideoTask aiOpen />);
+    expect(button).toHaveAttribute("title", "聚焦单帧 AI 面板");
+  });
+
+  it("keeps unavailable AI entries visible, explains why, and blocks clicks", () => {
+    const onRunAi = vi.fn();
+    const onToggleTracker = vi.fn();
+    const props = {
+      projectName: "测试",
+      projectDisplayId: "P-1",
+      task: undefined,
+      taskIdx: 0,
+      taskTotal: 1,
+      aiRunning: false,
+      isSubmitting: false,
+      onShowHotkeys: vi.fn(),
+      onPrev: vi.fn(),
+      onNext: vi.fn(),
+      onSubmit: vi.fn(),
+      onRunAi,
+      onToggleTracker,
+    };
+    const reason = "项目尚未接入 AI 后端";
+    const { rerender } = render(
+      <Topbar
+        {...props}
+        aiDisabled
+        trackerDisabled
+        aiDisabledReason={reason}
+        trackerDisabledReason={reason}
+      />,
+    );
+    for (const name of ["单图", "追踪"]) {
+      const button = screen.getByRole("button", { name });
+      expect(button).toBeVisible();
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("title", reason);
+      expect(button).toHaveAttribute("aria-description", reason);
+      fireEvent.click(button);
+    }
+    expect(onRunAi).not.toHaveBeenCalled();
+    expect(onToggleTracker).not.toHaveBeenCalled();
+    rerender(<Topbar {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "追踪" }));
+    fireEvent.click(screen.getByRole("button", { name: "单图" }));
+    expect(onToggleTracker).toHaveBeenCalledOnce();
+    expect(onRunAi).toHaveBeenCalledOnce();
+  });
+
+  it("将 AI 追踪放在 单图左侧，并复用同一按钮样式", () => {
     const onToggleTracker = vi.fn();
     const onRunAi = vi.fn();
 
@@ -141,7 +216,7 @@ describe("Topbar · AI 工具入口", () => {
     expect(tracker.nextElementSibling).toBe(single);
     expect(tracker.className).toBe(single.className);
     expect(tracker).toHaveAttribute("aria-pressed", "true");
-    expect(tracker).toHaveAccessibleName("发现新目标");
+    expect(tracker).toHaveAccessibleName("追踪");
     expect(tracker).toHaveAttribute("title", "聚焦画布级多目标追踪");
     expect(single).toHaveAttribute("aria-pressed", "false");
 

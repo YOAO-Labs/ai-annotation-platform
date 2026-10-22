@@ -191,7 +191,7 @@ POST /api/v1/projects/:id/preannotate
 
 导出按调用人的可见任务范围校验，接受 `targets` 和已有导出选项，返回 202 与持久化 `job_id`。暂不支持 `voc`、`coco-multicamera`、`kitti`、`nuscenes`、`pointmask` 的局部任务范围，也不能混用视频局部范围参数。
 
-预标注保留原项目/批次入口；显式 `task_ids` 必须非空且最多 200 项，不能用空数组表示整个项目。默认（`execution_scope: "bulk"`，数据管理批量路径）所选任务必须属于项目、满足给定批次、处于 pending，批次为 active 且未被管理锁定，任务没有编辑锁。工作台「当前题 AI」传 `execution_scope: "workbench"` 与单个 `task_ids`，按当前用户对该题的编辑语义校验：允许 pending / in_progress / rejected 任务与 draft 批次，但批次管理员锁、任一他人编辑锁以及 uploading / review / completed 任务仍被拒绝（不接受 `batch_id`），拒绝原因返回中文提示。工作台请求也会在派发前预建持久化作业，即使工作进程在推理前的复校验中拒绝，也能查到失败终态而不是一直等待。
+预标注保留原项目/批次入口；显式 `task_ids` 必须非空且最多 200 项，不能用空数组表示整个项目。默认（`execution_scope: "bulk"`，数据管理批量路径）所选任务必须属于项目、满足给定批次、处于 pending，批次为 active 且未被管理锁定，任务没有编辑锁。工作台「单图 AI」传 `execution_scope: "workbench"` 与单个 `task_ids`，按当前用户对该题的编辑语义校验：允许 pending / in_progress / rejected 任务与 draft 批次，但批次管理员锁、任一他人编辑锁以及 uploading / review / completed 任务仍被拒绝（不接受 `batch_id`），拒绝原因返回中文提示。工作台请求也会在派发前预建持久化作业，即使工作进程在推理前的复校验中拒绝，也能查到失败终态而不是一直等待。
 
 导出与预标注可携带 `Idempotency-Key`（1–128 字符）。相同调用人、项目、动作及 key 复用作业；相同 key 配不同请求返回 409。工作进程再次检查作业、项目、任务范围与调用人权限；按 task ID 加载，不将局部选择扩大为整批。
 
@@ -239,7 +239,19 @@ GET /api/v1/dashboard?view=projects        # 超管看全部
 
 ## 开工状态
 
+工作列表分别通过 `GET /api/v1/dashboard/annotator/batches` 和 `GET /api/v1/dashboard/reviewer/batches` 读取本人可进入的标注／审核批次，支持 `limit`（默认 100，1–200）与 `offset`（默认 0）。响应保持批次数组，先应用成员、任务可见性与状态条件，再以时间、批次 ID 稳定分页。概览接口中的有界摘要继续保留原口径；需要完整列表时应逐页读取专用批次接口。
+
 - `GET /api/v1/projects/{project_id}/readiness`：项目负责人或超管读取真实数据、任务创建作业、非空批次及有效成员和分派状态。空批次不算可执行；停用账号或角色不匹配的成员不算有效接收人。
 - `GET /api/v1/dashboard/annotator/projects/{project_id}/onboarding`：当前用户在可见项目内的分派、访问、有效标注和审核结果计数，`reviewed_task_id` 指向最近产生审核结果的本人任务；reviewed_task_display_id、reviewed_task_status 和 reviewed_task_reason 可直接展示审核结论。分派计数只包含当前可进入的任务，历史结果不依赖任务仍可编辑。等待审核的任务不计入审核结果。
 
 清单的跳过与指南确认继续通过个人偏好接口持久化，按项目和指南版本隔离。
+
+## 项目可用模型目录
+
+`GET /api/v1/projects/:id/model-catalog` 要求项目可见，返回已授权的模型摘要、类别来源、合法规格、部署状态和操作原因。普通成员看不到未发布的候选，能查看目录不代表能批量预标或管理模型。
+
+`GET /api/v1/model-catalog` 仅管理员可用；项目管理员仅聚合自己管理的项目，超管可查看全部。两条接口支持 `project_id`（全局接口）、`task`、`source`、`status`、`q`、`page` 和 `page_size`（最多 200），返回 `items/total/projects/current_release/task_counts`。使用 `Cache-Control: private, no-store`；不返回下载地址、实例 URL、Token 或安装密钥。
+
+目录 ID 是发现用标识；执行仍提交 `model_id` 与 `model_variants`，包括 `trained:<uuid>`、检测 `project-release` 或分割 `project-release:segment`，不能由客户端构造冻结部署身份。训练模型普通执行须已发布且未归档；Ultralytics 图片检测可作整图根和 crop 检测子阶段；受控 `yolo11n-seg` 实例分割只允许整图源阶段。目录以 `current_releases` 分别投影检测和分割的当前发布，同时保留检测兼容字段 `current_release`。
+
+显式管线和受控模型提交创建持久执行快照，每阶段冻结模型、参数、原生过滤和项目父类过滤。快照最多 1 MiB；旧无快照单阶段重试上下文仍限制 8 KiB。失败项重试复用原快照，缺失／摘要不符时明确失败，不回退到最新发布。普通批跑要求项目管理权限；`execution_scope=workbench` 要求当前项目标注权限及有效任务分派。

@@ -3,6 +3,7 @@
 import asyncio
 import time
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import func, select
@@ -142,14 +143,28 @@ async def list_rounds(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    task: Literal["detect", "segment"] | None = None,
 ) -> dict:
-    total = await db.scalar(
-        select(func.count()).select_from(Round).where(Round.project_id == project.id)
-    )
+    predicates = [Round.project_id == project.id]
+    if task is not None:
+        aliases = (
+            [
+                "segment",
+                "segmentation",
+                "image-instance-segmentation",
+                "instance-segmentation",
+            ]
+            if task == "segment"
+            else ["detect", "detection", "image-detection"]
+        )
+        predicates.append(
+            func.coalesce(Round.spec["model_ref"]["task"].astext, "detect").in_(aliases)
+        )
+    total = await db.scalar(select(func.count()).select_from(Round).where(*predicates))
     rows = (
         await db.scalars(
             select(Round)
-            .where(Round.project_id == project.id)
+            .where(*predicates)
             .order_by(Round.created_at.desc(), Round.id.desc())
             .limit(limit)
             .offset(offset)
@@ -312,7 +327,13 @@ async def decisions(
             .offset(offset)
         )
     ).all()
-    return {"items": [service.decision_output(row) for row in rows]}
+    total = await db.scalar(
+        select(func.count()).select_from(Decision).where(Decision.round_id == round.id)
+    )
+    return {
+        "items": [service.decision_output(row) for row in rows],
+        "total": total or 0,
+    }
 
 
 @router.post("/{round_id}/decisions", dependencies=WRITE)
@@ -357,7 +378,10 @@ async def feedback_list(
             .offset(offset)
         )
     ).all()
-    return {"items": [feedback.output(row) for row in rows]}
+    total = await db.scalar(
+        select(func.count()).select_from(Feedback).where(Feedback.round_id == round.id)
+    )
+    return {"items": [feedback.output(row) for row in rows], "total": total or 0}
 
 
 @router.post("/{round_id}/feedback", dependencies=WRITE)

@@ -1,3 +1,4 @@
+import { listStyles } from "@/components/ui/listStyles";
 import { FilterGroup, FilterToggle } from "@/components/filters/FilterControls";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -368,7 +369,7 @@ export function AdminProjectsDashboard() {
         </div>
       </div>
 
-      <div className="mb-5 grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard
           icon="layers"
           label="任务总量"
@@ -485,7 +486,7 @@ export function AdminProjectsDashboard() {
           )
         ) : (
           <div className="w-full overflow-x-auto [overscroll-behavior-x:contain]">
-            <table className="w-full min-w-[1040px] border-separate border-spacing-0 text-sm">
+            <table className={`${listStyles.table} min-w-[1040px]`}>
               <thead>
                 <tr>
                   {["项目", "负责人", "进度", "AI 模型", "状态", "截止 / 更新", ""].map((h, i) => (

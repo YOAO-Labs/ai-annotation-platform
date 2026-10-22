@@ -68,7 +68,7 @@ async def preview(db, client, owner, *, boxes=1, create=True):
     )
     await db.flush()
     assert await service.claim(db, claim_body()) is None
-    schema = definition("ultralytics", "yolo11n")
+    schema = definition("ultralytics", "yolo11n", version="8.4.177")
     body = dict(
         dataset_id=str(dataset.id),
         framework="ultralytics",
@@ -271,6 +271,10 @@ async def test_create_is_frozen_idempotent_scoped_and_blocks_dataset_delete(
     httpx_client,
     training_config,
 ):
+    training_leases_before = {
+        lease.resource_id: lease.attempt_id
+        for lease in (await db_session.scalars(select(TrainingResourceLease))).all()
+    }
     row, path, headers, body = await preview(db_session, httpx_client, super_admin)
     frozen = copy.deepcopy(row.spec)
     repeated = await httpx_client.post(path, headers=headers, json=body)
@@ -296,7 +300,10 @@ async def test_create_is_frozen_idempotent_scoped_and_blocks_dataset_delete(
             f"/api/v1/projects/{other.id}/training-previews/{row.id}", headers=headers
         )
     ).status_code == 404
-    assert not (await db_session.scalars(select(TrainingResourceLease))).all()
+    assert {
+        lease.resource_id: lease.attempt_id
+        for lease in (await db_session.scalars(select(TrainingResourceLease))).all()
+    } == training_leases_before
 
 
 async def test_claim_replay_fences_lost_boot_and_keeps_cpu_until_exit(
@@ -599,7 +606,7 @@ async def test_slow_expired_storage_cleanup_does_not_block_active_cpu_heartbeat(
         )
         await seed.flush()
         await service.claim(seed, claim_body())
-        schema = definition("ultralytics", "yolo11n")
+        schema = definition("ultralytics", "yolo11n", version="8.4.177")
         body = TrainingPreviewCreate(
             dataset_id=dataset.id,
             framework="ultralytics",

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models.project import Project
+from app.db.models.trained_model import TrainedModelVersion
 from app.db.models.training_run import (
     TrainingAttempt,
     TrainingEvent,
@@ -31,6 +32,7 @@ from app.schemas.training_run import (
     TrainingRunOut,
     TrainingRunDetail,
     TrainingEvaluationOut,
+    TrainingRegisteredModel,
 )
 from app.schemas.training_hub import TrainingParameterSchema
 from app.schemas.training_initialization import TrainingInitializationEligibility
@@ -98,6 +100,9 @@ async def catalog(
         and lease.last_seen_at > service.now() - timedelta(seconds=30)
     )
     result["busy"] = bool(lease and lease.attempt_id)
+    service.annotate_readiness(
+        result, lease.runtime if lease else {}, online=result["online"]
+    )
     result["initialization_policy_digest"] = (
         lease.runtime.get("initialization_policy_digest") if lease else None
     )
@@ -150,7 +155,7 @@ async def parameter_schema(
     ):
         raise HTTPException(status_code=422, detail="基础权重不在当前受控目录中")
     try:
-        return definition(framework, base_model)
+        return definition(framework, base_model, version=template["version"])
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -290,9 +295,27 @@ async def get_run(
             .order_by(TrainingAttempt.ordinal.desc())
         )
     ).all()
+    registered_models = (
+        await db.execute(
+            select(
+                TrainedModelVersion.id,
+                TrainedModelVersion.attempt_id,
+                TrainedModelVersion.name,
+            )
+            .where(
+                TrainedModelVersion.project_id == project.id,
+                TrainedModelVersion.run_id == run.id,
+            )
+            .order_by(TrainedModelVersion.created_at, TrainedModelVersion.id)
+        )
+    ).all()
     return {
         "run": TrainingRunOut.model_validate(run).model_dump(mode="json"),
         "registration_eligibility": registration_eligibility(run.config),
+        "registered_models": [
+            TrainingRegisteredModel.model_validate(model).model_dump(mode="json")
+            for model in registered_models
+        ],
         "attempts": [
             TrainingAttemptOut.model_validate(attempt).model_dump(mode="json")
             for attempt in attempts

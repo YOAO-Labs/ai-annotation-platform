@@ -1,7 +1,8 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/shadcn/ui/tabs";
-import { Button } from "@/components/ui/Button";
 import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { trainingInputClass } from "./TrainingParameterField";
 import { TrainingMetricChart } from "./TrainingMetricChart";
@@ -25,8 +26,7 @@ import {
 const valueLabel = (value: number | null | undefined) => (value == null ? "—" : value.toFixed(4));
 const name = (e: ComparisonExperiment) =>
   `${e.run?.name ?? "不可用实验"} · 执行 #${e.attempt?.ordinal ?? "?"}`;
-const tableClass =
-  "w-full text-left text-xs [&_th]:px-3 [&_th]:py-3 [&_th]:font-medium [&_td]:px-3 [&_td]:py-3 [&_td]:align-top [&_tr]:border-b [&_tr]:border-border";
+const tableClass = listStyles.table;
 const classMetrics = (e: ComparisonExperiment) => {
   const keys = ["precision", "recall", "mAP50", "mAP50-95"];
   return e.report?.descriptor?.evaluator.task === "instance-segmentation" ||
@@ -247,25 +247,16 @@ export function TrainingComparisonResults({
               </article>
             ))}
           </div>
-          {maxClasses > 50 && (
-            <div className="mt-3 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-              <Button
-                size="sm"
-                disabled={!state.classPage}
-                onClick={() => onChange("class_page", String(state.classPage - 1))}
-              >
-                上一页类别
-              </Button>
-              <span>第 {state.classPage + 1} 页 · 每页 50 类</span>
-              <Button
-                size="sm"
-                disabled={(state.classPage + 1) * 50 >= maxClasses}
-                onClick={() => onChange("class_page", String(state.classPage + 1))}
-              >
-                下一页类别
-              </Button>
-            </div>
-          )}
+          <ListPagination
+            label="类别"
+            page={state.classPage}
+            pageSize={state.classPageSize}
+            total={maxClasses}
+            onPageChange={(page) => onChange("class_page", String(page))}
+            onPageSizeChange={(size) => onChange("class_page_size", String(size))}
+            previousLabel="上一页类别"
+            nextLabel="下一页类别"
+          />
         </section>
       </TabsContent>
       <TabsContent value="inputs" className="mt-4 space-y-3">
@@ -365,6 +356,7 @@ function ComparisonCurves({
   onChange: (key: string, value: string) => void;
 }) {
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
   const available = [
     ...new Set(
       experiments.flatMap((e) =>
@@ -380,7 +372,7 @@ function ComparisonCurves({
   }
   const raw = experiments.map((e) => new Map(comparisonPoints(e).map((p) => [p.epoch, p[metric]])));
   const epochs = [...new Set(raw.flatMap((map) => [...map.keys()]))].sort((a, b) => a - b);
-  const currentPage = Math.min(page, Math.max(0, Math.ceil(epochs.length / 50) - 1));
+  const currentPage = Math.min(page, Math.max(0, Math.ceil(epochs.length / pageSize) - 1));
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -481,7 +473,7 @@ function ComparisonCurves({
             </tr>
           </thead>
           <tbody>
-            {epochs.slice(currentPage * 50, (currentPage + 1) * 50).map((epoch) => (
+            {epochs.slice(currentPage * pageSize, (currentPage + 1) * pageSize).map((epoch) => (
               <tr key={epoch}>
                 <th scope="row">{epoch}</th>
                 {raw.map((map, index) => (
@@ -499,23 +491,19 @@ function ComparisonCurves({
           </tbody>
         </table>
       </div>
-      {epochs.length > 50 && (
-        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-          <Button size="sm" disabled={!currentPage} onClick={() => setPage(currentPage - 1)}>
-            上一页轮次
-          </Button>
-          <span>
-            {currentPage + 1} / {Math.ceil(epochs.length / 50)}
-          </span>
-          <Button
-            size="sm"
-            disabled={(currentPage + 1) * 50 >= epochs.length}
-            onClick={() => setPage(currentPage + 1)}
-          >
-            下一页轮次
-          </Button>
-        </div>
-      )}
+      <ListPagination
+        label="轮次"
+        page={currentPage}
+        pageSize={pageSize}
+        total={epochs.length}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(0);
+        }}
+        previousLabel="上一页轮次"
+        nextLabel="下一页轮次"
+      />
     </div>
   );
 }

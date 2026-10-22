@@ -843,7 +843,13 @@ export function InteractiveToolBar({
                         </option>
                       ))
                     ) : (
-                      <option value={backendName ?? ""}>{backendName ?? "未绑定 ML 后端"}</option>
+                      <option
+                        value={backendName ?? ""}
+                        disabled={!backendName}
+                        hidden={!backendName}
+                      >
+                        {backendName ?? "未绑定 ML 后端"}
+                      </option>
                     )}
                   </select>
                 </label>

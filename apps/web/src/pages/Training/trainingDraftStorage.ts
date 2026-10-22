@@ -11,6 +11,7 @@ export type TrainingDraft = {
   revision: number;
   requestId: string;
   name: string;
+  task?: "detect" | "segment";
   datasetId: string;
   framework: string;
   baseModel: string;
@@ -220,6 +221,7 @@ function validTrainingDraft(value: unknown, ownerKey: string): value is Training
           "revision",
           "requestId",
           "name",
+          "task",
           "datasetId",
           "framework",
           "baseModel",
@@ -246,6 +248,7 @@ function validTrainingDraft(value: unknown, ownerKey: string): value is Training
     if (typeof value[key] !== "string" || value[key].length > 150) return false;
   }
   if (value.schemaDigest && !sha.test(String(value.schemaDigest))) return false;
+  if (value.task !== undefined && value.task !== "detect" && value.task !== "segment") return false;
   if (value.source !== undefined && !validSource(value.source)) return false;
   if (value.initialization !== undefined && !validInitialization(value.initialization))
     return false;
@@ -277,6 +280,7 @@ function validTrainingDraft(value: unknown, ownerKey: string): value is Training
       body.base_model !== value.baseModel ||
       body.dataset_id !== value.datasetId ||
       body.name !== String(value.name).trim() ||
+      (value.task !== undefined && (body.task ?? "detect") !== value.task) ||
       body.configuration?.schema_id !== value.schemaId ||
       body.configuration?.schema_digest !== value.schemaDigest
     )

@@ -10,6 +10,7 @@ import {
   trainingTaskOf,
 } from "../Training/trainingPresentation";
 import { TrainingListPagination } from "../Training/TrainingListControls";
+import { listStyles } from "@/components/ui/listStyles";
 
 export function TrainingRunTable({
   data,
@@ -17,6 +18,8 @@ export function TrainingRunTable({
   failed,
   page,
   onPage,
+  pageSize,
+  onPageSize,
   selectedId,
   href,
 }: {
@@ -25,6 +28,8 @@ export function TrainingRunTable({
   failed: boolean;
   page: number;
   onPage: (page: number) => void;
+  pageSize: number;
+  onPageSize: (size: number) => void;
   selectedId: string;
   href: (id: string) => string;
 }) {
@@ -32,7 +37,7 @@ export function TrainingRunTable({
     <>
       {loading && <TrainingLoading label="正在加载训练实验…" rows={2} />}
       <div className="overflow-x-auto border-t border-border">
-        <table aria-label="训练实验列表" className="w-full whitespace-nowrap text-left text-xs">
+        <table aria-label="训练实验列表" className={listStyles.table}>
           <thead className="bg-muted/40 text-2xs text-muted-foreground">
             <tr>
               {["实验名称", "状态", "任务", "训练框架", "基础权重", "训练进度", "创建时间"].map(
@@ -75,7 +80,10 @@ export function TrainingRunTable({
                       ? "Ultralytics"
                       : run.config.framework === "libreyolo"
                         ? "LibreYOLO"
-                        : String(run.config.framework ?? "—")}
+                        : String(run.config.framework ?? "—")}{" "}
+                    <span className="text-muted-foreground">
+                      {String(run.config.framework_version ?? "")}
+                    </span>
                   </td>
                   <td className="px-4 py-3 font-mono text-2xs">
                     {typeof run.config.base_model === "object" && run.config.base_model !== null
@@ -109,6 +117,8 @@ export function TrainingRunTable({
         total={data?.total ?? 0}
         pending={loading}
         onPage={onPage}
+        pageSize={pageSize}
+        onPageSize={onPageSize}
       />
     </>
   );

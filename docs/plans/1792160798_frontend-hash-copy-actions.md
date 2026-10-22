@@ -152,7 +152,7 @@ Do not reseed data or start expensive renderer qualification for this presentati
 
 When implementing, update:
 
-- `docs-site/user-guide/projects/online-learning.md`: readable identity fields and full-value copy behavior.
+- `docs-site/user-guide/online-learning/index.md`: readable identity fields and full-value copy behavior.
 - `docs-site/user-guide/superadmin/model-market.md`: ID copy actions beside named resources.
 - `docs-site/user-guide/workbench/mask-brush.md` and `pointcloud-projection.md`: relevant repair/calibration identity copy behavior.
 - `docs-site/dev/reference/design-system.md`: the shared copy action and accessibility contract.
@@ -180,7 +180,7 @@ The main assumption is that an opaque ID is supplementary metadata. Where it is 
 - Live acceptance exposed two existing blockers and fixed them: PostgreSQL `infinity` expiry caused a naive/aware datetime comparison failure in historical Mask comparison, and the enlarged camera portal obscured the calibration sheet. Expiry filtering now happens in PostgreSQL; the added unbounded-retention regression failed before the fix, and all seven `test_mask_qc_m3.py` cases passed afterward in the owned disposable `test` database. Ruff check/format passed. Live comparison and both immutable-content requests returned 200. The enlarged camera is hidden while calibration is open, then restored with the same camera on close; real screenshot and hit testing confirmed the copy controls are visible and unobscured. The test-mode Redis was stopped after tests; the e2e environment remains running.
 - Evidence and user review instructions are in `.worktree/e2e/data/manual-acceptance.md`, with screenshots and clipboard checks in `.worktree/e2e/data/hash-copy-evidence/`. The final corrected flow produced no captured API 4xx/5xx requests or JavaScript page errors. The earlier primary-API and fixture-only acceptance is superseded by this logged-in environment.
 - Training, model, and evaluation history uses explicitly seeded UI records and stored fixture artifacts; this acceptance does not claim a real GPU training or inference run. The Mask QC CPU scan actually ran to completion through the owned worker. No annotation repair was executed, and no task was approved/rejected. No remote CI, commit, push, or release was requested.
-- User documentation: `docs-site/user-guide/projects/online-learning.md`, `docs-site/user-guide/superadmin/model-market.md`, `docs-site/user-guide/workbench/mask-brush.md`, and `docs-site/user-guide/workbench/pointcloud-projection.md`.
+- User documentation: `docs-site/user-guide/online-learning/index.md`, `docs-site/user-guide/superadmin/model-market.md`, `docs-site/user-guide/workbench/mask-brush.md`, and `docs-site/user-guide/workbench/pointcloud-projection.md`.
 - Developer documentation: `docs-site/dev/reference/design-system.md`. User impact is recorded under `CHANGELOG.md` Unreleased. No release version was assigned.
 
 ### Browser acceptance follow-up fixes
@@ -189,7 +189,7 @@ The main assumption is that an opaque ID is supplementary metadata. Where it is 
 - Added five regression cases covering repeated tracks, appended rows, row selection isolation, initialized and unverified model captions, resource copying, and the unconfigured-resource sentinel. The three affected frontend suites passed all 76 tests. Typecheck and lint passed; lint retained the five existing warnings and three z-index advisories. `git diff --check` passed.
 - Real headed Chrome revalidation confirmed both training changes and the object-table fix with API-to-system-clipboard comparisons. Buttons remained on the same line at desktop and 393-pixel widths. The object list retained ordinals after loading additional rows. An initially headless worker could not validate the native clipboard; its five failed probe records were retained and classified as a launch-mode error, then the two relevant controls passed in a verified headed session.
 - An inadvertently expanded frontend run also exposed four failures in the unchanged chart/video modules. A targeted rerun of those two files produced 61 passes and four failures out of 65; no full-suite or remote CI success is claimed. These failures are recorded separately from the requested UI fixes.
-- Current presentation inventory contains 40 files and 127 copy-action call sites. The earlier review's missing-data branches remain unqualified. Evidence: `.worktree/e2e/data/three-fix-acceptance/report.md`. Updated user guidance in `projects/data-manager.md` and `projects/online-learning.md`, plus the Unreleased changelog. No commit or push was requested.
+- Current presentation inventory contains 40 files and 127 copy-action call sites. The earlier review's missing-data branches remain unqualified. Evidence: `.worktree/e2e/data/three-fix-acceptance/report.md`. Updated user guidance in `projects/data-manager.md` and `online-learning/index.md`, plus the Unreleased changelog. No commit or push was requested.
 
 ### Test infrastructure follow-up
 

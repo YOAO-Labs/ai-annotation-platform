@@ -4,7 +4,7 @@
  * 进入条件: ProjectCardGrid 点击某项目卡片;此面板替代主视图渲染.
  */
 
-import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
@@ -123,6 +123,7 @@ function argsToStage(
 }
 
 interface Props {
+  initialCatalogModelId?: string | null;
   projectId: string;
   onBack: () => void;
   /** 项目卡片传入的聚合摘要（用于头部 ml_backend chip + 并发上限）；不可省的部分会再用 hooks 拉. */
@@ -138,7 +139,7 @@ interface Props {
   };
 }
 
-export function ProjectDetailPanel({ projectId, onBack, summary }: Props) {
+export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogModelId }: Props) {
   const pushToast = useToastStore((s) => s.push);
   const navigate = useNavigate();
 
@@ -242,6 +243,15 @@ export function ProjectDetailPanel({ projectId, onBack, summary }: Props) {
     executionUnit: dataType === "video" ? executionUnit : undefined,
   });
 
+  const appliedCatalogLink = useRef("");
+  useEffect(() => {
+    const key = `${projectId}:${initialCatalogModelId}`;
+    if (initialCatalogModelId && cfg.catalogQ?.isSuccess && appliedCatalogLink.current !== key) {
+      cfg.setCatalogModel(initialCatalogModelId);
+      appliedCatalogLink.current = key;
+    }
+  }, [projectId, initialCatalogModelId, cfg]);
+
   // v0.18.2 · 多阶段预标注 (路径 B M2): 下游阶段卡列表 (并行兄弟, 单层扇出)。每张卡 (StageCard)
   // 自持一份 usePreannotateConfig + PreannotateConfigForm 实例 —— 共享 hook/组件本身不感知阶段
   // 编排 (红线)。卡片把派生 stage payload 上抛, 容器在运行时组装成 pipeline_stages。
@@ -249,6 +259,16 @@ export function ProjectDetailPanel({ projectId, onBack, summary }: Props) {
   // 数组顺序即添加顺序 (子总在父之后追加 → 运行期分配的 stage 号天然满足「父序号 < 子序号」)。
   // v0.21.0 收尾优化 · 编排状态机层提取到 usePipelineComposer, 与全局编排页共用 (方案 B refactor).
   // 下游须用不同于源检测的 backend, backends 数<2 时不允许加子 (原 canAddBackend 语义)。
+  const hasCompatibleDownstream = cfg.catalogQ?.data
+    ? cfg.catalogQ.data.items.some(
+        (entry) =>
+          entry.operations.pipeline?.allowed &&
+          !entry.capabilities.is_interactive &&
+          entry.capabilities.composition !== "composite" &&
+          ((entry.capabilities.supported_inputs ?? []).includes("crop") ||
+            (entry.capabilities.supported_inputs ?? []).includes("bbox_prompt")),
+      )
+    : backends.length >= 2;
   const {
     stagesGraph,
     selectedSid,
@@ -268,6 +288,7 @@ export function ProjectDetailPanel({ projectId, onBack, summary }: Props) {
     stageCapsRef,
   } = usePipelineComposer({
     availableBackendCount: backends.length,
+    hasCompatibleDownstream,
     onWarn: (msg, sub) => pushToast({ msg, sub, kind: "warning" }),
     onCascadeDelete: (n) => pushToast({ msg: "已删除阶段", sub: `连带移除 ${n} 个子阶段` }),
   });
@@ -298,10 +319,10 @@ export function ProjectDetailPanel({ projectId, onBack, summary }: Props) {
     }>
   ).filter(batchPreannotationEligible);
 
-  // pre_annotated 队列 (复用 /admin/preannotate-queue 端点 + 客户端按 project 过滤)
+  // Read all ready batches in this project before local history filtering and pagination.
   const queueQ = useQuery({
-    queryKey: ["admin", "preannotate-queue"],
-    queryFn: () => adminPreannotateApi.queue(50),
+    queryKey: ["admin", "preannotate-queue", projectId],
+    queryFn: ({ signal }) => adminPreannotateApi.projectQueue(projectId, signal),
     staleTime: 1000 * 30,
   });
   const projectQueue = useMemo(
@@ -389,8 +410,10 @@ export function ProjectDetailPanel({ projectId, onBack, summary }: Props) {
     if (all.length === 0) return [];
     const sel = cfg.selectedClassIdx;
     const picked = sel.size > 0 ? all.filter((c) => sel.has(c.index)) : all;
-    return picked.map((c) => c.name);
-  }, [cfg.geometricModel, cfg.selectedClassIdx]);
+    return [
+      ...new Set(picked.map((c) => cfg.selectedCatalogEntry?.output_classes?.[c.index] ?? c.name)),
+    ];
+  }, [cfg.geometricModel, cfg.selectedClassIdx, cfg.selectedCatalogEntry]);
 
   // 键冲突策略: reject (默认, 后端校验期拦) | last_wins (末位覆盖, 用户显式允许).
   // conflictInfo/hasKeyConflict/onReparent/canReparentConn 现由 usePipelineComposer 提供.
@@ -868,7 +891,9 @@ export function ProjectDetailPanel({ projectId, onBack, summary }: Props) {
                   disabled={projectPipelinesQ.isLoading || libraryPipelines.length === 0}
                 >
                   {libraryPipelines.length === 0 ? (
-                    <option value="">暂无可套用编排</option>
+                    <option value="" disabled hidden>
+                      暂无可套用编排
+                    </option>
                   ) : (
                     libraryPipelines.map((p) => (
                       <option key={p.id} value={p.id}>
@@ -906,10 +931,10 @@ export function ProjectDetailPanel({ projectId, onBack, summary }: Props) {
                   canReparentConn={canReparentConn}
                 />
               </Suspense>
-              {backends.length < 2 ? (
+              {!hasCompatibleDownstream ? (
                 <span className={styles.stageEmptyHint}>
-                  需在项目设置绑定第二个 ML
-                  backend，才能加下游分类/检测子阶段（下游须用不同于检测的后端）。
+                  暂无兼容的下游模型。请在项目设置启用兼容后端，或加载并发布检测模型；同一 YOLO
+                  实例可执行多个检测阶段。
                 </span>
               ) : !hasDownstreamCards ? (
                 <span className={styles.stageEmptyHint}>
@@ -937,8 +962,8 @@ export function ProjectDetailPanel({ projectId, onBack, summary }: Props) {
                       value={executionUnit}
                       onChange={(e) => setExecutionUnit(e.target.value as "video" | "frame")}
                     >
-                      <option value="video">整段序列（detect-then-track 追踪）</option>
-                      <option value="frame">逐帧（图像检测逐帧跑，落单帧框）</option>
+                      <option value="video">整段序列</option>
+                      <option value="frame">逐帧</option>
                     </select>
                     <span className={styles.mutedText}>
                       {executionUnit === "video"
@@ -975,7 +1000,11 @@ export function ProjectDetailPanel({ projectId, onBack, summary }: Props) {
                     projectMlBackendId={project?.ml_backend_id}
                     sourceBackendId={selectedBackendId}
                     projectClasses={projectClasses}
-                    parentClassOptions={sourceEffectiveClasses}
+                    parentClassOptions={
+                      e.parentSid === SOURCE_SID
+                        ? sourceEffectiveClasses
+                        : stageCapsRef.current[e.parentSid]?.outputClasses
+                    }
                     projectAttributeKeys={projectAttributeKeys}
                     conflictKeys={conflictInfo.perCard[e.sid]}
                     stat={stageStatByIndex.get(i - 1)}
@@ -1119,7 +1148,7 @@ export function ProjectDetailPanel({ projectId, onBack, summary }: Props) {
         </div>
       </Card>
 
-      <HistoryTable items={projectQueue} isLoading={queueQ.isLoading} />
+      <HistoryTable key={projectId} items={projectQueue} isLoading={queueQ.isLoading} />
     </div>
   );
 }

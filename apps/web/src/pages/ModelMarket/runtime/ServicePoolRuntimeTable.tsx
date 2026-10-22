@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useListPagination } from "@/hooks/useListPagination";
 /**
  * v0.23.4 · service-pool runtime overview.
  *
@@ -67,6 +70,7 @@ export function ServicePoolRuntimeTable({
   onWarm,
   warming,
 }: ServicePoolRuntimeTableProps): ReactNode {
+  const pagination = useListPagination(topology.pools);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
   const toggle = (poolId: string) => {
@@ -80,23 +84,31 @@ export function ServicePoolRuntimeTable({
 
   if (topology.pools.length === 0) {
     return (
-      <Empty className="border border-border bg-muted/20">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <Server strokeWidth={1.6} aria-hidden="true" />
-          </EmptyMedia>
-          <EmptyTitle>暂无服务池</EmptyTitle>
-          <EmptyDescription>
-            在“注册管理”新建服务池并加入实例后，运行时状态会显示在这里。
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+      <section className={listStyles.surface} aria-label="服务池运行时列表">
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <Server strokeWidth={1.6} aria-hidden="true" />
+            </EmptyMedia>
+            <EmptyTitle>暂无服务池</EmptyTitle>
+            <EmptyDescription>
+              在“注册管理”新建服务池并加入实例后，运行时状态会显示在这里。
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+        <ListPagination
+          label="运行时服务池"
+          {...pagination}
+          onPageChange={pagination.setPage}
+          onPageSizeChange={pagination.setPageSize}
+        />
+      </section>
     );
   }
 
   return (
-    <section className="grid gap-3 xl:grid-cols-2" aria-label="服务池运行时列表">
-      {topology.pools.map((pool) => {
+    <section className={listStyles.surface} aria-label="服务池运行时列表">
+      {pagination.items.map((pool) => {
         const isOpen = expanded.has(pool.id);
         const residentCount = pool.members.filter((member) => {
           const { residency, trusted } = resolveMemberResidency(lookup(member.registry_id));
@@ -149,6 +161,12 @@ export function ServicePoolRuntimeTable({
           />
         );
       })}
+      <ListPagination
+        label="运行时服务池"
+        {...pagination}
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+      />
     </section>
   );
 }
@@ -208,8 +226,8 @@ function PoolRuntimeCard({
   return (
     <article
       className={cn(
-        "overflow-hidden rounded-xl border border-border bg-card",
-        isOpen && "border-primary/30 shadow-sm xl:col-span-2",
+        "overflow-hidden border-b border-border bg-card transition-colors last:border-b-0 hover:bg-muted/40",
+        isOpen && "bg-muted/20",
       )}
     >
       <div className="flex flex-col gap-2 px-4 py-3">

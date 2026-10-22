@@ -27,9 +27,9 @@ function makeItem(over: Partial<PreannotateProjectSummary> = {}): PreannotatePro
 }
 
 describe("ProjectCardGrid", () => {
-  it("空态时提示先注册 backend", () => {
+  it("空态时提示在项目中接入推理服务", () => {
     render(<ProjectCardGrid items={[]} isLoading={false} onSelect={() => {}} />);
-    expect(screen.getByText(/暂无接入 ML backend 的项目/)).toBeInTheDocument();
+    expect(screen.getByText(/暂无可预标的项目/)).toBeInTheDocument();
   });
 
   it("加载态显示 loading 文字", () => {
@@ -44,6 +44,7 @@ describe("ProjectCardGrid", () => {
           makeItem({
             project_name: "Demo Project",
             active_batches: 7,
+            ml_backend_state: "connected",
             ready_batches: 3,
             recent_failures: 1,
           }),
@@ -54,6 +55,8 @@ describe("ProjectCardGrid", () => {
     );
     expect(screen.getByText("Demo Project")).toBeInTheDocument();
     expect(screen.getByText(/grounded-sam2/)).toBeInTheDocument();
+    expect(screen.getByText(/已连接/)).toBeInTheDocument();
+    expect(screen.getByText(/P-1 · 图片/)).toBeInTheDocument();
     expect(screen.getByText("7")).toBeInTheDocument();
     expect(screen.getByText("3")).toBeInTheDocument();
     expect(screen.getByText("1")).toBeInTheDocument();

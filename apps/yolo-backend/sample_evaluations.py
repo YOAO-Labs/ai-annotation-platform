@@ -23,6 +23,7 @@ from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from managed_models import digest
+from training_contract.models import model_spec
 
 MAX_RESPONSE_BYTES = 256 * 1024
 MAX_INPUT_BYTES = 32 * 1024 * 1024
@@ -53,6 +54,34 @@ FIXED_OPTIONS = {
     "verbose": False,
     "stream": False,
 }
+
+
+def model_options(base_model=None):
+    options = dict(FIXED_OPTIONS)
+    if base_model is not None:
+        options["nms"] = (
+            False if model_spec("ultralytics", base_model).end2end else None
+        )
+    return options
+
+
+def receipt_base_model(receipt):
+    if receipt.get("framework_version") != "8.4.183":
+        return None
+    suffix = "-seg" if receipt.get("task") == "segmentation" else ""
+    return f"{receipt.get('model_family')}{receipt.get('model_size')}{suffix}"
+
+
+def verify_inference_branch(model, receipt):
+    base_model = receipt_base_model(receipt)
+    if base_model is None:
+        return
+    expected = model_spec("ultralytics", base_model).end2end
+    observed = bool(getattr(model.predictor.model, "end2end", False))
+    if observed != expected:
+        raise ValueError(
+            "Observed native inference branch differs from the installed model"
+        )
 
 
 def error(status, reason, message):
@@ -110,7 +139,7 @@ def request_binding(task_id, model_ref, params, request):
 @lru_cache(maxsize=1)
 def runtime_identity():
     version = importlib.metadata.version("ultralytics")
-    if version != "8.4.177":
+    if version not in {"8.4.177", "8.4.183"}:
         raise error(
             409,
             "evaluation_runtime_unqualified",
@@ -140,9 +169,13 @@ def runtime_identity():
                 "predictor.py",
                 "schemas.py",
                 "main.py",
+                "managed_models.py",
             )
         }
     )
+    for name in ("inference_runtime", "model_return", "models", "native_architecture"):
+        module = importlib.import_module(f"training_contract.{name}")
+        paths[f"training_contract/{name}.py"] = Path(module.__file__)
     try:
         sources = {
             name: hashlib.sha256(path.read_bytes()).hexdigest()
@@ -157,7 +190,7 @@ def runtime_identity():
     return {
         "schema": 1,
         "implementation": "aap-ultralytics-detection",
-        "revision": 1,
+        "revision": 2 if version == "8.4.183" else 1,
         "ultralytics_version": version,
         "torch_version": importlib.metadata.version("torch"),
         "pillow_version": importlib.metadata.version("Pillow"),
@@ -166,11 +199,12 @@ def runtime_identity():
     }
 
 
-def qualification_profile(device, storage_identity):
+def qualification_profile(device, storage_identity, base_model=None):
     profile = {
         **runtime_identity(),
         "effective_device": str(device),
         "storage_identity": str(storage_identity),
+        "options": model_options(base_model),
     }
     return {**profile, "profile_digest": digest(profile)}
 
@@ -214,13 +248,16 @@ def verify_input(file_path, request):
 
 
 def observed_inference(model, ctx, width, height):
+    expected_options = ctx._evaluation_profile["options"]
     args = model.predictor.args
-    actual = {key: getattr(args, key, None) for key in FIXED_OPTIONS if key != "stream"}
+    actual = {
+        key: getattr(args, key, None) for key in expected_options if key != "stream"
+    }
     actual["stream"] = False
     if actual.get("imgsz") == [640, 640]:
         actual["imgsz"] = 640
     if (
-        actual != FIXED_OPTIONS
+        actual != expected_options
         or str(model.device) != ctx._evaluation_profile["effective_device"]
     ):
         raise error(
@@ -258,8 +295,9 @@ def observed_inference(model, ctx, width, height):
 class EvaluationRequestStore:
     """Fixed lock inodes protect native work, atomic receipts and delayed POST seals."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, *, response_bytes=None):
         self.root = root
+        self.response_bytes = response_bytes
 
     @property
     def storage_identity(self):
@@ -321,8 +359,8 @@ class EvaluationRequestStore:
             return None
         try:
             with path.open("rb") as stream:
-                raw = stream.read(MAX_RESPONSE_BYTES + 1)
-            if len(raw) > MAX_RESPONSE_BYTES:
+                raw = stream.read((self.response_bytes or MAX_RESPONSE_BYTES) + 1)
+            if len(raw) > (self.response_bytes or MAX_RESPONSE_BYTES):
                 raise ValueError("Receipt exceeds budget")
             result = json.loads(raw)
             if (
@@ -370,7 +408,7 @@ class EvaluationRequestStore:
         raw = json.dumps(
             record, ensure_ascii=False, separators=(",", ":"), allow_nan=False
         ).encode()
-        if len(raw) > MAX_RESPONSE_BYTES:
+        if len(raw) > (self.response_bytes or MAX_RESPONSE_BYTES):
             raise error(
                 413,
                 "evaluation_response_too_large",

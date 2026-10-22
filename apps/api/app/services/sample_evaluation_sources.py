@@ -6,6 +6,7 @@ import io
 import uuid
 
 from PIL import Image
+from botocore.exceptions import BotoCoreError, ClientError
 from sqlalchemy import String, cast, func, select
 
 from app.db.models.annotation import Annotation
@@ -16,19 +17,23 @@ from app.services.training_dataset_bridge import detection_labels
 from app.services.training_datasets import assert_training_authority
 
 
-async def current_snapshot(db, project_id, task_id):
+async def current_snapshot(db, project_id, task_id, *, task="detect"):
     limited = (
         select(
             Annotation.id,
             Annotation.version,
             Annotation.class_name,
             Annotation.tool_unit_id,
-            func.jsonb_build_object(
-                *[
-                    item
-                    for key in ("type", "x", "y", "w", "h")
-                    for item in (key, Annotation.geometry[key])
-                ]
+            (
+                Annotation.geometry
+                if task == "segment"
+                else func.jsonb_build_object(
+                    *[
+                        item
+                        for key in ("type", "x", "y", "w", "h")
+                        for item in (key, Annotation.geometry[key])
+                    ]
+                )
             ).label("geometry"),
         )
         .where(
@@ -144,14 +149,57 @@ def read_current_media(snapshot, *, include_raw=False):
     }
 
 
-def classify_labels(snapshot, classes):
+def classify_labels(snapshot, classes, *, task="detect"):
     if len(snapshot["annotations"]) > service.engine.MAX_TRUTH_PER_IMAGE:
         return None
     try:
+        if task == "segment":
+            from app.services import sample_evaluation_masks as masks
+            from app.services.mask_conversion import rasterize_region_geometry
+            from app.services.raster_mask_storage import load_coco_rle_sync
+
+            rows = []
+            rasterization_operations = 0
+            width, height = (
+                snapshot.get("expected_width"),
+                snapshot.get("expected_height"),
+            )
+            if not width or not height or width * height > service.engine.MAX_PIXELS:
+                return None
+            for annotation in snapshot["annotations"]:
+                if annotation["tool_unit_id"] != "region":
+                    continue
+                geometry = annotation["geometry"]
+                if annotation["class_name"] not in classes:
+                    return None
+                if geometry["type"] == "raster_mask":
+                    rle = load_coco_rle_sync(geometry["mask"])
+                else:
+                    components = (
+                        geometry.get("polygons", [])
+                        if geometry["type"] == "multi_polygon"
+                        else [geometry]
+                    )
+                    vertices = sum(
+                        len(component.get("points", []))
+                        + sum(map(len, component.get("holes", [])))
+                        for component in components
+                    )
+                    rasterization_operations += width * height * vertices
+                    if rasterization_operations > 100_000_000:
+                        return None
+                    rle = rasterize_region_geometry(geometry, width, height)
+                evidence = masks.mask_evidence(rle)
+                if evidence["rle"]["size"] != [height, width]:
+                    return None
+                rows.append(
+                    (classes.index(annotation["class_name"]), evidence["mask_sha256"])
+                )
+            return service.content_digest(sorted(rows))
         return hashlib.sha256(
             detection_labels(snapshot["annotations"], classes).encode()
         ).hexdigest()
-    except (KeyError, TypeError, ValueError, OverflowError):
+    except (KeyError, TypeError, ValueError, OverflowError, BotoCoreError, ClientError):
         return None
 
 
@@ -181,7 +229,8 @@ async def resolve_source(db, run, attempt_id, ordinal, user, api_key_id=None):
     await assert_training_authority(
         db, project_id=run.project_id, actor_id=user.id, api_key_id=api_key_id
     )
-    before = await current_snapshot(db, run.project_id, task_id)
+    kwargs = {"task": "segment"} if run.spec.get("schema") == 2 else {}
+    before = await current_snapshot(db, run.project_id, task_id, **kwargs)
     await db.commit()
     if before is None:
         return {
@@ -198,7 +247,7 @@ async def resolve_source(db, run, attempt_id, ordinal, user, api_key_id=None):
     await assert_training_authority(
         db, project_id=run.project_id, actor_id=user.id, api_key_id=api_key_id
     )
-    after = await current_snapshot(db, run.project_id, task_id)
+    after = await current_snapshot(db, run.project_id, task_id, **kwargs)
     await db.commit()
     if after is None:
         return {
@@ -211,7 +260,16 @@ async def resolve_source(db, run, attempt_id, ordinal, user, api_key_id=None):
             **result,
             "reason": "核验期间源任务引用、状态或标注发生变化，请重新核验",
         }
-    label_sha = classify_labels(after, run.spec["classes"])
+    label_snapshot = after
+    if kwargs and media:
+        label_snapshot = {
+            **after,
+            "expected_width": media["width"],
+            "expected_height": media["height"],
+        }
+    label_sha = await asyncio.to_thread(
+        classify_labels, label_snapshot, run.spec["classes"], **kwargs
+    )
     reviewed = after["status"] == "completed" and after["reviewed_at"] is not None
     negative = (
         not after["annotations"]
@@ -236,7 +294,7 @@ async def resolve_source(db, run, attempt_id, ordinal, user, api_key_id=None):
         current_label_sha256=label_sha,
         reason="当前图片未通过读取、尺寸或解码检查"
         if media_error
-        else "当前标注超出冻结检测类别或支持范围"
+        else "当前标注超出冻结类别或支持范围"
         if label_sha is None
         else None,
     )

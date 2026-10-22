@@ -5,10 +5,21 @@ import hashlib
 import json
 from importlib.resources import files
 from aap_task_contract import legacy_training_task, normalize_task
-from .dataset import DETECTION, SEGMENTATION
+from .dataset import DETECTION, SEGMENTATION, INSTANCE_RLE_LIMITS
+from .models import (
+    MODEL_SPECS,
+    ULTRALYTICS_VERSION,
+    LEGACY_ULTRALYTICS_VERSION,
+    model_spec,
+    supports_version,
+)
 
 ADAPTERS = {
-    "ultralytics": {"version": "8.4.177", "revision": 1, "model_registration": True},
+    "ultralytics": {
+        "version": ULTRALYTICS_VERSION,
+        "revision": 1,
+        "model_registration": True,
+    },
     "libreyolo": {"version": "1.6.0", "revision": 1, "model_registration": True},
 }
 
@@ -307,23 +318,60 @@ def digest(value):
     ).hexdigest()
 
 
-def definition(framework, base_model=None, *, legacy=False):
+def definition(
+    framework, base_model=None, *, legacy=False, revision=None, version=None
+):
+    if framework not in ADAPTERS:
+        raise ValueError("未知训练框架")
+    if (
+        framework == "libreyolo"
+        and base_model is not None
+        and revision is None
+        and not legacy
+    ):
+        model_spec(framework, base_model)
+    revision = (
+        2
+        if legacy
+        else revision
+        or (
+            (4 if version == LEGACY_ULTRALYTICS_VERSION else 5)
+            if framework == "ultralytics"
+            else 3
+        )
+    )
+    if revision not in ({2, 3, 4, 5} if framework == "ultralytics" else {2, 3}):
+        raise ValueError("Unknown training parameter schema revision")
+    legacy = revision == 2
     inventory = json.loads(
-        files(__package__).joinpath("native_inventory.json").read_text()
+        files(__package__)
+        .joinpath(
+            "native_inventory_current.json"
+            if framework == "ultralytics" and revision >= 5
+            else "native_inventory.json"
+        )
+        .read_text()
     )[framework]
+    if version is not None and version != inventory["version"]:
+        raise ValueError("参数定义与冻结框架版本不匹配")
     family = "yolo11" if framework == "ultralytics" else "yolo9"
     segmentation = (
         framework == "ultralytics" and (base_model or "").lower() == "yolo11n-seg"
     )
-    if base_model is not None and base_model.lower() not in (
+    if framework == "ultralytics" and revision >= 5:
+        spec = model_spec(framework, base_model or "yolo11n")
+        family, segmentation = spec.family, spec.task == SEGMENTATION
+    elif base_model is not None and base_model.lower() not in (
         {"yolo11n", "yolo11s", "yolo11m", "yolo11l", "yolo11x", "yolo11n-seg"}
         if family == "yolo11"
         else {"libreyolo9t", "libreyolo9s", "libreyolo9m", "libreyolo9c", "libreyolo9e"}
     ):
         raise ValueError("该基础模型家族尚未通过参数契约验证")
     reviewed = {**COMMON, **(ULTRA if framework == "ultralytics" else LIBRE)}
+    if framework == "ultralytics" and revision >= 4:
+        reviewed["pretrained"] = ("使用预训练权重", "basic", BOOL, True)
     result = {
-        "schema_id": f"{framework}-{inventory['version']}-{family}-{'segment' if segmentation else 'detect'}-{'2' if legacy else '3'}",
+        "schema_id": f"{framework}-{inventory['version']}-{family}-{'segment' if segmentation else 'detect'}-{revision}",
         "framework": framework,
         "framework_version": inventory["version"],
         "adapter_revision": 2,
@@ -400,14 +448,60 @@ def definition(framework, base_model=None, *, legacy=False):
         if framework == "libreyolo" and key == "mixup_prob":
             field["aliases"] = ["mixup"]
         result["fields"].append(field)
+    if framework == "ultralytics" and revision >= 4:
+        result["fields"].append(
+            {
+                "key": "evaluate_train",
+                "label": "逐轮评估训练集",
+                "group": "evaluation",
+                "status": "editable",
+                "rules": dict(BOOL),
+                "default": False,
+                "native_default": None,
+                "native_type": "bool",
+                "defined_in": "platform",
+                "aliases": [],
+                "reason": "平台每轮额外调用原生评估器计算训练集 Precision、Recall 和 mAP，关闭增强；增加耗时，不参与最佳权重选择",
+            }
+        )
+        next(field for field in result["fields"] if field["key"] == "pretrained")[
+            "reason"
+        ] = "开启时使用预训练基础权重；关闭时仅使用模型架构随机初始化，与项目权重初始化互斥"
+    if framework == "ultralytics" and revision >= 5:
+        for field in result["fields"]:
+            if field["status"] == "editable":
+                field["reason"] = (
+                    f"受控 {family} {'实例分割' if segmentation else '目标检测'}训练参数；取值按平台契约收敛"
+                    if field["key"] not in {"pretrained", "evaluate_train"}
+                    else field["reason"]
+                )
+            if family == "yolo26" and field["key"] == "dfl":
+                field.update(
+                    status="inapplicable",
+                    rules={},
+                    reason="该模型的 reg_max=1，不使用 DFL 损失增益",
+                )
+            if family == "yolo26" and field["key"] == "nms":
+                field["default"] = False
+                field["reason"] = "固定使用原生端到端检测分支，评估与推理保持相同语义"
+            if family == "yolo26" and field["key"] == "iou":
+                field["reason"] = "端到端分支不执行普通 NMS；保留原生评估匹配配置"
+            if family == "yolo26" and segmentation and field["key"] == "batch":
+                field["default"] = 1
     result["schema_digest"] = digest(result)
     return result
 
 
 def definitions(*, legacy=False):
-    return [definition(framework, legacy=legacy) for framework in ADAPTERS] + [
-        definition("ultralytics", "yolo11n-seg", legacy=legacy)
-    ]
+    if legacy:
+        return [definition(framework, legacy=True) for framework in ADAPTERS] + [
+            definition("ultralytics", "yolo11n-seg", legacy=True)
+        ]
+    return [
+        definition("ultralytics", f"{family}n{suffix}")
+        for family in ("yolov8", "yolo11", "yolo26")
+        for suffix in ("", "-seg")
+    ] + [definition("libreyolo")]
 
 
 def schema_identity(schema):
@@ -425,9 +519,20 @@ def schema_identity(schema):
     }
 
 
-def supported_identities():
+def supported_identities(framework_versions=None):
     result = []
-    for schema in [*definitions(), *definitions(legacy=True)]:
+    historical = [
+        definition("ultralytics", base, revision=revision)
+        for base in ("yolo11n", "yolo11n-seg")
+        for revision in (4, 3)
+    ]
+    for schema in [*definitions(), *historical, *definitions(legacy=True)]:
+        if (
+            framework_versions is not None
+            and framework_versions.get(schema["framework"])
+            != schema["framework_version"]
+        ):
+            continue
         identity = schema_identity(schema)
         result.append(identity)
         if normalize_task(schema["task"]) == SEGMENTATION:
@@ -444,8 +549,50 @@ def supported_identities():
 
 def definition_for_identity(framework, base_model, identity):
     """Select an exact frozen schema; aliases never change its hashed content."""
-    for legacy in (False, True):
-        schema = definition(framework, base_model, legacy=legacy)
+    for schema in compatible_definitions(framework, base_model):
         if identity == schema_identity(schema):
             return schema
     raise ValueError("未知或不匹配的冻结参数定义")
+
+
+def compatible_definitions(framework, base_model):
+    """Keep historical hashed parameter schemas available for frozen experiments."""
+    result = []
+    for revision in (5, 4, 3, 2) if framework == "ultralytics" else (3, 2):
+        try:
+            result.append(definition(framework, base_model, revision=revision))
+        except ValueError:
+            continue
+    return result
+
+
+def instance_rle_capability(
+    framework_version=LEGACY_ULTRALYTICS_VERSION, base_model=None
+):
+    """Explicit first-revision consumer bounds, separate from old model schemas."""
+    result = {
+        "bridge": "ultralytics-instance-rle-1",
+        "framework": "ultralytics",
+        "version": framework_version,
+        "models": [
+            spec.id
+            for spec in MODEL_SPECS
+            if spec.task == SEGMENTATION and supports_version(spec, framework_version)
+        ],
+        "limits": dict(INSTANCE_RLE_LIMITS),
+        "rasterizer": "aap-pixel-center-even-odd-1",
+        "transform": "aap-letterbox-nearest-1",
+        "loss_mask_resize": "truth-full-input-plane;prototype-bilinear-upsample-align-corners-false",
+        "validation_mask_resize": "torch.bilinear-align-corners-false-threshold-0.5-to-prototype-plane",
+    }
+    if framework_version not in {LEGACY_ULTRALYTICS_VERSION, ULTRALYTICS_VERSION}:
+        raise ValueError("该框架版本没有已登记的实例掩码消费者")
+    if base_model is not None:
+        spec = model_spec("ultralytics", base_model)
+        if spec.id not in result["models"]:
+            raise ValueError("该型号没有匹配的实例掩码消费者")
+        result["models"] = [spec.id]
+        if spec.end2end:
+            result["semantic_target"] = "smallest-covering-instance-first-tie-1"
+            result["semantic_plane_elements"] = 64_000_000
+    return result

@@ -215,7 +215,9 @@ class DatasetService:
 
         total = (await self.db.execute(count_q)).scalar() or 0
         result = await self.db.execute(
-            q.order_by(Dataset.created_at.desc()).limit(limit).offset(offset)
+            q.order_by(Dataset.created_at.desc(), Dataset.id)
+            .limit(limit)
+            .offset(offset)
         )
         datasets = result.scalars().all()
 
@@ -411,7 +413,7 @@ class DatasetService:
         q = (
             select(DatasetItem)
             .where(DatasetItem.dataset_id == dataset_id)
-            .order_by(DatasetItem.created_at.desc())
+            .order_by(DatasetItem.created_at.desc(), DatasetItem.id)
             .limit(limit)
             .offset(offset)
         )

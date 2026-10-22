@@ -2,7 +2,7 @@
 audience: [dev, ops]
 type: reference
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-20
 ---
 
 # ML Backend 协议契约
@@ -143,6 +143,7 @@ GPU backend 应在 `/health` 顶层返回 `compute`：
   - **ONNXTools**：覆盖三句柄（`pipeline`、`detector`、`va`）共四个业务 ORT session；
   - **RapidOCR**：覆盖 `engines` 聚合池（默认容量 3 个 composite engine，满池最多 9 个 det/cls/rec ORT session）。
 - **目标环境强制验收（`validate_managed_lifecycle.py`）**：源码能力不等于当前部署已取得资格。每个 Backend 必须在目标镜像、完整业务权重和唯一可见物理 GPU 上运行镜像内 `scripts/validate_managed_lifecycle.py`，通过真实业务推理、两轮 full-pool drain/unload、90% 工作集回收门、provider/device 判定及故障矩阵验收（`passed=true` 且 `runtime_ephemera_clean=true`）。
+- **受控实例分割的附加资格**：部署 `trained:<版本>` 分割模型时，YOLO 验收器还须提供真实分割 checkpoint、冻结引用和代表原图；报告必须包含 `deployment.pool_topology.controlled_segment` 的两轮非空原图 RLE 冷加载、同池卸载及全部附加检查。普通四任务模型报告不能替代此路径，操作见[实例分割在线学习验收](../how-to/validate-segmentation-online-learning)。
 - **启动门控开关（`*_MANAGED_LIFECYCLE_VERIFIED`）**：环境变量只接受字面量 `0` 或 `1`（非法值拒绝启动）。默认值 `0` 会隐藏能力、拒绝 enforce 并令 `evictable=false`；仅当运维复核当前部署的通过证据后才可设为 `1`。镜像、权重、pool cap、GPU UUID、driver 或 runtime 任一变化均使旧证据失效，必须恢复 `0` 并重新验收。
 
 #### `/health` 顶层 `residency` 结构
@@ -1704,7 +1705,7 @@ ML Backend 走全局注册表模型（ADR-0044）：一个物理 backend = 全�
 
 ## 12. 受控自训模型部署协议 (/managed-models)
 
-本节针对平台训练产物的受控回流，不等同于 YOLO Backend 普通模型目录的全部能力。当前仅支持图片矩形框检测：Ultralytics 原生检测权重，以及通过资格核验的 LibreYOLO YOLO9 t/s/m/c 原生权重。分割、YOLO9 e 和其他未通过资格检查的训练结果仍可下载，不进入此回流协议。
+本节针对平台训练产物的受控回流，不等同于 YOLO Backend 普通模型目录的全部能力。当前支持 Ultralytics 原生图片检测、受控 `yolo11n-seg` 图片实例分割，以及通过资格核验的 LibreYOLO YOLO9 t/s/m/c 原生检测权重。其他分割规格、LibreYOLO 分割、YOLO9 e 和未通过资格检查的训练结果仍可下载，不进入此回流协议。
 
 ### 认证与模型身份
 
@@ -1712,48 +1713,105 @@ ML Backend 走全局注册表模型（ADR-0044）：一个物理 backend = 全�
 
 模型身份由 `model_version_id`、权重 `sha256` 与有序类别摘要 `classes_digest` 共同固定。平台注册时另外保存类别绑定和实验来源；API 不接受浏览器上传任意权重替换这份身份。
 
+### 内置模型类别观测：`GET /models/metadata`
+
+YOLO 在 `/setup` 中以 `model_metadata_endpoint=true` 声明这个可选接口。API 的健康采集使用现有实例认证读取并验证响应，把结果保存在 `health_meta.model_metadata`；旧后端未声明、404、响应非法或超时不会单独使健康检查失败。观测不参与服务池能力指纹，安装项目权重也不改变 `/setup.models[]`。
+
+响应为 `{schema_version: 1, models: [...]}`。每项包含 `model_id`、规范 `task`、完整 `model_variants`、`verification_status`、原生有序 `classes`、`classes_digest`、`artifact_sha256`、`loader_version` 和 `inspected_at`。状态区分未检查、不可用、核验通过与类别不符；没有观测时目录明确展示预置声明，不能把静态 COCO 表当作所有 `.pt` 的真实类别。
+
+实际检测权重正常加载时，从原生 `model.names` 读取类别，按权重 SHA、加载器版本和 schema 写入 checkpoint 目录的 sidecar。查询不反序列化权重，也不触发 GPU 加载；读取会核对文件签名及流式 SHA，损坏、替换或加载器变化会使观测失效。此接口只提供既有加载过程产生的观测，不是任意上传文件的解析接口。
+
+有核验观测的内置阶段通过 `context.builtin_model_ref` 携带 `artifact_sha256`、`classes_digest`、`loader_version`。YOLO 在实际借出的模型上匹配三者，身份不符返回 409。未核验的内置检测若使用原生类别索引过滤，也须核对实际类别与预置声明一致，避免用错索引。项目训练模型继续使用 `frozen_model_ref`，原生索引先过滤，返回平台后再按版本冻结的绑定转换为项目类别。
+
+Ultralytics 图片检测允许整图根阶段和父框裁剪阶段；受控实例分割仅允许图片整图源阶段。每阶段独立冻结身份。同一 YOLO 实例可执行多个阶段。工作台当前题、批量预标和失败完整重试共享执行契约；交互、视频和其他训练任务仍须各自取得资格。详见[执行快照](../concepts/prediction-pipeline#模型目录与执行快照)。
+
 ### 安装：`POST /managed-models`
 
 请求模型定义在 `apps/yolo-backend/managed_models.py` 的 `InstallRequest`：
 
-| 字段                             | 含义与约束                                                                                                                                                |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `model_version_id`               | 平台候选模型 UUID                                                                                                                                         |
-| `sha256`、`classes_digest`       | 64 位小写十六进制摘要，后者须与有序 `classes` 一致                                                                                                        |
-| `classes`                        | 1 至 1,000 个原生类别名称；顺序必须与权重一致                                                                                                             |
-| `framework`、`framework_version` | `ultralytics` 或 `libreyolo` 及冻结训练框架版本                                                                                                           |
-| `task`                           | 此安装协议的历史 wire 值固定为 `detection`；平台预测请求仍使用规范任务 `detect`                                                                           |
-| `size_bytes`、`download_url`     | 权威权重字节数与平台签发的下载 URL；大小上限 2 GiB                                                                                                        |
-| LibreYOLO 资格字段               | `model_family`、`model_size`、`artifact_format`、`artifact_size_bytes`、`runtime_qualification`，均须精确匹配共享训练契约；Ultralytics 请求不携带这些字段 |
+| 字段                             | 含义与约束                                                                                                                                                             |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model_version_id`               | 平台候选模型 UUID                                                                                                                                                      |
+| `sha256`、`classes_digest`       | 64 位小写十六进制摘要，后者须与有序 `classes` 一致                                                                                                                     |
+| `classes`                        | 1 至 1,000 个原生类别名称；顺序必须与权重一致                                                                                                                          |
+| `framework`、`framework_version` | `ultralytics` 或 `libreyolo` 及冻结训练框架版本                                                                                                                        |
+| `task`                           | 检测收据使用历史 wire 值 `detection`，分割收据使用 `segmentation`；预测请求分别使用规范任务 `detect`、`segment`                                                        |
+| `size_bytes`、`download_url`     | 权威权重字节数与平台签发的下载 URL；大小上限 2 GiB                                                                                                                     |
+| LibreYOLO 资格字段               | `model_family`、`model_size`、`artifact_format`、`artifact_size_bytes`、`runtime_qualification`，均须精确匹配共享训练契约                                              |
+| Ultralytics 资格字段             | 当前权重保存模型家族、规格及训练 `runtime_qualification`；实例分割另有 `output_contract=aap-instance-rle-1`，不携带 LibreYOLO 的 artifact 资格字段。旧检测收据保持原形 |
 
 平台生成请求，Backend 按版本取得进程内锁，下载至临时目录，验证字节数和 SHA-256，再在 CPU 上实际检查原生任务、框架版本与类别顺序。通过后原子保存 `CHECKPOINTS_DIR/managed/{model_version_id}/weights.pt` 和 `receipt.json`。
 
-已有有效副本且身份一致时幂等返回；有效副本身份不同返回 `409`，不覆盖不可变版本。损坏副本可在重新核验后修复。下载大小、摘要或原生检查失败返回 `422`。安装收据是请求中除 `download_url`、`size_bytes` 之外的非空身份字段，不包含虚构的安装时间或另一个模型 ID。
+已有有效副本且身份一致时幂等返回；有效副本身份不同返回 `409`，不覆盖不可变版本。损坏副本可在重新核验后修复。下载大小、摘要或原生检查失败返回 `422`。磁盘安装收据是请求中除 `download_url`、`size_bytes` 之外的非空训练身份字段。安装与查询响应在其外增加独立 `inference_runtime`：`revision`、`framework`、`training_version`、实际 `version`、规范 `task`、`compatibility` 与 `qualification`；不回写磁盘训练收据。
+
+检测请求及收据保持原有字段，不因新增分割能力写入空的分割资格字段。分割安装须按冻结的基础模型检查网络结构、原生 Segment 头、有限权重张量与完整有序类别，不能只相信文件名或请求声明。旧训练版本仅登记 YOLO11n 分割；当前版本的模型范围见共享模型契约。
+
+### 受控分割运行时与像素输出
+
+训练收据的 `runtime_qualification` 精确匹配创建权重时的共享训练契约；实际分割输出使用冻结的 `inference_runtime.qualification`。已登记的原生分割运行时如下：
+
+| 字段              | 固定值                                      |
+| ----------------- | ------------------------------------------- |
+| `revision`        | `1`（旧训练环境）或 `2`（当前环境）         |
+| `ultralytics`     | `8.4.177` 或 `8.4.183`，与修订对应          |
+| `torch`           | `2.14.1+cu132`                              |
+| `torchvision`     | `0.29.1+cu132`                              |
+| `retina_masks`    | `true`                                      |
+| `mask_processing` | `ultralytics.utils.ops.process_mask_native` |
+| `mask_threshold`  | `0.0`                                       |
+| `decoder`         | `aap-coco-rle-column-major-1`               |
+
+身份还包含 `ultralytics.models.yolo.segment.predict` 与 `ultralytics.utils.ops` 的源码 SHA-256；服务检查实际导入版本和源码，不能用相同版本号替代源码核验。权威常量在 `apps/_shared/training_contract/training_contract/model_return.py`，后端执行核验在 `apps/yolo-backend/managed_segmentation.py`。这些软件身份检查与真实训练／推理流程验收不能替代目标部署的 GPU 准入、受管生命周期及设备验收；相应运行规则与证据仍须逐部署满足。
+
+推理固定 `retina_masks=true`，从原生 `masks.data` 生成逐实例、原图尺寸 COCO column-major RLE，不经 `masks.xy` 或多边形轮廓重建。wire 的 canonical RLE 为 `{encoding:"coco_rle", size:[height,width], counts:[整数 runs...]}`；`counts` 是整数数组，不是 COCO compressed string。平台存储压缩不改变该 canonical 内容身份。
+
+每个 `result[]` 项使用内部形状：`tool_unit_id="region"`、原生 `class_name`、`geometry={type:"raster_mask",mask:<内容引用>}`、`native_class_index`、连续 `instance_index`，以及数值相同的 `score`、`confidence`。`geometry` 不接受附加 bbox；辅助框可放在项顶层，不能参与权威掩码评估。类别、分数、掩码数量或尺寸不对齐时拒绝，不回退到类别 0。
+
+`PredictionResult.meta` 同时携带：
+
+- `trained_model`：与请求相同的模型版本、权重和类别摘要；
+- `mask_objects`：`sha256 → canonical RLE`，每个内容引用须能解析，且不能夹带未引用对象；
+- `segmentation`：`output_contract="aap-instance-rle-1"`、原图 `dimensions=[height,width]`、`mask_processing`、`decoder` 和完整 `runtime_qualification`。
+
+API 先核验身份、类别顺序、置信度和 RLE 引用，再按冻结绑定映射区域类别。正常预测和固定样本试用通过现有内容存储与掩码写入校验保存引用；逐样本评估将 canonical RLE 冻结在独立证据中，不写人工标注。单引用最多 4 MiB、1,000,000 runs，`meta` 总量最多 16 MiB，原图掩码栈按 `height × width × max_det ≤ 128,000,000` 在原生后处理前预检。各评估协议还可施加更低的预算。
 
 ### 查询收据：`GET /managed-models/{version_id}`
 
-返回持久化收据，并重新校验权重 SHA-256；LibreYOLO 还核对原生资格和实际字节数。模型缺失或副本无效返回 `409`，无效 UUID 返回 `422`。收据证明副本身份，不能单独证明项目已发布或模型精度达标。
+返回原始训练收据与独立实际 `inference_runtime`，并重新校验权重 SHA-256；LibreYOLO 还核对原生资格和实际字节数。模型缺失或副本无效返回 `409`，无效 UUID 返回 `422`。收据证明副本身份，不能单独证明项目已发布或模型精度达标。
 
 ### 固定样本试用与发布
 
 `apps/api/app/services/trained_models.py` 在安装后核对收据，从原冻结数据版本选取一张验证图片，通过标准 `POST /predict` 试用。请求携带：
 
-- `context.task = "detect"`；
+- `context.task = "detect"` 或 `"segment"`，与冻结模型任务一致；
 - `context.model_id = "trained:{model_version_id}"`；
-- `context.frozen_model_ref` 中的 `model_version_id`、`sha256` 和 `classes_digest`。
+- `context.frozen_model_ref` 中的 `model_version_id`、`sha256`、`classes_digest` 以及已核验的 `inference_runtime`；历史无该字段的引用仅允许原训练版本运行。
 
-Backend 必须在响应 `meta.trained_model` 回传同一身份，并为每个矩形框保留 `native_class_index`。平台验证坐标、置信度和原生类别，再按冻结绑定映射到项目类别。试用成功仅将该候选与指定实例的部署记录置为 `ready`；负责人确认样本后才可单独创建 `ModelRelease`。
+Backend 必须在响应 `meta.trained_model` 回传三项模型身份，在 `meta.inference_runtime` 回传独立推理身份，并保留 `native_class_index`；分割还须符合前述实例掩码合同。平台验证坐标或掩码、置信度和原生类别，再按冻结绑定映射到项目类别。分割试用另核对冻结图片尺寸，页面读取同一部署保留的逐实例掩码预览。试用成功仅将该候选与指定实例的部署记录置为 `ready`；负责人确认样本后才可单独创建 `ModelRelease`。单张固定样本的试用结果不等于逐样本评估报告。
 
-平台接受的 `project-release` 是项目当前发布的选择别名，解析后仍固定到具体版本和部署，不作为 Backend 内部模型目录名称。后续任务保存冻结引用，目标实例不可用时不会切换到其他未知权重。用户操作见[训练模型回流与发布](/user-guide/projects/model-return)。
+当前发布按 `(project_id, task)` 隔离选择和代次；创建发布、回退、停用都须匹配任务。平台接受的 `project-release` 指检测当前发布，`project-release:segment` 指分割当前发布；解析后固定到具体版本和部署，不作为 Backend 内部模型目录名称。后续任务保存冻结引用，目标实例不可用时不会切换到其他未知权重。人工采纳、像素修正、提交、审核后，才可冻结下一训练版本；试用和评估不自动创建人工标注或发布。用户操作见[模型回流与默认预标](/user-guide/online-learning/models)。
+
+已登记的跨版本组合为 Ultralytics `8.4.177 → 8.4.183` 的 YOLO11 检测与 YOLO11n 实例分割；精确版本白名单之外仍须检查原生网络拓扑、检测头、完整参数签名、类别、有限张量和实际导入源码。未知组合及反向降级拒绝。新任务将运行时纳入冻结引用和请求 binding；旧快照不重写。重新部署若实际运行时变化，必须重新完成固定样本试用。
 
 ### 逐样本评估与请求恢复
 
 受控逐样本评估复用 `POST /predict` 的受控模型身份，并使用以下辅助端点，不存在按框架命名的 `/sample-evaluations` Backend 路由：
 
-| 端点                                                  | 用途                                     |
-| ----------------------------------------------------- | ---------------------------------------- |
-| `GET /managed-evaluation/profile`                     | 获取推理环境资格与持久存储身份           |
-| `GET /managed-evaluation/requests/{request_id}`       | 按绑定摘要和存储身份读取已保存的请求收据 |
-| `POST /managed-evaluation/requests/{request_id}/seal` | 封存请求，配合持久锁确认停止与恢复边界   |
+| 端点                                                          | 用途                                     |
+| ------------------------------------------------------------- | ---------------------------------------- |
+| `GET /managed-evaluation/profile`                             | 获取推理环境资格与持久存储身份           |
+| `GET /managed-evaluation/requests/{request_id}`               | 按绑定摘要和存储身份读取已保存的请求收据 |
+| `POST /managed-evaluation/requests/{request_id}/seal`         | 封存请求，配合持久锁确认停止与恢复边界   |
+| `GET /managed-evaluation/segment/profile`                     | 获取独立分割推理 profile 与持久存储身份  |
+| `GET /managed-evaluation/segment/requests/{request_id}`       | 读取已固定的分割请求收据与掩码结果       |
+| `POST /managed-evaluation/segment/requests/{request_id}/seal` | 封存分割请求；已完成时仍返回原完成结果   |
 
-共享逐样本评估与主动选样当前仅接受通过对应环境资格检查的 Ultralytics 检测模型。LibreYOLO 的固定样本试用、人工发布与回退可用，不表示已获得这两类能力。详见[在线学习与训练体系](/dev/concepts/training-datasets#_4-1-冻结逐样本评估)。
+共享评估接受已登记的修订 1／2，分别对应冻结的原生运行时；未知修订返回明确的资格错误。profile 摘要同时覆盖原生库与 backend、训练到推理兼容契约的源码。
+
+分割 profile 使用独立 `implementation="aap-ultralytics-instance-mask"`，固定选项包含 `retina_masks=true`，同时绑定实际推理源码、设备、profile 摘要和独立收据存储身份。请求恢复沿用同一请求与绑定，不重新运行已经保存的结果。profile 和检测辅助响应限 256 KiB；只有明确的分割请求收据与 seal 响应允许有界 17 MiB，因为 seal 已完成请求也会返回完整掩码证据。
+
+分割逐样本评估使用独立 schema 与 `aap-instance-mask-greedy` 评估身份：冻结原图 canonical RLE，旧 polygon 真值用 `aap-pixel-center-even-odd-1` 显式像素化。预测按置信度和原生实例序号稳定排序，同类按最大 Mask IoU 一对一匹配，再单独记录错类与定位诊断；TP/FP/FN 不因诊断而改写。报告包含已匹配实例的 Mask IoU、Dice 均值和原图前景像素面积组，漏检仍计 FN，不宣称 AP。比较要求冻结成员、类别、用途、阈值、预处理与 profile 语义身份一致。
+
+该评估最多 32 张图、每图 200 个真值和 100 个预测，总真值 2,000 个；固定原图上限 1,280,000 像素、单边 4,096，每图真值或预测 RLE 各限 2 MiB，匹配最多 20,000,000 run 操作。冻结 spec 与最终报告还分别受 4 MiB、8 MiB 预算约束，超限不能产出伪造的成功摘要。
+
+共享逐样本评估与主动选样只接受通过对应任务、环境和策略资格检查的 Ultralytics 模型；软件协议支持不等于分割 GPU 或自动循环已取得部署资格。LibreYOLO 的固定样本试用、人工发布与回退可用，不表示已获得这两类能力。详见[在线学习与训练体系](/dev/concepts/training-datasets#_4-1-冻结逐样本评估)。

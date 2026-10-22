@@ -198,7 +198,7 @@ class RoutedMLBackendClient:
         ref = (context or {}).get("frozen_model_ref")
         controlled = (
             model_id.startswith("trained:")
-            or model_id == "project-release"
+            or trained_models.release_task(model_id) is not None
             or ref is not None
         )
         required_instance_id = None

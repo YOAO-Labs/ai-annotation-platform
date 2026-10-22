@@ -29,6 +29,7 @@ from app.api.v1 import (
     me,
     ml_backends,
     ml_capabilities,
+    model_catalog,
     mask_qc,
     point_cloud_quality,
     mask_formats,
@@ -65,6 +66,7 @@ from app.api.v1 import (
 )
 
 api_router = APIRouter()
+api_router.include_router(model_catalog.router, tags=["model-catalog"])
 api_router.include_router(admin_backend_operations.router)
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(invitations.router, prefix="/auth", tags=["auth"])

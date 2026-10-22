@@ -32,3 +32,24 @@ it("refuses unknown media, cross-task and incompatible geometry without turning 
     }),
   ).toMatch(/不兼容/);
 });
+
+it("qualifies native instance masks and rejects cross-bridge direct inheritance", () => {
+  const native = {
+    ...insightVersion,
+    task: "segment" as const,
+    contract_profile: {
+      ...insightVersion.contract_profile!,
+      schema: 4,
+      task: "segment" as const,
+      format: "aap-instance-rle",
+      geometry: "instance-mask",
+      bridge: "ultralytics-instance-rle-1",
+    },
+  };
+  expect(datasetParentReason(native, "segment")).toBeNull();
+  expect(datasetParentReason(native, "segment", "ultralytics-instance-rle-1")).toBeNull();
+  expect(datasetParentReason(native, "segment", "ultralytics-simple-polygon-1")).toMatch(
+    /桥接不同/,
+  );
+  expect(datasetParentReason(native, "detect")).toMatch(/任务不同/);
+});

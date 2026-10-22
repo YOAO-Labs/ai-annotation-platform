@@ -12,6 +12,9 @@ const mockCreateDatasetMutateAsync = vi.fn();
 const mockCreateDatasetReset = vi.fn();
 const mockImportFromConnectionMutateAsync = vi.fn();
 const mockPushToast = vi.fn();
+const mockStorage = vi.hoisted(() => ({
+  connections: [{ id: "c1", name: "Conn", kind: "s3", scope: "global" }],
+}));
 
 vi.mock("@/hooks/useDatasets", () => ({
   useCreateDataset: () => ({
@@ -27,7 +30,7 @@ vi.mock("@/hooks/useDatasets", () => ({
 
 vi.mock("@/hooks/useStorageConnections", () => ({
   useStorageConnections: () => ({
-    data: [{ id: "c1", name: "Conn", kind: "s3", scope: "global" }],
+    data: mockStorage.connections,
     isLoading: false,
   }),
   useCreateStorageConnection: () => ({ mutateAsync: vi.fn(), isPending: false }),
@@ -97,6 +100,7 @@ function pickFile() {
 
 describe("ImportDatasetWizard", () => {
   beforeEach(() => {
+    mockStorage.connections = [{ id: "c1", name: "Conn", kind: "s3", scope: "global" }];
     mockCreateDatasetMutateAsync.mockReset().mockResolvedValue({ id: "ds-new", name: "Test DS" });
     mockCreateDatasetReset.mockReset();
     mockImportFromConnectionMutateAsync.mockReset();
@@ -164,6 +168,21 @@ describe("ImportDatasetWizard", () => {
     fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
     const nameInput = screen.getByPlaceholderText(/商品检测训练集/) as HTMLInputElement;
     expect(nameInput.value).toBe("dataset-A");
+  });
+  it("keeps the selected connection ID while the available list is refreshed", () => {
+    const view = renderUI();
+    fireEvent.click(screen.getByRole("button", { name: /连接器导入/ }));
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "c1" } });
+    mockStorage.connections = [
+      { id: "c2", name: "Another connection", kind: "s3", scope: "global" },
+    ];
+    view.rerender(
+      <MemoryRouter>
+        <ImportDatasetWizard open onClose={vi.fn()} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("combobox")).toHaveValue("c1");
+    expect(screen.getByRole("combobox")).toHaveDisplayValue("已选连接器（正在核对可用状态）");
   });
 
   it("完整新建流程: 选文件 → 下一步 → 填名 → 开始上传 → 触发 createDataset", async () => {

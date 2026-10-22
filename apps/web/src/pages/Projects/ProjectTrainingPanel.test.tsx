@@ -120,6 +120,93 @@ afterEach(() => {
   localStorage.clear();
 });
 describe("managed project training", () => {
+  it.each(["detect", "segment"])(
+    "pairs %s training performance and losses with validation charts",
+    async (task) => {
+      vi.mocked(trainingRunsApi.get).mockResolvedValue({
+        run: { ...run, task },
+        attempts: [],
+      } as never);
+      vi.mocked(trainingRunsApi.events).mockResolvedValue({
+        attempt_id: "attempt",
+        items: [
+          {
+            sequence: 1,
+            kind: "epoch",
+            epoch: 1,
+            metrics: {
+              "train/box_loss": 1.2,
+              "train/dfl_loss": 0.8,
+              "train/cls_loss": 0,
+              ...(task === "segment" ? { "train/seg_loss": 2.3, "train/sem_loss": 0 } : {}),
+              "train/metrics/precision(B)": 0.7,
+              "train/metrics/recall(B)": 0.6,
+              "train/metrics/mAP50(B)": 0.8,
+              "train/metrics/mAP50-95(B)": 0.6,
+              ...(task === "segment" ? { "train/metrics/mAP50-95(M)": 0.4 } : {}),
+              "metrics/mAP50-95(B)": 0.5,
+              "val/box_loss": 1.9,
+              ...(task === "segment" ? { "val/seg_loss": 2.9, "val/sem_loss": 0.1 } : {}),
+            },
+          },
+        ],
+      });
+      mount();
+      const performance = await screen.findByRole("img", { name: "训练表现，1 轮上报数据" });
+      const charts = screen.getAllByRole("region", { name: /损失|表现/ });
+      expect(charts.map((chart) => chart.getAttribute("aria-label"))).toEqual([
+        "训练表现",
+        "训练损失",
+        "验证表现",
+        "验证损失",
+      ]);
+      expect(charts[0]).toContainElement(performance);
+      expect(within(charts[0]).getByText("训练框 Precision")).toBeVisible();
+      expect(within(charts[0]).getByText("训练框 Recall")).toBeVisible();
+      expect(within(charts[0]).getByText("训练框 mAP50–95")).toBeVisible();
+      expect(within(charts[1]).getByText("训练框回归损失")).toBeVisible();
+      expect(within(charts[1]).getByText("训练 DFL 损失")).toBeVisible();
+      expect(within(charts[1]).getByText("训练分类损失")).toBeVisible();
+      expect(within(charts[3]).queryByText("训练框回归损失")).not.toBeInTheDocument();
+      expect(within(charts[3]).getByText("验证框回归损失")).toBeVisible();
+      if (task === "segment") {
+        expect(within(charts[0]).getByText("训练掩码 mAP50–95")).toBeVisible();
+        expect(within(charts[1]).getByText("掩码训练损失")).toBeVisible();
+        expect(within(charts[1]).getByText("语义训练损失")).toBeVisible();
+        expect(within(charts[3]).getByText("语义验证损失")).toBeVisible();
+        expect(within(charts[3]).queryByText("掩码训练损失")).not.toBeInTheDocument();
+      }
+      await userEvent.click(screen.getByText("逐轮指标表 · 1 轮"));
+      expect(screen.getAllByRole("cell", { name: "0.0000" })).toHaveLength(
+        task === "segment" ? 2 : 1,
+      );
+    },
+  );
+  it("keeps historical training loss charts empty when only validation losses were recorded", async () => {
+    vi.mocked(trainingRunsApi.events).mockResolvedValue({
+      attempt_id: "attempt",
+      items: [{ sequence: 1, kind: "epoch", epoch: 1, metrics: { "val/box_loss": 1.9 } }],
+    });
+    mount();
+    expect(await screen.findByRole("img", { name: "验证损失，1 轮上报数据" })).toBeVisible();
+    expect(screen.getByText("此执行尚未上报训练损失")).toBeVisible();
+    expect(screen.getByText("此执行尚未上报训练集表现")).toBeVisible();
+    expect(screen.queryByRole("img", { name: /训练.*损失/ })).not.toBeInTheDocument();
+  });
+  it("preserves LibreYOLO total loss without inventing training components", async () => {
+    vi.mocked(trainingRunsApi.get).mockResolvedValue({
+      run: { ...run, config: { ...run.config, framework: "libreyolo" } },
+      attempts: [],
+    } as never);
+    vi.mocked(trainingRunsApi.events).mockResolvedValue({
+      attempt_id: "attempt",
+      items: [{ sequence: 1, kind: "epoch", epoch: 1, metrics: { "train/loss": 0 } }],
+    });
+    mount();
+    expect(await screen.findByRole("img", { name: "训练损失，1 轮上报数据" })).toBeVisible();
+    expect(screen.getByText(/仅上报训练总损失，未提供训练集表现/)).toBeVisible();
+    expect(screen.getByText("此执行尚未上报验证损失")).toBeVisible();
+  });
   it("links a qualified successful execution to model registration with its exact source", async () => {
     vi.mocked(trainingRunsApi.get).mockResolvedValue({
       run: { ...run, status: "succeeded" },
@@ -132,7 +219,7 @@ describe("managed project training", () => {
     mount("older");
     expect(await screen.findByRole("link", { name: "回流到项目模型" })).toHaveAttribute(
       "href",
-      "/projects/project/learning?tab=models&register_run=run&register_attempt=older",
+      "/projects/project/learning?tab=models&model_task=detect&register_run=run&register_attempt=older",
     );
   });
   it("explains why a successful training result cannot return as a project model", async () => {
@@ -144,6 +231,46 @@ describe("managed project training", () => {
     mount();
     expect(await screen.findByText(/该模型家族尚未支持回流/)).toBeVisible();
     expect(screen.queryByRole("link", { name: "回流到项目模型" })).not.toBeInTheDocument();
+  });
+  it("disables return and deletion for an execution already referenced by a project model", async () => {
+    vi.mocked(trainingRunsApi.get).mockResolvedValue({
+      run: { ...run, status: "succeeded" },
+      registration_eligibility: { qualified: true, reason: null },
+      registered_models: [{ id: "model", attempt_id: "attempt", name: "车辆模型" }],
+      attempts: [{ id: "attempt", ordinal: 1, status: "succeeded", artifacts: {} }],
+    } as never);
+    const user = userEvent.setup();
+    mount();
+    expect(await screen.findByRole("button", { name: "已回流到项目模型" })).toBeDisabled();
+    expect(screen.queryByRole("link", { name: "回流到项目模型" })).not.toBeInTheDocument();
+    expect(screen.getByText(/本次执行已添加为项目模型“车辆模型”/)).toBeVisible();
+    const deletion = screen.getByRole("button", { name: "删除实验" });
+    expect(deletion).toBeDisabled();
+    expect(deletion).toHaveAccessibleDescription(/实验已被项目模型引用/);
+    await user.click(deletion);
+    expect(confirmDialog).not.toHaveBeenCalled();
+    expect(trainingRunsApi.remove).not.toHaveBeenCalled();
+  });
+  it("keeps a different successful execution available for return", async () => {
+    vi.mocked(trainingRunsApi.get).mockResolvedValue({
+      run: { ...run, status: "succeeded" },
+      registration_eligibility: { qualified: true, reason: null },
+      registered_models: [{ id: "model", attempt_id: "older", name: "旧模型" }],
+      attempts: [
+        { id: "attempt", ordinal: 2, status: "succeeded", artifacts: {} },
+        { id: "older", ordinal: 1, status: "succeeded", artifacts: {} },
+      ],
+    } as never);
+    const user = userEvent.setup();
+    mount();
+    expect(await screen.findByRole("link", { name: "回流到项目模型" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("register_attempt=attempt"),
+    );
+    await user.selectOptions(screen.getByRole("combobox", { name: "查看执行记录" }), "older");
+    expect(await screen.findByRole("button", { name: "已回流到项目模型" })).toBeDisabled();
+    await user.selectOptions(screen.getByRole("combobox", { name: "查看执行记录" }), "attempt");
+    expect(await screen.findByRole("link", { name: "回流到项目模型" })).toBeVisible();
   });
   it("does not offer model registration for an unfinished execution", async () => {
     vi.mocked(trainingRunsApi.get).mockResolvedValue({
@@ -192,6 +319,7 @@ describe("managed project training", () => {
         0,
         expect.anything(),
         expect.objectContaining({ q: "分割", status: "succeeded" }),
+        20,
       ),
     );
     const list = screen.getByRole("table", { name: "训练实验列表" });
@@ -213,6 +341,7 @@ describe("managed project training", () => {
         20,
         expect.anything(),
         expect.objectContaining({ q: "分割", status: "succeeded" }),
+        20,
       ),
     );
     expect(trainingRunsApi.create).not.toHaveBeenCalled();
@@ -251,10 +380,42 @@ describe("managed project training", () => {
   });
   it("opens the independent project creation page", async () => {
     const user = userEvent.setup();
-    mount();
+    mount("", "list");
     await waitFor(() => expect(screen.getByRole("button", { name: "新建实验" })).toBeEnabled());
+    expect(screen.queryByRole("button", { name: "删除实验" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "新建实验" }));
     expect(screen.getByText("/projects/project/learning/new")).toBeVisible();
+  });
+  it("replaces creation with a visible disabled delete entry while training", async () => {
+    mount();
+    await screen.findByRole("article", { name: "训练实验详情" });
+    expect(screen.queryByRole("button", { name: "新建实验" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "删除实验" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "删除实验" })).toHaveAccessibleDescription(
+      "实验尚未结束，请先停止训练。",
+    );
+  });
+  it("deletes a terminal experiment from its header after confirmation and returns to the list", async () => {
+    vi.mocked(trainingRunsApi.get).mockResolvedValue({
+      run: { ...run, status: "failed" },
+      attempts: [],
+      registered_models: [],
+    } as never);
+    vi.mocked(confirmDialog).mockResolvedValueOnce(true);
+    const user = userEvent.setup();
+    mount();
+    await screen.findByRole("article", { name: "训练实验详情" });
+    expect(screen.queryByRole("button", { name: "新建实验" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "指标曲线" })).toHaveAttribute("aria-selected", "true");
+    await user.click(screen.getByRole("button", { name: "删除实验" }));
+    await waitFor(() => expect(trainingRunsApi.remove).toHaveBeenCalledWith("project", "run"));
+    expect(confirmDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "删除实验“车辆训练”",
+        tone: "danger",
+      }),
+    );
+    expect(screen.getByText("/projects/project/learning")).toBeVisible();
   });
   it("requests cancellation without displaying terminal cancellation early", async () => {
     vi.mocked(trainingRunsApi.list).mockResolvedValue({ items: [run as never], total: 1 });

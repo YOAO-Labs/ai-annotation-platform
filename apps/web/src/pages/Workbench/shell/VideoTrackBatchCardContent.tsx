@@ -82,7 +82,9 @@ export function VideoTrackBatchCardContent({
           }}
           className={SELECT_CLASS}
         >
-          <option value="">改类</option>
+          <option value="" disabled hidden>
+            改类
+          </option>
           {(classes ?? []).map((cls) => (
             <option key={cls} value={cls}>
               {cls}

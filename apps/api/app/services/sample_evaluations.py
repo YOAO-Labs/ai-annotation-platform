@@ -30,6 +30,7 @@ from app.schemas.sample_evaluation import (
 from app.services import (
     async_job as jobs,
     sample_evaluation_engine as engine,
+    trained_models,
 )
 from app.services.async_job_notify import notify_job_terminal
 from app.services.managed_inference import (
@@ -51,6 +52,113 @@ from app.services.training_dataset_bridge import (
     TrainingDatasetError,
 )
 from app.services.training_datasets import assert_training_authority
+
+
+def engine_for(value):
+    if (
+        value.get("schema") == 2
+        or normalize_task(value.get("task") or "detect") == "segment"
+    ):
+        from app.services import sample_evaluation_masks
+
+        return sample_evaluation_masks
+    return engine
+
+
+async def frozen_mask_truth(project_id, version, member, source, classes):
+    from app.services import sample_evaluation_masks as masks
+    from training_contract.dataset import segmentation_labels
+
+    result = []
+    if version.manifest.get("schema") == 4:
+        from app.services.training_dataset_analysis import read_instance_masks
+
+        if not isinstance(member.get("instances"), list):
+            raise ValueError("Frozen mask instance mapping is missing")
+        if len(member["instances"]) > masks.MAX_TRUTH_PER_IMAGE:
+            raise ValueError("Frozen mask instance count exceeds the evaluation budget")
+        encoded_bytes = [instance.get("rle_bytes") for instance in member["instances"]]
+        if (
+            any(type(size) is not int or size < 0 for size in encoded_bytes)
+            or sum(encoded_bytes) > masks.MAX_SAMPLE_RLE_BYTES
+        ):
+            raise ValueError("Frozen masks exceed the sample RLE budget")
+        retained_instances = await asyncio.to_thread(
+            read_instance_masks,
+            project_id,
+            version,
+            SimpleNamespace(
+                included=True,
+                label_sha256=member["label_sha256"],
+                task_id=uuid.UUID(member["task_id"]),
+            ),
+            [uuid.UUID(instance["annotation_id"]) for instance in member["instances"]],
+        )
+        for instance in member["instances"]:
+            index = instance["class_index"]
+            if type(index) is not int or not 0 <= index < len(classes):
+                raise ValueError("Frozen mask class index is invalid")
+            retained = retained_instances[instance["annotation_id"]]
+            if (
+                str(retained["annotation_id"]) != instance["annotation_id"]
+                or retained["annotation_version"] != instance["annotation_version"]
+                or retained["pixel_sha256"] != instance["pixel_sha256"]
+            ):
+                raise ValueError("Frozen mask instance source identity differs")
+            result.append(
+                {
+                    "index": len(result),
+                    "class_index": index,
+                    "annotation_id": instance["annotation_id"],
+                    "annotation_version": instance["annotation_version"],
+                    "rasterizer": "native-rle-1",
+                    **masks.mask_evidence(retained["rle"]),
+                }
+            )
+    else:
+        from app.services.mask_conversion import rasterize_region_geometry
+
+        text, instances = segmentation_labels(source["annotations"], classes)
+        if hashlib.sha256(text.encode()).hexdigest() != member["label_sha256"]:
+            raise ValueError("Frozen polygon labels differ")
+        annotations = {item["id"]: item for item in source["annotations"]}
+        if (
+            member["width"]
+            * member["height"]
+            * sum(
+                len(annotation["geometry"]["points"])
+                for annotation in annotations.values()
+            )
+            > 100_000_000
+        ):
+            raise ValueError(
+                "Frozen polygon rasterization exceeds the evaluation operation budget"
+            )
+        for instance in instances:
+            annotation = annotations[instance["annotation_id"]]
+            rle = await asyncio.to_thread(
+                rasterize_region_geometry,
+                annotation["geometry"],
+                member["width"],
+                member["height"],
+            )
+            result.append(
+                {
+                    "index": len(result),
+                    "class_index": instance["class_index"],
+                    "annotation_id": instance["annotation_id"],
+                    "annotation_version": instance["annotation_version"],
+                    "rasterizer": masks.EVALUATOR["polygon_rasterizer"],
+                    **masks.mask_evidence(rle),
+                }
+            )
+    masks._checked(result, len(classes), False)
+    if len({item["annotation_id"] for item in result}) != len(result) or any(
+        item["rle"]["size"] != [member["height"], member["width"]] for item in result
+    ):
+        raise ValueError("Frozen mask source or original dimensions differ")
+    return result
+
 
 ACTIVE = {"queued", "running", "cancelling", "lost"}
 TERMINAL = {"succeeded", "failed", "cancelled"}
@@ -85,7 +193,7 @@ async def load_run(db, project_id, run_id, *, lock=False):
     return run
 
 
-def checked_dataset(version):
+def checked_dataset(version, expected_task="detect"):
     if (
         version.status != "ready"
         or content_digest(version.snapshot) != version.snapshot_digest
@@ -95,10 +203,10 @@ def checked_dataset(version):
     try:
         contract = contract_of(manifest)
         if (
-            normalize_task(contract["task"]) != "detect"
+            normalize_task(contract["task"]) != expected_task
             or contract_of(version.snapshot) != contract
         ):
-            raise reject("unsupported_task", "样本评估目前仅通过图片检测资格验证", 422)
+            raise reject("unsupported_task", "样本评估任务与冻结数据任务不一致", 422)
     except TrainingDatasetError as exc:
         raise reject("unsupported_task", str(exc), 422) from exc
     if (
@@ -116,12 +224,19 @@ def checked_dataset(version):
 
 
 async def frozen_spec(db, project, body, evaluation_id, ref, profile):
+    selected_engine = engine_for(ref)
+    segmentation = selected_engine is not engine
+    task = "segment" if segmentation else "detect"
     version = await db.get(
         TrainingDatasetVersion, body.dataset_id, populate_existing=True
     )
     if not version or version.project_id != project.id:
         raise reject("dataset_missing", "冻结数据版本不存在", 404)
-    manifest = checked_dataset(version)
+    manifest = checked_dataset(version, task)
+    if profile["implementation"] != (
+        "aap-ultralytics-instance-mask" if segmentation else "aap-ultralytics-detection"
+    ):
+        raise reject("profile_task_mismatch", "推理评估资格与数据任务不一致", 422)
     classes = manifest["classes"]
     if (
         len(ref["classes"]) != len(classes)
@@ -148,10 +263,25 @@ async def frozen_spec(db, project, body, evaluation_id, ref, profile):
         member, source = members.get(str(task_id)), sources.get(str(task_id))
         if not member or not source or member.get("split") != "val":
             raise reject("sample_unavailable", "须明确选择该版本的验证分区成员", 422)
-        text = detection_labels(source["annotations"], classes)
-        if hashlib.sha256(text.encode()).hexdigest() != member.get("label_sha256"):
-            raise reject("labels_corrupt", "冻结标签摘要不匹配")
-        truth = engine.truth_from_yolo(text, len(classes))
+        if (
+            not 0 < member["size_bytes"] <= selected_engine.MAX_RAW_BYTES
+            or member["width"] * member["height"] > selected_engine.MAX_PIXELS
+            or (
+                segmentation
+                and max(member["width"], member["height"])
+                > selected_engine.MAX_DIMENSION
+            )
+        ):
+            raise reject("sample_budget", "所选图片超过评估大小或像素上限", 422)
+        if segmentation:
+            truth = await frozen_mask_truth(
+                project.id, version, member, source, classes
+            )
+        else:
+            text = detection_labels(source["annotations"], classes)
+            if hashlib.sha256(text.encode()).hexdigest() != member.get("label_sha256"):
+                raise reject("labels_corrupt", "冻结标签摘要不匹配")
+            truth = engine.truth_from_yolo(text, len(classes))
         samples.append(
             {
                 "ordinal": len(samples),
@@ -177,18 +307,17 @@ async def frozen_spec(db, project, body, evaluation_id, ref, profile):
                 "truth": truth,
             }
         )
-        if (
-            not 0 < member["size_bytes"] <= engine.MAX_RAW_BYTES
-            or member["width"] * member["height"] > engine.MAX_PIXELS
-        ):
-            raise reject("sample_budget", "所选图片超过评估大小或像素上限", 422)
+        if segmentation:
+            samples[-1]["label_sha256"] = content_digest(
+                sorted((item["class_index"], item["mask_sha256"]) for item in truth)
+            )
     if body.role == "held_out_test":
         native_dataset = await db.get(
             TrainingDatasetVersion, uuid.UUID(ref["provenance"]["dataset_id"])
         )
         if not native_dataset:
             raise reject("candidate_dataset_missing", "候选训练数据身份不可核验")
-        native_manifest = checked_dataset(native_dataset)
+        native_manifest = checked_dataset(native_dataset, task)
         used = {m["sha256"] for m in native_manifest["samples"]}
         if used & {m["sha256"] for m in samples}:
             raise reject(
@@ -196,14 +325,14 @@ async def frozen_spec(db, project, body, evaluation_id, ref, profile):
             )
     issued = int(time.time())
     spec = {
-        "schema": 1,
+        "schema": 2 if segmentation else 1,
         "evaluation_id": str(evaluation_id),
         "model_ref": ref,
         "dataset_id": str(version.id),
         "snapshot_digest": version.snapshot_digest,
         "manifest_digest": manifest["content_digest"],
         "package_sha256": version.package_sha256,
-        "benchmark_digest": engine.benchmark_identity(samples, classes),
+        "benchmark_digest": selected_engine.benchmark_identity(samples, classes),
         "classes": classes,
         "native_to_benchmark": mapping,
         "role": body.role,
@@ -211,7 +340,7 @@ async def frozen_spec(db, project, body, evaluation_id, ref, profile):
         "confidence": body.confidence,
         "matching_iou": body.matching_iou,
         "nms_iou": body.nms_iou,
-        "evaluator": engine.EVALUATOR,
+        "evaluator": selected_engine.EVALUATOR,
         "preprocessing": engine.PREPROCESSING,
         "profile": profile,
         "profile_digest": profile["profile_digest"],
@@ -219,7 +348,14 @@ async def frozen_spec(db, project, body, evaluation_id, ref, profile):
         "issued_at": issued,
         "expires_at": issued + 86400,
     }
-    spec["comparison_digest"] = engine.comparison_identity(spec)
+    spec["comparison_digest"] = selected_engine.comparison_identity(spec)
+    if segmentation:
+        _bounded(spec, budget=[engine.REPORT_NODE_BUDGET // 2])
+        if (
+            len(json.dumps(spec, ensure_ascii=False, separators=(",", ":")).encode())
+            > MAX_REPORT_BYTES // 2
+        ):
+            raise reject("mask_truth_budget", "冻结掩码真值超过有界报告预算", 422)
     return EvaluationSpec.model_validate(spec).model_dump(mode="json", by_alias=True)
 
 
@@ -266,6 +402,20 @@ def validate_spec(run):
     spec = EvaluationSpec.model_validate(run.spec).model_dump(
         mode="json", by_alias=True
     )
+    selected_engine = engine_for(spec)
+    if spec["schema"] == 2:
+        for frozen in spec["samples"]:
+            selected_engine._checked(frozen["truth"], len(spec["classes"]), False)
+            if frozen["label_sha256"] != content_digest(
+                sorted(
+                    (item["class_index"], item["mask_sha256"])
+                    for item in frozen["truth"]
+                )
+            ) or any(
+                item["rle"]["size"] != [frozen["height"], frozen["width"]]
+                for item in frozen["truth"]
+            ):
+                raise reject("spec_corrupt", "冻结掩码真值身份校验失败")
     if (
         content_digest(spec) != run.spec_digest
         or spec["evaluation_id"] != str(run.id)
@@ -278,9 +428,9 @@ def validate_spec(run):
             {k: v for k, v in spec["model_ref"].items() if k != "reference_digest"}
         )
         or spec["benchmark_digest"]
-        != engine.benchmark_identity(spec["samples"], spec["classes"])
-        or spec["comparison_digest"] != engine.comparison_identity(spec)
-        or spec["evaluator"] != engine.EVALUATOR
+        != selected_engine.benchmark_identity(spec["samples"], spec["classes"])
+        or spec["comparison_digest"] != selected_engine.comparison_identity(spec)
+        or spec["evaluator"] != selected_engine.EVALUATOR
         or spec["preprocessing"] != engine.PREPROCESSING
         or spec["profile_digest"] != spec["profile"]["profile_digest"]
         or spec["profile_digest"]
@@ -312,7 +462,9 @@ def prepare_input(run, version, frozen):
 
 def successful_evidence(run, attempt, row, result):
     spec = validate_spec(run)
+    selected_engine = engine_for(spec)
     frozen = spec["samples"][row.ordinal]
+    trained_models.validate_result_runtime(result.meta, spec["model_ref"])
     inference = (result.meta or {}).get("sample_evaluation")
     verify_inference(spec, row, inference)
     identity = {
@@ -324,8 +476,23 @@ def successful_evidence(run, attempt, row, result):
         or (result.meta or {}).get("trained_model") != identity
     ):
         raise ValueError("Prediction candidate or task identity differs")
-    predictions = engine.predictions_from_wire(
-        result.result, spec["native_to_benchmark"]
+    from app.services.controlled_segmentation import runtime_for_reference
+
+    predictions = selected_engine.predictions_from_wire(
+        result.result,
+        spec["native_to_benchmark"],
+        **(
+            {
+                "runtime_qualification": runtime_for_reference(
+                    spec["model_ref"], spec["profile"]["ultralytics_version"]
+                ),
+                "metadata": result.meta,
+                "width": frozen["width"],
+                "height": frozen["height"],
+            }
+            if spec["schema"] == 2
+            else {}
+        ),
     )
     evidence = {
         **{
@@ -342,7 +509,7 @@ def successful_evidence(run, attempt, row, result):
         },
         "status": "succeeded",
         "predictions": predictions,
-        "matching": engine.evaluate_sample(
+        "matching": selected_engine.evaluate_sample(
             frozen["truth"],
             predictions,
             class_count=len(spec["classes"]),
@@ -388,6 +555,7 @@ def incomplete_evidence(spec, row):
 
 def build_report(run, attempt, rows, status):
     spec = validate_spec(run)
+    selected_engine = engine_for(spec)
     samples = [
         copy.deepcopy(row.evidence) if row.evidence else incomplete_evidence(spec, row)
         for row in rows
@@ -397,7 +565,7 @@ def build_report(run, attempt, rows, status):
         for state in ("succeeded", "failed", "pending")
     }
     report = {
-        "schema": 1,
+        "schema": spec["schema"],
         "evaluation_id": str(run.id),
         "attempt_id": str(attempt.id),
         "spec_digest": run.spec_digest,
@@ -409,7 +577,7 @@ def build_report(run, attempt, rows, status):
         "complete": status == "succeeded",
         "total_samples": len(samples),
         **{f"{key}_samples": value for key, value in counts.items()},
-        "aggregate": engine.aggregate(samples, spec["classes"])
+        "aggregate": selected_engine.aggregate(samples, spec["classes"])
         if status == "succeeded"
         else None,
         "samples": samples,
@@ -420,10 +588,12 @@ def build_report(run, attempt, rows, status):
 def verify_report(report, run, attempt, rows):
     """Verify against trusted DB facts before any index-based aggregation/filtering."""
     spec = validate_spec(run)
+    selected_engine = engine_for(spec)
     checked = EvaluationReport.model_validate(report).model_dump(
         mode="json", by_alias=True
     )
     expected = {
+        "schema": spec["schema"],
         "evaluation_id": str(run.id),
         "attempt_id": str(attempt.id),
         "spec_digest": run.spec_digest,
@@ -488,12 +658,13 @@ def verify_report(report, run, attempt, rows):
             raise ValueError("Report preprocessing identity differs")
         verify_inference(spec, row, sample["inference"])
         if any(
-            pred["class_index"]
+            not 0 <= pred["native_class_index"] < len(spec["native_to_benchmark"])
+            or pred["class_index"]
             != spec["native_to_benchmark"][pred["native_class_index"]]
             for pred in sample["predictions"]
         ):
             raise ValueError("Report native class mapping differs")
-        matching = engine.evaluate_sample(
+        matching = selected_engine.evaluate_sample(
             sample["truth"],
             sample["predictions"],
             class_count=len(spec["classes"]),
@@ -502,7 +673,7 @@ def verify_report(report, run, attempt, rows):
         )
         if sample["matching"] != matching:
             raise ValueError("Report matching differs from the qualified evaluator")
-    if checked["complete"] and checked["aggregate"] != engine.aggregate(
+    if checked["complete"] and checked["aggregate"] != selected_engine.aggregate(
         checked["samples"], spec["classes"]
     ):
         raise ValueError("Report aggregate differs from qualified sample evidence")

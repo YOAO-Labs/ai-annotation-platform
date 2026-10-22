@@ -1,6 +1,10 @@
+import { useOffsetListPagination } from "@/hooks/useOffsetListPagination";
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPagination } from "@/hooks/useListPagination";
+import { listStyles } from "@/components/ui/listStyles";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterToggle } from "@/components/filters/FilterControls";
-import { useState, Fragment, useEffect, useRef } from "react";
+import { useState, Fragment, useEffect, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Icon } from "@/components/ui/Icon";
 import { Button } from "@/components/ui/Button";
@@ -87,7 +91,7 @@ const ITEMS_TH_CLASS =
 const TD_CLASS = "border-b border-border p-3 align-middle whitespace-nowrap";
 const ITEM_TD_CLASS = "border-b border-border p-2 whitespace-nowrap";
 const DETAIL_TITLE_CLASS = "m-0 text-sm font-semibold text-foreground";
-const DETAIL_HEADER_CLASS = "mb-2.5 flex items-center justify-between";
+const DETAIL_HEADER_CLASS = "mb-2.5 flex flex-wrap items-center justify-between gap-2";
 
 function getErrorMessage(err: unknown) {
   return err instanceof Error ? err.message : "未知错误";
@@ -136,10 +140,10 @@ function DatasetRow({
   return (
     <tr
       id={`dataset-row-${ds.id}`}
-      className={`cursor-pointer ${isExpanded ? "bg-muted" : ""}`}
+      className={`grid cursor-pointer grid-cols-2 xl:table-row ${isExpanded ? "bg-muted" : ""}`}
       onClick={onToggle}
     >
-      <td className={`${TD_CLASS} pl-4`}>
+      <td className={`${TD_CLASS} col-span-2 min-w-0 pl-4`}>
         <div className="flex min-w-0 items-center gap-2.5">
           <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground">
             <Icon name={TYPE_ICONS[ds.data_type] || "layers"} size={14} />
@@ -171,17 +175,19 @@ function DatasetRow({
           {ds.has_scenes ? "含 Scene" : "无 Scene"}
         </Badge>
       </td>
-      <td className={TD_CLASS}>
+      <td className={`${TD_CLASS} min-w-0`}>
+        <span className="mr-1.5 text-xs text-muted-foreground xl:hidden">文件</span>
         <span className="mono text-sm">{ds.file_count.toLocaleString()}</span>
       </td>
-      <td className={TD_CLASS}>
+      <td className={`${TD_CLASS} min-w-0`}>
+        <span className="mr-1.5 text-xs text-muted-foreground xl:hidden">关联项目</span>
         <span className="mono text-sm">{ds.project_count}</span>
       </td>
       <td className={TD_CLASS}>
         <span className="text-sm">{created}</span>
       </td>
       <td className={`${TD_CLASS} pr-4 text-right`}>
-        <Button size="sm">
+        <Button size="sm" aria-expanded={isExpanded}>
           {isExpanded ? "收起" : "展开"}{" "}
           <Icon name={isExpanded ? "chevDown" : "chevRight"} size={11} />
         </Button>
@@ -191,17 +197,18 @@ function DatasetRow({
 }
 
 function DatasetDetail({ ds }: { ds: DatasetResponse }) {
-  const [itemPage, setItemPage] = useState(0);
+  const itemPagination = useOffsetListPagination(ds.id);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [confirmUnlink, setConfirmUnlink] = useState<ProjectResponse | null>(null);
   // v0.12.0 · 大 dataset 关联后异步建 task 的进度
   const [linkJob, setLinkJob] = useState<{ jobId: string; projectId: string } | null>(null);
   const queryClient = useQueryClient();
   const { data: itemsData, isLoading: itemsLoading } = useDatasetItems(ds.id, {
-    limit: 10,
-    offset: itemPage * 10,
+    limit: itemPagination.pageSize,
+    offset: itemPagination.offset,
   });
   const { data: linkedProjects = [] } = useDatasetProjects(ds.id);
+  const linkedPagination = useListPagination(linkedProjects, ds.id);
   const { data: allProjects } = useProjects();
   const unlinkMutation = useUnlinkProject(ds.id);
   const linkMutation = useLinkProject(ds.id);
@@ -213,7 +220,11 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
 
   const items = itemsData?.items ?? [];
   const totalItems = itemsData?.total ?? 0;
-  const totalPages = Math.ceil(totalItems / 10);
+  useEffect(() => {
+    if (!itemsData || itemsLoading) return;
+    const lastPage = Math.max(0, Math.ceil(totalItems / itemPagination.pageSize) - 1);
+    if (itemPagination.page > lastPage) itemPagination.setPage(lastPage);
+  }, [itemsData, itemsLoading, totalItems, itemPagination]);
   const isImageDataset = ds.data_type === "image";
   const isVideoDataset = ds.data_type === "video";
   const isPointCloudDataset = ds.data_type === "point_cloud";
@@ -248,17 +259,17 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
   };
 
   return (
-    <tr>
-      <td colSpan={7} className="border-b border-border p-0 whitespace-normal">
-        <div className="bg-background px-5 py-4">
-          <div className="flex gap-4">
+    <tr className="block xl:table-row">
+      <td colSpan={7} className="block border-b border-border p-0! whitespace-normal xl:table-cell">
+        <div className="bg-background px-3 py-4 sm:px-5">
+          <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(220px,1fr)]">
             {/* 文件列表 */}
-            <div className="min-w-0 flex-[2]">
+            <div className="min-w-0">
               <div className={DETAIL_HEADER_CLASS}>
                 <h4 className={DETAIL_TITLE_CLASS}>
                   文件列表 <span className="font-normal text-muted-foreground">({totalItems})</span>
                 </h4>
-                <div className="flex gap-1.5">
+                <div className="flex flex-wrap gap-1.5">
                   <Button
                     size="sm"
                     onClick={() => {
@@ -344,7 +355,7 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
                 </div>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] border-separate border-spacing-0 text-sm">
+                <table className={`${listStyles.table} min-w-[720px]`}>
                   <thead>
                     <tr>
                       {["文件名", "类型", "大小", "媒体信息", "上传时间"].map((h, i) => (
@@ -412,31 +423,19 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
                   </tbody>
                 </table>
               </div>
-              {totalPages > 1 && (
-                <div className="mt-2 flex justify-center gap-1">
-                  <Button
-                    size="sm"
-                    onClick={() => setItemPage(Math.max(0, itemPage - 1))}
-                    className={itemPage > 0 ? undefined : "invisible"}
-                  >
-                    <Icon name="chevLeft" size={11} />
-                  </Button>
-                  <span className="px-2 py-1 text-xs text-muted-foreground">
-                    {itemPage + 1} / {totalPages}
-                  </span>
-                  <Button
-                    size="sm"
-                    onClick={() => setItemPage(Math.min(totalPages - 1, itemPage + 1))}
-                    className={itemPage < totalPages - 1 ? undefined : "invisible"}
-                  >
-                    <Icon name="chevRight" size={11} />
-                  </Button>
-                </div>
-              )}
+              <ListPagination
+                label="数据集文件"
+                page={itemPagination.page}
+                pageSize={itemPagination.pageSize}
+                total={totalItems}
+                loading={itemsLoading}
+                onPageChange={itemPagination.setPage}
+                onPageSizeChange={itemPagination.setPageSize}
+              />
             </div>
 
             {/* 关联项目 */}
-            <div className="min-w-[220px] flex-1 border-l border-border pl-4">
+            <div className="min-w-0 border-t border-border pt-4 xl:border-t-0 xl:border-l xl:pt-0 xl:pl-4">
               <div className="mb-3.5 border-b border-border pb-3.5">
                 <div className={DETAIL_HEADER_CLASS}>
                   <h4 className={DETAIL_TITLE_CLASS}>Scene 信息</h4>
@@ -477,7 +476,7 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
                   </span>
                 </h4>
               </div>
-              {linkedProjects.map((p) => (
+              {linkedPagination.items.map((p) => (
                 <div
                   key={p.id}
                   className="flex items-center justify-between border-b border-border py-2"
@@ -501,6 +500,14 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
               {linkedProjects.length === 0 && (
                 <div className="py-3 text-xs text-muted-foreground">未关联任何项目</div>
               )}
+              <ListPagination
+                label="关联项目"
+                page={linkedPagination.page}
+                pageSize={linkedPagination.pageSize}
+                total={linkedPagination.total}
+                onPageChange={linkedPagination.setPage}
+                onPageSizeChange={linkedPagination.setPageSize}
+              />
               {availableProjects.length > 0 && (
                 <select
                   onChange={(e) => {
@@ -519,7 +526,7 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
                   defaultValue=""
                   className="mt-2 w-full cursor-pointer appearance-none rounded-sm border border-border bg-card px-2 py-1.5 text-xs text-foreground"
                 >
-                  <option value="" disabled>
+                  <option value="" disabled hidden>
                     关联到项目...
                   </option>
                   {availableProjects.map((p) => (
@@ -726,16 +733,71 @@ export function DatasetsPage() {
   const canManageConn = role === "super_admin" || role === "project_admin";
   const queryClient = useQueryClient();
 
-  const { data: datasetsData, isLoading } = useDatasets({
+  const pagination = useOffsetListPagination(filterSignature);
+  const {
+    data: datasetsData,
+    isLoading,
+    isFetching,
+  } = useDatasets({
     search: queryForRequest.trim() || undefined,
     data_type: currentUrl.data_type,
+    limit: pagination.pageSize,
+    offset: pagination.offset,
   });
 
-  const datasets = datasetsData?.items ?? [];
+  const datasets = useMemo(() => datasetsData?.items ?? [], [datasetsData?.items]);
   const total = datasetsData?.total ?? 0;
+  useEffect(() => {
+    if (!datasetsData || isFetching) return;
+    const lastPage = Math.max(0, Math.ceil(total / pagination.pageSize) - 1);
+    if (pagination.page > lastPage) pagination.setPage(lastPage);
+  }, [datasetsData, isFetching, total, pagination]);
 
   // 从通知点入（/datasets?dataset=<id>）时，自动切到「数据集管理」并展开、滚动到该数据集
   const [searchParams, setSearchParams] = useSearchParams();
+  const requestedDataset = searchParams.get("dataset");
+  const resolvedDatasetLink = useRef("");
+  useEffect(() => {
+    if (!requestedDataset || isLoading || datasets.some((ds) => ds.id === requestedDataset)) return;
+    const key = `${requestedDataset}\0${filterSignature}\0${pagination.pageSize}`;
+    if (resolvedDatasetLink.current === key) return;
+    resolvedDatasetLink.current = key;
+    const controller = new AbortController();
+    void (async () => {
+      for (let offset = 0; ; offset += 200) {
+        const response = await datasetsApi.list(
+          {
+            search: queryForRequest.trim() || undefined,
+            data_type: currentUrl.data_type,
+            limit: 200,
+            offset,
+          },
+          { signal: controller.signal },
+        );
+        if (controller.signal.aborted) return;
+        const index = response.items.findIndex((dataset) => dataset.id === requestedDataset);
+        if (index >= 0) {
+          pagination.setPage(Math.floor((offset + index) / pagination.pageSize));
+          return;
+        }
+        if (offset + response.items.length >= response.total || response.items.length < 200) return;
+      }
+    })().catch(() => {
+      /* The normal list query retains its existing error handling. */
+    });
+    return () => {
+      controller.abort();
+      resolvedDatasetLink.current = "";
+    };
+  }, [
+    requestedDataset,
+    isLoading,
+    datasets,
+    filterSignature,
+    queryForRequest,
+    currentUrl.data_type,
+    pagination,
+  ]);
   useEffect(() => {
     const target = searchParams.get("dataset");
     if (!target || isLoading) return;
@@ -817,18 +879,18 @@ export function DatasetsPage() {
       ) : (
         <>
           {/* Stats */}
-          <div className="mb-5 grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
+          <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
             <StatCard icon="layers" label="数据集总数" value={total.toLocaleString()} />
-            <StatCard icon="image" label="文件总量" value={totalFiles.toLocaleString()} />
-            <StatCard icon="folder" label="已关联项目" value={String(linkedCount)} />
+            <StatCard icon="image" label="本页文件总量" value={totalFiles.toLocaleString()} />
+            <StatCard icon="folder" label="本页已关联数据集" value={String(linkedCount)} />
             <StatCard icon="db" label="存储后端" value="MinIO" />
           </div>
 
           {/* Main table */}
           <Card>
-            <div className="flex items-center justify-between border-b border-border px-4 py-3.5">
-              <div className="flex items-center gap-3">
-                <h3 className="m-0 text-sm font-semibold">全部数据集</h3>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3.5">
+              <div className="flex min-w-0 flex-wrap items-center gap-3">
+                <h3 className="m-0 shrink-0 whitespace-nowrap text-sm font-semibold">全部数据集</h3>
                 <FilterGroup label="数据类型" hideLabel>
                   {TYPE_FILTERS.map((option) => (
                     <FilterToggle
@@ -849,8 +911,8 @@ export function DatasetsPage() {
               />
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px] border-separate border-spacing-0 text-sm">
-                <thead>
+              <table className={`${listStyles.table} block xl:table xl:min-w-[900px]`}>
+                <thead className="hidden xl:table-header-group">
                   <tr>
                     {["数据集", "类型", "Scene", "文件数", "关联项目", "创建时间", ""].map(
                       (h, i) => (
@@ -861,10 +923,13 @@ export function DatasetsPage() {
                     )}
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="block xl:table-row-group">
                   {isLoading && (
                     <tr>
-                      <td colSpan={7} className="p-10 text-center text-muted-foreground">
+                      <td
+                        colSpan={7}
+                        className="p-10 text-left text-muted-foreground sm:text-center"
+                      >
                         加载中...
                       </td>
                     </tr>
@@ -882,7 +947,10 @@ export function DatasetsPage() {
                     ))}
                   {!isLoading && datasets.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="p-10 text-center text-muted-foreground">
+                      <td
+                        colSpan={7}
+                        className="p-10 text-left text-muted-foreground sm:text-center"
+                      >
                         {query || filter !== "全部"
                           ? "没有匹配的数据集"
                           : "暂无数据集，点击「新建数据集」开始"}
@@ -892,6 +960,21 @@ export function DatasetsPage() {
                 </tbody>
               </table>
             </div>
+            <ListPagination
+              label="数据集"
+              page={pagination.page}
+              pageSize={pagination.pageSize}
+              total={total}
+              loading={isLoading}
+              onPageChange={(page) => {
+                setExpandedId(null);
+                pagination.setPage(page);
+              }}
+              onPageSizeChange={(size) => {
+                setExpandedId(null);
+                pagination.setPageSize(size);
+              }}
+            />
           </Card>
         </>
       )}

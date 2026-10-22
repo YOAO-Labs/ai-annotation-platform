@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useListPagination } from "@/hooks/useListPagination";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterSelect } from "@/components/filters/FilterControls";
 import { FilterPanel } from "@/components/filters/FilterPanel";
@@ -65,6 +68,11 @@ export function IssueCenter({ scope, url, patchUrl, urlIssues }: RegistrySection
       ? withConditions
       : withConditions.filter((d) => d.severity === url.issueSeverity);
   }, [sorted, filter, url.issueQ, url.issueSeverity]);
+
+  const pagination = useListPagination(
+    filtered,
+    `${url.issueQ}|${url.issueSeverity}|${JSON.stringify(filter)}`,
+  );
 
   // Distinct codes + subjects for filter dropdowns.
   const codes = useMemo(() => Array.from(new Set(sorted.map((d) => d.code))).sort(), [sorted]);
@@ -233,12 +241,18 @@ export function IssueCenter({ scope, url, patchUrl, urlIssues }: RegistrySection
           }
         />
       ) : (
-        <ul className="m-0 flex list-none flex-col gap-2 p-0">
-          {filtered.map((d) => (
+        <ul className={`${listStyles.surface} m-0 list-none p-0`}>
+          {pagination.items.map((d) => (
             <DiagnosticRow key={d.id} diagnostic={d} scope={scope} patchUrl={patchUrl} />
           ))}
         </ul>
       )}
+      <ListPagination
+        label="诊断问题"
+        {...pagination}
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+      />
     </div>
   );
 }
@@ -333,7 +347,7 @@ function DiagnosticRow({
     patchUrl(focusPatchFor(kind, id), { replace: false });
 
   return (
-    <li className="flex flex-col gap-1.5 rounded-md border border-border bg-card px-3 py-2.5">
+    <li className={`${listStyles.row} flex flex-col gap-1.5`}>
       <div className="flex flex-wrap items-center gap-2">
         {/* Severity badge: icon + label only. The full message is rendered
             in the body below — we must NOT duplicate it here (plan §7.1:

@@ -15,6 +15,7 @@ from training_contract.dataset import (
     DETECTION_CONTRACT,
     LEGACY_SEGMENTATION_CONTRACT,
     SEGMENTATION_CONTRACT,
+    INSTANCE_RLE_CONTRACT,
     DatasetContractError,
     data_contract,
 )
@@ -91,6 +92,13 @@ async def add_version(db, project, *, snapshot=None, status="ready", created_at=
         },
         dict(DETECTION_CONTRACT),
         dict(SEGMENTATION_CONTRACT),
+        dict(INSTANCE_RLE_CONTRACT),
+        {**INSTANCE_RLE_CONTRACT, "schema": 4.0},
+        {**INSTANCE_RLE_CONTRACT, "schema": "4"},
+        {**INSTANCE_RLE_CONTRACT, "format": "ultralytics-yolo"},
+        {**INSTANCE_RLE_CONTRACT, "geometry": SEGMENTATION_CONTRACT["geometry"]},
+        {**INSTANCE_RLE_CONTRACT, "bridge": SEGMENTATION_CONTRACT["bridge"]},
+        {**INSTANCE_RLE_CONTRACT, "media_type": "video"},
         {**DETECTION_CONTRACT, "schema": 3.0},
         {**DETECTION_CONTRACT, "schema": "3"},
         {**DETECTION_CONTRACT, "bridge": "unqualified"},
@@ -588,3 +596,14 @@ async def test_concurrent_creators_and_replay_issue_each_ordinal_once(
             return membership.ordinal
 
     assert await asyncio.gather(*(replay() for _ in range(4))) == [issued[0][1]] * 4
+
+
+async def test_native_rle_sql_profile_preserves_distinct_bridge(db_session):
+    actual = await db_session.scalar(
+        select(
+            service.contract_profile_expression(
+                literal(INSTANCE_RLE_CONTRACT, type_=JSONB)
+            )
+        )
+    )
+    assert actual == {**INSTANCE_RLE_CONTRACT, "source_media_type": "image"}

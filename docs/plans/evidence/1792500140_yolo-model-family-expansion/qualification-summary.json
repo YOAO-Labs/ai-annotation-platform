@@ -1,0 +1,664 @@
+{
+  "schema": 1,
+  "scope": "native CPU synthetic fixtures; platform GPU/fault qualification remains separate",
+  "models": [
+    {
+      "base_model": "yolov8n",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolov8s",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "1f47a78bf100391c2a140b7ac73a1caae18c32779be7d310658112f7ac9aa78a",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolov8m",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "5d4a90cdc7a21786cc59cd19778e9eafff836df9e2da32524737c7ee6efe4fe5",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolov8l",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "64c9115303f6a25575f82200d1b22ec409fa6bd7d08d0313884fc20d919478cd",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolov8x",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "3df4ada6b4dad6d657868f2fdf7faecfb34dcfccf3a25c4b82079064718524c8",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolov8n-seg",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "a7cd8f929e1903d78a12a48efecab430209f18dc46cb96c3599a5980c63c423c",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolov8s-seg",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "0bac0770b55e5eb5b76a61bc535673288dcec36c2bc0cd25ee0d584c632f3413",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolov8m-seg",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "51fa7e5ef385efa6d5b1d8e31b73399be6ed5d7ca71bda4bd4b2794bb445c4f4",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolov8l-seg",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "ca3ec94c445aeaf79c2b57982fb451060f18a7561e2c20b4d26bb9dc1fcabf93",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolov8x-seg",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "c333d6a7aff884ec821050eacdab29871f3edd10d996cf48746a02f8e01f1b5d",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolo11n",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolo11s",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "85a76fe86dd8afe384648546b56a7a78580c7cb7b404fc595f97969322d502d5",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolo11m",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolo11l",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "9ebd0e09d59811db4b1d61e2bc6730649608b1ac47f8dd01e2da6bca7c20023f",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolo11x",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "7bc158aa95c0ebfdd87f70f01653c1131b93e92522dbe15c228bcd742e773a24",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolo11n-seg",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "55ed65c56c91713d23e8402371c6c49a6fd84f257f7dce452e8d70e41dcbe152",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolo11s-seg",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "1caa81c0195412efa411b632bcfb8c184939dddb6ae41f6a80c41b211ff257c3",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolo11m-seg",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "eb9a06f63e2206c35d68d839b08c362429ebecf933ad54c1ad68b2fd001c17cf",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolo11l-seg",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "cabe90049795dfc9a370b7934d6dec7f6b9e44a20e573b0ff81b7e205512c872",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolo11x-seg",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "4e53a5f5fd3ee2ae3361c62169c6bb3ed4ae251dd0e57606e230955aa52d919c",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolo26n",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolo26s",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "646f8bc3fe0a656803d95c294f7852321748cb29d13466a1af8862e2db384a1b",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolo26m",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "401cea9ab23ad19246ff7744859816bc599f350e93c9dd30367b6f0a0745d0b7",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolo26l",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "9fe3c544f2b19bebad7ea41e76d7ad3d88b7c2f10d11d24430c5311f6b32db26",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolo26x",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "9fdd44a31c504547ffb81d2c6d9e6dac3493c8eaa8b0398d3f43bae6c7003e92",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolo26n-seg",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "361fbfabab285c3237700b6bb91d7ecfa602cd945fffda8dbe1242829b71e73f",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolo26s-seg",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "3da1d83e31caec96f9300eb4064f4f62882c133c7c264d63dfe61a7c197837a4",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolo26m-seg",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "16b636f04e8fb6a325b3370f22dc5e5535ff473e384f4d041fd28d788f6ee9f5",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolo26l-seg",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "636024306410afa1732692322fba57d22ea2b1c2f07613fcee131a93d7dd380c",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "yolo26x-seg",
+      "framework": "ultralytics",
+      "framework_version": "8.4.183",
+      "source_sha256": "92b3de0065766a17180d6219858717dc9d03cdce8a3ca9576c97fd75aabb64f3",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true,
+        "weights_only_fresh_state": true
+      }
+    },
+    {
+      "base_model": "libreyolo9t",
+      "framework": "libreyolo",
+      "framework_version": "1.6.0",
+      "source_sha256": "b4d7e93f9e0393830fb42e6135c0e3464b2673b05e5ecf4b7f2374ec18e39eb2",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true
+      }
+    },
+    {
+      "base_model": "libreyolo9s",
+      "framework": "libreyolo",
+      "framework_version": "1.6.0",
+      "source_sha256": "4ea4a3591c27c66769702bdba5703920d2eb03bbb427e37ed461fcd65e083fb2",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true
+      }
+    },
+    {
+      "base_model": "libreyolo9m",
+      "framework": "libreyolo",
+      "framework_version": "1.6.0",
+      "source_sha256": "efa83041e2aeed114a2fcd5364d19359781c225079fa8f470399380eb96961cc",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true
+      }
+    },
+    {
+      "base_model": "libreyolo9c",
+      "framework": "libreyolo",
+      "framework_version": "1.6.0",
+      "source_sha256": "567197cb51e967a09aab8efc9955f937bec693135896c321d373c93c751a4552",
+      "device": "cpu",
+      "imgsz": 128,
+      "batch": 1,
+      "operations": {
+        "native_training": true,
+        "cancel_after_durable_epoch": 1,
+        "resume_start_epoch": 1,
+        "resume_completed_epoch": 3,
+        "best_reloaded": true,
+        "managed_http_install": true,
+        "managed_native_inspection": true
+      }
+    }
+  ],
+  "scratch_and_train_split_evaluation": {
+    "base_models": ["yolov8n", "yolo11n", "yolo26n", "yolov8n-seg", "yolo11n-seg", "yolo26n-seg"],
+    "device": "cpu",
+    "imgsz": 128,
+    "batch": 2,
+    "epochs": 2,
+    "passed": true
+  },
+  "local_checks": {
+    "executor": 84,
+    "backend_business": 85,
+    "backend_native": 60,
+    "pure_architecture": 5,
+    "scratch_training_metrics": 6
+  },
+  "gpu_qualification": false
+}

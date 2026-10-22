@@ -6,19 +6,8 @@ docs-site/dev/reference/ml-backend-protocol.md §4.1 规范.
 
 from __future__ import annotations
 
-import sys
-from unittest.mock import MagicMock
 
 import pytest
-
-
-@pytest.fixture(scope="module", autouse=True)
-def _stub_torch_and_ultralytics() -> None:
-    """让 main 在无 GPU / 无 ultralytics 环境也可以 import."""
-    sys.modules.setdefault(
-        "torch", MagicMock(cuda=MagicMock(is_available=MagicMock(return_value=False)))
-    )
-    sys.modules.setdefault("ultralytics", MagicMock())
 
 
 @pytest.fixture(scope="module")

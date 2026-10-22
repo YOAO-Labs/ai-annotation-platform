@@ -463,3 +463,87 @@ async def test_comparison_requires_two_explicit_compatible_successful_reports(
         incompatible.json()["candidates"][0]["aggregate"]
         and incompatible.json()["candidates"][1]["aggregate"] is None
     )
+
+
+@pytest.mark.parametrize(
+    "revision,version,status",
+    [
+        (2, "8.4.183", None),
+        (99, "8.4.183", 502),
+        (1, "8.4.183", 409),
+        (2, "8.4.184", 409),
+    ],
+)
+async def test_qualification_separates_training_and_inference_and_bounds_protocol(
+    db_session, super_admin, objects, monkeypatch, revision, version, status
+):
+    from app.services import managed_inference, trained_models
+    from app.services.ml_client import MLBackendClient
+    from training_contract.inference_runtime import inference_runtime
+
+    world = await seed(db_session, super_admin[0], objects)
+    ref = {
+        **world.ref,
+        "provenance": {**world.ref["provenance"], "base_model": {"id": "yolo11n"}},
+        "inference_runtime": inference_runtime(world.ref, "8.4.183"),
+    }
+    monkeypatch.setattr(
+        trained_models, "resolve_reference", AsyncMock(return_value=ref)
+    )
+    profile = {**world.profile, "revision": revision, "ultralytics_version": version}
+    profile["profile_digest"] = content_digest(
+        {k: v for k, v in profile.items() if k != "profile_digest"}
+    )
+    monkeypatch.setattr(
+        MLBackendClient, "managed_evaluation_request", AsyncMock(return_value=profile)
+    )
+    if status:
+        with pytest.raises(HTTPException) as error:
+            await managed_inference.qualification(
+                db_session, world.project, world.model.id, world.deployment.id
+            )
+        assert error.value.status_code == status
+    else:
+        frozen, checked = await managed_inference.qualification(
+            db_session, world.project, world.model.id, world.deployment.id
+        )
+        assert frozen["framework_version"] == "8.4.177"
+        assert checked["ultralytics_version"] == "8.4.183"
+        assert (
+            "inference_runtime"
+            in trained_models.wire_context(frozen)["frozen_model_ref"]
+        )
+
+
+def test_runtime_metadata_is_pinned_and_legacy_wire_shape_is_preserved():
+    from app.services import trained_models
+    from training_contract.inference_runtime import inference_runtime
+
+    ref = {
+        "model_version_id": str(uuid.uuid4()),
+        "sha256": "a" * 64,
+        "classes_digest": "b" * 64,
+        "framework": "ultralytics",
+        "framework_version": "8.4.177",
+    }
+    assert set(trained_models.wire_reference(ref)) == {
+        "model_version_id",
+        "sha256",
+        "classes_digest",
+    }
+    upgraded_runtime = inference_runtime(ref, "8.4.183")
+    with pytest.raises(ValueError):
+        trained_models.validate_result_runtime(
+            {"inference_runtime": upgraded_runtime}, ref
+        )
+    ref["inference_runtime"] = upgraded_runtime
+    trained_models.validate_result_runtime(
+        {"inference_runtime": ref["inference_runtime"]}, ref
+    )
+    with pytest.raises(ValueError):
+        trained_models.validate_result_runtime({}, ref)
+    with pytest.raises(ValueError):
+        trained_models.validate_result_runtime(
+            {"inference_runtime": {**ref["inference_runtime"], "version": "8.4.184"}},
+            ref,
+        )

@@ -288,9 +288,9 @@ export const batchesApi = {
     }),
 
   // v0.7.3 · 批次操作历史
-  auditLogs: (projectId: string, batchId: string, limit = 50) =>
+  auditLogs: (projectId: string, batchId: string, limit = 50, offset = 0) =>
     apiClient.get<BatchAuditLogEntry[]>(
-      `/projects/${projectId}/batches/${batchId}/audit-logs?limit=${limit}`,
+      `/projects/${projectId}/batches/${batchId}/audit-logs?limit=${limit}&offset=${offset}`,
     ),
 
   // v0.7.3 · 未归类任务计数（batch_id IS NULL）— 顶部横带提示用

@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPageState } from "@/hooks/useListPageState";
+import { useInfiniteListPagination } from "@/hooks/useInfiniteListPagination";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -93,7 +96,6 @@ import {
 } from "./dataManagerUrlState";
 import { useUrlFilterState } from "@/hooks/useUrlFilterState";
 
-const PAGE_SIZE = 100;
 const FIELD_CLASS =
   "h-8 w-full appearance-none rounded-sm border border-border bg-background px-2 py-1.5 text-foreground disabled:bg-muted disabled:text-muted-foreground";
 
@@ -509,14 +511,16 @@ export function EntityDataManagerLens({
       setSelected(null);
     }
   }, [baseline, currentSignature]);
+  const paginationScope = JSON.stringify([projectId, scope, selectedKey, currentSignature]);
+  const pageState = useListPageState(paginationScope);
   const queryPayload = useMemo(
     () => ({
       filter_json: filterJson as Record<string, unknown>,
       sort_json: sort,
       columns_json: columns,
-      limit: PAGE_SIZE,
+      limit: pageState.pageSize,
     }),
-    [columns, filterJson, sort],
+    [columns, filterJson, sort, pageState.pageSize],
   );
   const queryReady = Boolean(
     selectedView &&
@@ -533,13 +537,9 @@ export function EntityDataManagerLens({
     queryReady && scope === "objects",
   );
   const tracksQ = useDataManagerTracks(projectId, queryPayload, queryReady && scope === "tracks");
-  const rows = useMemo<EntityRow[]>(
-    () =>
-      scope === "objects"
-        ? (objectsQ.data?.pages.flatMap((page) => page.items) ?? [])
-        : (tracksQ.data?.pages.flatMap((page) => page.items) ?? []),
-    [objectsQ.data?.pages, scope, tracksQ.data?.pages],
-  );
+  const activeQ = scope === "objects" ? objectsQ : tracksQ;
+  const pagination = useInfiniteListPagination<EntityRow>(paginationScope, activeQ, pageState);
+  const rows = pagination.items;
   const trackOrdinals = useMemo(() => {
     const ordinals = new Map<string, number>();
     for (const row of rows) {
@@ -549,7 +549,6 @@ export function EntityDataManagerLens({
     }
     return ordinals;
   }, [rows]);
-  const activeQ = scope === "objects" ? objectsQ : tracksQ;
   const total = activeQ.data?.pages[0]?.total ?? 0;
   const facets = activeQ.data?.pages[0]?.facets;
 
@@ -594,15 +593,6 @@ export function EntityDataManagerLens({
     };
   }, [hasRows, scrollContainerRef]);
   const virtualRows = virtualizer.getVirtualItems();
-  const lastVirtualIndex = virtualRows[virtualRows.length - 1]?.index ?? -1;
-  const hasNextPage = activeQ.hasNextPage;
-  const isFetchingNextPage = activeQ.isFetchingNextPage;
-  const fetchNextPage = activeQ.fetchNextPage;
-  useEffect(() => {
-    if (lastVirtualIndex >= rows.length - 10 && hasNextPage && !isFetchingNextPage) {
-      void fetchNextPage();
-    }
-  }, [fetchNextPage, hasNextPage, isFetchingNextPage, lastVirtualIndex, rows.length]);
   // Query, sort or column changes return the reader to the result start on the
   // page scroll owner; loading another cursor page keeps the viewport position.
   useEffect(() => {
@@ -617,7 +607,7 @@ export function EntityDataManagerLens({
         8,
     );
     if (scroller.scrollTop > top) scroller.scrollTo({ top });
-  }, [filterJson, sort, columns, scrollContainerRef]);
+  }, [filterJson, sort, columns, pageState.page, pageState.pageSize, scrollContainerRef]);
 
   useEffect(() => {
     if (!hydrationRef.current || skipUrlSyncRef.current || !filterReady) {
@@ -1141,7 +1131,7 @@ export function EntityDataManagerLens({
                   role="row"
                   className={cn(
                     styles.entityGrid,
-                    "relative z-base min-w-max border-b border-border bg-muted",
+                    "relative z-base min-w-max border-b border-border bg-muted/50",
                   )}
                   // eslint-disable-next-line no-restricted-syntax -- schema columns determine the grid at runtime.
                   style={{ "--dm-grid-columns": gridTemplate } as CSSProperties}
@@ -1231,7 +1221,7 @@ export function EntityDataManagerLens({
                           className={cn(
                             styles.virtualRow,
                             "absolute left-0 grid h-[46px] min-w-max cursor-pointer border-b border-border text-left text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                            entitySelected && "bg-muted",
+                            entitySelected && "bg-muted/50",
                           )}
                           // eslint-disable-next-line no-restricted-syntax -- virtualizer provides each row offset at runtime.
                           style={
@@ -1259,10 +1249,14 @@ export function EntityDataManagerLens({
                                 ? objectCell(
                                     row as DataManagerObject,
                                     column,
-                                    virtualRow.index + 1,
+                                    pageState.page * pageState.pageSize + virtualRow.index + 1,
                                     trackOrdinals,
                                   )
-                                : trackCell(row as DataManagerTrack, column, virtualRow.index + 1);
+                                : trackCell(
+                                    row as DataManagerTrack,
+                                    column,
+                                    pageState.page * pageState.pageSize + virtualRow.index + 1,
+                                  );
                             return (
                               <span
                                 key={`${row.entity_key}:${column}`}
@@ -1285,6 +1279,16 @@ export function EntityDataManagerLens({
                   </div>
                 )}
               </div>
+              <ListPagination
+                label={scope === "objects" ? "对象" : "轨迹"}
+                page={pagination.page}
+                pageSize={pagination.pageSize}
+                total={pagination.total}
+                hasNext={pagination.hasNext}
+                loading={activeQ.isFetching}
+                onPageChange={pagination.onPageChange}
+                onPageSizeChange={pagination.setPageSize}
+              />
             </div>
           </div>
         </div>

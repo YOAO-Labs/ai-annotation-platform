@@ -6,6 +6,14 @@ from typing import Annotated, Literal
 
 from aap_task_contract import VisualTask
 from pydantic import BaseModel, ConfigDict, Field
+from app.schemas._jsonb_types import CocoRleContent
+
+
+class TrainingDatasetFrozenMask(BaseModel):
+    annotation_id: uuid.UUID
+    annotation_version: int = Field(ge=1)
+    pixel_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    rle: CocoRleContent
 
 
 class TrainingDatasetInsightCapability(BaseModel):
@@ -82,9 +90,13 @@ class TrainingDatasetDetectionStatistics(BaseModel):
 class TrainingDatasetSegmentationStatistics(BaseModel):
     task: Literal["segment"] = "segment"
     schema_version: Literal[1] = 1
-    geometry: Literal["normalized-simple-polygon"] = "normalized-simple-polygon"
+    geometry: Literal["normalized-simple-polygon", "instance-mask"] = (
+        "normalized-simple-polygon"
+    )
     known_instances: int
     polygon_area_sum: float
+    mask_area_pixels_sum: int | None = None
+    normalized_mask_area_sum: float | None = None
 
 
 TrainingDatasetTaskStatistics = Annotated[
@@ -222,9 +234,26 @@ class TrainingDatasetNormalizedPolygon(BaseModel):
     annotation_version: int
 
 
+class TrainingDatasetInstanceMask(BaseModel):
+    type: Literal["instance_mask"] = "instance_mask"
+    class_index: int
+    class_name: str
+    annotation_id: uuid.UUID
+    annotation_version: int
+    size: list[int]
+    area: float
+    area_pixels: int
+    bbox_xyxy: list[int]
+    pixel_sha256: str
+
+
 class TrainingDatasetSampleDetail(BaseModel):
     sample: TrainingDatasetAnalyzedSampleOut
-    labels: list[TrainingDatasetNormalizedBox | TrainingDatasetNormalizedPolygon]
+    labels: list[
+        TrainingDatasetNormalizedBox
+        | TrainingDatasetNormalizedPolygon
+        | TrainingDatasetInstanceMask
+    ]
     total: int | None
     limit: int
     offset: int

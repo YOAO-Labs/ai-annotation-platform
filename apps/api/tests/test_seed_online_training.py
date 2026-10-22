@@ -3,6 +3,7 @@
 import hashlib
 import io
 import json
+import shutil
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +23,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.services.storage import storage_service
+from app.config import settings
 from app.services import async_job as jobs
 from app.services.training_dataset_bridge import TrainingDatasetError, assign_splits
 from app.workers import training_dataset as worker
@@ -98,6 +100,173 @@ def memory_storage(monkeypatch):
     monkeypatch.setattr(storage_service, "delete_prefix", lambda *args, **kwargs: 0)
     monkeypatch.setattr(worker, "notify_job_terminal", AsyncMock())
     return client
+
+
+@pytest.fixture
+def coco8_seg(coco8, monkeypatch):
+    root = coco8 / "coco8-seg"
+    shutil.copytree(coco8 / "images", root / "images")
+    for image in (root / "images").glob("*/*.jpg"):
+        label = root / "labels" / image.parent.name / f"{image.stem}.txt"
+        label.parent.mkdir(parents=True, exist_ok=True)
+        label.write_text("0 0.2 0.2 0.8 0.2 0.8 0.8 0.2 0.8\n")
+    monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
+    monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
+    return root
+
+
+async def test_segmentation_extends_existing_fixture_without_replacing_detection(
+    db_session, baseline, annotator, reviewer, coco8, coco8_seg, memory_storage
+):
+    project, original = baseline
+
+    @asynccontextmanager
+    async def sessions():
+        yield db_session
+
+    await worker.build_dataset(
+        original.id, original.async_job_id, original.attempt_id, sessions
+    )
+    await db_session.refresh(original)
+    assert original.status == "ready", original.error_message
+    original_snapshot = original.snapshot
+    kwargs = {
+        "owner_id": project.owner_id,
+        "annotator_id": annotator[0].id,
+        "reviewer_id": reviewer[0].id,
+    }
+    original_annotations = list(
+        (
+            await db_session.scalars(
+                select(Annotation).where(Annotation.project_id == project.id)
+            )
+        ).all()
+    )
+    original_ids = {annotation.id for annotation in original_annotations}
+    project.name = "保留我的检测实验项目"
+    _, created = await fixture_seed.seed_online_training(
+        db_session, fixture=coco8, segmentation_fixture=coco8_seg, **kwargs
+    )
+    assert not created and project.name == "保留我的检测实验项目"
+    assert await fixture_seed.prepare_baseline(db_session, project) is original
+    assert original.snapshot == original_snapshot
+    assert (
+        project.tool_bindings["bbox"]["classes"]
+        == project.tool_bindings["region"]["classes"]
+    )
+    version = await fixture_seed.prepare_baseline(db_session, project, task="segment")
+    await db_session.commit()
+
+    await worker.build_dataset(
+        version.id, version.async_job_id, version.attempt_id, sessions
+    )
+    await db_session.refresh(version)
+    assert version.status == "ready", version.error_message
+    assert (
+        version.manifest["schema"] == 4
+        and version.manifest["bridge"] == "ultralytics-instance-rle-1"
+    )
+    assert version.manifest["summary"]["objects"] == 8
+    assert {s["task_id"]: s["split"] for s in version.manifest["samples"]} == {
+        s["task_id"]: s["split"] for s in original.manifest["samples"]
+    }
+    annotations = list(
+        (
+            await db_session.scalars(
+                select(Annotation).where(Annotation.project_id == project.id)
+            )
+        ).all()
+    )
+    assert len(annotations) == 16 and original_ids <= {a.id for a in annotations}
+    masks = [a for a in annotations if a.tool_unit_id == "region"]
+    assert len(masks) == 8 and all(a.geometry["type"] == "raster_mask" for a in masks)
+    for annotation in masks:
+        ref = annotation.geometry["mask"]
+        payload, _ = memory_storage.objects[storage_service.bucket, ref["object_key"]]
+        assert hashlib.sha256(payload).hexdigest() == ref["sha256"]
+        assert json.loads(payload)["size"] == [24, 32]
+    tasks = list(
+        (
+            await db_session.scalars(select(Task).where(Task.project_id == project.id))
+        ).all()
+    )
+    assert all(
+        t.total_annotations == 2 and t.reviewed_at and t.status == "completed"
+        for t in tasks
+    )
+    payload, _ = memory_storage.objects[
+        storage_service.training_bucket, version.package_key
+    ]
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+        for sample in version.manifest["samples"]:
+            assert len(json.loads(archive.read(sample["label_path"]))["instances"]) == 1
+
+    # A completed extension never repairs later human edits or deleted masks.
+    frozen = version.snapshot
+    masks[0].version += 1
+    await db_session.delete(masks[1])
+    await db_session.flush()
+    writes = memory_storage.writes
+    _, created = await fixture_seed.seed_online_training(
+        db_session,
+        fixture=Path("/not-needed"),
+        segmentation_fixture=Path("/not-needed"),
+        **kwargs,
+    )
+    assert not created and memory_storage.writes == writes
+    assert (
+        await fixture_seed.prepare_baseline(db_session, project, task="segment")
+        is version
+    )
+    assert version.snapshot == frozen and masks[0].version == 2
+    assert await db_session.get(Annotation, masks[1].id) is None
+
+
+@pytest.mark.parametrize("conflict", ["edited", "reopened", "custom_region"])
+async def test_segmentation_extension_rejects_user_changes_before_object_writes(
+    db_session,
+    baseline,
+    annotator,
+    reviewer,
+    coco8,
+    coco8_seg,
+    memory_storage,
+    conflict,
+):
+    project, _ = baseline
+    if conflict == "edited":
+        annotation = await db_session.scalar(
+            select(Annotation).where(Annotation.project_id == project.id)
+        )
+        annotation.version += 1
+    elif conflict == "reopened":
+        task = await db_session.scalar(
+            select(Task).where(Task.project_id == project.id)
+        )
+        task.status = "in_progress"
+    else:
+        project.tool_bindings = {
+            **project.tool_bindings,
+            "region": {"enabled": True, "classes": [{"name": "custom", "order": 0}]},
+        }
+    await db_session.flush()
+    writes = memory_storage.writes
+    with pytest.raises(SeedAssetError, match="edited|customized"):
+        await fixture_seed.seed_online_training(
+            db_session,
+            fixture=coco8,
+            segmentation_fixture=coco8_seg,
+            owner_id=project.owner_id,
+            annotator_id=annotator[0].id,
+            reviewer_id=reviewer[0].id,
+        )
+    assert memory_storage.writes == writes
+
+
+def test_segmentation_source_rejects_different_media(coco8, coco8_seg):
+    (coco8_seg / "images/train/000000000000.jpg").write_bytes(b"different image")
+    with pytest.raises(SeedAssetError, match="differs"):
+        fixture_seed._read_segmentation(coco8_seg, fixture_seed._read_samples(coco8))
 
 
 async def test_fixture_materializes_reviewed_input_and_preserves_edits(

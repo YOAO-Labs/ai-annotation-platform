@@ -59,7 +59,7 @@ export function TrainingParameterInventory({
     <div className="space-y-3">
       <p className="text-xs leading-relaxed text-muted-foreground">
         {definition.framework} {definition.framework_version} · {definition.model_family} 检测 · 共{" "}
-        {definition.fields.length} 个原生字段。
+        {definition.fields.length} 项参数（含平台选项）。
         平台管理、不适用和未验证的参数不能通过自定义配置覆盖。
       </p>
       <div className="grid gap-2 sm:grid-cols-3">

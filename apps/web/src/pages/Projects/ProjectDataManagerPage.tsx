@@ -1,3 +1,5 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Navigate, useParams, useSearchParams } from "react-router-dom";
 import { Badge } from "@/components/ui/Badge";
@@ -117,7 +119,6 @@ import {
   AlertDialogTitle,
 } from "@/components/shadcn/ui/alert-dialog";
 
-const PAGE_SIZE = 50;
 const MAX_SELECTED_TASKS = 200;
 
 const EMPTY_DATA_MANAGER_URL_STATE = {
@@ -487,6 +488,7 @@ function TaskDataManagerPage({
     normalizeTaskSelection(currentUrl.selectedTasks),
   );
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [saveName, setSaveName] = useState("任务视图");
   const [saveVisibility, setSaveVisibility] = useState<"private" | "project">("private");
@@ -712,8 +714,15 @@ function TaskDataManagerPage({
     [debouncedKeyword, queryExpression],
   );
   const queryStateSignature = useMemo(
-    () => JSON.stringify({ filter_json: filterJson, sort_json: sort }),
-    [filterJson, sort],
+    () =>
+      JSON.stringify({
+        projectId: id,
+        userId: user?.id,
+        filter_json: filterJson,
+        sort_json: sort,
+        pageSize,
+      }),
+    [id, user?.id, filterJson, sort, pageSize],
   );
   const pageSignatureRef = useRef("");
   const pageForQuery = pageSignatureRef.current === queryStateSignature ? page : 0;
@@ -753,10 +762,10 @@ function TaskDataManagerPage({
               ]),
             ]
           : columns,
-      limit: PAGE_SIZE,
-      offset: pageForQuery * PAGE_SIZE,
+      limit: pageSize,
+      offset: pageForQuery * pageSize,
     }),
-    [columns, filterJson, layout, pageForQuery, sort],
+    [columns, filterJson, layout, pageForQuery, pageSize, sort],
   );
   const queryReady = Boolean(
     selectedView &&
@@ -790,12 +799,20 @@ function TaskDataManagerPage({
   useEffect(() => {
     onDirtyChange?.(isDirty);
   }, [isDirty, onDirtyChange]);
-  const total = tasksQ.data?.total ?? 0;
+  const totalRef = useRef({ scope: queryStateSignature, total: 0 });
+  if (tasksQ.data && !tasksQ.isPlaceholderData)
+    totalRef.current = { scope: queryStateSignature, total: tasksQ.data.total };
+  const total =
+    tasksQ.data?.total ??
+    (totalRef.current.scope === queryStateSignature ? totalRef.current.total : 0);
   const visibleTotal =
     summaryQ.data?.scope.visible_task_total ??
     views.find((view) => view.key === "all")?.task_count ??
     0;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  useEffect(() => {
+    if (tasksQ.data && !tasksQ.isFetching && page >= totalPages) setPage(totalPages - 1);
+  }, [page, tasksQ.data, tasksQ.isFetching, totalPages]);
   const projectAccess = useProjectAccess(id);
   const canManageProject = projectAccess.hasCapability("project.manage");
   // Data Manager reads stay project.read; management actions need project.manage
@@ -1693,7 +1710,12 @@ function TaskDataManagerPage({
                     })}
                   </div>
                 ) : (
-                  <table className="w-full min-w-[1040px] table-fixed border-collapse [&_td]:overflow-hidden [&_td]:border-b [&_td]:border-border [&_td]:px-3 [&_td]:py-2.5 [&_td]:text-left [&_td]:align-middle [&_td]:text-ellipsis [&_td]:whitespace-nowrap [&_th]:overflow-hidden [&_th]:border-b [&_th]:border-border [&_th]:bg-muted [&_th]:px-3 [&_th]:py-2.5 [&_th]:text-left [&_th]:align-middle [&_th]:text-xs [&_th]:font-semibold [&_th]:text-ellipsis [&_th]:whitespace-nowrap [&_th]:text-foreground [&_th:first-child]:w-[58px] [&_td:first-child]:w-[58px] [&_tbody_tr:hover]:bg-muted [&_tr:last-child_td]:border-b-0">
+                  <table
+                    className={cn(
+                      listStyles.table,
+                      "min-w-[1040px] table-fixed [&_td]:overflow-hidden [&_td]:text-ellipsis [&_td]:whitespace-nowrap [&_th]:overflow-hidden [&_th]:text-ellipsis [&_th:first-child]:w-[58px] [&_td:first-child]:w-[58px]",
+                    )}
+                  >
                     <thead ref={stickyHeaderRef} className="relative z-base">
                       <tr>
                         <th>
@@ -1835,7 +1857,7 @@ function TaskDataManagerPage({
                 )}
               </div>
 
-              <footer className="flex shrink-0 items-center justify-between gap-3 px-0.5 text-xs text-muted-foreground max-sm:flex-col max-sm:items-start">
+              <footer className="flex shrink-0 flex-col gap-2 text-xs text-muted-foreground">
                 <div>
                   {[
                     ...(debouncedKeyword ? [`关键词 “${debouncedKeyword}”`] : []),
@@ -1850,23 +1872,19 @@ function TaskDataManagerPage({
                       ),
                   ].join(" / ") || "全部任务"}
                 </div>
-                <div className="flex items-center gap-2 whitespace-nowrap">
-                  <Button size="sm" disabled={page <= 0} onClick={() => setPage(page - 1)}>
-                    <Icon name="chevLeft" size={12} />
-                    上一页
-                  </Button>
-                  <span>
-                    {page + 1} / {totalPages}
-                  </span>
-                  <Button
-                    size="sm"
-                    disabled={page + 1 >= totalPages}
-                    onClick={() => setPage(page + 1)}
-                  >
-                    下一页
-                    <Icon name="chevRight" size={12} />
-                  </Button>
-                </div>
+                <ListPagination
+                  label="任务"
+                  page={pageForQuery}
+                  pageSize={pageSize}
+                  total={total}
+                  loading={tasksQ.isFetching}
+                  onPageChange={setPage}
+                  onPageSizeChange={(size) => {
+                    setPageSize(size);
+                    setPage(0);
+                  }}
+                  className="w-full"
+                />
               </footer>
             </div>
           </div>

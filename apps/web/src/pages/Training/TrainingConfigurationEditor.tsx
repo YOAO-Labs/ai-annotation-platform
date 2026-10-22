@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Search } from "lucide-react";
 import type { TrainingParameterSchema } from "@/api/generated/types.gen";
 import { Button } from "@/components/ui/Button";
+import { cn } from "@/lib/utils";
 import { TrainingParameterField, trainingInputClass } from "./TrainingParameterField";
 import {
   commonParameterKeys,
@@ -40,7 +41,7 @@ export function TrainingConfigurationEditor({
           .includes(needle)),
   );
   const visibleGroups = Object.entries(schema.groups).filter(([key]) =>
-    matching.some((field) => field.group === key),
+    (modifiedOnly ? editable : matching).some((field) => field.group === key),
   );
   return (
     <div>
@@ -56,24 +57,26 @@ export function TrainingConfigurationEditor({
             onChange={(event) => setSearch(event.target.value)}
           />
         </label>
-        <select
-          aria-label="参数范围"
-          className={`${trainingInputClass} w-auto`}
-          value={all ? "all" : "common"}
-          onChange={(event) => setAll(event.target.value === "all")}
-        >
-          <option value="common">常用参数</option>
-          <option value="all">全部可编辑参数（{editable.length}）</option>
-        </select>
-        <label className="flex items-center gap-2 text-xs">
-          <input
-            type="checkbox"
-            className="size-4 accent-primary"
-            checked={modifiedOnly}
-            onChange={(event) => setModifiedOnly(event.target.checked)}
-          />
-          仅看已修改
-        </label>
+        <div className="flex w-full min-w-0 items-center gap-3 sm:w-auto">
+          <select
+            aria-label="参数范围"
+            className={cn(trainingInputClass, "w-auto flex-1 sm:flex-none")}
+            value={all ? "all" : "common"}
+            onChange={(event) => setAll(event.target.value === "all")}
+          >
+            <option value="common">常用参数</option>
+            <option value="all">全部可编辑参数（{editable.length}）</option>
+          </select>
+          <label className="flex shrink-0 items-center gap-2 whitespace-nowrap text-xs">
+            <input
+              type="checkbox"
+              className="size-4 accent-primary"
+              checked={modifiedOnly}
+              onChange={(event) => setModifiedOnly(event.target.checked)}
+            />
+            仅看已修改
+          </label>
+        </div>
       </div>
       <p className="mb-4 text-xs leading-relaxed text-muted-foreground">
         未修改的参数使用受控默认值。预热、优化器与增强依赖将在检查时核验，最终生效值会在开始前逐项列出。
@@ -109,7 +112,7 @@ export function TrainingConfigurationEditor({
             显示 {matching.length} / {editable.length} 个可编辑参数 · {Object.keys(fields).length}{" "}
             项已修改
           </p>
-          {!matching.length && (
+          {!visibleGroups.length && (
             <p className="rounded-md bg-muted p-5 text-sm text-muted-foreground">
               没有匹配的参数。可切换参数范围或清除筛选。
             </p>
@@ -117,7 +120,10 @@ export function TrainingConfigurationEditor({
           {visibleGroups.map(([key, label]) => (
             <div key={key} className="relative">
               <details
-                open={activeGroup === key || !!needle || modifiedOnly}
+                open={
+                  matching.some((field) => field.group === key) &&
+                  (activeGroup === key || !!needle || modifiedOnly)
+                }
                 onToggle={(event) => {
                   if (event.currentTarget.open && !needle && !modifiedOnly) setActiveGroup(key);
                 }}
@@ -134,6 +140,9 @@ export function TrainingConfigurationEditor({
                   </span>
                 </summary>
                 <div className="border-t border-border px-4 pb-2">
+                  {modifiedOnly && !matching.some((field) => field.group === key) && (
+                    <p className="py-3 text-xs text-muted-foreground">本组没有已修改的参数。</p>
+                  )}
                   {matching
                     .filter((field) => field.group === key)
                     .map((field) => (

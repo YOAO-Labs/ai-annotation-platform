@@ -387,7 +387,13 @@ def remap_geometry_to_image(shapes: list[dict], transform: dict) -> list[dict]:
             if any(value.get(k) is None for k in ("x", "y", "width", "height")):
                 continue
             xywh = [float(value[k]) for k in ("x", "y", "width", "height")]
-            scale = batch_scale
+            scale = (
+                100.0
+                if s.get("coordinate_units") == "percent"
+                else 1.0
+                if s.get("coordinate_units") == "normalized"
+                else batch_scale
+            )
             x, y, w, h = (v / scale for v in xywh)
             value["x"] = (ox + x * sx) * 100.0
             value["y"] = (oy + y * sy) * 100.0
@@ -400,7 +406,13 @@ def remap_geometry_to_image(shapes: list[dict], transform: dict) -> list[dict]:
             rings = _polygon_rings(value)
             if not rings:
                 continue
-            scale = batch_scale
+            scale = (
+                100.0
+                if s.get("coordinate_units") == "percent"
+                else 1.0
+                if s.get("coordinate_units") == "normalized"
+                else batch_scale
+            )
 
             def _remap_ring(ring: list) -> list[list[float]]:
                 return [
@@ -432,7 +444,7 @@ def remap_geometry_to_image(shapes: list[dict], transform: dict) -> list[dict]:
                     value["holes"] = [_remap_ring(h) for h in value["holes"]]
         else:
             continue
-        out.append({**s, "value": value})
+        out.append({**s, "coordinate_units": "percent", "value": value})
     return out
 
 

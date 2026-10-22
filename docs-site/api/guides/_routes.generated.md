@@ -241,6 +241,7 @@
 
 | Method | Path |
 |---|---|
+| GET | `/reviewer/batches` |
 | GET | `/reviewer` |
 | GET | `/reviewer/today-mini` |
 | GET | `/me/recent-reviews` |
@@ -417,6 +418,13 @@
 |---|---|
 | GET | `/protocol` |
 | GET | `/instances` |
+
+## `model_catalog.py`
+
+| Method | Path |
+|---|---|
+| GET | `/model-catalog` |
+| GET | `/projects/{project_id}/model-catalog` |
 
 ## `model_lineage.py`
 
@@ -766,6 +774,7 @@
 | POST | `/trained-models` |
 | GET | `/trained-models` |
 | GET | `/trained-models/{version_id}` |
+| GET | `/trained-models/{version_id}/deployments/{deployment_id}/mask-content/{shape_index}` |
 | POST | `/trained-models/{version_id}/deploy` |
 | GET | `/trained-models/{version_id}/download` |
 | GET | `/model-releases` |
@@ -779,6 +788,7 @@
 | GET | `/compare` |
 | GET | `/samples` |
 | GET | `/samples/{task_id}` |
+| GET | `/samples/{task_id}/masks/{annotation_id}` |
 | GET | `/samples/{task_id}/media` |
 
 ## `training_datasets.py`
@@ -906,4 +916,4 @@
 
 ---
 
-_共 83 模块 / 514 路由_
+_共 84 模块 / 519 路由_

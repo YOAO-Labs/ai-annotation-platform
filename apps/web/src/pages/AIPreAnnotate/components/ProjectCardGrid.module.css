@@ -7,33 +7,44 @@
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
   gap: 12px;
 }
 
 .projectCard {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 14px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
   gap: 10px;
-  padding: 14px;
-  border: 1px solid var(--sc-border);
-  border-radius: var(--radius-md);
+  border-radius: 0;
   background: var(--sc-card);
   font-family: inherit;
   text-align: left;
   cursor: pointer;
-  transition: border-color 120ms ease;
+  transition: background-color 120ms ease;
 }
 
 .projectCard:hover {
-  border-color: var(--sc-brand);
+  background: var(--sc-muted);
 }
 
-.cardTopRow {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
+.projectCard:focus-visible {
+  outline: 2px solid var(--sc-ring);
+  outline-offset: 2px;
+}
+
+.cardContent {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
+}
+
+.cardArrow {
+  color: var(--sc-muted-foreground);
 }
 
 .cardTitleBlock {
@@ -42,7 +53,7 @@
 
 .projectName {
   overflow: hidden;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -65,6 +76,8 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+  max-width: 100%;
   padding: 2px 8px;
   border-radius: 999px;
   background: var(--sc-muted);
@@ -83,10 +96,25 @@
   color: var(--sc-muted-foreground);
 }
 
+.backendError {
+  color: var(--sc-status-danger);
+}
+
+.backendName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .concurrencyText,
 .lastJobText {
   color: var(--sc-muted-foreground);
   font-size: 11px;
+}
+
+.lastJobText {
+  grid-column: 1 / -1;
 }
 
 .statsRow {
@@ -127,4 +155,10 @@
 
 .emptyHint {
   font-size: 11px;
+}
+
+@media (max-width: 640px) {
+  .cardContent {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

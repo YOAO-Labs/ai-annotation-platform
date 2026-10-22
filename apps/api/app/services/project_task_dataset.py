@@ -15,6 +15,7 @@ from training_contract.dataset import (
     LEGACY_DETECTION,
     LEGACY_SEGMENTATION_CONTRACT,
     SEGMENTATION_CONTRACT,
+    INSTANCE_RLE_CONTRACT,
     DatasetContractError,
     data_contract,
 )
@@ -107,7 +108,7 @@ def recognized_task_expression(snapshot=None):
 
     def modern(contract):
         return and_(
-            schema_is(3),
+            schema_is(contract["schema"]),
             *(
                 _json_text(snapshot, key) == value
                 for key, value in contract.items()
@@ -121,6 +122,7 @@ def recognized_task_expression(snapshot=None):
         (func.coalesce(legacy_segmentation, False), "segment"),
         (func.coalesce(modern(DETECTION_CONTRACT), False), "detect"),
         (func.coalesce(modern(SEGMENTATION_CONTRACT), False), "segment"),
+        (func.coalesce(modern(INSTANCE_RLE_CONTRACT), False), "segment"),
         else_=None,
     )
 
@@ -142,14 +144,31 @@ def contract_profile_expression(snapshot=None):
                 "source_media_type",
                 source_media_expression(snapshot),
                 "format",
-                "ultralytics-yolo",
+                case(
+                    (
+                        _json_text(snapshot, "bridge")
+                        == INSTANCE_RLE_CONTRACT["bridge"],
+                        INSTANCE_RLE_CONTRACT["format"],
+                    ),
+                    else_="ultralytics-yolo",
+                ),
                 "geometry",
                 case(
+                    (
+                        _json_text(snapshot, "bridge")
+                        == INSTANCE_RLE_CONTRACT["bridge"],
+                        INSTANCE_RLE_CONTRACT["geometry"],
+                    ),
                     (task == "segment", SEGMENTATION_CONTRACT["geometry"]),
                     else_=DETECTION_CONTRACT["geometry"],
                 ),
                 "bridge",
                 case(
+                    (
+                        _json_text(snapshot, "bridge")
+                        == INSTANCE_RLE_CONTRACT["bridge"],
+                        INSTANCE_RLE_CONTRACT["bridge"],
+                    ),
                     (task == "segment", SEGMENTATION_CONTRACT["bridge"]),
                     else_=DETECTION_CONTRACT["bridge"],
                 ),

@@ -23,10 +23,13 @@ import {
   metricValue,
   parseEvaluationState,
 } from "./sampleEvaluation";
-import { evaluationReportOptions } from "./useSampleEvaluation";
+import { evaluationReportOptions, evaluationTask } from "./useSampleEvaluation";
 import { useTrainingSessionRevision, useTrainingViewOwner } from "./trainingViewOwner";
 import { SampleEvaluationGallery } from "./SampleEvaluationGallery";
 import { PickerPage } from "./SampleEvaluationCreate";
+import { listPageSize } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useListPagination } from "@/hooks/useListPagination";
 
 export function SampleEvaluationPage() {
   const { id = "", evaluationId } = useParams();
@@ -79,11 +82,17 @@ function EvaluationContent({
   const client = useQueryClient();
   const navigate = useNavigate();
   const listPage = evaluationId ? pickerPage : parsedState.page;
+  const pageSize = listPageSize(params.get("page_size"));
   const list = useQuery({
-    queryKey: ["sample-evaluations", projectId, scope, listPage],
+    queryKey: ["sample-evaluations", projectId, scope, listPage, pageSize],
     queryFn: async ({ signal }) => {
       assert(signal);
-      const result = await sampleEvaluationsApi.list(projectId, listPage * 20, { signal });
+      const result = await sampleEvaluationsApi.list(
+        projectId,
+        listPage * pageSize,
+        { signal },
+        pageSize,
+      );
       assert(signal);
       if (result.items.some((item) => item.project_id !== projectId))
         throw new Error("评估列表所属项目不符");
@@ -318,6 +327,9 @@ function EvaluationContent({
                 page={state.page}
                 total={list.data.total}
                 label="评估历史"
+                pageSize={pageSize}
+                loading={list.isFetching}
+                onPageSizeChange={(size) => update({ page_size: String(size), page: undefined })}
                 onChange={(page) => update({ page: String(page) })}
               />
             </>
@@ -403,8 +415,9 @@ function EvaluationContent({
                   <div>
                     <dt className="text-muted-foreground">固定匹配设置</dt>
                     <dd className="mt-1">
-                      置信度 ≥ {run.spec.confidence} · 匹配 IoU ≥ {run.spec.matching_iou} · NMS IoU{" "}
-                      {run.spec.nms_iou}
+                      置信度 ≥ {run.spec.confidence} ·{" "}
+                      {evaluationTask(run.spec) === "segment" ? "匹配 Mask IoU" : "匹配 IoU"} ≥{" "}
+                      {run.spec.matching_iou} · NMS IoU {run.spec.nms_iou}
                     </dd>
                   </div>
                   <div className="flex items-center gap-1">
@@ -439,7 +452,7 @@ function EvaluationContent({
                         update({ attempt: e.target.value, sample: undefined, page: undefined })
                       }
                     >
-                      <option value="" disabled>
+                      <option value="" disabled hidden>
                         选择执行尝试
                       </option>
                       {state.attemptId && !attempt && (
@@ -546,31 +559,56 @@ function EvaluationContent({
                 <p className="mt-2 text-xs text-muted-foreground">
                   只在冻结基准、类别、用途、匹配设置和推理环境一致时显示差值。差值为第二候选减当前候选，不提供自动排名。
                 </p>
-                <label className="mt-3 block max-w-xl space-y-1 text-xs">
-                  第二个明确评估
-                  <select
-                    className={trainingInputClass}
-                    value={state.secondId ?? ""}
-                    onChange={(e) => update({ second: e.target.value || undefined })}
-                  >
-                    <option value="">选择第二个评估</option>
-                    {state.secondId &&
-                      !list.data?.items.some((item) => item.id === state.secondId) && (
-                        <option value={state.secondId}>{state.secondId}</option>
-                      )}
-                    {list.data?.items
-                      .filter((item) => item.id !== run.id)
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name} · {evaluationStatus[item.status]}
-                        </option>
-                      ))}
-                  </select>
-                </label>
+                <div className="mt-3 flex max-w-xl items-end gap-2">
+                  <label className="min-w-0 flex-1 space-y-1 text-xs">
+                    第二个明确评估
+                    <select
+                      className={trainingInputClass}
+                      value={state.secondId ?? ""}
+                      onChange={(e) => update({ second: e.target.value || undefined })}
+                    >
+                      <option value="" disabled hidden>
+                        选择第二个评估
+                      </option>
+                      {state.secondId &&
+                        !list.data?.items.some(
+                          (item) => item.id === state.secondId && item.id !== run.id,
+                        ) && (
+                          <option
+                            value={state.secondId}
+                            disabled={state.secondId === run.id}
+                            hidden={state.secondId === run.id}
+                          >
+                            {state.secondId === run.id
+                              ? `${run.name}（不能与自身比较）`
+                              : state.secondId}
+                          </option>
+                        )}
+                      {list.data?.items
+                        .filter((item) => item.id !== run.id)
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name} · {evaluationStatus[item.status]}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  {state.secondId && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => update({ second: undefined })}
+                    >
+                      取消评估比较
+                    </Button>
+                  )}
+                </div>
                 <PickerPage
                   page={pickerPage}
                   total={list.data?.total ?? 0}
                   label="比较候选"
+                  pageSize={pageSize}
                   onChange={setPickerPage}
                 />
                 {list.error && (
@@ -634,6 +672,7 @@ function EvaluationContent({
                   </dd>
                   <dt>推理环境</dt>
                   <dd>
+                    训练版本 {String(run.spec.model_ref.framework_version ?? "未知")} · 推理版本
                     Ultralytics {run.spec.profile.ultralytics_version} ·{" "}
                     {run.spec.profile.effective_device}
                   </dd>
@@ -695,7 +734,18 @@ const metrics = [
   ["recall", "召回率", true],
   ["f1", "F1", true],
 ] as const;
+const maskMetrics = [
+  ["matched_mean_iou", "已匹配 Mask IoU", true],
+  ["matched_mean_dice", "已匹配 Dice", true],
+] as const;
+type MetricKey = (typeof metrics)[number][0] | (typeof maskMetrics)[number][0];
+function aggregateValue(aggregate: EvaluationAggregate | null | undefined, key: MetricKey) {
+  if (key === "matched_mean_iou" || key === "matched_mean_dice")
+    return aggregate && "matched_mean_iou" in aggregate ? aggregate[key] : undefined;
+  return aggregate?.[key];
+}
 function AggregateMetrics({ aggregate }: { aggregate: EvaluationAggregate }) {
+  const classes = useListPagination(aggregate.per_class);
   return (
     <section className="mt-5 rounded-lg border border-border bg-card p-4" aria-label="完整评估指标">
       <dl className="grid grid-cols-3 gap-4 sm:grid-cols-6">
@@ -708,10 +758,59 @@ function AggregateMetrics({ aggregate }: { aggregate: EvaluationAggregate }) {
           </div>
         ))}
       </dl>
+      {"matched_mean_iou" in aggregate && (
+        <div className="mt-4 border-t border-border pt-4">
+          <dl className="grid grid-cols-2 gap-4">
+            {maskMetrics.map(([key, label]) => (
+              <div key={key}>
+                <dt className="text-xs text-muted-foreground">{label}</dt>
+                <dd className="mt-1 text-lg font-semibold tabular-nums">
+                  {metricValue(aggregate[key], true)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Mask IoU、Dice 均值仅统计已匹配实例，漏检另计 FN；固定阈值像素指标不是 AP/mAP。
+          </p>
+          <div className="overflow-auto">
+            <table className="mt-3 w-full text-xs" aria-label="按原图掩码像素面积统计">
+              <caption className="mb-2 text-left text-muted-foreground">
+                按原图前景像素面积分组：小 &lt; 1,024；中 1,024–9,215；大 ≥ 9,216。TP/FN
+                按真值面积，FP 按预测面积。
+              </caption>
+              <thead>
+                <tr>
+                  <th className="py-2 text-left font-normal">面积组</th>
+                  {metrics.map(([, label]) => (
+                    <th key={label} className="px-2 py-2 text-right font-normal">
+                      {label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {aggregate.area_groups.map((group) => (
+                  <tr key={group.group} className="border-t border-border">
+                    <th className="py-2 text-left font-normal">
+                      {{ small: "小", medium: "中", large: "大" }[group.group]}
+                    </th>
+                    {metrics.map(([key, , fraction]) => (
+                      <td key={key} className="px-2 py-2 text-right tabular-nums">
+                        {metricValue(group[key], fraction)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       <details className="mt-4 text-xs">
         <summary className="cursor-pointer text-muted-foreground">按类别统计与诊断</summary>
-        <div className="mt-3 max-h-80 overflow-auto">
-          <table className="w-full text-xs">
+        <div className="mt-3 overflow-auto">
+          <table className={listStyles.table}>
             <thead>
               <tr className="text-muted-foreground">
                 <th className="py-2 text-left">类别</th>
@@ -723,7 +822,7 @@ function AggregateMetrics({ aggregate }: { aggregate: EvaluationAggregate }) {
               </tr>
             </thead>
             <tbody>
-              {aggregate.per_class.map((item) => (
+              {classes.items.map((item) => (
                 <tr key={item.class_index} className="border-t border-border">
                   <td className="py-2">{item.name}</td>
                   {metrics.map(([key, , fraction]) => (
@@ -736,6 +835,14 @@ function AggregateMetrics({ aggregate }: { aggregate: EvaluationAggregate }) {
             </tbody>
           </table>
         </div>
+        <PickerPage
+          label="评估类别"
+          page={classes.page}
+          pageSize={classes.pageSize}
+          total={classes.total}
+          onChange={classes.setPage}
+          onPageSizeChange={classes.setPageSize}
+        />
         <p className="mt-3 text-muted-foreground">
           混淆 {aggregate.diagnostics.confusion ?? 0} · 定位偏差{" "}
           {aggregate.diagnostics.localization ?? 0}。诊断不重复计数。
@@ -765,6 +872,11 @@ function ComparisonResults({
       ? undefined
       : data.sample_pairs.find((item) => item.left_ordinal === ordinal);
   const second = data.candidates[1];
+  const comparisonMetrics = data.candidates.some(
+    (item) => item.aggregate && "matched_mean_iou" in item.aggregate,
+  )
+    ? [...metrics, ...maskMetrics]
+    : metrics;
   return (
     <div className="mt-4">
       {!data.compatible && (
@@ -776,7 +888,7 @@ function ComparisonResults({
         </p>
       )}
       <div className="overflow-auto">
-        <table className="w-full text-xs">
+        <table className={listStyles.table}>
           <thead>
             <tr className="text-muted-foreground">
               <th className="py-2 text-left font-normal">指标</th>
@@ -795,12 +907,12 @@ function ComparisonResults({
             </tr>
           </thead>
           <tbody>
-            {metrics.map(([key, label, fraction]) => (
+            {comparisonMetrics.map(([key, label, fraction]) => (
               <tr key={key} className="border-t border-border">
                 <th className="py-2 text-left font-normal">{label}</th>
                 {data.candidates.map((item) => (
                   <td key={item.evaluation_id} className="px-3 py-2 text-right tabular-nums">
-                    {metricValue(item.aggregate?.[key], fraction)}
+                    {metricValue(aggregateValue(item.aggregate, key), fraction)}
                   </td>
                 ))}
                 {data.compatible && (

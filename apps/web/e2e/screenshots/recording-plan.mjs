@@ -57,6 +57,7 @@ const manual = [
 // Inference execution is explicit: a panel can require live capabilities without
 // submitting a prediction or tracker job during its recording.
 const liveInference = {
+  "detection-online-training": [],
   "sam-tool-smart-point": ["image_interactive"],
   "sam-tool-smart-box": ["image_interactive"],
   "sam-tool-exemplar": ["image_interactive"],

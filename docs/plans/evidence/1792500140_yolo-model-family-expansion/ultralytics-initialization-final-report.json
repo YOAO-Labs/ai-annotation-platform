@@ -1,0 +1,1042 @@
+{
+  "schema": 1,
+  "device": "cpu",
+  "complete": true,
+  "models": [
+    {
+      "base_model": "yolov8n",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_tensor_digest": "89ea8c069c472f1c1cecc9ac7a9e5cb844e0b6fe0e5737e9a3ebcf2912ea9475",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "7d0776269819d8b51f6859ff6a446f913e40dc8ffdcb3157c361f0752c951854",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "b0706eb6cb0965580ec05379664c8f1492717ddcdda2b9691a7b860007730302",
+        "source_sha256": "c3066fc3c64a2970eb936af504f52d33883311c723c2c528922f672f1c97587e",
+        "source_tensor_digest": "89ea8c069c472f1c1cecc9ac7a9e5cb844e0b6fe0e5737e9a3ebcf2912ea9475",
+        "start_epoch": 0,
+        "tensor_count": 355
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolov8n.pt",
+        "sha256": "f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolov8s",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_tensor_digest": "e67369a2d09c3442b05753bdbe3c6ce33fd744fcd75ac32ce24e3fa12913364a",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "7d0776269819d8b51f6859ff6a446f913e40dc8ffdcb3157c361f0752c951854",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "8c12470f468228949d387db9bf0dd1922210b31636b80f3b92c3bceb474ae353",
+        "source_sha256": "582b605de40231de69dbac3ca2e538ffb5d6098ec095485272f92b2bda2f54e0",
+        "source_tensor_digest": "e67369a2d09c3442b05753bdbe3c6ce33fd744fcd75ac32ce24e3fa12913364a",
+        "start_epoch": 0,
+        "tensor_count": 355
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolov8s.pt",
+        "sha256": "1f47a78bf100391c2a140b7ac73a1caae18c32779be7d310658112f7ac9aa78a"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolov8m",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_tensor_digest": "ae6ac14437dd5efd676d3a361db88899c8c59e633a860503507283fe76e27388",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "7d0776269819d8b51f6859ff6a446f913e40dc8ffdcb3157c361f0752c951854",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "4dca062a5b670b7be5f9e7484673777c8223e4ea6850cef8d7ae02f17a4236df",
+        "source_sha256": "0fe5109f41a9d625d8fd0015b800f560103740d7689fa6fa05eea4128acb7ff0",
+        "source_tensor_digest": "ae6ac14437dd5efd676d3a361db88899c8c59e633a860503507283fe76e27388",
+        "start_epoch": 0,
+        "tensor_count": 475
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolov8m.pt",
+        "sha256": "5d4a90cdc7a21786cc59cd19778e9eafff836df9e2da32524737c7ee6efe4fe5"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolov8l",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_tensor_digest": "8194fceb529d61737948f846e09483ac8f7b669f05ce8f1f8040deb808b02622",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "7d0776269819d8b51f6859ff6a446f913e40dc8ffdcb3157c361f0752c951854",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "f9a42455b4fb8b95ad622a4b9cc53b545cf0ef69d49b9a487f5d92d98b75997e",
+        "source_sha256": "debbbf03bbbb215dfb52524c08674fe0cd855e1c582d30ed653b9a2fe1e614d3",
+        "source_tensor_digest": "8194fceb529d61737948f846e09483ac8f7b669f05ce8f1f8040deb808b02622",
+        "start_epoch": 0,
+        "tensor_count": 595
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolov8l.pt",
+        "sha256": "64c9115303f6a25575f82200d1b22ec409fa6bd7d08d0313884fc20d919478cd"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolov8x",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_tensor_digest": "0973e97923ee0fd888239d2c3cb7030e166b073ce18ea5cd4b912972972dc543",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "7d0776269819d8b51f6859ff6a446f913e40dc8ffdcb3157c361f0752c951854",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "d22f0a696d3da5b682cc1463be595383392838794ce1a08b662bbb43929df94a",
+        "source_sha256": "059eb194167c5cd97f2335fa4475c3de8e681bda9b0117dc05ca011ae59c548c",
+        "source_tensor_digest": "0973e97923ee0fd888239d2c3cb7030e166b073ce18ea5cd4b912972972dc543",
+        "start_epoch": 0,
+        "tensor_count": 595
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolov8x.pt",
+        "sha256": "3df4ada6b4dad6d657868f2fdf7faecfb34dcfccf3a25c4b82079064718524c8"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolov8n-seg",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_mask_head_tensor_digest": "9e18a429e3ab62b9a36bfa1db0b03085d351a89282e70b09472bfe3d99617ded",
+        "loaded_tensor_digest": "521cf761112efc807a9d8303ad8cd0aa54c9ec829abde3ec4bc3e2b8e35e7c64",
+        "mask_head_tensor_count": 147,
+        "mask_head_tensor_digest": "9e18a429e3ab62b9a36bfa1db0b03085d351a89282e70b09472bfe3d99617ded",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "0f22f424d72cc4e986ffe0d60235d7b0c108ad7b3e7aa553ab0c547350163594",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "b8044e0fc123bf9a1970daaae99888008de1f8fa330a78385c5a143bcc5f162f",
+        "source_sha256": "11f432f1eb5fbbf58cb1ea0676e7fb70cdced605d90ed35f4f5377cc504723bb",
+        "source_tensor_digest": "521cf761112efc807a9d8303ad8cd0aa54c9ec829abde3ec4bc3e2b8e35e7c64",
+        "start_epoch": 0,
+        "tensor_count": 417
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolov8n-seg.pt",
+        "sha256": "a7cd8f929e1903d78a12a48efecab430209f18dc46cb96c3599a5980c63c423c"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolov8s-seg",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_mask_head_tensor_digest": "3a5fe923a47dd7bb1e9f1436df3f13b95a15b76531964816ed8ab553c4dbda2c",
+        "loaded_tensor_digest": "623751f1b33f8768de6d6aa6ccac7dc24d91729e19dd3b6651cb5a4b01a86b45",
+        "mask_head_tensor_count": 147,
+        "mask_head_tensor_digest": "3a5fe923a47dd7bb1e9f1436df3f13b95a15b76531964816ed8ab553c4dbda2c",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "0f22f424d72cc4e986ffe0d60235d7b0c108ad7b3e7aa553ab0c547350163594",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "62d9edceaab6cb8b5909657351654b87c05424e0621b0519ff747f792e1d8042",
+        "source_sha256": "470f5a3d6ebc8cbf4ba49f911f175bea135915ee0c417b9ef27c8518cec0fb36",
+        "source_tensor_digest": "623751f1b33f8768de6d6aa6ccac7dc24d91729e19dd3b6651cb5a4b01a86b45",
+        "start_epoch": 0,
+        "tensor_count": 417
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolov8s-seg.pt",
+        "sha256": "0bac0770b55e5eb5b76a61bc535673288dcec36c2bc0cd25ee0d584c632f3413"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolov8m-seg",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_mask_head_tensor_digest": "5052872e946143ad2984c51e308e6cb1b5a83ec04a8f71fbcc964353a3824ff2",
+        "loaded_tensor_digest": "7ee528599f4b32d1f665ceca5f04c9906d5282dd8ca3b0bdeb6d447aae5f95eb",
+        "mask_head_tensor_count": 147,
+        "mask_head_tensor_digest": "5052872e946143ad2984c51e308e6cb1b5a83ec04a8f71fbcc964353a3824ff2",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "0f22f424d72cc4e986ffe0d60235d7b0c108ad7b3e7aa553ab0c547350163594",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "a445f9eaaedfb510ebc77adddc25a85b56f93481095f92addf6b01356cd74596",
+        "source_sha256": "95657f3c46d3ec0559b6a6d880c6e98a1aecd5f568518bbcb312afeece612de5",
+        "source_tensor_digest": "7ee528599f4b32d1f665ceca5f04c9906d5282dd8ca3b0bdeb6d447aae5f95eb",
+        "start_epoch": 0,
+        "tensor_count": 537
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolov8m-seg.pt",
+        "sha256": "51fa7e5ef385efa6d5b1d8e31b73399be6ed5d7ca71bda4bd4b2794bb445c4f4"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolov8l-seg",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_mask_head_tensor_digest": "35edecd17184b9363080d39585d2192e1efcbb8babe060b98675a4420ed4d982",
+        "loaded_tensor_digest": "f78c80853b2434dbd1a7d8ced6bcf85c5546870457c5de0a8d09722f09abbc73",
+        "mask_head_tensor_count": 147,
+        "mask_head_tensor_digest": "35edecd17184b9363080d39585d2192e1efcbb8babe060b98675a4420ed4d982",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "0f22f424d72cc4e986ffe0d60235d7b0c108ad7b3e7aa553ab0c547350163594",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "bab53835291c6105a7001dc9a8bf3d60a1c2bfaddbbd12393f60f285894de6ce",
+        "source_sha256": "32f99065e4538b1e000d8d4b462502e0f194d7ef7ce5e3c9c4cadb9d53eb01b0",
+        "source_tensor_digest": "f78c80853b2434dbd1a7d8ced6bcf85c5546870457c5de0a8d09722f09abbc73",
+        "start_epoch": 0,
+        "tensor_count": 657
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolov8l-seg.pt",
+        "sha256": "ca3ec94c445aeaf79c2b57982fb451060f18a7561e2c20b4d26bb9dc1fcabf93"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolov8x-seg",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_mask_head_tensor_digest": "8dca375d48262364b35a3e9ce1f75aea7a0f391f41d9a8895c0d9129cae2d59b",
+        "loaded_tensor_digest": "90ffa436fe0625cc904fa99804226440dbc90f74f983ff498837bbdb7c65cd0c",
+        "mask_head_tensor_count": 147,
+        "mask_head_tensor_digest": "8dca375d48262364b35a3e9ce1f75aea7a0f391f41d9a8895c0d9129cae2d59b",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "0f22f424d72cc4e986ffe0d60235d7b0c108ad7b3e7aa553ab0c547350163594",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "c0e6fd83bf1be93e4bda32a6c888c91a283a5ec241e9b4c140da41d57ef1665e",
+        "source_sha256": "4291607304272886555ecc09b1491801302cc9a24e8a462cdce299e94381b048",
+        "source_tensor_digest": "90ffa436fe0625cc904fa99804226440dbc90f74f983ff498837bbdb7c65cd0c",
+        "start_epoch": 0,
+        "tensor_count": 657
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolov8x-seg.pt",
+        "sha256": "c333d6a7aff884ec821050eacdab29871f3edd10d996cf48746a02f8e01f1b5d"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolo11n",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_tensor_digest": "32c0a81ea51b4ab88bb8ba9f8988de861bd3a7b624f8d690f7b3a29183990fdf",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "438011e350a83d36c48c31449a86b673b558700224143ed598801179fd46c9d3",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "270aed013a076b32b2139e28727183fcaeab0a81526df58c4f70ff003e7ce3ab",
+        "source_sha256": "855c099b7a7be1783dd32b1e8d2acdd0d34b257ba731e89f7a84fb522bf45153",
+        "source_tensor_digest": "32c0a81ea51b4ab88bb8ba9f8988de861bd3a7b624f8d690f7b3a29183990fdf",
+        "start_epoch": 0,
+        "tensor_count": 499
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo11n.pt",
+        "sha256": "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolo11s",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_tensor_digest": "345e0cd51b0557ac80b67ba4c9bc4797406e03759cca16ce38cee4b923310c03",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "438011e350a83d36c48c31449a86b673b558700224143ed598801179fd46c9d3",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "3b7a2425d54a03de3feb9ae853fa1320b6127271d3f43ec64c600c356255ce6c",
+        "source_sha256": "cc61a9610fd803daf3db5a1c6a004c4379cd7e4460415cc814b9051b7eaa0d67",
+        "source_tensor_digest": "345e0cd51b0557ac80b67ba4c9bc4797406e03759cca16ce38cee4b923310c03",
+        "start_epoch": 0,
+        "tensor_count": 499
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo11s.pt",
+        "sha256": "85a76fe86dd8afe384648546b56a7a78580c7cb7b404fc595f97969322d502d5"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolo11m",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_tensor_digest": "4edbd1a0bd81b28814cd59f29f16777acc4a2c113e403307a334f7c8978c9f0c",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "438011e350a83d36c48c31449a86b673b558700224143ed598801179fd46c9d3",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "a9f0ca7b0535fc09d1ac3ec4dd8b4f3ecf400a4a10a0e9e30d5a6842a7321706",
+        "source_sha256": "502be263b565c9aa7f3a7089d564f13d25704d55b3147e8c3a2a625672e8a708",
+        "source_tensor_digest": "4edbd1a0bd81b28814cd59f29f16777acc4a2c113e403307a334f7c8978c9f0c",
+        "start_epoch": 0,
+        "tensor_count": 649
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo11m.pt",
+        "sha256": "d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolo11l",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_tensor_digest": "556db20f9173e2620ce17ccabca1de1e16b340661355644ef9167d24ee8c5eab",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "438011e350a83d36c48c31449a86b673b558700224143ed598801179fd46c9d3",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "d2ba1a6c53e299b48174cc55a01771e102fd9a818dd71c58505fcfb6226de8ba",
+        "source_sha256": "1f3d88943e519c9f52e897e51b3a0c5bee7f6af6d070457b4671d253a35ad5b6",
+        "source_tensor_digest": "556db20f9173e2620ce17ccabca1de1e16b340661355644ef9167d24ee8c5eab",
+        "start_epoch": 0,
+        "tensor_count": 1015
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo11l.pt",
+        "sha256": "9ebd0e09d59811db4b1d61e2bc6730649608b1ac47f8dd01e2da6bca7c20023f"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolo11x",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_tensor_digest": "16dca7b484ae937c34645c2458dafc731555088ca50494e0390ed626368b971c",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "438011e350a83d36c48c31449a86b673b558700224143ed598801179fd46c9d3",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "dc41673d97d8667bb2e0341390212a0c63edda53d4f7ed9ee8bc3df941951a70",
+        "source_sha256": "33607f6fdf79b2ad822354d91cd497a2cc56a27786e0ad964983e83f8e4bb070",
+        "source_tensor_digest": "16dca7b484ae937c34645c2458dafc731555088ca50494e0390ed626368b971c",
+        "start_epoch": 0,
+        "tensor_count": 1015
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo11x.pt",
+        "sha256": "7bc158aa95c0ebfdd87f70f01653c1131b93e92522dbe15c228bcd742e773a24"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolo11n-seg",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_mask_head_tensor_digest": "7b91df1277781a729ba79981302dfdd433980f1428836b5120c7e60f36467605",
+        "loaded_tensor_digest": "cf97605410ddbc2ae5be04f2daaacf399f6102f25d9cd09866b8d194982d2175",
+        "mask_head_tensor_count": 183,
+        "mask_head_tensor_digest": "7b91df1277781a729ba79981302dfdd433980f1428836b5120c7e60f36467605",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "d33a2bd244b8d5f653f37c16a8540a43be1188bcbb24b7f741fa4c4110577422",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "859520b113d628caffd8f1c2ef38ee342410e7a1ffa7dc9ac6f8993b781e00d4",
+        "source_sha256": "2af6a62b95f127737c3f3b4f95159e67a968266fc52c6237536056c8e547218e",
+        "source_tensor_digest": "cf97605410ddbc2ae5be04f2daaacf399f6102f25d9cd09866b8d194982d2175",
+        "start_epoch": 0,
+        "tensor_count": 561
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo11n-seg.pt",
+        "sha256": "55ed65c56c91713d23e8402371c6c49a6fd84f257f7dce452e8d70e41dcbe152"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolo11s-seg",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_mask_head_tensor_digest": "29abdac0f496640ad7ec7a30d2e4ba1230971a0150be06f1cea507f480e7c578",
+        "loaded_tensor_digest": "fb63fe7eccf7a62ff3d798fb4b72786cd99a07fa990e3ca38c1aa05b7c64dc1a",
+        "mask_head_tensor_count": 183,
+        "mask_head_tensor_digest": "29abdac0f496640ad7ec7a30d2e4ba1230971a0150be06f1cea507f480e7c578",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "d33a2bd244b8d5f653f37c16a8540a43be1188bcbb24b7f741fa4c4110577422",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "0d92018740be90c515aae634b4a718b090fd199687c7f6aa3201832d25051d56",
+        "source_sha256": "fab163066f55befdd7ddc6fd664aa5f79897a7f44b087ee9b18af334c94d07e1",
+        "source_tensor_digest": "fb63fe7eccf7a62ff3d798fb4b72786cd99a07fa990e3ca38c1aa05b7c64dc1a",
+        "start_epoch": 0,
+        "tensor_count": 561
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo11s-seg.pt",
+        "sha256": "1caa81c0195412efa411b632bcfb8c184939dddb6ae41f6a80c41b211ff257c3"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolo11m-seg",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_mask_head_tensor_digest": "f49d29c685a815512fbdf213a68e9c9d2e6c09dd5bb76ffca0ed37e355bb992b",
+        "loaded_tensor_digest": "c88cd3af14cb3313a03fa21df35dc0d4354066cd26ab506924cdeab6c66a4f24",
+        "mask_head_tensor_count": 183,
+        "mask_head_tensor_digest": "f49d29c685a815512fbdf213a68e9c9d2e6c09dd5bb76ffca0ed37e355bb992b",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "d33a2bd244b8d5f653f37c16a8540a43be1188bcbb24b7f741fa4c4110577422",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "65176f8a689cd5f8e27d9876165a1d5489e2158517d44f66ac5fc0b6281d35fe",
+        "source_sha256": "c8299ba1d10128308122b03a9b1281dce9cd2a5ec1b9eb93880c3ab9ddf9f4f8",
+        "source_tensor_digest": "c88cd3af14cb3313a03fa21df35dc0d4354066cd26ab506924cdeab6c66a4f24",
+        "start_epoch": 0,
+        "tensor_count": 711
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo11m-seg.pt",
+        "sha256": "eb9a06f63e2206c35d68d839b08c362429ebecf933ad54c1ad68b2fd001c17cf"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolo11l-seg",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_mask_head_tensor_digest": "8fd1ab6b43087812a3ab47c5af6be74954891afd6fa03446c0a100e352db8ba8",
+        "loaded_tensor_digest": "09b6e6bf244e5e0f8bd042e2e20eebf66ac06544d20b6566745389bad31ee566",
+        "mask_head_tensor_count": 183,
+        "mask_head_tensor_digest": "8fd1ab6b43087812a3ab47c5af6be74954891afd6fa03446c0a100e352db8ba8",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "d33a2bd244b8d5f653f37c16a8540a43be1188bcbb24b7f741fa4c4110577422",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "92361c44346c56eea737e0581cf0e7ce0b95de39153877ac44daa6f35a98c11b",
+        "source_sha256": "f1b503404c1033c9563dc7d02dc7968982e05b1fe63907b1a884dcaac3f09a0b",
+        "source_tensor_digest": "09b6e6bf244e5e0f8bd042e2e20eebf66ac06544d20b6566745389bad31ee566",
+        "start_epoch": 0,
+        "tensor_count": 1077
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo11l-seg.pt",
+        "sha256": "cabe90049795dfc9a370b7934d6dec7f6b9e44a20e573b0ff81b7e205512c872"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolo11x-seg",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_mask_head_tensor_digest": "75984761ab4510408bdb78be2cc7fd4cd129fad393b180b2c27e84ec90226f58",
+        "loaded_tensor_digest": "eea54b2ebf1eddef913ace58f8312e728b258189d70a57386a1b0ea7ee20071b",
+        "mask_head_tensor_count": 183,
+        "mask_head_tensor_digest": "75984761ab4510408bdb78be2cc7fd4cd129fad393b180b2c27e84ec90226f58",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "d33a2bd244b8d5f653f37c16a8540a43be1188bcbb24b7f741fa4c4110577422",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "0abc7056169f945af3a280959c792698e0cc2a2044ca6f5336224353a5681315",
+        "source_sha256": "3b3749bf0dab9794c254deb8beba82228209aa0fe54a7b6b13c421c08db50f2b",
+        "source_tensor_digest": "eea54b2ebf1eddef913ace58f8312e728b258189d70a57386a1b0ea7ee20071b",
+        "start_epoch": 0,
+        "tensor_count": 1077
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo11x-seg.pt",
+        "sha256": "4e53a5f5fd3ee2ae3361c62169c6bb3ed4ae251dd0e57606e230955aa52d919c"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolo26n",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_tensor_digest": "5036280e525e9264329ef8d4fa8be62c25cbe3c8d3c968b638333a53d5b460d8",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "1a764a435c54f587f526ab6131333a7c45dbdc36b4a3580cc11cac95af581f60",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "4d8258fc42cd37f25f9456d4f59669b294e3f0952bd600e163271e90f4b0f6f6",
+        "source_sha256": "b2680368da76993a22c437510f7e13e6fbf29f419a11c6d8f55930ed7a07dbf9",
+        "source_tensor_digest": "5036280e525e9264329ef8d4fa8be62c25cbe3c8d3c968b638333a53d5b460d8",
+        "start_epoch": 0,
+        "tensor_count": 708
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo26n.pt",
+        "sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolo26s",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_tensor_digest": "d85a623abd7ae3ba274eb30999fa451071e3abbee9fda4cde6226150d2faba72",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "1a764a435c54f587f526ab6131333a7c45dbdc36b4a3580cc11cac95af581f60",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "1b488e1bed17b6d8a6dc07364168f012e7a31b73b5615e1620dd22d80ca1455b",
+        "source_sha256": "467739cf0ce371a0e6e4e6b1798e92c8e44a2fbb2f8ade78b9580cfb2d2eb83c",
+        "source_tensor_digest": "d85a623abd7ae3ba274eb30999fa451071e3abbee9fda4cde6226150d2faba72",
+        "start_epoch": 0,
+        "tensor_count": 708
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo26s.pt",
+        "sha256": "646f8bc3fe0a656803d95c294f7852321748cb29d13466a1af8862e2db384a1b"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolo26m",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_tensor_digest": "ace8886f8ab6d073525b39c29069c1594b4a9ef9eaa9506c8ec5d244929d892c",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "1a764a435c54f587f526ab6131333a7c45dbdc36b4a3580cc11cac95af581f60",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "5ce2bdb83d63520d9459f759c9a2573ab63c88ee4a5c7d67481fcb2844336e2f",
+        "source_sha256": "9536b9c403ae60aa401510036fed4f5f2e58b2e9baa7b7e715dc55985c37525e",
+        "source_tensor_digest": "ace8886f8ab6d073525b39c29069c1594b4a9ef9eaa9506c8ec5d244929d892c",
+        "start_epoch": 0,
+        "tensor_count": 768
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo26m.pt",
+        "sha256": "401cea9ab23ad19246ff7744859816bc599f350e93c9dd30367b6f0a0745d0b7"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolo26l",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_tensor_digest": "f759f53c1788c82caf66f78a96eacde689d5ed575f4cc6b87050eb0e6de283e1",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "1a764a435c54f587f526ab6131333a7c45dbdc36b4a3580cc11cac95af581f60",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "74001fdacae97db0ebd36a8774af18f8eafb0cee6a942340924e19450decd115",
+        "source_sha256": "366af1bad738252df734febaf44c0995993956da0bc78f05562df9033498e943",
+        "source_tensor_digest": "f759f53c1788c82caf66f78a96eacde689d5ed575f4cc6b87050eb0e6de283e1",
+        "start_epoch": 0,
+        "tensor_count": 1092
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo26l.pt",
+        "sha256": "9fe3c544f2b19bebad7ea41e76d7ad3d88b7c2f10d11d24430c5311f6b32db26"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolo26x",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_tensor_digest": "4c5cd48387a378643ebb692f4da790749d5c96f44e284c543fda4b6582f06ad5",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "1a764a435c54f587f526ab6131333a7c45dbdc36b4a3580cc11cac95af581f60",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "6abe43cc96c3172189ddfaebc5801c5d157d1ce57dad33768eac64a317ea4a46",
+        "source_sha256": "1eec11727aec870c673a36e2ad8a1a9257840792e9ada8bb58b51194716c435a",
+        "source_tensor_digest": "4c5cd48387a378643ebb692f4da790749d5c96f44e284c543fda4b6582f06ad5",
+        "start_epoch": 0,
+        "tensor_count": 1092
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo26x.pt",
+        "sha256": "9fdd44a31c504547ffb81d2c6d9e6dac3493c8eaa8b0398d3f43bae6c7003e92"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolo26n-seg",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_mask_head_tensor_digest": "b23fc2b424fcc89f3cecb24dca405ae7279eb2d6590538b07371bc46e916022a",
+        "loaded_tensor_digest": "a974902905bc5f03944473ecaebf9e5dae5c74d2ec132d580fe30f1eba6deb21",
+        "mask_head_tensor_count": 376,
+        "mask_head_tensor_digest": "b23fc2b424fcc89f3cecb24dca405ae7279eb2d6590538b07371bc46e916022a",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "1f1021087201aac5c44eaffd5f0e1853d03d655ee98ece0f8f171a98e765465a",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "480b2ee1c86bd129825b3515bbc8d2760b7e3b92546748f299bd6a4edbb2c848",
+        "source_sha256": "08c2aa7d88d287f00e19ad3a87e94aa396cec361a4a2448865673f532d4e4ac1",
+        "source_tensor_digest": "a974902905bc5f03944473ecaebf9e5dae5c74d2ec132d580fe30f1eba6deb21",
+        "start_epoch": 0,
+        "tensor_count": 844
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo26n-seg.pt",
+        "sha256": "361fbfabab285c3237700b6bb91d7ecfa602cd945fffda8dbe1242829b71e73f"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolo26s-seg",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_mask_head_tensor_digest": "c19f7fd3aa3077763234be92f87df5cbb49e527fca812f24a025e5d04a425067",
+        "loaded_tensor_digest": "61a367b4908230d8cb4e78c26d18cd036d87fc54116dc664550b824220b0eebc",
+        "mask_head_tensor_count": 376,
+        "mask_head_tensor_digest": "c19f7fd3aa3077763234be92f87df5cbb49e527fca812f24a025e5d04a425067",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "1f1021087201aac5c44eaffd5f0e1853d03d655ee98ece0f8f171a98e765465a",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "beef6f638012ddd2150f214e1b8520a1110c80c6fd51d1af549ee19c17467eed",
+        "source_sha256": "6329071948c46e8167a97b4e68a523f67315e1ad7db7d73fae277c06640fd659",
+        "source_tensor_digest": "61a367b4908230d8cb4e78c26d18cd036d87fc54116dc664550b824220b0eebc",
+        "start_epoch": 0,
+        "tensor_count": 844
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo26s-seg.pt",
+        "sha256": "3da1d83e31caec96f9300eb4064f4f62882c133c7c264d63dfe61a7c197837a4"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolo26m-seg",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_mask_head_tensor_digest": "ba26eb731a3d060523c24065cc2f96b3912beb9b0c55944fbde563e7d8affa57",
+        "loaded_tensor_digest": "e5877aaf017917d3d2c93bbc5ce852c2879af887fae5107559180cfbaf5a0f70",
+        "mask_head_tensor_count": 376,
+        "mask_head_tensor_digest": "ba26eb731a3d060523c24065cc2f96b3912beb9b0c55944fbde563e7d8affa57",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "1f1021087201aac5c44eaffd5f0e1853d03d655ee98ece0f8f171a98e765465a",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "b6fd3150a5149bcb39d9fda0854139bb6124e80f714e2eaddab28cd8f8cc8e0d",
+        "source_sha256": "6f5965144580a44536527d26a5db5154f43b6c31d4ea208d235fcfdd9c7f022d",
+        "source_tensor_digest": "e5877aaf017917d3d2c93bbc5ce852c2879af887fae5107559180cfbaf5a0f70",
+        "start_epoch": 0,
+        "tensor_count": 904
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo26m-seg.pt",
+        "sha256": "16b636f04e8fb6a325b3370f22dc5e5535ff473e384f4d041fd28d788f6ee9f5"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolo26l-seg",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_mask_head_tensor_digest": "99edec4b124af8d55f12433626d390c99c4287d845fb656f2b91a7f23e3658d6",
+        "loaded_tensor_digest": "a5c2f08c389b043de2c8db3dbcdfd324628c7c22b47b1d307428ff6fe87fdfc3",
+        "mask_head_tensor_count": 376,
+        "mask_head_tensor_digest": "99edec4b124af8d55f12433626d390c99c4287d845fb656f2b91a7f23e3658d6",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "1f1021087201aac5c44eaffd5f0e1853d03d655ee98ece0f8f171a98e765465a",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "fe11f439f87a9a1fa5dec6aa1679ecffaa62c77391c0fce04023bf560e091747",
+        "source_sha256": "1430141702bb6992c4a970c683302ac340575453bb886c32ac2b12ced3169a92",
+        "source_tensor_digest": "a5c2f08c389b043de2c8db3dbcdfd324628c7c22b47b1d307428ff6fe87fdfc3",
+        "start_epoch": 0,
+        "tensor_count": 1228
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo26l-seg.pt",
+        "sha256": "636024306410afa1732692322fba57d22ea2b1c2f07613fcee131a93d7dd380c"
+      },
+      "cpu_passed": true
+    },
+    {
+      "base_model": "yolo26x-seg",
+      "device": "cpu",
+      "fresh_state": {
+        "best_fitness": null,
+        "best_weights_present": false,
+        "ema_updates": 0,
+        "loaded_mask_head_tensor_digest": "7f8a61992abfe8b2c7acb0ff160f979a9b38c6f646be8a0ab345e48c47cf810d",
+        "loaded_tensor_digest": "772b7ddb1312d75bb83f340aa78794dced02d953ead30805d2584210c1b7b880",
+        "mask_head_tensor_count": 376,
+        "mask_head_tensor_digest": "7f8a61992abfe8b2c7acb0ff160f979a9b38c6f646be8a0ab345e48c47cf810d",
+        "mode": "weights_only",
+        "optimizer_state_count": 0,
+        "policy_digest": "1f1021087201aac5c44eaffd5f0e1853d03d655ee98ece0f8f171a98e765465a",
+        "scaler_state": {},
+        "scheduler_last_epoch": -1,
+        "source_digest": "7f715b6eae1a84e650907b72e6c7b0b9473d79f6517b8718ddb14c17e5df4236",
+        "source_sha256": "de43e36e6a6d1e0d92528832f6397dd59f9b990cf622b361806cde8096266473",
+        "source_tensor_digest": "772b7ddb1312d75bb83f340aa78794dced02d953ead30805d2584210c1b7b880",
+        "start_epoch": 0,
+        "tensor_count": 1228
+      },
+      "gpu_qualification": "requires platform-owned execution; not claimed by CPU probe",
+      "native_version": "8.4.183",
+      "source_epochs": 1,
+      "target_epochs": 3,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo26x-seg.pt",
+        "sha256": "92b3de0065766a17180d6219858717dc9d03cdce8a3ca9576c97fd75aabb64f3"
+      },
+      "cpu_passed": true
+    }
+  ]
+}

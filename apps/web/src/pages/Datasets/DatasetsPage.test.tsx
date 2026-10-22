@@ -7,6 +7,7 @@ import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
 
 const mockUseDatasets = vi.fn();
+const mockListDatasets = vi.fn();
 const mockUseCreateDataset = vi.fn();
 const mockUseDatasetItems = vi.fn();
 const mockUseDatasetProjects = vi.fn();
@@ -39,6 +40,7 @@ vi.mock("@/hooks/useProjects", () => ({
 
 vi.mock("@/api/datasets", () => ({
   datasetsApi: {
+    list: (...args: unknown[]) => mockListDatasets(...args),
     previewUnlink: vi.fn().mockResolvedValue({
       will_delete_tasks: 0,
       will_delete_annotations: 0,
@@ -160,7 +162,7 @@ describe("DatasetsPage", () => {
     expect(screen.getByText("含 Scene")).toBeInTheDocument();
     // stat cards
     expect(screen.getByText("数据集总数")).toBeInTheDocument();
-    expect(screen.getByText("文件总量")).toBeInTheDocument();
+    expect(screen.getByText("本页文件总量")).toBeInTheDocument();
   });
 
   it("展开数据集 → 显示 scene 信息", () => {
@@ -198,6 +200,26 @@ describe("DatasetsPage", () => {
     expect(screen.queryByTestId("import-wizard")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /新建数据集/ }));
     expect(screen.getByTestId("import-wizard")).toBeInTheDocument();
+  });
+
+  it("paginates datasets on the server and resets the offset when page size changes", () => {
+    mockUseDatasets.mockReturnValue({
+      data: { items: [], total: 45 },
+      isLoading: false,
+      isFetching: false,
+    });
+    renderUI();
+    expect(mockUseDatasets).toHaveBeenLastCalledWith(
+      expect.objectContaining({ limit: 20, offset: 0 }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    expect(mockUseDatasets).toHaveBeenLastCalledWith(
+      expect.objectContaining({ limit: 20, offset: 20 }),
+    );
+    fireEvent.change(screen.getByLabelText("每页数据集数"), { target: { value: "50" } });
+    expect(mockUseDatasets).toHaveBeenLastCalledWith(
+      expect.objectContaining({ limit: 50, offset: 0 }),
+    );
   });
 
   it("搜索框输入后 q 写入 URL，且只在 debounce 后传入 useDatasets", async () => {
@@ -249,12 +271,41 @@ describe("DatasetsPage", () => {
     });
     renderUI("/datasets?q=clip&data_type=video&dataset=ds1");
     expect(screen.getByPlaceholderText("搜索数据集...")).toHaveValue("clip");
-    expect(mockUseDatasets).toHaveBeenLastCalledWith({
-      search: "clip",
-      data_type: "video",
-    });
+    expect(mockUseDatasets).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        search: "clip",
+        data_type: "video",
+      }),
+    );
     await waitFor(() => expect(screen.getByTestId("location-search")).toHaveTextContent("q=clip"));
     expect(screen.getByRole("button", { name: /收起/ })).toBeInTheDocument();
+  });
+
+  it("locates and expands a linked dataset beyond the first server page", async () => {
+    const all = Array.from({ length: 45 }, (_, index) => ({
+      id: `ds-${index}`,
+      display_id: `D-${index}`,
+      name: `Dataset ${index}`,
+      description: "",
+      data_type: "image",
+      file_count: 1,
+      project_count: 0,
+      created_at: "2026-01-01T00:00:00Z",
+    }));
+    mockUseDatasets.mockImplementation(({ limit = 20, offset = 0 }) => ({
+      data: { items: all.slice(offset, offset + limit), total: all.length },
+      isLoading: false,
+      isFetching: false,
+    }));
+    mockListDatasets.mockResolvedValue({ items: all, total: all.length });
+    renderUI("/datasets?dataset=ds-25");
+    await waitFor(() =>
+      expect(mockUseDatasets).toHaveBeenLastCalledWith(
+        expect.objectContaining({ limit: 20, offset: 20 }),
+      ),
+    );
+    await waitFor(() => expect(screen.getByText("文件列表")).toBeInTheDocument());
+    expect(screen.getByTestId("location-search")).not.toHaveTextContent("dataset=");
   });
 
   it("filter changes clear the expanded dataset selection", () => {
@@ -290,10 +341,12 @@ describe("DatasetsPage", () => {
     mockUseDatasets.mockReturnValue({ data: { items: [], total: 0 }, isLoading: false });
     renderUI("/datasets?q=old&data_type=image", "/datasets?q=new&data_type=video");
     await waitFor(() => {
-      expect(mockUseDatasets).toHaveBeenLastCalledWith({
-        search: "new",
-        data_type: "video",
-      });
+      expect(mockUseDatasets).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          search: "new",
+          data_type: "video",
+        }),
+      );
     });
     expect(
       mockUseDatasets.mock.calls.some(

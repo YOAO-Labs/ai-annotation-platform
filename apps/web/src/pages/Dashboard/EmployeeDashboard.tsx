@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPagination } from "@/hooks/useListPagination";
+import { listStyles } from "@/components/ui/listStyles";
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Icon } from "@/components/ui/Icon";
@@ -110,6 +113,7 @@ export function EmployeeDashboard() {
 }
 
 function ViewerProjectsTab({ projects }: { projects: ProjectResponse[] }) {
+  const pagination = useListPagination(projects);
   const navigate = useNavigate();
   const location = useLocation();
   return (
@@ -119,10 +123,10 @@ function ViewerProjectsTab({ projects }: { projects: ProjectResponse[] }) {
           你在这些项目中拥有只读访问权限，可浏览项目数据。
         </p>
         <ul className="m-0 flex list-none flex-col gap-2 p-0">
-          {projects.map((project) => (
+          {pagination.items.map((project) => (
             <li
               key={project.id}
-              className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3"
+              className={`flex items-center justify-between gap-3 rounded-lg border border-border bg-card ${listStyles.row}`}
               data-testid="viewer-project-card"
             >
               <div className="min-w-0">
@@ -144,6 +148,14 @@ function ViewerProjectsTab({ projects }: { projects: ProjectResponse[] }) {
             </li>
           ))}
         </ul>
+        <ListPagination
+          label="只读项目"
+          page={pagination.page}
+          pageSize={pagination.pageSize}
+          total={pagination.total}
+          onPageChange={pagination.setPage}
+          onPageSizeChange={pagination.setPageSize}
+        />
       </div>
     </PageContainer>
   );

@@ -28,8 +28,16 @@ from app.services.storage import storage_service
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
     build_training_package,
+    instance_rle_payload,
+    instance_rle_text,
 )
 from app.services.training_datasets import MAX_IMAGE_BYTES, assert_dataset_authority
+from training_contract.dataset import (
+    is_instance_rle,
+    instance_rle_budget,
+    DatasetContractError,
+)
+
 from app.workers.celery_app import celery_app
 
 log = logging.getLogger(__name__)
@@ -108,8 +116,10 @@ def materialize_image(
                 raise TrainingDatasetError(
                     "unsupported_image", "图片格式或像素数量不适合当前训练器"
                 )
+            if sample.get("raster_contract"):
+                instance_rle_budget(width, height, len(sample["annotations"]))
             image.load()
-    except TrainingDatasetError:
+    except (TrainingDatasetError, DatasetContractError):
         raise
     except Exception as exc:
         raise TrainingDatasetError("invalid_image", "图片无法完整解码") from exc
@@ -128,7 +138,20 @@ def materialize_image(
                 "Metadata": {"snapshot-digest": snapshot_digest, "sha256": digest}
             },
         )
+    if sample.get("raster_contract"):
+        # Independently retained training object, under the same version prefix
+        # and deletion owner as the original frozen media.
+        payload = instance_rle_payload(sample, sample["classes"], width, height)
+        mask_path = directory / f"{sample['task_id']}.json"
+        mask_path.write_text(instance_rle_text(payload))
+        storage_service.upload_file(
+            str(mask_path),
+            f"{prefix}/masks/{sample['task_id']}.json",
+            bucket=bucket,
+            content_type="application/json",
+        )
     return {
+        **({"mask_path": str(mask_path)} if sample.get("raster_contract") else {}),
         "task_id": sample["task_id"],
         "path": str(path),
         "sha256": digest,
@@ -201,7 +224,13 @@ async def _build_dataset(version_id, job_id, attempt_id, session_factory) -> Non
                     media.append(
                         await asyncio.to_thread(
                             materialize_image,
-                            sample,
+                            {
+                                **sample,
+                                "raster_contract": True,
+                                "classes": snapshot["classes"],
+                            }
+                            if is_instance_rle(snapshot)
+                            else sample,
                             prefix,
                             snapshot_digest,
                             directory,
@@ -296,12 +325,12 @@ async def _build_dataset(version_id, job_id, attempt_id, session_factory) -> Non
                 version.status = "failed"
                 version.error_code = (
                     exc.code
-                    if isinstance(exc, TrainingDatasetError)
+                    if isinstance(exc, (TrainingDatasetError, DatasetContractError))
                     else "build_failed"
                 )
                 version.error_message = (
                     str(exc)
-                    if isinstance(exc, TrainingDatasetError)
+                    if isinstance(exc, (TrainingDatasetError, DatasetContractError))
                     else "训练数据构建失败，请检查素材或重试"
                 )
                 version.completed_at = datetime.now(timezone.utc)

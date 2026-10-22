@@ -1,0 +1,1657 @@
+{
+  "schema": 1,
+  "device": "cpu",
+  "complete": true,
+  "models": [
+    {
+      "base_model": "yolov8n",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "device": "cpu",
+      "end2end": false,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "initialization": "pretrained",
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "6938e513bb98f10b89cb072f37ed787364cee124da1c95fddb81c435601b7c95",
+        "weights_sha256": "9f25c5e8a695633a2206007bcfab577e5faef8eee91c0f53865477cfee0694af"
+      },
+      "native_metrics": {
+        "fitness": 0.44775,
+        "metrics/mAP50(B)": 0.4975,
+        "metrics/mAP50-95(B)": 0.44775,
+        "metrics/precision(B)": 0.012048192771084338,
+        "metrics/recall(B)": 1.0
+      },
+      "native_version": "8.4.183",
+      "nms": null,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 1132945408,
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolov8n.pt",
+        "sha256": "f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36"
+      }
+    },
+    {
+      "base_model": "yolov8s",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "device": "cpu",
+      "end2end": false,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "initialization": "pretrained",
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "77e64ce5126998ec3e02dc3a9693b68d572586d19290b7100f0c8e54cf19ffc3",
+        "weights_sha256": "77e773800e13e32303930c1b5b090d498ea19f078e28547ec104e06cb9f97c0f"
+      },
+      "native_metrics": {
+        "fitness": 0.041350649350649346,
+        "metrics/mAP50(B)": 0.04738095238095238,
+        "metrics/mAP50-95(B)": 0.041350649350649346,
+        "metrics/precision(B)": 0.009174311926605505,
+        "metrics/recall(B)": 1.0
+      },
+      "native_version": "8.4.183",
+      "nms": null,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 1803816960,
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolov8s.pt",
+        "sha256": "1f47a78bf100391c2a140b7ac73a1caae18c32779be7d310658112f7ac9aa78a"
+      }
+    },
+    {
+      "base_model": "yolov8m",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "device": "cpu",
+      "end2end": false,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "initialization": "pretrained",
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "12c3d1ea095410a6205632c8cab47262be3b73c2b335e25338ba3b14c3287194",
+        "weights_sha256": "f7098262caefcf9e41a4a066db8e741b3b4e3537f57faea246ca0cbc10c897fe"
+      },
+      "native_metrics": {
+        "fitness": 0.03431034482758621,
+        "metrics/mAP50(B)": 0.03431034482758621,
+        "metrics/mAP50-95(B)": 0.03431034482758621,
+        "metrics/precision(B)": 0.009900990099009901,
+        "metrics/recall(B)": 1.0
+      },
+      "native_version": "8.4.183",
+      "nms": null,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 3061288960,
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolov8m.pt",
+        "sha256": "5d4a90cdc7a21786cc59cd19778e9eafff836df9e2da32524737c7ee6efe4fe5"
+      }
+    },
+    {
+      "base_model": "yolov8l",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "device": "cpu",
+      "end2end": false,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "initialization": "pretrained",
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "34a458a1864bdc692cabfaa5fdc1cba1165a259ddaef218a9de620554d854e66",
+        "weights_sha256": "1f16a0aa3f98b830cdae0686e2edcc3fdcef1579edbe32036508020f6d04bbdc"
+      },
+      "native_metrics": {
+        "fitness": 0.04975,
+        "metrics/mAP50(B)": 0.4975,
+        "metrics/mAP50-95(B)": 0.04975,
+        "metrics/precision(B)": 0.2633839487398482,
+        "metrics/recall(B)": 1.0
+      },
+      "native_version": "8.4.183",
+      "nms": null,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 4572626944,
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolov8l.pt",
+        "sha256": "64c9115303f6a25575f82200d1b22ec409fa6bd7d08d0313884fc20d919478cd"
+      }
+    },
+    {
+      "base_model": "yolov8x",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "device": "cpu",
+      "end2end": false,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "initialization": "pretrained",
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "d7846e773a81162dc9dc57d19cdc602ceae28b7255cb7cf593239d453149f990",
+        "weights_sha256": "454d0239ca95cd6f2fc2570da73faa1332fd59c6960a7182847d2e74fff07790"
+      },
+      "native_metrics": {
+        "fitness": 0.07462499999999998,
+        "metrics/mAP50(B)": 0.24875,
+        "metrics/mAP50-95(B)": 0.07462499999999998,
+        "metrics/precision(B)": 0.021739130434782608,
+        "metrics/recall(B)": 1.0
+      },
+      "native_version": "8.4.183",
+      "nms": null,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 6633840640,
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolov8x.pt",
+        "sha256": "3df4ada6b4dad6d657868f2fdf7faecfb34dcfccf3a25c4b82079064718524c8"
+      }
+    },
+    {
+      "base_model": "yolov8n-seg",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "consumer": {
+        "bridge": "ultralytics-instance-rle-1",
+        "limits": {
+          "max_batch_mask_elements": 64000000,
+          "max_dataset_bytes": 21474836480,
+          "max_image_pixels": 16000000,
+          "max_instances": 300,
+          "max_original_mask_elements": 128000000,
+          "max_package_bytes": 21474836480,
+          "max_sample_label_bytes": 33554432,
+          "max_sample_rle_bytes": 16777216,
+          "workers": 0
+        },
+        "loss_mask_processing": "truth-full-input-plane;prototype-bilinear-upsample-align-corners-false",
+        "loss_source_sha256": "333f6a021f1a80b62ff805bf63274983d4d675f8ef96da7de91f25df19e9b07b",
+        "max_semantic_class_pixels": 64000000,
+        "prefetch": false,
+        "rasterizer": "aap-pixel-center-even-odd-1",
+        "semantic_target": "smallest-covering-instance;first-input-on-equal-area;background-zero",
+        "transform": "aap-letterbox-nearest-1",
+        "validator_mask_processing": "truth-bilinear-align-corners-false-threshold-0.5-at-input-quarter",
+        "validator_source_sha256": "b775a7d0f4aff84d80f5dafaee04c9d8f6022876c60ee1995d4c285baea76ce9",
+        "workers": 0
+      },
+      "device": "cpu",
+      "end2end": false,
+      "evaluator_revision": 3,
+      "exact_original_and_transformed_masks": true,
+      "gpu_peak_bytes": null,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "head": "Segment",
+      "includes_explicit_negative": true,
+      "initialization": "pretrained",
+      "input_shape": [96, 160],
+      "instances": 2,
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "9b387c6f6a674722af789f9fc5eb19a2af739f3e783c179409558d39fa0a4435",
+        "weights_sha256": "1964733c544be521ee262e0e3a3ff12763ecfa0c7276e5e7f79961a9e0c87fa4"
+      },
+      "native_metrics": {
+        "fitness": 0.021384882478632475,
+        "metrics/mAP50(B)": 0.124375,
+        "metrics/mAP50(M)": 0.0,
+        "metrics/mAP50-95(B)": 0.021384882478632475,
+        "metrics/mAP50-95(M)": 0.0,
+        "metrics/precision(B)": 0.008928571428571428,
+        "metrics/precision(M)": 0.0,
+        "metrics/recall(B)": 1.0,
+        "metrics/recall(M)": 0.0
+      },
+      "native_version": "8.4.183",
+      "nms": null,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 1193369600,
+      "train_shape": [128, 128],
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolov8n-seg.pt",
+        "sha256": "a7cd8f929e1903d78a12a48efecab430209f18dc46cb96c3599a5980c63c423c"
+      }
+    },
+    {
+      "base_model": "yolov8s-seg",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "consumer": {
+        "bridge": "ultralytics-instance-rle-1",
+        "limits": {
+          "max_batch_mask_elements": 64000000,
+          "max_dataset_bytes": 21474836480,
+          "max_image_pixels": 16000000,
+          "max_instances": 300,
+          "max_original_mask_elements": 128000000,
+          "max_package_bytes": 21474836480,
+          "max_sample_label_bytes": 33554432,
+          "max_sample_rle_bytes": 16777216,
+          "workers": 0
+        },
+        "loss_mask_processing": "truth-full-input-plane;prototype-bilinear-upsample-align-corners-false",
+        "loss_source_sha256": "333f6a021f1a80b62ff805bf63274983d4d675f8ef96da7de91f25df19e9b07b",
+        "max_semantic_class_pixels": 64000000,
+        "prefetch": false,
+        "rasterizer": "aap-pixel-center-even-odd-1",
+        "semantic_target": "smallest-covering-instance;first-input-on-equal-area;background-zero",
+        "transform": "aap-letterbox-nearest-1",
+        "validator_mask_processing": "truth-bilinear-align-corners-false-threshold-0.5-at-input-quarter",
+        "validator_source_sha256": "b775a7d0f4aff84d80f5dafaee04c9d8f6022876c60ee1995d4c285baea76ce9",
+        "workers": 0
+      },
+      "device": "cpu",
+      "end2end": false,
+      "evaluator_revision": 3,
+      "exact_original_and_transformed_masks": true,
+      "gpu_peak_bytes": null,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "head": "Segment",
+      "includes_explicit_negative": true,
+      "initialization": "pretrained",
+      "input_shape": [96, 160],
+      "instances": 2,
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "e8fe9e7d99d19299368d0490cfeed3f4ca08cd315cd19e931d29ec272f65cb7c",
+        "weights_sha256": "d50d3310aca043543d1851bd5e044419eee292121cceeea0a1f11e650ef156a9"
+      },
+      "native_metrics": {
+        "fitness": 0.02475,
+        "metrics/mAP50(B)": 0.2475,
+        "metrics/mAP50(M)": 0.0,
+        "metrics/mAP50-95(B)": 0.02475,
+        "metrics/mAP50-95(M)": 0.0,
+        "metrics/precision(B)": 0.11575166878848747,
+        "metrics/precision(M)": 0.0,
+        "metrics/recall(B)": 0.5,
+        "metrics/recall(M)": 0.0
+      },
+      "native_version": "8.4.183",
+      "nms": null,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 1954988032,
+      "train_shape": [128, 128],
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolov8s-seg.pt",
+        "sha256": "0bac0770b55e5eb5b76a61bc535673288dcec36c2bc0cd25ee0d584c632f3413"
+      }
+    },
+    {
+      "base_model": "yolov8m-seg",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "consumer": {
+        "bridge": "ultralytics-instance-rle-1",
+        "limits": {
+          "max_batch_mask_elements": 64000000,
+          "max_dataset_bytes": 21474836480,
+          "max_image_pixels": 16000000,
+          "max_instances": 300,
+          "max_original_mask_elements": 128000000,
+          "max_package_bytes": 21474836480,
+          "max_sample_label_bytes": 33554432,
+          "max_sample_rle_bytes": 16777216,
+          "workers": 0
+        },
+        "loss_mask_processing": "truth-full-input-plane;prototype-bilinear-upsample-align-corners-false",
+        "loss_source_sha256": "333f6a021f1a80b62ff805bf63274983d4d675f8ef96da7de91f25df19e9b07b",
+        "max_semantic_class_pixels": 64000000,
+        "prefetch": false,
+        "rasterizer": "aap-pixel-center-even-odd-1",
+        "semantic_target": "smallest-covering-instance;first-input-on-equal-area;background-zero",
+        "transform": "aap-letterbox-nearest-1",
+        "validator_mask_processing": "truth-bilinear-align-corners-false-threshold-0.5-at-input-quarter",
+        "validator_source_sha256": "b775a7d0f4aff84d80f5dafaee04c9d8f6022876c60ee1995d4c285baea76ce9",
+        "workers": 0
+      },
+      "device": "cpu",
+      "end2end": false,
+      "evaluator_revision": 3,
+      "exact_original_and_transformed_masks": true,
+      "gpu_peak_bytes": null,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "head": "Segment",
+      "includes_explicit_negative": true,
+      "initialization": "pretrained",
+      "input_shape": [96, 160],
+      "instances": 2,
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "b3f6b5094f2b6a13811907b90042f969ba630cd115cc26717553d2fc35d76f4b",
+        "weights_sha256": "15ae9c0a331e32550043d5d335c72dddca82a3e8a812efea6e427c04de701245"
+      },
+      "native_metrics": {
+        "fitness": 0.0008114754098360657,
+        "metrics/mAP50(B)": 0.008114754098360656,
+        "metrics/mAP50(M)": 0.0,
+        "metrics/mAP50-95(B)": 0.0008114754098360657,
+        "metrics/mAP50-95(M)": 0.0,
+        "metrics/precision(B)": 0.01639344262295082,
+        "metrics/precision(M)": 0.0,
+        "metrics/recall(B)": 0.5,
+        "metrics/recall(M)": 0.0
+      },
+      "native_version": "8.4.183",
+      "nms": null,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 3394027520,
+      "train_shape": [128, 128],
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolov8m-seg.pt",
+        "sha256": "51fa7e5ef385efa6d5b1d8e31b73399be6ed5d7ca71bda4bd4b2794bb445c4f4"
+      }
+    },
+    {
+      "base_model": "yolov8l-seg",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "consumer": {
+        "bridge": "ultralytics-instance-rle-1",
+        "limits": {
+          "max_batch_mask_elements": 64000000,
+          "max_dataset_bytes": 21474836480,
+          "max_image_pixels": 16000000,
+          "max_instances": 300,
+          "max_original_mask_elements": 128000000,
+          "max_package_bytes": 21474836480,
+          "max_sample_label_bytes": 33554432,
+          "max_sample_rle_bytes": 16777216,
+          "workers": 0
+        },
+        "loss_mask_processing": "truth-full-input-plane;prototype-bilinear-upsample-align-corners-false",
+        "loss_source_sha256": "333f6a021f1a80b62ff805bf63274983d4d675f8ef96da7de91f25df19e9b07b",
+        "max_semantic_class_pixels": 64000000,
+        "prefetch": false,
+        "rasterizer": "aap-pixel-center-even-odd-1",
+        "semantic_target": "smallest-covering-instance;first-input-on-equal-area;background-zero",
+        "transform": "aap-letterbox-nearest-1",
+        "validator_mask_processing": "truth-bilinear-align-corners-false-threshold-0.5-at-input-quarter",
+        "validator_source_sha256": "b775a7d0f4aff84d80f5dafaee04c9d8f6022876c60ee1995d4c285baea76ce9",
+        "workers": 0
+      },
+      "device": "cpu",
+      "end2end": false,
+      "evaluator_revision": 3,
+      "exact_original_and_transformed_masks": true,
+      "gpu_peak_bytes": null,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "head": "Segment",
+      "includes_explicit_negative": true,
+      "initialization": "pretrained",
+      "input_shape": [96, 160],
+      "instances": 2,
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "cf0aa84f8c9848876aead1cdb6f8037372fe61c26c3c05b62438049e770ee827",
+        "weights_sha256": "d78a5628a833d0a3f54e7f5d4b0d82f993f37f1f99c7dd74ca4dc30e44229343"
+      },
+      "native_metrics": {
+        "fitness": 0.005694058509296833,
+        "metrics/mAP50(B)": 0.022653695806680876,
+        "metrics/mAP50(M)": 0.0,
+        "metrics/mAP50-95(B)": 0.005694058509296833,
+        "metrics/mAP50-95(M)": 0.0,
+        "metrics/precision(B)": 0.008733624454148471,
+        "metrics/precision(M)": 0.0,
+        "metrics/recall(B)": 1.0,
+        "metrics/recall(M)": 0.0
+      },
+      "native_version": "8.4.183",
+      "nms": null,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 5137481728,
+      "train_shape": [128, 128],
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolov8l-seg.pt",
+        "sha256": "ca3ec94c445aeaf79c2b57982fb451060f18a7561e2c20b4d26bb9dc1fcabf93"
+      }
+    },
+    {
+      "base_model": "yolov8x-seg",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "consumer": {
+        "bridge": "ultralytics-instance-rle-1",
+        "limits": {
+          "max_batch_mask_elements": 64000000,
+          "max_dataset_bytes": 21474836480,
+          "max_image_pixels": 16000000,
+          "max_instances": 300,
+          "max_original_mask_elements": 128000000,
+          "max_package_bytes": 21474836480,
+          "max_sample_label_bytes": 33554432,
+          "max_sample_rle_bytes": 16777216,
+          "workers": 0
+        },
+        "loss_mask_processing": "truth-full-input-plane;prototype-bilinear-upsample-align-corners-false",
+        "loss_source_sha256": "333f6a021f1a80b62ff805bf63274983d4d675f8ef96da7de91f25df19e9b07b",
+        "max_semantic_class_pixels": 64000000,
+        "prefetch": false,
+        "rasterizer": "aap-pixel-center-even-odd-1",
+        "semantic_target": "smallest-covering-instance;first-input-on-equal-area;background-zero",
+        "transform": "aap-letterbox-nearest-1",
+        "validator_mask_processing": "truth-bilinear-align-corners-false-threshold-0.5-at-input-quarter",
+        "validator_source_sha256": "b775a7d0f4aff84d80f5dafaee04c9d8f6022876c60ee1995d4c285baea76ce9",
+        "workers": 0
+      },
+      "device": "cpu",
+      "end2end": false,
+      "evaluator_revision": 3,
+      "exact_original_and_transformed_masks": true,
+      "gpu_peak_bytes": null,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "head": "Segment",
+      "includes_explicit_negative": true,
+      "initialization": "pretrained",
+      "input_shape": [96, 160],
+      "instances": 2,
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "e92b45a68fcb1bff819ab0e4d3b3dcf746624a32f7267da230ee6e06a6d62e43",
+        "weights_sha256": "ef4d5ab38b2023d207114ba8938251bd56396e1f3672fa8855403b882f9da474"
+      },
+      "native_metrics": {
+        "fitness": 0.0,
+        "metrics/mAP50(B)": 0.0,
+        "metrics/mAP50(M)": 0.0,
+        "metrics/mAP50-95(B)": 0.0,
+        "metrics/mAP50-95(M)": 0.0,
+        "metrics/precision(B)": 0.0,
+        "metrics/precision(M)": 0.0,
+        "metrics/recall(B)": 0.0,
+        "metrics/recall(M)": 0.0
+      },
+      "native_version": "8.4.183",
+      "nms": null,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 7503405056,
+      "train_shape": [128, 128],
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolov8x-seg.pt",
+        "sha256": "c333d6a7aff884ec821050eacdab29871f3edd10d996cf48746a02f8e01f1b5d"
+      }
+    },
+    {
+      "base_model": "yolo11n",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "device": "cpu",
+      "end2end": false,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "initialization": "pretrained",
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "76415e822b01ef9fe9aaf7687465aaf6e4c2202cf8c2106e12bfd4d78acc4e08",
+        "weights_sha256": "096b01e0b102c1523e2c6af777072fbf1153886336b6948ecf1deb9a5635f1f8"
+      },
+      "native_metrics": {
+        "fitness": 0.1119375,
+        "metrics/mAP50(B)": 0.124375,
+        "metrics/mAP50-95(B)": 0.1119375,
+        "metrics/precision(B)": 0.0033783783783783786,
+        "metrics/recall(B)": 1.0
+      },
+      "native_version": "8.4.183",
+      "nms": null,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 1111588864,
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo11n.pt",
+        "sha256": "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1"
+      }
+    },
+    {
+      "base_model": "yolo11s",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "device": "cpu",
+      "end2end": false,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "initialization": "pretrained",
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "df7f05232e4fb4a2164d106a89ad10bd804d2198991a5d71e1711aa55e8a59bb",
+        "weights_sha256": "728089e15ee117a83ec53f64d3ddf20b645ebe38f215a691d8a182cad15acd85"
+      },
+      "native_metrics": {
+        "fitness": 0.03446121541501976,
+        "metrics/mAP50(B)": 0.04522727272727273,
+        "metrics/mAP50-95(B)": 0.03446121541501976,
+        "metrics/precision(B)": 0.002320185614849188,
+        "metrics/recall(B)": 1.0
+      },
+      "native_version": "8.4.183",
+      "nms": null,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 1675689984,
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo11s.pt",
+        "sha256": "85a76fe86dd8afe384648546b56a7a78580c7cb7b404fc595f97969322d502d5"
+      }
+    },
+    {
+      "base_model": "yolo11m",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "device": "cpu",
+      "end2end": false,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "initialization": "pretrained",
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "ce97cb7ab616a56efa99f52245ffebbafc43711461b3911f94e17e4724df5e6f",
+        "weights_sha256": "8ba11068553bdd9cfc8c262e0683021e3d611d4bc283b2803bed94a76c7a3772"
+      },
+      "native_metrics": {
+        "fitness": 0.0074624999999999995,
+        "metrics/mAP50(B)": 0.008291666666666666,
+        "metrics/mAP50-95(B)": 0.0074624999999999995,
+        "metrics/precision(B)": 0.007407407407407408,
+        "metrics/recall(B)": 1.0
+      },
+      "native_version": "8.4.183",
+      "nms": null,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 2590552064,
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo11m.pt",
+        "sha256": "d5ffc1a674953a08e11a8d21e022781b1b23a19b730afc309290bd9fb5305b95"
+      }
+    },
+    {
+      "base_model": "yolo11l",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "device": "cpu",
+      "end2end": false,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "initialization": "pretrained",
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "69909b790104d34cccda1bc0e7bebab30adcb18692e848584541f5f1b4ab0aea",
+        "weights_sha256": "92487dfd4969de675b404299a0e905c1105eb293b51247fbd94b3ef59ea52cc7"
+      },
+      "native_metrics": {
+        "fitness": 0.0,
+        "metrics/mAP50(B)": 0.0,
+        "metrics/mAP50-95(B)": 0.0,
+        "metrics/precision(B)": 0.0,
+        "metrics/recall(B)": 0.0
+      },
+      "native_version": "8.4.183",
+      "nms": null,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 3049480192,
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo11l.pt",
+        "sha256": "9ebd0e09d59811db4b1d61e2bc6730649608b1ac47f8dd01e2da6bca7c20023f"
+      }
+    },
+    {
+      "base_model": "yolo11x",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "device": "cpu",
+      "end2end": false,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "initialization": "pretrained",
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "25663449b48fceb381728403d36180f91b588cb84d426ce46ca6995b72af4deb",
+        "weights_sha256": "33d6359266b3e2057d151b821562cc1b875f79f0ad3af79c934e84255a1de914"
+      },
+      "native_metrics": {
+        "fitness": 0.020352272727272726,
+        "metrics/mAP50(B)": 0.022613636363636364,
+        "metrics/mAP50-95(B)": 0.020352272727272726,
+        "metrics/precision(B)": 0.0022371364653243847,
+        "metrics/recall(B)": 1.0
+      },
+      "native_version": "8.4.183",
+      "nms": null,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 5696053248,
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo11x.pt",
+        "sha256": "7bc158aa95c0ebfdd87f70f01653c1131b93e92522dbe15c228bcd742e773a24"
+      }
+    },
+    {
+      "base_model": "yolo11n-seg",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "consumer": {
+        "bridge": "ultralytics-instance-rle-1",
+        "limits": {
+          "max_batch_mask_elements": 64000000,
+          "max_dataset_bytes": 21474836480,
+          "max_image_pixels": 16000000,
+          "max_instances": 300,
+          "max_original_mask_elements": 128000000,
+          "max_package_bytes": 21474836480,
+          "max_sample_label_bytes": 33554432,
+          "max_sample_rle_bytes": 16777216,
+          "workers": 0
+        },
+        "loss_mask_processing": "truth-full-input-plane;prototype-bilinear-upsample-align-corners-false",
+        "loss_source_sha256": "333f6a021f1a80b62ff805bf63274983d4d675f8ef96da7de91f25df19e9b07b",
+        "max_semantic_class_pixels": 64000000,
+        "prefetch": false,
+        "rasterizer": "aap-pixel-center-even-odd-1",
+        "semantic_target": "smallest-covering-instance;first-input-on-equal-area;background-zero",
+        "transform": "aap-letterbox-nearest-1",
+        "validator_mask_processing": "truth-bilinear-align-corners-false-threshold-0.5-at-input-quarter",
+        "validator_source_sha256": "b775a7d0f4aff84d80f5dafaee04c9d8f6022876c60ee1995d4c285baea76ce9",
+        "workers": 0
+      },
+      "device": "cpu",
+      "end2end": false,
+      "evaluator_revision": 3,
+      "exact_original_and_transformed_masks": true,
+      "gpu_peak_bytes": null,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "head": "Segment",
+      "includes_explicit_negative": true,
+      "initialization": "pretrained",
+      "input_shape": [96, 160],
+      "instances": 2,
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "8659db358c14fba30266b42c1f143300d7b866fa11a3692b39f4752eeb8faef4",
+        "weights_sha256": "97da18fa955905a0f970d786d625fdf8ee1ac166e4860db331be3a0ba9c9cb5b"
+      },
+      "native_metrics": {
+        "fitness": 0.0495,
+        "metrics/mAP50(B)": 0.2475,
+        "metrics/mAP50(M)": 0.0,
+        "metrics/mAP50-95(B)": 0.0495,
+        "metrics/mAP50-95(M)": 0.0,
+        "metrics/precision(B)": 0.16457363940442066,
+        "metrics/precision(M)": 0.0,
+        "metrics/recall(B)": 0.5,
+        "metrics/recall(M)": 0.0
+      },
+      "native_version": "8.4.183",
+      "nms": null,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 1164836864,
+      "train_shape": [128, 128],
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo11n-seg.pt",
+        "sha256": "55ed65c56c91713d23e8402371c6c49a6fd84f257f7dce452e8d70e41dcbe152"
+      }
+    },
+    {
+      "base_model": "yolo11s-seg",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "consumer": {
+        "bridge": "ultralytics-instance-rle-1",
+        "limits": {
+          "max_batch_mask_elements": 64000000,
+          "max_dataset_bytes": 21474836480,
+          "max_image_pixels": 16000000,
+          "max_instances": 300,
+          "max_original_mask_elements": 128000000,
+          "max_package_bytes": 21474836480,
+          "max_sample_label_bytes": 33554432,
+          "max_sample_rle_bytes": 16777216,
+          "workers": 0
+        },
+        "loss_mask_processing": "truth-full-input-plane;prototype-bilinear-upsample-align-corners-false",
+        "loss_source_sha256": "333f6a021f1a80b62ff805bf63274983d4d675f8ef96da7de91f25df19e9b07b",
+        "max_semantic_class_pixels": 64000000,
+        "prefetch": false,
+        "rasterizer": "aap-pixel-center-even-odd-1",
+        "semantic_target": "smallest-covering-instance;first-input-on-equal-area;background-zero",
+        "transform": "aap-letterbox-nearest-1",
+        "validator_mask_processing": "truth-bilinear-align-corners-false-threshold-0.5-at-input-quarter",
+        "validator_source_sha256": "b775a7d0f4aff84d80f5dafaee04c9d8f6022876c60ee1995d4c285baea76ce9",
+        "workers": 0
+      },
+      "device": "cpu",
+      "end2end": false,
+      "evaluator_revision": 3,
+      "exact_original_and_transformed_masks": true,
+      "gpu_peak_bytes": null,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "head": "Segment",
+      "includes_explicit_negative": true,
+      "initialization": "pretrained",
+      "input_shape": [96, 160],
+      "instances": 2,
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "e31c460ce2c7c086c8f30d133bc3fefe2f4c0930cf6783cd5c5ce09317206805",
+        "weights_sha256": "8b7bad9ddd3360f4a63b52336029b46e3c672f9c660ddda3e3bd4276ba3a767d"
+      },
+      "native_metrics": {
+        "fitness": 0.0068603721948549525,
+        "metrics/mAP50(B)": 0.03158730158730159,
+        "metrics/mAP50(M)": 0.0070714285714285705,
+        "metrics/mAP50-95(B)": 0.006153229337712096,
+        "metrics/mAP50-95(M)": 0.000707142857142857,
+        "metrics/precision(B)": 0.008695652173913044,
+        "metrics/precision(M)": 0.004347826086956522,
+        "metrics/recall(B)": 1.0,
+        "metrics/recall(M)": 0.5
+      },
+      "native_version": "8.4.183",
+      "nms": null,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 1823043584,
+      "train_shape": [128, 128],
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo11s-seg.pt",
+        "sha256": "1caa81c0195412efa411b632bcfb8c184939dddb6ae41f6a80c41b211ff257c3"
+      }
+    },
+    {
+      "base_model": "yolo11m-seg",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "consumer": {
+        "bridge": "ultralytics-instance-rle-1",
+        "limits": {
+          "max_batch_mask_elements": 64000000,
+          "max_dataset_bytes": 21474836480,
+          "max_image_pixels": 16000000,
+          "max_instances": 300,
+          "max_original_mask_elements": 128000000,
+          "max_package_bytes": 21474836480,
+          "max_sample_label_bytes": 33554432,
+          "max_sample_rle_bytes": 16777216,
+          "workers": 0
+        },
+        "loss_mask_processing": "truth-full-input-plane;prototype-bilinear-upsample-align-corners-false",
+        "loss_source_sha256": "333f6a021f1a80b62ff805bf63274983d4d675f8ef96da7de91f25df19e9b07b",
+        "max_semantic_class_pixels": 64000000,
+        "prefetch": false,
+        "rasterizer": "aap-pixel-center-even-odd-1",
+        "semantic_target": "smallest-covering-instance;first-input-on-equal-area;background-zero",
+        "transform": "aap-letterbox-nearest-1",
+        "validator_mask_processing": "truth-bilinear-align-corners-false-threshold-0.5-at-input-quarter",
+        "validator_source_sha256": "b775a7d0f4aff84d80f5dafaee04c9d8f6022876c60ee1995d4c285baea76ce9",
+        "workers": 0
+      },
+      "device": "cpu",
+      "end2end": false,
+      "evaluator_revision": 3,
+      "exact_original_and_transformed_masks": true,
+      "gpu_peak_bytes": null,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "head": "Segment",
+      "includes_explicit_negative": true,
+      "initialization": "pretrained",
+      "input_shape": [96, 160],
+      "instances": 2,
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "ea35fbf0ed30e8d727753f0aab00876d8c190738bedc37a6061962a1a398c4d8",
+        "weights_sha256": "3817f6b3354487e035b499f2e3bfa76ae8375294a75474c84f236f11e1ba3cac"
+      },
+      "native_metrics": {
+        "fitness": 0.0,
+        "metrics/mAP50(B)": 0.0,
+        "metrics/mAP50(M)": 0.0,
+        "metrics/mAP50-95(B)": 0.0,
+        "metrics/mAP50-95(M)": 0.0,
+        "metrics/precision(B)": 0.0,
+        "metrics/precision(M)": 0.0,
+        "metrics/recall(B)": 0.0,
+        "metrics/recall(M)": 0.0
+      },
+      "native_version": "8.4.183",
+      "nms": null,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 2965704704,
+      "train_shape": [128, 128],
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo11m-seg.pt",
+        "sha256": "eb9a06f63e2206c35d68d839b08c362429ebecf933ad54c1ad68b2fd001c17cf"
+      }
+    },
+    {
+      "base_model": "yolo11l-seg",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "consumer": {
+        "bridge": "ultralytics-instance-rle-1",
+        "limits": {
+          "max_batch_mask_elements": 64000000,
+          "max_dataset_bytes": 21474836480,
+          "max_image_pixels": 16000000,
+          "max_instances": 300,
+          "max_original_mask_elements": 128000000,
+          "max_package_bytes": 21474836480,
+          "max_sample_label_bytes": 33554432,
+          "max_sample_rle_bytes": 16777216,
+          "workers": 0
+        },
+        "loss_mask_processing": "truth-full-input-plane;prototype-bilinear-upsample-align-corners-false",
+        "loss_source_sha256": "333f6a021f1a80b62ff805bf63274983d4d675f8ef96da7de91f25df19e9b07b",
+        "max_semantic_class_pixels": 64000000,
+        "prefetch": false,
+        "rasterizer": "aap-pixel-center-even-odd-1",
+        "semantic_target": "smallest-covering-instance;first-input-on-equal-area;background-zero",
+        "transform": "aap-letterbox-nearest-1",
+        "validator_mask_processing": "truth-bilinear-align-corners-false-threshold-0.5-at-input-quarter",
+        "validator_source_sha256": "b775a7d0f4aff84d80f5dafaee04c9d8f6022876c60ee1995d4c285baea76ce9",
+        "workers": 0
+      },
+      "device": "cpu",
+      "end2end": false,
+      "evaluator_revision": 3,
+      "exact_original_and_transformed_masks": true,
+      "gpu_peak_bytes": null,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "head": "Segment",
+      "includes_explicit_negative": true,
+      "initialization": "pretrained",
+      "input_shape": [96, 160],
+      "instances": 2,
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "e35b315b95ffa1da9338bfb6e95af1e473bb7a722fc3550d2873428e3b2949bc",
+        "weights_sha256": "219c7d994907fb29e880cbafb5fa4c3c348807f21cb136899c1ff6f5f880922d"
+      },
+      "native_metrics": {
+        "fitness": 0.0,
+        "metrics/mAP50(B)": 0.0,
+        "metrics/mAP50(M)": 0.0,
+        "metrics/mAP50-95(B)": 0.0,
+        "metrics/mAP50-95(M)": 0.0,
+        "metrics/precision(B)": 0.0,
+        "metrics/precision(M)": 0.0,
+        "metrics/recall(B)": 0.0,
+        "metrics/recall(M)": 0.0
+      },
+      "native_version": "8.4.183",
+      "nms": null,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 3471405056,
+      "train_shape": [128, 128],
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo11l-seg.pt",
+        "sha256": "cabe90049795dfc9a370b7934d6dec7f6b9e44a20e573b0ff81b7e205512c872"
+      }
+    },
+    {
+      "base_model": "yolo11x-seg",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "consumer": {
+        "bridge": "ultralytics-instance-rle-1",
+        "limits": {
+          "max_batch_mask_elements": 64000000,
+          "max_dataset_bytes": 21474836480,
+          "max_image_pixels": 16000000,
+          "max_instances": 300,
+          "max_original_mask_elements": 128000000,
+          "max_package_bytes": 21474836480,
+          "max_sample_label_bytes": 33554432,
+          "max_sample_rle_bytes": 16777216,
+          "workers": 0
+        },
+        "loss_mask_processing": "truth-full-input-plane;prototype-bilinear-upsample-align-corners-false",
+        "loss_source_sha256": "333f6a021f1a80b62ff805bf63274983d4d675f8ef96da7de91f25df19e9b07b",
+        "max_semantic_class_pixels": 64000000,
+        "prefetch": false,
+        "rasterizer": "aap-pixel-center-even-odd-1",
+        "semantic_target": "smallest-covering-instance;first-input-on-equal-area;background-zero",
+        "transform": "aap-letterbox-nearest-1",
+        "validator_mask_processing": "truth-bilinear-align-corners-false-threshold-0.5-at-input-quarter",
+        "validator_source_sha256": "b775a7d0f4aff84d80f5dafaee04c9d8f6022876c60ee1995d4c285baea76ce9",
+        "workers": 0
+      },
+      "device": "cpu",
+      "end2end": false,
+      "evaluator_revision": 3,
+      "exact_original_and_transformed_masks": true,
+      "gpu_peak_bytes": null,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "head": "Segment",
+      "includes_explicit_negative": true,
+      "initialization": "pretrained",
+      "input_shape": [96, 160],
+      "instances": 2,
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "4f5fdc711d7123ecf69c2cf4245899c4cd62c16d58b3f7a6f826463258613cb4",
+        "weights_sha256": "7bfff6a357b086c5d57057e81a81ca469aef8a49edd025fc00fb16df6769652b"
+      },
+      "native_metrics": {
+        "fitness": 0.011261282171818075,
+        "metrics/mAP50(B)": 0.0903740157480315,
+        "metrics/mAP50(M)": 0.0,
+        "metrics/mAP50-95(B)": 0.011261282171818075,
+        "metrics/mAP50-95(M)": 0.0,
+        "metrics/precision(B)": 0.00909090909090909,
+        "metrics/precision(M)": 0.0,
+        "metrics/recall(B)": 1.0,
+        "metrics/recall(M)": 0.0
+      },
+      "native_version": "8.4.183",
+      "nms": null,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 6629400576,
+      "train_shape": [128, 128],
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo11x-seg.pt",
+        "sha256": "4e53a5f5fd3ee2ae3361c62169c6bb3ed4ae251dd0e57606e230955aa52d919c"
+      }
+    },
+    {
+      "base_model": "yolo26n",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "device": "cpu",
+      "end2end": true,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "initialization": "pretrained",
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "ec1aa3b5057d747e207e4897d59fecc6f5269cf1e493a5692444ff0a6c853cca",
+        "weights_sha256": "04e24b2ce69dededee52eed05c4a670c5edf95a61b211042cbb7facfe3c13a0d"
+      },
+      "native_metrics": {
+        "fitness": 0.015710526315789473,
+        "metrics/mAP50(B)": 0.01745614035087719,
+        "metrics/mAP50-95(B)": 0.015710526315789473,
+        "metrics/precision(B)": 0.0016666666666666668,
+        "metrics/recall(B)": 1.0
+      },
+      "native_version": "8.4.183",
+      "nms": false,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 1099640832,
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo26n.pt",
+        "sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef"
+      }
+    },
+    {
+      "base_model": "yolo26s",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "device": "cpu",
+      "end2end": true,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "initialization": "pretrained",
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "95bb37a53fcd3a429e638f7ad2871d10da007049e16bf1f5a04549a486e76c31",
+        "weights_sha256": "b15b2554eef55cb6d3653c3f30de940cfd99474dd3e5a117d3e3ad585da919f0"
+      },
+      "native_metrics": {
+        "fitness": 0.010412790697674422,
+        "metrics/mAP50(B)": 0.011569767441860468,
+        "metrics/mAP50-95(B)": 0.010412790697674422,
+        "metrics/precision(B)": 0.01098901098901099,
+        "metrics/recall(B)": 1.0
+      },
+      "native_version": "8.4.183",
+      "nms": false,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 1734393856,
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo26s.pt",
+        "sha256": "646f8bc3fe0a656803d95c294f7852321748cb29d13466a1af8862e2db384a1b"
+      }
+    },
+    {
+      "base_model": "yolo26m",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "device": "cpu",
+      "end2end": true,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "initialization": "pretrained",
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "ba1bf8f8ab164c146261ba1d4f9d838ca493ed3db789f5f9bd339e13b37b3eae",
+        "weights_sha256": "9cd818353a851d7cff58c427d53687c6d67639484aa198377cf4f96ca391beda"
+      },
+      "native_metrics": {
+        "fitness": 0.49749999999999994,
+        "metrics/mAP50(B)": 0.4975,
+        "metrics/mAP50-95(B)": 0.49749999999999994,
+        "metrics/precision(B)": 0.4460425105747544,
+        "metrics/recall(B)": 1.0
+      },
+      "native_version": "8.4.183",
+      "nms": false,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 2742161408,
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo26m.pt",
+        "sha256": "401cea9ab23ad19246ff7744859816bc599f350e93c9dd30367b6f0a0745d0b7"
+      }
+    },
+    {
+      "base_model": "yolo26l",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "device": "cpu",
+      "end2end": true,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "initialization": "pretrained",
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "fd518ce4c8a97270588efd55de7ece4efe451a62412667ccc802238f847bb301",
+        "weights_sha256": "64d5114b17f3890ba6e02c90913630690d9020e5b34f5c1de44b7841446731a4"
+      },
+      "native_metrics": {
+        "fitness": 0.9949999999999999,
+        "metrics/mAP50(B)": 0.995,
+        "metrics/mAP50-95(B)": 0.9949999999999999,
+        "metrics/precision(B)": 0.8696233451224249,
+        "metrics/recall(B)": 1.0
+      },
+      "native_version": "8.4.183",
+      "nms": false,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 3122847744,
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo26l.pt",
+        "sha256": "9fe3c544f2b19bebad7ea41e76d7ad3d88b7c2f10d11d24430c5311f6b32db26"
+      }
+    },
+    {
+      "base_model": "yolo26x",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "device": "cpu",
+      "end2end": true,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "initialization": "pretrained",
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "f905dfea417cf4fbdbb1275a4a0e2e77596907d29c1252134f8683add024ace4",
+        "weights_sha256": "a91b6143c19cf264a221cd884f5e504a6593a889559d9a70fb02f25a1bc9a3ba"
+      },
+      "native_metrics": {
+        "fitness": 0.013207440476190472,
+        "metrics/mAP50(B)": 0.014214285714285709,
+        "metrics/mAP50-95(B)": 0.013207440476190472,
+        "metrics/precision(B)": 0.0038022813688212928,
+        "metrics/recall(B)": 1.0
+      },
+      "native_version": "8.4.183",
+      "nms": false,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 5866364928,
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo26x.pt",
+        "sha256": "9fdd44a31c504547ffb81d2c6d9e6dac3493c8eaa8b0398d3f43bae6c7003e92"
+      }
+    },
+    {
+      "base_model": "yolo26n-seg",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "consumer": {
+        "bridge": "ultralytics-instance-rle-1",
+        "limits": {
+          "max_batch_mask_elements": 64000000,
+          "max_dataset_bytes": 21474836480,
+          "max_image_pixels": 16000000,
+          "max_instances": 300,
+          "max_original_mask_elements": 128000000,
+          "max_package_bytes": 21474836480,
+          "max_sample_label_bytes": 33554432,
+          "max_sample_rle_bytes": 16777216,
+          "workers": 0
+        },
+        "loss_mask_processing": "truth-full-input-plane;prototype-bilinear-upsample-align-corners-false",
+        "loss_source_sha256": "333f6a021f1a80b62ff805bf63274983d4d675f8ef96da7de91f25df19e9b07b",
+        "max_semantic_class_pixels": 64000000,
+        "prefetch": false,
+        "rasterizer": "aap-pixel-center-even-odd-1",
+        "semantic_target": "smallest-covering-instance;first-input-on-equal-area;background-zero",
+        "transform": "aap-letterbox-nearest-1",
+        "validator_mask_processing": "truth-bilinear-align-corners-false-threshold-0.5-at-input-quarter",
+        "validator_source_sha256": "b775a7d0f4aff84d80f5dafaee04c9d8f6022876c60ee1995d4c285baea76ce9",
+        "workers": 0
+      },
+      "device": "cpu",
+      "end2end": true,
+      "evaluator_revision": 3,
+      "exact_original_and_transformed_masks": true,
+      "gpu_peak_bytes": null,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "head": "Segment26",
+      "includes_explicit_negative": true,
+      "initialization": "pretrained",
+      "input_shape": [96, 160],
+      "instances": 2,
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "fb0ea4f516be6c5b7bb0f8c094aefcaf83cc9a0193203c17d39d3f8b8f6bb09b",
+        "weights_sha256": "421ef2e990a9f790261bcefcbe17589745e4453a8ebea350c83f6cf9a5ebc152"
+      },
+      "native_metrics": {
+        "fitness": 0.0009,
+        "metrics/mAP50(B)": 0.009,
+        "metrics/mAP50(M)": 0.0,
+        "metrics/mAP50-95(B)": 0.0009,
+        "metrics/mAP50-95(M)": 0.0,
+        "metrics/precision(B)": 0.015625,
+        "metrics/precision(M)": 0.0,
+        "metrics/recall(B)": 0.5,
+        "metrics/recall(M)": 0.0
+      },
+      "native_version": "8.4.183",
+      "nms": false,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 1186217984,
+      "train_shape": [128, 128],
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo26n-seg.pt",
+        "sha256": "361fbfabab285c3237700b6bb91d7ecfa602cd945fffda8dbe1242829b71e73f"
+      }
+    },
+    {
+      "base_model": "yolo26s-seg",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "consumer": {
+        "bridge": "ultralytics-instance-rle-1",
+        "limits": {
+          "max_batch_mask_elements": 64000000,
+          "max_dataset_bytes": 21474836480,
+          "max_image_pixels": 16000000,
+          "max_instances": 300,
+          "max_original_mask_elements": 128000000,
+          "max_package_bytes": 21474836480,
+          "max_sample_label_bytes": 33554432,
+          "max_sample_rle_bytes": 16777216,
+          "workers": 0
+        },
+        "loss_mask_processing": "truth-full-input-plane;prototype-bilinear-upsample-align-corners-false",
+        "loss_source_sha256": "333f6a021f1a80b62ff805bf63274983d4d675f8ef96da7de91f25df19e9b07b",
+        "max_semantic_class_pixels": 64000000,
+        "prefetch": false,
+        "rasterizer": "aap-pixel-center-even-odd-1",
+        "semantic_target": "smallest-covering-instance;first-input-on-equal-area;background-zero",
+        "transform": "aap-letterbox-nearest-1",
+        "validator_mask_processing": "truth-bilinear-align-corners-false-threshold-0.5-at-input-quarter",
+        "validator_source_sha256": "b775a7d0f4aff84d80f5dafaee04c9d8f6022876c60ee1995d4c285baea76ce9",
+        "workers": 0
+      },
+      "device": "cpu",
+      "end2end": true,
+      "evaluator_revision": 3,
+      "exact_original_and_transformed_masks": true,
+      "gpu_peak_bytes": null,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "head": "Segment26",
+      "includes_explicit_negative": true,
+      "initialization": "pretrained",
+      "input_shape": [96, 160],
+      "instances": 2,
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "64901c0630679418399ef00f193297b828de7bc48a2f78e624a826cef8cc712a",
+        "weights_sha256": "f93640a8aeaccd470c7b0b1b305aa3e074356969b46fe033ef765414db85dfb1"
+      },
+      "native_metrics": {
+        "fitness": 0.0585909090909091,
+        "metrics/mAP50(B)": 0.33840909090909105,
+        "metrics/mAP50(M)": 0.0,
+        "metrics/mAP50-95(B)": 0.0585909090909091,
+        "metrics/mAP50-95(M)": 0.0,
+        "metrics/precision(B)": 0.058823529411764705,
+        "metrics/precision(M)": 0.0,
+        "metrics/recall(B)": 1.0,
+        "metrics/recall(M)": 0.0
+      },
+      "native_version": "8.4.183",
+      "nms": false,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 1959256064,
+      "train_shape": [128, 128],
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo26s-seg.pt",
+        "sha256": "3da1d83e31caec96f9300eb4064f4f62882c133c7c264d63dfe61a7c197837a4"
+      }
+    },
+    {
+      "base_model": "yolo26m-seg",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "consumer": {
+        "bridge": "ultralytics-instance-rle-1",
+        "limits": {
+          "max_batch_mask_elements": 64000000,
+          "max_dataset_bytes": 21474836480,
+          "max_image_pixels": 16000000,
+          "max_instances": 300,
+          "max_original_mask_elements": 128000000,
+          "max_package_bytes": 21474836480,
+          "max_sample_label_bytes": 33554432,
+          "max_sample_rle_bytes": 16777216,
+          "workers": 0
+        },
+        "loss_mask_processing": "truth-full-input-plane;prototype-bilinear-upsample-align-corners-false",
+        "loss_source_sha256": "333f6a021f1a80b62ff805bf63274983d4d675f8ef96da7de91f25df19e9b07b",
+        "max_semantic_class_pixels": 64000000,
+        "prefetch": false,
+        "rasterizer": "aap-pixel-center-even-odd-1",
+        "semantic_target": "smallest-covering-instance;first-input-on-equal-area;background-zero",
+        "transform": "aap-letterbox-nearest-1",
+        "validator_mask_processing": "truth-bilinear-align-corners-false-threshold-0.5-at-input-quarter",
+        "validator_source_sha256": "b775a7d0f4aff84d80f5dafaee04c9d8f6022876c60ee1995d4c285baea76ce9",
+        "workers": 0
+      },
+      "device": "cpu",
+      "end2end": true,
+      "evaluator_revision": 3,
+      "exact_original_and_transformed_masks": true,
+      "gpu_peak_bytes": null,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "head": "Segment26",
+      "includes_explicit_negative": true,
+      "initialization": "pretrained",
+      "input_shape": [96, 160],
+      "instances": 2,
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "b7c0495a23d4629e2776fb46702c431743d94665586737161aaf3cc3a97a7678",
+        "weights_sha256": "63725630574fd096fb7dbbb15fa839e8a9a2dd4075a2a53ac20f144228567340"
+      },
+      "native_metrics": {
+        "fitness": 0.02558333333333333,
+        "metrics/mAP50(B)": 0.16583333333333333,
+        "metrics/mAP50(M)": 0.0,
+        "metrics/mAP50-95(B)": 0.02558333333333333,
+        "metrics/mAP50-95(M)": 0.0,
+        "metrics/precision(B)": 0.0125,
+        "metrics/precision(M)": 0.0,
+        "metrics/recall(B)": 1.0,
+        "metrics/recall(M)": 0.0
+      },
+      "native_version": "8.4.183",
+      "nms": false,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 3404955648,
+      "train_shape": [128, 128],
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo26m-seg.pt",
+        "sha256": "16b636f04e8fb6a325b3370f22dc5e5535ff473e384f4d041fd28d788f6ee9f5"
+      }
+    },
+    {
+      "base_model": "yolo26l-seg",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "consumer": {
+        "bridge": "ultralytics-instance-rle-1",
+        "limits": {
+          "max_batch_mask_elements": 64000000,
+          "max_dataset_bytes": 21474836480,
+          "max_image_pixels": 16000000,
+          "max_instances": 300,
+          "max_original_mask_elements": 128000000,
+          "max_package_bytes": 21474836480,
+          "max_sample_label_bytes": 33554432,
+          "max_sample_rle_bytes": 16777216,
+          "workers": 0
+        },
+        "loss_mask_processing": "truth-full-input-plane;prototype-bilinear-upsample-align-corners-false",
+        "loss_source_sha256": "333f6a021f1a80b62ff805bf63274983d4d675f8ef96da7de91f25df19e9b07b",
+        "max_semantic_class_pixels": 64000000,
+        "prefetch": false,
+        "rasterizer": "aap-pixel-center-even-odd-1",
+        "semantic_target": "smallest-covering-instance;first-input-on-equal-area;background-zero",
+        "transform": "aap-letterbox-nearest-1",
+        "validator_mask_processing": "truth-bilinear-align-corners-false-threshold-0.5-at-input-quarter",
+        "validator_source_sha256": "b775a7d0f4aff84d80f5dafaee04c9d8f6022876c60ee1995d4c285baea76ce9",
+        "workers": 0
+      },
+      "device": "cpu",
+      "end2end": true,
+      "evaluator_revision": 3,
+      "exact_original_and_transformed_masks": true,
+      "gpu_peak_bytes": null,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "head": "Segment26",
+      "includes_explicit_negative": true,
+      "initialization": "pretrained",
+      "input_shape": [96, 160],
+      "instances": 2,
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "28c91ce75ccf0767c77baa225e8b543c9b04c3cf7f65d82676c5685002f2ffa8",
+        "weights_sha256": "bbb31655074f1d9fe6ec8e271a6136e41fd663d74bdd65bd3a0175120acbe50e"
+      },
+      "native_metrics": {
+        "fitness": 0.02433400757721697,
+        "metrics/mAP50(B)": 0.12249999999999997,
+        "metrics/mAP50(M)": 0.0,
+        "metrics/mAP50-95(B)": 0.02433400757721697,
+        "metrics/mAP50-95(M)": 0.0,
+        "metrics/precision(B)": 0.0033333333333333335,
+        "metrics/precision(M)": 0.0,
+        "metrics/recall(B)": 1.0,
+        "metrics/recall(M)": 0.0
+      },
+      "native_version": "8.4.183",
+      "nms": false,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 3822129152,
+      "train_shape": [128, 128],
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo26l-seg.pt",
+        "sha256": "636024306410afa1732692322fba57d22ea2b1c2f07613fcee131a93d7dd380c"
+      }
+    },
+    {
+      "base_model": "yolo26x-seg",
+      "best_reloaded": true,
+      "cancel_checkpoint_epoch": 1,
+      "consumer": {
+        "bridge": "ultralytics-instance-rle-1",
+        "limits": {
+          "max_batch_mask_elements": 64000000,
+          "max_dataset_bytes": 21474836480,
+          "max_image_pixels": 16000000,
+          "max_instances": 300,
+          "max_original_mask_elements": 128000000,
+          "max_package_bytes": 21474836480,
+          "max_sample_label_bytes": 33554432,
+          "max_sample_rle_bytes": 16777216,
+          "workers": 0
+        },
+        "loss_mask_processing": "truth-full-input-plane;prototype-bilinear-upsample-align-corners-false",
+        "loss_source_sha256": "333f6a021f1a80b62ff805bf63274983d4d675f8ef96da7de91f25df19e9b07b",
+        "max_semantic_class_pixels": 64000000,
+        "prefetch": false,
+        "rasterizer": "aap-pixel-center-even-odd-1",
+        "semantic_target": "smallest-covering-instance;first-input-on-equal-area;background-zero",
+        "transform": "aap-letterbox-nearest-1",
+        "validator_mask_processing": "truth-bilinear-align-corners-false-threshold-0.5-at-input-quarter",
+        "validator_source_sha256": "b775a7d0f4aff84d80f5dafaee04c9d8f6022876c60ee1995d4c285baea76ce9",
+        "workers": 0
+      },
+      "device": "cpu",
+      "end2end": true,
+      "evaluator_revision": 3,
+      "exact_original_and_transformed_masks": true,
+      "gpu_peak_bytes": null,
+      "gpu_qualification": "requires platform-owned GPU execution",
+      "head": "Segment26",
+      "includes_explicit_negative": true,
+      "initialization": "pretrained",
+      "input_shape": [96, 160],
+      "instances": 2,
+      "managed_return": {
+        "device": "cpu",
+        "http_install": true,
+        "native_inspection": true,
+        "receipt_digest": "a1e458b1ba87a25b3a9606f4be6b76b004e405119b5d32778091ee635d141b32",
+        "weights_sha256": "4c6be2c6cf3606e7135032237099065603a2ef15b54885cba06c606dd032401b"
+      },
+      "native_metrics": {
+        "fitness": 0.033111111111111105,
+        "metrics/mAP50(B)": 0.22055555555555553,
+        "metrics/mAP50(M)": 0.0,
+        "metrics/mAP50-95(B)": 0.033111111111111105,
+        "metrics/mAP50-95(M)": 0.0,
+        "metrics/precision(B)": 0.011904761904761904,
+        "metrics/precision(M)": 0.0,
+        "metrics/recall(B)": 1.0,
+        "metrics/recall(M)": 0.0
+      },
+      "native_version": "8.4.183",
+      "nms": false,
+      "resume_completed_epoch": 3,
+      "resume_start_epoch": 1,
+      "rss_peak_bytes": 7411220480,
+      "train_shape": [128, 128],
+      "cpu_passed": true,
+      "input": {
+        "imgsz": 128,
+        "batch": 1
+      },
+      "source": {
+        "name": "yolo26x-seg.pt",
+        "sha256": "92b3de0065766a17180d6219858717dc9d03cdce8a3ca9576c97fd75aabb64f3"
+      }
+    }
+  ]
+}

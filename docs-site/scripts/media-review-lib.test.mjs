@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
-import { classifyMedia, collectPublishedMedia, mediaAuditFailed } from "./media-review-lib.mjs";
+import {
+  classifyMedia,
+  collectPublishedMedia,
+  mediaAuditFailed,
+  REPO_ROOT,
+  USER_GUIDE_ROOT,
+} from "./media-review-lib.mjs";
 
 test("missing media is broken", () => {
   assert.equal(
@@ -66,6 +75,40 @@ test("homepage static image imports remain in the published media inventory", ()
     assert.ok(entry.kinds.has("image"));
     assert.ok(entry.sources.has("docs-site/.vitepress/theme/components/home/DataAtlasHero.vue"));
   }
+});
+
+function imageCheck(script) {
+  return JSON.parse(
+    execFileSync(process.execPath, [path.join(REPO_ROOT, "docs-site/scripts", script), "--json"], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+    }),
+  );
+}
+
+test("image coverage gates recognize screenshots used only by the homepage Vue component", () => {
+  const key = "docs-site/user-guide/images/superadmin/model-market/list.png";
+  const entry = collectPublishedMedia().get(key);
+  assert.ok(entry?.sources.has("docs-site/.vitepress/theme/components/home/ProductProof.vue"));
+  assert.equal(
+    imageCheck("check-image-manifest.mjs").failures.some((failure) => failure.includes(key)),
+    false,
+    "the manifest gate must recognize the homepage import",
+  );
+  assert.equal(
+    imageCheck("check-orphan-images.mjs").orphans.includes("superadmin/model-market/list.png"),
+    false,
+    "the orphan gate must recognize the homepage import",
+  );
+});
+
+test("image coverage still rejects an image without any published consumer", (t) => {
+  const directory = fs.mkdtempSync(path.join(USER_GUIDE_ROOT, "images/.reference-check-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const image = path.join(directory, "orphan.svg");
+  fs.writeFileSync(image, '<svg xmlns="http://www.w3.org/2000/svg" width="7" height="9"/>');
+  const relative = path.relative(path.join(USER_GUIDE_ROOT, "images"), image).replaceAll("\\", "/");
+  assert.ok(imageCheck("check-orphan-images.mjs").orphans.includes(relative));
 });
 
 test("PR integrity allows stale and overdue reviews but blocks missing files and source hash mismatch", () => {

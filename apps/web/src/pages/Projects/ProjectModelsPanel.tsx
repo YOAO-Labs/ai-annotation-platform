@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useListPagination } from "@/hooks/useListPagination";
 import { randomId } from "@/utils/id";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
@@ -19,9 +22,10 @@ import {
   trainedModelsApi,
   type ModelReleaseCreate,
   type ModelReleaseOut,
+  type ModelTask,
   type TrainedModelOut,
 } from "@/api/trainedModels";
-import { Plus, RadioTower } from "lucide-react";
+import { Plus } from "lucide-react";
 import { TrainingError, TrainingLoading } from "../Training/TrainingFeedback";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -38,20 +42,12 @@ import { Modal } from "@/components/ui/Modal";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { usePermissions } from "@/hooks/usePermissions";
 import { ProjectModelList } from "./ProjectModelList";
+import { ProjectModelMaskTrial } from "./ProjectModelMaskTrial";
 import { trainingRecordPath, useTrainingListFilters } from "../Training/TrainingListControls";
+import { metricLabel, trainingTaskLabel, trainingTaskOf } from "../Training/trainingPresentation";
 
 const inputClass =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-const metricNames: Record<string, string> = {
-  "metrics/mAP50-95": "mAP50-95",
-  "metrics/mAP50": "mAP50",
-  "metrics/mAP75": "mAP75",
-  "metrics/AR100": "AR100",
-  "metrics/mAP50-95(B)": "mAP50-95",
-  "metrics/mAP50(B)": "mAP50",
-  "metrics/precision(B)": "Precision",
-  "metrics/recall(B)": "Recall",
-};
 const states: Record<string, string> = {
   checking: "检查中",
   ready: "加载与试用通过",
@@ -69,15 +65,37 @@ function Evaluation({ model }: { model: TrainedModelOut }) {
   const perClass = Array.isArray(model.evaluation.per_class)
     ? model.evaluation.per_class.map(record)
     : [];
+  const classPage = useListPagination(perClass, model.id);
+  const detectionColumns = [
+    { key: "precision", label: "Precision" },
+    { key: "recall", label: "Recall" },
+    { key: "mAP50", label: "mAP50" },
+    { key: "mAP50-95", label: "mAP50-95" },
+  ];
+  const perClassColumns =
+    model.task === "segment"
+      ? [
+          { suffix: "B", label: "框" },
+          { suffix: "M", label: "掩码" },
+        ].flatMap((kind) =>
+          detectionColumns.map((column) => ({
+            key: `${column.key}(${kind.suffix})`,
+            label: `${kind.label} ${column.label}`,
+          })),
+        )
+      : detectionColumns;
   return (
     <div className="mt-3 space-y-3 text-xs">
+      <p className="text-muted-foreground">
+        训练版本：{model.framework} {model.framework_version}
+      </p>
       <p className="text-muted-foreground">
         评估使用固定验证集，未包含独立测试集；分数不代表实际项目已获得改善。
       </p>
       <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {Object.entries(metrics).map(([key, value]) => (
           <div key={key} className="rounded-md bg-background p-2">
-            <dt className="text-muted-foreground">{metricNames[key] ?? key}</dt>
+            <dt className="text-muted-foreground">{metricLabel(key)}</dt>
             <dd className="mt-1 font-mono">{numeric(value)}</dd>
           </div>
         ))}
@@ -93,23 +111,24 @@ function Evaluation({ model }: { model: TrainedModelOut }) {
             分类别结果（仅列出验证集中出现的类别）
           </summary>
           <div className="mt-2 overflow-x-auto">
-            <table className="w-full text-left">
+            <table className={listStyles.table}>
               <thead>
                 <tr>
                   <th className="px-4 py-3">类别</th>
-                  <th className="px-4 py-3">Precision</th>
-                  <th className="px-4 py-3">Recall</th>
-                  <th className="px-4 py-3">mAP50</th>
-                  <th className="px-4 py-3">mAP50-95</th>
+                  {perClassColumns.map((column) => (
+                    <th key={column.key} className="px-4 py-3">
+                      {column.label}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {perClass.map((item, index) => (
+                {classPage.items.map((item, index) => (
                   <tr key={index} className="border-t border-border">
                     <td className="px-4 py-3">{String(item.name ?? item.index)}</td>
-                    {["precision", "recall", "mAP50", "mAP50-95"].map((key) => (
-                      <td key={key} className="p-2 font-mono">
-                        {numeric(item[key])}
+                    {perClassColumns.map((column) => (
+                      <td key={column.key} className="p-2 font-mono">
+                        {numeric(item[column.key])}
                       </td>
                     ))}
                   </tr>
@@ -117,6 +136,14 @@ function Evaluation({ model }: { model: TrainedModelOut }) {
               </tbody>
             </table>
           </div>
+          <ListPagination
+            label="模型类别"
+            page={classPage.page}
+            pageSize={classPage.pageSize}
+            total={classPage.total}
+            onPageChange={classPage.setPage}
+            onPageSizeChange={classPage.setPageSize}
+          />
         </details>
       )}
       <details>
@@ -218,8 +245,11 @@ function TrialImage({ trial }: { trial: Record<string, unknown> }) {
 type ModelsPanelProps = {
   projectId: string;
   classes: string[];
+  taskClasses?: Partial<Record<ModelTask, string[]>>;
   mode?: "list" | "detail";
   initialModelId?: string;
+  publicationOnly?: boolean;
+  onPublished?: () => void;
 };
 
 function inferenceServiceIssues({ backend, enabled }: ProjectMLBackendItem) {
@@ -232,6 +262,14 @@ function inferenceServiceIssues({ backend, enabled }: ProjectMLBackendItem) {
 
 export function ProjectModelsPanel(props: ModelsPanelProps) {
   const revision = useTrainingSessionRevision();
+  const [params] = useSearchParams();
+  const task =
+    params.get("model_task") === "all"
+      ? "all"
+      : params.get("model_task") === "segment" ||
+          (!params.has("model_task") && props.taskClasses && !props.taskClasses.detect)
+        ? "segment"
+        : "detect";
   const scope = useMemo(
     () => ({
       key: randomId(),
@@ -239,22 +277,28 @@ export function ProjectModelsPanel(props: ModelsPanelProps) {
       mode: props.mode,
       modelId: props.initialModelId,
       revision,
+      task,
     }),
-    [props.projectId, props.mode, props.initialModelId, revision],
+    [props.projectId, props.mode, props.initialModelId, revision, task],
   );
-  return <ModelsContent key={scope.key} {...props} scope={scope.key} />;
+  return <ModelsContent key={scope.key} {...props} scope={scope.key} selectedTask={task} />;
 }
 
 function ModelsContent({
   projectId,
-  classes,
+  classes: fallbackClasses,
+  taskClasses,
+  selectedTask,
   scope,
   mode = "list",
   initialModelId = "",
-}: ModelsPanelProps & { scope: string }) {
+  publicationOnly = false,
+  onPublished,
+}: ModelsPanelProps & { scope: string; selectedTask: ModelTask | "all" }) {
   const client = useQueryClient();
   const { role, canAccessPage } = usePermissions();
   const inferenceStatusId = useId();
+  const modelsTitleId = useId();
   const location = useLocation();
   const navigate = useNavigate();
   const session = useTrainingViewOwner(projectId, scope);
@@ -283,16 +327,19 @@ function ModelsContent({
       : params.get("archive") === "include"
         ? "include"
         : "exclude";
-  const { filters, page, setPage, update } = useTrainingListFilters("model");
+  const { filters, page, pageSize, setPage, setPageSize, update } = useTrainingListFilters("model");
   const q = useDebouncedValue(filters.q, 250, projectId);
   const listFilters = {
     q,
     framework: filters.framework,
     created_from: filters.created_from,
     created_to: filters.created_to,
+    task: selectedTask === "all" ? undefined : selectedTask,
   };
   const detailId = initialModelId;
   const [registrationOpen, setRegistrationOpen] = useState(false);
+  const [publicationModelId, setPublicationModelId] = useState("");
+  const publicationTrigger = useRef<HTMLButtonElement | null>(null);
   const registrationButton = useRef<HTMLButtonElement>(null);
   const sourceSelect = useRef<HTMLSelectElement>(null);
   const updateModelParams = (values: Record<string, string | undefined>) =>
@@ -304,16 +351,16 @@ function ModelsContent({
       );
       return next;
     });
-  const lineageHref = (id: string) =>
-    `/projects/${projectId}/learning/lineage/model/${id}?returnTo=${encodeURIComponent(location.pathname + location.search)}`;
   const [name, setName] = useState(newTrainingVersionName);
   const [runId, setRunId] = useState("");
   const [attemptId, setAttemptId] = useState("");
   const [bindings, setBindings] = useState<Record<number, string>>({});
   const [sourcePage, setSourcePage] = useState(0);
   const [historyPage, setHistoryPage] = useState(0);
+  const [historyPageSize, setHistoryPageSize] = useState(20);
   const [registryId, setRegistryId] = useState("");
   const [confirmed, setConfirmed] = useState<Record<string, boolean>>({});
+  const [trialReady, setTrialReady] = useState<Record<string, boolean>>({});
   const [compareId, setCompareId] = useState("");
   const [error, setError] = useState("");
   const [taskPage, setTaskPage] = useState(0);
@@ -339,7 +386,17 @@ function ModelsContent({
   });
   const runs = useQuery({
     queryKey: ["training-runs", projectId, scope, sourcePage],
-    queryFn: ({ signal }) => read(signal, () => trainingRunsApi.list(projectId, sourcePage * 20)),
+    queryFn: ({ signal }) =>
+      read(signal, () =>
+        trainingRunsApi.list(
+          projectId,
+          sourcePage * 20,
+          { signal },
+          {
+            task: selectedTask === "all" ? undefined : selectedTask,
+          },
+        ),
+      ),
     enabled: registrationOpen,
     refetchInterval: 5000,
   });
@@ -347,20 +404,50 @@ function ModelsContent({
     queryKey: ["training-run", projectId, scope, runId],
     queryFn: ({ signal }) => read(signal, () => trainingRunsApi.get(projectId, runId)),
     enabled: registrationOpen && !!runId,
-  });
-  const models = useQuery({
-    queryKey: ["trained-models", projectId, scope, archive, page, listFilters],
-    queryFn: ({ signal }) =>
-      read(signal, () =>
-        trainedModelsApi.list(projectId, page * 20, { signal }, archive, listFilters),
-      ),
-    refetchInterval: 5000,
+    refetchInterval: registrationOpen ? 5000 : false,
   });
   const detail = useQuery({
     queryKey: ["trained-model", projectId, scope, detailId],
     queryFn: ({ signal }) =>
       read(signal, () => trainedModelsApi.get(projectId, detailId, { signal })),
     enabled: !!detailId,
+    refetchInterval: 5000,
+  });
+  const detailTask = detail.data?.model.task ?? "detect";
+  const modelTask: ModelTask | undefined =
+    mode === "detail"
+      ? detail.data && (detailTask === "detect" || detailTask === "segment")
+        ? detailTask
+        : undefined
+      : selectedTask === "all"
+        ? undefined
+        : selectedTask;
+  const sourceTask = source.data?.run.task ?? trainingTaskOf(source.data?.run.config);
+  const registrationTask = selectedTask === "all" ? sourceTask : selectedTask;
+  const registrationMatchesTask =
+    (registrationTask === "detect" || registrationTask === "segment") &&
+    sourceTask === registrationTask;
+  const classes =
+    registrationTask === "detect" || registrationTask === "segment"
+      ? (taskClasses?.[registrationTask] ?? (taskClasses ? [] : fallbackClasses))
+      : [];
+  const models = useQuery({
+    queryKey: ["trained-models", projectId, scope, modelTask, archive, page, pageSize, listFilters],
+    queryFn: ({ signal }) =>
+      read(signal, () =>
+        trainedModelsApi.list(
+          projectId,
+          page * pageSize,
+          { signal },
+          archive,
+          {
+            ...listFilters,
+            task: modelTask,
+          },
+          pageSize,
+        ),
+      ),
+    enabled: mode === "list" || (!!modelTask && !publicationOnly),
     refetchInterval: 5000,
   });
   const backends = useQuery({
@@ -370,9 +457,17 @@ function ModelsContent({
     refetchInterval: 10000,
   });
   const releases = useQuery({
-    queryKey: ["model-releases", projectId, scope, historyPage],
+    queryKey: ["model-releases", projectId, scope, modelTask, historyPage, historyPageSize],
     queryFn: ({ signal }) =>
-      read(signal, () => trainedModelsApi.releases(projectId, historyPage * 20)),
+      read(signal, () =>
+        trainedModelsApi.releases(
+          projectId,
+          historyPage * historyPageSize,
+          modelTask,
+          historyPageSize,
+        ),
+      ),
+    enabled: !!modelTask,
     refetchInterval: 5000,
   });
   const pendingTasks = useQuery({
@@ -396,7 +491,12 @@ function ModelsContent({
   }, [source.data]);
   const selectedAttempt =
     attemptId || source.data?.attempts.find((item) => item.status === "succeeded")?.id || "";
+  const registeredSourceModel = source.data?.registered_models?.find(
+    (model) => model.attempt_id === selectedAttempt,
+  );
   const current = releases.data?.current;
+  const isCurrentTarget = (modelId: string | null, deploymentId: string | null) =>
+    !!current && current.model_version_id === modelId && current.deployment_id === deploymentId;
   const currentModel = useQuery({
     queryKey: ["trained-model", projectId, scope, current?.model_version_id],
     queryFn: ({ signal }) =>
@@ -404,7 +504,7 @@ function ModelsContent({
     enabled: !!current?.model_version_id,
   });
   const activeModel =
-    detail.data?.model.id === detailId && detail.data.model.project_id === projectId
+    detail.data?.model.id === detailId && detail.data.model.project_id === projectId && !!modelTask
       ? detail.data.model
       : undefined;
   const comparison = models.data?.items.find((item) => item.id === compareId);
@@ -445,18 +545,21 @@ function ModelsContent({
                 : !selectedRegistryId
                   ? "请选择一个在线且已启用的推理服务，再加载此模型。"
                   : "加载后会在固定验证图片上试用；确认结果并手动发布后，才会用于项目预标注。";
-  const refresh = () => {
-    void client.invalidateQueries({ queryKey: ["trained-models", projectId] });
-    void client.invalidateQueries({ queryKey: ["trained-model", projectId] });
-    void client.invalidateQueries({ queryKey: ["model-releases", projectId] });
-  };
+  const refresh = () =>
+    Promise.all([
+      client.invalidateQueries({ queryKey: ["trained-models", projectId] }),
+      client.invalidateQueries({ queryKey: ["trained-model", projectId] }),
+      client.invalidateQueries({ queryKey: ["model-releases", projectId] }),
+    ]);
   const changeRegistration = (change: () => void) => {
     change();
     registrationId.current = randomId();
     setError("");
   };
   const showDetail = (id: string) => {
-    navigate(trainingRecordPath(projectId, "models", id, params));
+    const next = new URLSearchParams(params);
+    next.set("model_task", modelTask ?? selectedTask);
+    navigate(trainingRecordPath(projectId, "models", id, next));
     setConfirmed({});
     setRegistryId("");
     setCompareId("");
@@ -465,6 +568,7 @@ function ModelsContent({
   const register = useMutation({
     mutationFn: (view: View) => {
       assertView(view);
+      if (!validRegistration) throw new Error("来源实验或类别绑定不适用于当前任务");
       return trainedModelsApi.register(projectId, {
         request_id: registrationId.current,
         name: name.trim(),
@@ -475,6 +579,7 @@ function ModelsContent({
     },
     onSuccess: (model, view) => {
       if (!ownsView(view)) return;
+      void client.invalidateQueries({ queryKey: ["training-run", projectId] });
       setRegistrationOpen(false);
       showDetail(model.id);
       setName(newTrainingVersionName());
@@ -482,7 +587,10 @@ function ModelsContent({
       refresh();
     },
     onError: (reason: Error, view) => {
-      if (ownsView(view)) setError(reason.message);
+      if (ownsView(view)) {
+        setError(reason.message);
+        void source.refetch();
+      }
     },
   });
   const deploy = useMutation({
@@ -510,22 +618,30 @@ function ModelsContent({
       view: View;
     }) => {
       assertView(target.view);
+      if (!modelTask || !releases.data) throw new Error("请等待读取该类型的默认预标设置");
       const allowed = await confirmDialog({
         title: target.rollbackFromId
-          ? "回退项目模型"
+          ? "恢复默认预标模型"
           : target.modelId
-            ? "发布项目模型"
-            : "停用项目模型发布",
-        description: "操作只影响之后新建的预标注任务。已排入的任务继续使用其固定模型。",
-        confirmLabel: target.rollbackFromId ? "确认回退" : target.modelId ? "确认发布" : "确认停用",
+            ? "设置默认预标模型"
+            : "停用该类型的默认预标",
+        description:
+          "仅更改该类型的默认预标选择，其他类型及显式指定模型的预标流程不受影响。已排队任务继续使用固定模型。",
+        confirmLabel: target.rollbackFromId ? "确认恢复" : target.modelId ? "设为默认" : "确认停用",
       });
       if (!allowed || !ownsView(target.view)) return null;
-      const intent = JSON.stringify([target.modelId, target.deploymentId, target.rollbackFromId]);
+      const intent = JSON.stringify([
+        modelTask,
+        target.modelId,
+        target.deploymentId,
+        target.rollbackFromId,
+      ]);
       if (publishRequest.current?.intent !== intent)
         publishRequest.current = {
           intent,
           body: {
             request_id: randomId(),
+            task: modelTask,
             expected_generation: releases.data?.generation ?? 0,
             model_version_id: target.modelId,
             deployment_id: target.deploymentId,
@@ -535,12 +651,13 @@ function ModelsContent({
         };
       return trainedModelsApi.publish(projectId, publishRequest.current.body);
     },
-    onSuccess: (release, target) => {
+    onSuccess: async (release, target) => {
       if (!ownsView(target.view)) return;
       if (release) {
         publishRequest.current = null;
         setError("");
-        refresh();
+        await refresh();
+        if (ownsView(target.view)) onPublished?.();
       }
     },
     onError: (reason: Error, target) => {
@@ -578,8 +695,8 @@ function ModelsContent({
       if (!predictRequest.current.payload)
         predictRequest.current.payload = {
           ml_backend_id: String(current?.snapshot.registry_id),
-          model_id: "project-release",
-          task: "detect",
+          model_id: modelTask === "segment" ? "project-release:segment" : "project-release",
+          task: modelTask,
           model_variants: {},
           task_ids: [...selectedTasks].sort(),
           predict_mode: predictMode,
@@ -602,6 +719,8 @@ function ModelsContent({
   });
   const validRegistration =
     source.data?.registration_eligibility?.qualified === true &&
+    !registeredSourceModel &&
+    registrationMatchesTask &&
     !!name.trim() &&
     !!runId &&
     !!selectedAttempt &&
@@ -619,14 +738,16 @@ function ModelsContent({
       ? currentModel.data.model.name
       : undefined) ??
     models.data?.items.find((item) => item.id === release.model_version_id)?.name ??
-    (release.model_version_id ? `模型 ${release.model_version_id.slice(0, 8)}` : "未启用受控模型");
+    (release.model_version_id
+      ? `模型 ${release.model_version_id.slice(0, 8)}`
+      : "未设置默认预标模型");
   return (
-    <section aria-labelledby="models-title">
+    <section aria-labelledby={modelsTitleId}>
       {mode === "list" && (
         <ProjectLearningSectionHeader
-          id="models-title"
+          id={modelsTitleId}
           title="模型与发布"
-          description="从成功的训练结果添加项目模型，绑定类别后加载试用，再人工发布用于预标注。"
+          description="从训练结果添加项目模型，绑定类别并加载试用后，可设为对应类型的默认预标模型。"
           actions={
             <>
               <Button
@@ -649,9 +770,9 @@ function ModelsContent({
         />
       )}
       {mode === "detail" && (
-        <h1 id="models-title" className="text-lg font-semibold">
+        <h2 id={modelsTitleId} className="sr-only">
           模型详情
-        </h1>
+        </h2>
       )}
       {error && !registrationOpen && (
         <p
@@ -669,47 +790,6 @@ function ModelsContent({
         </p>
       )}
       {mode === "list" && (
-        <section
-          aria-label="当前项目发布"
-          className="mt-5 rounded-xl border border-border bg-card p-4 sm:p-5"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="flex items-center gap-2 text-sm font-semibold">
-              <RadioTower aria-hidden="true" className="size-4 text-muted-foreground" />
-              当前项目发布
-            </h3>
-            {current?.model_version_id && (
-              <Button
-                size="sm"
-                disabled={publish.isPending}
-                onClick={() =>
-                  publish.mutate({ view: captureView(), modelId: null, deploymentId: null })
-                }
-              >
-                停用受控模型
-              </Button>
-            )}
-          </div>
-          <p className="mt-2 text-xs">
-            {releases.isLoading
-              ? "正在读取发布状态…"
-              : releases.error
-                ? "发布状态暂时不可用"
-                : current
-                  ? modelName(current)
-                  : "尚未发布受控模型"}
-            {current?.model_version_id && (
-              <CopyValueButton
-                value={current.model_version_id}
-                kind="id"
-                label="复制当前受控模型版本 ID"
-              />
-            )}
-            {current && ` · 发布代次 ${current.generation}`}
-          </p>
-        </section>
-      )}
-      {mode === "list" && (
         <ProjectModelList
           projectId={projectId}
           filters={filters}
@@ -719,6 +799,7 @@ function ModelsContent({
               archive: undefined,
               model_page: undefined,
               ...Object.fromEntries(Object.keys(filters).map((key) => [`model_${key}`, undefined])),
+              model_task: "all",
             });
           }}
           archive={archive}
@@ -729,10 +810,291 @@ function ModelsContent({
           onRetry={() => void models.refetch()}
           page={page}
           onPage={setPage}
+          pageSize={pageSize}
+          onPageSize={setPageSize}
           params={params}
-          lineageHref={lineageHref}
+          task={selectedTask}
+          taskFilter={
+            <select
+              aria-label="模型与发布任务"
+              className="min-w-0 rounded-md border border-border bg-background px-2.5 py-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              value={selectedTask}
+              onChange={(event) =>
+                updateModelParams({
+                  model_task: event.target.value,
+                  model_page: undefined,
+                  register_run: undefined,
+                  register_attempt: undefined,
+                })
+              }
+            >
+              <option value="all">全部类型</option>
+              <option value="detect" disabled={!!taskClasses && !taskClasses.detect}>
+                目标检测
+              </option>
+              <option value="segment" disabled={!!taskClasses && !taskClasses.segment}>
+                实例分割
+              </option>
+            </select>
+          }
+          defaultPreannotation={
+            selectedTask === "all"
+              ? undefined
+              : {
+                  modelId: current?.model_version_id,
+                  loading: releases.isLoading,
+                  pending: publish.isPending || !releases.data || !!releases.error,
+                  onDisable: (modelId) => {
+                    if (current?.model_version_id === modelId)
+                      publish.mutate({ view: captureView(), modelId: null, deploymentId: null });
+                  },
+                }
+          }
           onRegister={() => setRegistrationOpen(true)}
-        />
+          onSetDefault={(modelId, trigger) => {
+            publicationTrigger.current = trigger;
+            setPublicationModelId(modelId);
+          }}
+        >
+          {selectedTask === "all" && (
+            <p className="border-t border-border p-4 text-xs text-muted-foreground">
+              选择目标检测或实例分割，可使用对应默认模型预标注并查看切换记录。
+            </p>
+          )}
+          {mode === "list" && (current?.model_version_id || jobId) && (
+            <section aria-label="使用默认预标模型" className="border-t border-border p-4">
+              <h3 className="text-sm font-semibold">使用默认预标模型</h3>
+              {current && (
+                <p className="mt-2 break-all text-xs text-muted-foreground">
+                  {trainingTaskLabel(modelTask)} · {modelName(current)}
+                </p>
+              )}
+              {current?.model_version_id && (
+                <>
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    选择待标图片，用该类型的默认模型生成候选，再到工作台修正与审核。
+                  </p>
+                  {modelTask === "segment" && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      逐实例掩码保留孔洞与多部件；当前仅支持整图预标注。人工修正与审核后，可选择原生实例掩码训练桥接，冻结时仍须通过训练资格预检。
+                    </p>
+                  )}
+                  <div className="mt-3 max-h-52 space-y-2 overflow-y-auto">
+                    {pendingTasks.data?.items.map((task) => (
+                      <label key={task.id} className="flex items-center gap-2 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={selectedTasks.includes(task.id)}
+                          disabled={
+                            predictionRunning ||
+                            (selectedTasks.length >= 200 && !selectedTasks.includes(task.id))
+                          }
+                          onChange={(event) => {
+                            resetPrediction();
+                            setSelectedTasks((value) =>
+                              event.target.checked
+                                ? [...value, task.id]
+                                : value.filter((id) => id !== task.id),
+                            );
+                          }}
+                        />
+                        <span className="min-w-0 break-all">
+                          {task.display_id} · {task.file_name}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  {pendingTasks.data?.items.length === 0 && (
+                    <p className="mt-2 text-xs text-muted-foreground">暂无待标图片。</p>
+                  )}
+                  {pendingTasks.error && (
+                    <p role="alert" className="mt-2 text-xs text-status-danger">
+                      <CopyableError message={pendingTasks.error.message} />
+                    </p>
+                  )}
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      disabled={!taskPage}
+                      onClick={() => setTaskPage((p) => p - 1)}
+                    >
+                      上一页任务
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={(taskPage + 1) * 25 >= (pendingTasks.data?.total ?? 0)}
+                      onClick={() => setTaskPage((p) => p + 1)}
+                    >
+                      下一页任务
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      已选 {selectedTasks.length} / 200
+                    </span>
+                  </div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <label className="space-y-1 text-xs">
+                      已有预测
+                      <select
+                        className={inputClass}
+                        value={predictMode}
+                        disabled={predictionRunning}
+                        onChange={(event) => {
+                          resetPrediction();
+                          setPredictMode(event.target.value as typeof predictMode);
+                        }}
+                      >
+                        <option value="skip_predicted">跳过已有预测</option>
+                        <option value="overwrite">覆盖旧预测，保留人工标注</option>
+                      </select>
+                    </label>
+                    <label className="space-y-1 text-xs">
+                      置信度阈值
+                      <input
+                        className={inputClass}
+                        type="number"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        value={confidence}
+                        disabled={predictionRunning}
+                        onChange={(event) => {
+                          resetPrediction();
+                          setConfidence(event.target.value);
+                        }}
+                      />
+                    </label>
+                  </div>
+                  <Button
+                    size="sm"
+                    className="mt-3"
+                    disabled={
+                      !selectedTasks.length ||
+                      predictionRunning ||
+                      confidence.trim() === "" ||
+                      !Number.isFinite(Number(confidence)) ||
+                      Number(confidence) < 0 ||
+                      Number(confidence) > 1
+                    }
+                    onClick={() => predict.mutate(captureView())}
+                  >
+                    {predict.isPending ? "正在排入…" : "用默认模型预标注"}
+                  </Button>
+                </>
+              )}
+              {job.data && (
+                <div className="mt-3 text-xs" role="status">
+                  <p>
+                    {states[job.data.status] ?? job.data.status} · {job.data.progress_pct}%
+                  </p>
+                  <div className="mt-2">
+                    <ProgressBar value={job.data.progress_pct} />
+                  </div>
+                  {job.data.error_message && (
+                    <p className="mt-2 text-status-danger">
+                      <CopyableError message={job.data.error_message} />
+                    </p>
+                  )}
+                  <Link
+                    className="mt-2 inline-block text-primary hover:underline"
+                    to={`/projects/${projectId}/annotate`}
+                  >
+                    前往工作台修正与确认
+                  </Link>
+                </div>
+              )}
+              {job.error && (
+                <p role="alert" className="mt-2 text-xs text-status-danger">
+                  <CopyableError message={job.error.message} />
+                </p>
+              )}
+            </section>
+          )}
+          {mode === "list" && modelTask && (
+            <details className="border-t border-border p-4 text-xs">
+              <summary className="cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                默认预标切换记录
+              </summary>
+              <div className="mt-3 space-y-2">
+                {releases.data?.items.map((release) => (
+                  <div
+                    key={release.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-3"
+                  >
+                    <span className="inline-flex flex-wrap items-center gap-1">
+                      第 {release.generation} 次切换 · {modelName(release)}
+                      {release.model_version_id && (
+                        <CopyValueButton
+                          value={release.model_version_id}
+                          kind="id"
+                          label={`复制第 ${release.generation} 次切换的模型版本 ID`}
+                        />
+                      )}
+                      {release.rollback_from_id ? " · 恢复" : ""}
+                      {release.id === releases.data.current_release_id ? " · 默认选择" : ""}
+                    </span>
+                    {release.id !== releases.data.current_release_id &&
+                      release.model_version_id &&
+                      release.deployment_id && (
+                        <Button
+                          size="sm"
+                          disabled={
+                            publish.isPending ||
+                            isCurrentTarget(release.model_version_id, release.deployment_id)
+                          }
+                          onClick={() =>
+                            publish.mutate({
+                              view: captureView(),
+                              modelId: release.model_version_id,
+                              deploymentId: release.deployment_id,
+                              rollbackFromId: release.id,
+                            })
+                          }
+                        >
+                          {isCurrentTarget(release.model_version_id, release.deployment_id)
+                            ? "已是默认模型"
+                            : "恢复此默认模型"}
+                        </Button>
+                      )}
+                  </div>
+                ))}
+              </div>
+              <ListPagination
+                label="发布记录"
+                page={historyPage}
+                pageSize={historyPageSize}
+                total={releases.data?.total ?? 0}
+                loading={releases.isFetching}
+                onPageChange={setHistoryPage}
+                onPageSizeChange={(size) => {
+                  setHistoryPageSize(size);
+                  setHistoryPage(0);
+                }}
+                previousLabel="上一页记录"
+                nextLabel="下一页记录"
+              />
+            </details>
+          )}
+        </ProjectModelList>
+      )}
+      {mode === "list" && publicationModelId && (
+        <Modal
+          open
+          title="设置默认预标模型"
+          width={880}
+          onClose={() => setPublicationModelId("")}
+          returnFocusRef={publicationTrigger}
+        >
+          <ProjectModelsPanel
+            key={publicationModelId}
+            projectId={projectId}
+            classes={fallbackClasses}
+            taskClasses={taskClasses}
+            mode="detail"
+            initialModelId={publicationModelId}
+            publicationOnly
+            onPublished={() => setPublicationModelId("")}
+          />
+        </Modal>
       )}
       {mode === "detail" && (
         <>
@@ -748,82 +1110,108 @@ function ModelsContent({
           )}
           {activeModel && (
             <div
-              className="mt-5 min-w-0 space-y-4 rounded-xl border border-border bg-card p-4 sm:p-5"
+              className={cn(
+                "min-w-0 space-y-4",
+                !publicationOnly && "mt-5 rounded-xl border border-border bg-card p-4 sm:p-5",
+              )}
               role="region"
               aria-label="模型版本详情"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-sm font-semibold">{activeModel.name}</h2>
-                <div className="flex flex-wrap gap-2">
-                  <Link
-                    className="rounded-md border border-border px-3 py-2 text-xs text-primary"
-                    to={lineageHref(activeModel.id)}
-                  >
-                    来源与使用记录
-                  </Link>
-                  <Button
-                    size="sm"
-                    disabled={download.isPending}
-                    onClick={() => download.mutate(captureView())}
-                  >
-                    下载模型
-                  </Button>
-                </div>
-              </div>
-              <Evaluation model={activeModel} />
-              <label className="mt-4 block space-y-1 text-xs">
-                对比另一候选
-                <select
-                  className={inputClass}
-                  value={compareId}
-                  onChange={(event) => setCompareId(event.target.value)}
-                >
-                  <option value="">选择模型</option>
-                  {models.data?.items
-                    .filter((item) => item.id !== activeModel.id)
-                    .map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              {comparison &&
-                (comparable ? (
-                  <div className="mt-3 overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead>
-                        <tr>
-                          <th className="px-4 py-3">同一验证范围</th>
-                          <th className="px-4 py-3">{activeModel.name}</th>
-                          <th className="px-4 py-3">{comparison.name}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[
-                          ...new Set([
-                            ...Object.keys(modelMetrics(activeModel)),
-                            ...Object.keys(modelMetrics(comparison)),
-                          ]),
-                        ].map((key) => (
-                          <tr key={key} className="border-t border-border">
-                            <td className="px-4 py-3">{metricNames[key] ?? key}</td>
-                            <td className="p-2 font-mono">
-                              {numeric(modelMetrics(activeModel)[key])}
-                            </td>
-                            <td className="p-2 font-mono">
-                              {numeric(modelMetrics(comparison)[key])}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                <Badge>{trainingTaskLabel(modelTask)}</Badge>
+                {!publicationOnly && (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      disabled={download.isPending}
+                      onClick={() => download.mutate(captureView())}
+                    >
+                      下载模型
+                    </Button>
                   </div>
-                ) : (
-                  <p className="mt-3 text-xs text-muted-foreground">
-                    验证基准、类别绑定或评估配置不同，不计算新旧提升。请分别查看各自报告。
-                  </p>
-                ))}
+                )}
+              </div>
+              {!publicationOnly && (
+                <>
+                  <Evaluation model={activeModel} />
+                  <div className="mt-4 flex min-w-0 items-end gap-2">
+                    <label className="min-w-0 flex-1 space-y-1 text-xs">
+                      对比另一候选
+                      <select
+                        className={inputClass}
+                        value={compareId}
+                        onChange={(event) => setCompareId(event.target.value)}
+                      >
+                        <option value="" disabled hidden>
+                          选择模型
+                        </option>
+                        {compareId &&
+                          !models.data?.items.some(
+                            (item) => item.id === compareId && item.id !== activeModel.id,
+                          ) && (
+                            <option value={compareId} disabled hidden>
+                              已选对比模型（未在当前列表中）
+                            </option>
+                          )}
+                        {models.data?.items
+                          .filter((item) => item.id !== activeModel.id)
+                          .map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.name}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    {compareId && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setCompareId("")}
+                      >
+                        取消模型对比
+                      </Button>
+                    )}
+                  </div>
+                  {comparison &&
+                    (comparable ? (
+                      <div className="mt-3 overflow-x-auto">
+                        <table className={listStyles.table}>
+                          <thead>
+                            <tr>
+                              <th className="px-4 py-3">同一验证范围</th>
+                              <th className="px-4 py-3">{activeModel.name}</th>
+                              <th className="px-4 py-3">{comparison.name}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {[
+                              ...new Set([
+                                ...Object.keys(modelMetrics(activeModel)),
+                                ...Object.keys(modelMetrics(comparison)),
+                              ]),
+                            ].map((key) => (
+                              <tr key={key} className="border-t border-border">
+                                <td className="px-4 py-3">{metricLabel(key)}</td>
+                                <td className="p-2 font-mono">
+                                  {numeric(modelMetrics(activeModel)[key])}
+                                </td>
+                                <td className="p-2 font-mono">
+                                  {numeric(modelMetrics(comparison)[key])}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-xs text-muted-foreground">
+                        验证基准、类别绑定或评估配置不同，不计算新旧提升。请分别查看各自报告。
+                      </p>
+                    ))}
+                </>
+              )}
               <div className="mt-4 flex flex-wrap items-end gap-2">
                 <label className="min-w-0 flex-1 space-y-1 text-xs">
                   用于加载模型的推理服务
@@ -837,7 +1225,17 @@ function ModelsContent({
                       setError("");
                     }}
                   >
-                    <option value="">选择 YOLO 推理服务</option>
+                    <option value="" disabled hidden>
+                      选择 YOLO 推理服务
+                    </option>
+                    {selectedRegistryId &&
+                      !backends.data?.items.some(
+                        (item) => item.backend.id === selectedRegistryId,
+                      ) && (
+                        <option value={selectedRegistryId} disabled hidden>
+                          已选推理服务（暂不可用）
+                        </option>
+                      )}
                     {backends.data?.items.map((item) => (
                       <option
                         key={item.backend.id}
@@ -967,6 +1365,13 @@ function ModelsContent({
                       />
                     </span>
                   </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    训练版本：{activeModel.framework_version} · 推理版本：
+                    {String(
+                      record(deployment.receipt.inference_runtime).version ??
+                        "尚未核验，请重新加载并试用",
+                    )}
+                  </p>
                   {deployment.error_message && (
                     <p role="alert" className="mt-2 text-xs text-status-danger">
                       <CopyableError message={deployment.error_message} />
@@ -974,24 +1379,50 @@ function ModelsContent({
                   )}
                   {deployment.status === "ready" && (
                     <>
-                      <TrialImage trial={deployment.trial} />
-                      <label className="mt-3 flex items-center gap-2 text-xs">
-                        <input
-                          type="checkbox"
-                          checked={!!confirmed[deployment.id]}
-                          onChange={(event) =>
-                            setConfirmed((value) => ({
-                              ...value,
-                              [deployment.id]: event.target.checked,
-                            }))
+                      {modelTask === "segment" ? (
+                        <ProjectModelMaskTrial
+                          projectId={projectId}
+                          modelId={activeModel.id}
+                          deploymentId={deployment.id}
+                          trial={deployment.trial}
+                          assertOwner={() => session.assert()}
+                          onReady={(ready) =>
+                            setTrialReady((previous) =>
+                              previous[deployment.id] === ready
+                                ? previous
+                                : { ...previous, [deployment.id]: ready },
+                            )
                           }
                         />
-                        已查看固定验证样本，确认用于后续人工试用
-                      </label>
+                      ) : (
+                        <TrialImage trial={deployment.trial} />
+                      )}
+                      {!isCurrentTarget(activeModel.id, deployment.id) && (
+                        <label className="mt-3 flex items-center gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            checked={!!confirmed[deployment.id]}
+                            disabled={modelTask === "segment" && !trialReady[deployment.id]}
+                            onChange={(event) =>
+                              setConfirmed((value) => ({
+                                ...value,
+                                [deployment.id]: event.target.checked,
+                              }))
+                            }
+                          />
+                          已查看固定验证样本，确认用于后续人工试用
+                        </label>
+                      )}
                       <Button
                         size="sm"
                         className="mt-3"
-                        disabled={!confirmed[deployment.id] || publish.isPending || !releases.data}
+                        disabled={
+                          isCurrentTarget(activeModel.id, deployment.id) ||
+                          !confirmed[deployment.id] ||
+                          (modelTask === "segment" && !trialReady[deployment.id]) ||
+                          publish.isPending ||
+                          !releases.data
+                        }
                         onClick={() =>
                           publish.mutate({
                             view: captureView(),
@@ -1000,7 +1431,9 @@ function ModelsContent({
                           })
                         }
                       >
-                        发布此模型
+                        {isCurrentTarget(activeModel.id, deployment.id)
+                          ? "已设为默认预标"
+                          : "设为默认预标模型"}
                       </Button>
                     </>
                   )}
@@ -1085,7 +1518,12 @@ function ModelsContent({
                     (run) => run.id === runId && run.status === "succeeded",
                   ) && <option value={runId}>{source.data.run.name}</option>}
                 {runs.data?.items
-                  .filter((run) => run.status === "succeeded")
+                  .filter(
+                    (run) =>
+                      run.status === "succeeded" &&
+                      (selectedTask === "all" ||
+                        (run.task ?? trainingTaskOf(run.config)) === selectedTask),
+                  )
                   .map((run) => (
                     <option key={run.id} value={run.id}>
                       {run.name}
@@ -1184,16 +1622,28 @@ function ModelsContent({
                   "尚未取得模型回流资格，请重新加载；仍可在训练实验中下载原生权重。"}
               </p>
             )}
-            {source.data?.registration_eligibility?.qualified === true && (
-              <ModelClassBindings
-                key={runId}
-                nativeClasses={nativeClasses}
-                projectClasses={classes}
-                bindings={bindings}
-                disabled={register.isPending}
-                onChange={(next) => changeRegistration(() => setBindings(next))}
-              />
+            {source.data && !registrationMatchesTask && (
+              <p role="alert" className="text-xs text-status-warning">
+                来源实验任务与当前模型任务不同，请切换任务后重新选择。
+              </p>
             )}
+            {registeredSourceModel && (
+              <p role="status" className="text-xs text-muted-foreground">
+                本次执行已回流为项目模型“{registeredSourceModel.name}”，无需重复添加。
+              </p>
+            )}
+            {!registeredSourceModel &&
+              source.data?.registration_eligibility?.qualified === true &&
+              registrationMatchesTask && (
+                <ModelClassBindings
+                  key={runId}
+                  nativeClasses={nativeClasses}
+                  projectClasses={classes}
+                  bindings={bindings}
+                  disabled={register.isPending}
+                  onChange={(next) => changeRegistration(() => setBindings(next))}
+                />
+              )}
             <div className="border-t border-border pt-4">
               <Button
                 type="submit"
@@ -1206,201 +1656,6 @@ function ModelsContent({
             </div>
           </form>
         </Modal>
-      )}
-      {mode === "list" && (current?.model_version_id || jobId) && (
-        <section
-          aria-label="使用当前发布模型"
-          className="mt-5 rounded-xl border border-border bg-card p-4 sm:p-5"
-        >
-          <h3 className="text-sm font-semibold">使用当前发布模型</h3>
-          {current?.model_version_id && (
-            <>
-              <p className="mt-3 text-xs text-muted-foreground">
-                选择待标图片，用当前发布模型生成候选，再到工作台修正与审核。
-              </p>
-              <div className="mt-3 max-h-52 space-y-2 overflow-y-auto">
-                {pendingTasks.data?.items.map((task) => (
-                  <label key={task.id} className="flex items-center gap-2 text-xs">
-                    <input
-                      type="checkbox"
-                      checked={selectedTasks.includes(task.id)}
-                      disabled={
-                        predictionRunning ||
-                        (selectedTasks.length >= 200 && !selectedTasks.includes(task.id))
-                      }
-                      onChange={(event) => {
-                        resetPrediction();
-                        setSelectedTasks((value) =>
-                          event.target.checked
-                            ? [...value, task.id]
-                            : value.filter((id) => id !== task.id),
-                        );
-                      }}
-                    />
-                    <span className="min-w-0 break-all">
-                      {task.display_id} · {task.file_name}
-                    </span>
-                  </label>
-                ))}
-              </div>
-              {pendingTasks.data?.items.length === 0 && (
-                <p className="mt-2 text-xs text-muted-foreground">暂无待标图片。</p>
-              )}
-              {pendingTasks.error && (
-                <p role="alert" className="mt-2 text-xs text-status-danger">
-                  <CopyableError message={pendingTasks.error.message} />
-                </p>
-              )}
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <Button size="sm" disabled={!taskPage} onClick={() => setTaskPage((p) => p - 1)}>
-                  上一页任务
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={(taskPage + 1) * 25 >= (pendingTasks.data?.total ?? 0)}
-                  onClick={() => setTaskPage((p) => p + 1)}
-                >
-                  下一页任务
-                </Button>
-                <span className="text-xs text-muted-foreground">
-                  已选 {selectedTasks.length} / 200
-                </span>
-              </div>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <label className="space-y-1 text-xs">
-                  已有预测
-                  <select
-                    className={inputClass}
-                    value={predictMode}
-                    disabled={predictionRunning}
-                    onChange={(event) => {
-                      resetPrediction();
-                      setPredictMode(event.target.value as typeof predictMode);
-                    }}
-                  >
-                    <option value="skip_predicted">跳过已有预测</option>
-                    <option value="overwrite">覆盖旧预测，保留人工标注</option>
-                  </select>
-                </label>
-                <label className="space-y-1 text-xs">
-                  置信度阈值
-                  <input
-                    className={inputClass}
-                    type="number"
-                    min="0"
-                    max="1"
-                    step="0.01"
-                    value={confidence}
-                    disabled={predictionRunning}
-                    onChange={(event) => {
-                      resetPrediction();
-                      setConfidence(event.target.value);
-                    }}
-                  />
-                </label>
-              </div>
-              <Button
-                size="sm"
-                className="mt-3"
-                disabled={
-                  !selectedTasks.length ||
-                  predictionRunning ||
-                  confidence.trim() === "" ||
-                  !Number.isFinite(Number(confidence)) ||
-                  Number(confidence) < 0 ||
-                  Number(confidence) > 1
-                }
-                onClick={() => predict.mutate(captureView())}
-              >
-                {predict.isPending ? "正在排入…" : "用当前发布模型预标注"}
-              </Button>
-            </>
-          )}
-          {job.data && (
-            <div className="mt-3 text-xs" role="status">
-              <p>
-                {states[job.data.status] ?? job.data.status} · {job.data.progress_pct}%
-              </p>
-              <div className="mt-2">
-                <ProgressBar value={job.data.progress_pct} />
-              </div>
-              {job.data.error_message && (
-                <p className="mt-2 text-status-danger">
-                  <CopyableError message={job.data.error_message} />
-                </p>
-              )}
-              <Link
-                className="mt-2 inline-block text-primary hover:underline"
-                to={`/projects/${projectId}/annotate`}
-              >
-                前往工作台修正与确认
-              </Link>
-            </div>
-          )}
-          {job.error && (
-            <p role="alert" className="mt-2 text-xs text-status-danger">
-              <CopyableError message={job.error.message} />
-            </p>
-          )}
-        </section>
-      )}
-      {mode === "list" && (
-        <details className="mt-5 rounded-xl border border-border bg-card p-4 text-xs">
-          <summary className="cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            发布历史与回退
-          </summary>
-          <div className="mt-3 space-y-2">
-            {releases.data?.items.map((release) => (
-              <div
-                key={release.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-3"
-              >
-                <span className="inline-flex flex-wrap items-center gap-1">
-                  第 {release.generation} 次 · {modelName(release)}
-                  {release.model_version_id && (
-                    <CopyValueButton
-                      value={release.model_version_id}
-                      kind="id"
-                      label={`复制第 ${release.generation} 次发布的模型版本 ID`}
-                    />
-                  )}
-                  {release.rollback_from_id ? " · 回退" : ""}
-                  {release.id === releases.data.current_release_id ? " · 当前" : ""}
-                </span>
-                {release.id !== releases.data.current_release_id &&
-                  release.model_version_id &&
-                  release.deployment_id && (
-                    <Button
-                      size="sm"
-                      disabled={publish.isPending}
-                      onClick={() =>
-                        publish.mutate({
-                          view: captureView(),
-                          modelId: release.model_version_id,
-                          deploymentId: release.deployment_id,
-                          rollbackFromId: release.id,
-                        })
-                      }
-                    >
-                      回退到此发布
-                    </Button>
-                  )}
-              </div>
-            ))}
-          </div>
-          <div className="mt-3 flex justify-end gap-2">
-            <Button size="sm" disabled={!historyPage} onClick={() => setHistoryPage((p) => p - 1)}>
-              上一页发布
-            </Button>
-            <Button
-              size="sm"
-              disabled={(historyPage + 1) * 20 >= (releases.data?.total ?? 0)}
-              onClick={() => setHistoryPage((p) => p + 1)}
-            >
-              下一页发布
-            </Button>
-          </div>
-        </details>
       )}
     </section>
   );

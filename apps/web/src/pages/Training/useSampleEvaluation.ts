@@ -1,6 +1,12 @@
 import { sampleEvaluationsApi } from "@/api/sampleEvaluations";
 import type { AssertTrainingOwner } from "./trainingViewOwner";
 
+export function evaluationTask(spec: { schema?: number; model_ref?: Record<string, unknown> }) {
+  return spec.schema === 2 || ["segment", "segmentation"].includes(String(spec.model_ref?.task))
+    ? "segment"
+    : "detect";
+}
+
 export function evaluationReportOptions(
   projectId: string,
   id: string,

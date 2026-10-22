@@ -116,20 +116,34 @@ export function ModelClassBindings({
                 <span className="shrink-0 tabular-nums text-muted-foreground">{index}</span>
                 <span className="truncate"> · {name}</span>
               </label>
-              <select
-                id={`${id}-${index}`}
-                className={`${controlClass} w-full`}
-                value={isBound(index) ? bindings[index] : ""}
-                disabled={disabled}
-                onChange={(event) => onChange({ ...bindings, [index]: event.target.value })}
-              >
-                <option value="">选择项目类别</option>
-                {projectClasses.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
+              <div className="flex min-w-0 items-center gap-1">
+                <select
+                  id={`${id}-${index}`}
+                  className={`${controlClass} w-0 flex-1`}
+                  value={isBound(index) ? bindings[index] : ""}
+                  disabled={disabled || projectClasses.length === 0}
+                  onChange={(event) => onChange({ ...bindings, [index]: event.target.value })}
+                >
+                  <option value="" disabled hidden>
+                    选择项目类别
                   </option>
-                ))}
-              </select>
+                  {projectClasses.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="ghost"
+                  aria-label={`清除原生类别 ${index} · ${name} 的绑定`}
+                  disabled={disabled || !bindings[index]}
+                  onClick={() => onChange({ ...bindings, [index]: "" })}
+                >
+                  清除
+                </Button>
+              </div>
             </div>
           ))}
           {visible.length === 0 && (

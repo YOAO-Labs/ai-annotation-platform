@@ -13,7 +13,11 @@ import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-quer
 import { Check, Download, FileUp, FlaskConical } from "lucide-react";
 import { projectsApi } from "@/api/projects";
 import { trainingDatasetsApi, type TrainingDatasetOut } from "@/api/trainingDatasets";
-import { trainingRunsApi, type TrainingRunCreate } from "@/api/trainingRuns";
+import {
+  trainingRunsApi,
+  type TrainingCatalogModel,
+  type TrainingRunCreate,
+} from "@/api/trainingRuns";
 import {
   recipeCandidate,
   initializationReference,
@@ -51,7 +55,12 @@ import {
   useTrainingInitializationSource,
 } from "./TrainingInitializationSource";
 import type { TrainingDraft } from "./trainingDraftStorage";
-import { segmentationTask, trainingTaskLabel } from "./trainingPresentation";
+import {
+  segmentationTask,
+  trainingModelFamily as modelFamily,
+  trainingModelFamilyLabels as familyLabels,
+  trainingTaskLabel,
+} from "./trainingPresentation";
 import {
   collectOverrides,
   compatibleDrafts,
@@ -97,6 +106,28 @@ type DatasetHandoffPreview = {
   intentOwner: object;
 };
 const steps = ["数据与模型", "配置参数", "核对并开始"];
+const sizeLabels: Record<string, string> = {
+  n: "Nano",
+  t: "Tiny",
+  s: "Small",
+  m: "Medium",
+  l: "Large",
+  x: "Extra large",
+  c: "C 型",
+};
+function modelSizeLabel(base: TrainingCatalogModel) {
+  const size = base.model_size ?? /([ntsmlxc])(?:-seg)?$/.exec(base.id)?.[1];
+  return size ? `${sizeLabels[size] ?? size} (${size})` : base.id;
+}
+type ExperimentTask = NonNullable<TrainingDraft["task"]>;
+function taskName(task: ExperimentTask, current: string) {
+  const generated = /^(detect|segment)-(\d{8}-\d{6})$/.exec(current);
+  if (current.trim() && !generated) return current;
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  return `${task}-${generated?.[2] ?? timestamp}`;
+}
 const reasonMessage = (reason: unknown) =>
   reason instanceof Error ? reason.message : "操作失败，请重试";
 const sameValues = (first: Record<string, unknown>, second: Record<string, unknown>) =>
@@ -223,6 +254,11 @@ function TrainingCreateContent({
   if (params.get("return_run")) backParams.set("run", params.get("return_run")!);
   const back = `/projects/${projectId}/learning?${backParams}`;
 
+  const [familyFilter, setFamilyFilter] = useState<{
+    task: ExperimentTask;
+    framework: string;
+    family: string;
+  } | null>(null);
   const catalog = useQuery({
     queryKey: ["training-catalog", projectId, userId, queryScope],
     queryFn: ({ signal }) => trainingRunsApi.catalog(projectId, { signal }),
@@ -263,6 +299,7 @@ function TrainingCreateContent({
     );
   };
   const selectedBase = template?.base_models.find((item) => item.id === draft.baseModel);
+  const selectedTask = draft.task ?? (draft.pending?.body.task as ExperimentTask | undefined);
   const schemaQuery = useQuery({
     queryKey: [
       "training-parameter-schema",
@@ -312,20 +349,53 @@ function TrainingCreateContent({
     userId,
     queryScope,
   ]);
-  const datasets = useInfiniteQuery({
-    queryKey: ["training-datasets", projectId, "ready-pages", userId, queryScope],
-    initialPageParam: 0,
-    queryFn: ({ pageParam }) => trainingDatasetsApi.list(projectId, pageParam, "ready"),
-    getNextPageParam: (last, _pages, offset) =>
-      offset + 20 < last.total ? offset + 20 : undefined,
-  });
   const selectedDataset = useQuery({
     queryKey: ["training-dataset", projectId, draft.datasetId, userId, queryScope],
     queryFn: () => trainingDatasetsApi.get(projectId, draft.datasetId),
     enabled: !!draft.datasetId,
   });
-  const choices = datasets.data?.pages.flatMap((page) => page.items) ?? [];
-  if (selectedDataset.data && !choices.some((item) => item.id === selectedDataset.data.id))
+  // Older drafts infer their task from the pinned dataset/model without rewriting it.
+  const inferredTask =
+    selectedTask ??
+    selectedDataset.data?.task ??
+    selectedBase?.task ??
+    schema?.task ??
+    (draft.baseModel ? "detect" : undefined);
+  const task: ExperimentTask | undefined =
+    inferredTask === "detect" || inferredTask === "segment" ? inferredTask : undefined;
+  const frameworks =
+    catalog.data?.items.filter((item) =>
+      item.base_models.some((base) => (base.task ?? "detect") === task),
+    ) ?? [];
+  const taskModels = template?.base_models.filter((base) => (base.task ?? "detect") === task) ?? [];
+  const families = [...new Set(taskModels.map(modelFamily))];
+  const family =
+    selectedBase && (selectedBase.task ?? "detect") === task
+      ? modelFamily(selectedBase)
+      : familyFilter &&
+          familyFilter.task === task &&
+          familyFilter.framework === draft.framework &&
+          families.includes(familyFilter.family)
+        ? familyFilter.family
+        : (families[0] ?? "");
+  const datasets = useInfiniteQuery({
+    queryKey: ["training-datasets", projectId, "ready-pages", userId, queryScope, task],
+    initialPageParam: 0,
+    enabled: !!task,
+    queryFn: ({ pageParam, signal }) =>
+      trainingDatasetsApi.list(projectId, pageParam, "ready", { signal }, { task }),
+    getNextPageParam: (last, _pages, offset) =>
+      offset + 20 < last.total ? offset + 20 : undefined,
+  });
+  const choices =
+    datasets.data?.pages
+      .flatMap((page) => page.items)
+      .filter((item) => (item.task ?? "detect") === task) ?? [];
+  if (
+    selectedDataset.data &&
+    (selectedDataset.data.task ?? "detect") === task &&
+    !choices.some((item) => item.id === selectedDataset.data.id)
+  )
     choices.push(selectedDataset.data);
   const validDataset =
     selectedDataset.isSuccess &&
@@ -335,11 +405,13 @@ function TrainingCreateContent({
     !!selectedDataset.data.package_sha256;
   const datasetTask = selectedDataset.data?.task ?? "detect";
   const tasksMatch =
+    !!task &&
     !!selectedBase &&
     !!schema &&
     datasetTask === (selectedBase.task ?? "detect") &&
-    datasetTask === schema.task;
-  const segmentation = (selectedBase?.task ?? schema?.task) === segmentationTask;
+    datasetTask === schema.task &&
+    datasetTask === task;
+  const segmentation = task === segmentationTask;
   const collected = schema ? collectOverrides(schema, draft.fields) : { values: {}, errors: {} };
   const runtime = modelRuntime(draft.framework, draft.baseModel) ?? "";
   const runtimeRef = useRef(runtime);
@@ -394,10 +466,21 @@ function TrainingCreateContent({
       template?.version === draft.source.frameworkVersion &&
       draft.schemaId === draft.source.schemaId &&
       draft.schemaDigest === draft.source.schemaDigest);
+  const requiresPreparedAsset =
+    !!selectedBase?.object_key ||
+    (draft.framework === "ultralytics" && template?.version === "8.4.183");
+  const modelUnavailable =
+    selectedBase?.compatible === false ||
+    (requiresPreparedAsset && (!catalog.data?.online || selectedBase?.compatible !== true));
+  const modelUnavailableReason = modelUnavailable
+    ? selectedBase?.unavailable_reason ||
+      "该训练节点尚未确认所选基础模型就绪，请联系管理员准备权重并检查执行器。"
+    : null;
   const contextValid =
     !!draft.name.trim() &&
     !!validDataset &&
     !!selectedBase &&
+    !modelUnavailable &&
     tasksMatch &&
     schemaMatches &&
     !schemaQuery.isError &&
@@ -457,6 +540,27 @@ function TrainingCreateContent({
       return;
     clearReview();
     state.update(patch);
+  };
+  const chooseTask = (next: ExperimentTask) => {
+    if (next === task) return;
+    const snapshot = state.current.current;
+    setFamilyFilter(null);
+    const compatible = catalog.data?.items.filter((item) =>
+      item.base_models.some((base) => (base.task ?? "detect") === next),
+    );
+    update({
+      task: next,
+      name: taskName(next, snapshot.name),
+      framework: compatible?.some((item) => item.framework === snapshot.framework)
+        ? snapshot.framework
+        : (compatible?.[0]?.framework ?? snapshot.framework),
+      datasetId: "",
+      baseModel: "",
+      schemaId: "",
+      schemaDigest: "",
+      source: undefined,
+      initialization: undefined,
+    });
   };
   const freshAuthority = async (snapshot: TrainingDraft) => {
     const access = await projectsApi.getAccess(projectId);
@@ -545,7 +649,7 @@ function TrainingCreateContent({
           qualified?.find((item) => item.framework === "ultralytics") ??
           qualified?.[0];
         if (!selected || !catalogRef.current?.enabled)
-          throw new Error("当前目录没有与此数据任务兼容的受控训练器和基础权重");
+          throw new Error("当前目录没有与此数据任务兼容的受控训练器和基础模型");
         const runtime = modelRuntime(selected.framework, selected.base.id);
         if (!runtime) throw new Error("训练目录已变化，请重新核对");
         const definition = await trainingRunsApi.parameterSchema(
@@ -642,6 +746,8 @@ function TrainingCreateContent({
       clearReview();
       state.update({
         datasetId: value.id,
+        task: definition.task as ExperimentTask,
+        name: taskName(definition.task as ExperimentTask, preview.snapshot.name),
         framework: definition.framework,
         baseModel: preview.baseModel,
         schemaId: definition.schema_id,
@@ -713,7 +819,7 @@ function TrainingCreateContent({
       if (!latest.compatible) throw new Error(latest.incompatibility ?? "来源不兼容");
       const value = latest.snapshot as ReusableSnapshot;
       const targetRuntime = modelRuntime(value.framework, value.base_model.id);
-      if (!targetRuntime) throw new Error("来源基础权重不在当前目录中");
+      if (!targetRuntime) throw new Error("来源基础模型不在当前目录中");
       const target = await client.fetchQuery({
         queryKey: [
           "training-parameter-schema",
@@ -819,6 +925,11 @@ function TrainingCreateContent({
       clearReview();
       state.update({
         framework: value.framework,
+        task: definition.task as ExperimentTask,
+        name: taskName(definition.task as ExperimentTask, preview.snapshot.name),
+        ...(selectedDataset.data && (selectedDataset.data.task ?? "detect") !== definition.task
+          ? { datasetId: "" }
+          : {}),
         baseModel: value.base_model.id,
         schemaId: definition.schema_id,
         schemaDigest: definition.schema_digest,
@@ -940,7 +1051,7 @@ function TrainingCreateContent({
       if (!state.matches(snapshot) || modelRuntime(snapshot.framework, baseModel) !== targetRuntime)
         return;
       if (!catalogSchemaMatches(target))
-        throw new Error("目录的参数定义已变更，请重新加载后再选择基础权重");
+        throw new Error("目录的参数定义已变更，请重新加载后再选择基础模型");
       const result = compatibleDrafts(target, snapshot.fields);
       if (
         Object.keys(snapshot.fields).length ||
@@ -957,9 +1068,11 @@ function TrainingCreateContent({
         clearReview();
         state.update({
           baseModel,
+          task: target.task as ExperimentTask,
           schemaId: target.schema_id,
           schemaDigest: target.schema_digest,
           fields: result.retained,
+          ...(baseModel !== snapshot.baseModel ? { initialization: undefined } : {}),
         });
       }
     } catch (reason) {
@@ -1171,6 +1284,50 @@ function TrainingCreateContent({
       title="新建训练实验"
       width={1120}
       returnFocusRef={outlet?.createButtonRef ?? openerRef}
+      footer={
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs text-muted-foreground">
+            第 {step + 1} / 3 步{checking ? " · 正在检查" : ""}
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {step > 0 && (
+              <Button size="sm" disabled={studyBusy} onClick={() => setStep(step - 1)}>
+                上一步
+              </Button>
+            )}
+            {step < 2 ? (
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={!contextValid || locked}
+                onClick={() => setStep(step + 1)}
+              >
+                下一步
+              </Button>
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  disabled={!valid || locked || checking}
+                  onClick={() => void preflight()}
+                >
+                  {checking ? "检查中…" : "检查训练配置"}
+                </Button>
+                {!studyMode && (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    disabled={!valid || !reviewed || locked || checking}
+                    onClick={() => void create()}
+                  >
+                    {creating ? "提交中…" : "开始训练"}
+                  </Button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      }
     >
       <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -1333,12 +1490,12 @@ function TrainingCreateContent({
           </p>
           <TrainingRecipeStatus projectId={projectId} origin={draft.source.reference} />
           <p className="mt-2 flex items-center gap-1 text-muted-foreground">
-            原始基础权重摘要{" "}
-            <CopyValueButton value={draft.source.baseSha256} label="复制原始基础权重哈希" />
+            原始基础模型摘要{" "}
+            <CopyValueButton value={draft.source.baseSha256} label="复制原始基础模型哈希" />
           </p>
           {!sourceCurrent && (
             <p role="alert" className="mt-2 text-status-danger">
-              基础权重或训练器身份已变化。请明确解除来源并核对新配置，或等待原始受控资源恢复。
+              基础模型或训练器身份已变化。请明确解除来源并核对新配置，或等待原始受控资源恢复。
             </p>
           )}
           <Button
@@ -1387,8 +1544,25 @@ function TrainingCreateContent({
               aria-label="数据与模型"
               className="rounded-xl border border-border bg-card p-5"
             >
-              <h2 className="mb-4 text-sm font-semibold">实验、训练数据与基础权重</h2>
+              <h2 className="mb-4 text-sm font-semibold">实验任务与模型</h2>
               <fieldset disabled={locked} className="grid min-w-0 gap-5 sm:grid-cols-2">
+                <label className="text-xs text-muted-foreground">
+                  实验任务
+                  <select
+                    aria-label="实验任务"
+                    className={cn(trainingInputClass, "mt-1.5", !task && "text-muted-foreground")}
+                    value={task ?? ""}
+                    onChange={(event) => chooseTask(event.target.value as ExperimentTask)}
+                  >
+                    <option value="" disabled hidden>
+                      选择实验任务
+                    </option>
+                    <option value="detect">目标检测</option>
+                    <option value="segment" disabled={studyMode}>
+                      实例分割
+                    </option>
+                  </select>
+                </label>
                 <label className="text-xs text-muted-foreground">
                   实验名称
                   <input
@@ -1396,10 +1570,11 @@ function TrainingCreateContent({
                     className={`${trainingInputClass} mt-1.5`}
                     value={draft.name}
                     maxLength={120}
+                    placeholder="选择任务后自动命名，可修改"
                     onChange={(event) => update({ name: event.target.value })}
                   />
                 </label>
-                <label className="text-xs text-muted-foreground">
+                <label className="text-xs text-muted-foreground sm:col-span-2">
                   训练数据
                   <select
                     aria-label="训练数据"
@@ -1409,6 +1584,7 @@ function TrainingCreateContent({
                       !draft.datasetId && "text-muted-foreground",
                     )}
                     value={draft.datasetId}
+                    disabled={!task || datasets.isPending}
                     onChange={(event) => update({ datasetId: event.target.value })}
                   >
                     <option value="" disabled hidden>
@@ -1432,63 +1608,120 @@ function TrainingCreateContent({
                     aria-label="训练器"
                     className={`${trainingInputClass} mt-1.5`}
                     value={draft.framework}
-                    onChange={(event) => update({ framework: event.target.value, baseModel: "" })}
+                    disabled={!task || !frameworks.length}
+                    onChange={(event) => {
+                      setFamilyFilter(null);
+                      update({
+                        framework: event.target.value,
+                        baseModel: "",
+                        initialization: undefined,
+                      });
+                    }}
                   >
-                    {!template && (
-                      <option value={draft.framework}>{draft.framework}（目录中不可用）</option>
+                    {!frameworks.some((item) => item.framework === draft.framework) && (
+                      <option value={draft.framework}>
+                        {task ? `${draft.framework}（此任务不可用）` : "先选择实验任务"}
+                      </option>
                     )}
-                    {catalog.data?.items.map((item) => (
-                      <option
-                        value={item.framework}
-                        key={item.framework}
-                        disabled={
-                          validDataset &&
-                          !item.base_models.some((base) => (base.task ?? "detect") === datasetTask)
-                        }
-                      >
+                    {frameworks.map((item) => (
+                      <option value={item.framework} key={item.framework}>
                         {item.framework} {item.version}
                       </option>
                     ))}
                   </select>
                 </label>
                 <label className="text-xs text-muted-foreground">
-                  基础权重
+                  模型家族
                   <select
-                    aria-label="基础权重"
+                    aria-label="模型家族"
+                    className={`${trainingInputClass} mt-1.5`}
+                    value={family}
+                    disabled={!task || !families.length}
+                    onChange={(event) => {
+                      if (!task || event.target.value === family || locked || checking) return;
+                      setFamilyFilter({
+                        task,
+                        framework: draft.framework,
+                        family: event.target.value,
+                      });
+                      update({ baseModel: "", initialization: undefined });
+                    }}
+                  >
+                    {!families.length && <option value="">先选择可用的训练器</option>}
+                    {families.map((value) => (
+                      <option key={value} value={value}>
+                        {familyLabels[value] ?? value}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-xs text-muted-foreground sm:col-span-2">
+                  基础模型（规格）
+                  <select
+                    aria-label="基础模型"
                     className={cn(
                       trainingInputClass,
                       "mt-1.5 [&>option]:text-foreground",
                       !draft.baseModel && "text-muted-foreground",
                     )}
                     value={draft.baseModel}
+                    disabled={
+                      !task || !frameworks.some((item) => item.framework === draft.framework)
+                    }
                     onChange={(event) => void chooseModel(event.target.value)}
                   >
                     <option value="" disabled hidden>
-                      选择基础权重
+                      选择基础模型
                     </option>
                     {draft.baseModel &&
-                      (!selectedBase ||
-                        (validDataset && (selectedBase.task ?? "detect") !== datasetTask)) && (
+                      (!selectedBase || (selectedBase.task ?? "detect") !== task) && (
                         <option value={draft.baseModel} disabled>
                           {draft.baseModel}（目录不可用或与数据任务不匹配）
                         </option>
                       )}
-                    {template?.base_models
-                      .filter((item) => !validDataset || (item.task ?? "detect") === datasetTask)
+                    {taskModels
+                      .filter((item) => modelFamily(item) === family)
                       .map((item) => (
                         <option value={item.id} key={item.id}>
-                          {item.id} · {trainingTaskLabel(item.task)}
+                          {item.id} · {modelSizeLabel(item)} · {trainingTaskLabel(item.task)}
+                          {item.compatible === false ? " · 未就绪" : ""}
                         </option>
                       ))}
                   </select>
                 </label>
               </fieldset>
+              {modelUnavailableReason && (
+                <p role="status" className="text-xs text-status-warning">
+                  {modelUnavailableReason}
+                </p>
+              )}
               <TrainingInitializationSource
                 projectId={projectId}
                 value={draft.initialization}
-                disabled={locked || checking}
+                disabled={locked || checking || !draft.baseModel}
                 qualification={initialization}
-                onChange={(value) => update({ initialization: value })}
+                pretrained={
+                  draft.fields.pretrained?.kind !== "scalar" ||
+                  draft.fields.pretrained.text !== "false"
+                }
+                supportsScratch={schema?.fields.some(
+                  (field) => field.key === "pretrained" && field.status === "editable",
+                )}
+                onChange={(value, pretrained = true) =>
+                  update({
+                    initialization: value,
+                    ...(schema?.fields.some(
+                      (field) => field.key === "pretrained" && field.status === "editable",
+                    )
+                      ? {
+                          fields: {
+                            ...state.current.current.fields,
+                            pretrained: valueToDraft(pretrained),
+                          },
+                        }
+                      : {}),
+                  })
+                }
               />
               {datasets.hasNextPage && (
                 <Button
@@ -1502,7 +1735,7 @@ function TrainingCreateContent({
               )}
               {datasets.isSuccess && !datasets.data.pages[0]?.total && (
                 <p className="mt-4 text-xs text-status-caution">
-                  暂无就绪数据版本，请先在「训练数据」中构建训练包。
+                  此任务暂无就绪数据版本，请先在「训练数据」中构建训练包。
                 </p>
               )}
               {draft.datasetId && selectedDataset.isSuccess && !validDataset && (
@@ -1512,16 +1745,16 @@ function TrainingCreateContent({
               )}
               {validDataset && selectedBase && schema && !tasksMatch && (
                 <p role="alert" className="mt-4 text-xs text-status-danger">
-                  数据版本、基础权重与参数定义的训练任务不匹配。请明确选择对应任务的权重或数据；当前配置已保留。
+                  数据版本、基础模型与参数定义的训练任务不匹配。请明确选择对应任务的权重或数据；当前配置已保留。
                 </p>
               )}
               {segmentation && (
                 <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
-                  实例分割支持单多边形原生训练、检查点续训和产物下载。模型回流、项目权重初始化、增强预览与参数搜索尚未开放。
+                  实例分割支持已资格验证的训练桥接、检查点续训和产物下载；同规格且原生类别顺序一致的项目候选可作为初始化来源，资格以服务端核验为准。增强预览与参数搜索尚未开放。
                 </p>
               )}
               <p className="mt-5 text-xs leading-relaxed text-muted-foreground">
-                切换训练器后请明确选择基础权重。已有参数会保留，选择权重时将列出兼容与需要移除的设置。
+                训练数据、训练器、模型家族与规格按所选任务筛选。切换任务后需重新选择数据与模型；已有参数会保留，选择模型时将核对兼容性。
               </p>
               <Link
                 to={`/projects/${projectId}/learning?tab=data`}
@@ -1586,7 +1819,12 @@ function TrainingCreateContent({
                 fields={draft.fields}
                 disabled={locked || !schemaMatches}
                 onChange={(key, value) =>
-                  update({ fields: { ...state.current.current.fields, [key]: value } })
+                  update({
+                    fields: { ...state.current.current.fields, [key]: value },
+                    ...(key === "pretrained" && value.kind === "scalar" && value.text === "false"
+                      ? { initialization: undefined }
+                      : {}),
+                  })
                 }
                 onReset={(keys) => {
                   const fields = { ...state.current.current.fields };
@@ -1760,14 +1998,18 @@ function TrainingCreateContent({
           <dl className="space-y-3 text-xs">
             {[
               ["实验名称", draft.name || "尚未填写"],
+              ["实验任务", task ? trainingTaskLabel(task) : "尚未选择"],
               ["训练数据", selectedDataset.data?.name ?? "尚未选择"],
               ["训练器", draft.framework],
-              ["基础权重", draft.baseModel || "尚未选择"],
+              ["基础模型", draft.baseModel || "尚未选择"],
               [
                 "初始化",
                 draft.initialization?.kind === "trained_model"
                   ? (initialization.source.data?.pin?.model_name ?? "所选候选模型")
-                  : "预训练基础权重",
+                  : draft.fields.pretrained?.kind === "scalar" &&
+                      draft.fields.pretrained.text === "false"
+                    ? "从零训练（随机初始化）"
+                    : "预训练基础权重",
               ],
               ["参数覆盖", `${Object.keys(draft.fields).length} 项`],
               ["检查状态", reviewed ? "已通过" : "尚未检查"],
@@ -1792,52 +2034,12 @@ function TrainingCreateContent({
               ? catalog.data.busy
                 ? "执行器正忙，新实验将排队。"
                 : "执行器在线。"
-              : "执行器离线，创建后将等待执行器。"}{" "}
+              : requiresPreparedAsset
+                ? "执行器离线，须在线确认所选模型权重就绪后再创建。"
+                : "执行器离线，创建后将等待执行器。"}{" "}
             使用固定验证集；取消后可从已保存的完整轮次续训。
           </p>
         </aside>
-      </div>
-      <div className="sticky bottom-0 z-popover -mx-4 -mb-4 mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-border bg-card/95 px-4 py-3 backdrop-blur-overlay">
-        <span className="text-xs text-muted-foreground">
-          第 {step + 1} / 3 步{checking ? " · 正在检查" : ""}
-        </span>
-        <div className="flex flex-wrap gap-2">
-          {step > 0 && (
-            <Button size="sm" disabled={studyBusy} onClick={() => setStep(step - 1)}>
-              上一步
-            </Button>
-          )}
-          {step < 2 ? (
-            <Button
-              size="sm"
-              variant="primary"
-              disabled={!contextValid || locked}
-              onClick={() => setStep(step + 1)}
-            >
-              下一步
-            </Button>
-          ) : (
-            <>
-              <Button
-                size="sm"
-                disabled={!valid || locked || checking}
-                onClick={() => void preflight()}
-              >
-                {checking ? "检查中…" : "检查训练配置"}
-              </Button>
-              {!studyMode && (
-                <Button
-                  size="sm"
-                  variant="primary"
-                  disabled={!valid || !reviewed || locked || checking}
-                  onClick={() => void create()}
-                >
-                  {creating ? "提交中…" : "开始训练"}
-                </Button>
-              )}
-            </>
-          )}
-        </div>
       </div>
       <Modal
         open={!!datasetHandoff && datasetHandoff.intentOwner === datasetIntentOwner}
@@ -1875,7 +2077,7 @@ function TrainingCreateContent({
             <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
               {datasetHandoff.keepConfiguration
                 ? "实验名称、当前训练参数与初始化选择会保留，并重新核验数据兼容性。"
-                : "实验名称会保留；采用兼容基础权重及受控默认参数，移除原参数覆盖、配方来源与项目权重初始化。"}
+                : "实验名称会保留；采用兼容基础模型及受控默认参数，移除原参数覆盖、配方来源与项目权重初始化。"}
               确认后还需检查配置并提交实验。
             </p>
             {datasetHandoffError && (
@@ -1945,9 +2147,13 @@ function TrainingCreateContent({
                     clearReview();
                     state.update({
                       baseModel: preview.baseModel,
+                      task: preview.schema.task as ExperimentTask,
                       schemaId: preview.schema.schema_id,
                       schemaDigest: preview.schema.schema_digest,
                       fields: preview.retained,
+                      ...(preview.baseModel !== preview.snapshot.baseModel
+                        ? { initialization: undefined }
+                        : {}),
                     });
                   }
                 }}

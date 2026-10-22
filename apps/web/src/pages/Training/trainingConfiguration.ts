@@ -38,6 +38,7 @@ export const commonParameterKeys = new Set([
   "mosaic_prob",
   "close_mosaic",
   "no_aug_epochs",
+  "evaluate_train",
 ]);
 const forbiddenKeys = new Set(["__proto__", "constructor", "prototype", "<<"]);
 const numericText = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;

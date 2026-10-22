@@ -259,7 +259,9 @@ function ProjectCard({
                     disabled={disabled}
                     className="mt-1 w-full appearance-none rounded-md border border-border bg-card px-2.5 py-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    <option value="">— 选择同项目合格接收人 —</option>
+                    <option value="" disabled hidden>
+                      选择同项目合格接收人
+                    </option>
                     {rolePreview.receiver_options.map((receiver) => (
                       <option key={receiver.id} value={receiver.id}>
                         {receiver.name} · {receiver.email}

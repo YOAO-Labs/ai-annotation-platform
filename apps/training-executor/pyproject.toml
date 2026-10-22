@@ -6,7 +6,7 @@ dependencies = [
     "aap-task-contract",
   "aap-training-contract",
   "httpx==0.28.1",
-  "ultralytics==8.4.177",
+  "ultralytics==8.4.183",
   "libreyolo==1.6.0",
   "torch==2.14.1",
   "torchvision==0.29.1",

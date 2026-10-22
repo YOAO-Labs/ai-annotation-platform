@@ -155,8 +155,7 @@ export interface MLModelCapability {
   resource_profile?: Record<string, unknown>;
   params?: { type?: string; properties?: Record<string, unknown> };
   modality?: string;
-  // v0.14.17 · 模型原生类别表 (闭集检测器, 读自权重 model.names). 供前端渲染类别白名单勾选;
-  // 仅在该 task 模型已加载过 (warmup / 首次 predict 后) 时有值。
+  // Legacy declarations may be static. Use catalog metadata for checkpoint verification.
   classes?: { index: number; name: string }[];
   // v0.18.23 · exemplar 模型能力声明; 工作台 AI 面板据此渲染 exemplar 控件
   // (negative_box=false → 隐藏负极性按钮; text_combination=false → 隐藏 text 输入)。

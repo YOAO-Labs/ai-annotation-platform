@@ -5,10 +5,8 @@ from __future__ import annotations
 import asyncio
 import importlib
 import json
-import sys
 import threading
 import time
-from unittest.mock import MagicMock
 
 import pytest
 from aap_protocol_v2.lifecycle import (
@@ -34,14 +32,6 @@ class _OperationRecorder:
     def track_future(self, future) -> None:
         if future is not None:
             self.tracked.append(future)
-
-
-@pytest.fixture(scope="module", autouse=True)
-def _stub_modules() -> None:
-    sys.modules.setdefault(
-        "torch", MagicMock(cuda=MagicMock(is_available=MagicMock(return_value=False)))
-    )
-    sys.modules.setdefault("ultralytics", MagicMock())
 
 
 @pytest.fixture()

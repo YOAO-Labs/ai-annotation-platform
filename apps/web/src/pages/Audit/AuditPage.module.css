@@ -351,13 +351,16 @@
 
 .tableHeader {
   border-bottom: 1px solid var(--sc-border);
-  background: var(--sc-muted);
+  background: color-mix(in oklab, var(--sc-muted) 50%, transparent);
   color: var(--sc-muted-foreground);
   font-size: 12px;
   font-weight: 500;
 }
 
-.headerCell,
+.headerCell {
+  padding: 8px 12px;
+}
+
 .cell,
 .timeCell,
 .targetCell,
@@ -370,6 +373,7 @@
   position: relative;
   height: 560px;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .emptyState {
@@ -389,6 +393,11 @@
   left: 0;
   border-bottom: 1px solid var(--sc-border);
   transform: translateY(var(--audit-row-y));
+  transition: background-color 150ms;
+}
+
+.auditRow:hover {
+  background: color-mix(in oklab, var(--sc-muted) 40%, transparent);
 }
 
 .auditRowChild {
@@ -502,6 +511,7 @@
   margin: 0;
   padding: 12px;
   overflow: auto;
+  scrollbar-gutter: stable;
   border: 1px solid var(--sc-border);
   border-radius: var(--radius-md);
   background: var(--sc-muted);

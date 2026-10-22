@@ -204,7 +204,7 @@ model_version_id, source_digest}`. Catalog/omitted preserves existing request an
    `ProjectLearningPolicyPanel.test.tsx` in their corresponding page directories.
 7. Contracts/docs: `apps/api/openapi.snapshot.json`,
    `packages/python-sdk/api-coverage.toml`, generated API route reference,
-   `README.md`, `CHANGELOG.md`, `docs-site/user-guide/projects/online-learning.md`,
+   `README.md`, `CHANGELOG.md`, `docs-site/user-guide/online-learning/index.md`,
    `docs-site/api/guides/training-datasets.md`,
    `docs-site/dev/concepts/training-datasets.md`,
    `docs/adr/archive/0081-controlled-training-initialization.md`, ADR index, this plan,

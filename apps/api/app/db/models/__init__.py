@@ -126,7 +126,10 @@ from app.db.models.storage_connection import (
     StorageConnectionScope,
 )
 
+from app.db.models.prediction_execution import PredictionExecutionSnapshot
+
 __all__ = [
+    "PredictionExecutionSnapshot",
     "TrainedModelVersion",
     "ModelDeployment",
     "ModelRelease",

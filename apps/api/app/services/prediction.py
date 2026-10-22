@@ -477,7 +477,13 @@ class PredictionService:
     ) -> Prediction:
         # v0.21.1 · 检测式追踪原生 int track_id → trk_<uuid> (读路径不得再生 uuid, 见 _remap_track_ids)。
         result = _remap_track_ids(result)
-        task = await self.db.get(Task, task_id)
+        task = await self.db.scalar(
+            select(Task).where(Task.id == task_id).with_for_update()
+        )
+        if (token_meta or {}).get("mask_objects") is not None:
+            from app.services.controlled_segmentation import materialize_masks
+
+            await materialize_masks(self.db, result, token_meta, task_id=task_id)
         await prepare_mask_payload_for_write(self.db, task, result)
         prediction = Prediction(
             id=uuid.uuid4(),
@@ -514,6 +520,16 @@ class PredictionService:
             extra={
                 **(pipeline_extra or {}),
                 **({"trained_model": model_provenance} if model_provenance else {}),
+                **(
+                    {"inference_runtime": meta_data["inference_runtime"]}
+                    if model_provenance and "inference_runtime" in meta_data
+                    else {}
+                ),
+                **(
+                    {"segmentation": meta_data["segmentation"]}
+                    if "segmentation" in meta_data
+                    else {}
+                ),
             },
         )
         self.db.add(meta)

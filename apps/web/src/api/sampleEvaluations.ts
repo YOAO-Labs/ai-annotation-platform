@@ -1,6 +1,7 @@
 import { apiClient } from "./client";
 import type {
-  EvaluationAggregate,
+  EvaluationAggregate as DetectionEvaluationAggregate,
+  MaskEvaluationAggregate,
   EvaluationProfile,
   EvaluationReport,
   EvaluationSamplePage,
@@ -10,13 +11,17 @@ import type {
 } from "./generated/types.gen";
 
 export type {
-  EvaluationAggregate,
   EvaluationReport,
   EvaluationSampleResult,
   EvaluationSourceOut,
   SampleEvaluationCreate,
   SampleEvaluationOut,
+  MaskPrediction,
+  MaskTruth,
+  MaskEvaluationAggregate,
 } from "./generated/types.gen";
+
+export type EvaluationAggregate = DetectionEvaluationAggregate | MaskEvaluationAggregate;
 
 export type EvaluationFilters = {
   class_index?: number;
@@ -46,10 +51,10 @@ export type EvaluationComparison = {
     comparison_digest: string;
     aggregate: EvaluationAggregate | null;
   }>;
-  delta_right_minus_left: Record<
-    "tp" | "fp" | "fn" | "precision" | "recall" | "f1",
-    number | null
-  > | null;
+  delta_right_minus_left:
+    | (Record<"tp" | "fp" | "fn" | "precision" | "recall" | "f1", number | null> &
+        Partial<Record<"matched_mean_iou" | "matched_mean_dice", number | null>>)
+    | null;
   sample_pairs: Array<{ left_ordinal: number; right_ordinal: number }>;
 };
 
@@ -65,9 +70,9 @@ const query = (values: Record<string, string | number | undefined>) => {
 };
 
 export const sampleEvaluationsApi = {
-  list: (projectId: string, offset = 0, options?: RequestInit) =>
+  list: (projectId: string, offset = 0, options?: RequestInit, limit = 20) =>
     apiClient.get<{ items: SampleEvaluationOut[]; total: number }>(
-      `${base(projectId)}?limit=20&offset=${offset}`,
+      `${base(projectId)}?limit=${limit}&offset=${offset}`,
       options,
     ),
   get: (projectId: string, id: string, options?: RequestInit) =>

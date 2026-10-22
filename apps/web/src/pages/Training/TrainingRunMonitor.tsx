@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useListPagination } from "@/hooks/useListPagination";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -19,7 +22,7 @@ import { TrainingLoading } from "./TrainingFeedback";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Button as NavigationButton } from "@/components/shadcn/ui/button";
-import type { ModelReturnEligibility } from "@/api/generated/types.gen";
+import type { ModelReturnEligibility, TrainingRegisteredModel } from "@/api/generated/types.gen";
 import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/shadcn/ui/tabs";
@@ -64,6 +67,7 @@ export function TrainingRunMonitor({
   recovery,
   recoveryError,
   registrationEligibility,
+  registeredModels = [],
   scope,
   visible,
   assertOwner,
@@ -80,6 +84,7 @@ export function TrainingRunMonitor({
   recovery?: TrainingRecovery;
   recoveryError?: string;
   registrationEligibility?: ModelReturnEligibility | null;
+  registeredModels?: TrainingRegisteredModel[];
   scope: string;
   visible: boolean;
   assertOwner: AssertTrainingOwner;
@@ -90,20 +95,28 @@ export function TrainingRunMonitor({
   const framework = String(run.config.framework ?? "");
   const task = run.task ?? trainingTaskOf(run.config);
   const segmentation = task === segmentationTask;
+  const configuration = run.config.configuration as
+    | { effective_values?: { evaluate_train?: boolean } }
+    | undefined;
   const points = epochPoints(events, framework);
+  const epochPage = useListPagination([...points].reverse(), `${run.id}:${selectedAttemptId}`);
   const keys = [
     ...new Set(points.flatMap((point) => Object.keys(point).filter((key) => key !== "epoch"))),
   ];
-  const scores = keys.filter((key) =>
-    /^metrics\/(mAP50-95|mAP50|mAP75|precision|recall|AR100)(\([BM]\))?$/.test(key),
+  const scorePattern = /^metrics\/(mAP50-95|mAP50|mAP75|precision|recall|AR100)(\([BM]\))?$/;
+  const scores = keys.filter((key) => scorePattern.test(key));
+  const trainingScores = keys.filter(
+    (key) => key.startsWith("train/") && scorePattern.test(key.slice(6)),
   );
-  const losses = keys.filter((key) => /loss/i.test(key));
+  const trainingLosses = keys.filter((key) => key.startsWith("train/") && /loss/i.test(key));
+  const validationLosses = keys.filter((key) => key.startsWith("val/") && /loss/i.test(key));
   const latest = points[points.length - 1];
   const mapKey = scores.find(
     (key) => key.includes("mAP50-95") && (!segmentation || key.endsWith("(M)")),
   );
   const boxMapKey = segmentation ? scores.find((key) => key === "metrics/mAP50-95(B)") : undefined;
   const attempt = attempts.find((item) => item.id === selectedAttemptId);
+  const registeredModel = registeredModels.find((model) => model.attempt_id === selectedAttemptId);
   const currentAttempt = attempts.find((item) => item.id === run.current_attempt_id);
   const canResume =
     ["failed", "cancelled"].includes(run.status) &&
@@ -170,24 +183,37 @@ export function TrainingRunMonitor({
             <div className="min-w-0 text-xs">
               <p className="font-medium">将训练结果回流到项目</p>
               <p className="mt-1 text-muted-foreground">
-                {registrationEligibility?.qualified
-                  ? "绑定项目类别后，模型会出现在「模型与发布」，供后续试用和发布。"
-                  : (registrationEligibility?.reason ?? "尚未确认回流资格，请刷新后重试。")}
-                {!registrationEligibility?.qualified && " 仍可在「产物与记录」下载权重。"}
+                {registeredModel
+                  ? `本次执行已添加为项目模型“${registeredModel.name}”，可在「模型与发布」查看和操作。`
+                  : registrationEligibility?.qualified
+                    ? segmentation
+                      ? "绑定 region 项目类别后，可加载试用并人工发布实例分割模型。预测采用逐实例掩码；栅格掩码训练仍须通过数据资格预检。"
+                      : "绑定项目类别后，模型会出现在「模型与发布」，供后续试用和发布。"
+                    : (registrationEligibility?.reason ?? "尚未确认回流资格，请刷新后重试。")}
+                {!registeredModel &&
+                  !registrationEligibility?.qualified &&
+                  " 仍可在「产物与记录」下载权重。"}
               </p>
             </div>
-            {registrationEligibility?.qualified && (
-              <NavigationButton asChild size="sm">
-                <Link
-                  to={`/projects/${run.project_id}/learning?${new URLSearchParams({
-                    tab: "models",
-                    register_run: run.id,
-                    register_attempt: attempt.id,
-                  })}`}
-                >
-                  回流到项目模型
-                </Link>
-              </NavigationButton>
+            {registeredModel ? (
+              <Button size="sm" disabled>
+                已回流到项目模型
+              </Button>
+            ) : (
+              registrationEligibility?.qualified && (
+                <NavigationButton asChild size="sm">
+                  <Link
+                    to={`/projects/${run.project_id}/learning?${new URLSearchParams({
+                      tab: "models",
+                      model_task: task,
+                      register_run: run.id,
+                      register_attempt: attempt.id,
+                    })}`}
+                  >
+                    回流到项目模型
+                  </Link>
+                </NavigationButton>
+              )
             )}
           </div>
         )}
@@ -425,23 +451,42 @@ export function TrainingRunMonitor({
             ) : (
               <div className="grid gap-4 xl:grid-cols-2">
                 <TrainingMetricChart
+                  title="训练表现"
+                  points={points}
+                  keys={trainingScores}
+                  domain={[0, 1]}
+                  empty={
+                    configuration?.effective_values?.evaluate_train === false
+                      ? "未启用逐轮训练集评估"
+                      : "此执行尚未上报训练集表现"
+                  }
+                />
+                <TrainingMetricChart
+                  title="训练损失"
+                  points={points}
+                  keys={trainingLosses}
+                  empty="此执行尚未上报训练损失"
+                />
+                <TrainingMetricChart
                   title="验证表现"
                   points={points}
                   keys={scores}
                   empty="尚未收到验证指标"
                 />
                 <TrainingMetricChart
-                  title="损失变化"
+                  title="验证损失"
                   points={points}
-                  keys={losses}
-                  empty="此执行尚未上报损失指标"
+                  keys={validationLosses}
+                  empty="此执行尚未上报验证损失"
                 />
               </div>
             )}
             <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
               展示所选执行已上报的指标，训练时每 3
               秒刷新。续训记录分别展示；最近轮次指标与最终最佳权重的评估结果可能不同。
-              {framework === "libreyolo" && "LibreYOLO 使用原生 mAP 与 AR100 指标。"}
+              训练表现来自关闭增强后的训练集评估，损失越低越好；历史未上报的指标不补算，缺失值不补零。
+              {framework === "libreyolo" &&
+                "LibreYOLO 使用原生 mAP 与 AR100 验证指标，仅上报训练总损失，未提供训练集表现。"}
             </p>
             {!!points.length && (
               <details className="mt-4 text-xs">
@@ -449,7 +494,7 @@ export function TrainingRunMonitor({
                   逐轮指标表 · {points.length} 轮
                 </summary>
                 <div className="mt-2 overflow-x-auto">
-                  <table className="w-full text-left tabular-nums">
+                  <table className={listStyles.table}>
                     <thead>
                       <tr className="border-b border-border">
                         <th className="whitespace-nowrap py-2 pr-3">轮次</th>
@@ -464,7 +509,7 @@ export function TrainingRunMonitor({
                       </tr>
                     </thead>
                     <tbody>
-                      {[...points].reverse().map((point, index) => (
+                      {epochPage.items.map((point, index) => (
                         <tr key={`${point.epoch}-${index}`} className="border-b border-border">
                           <td className="py-2 pr-3">{point.epoch}</td>
                           {keys.map((key) => (
@@ -477,6 +522,14 @@ export function TrainingRunMonitor({
                     </tbody>
                   </table>
                 </div>
+                <ListPagination
+                  label="训练轮次"
+                  page={epochPage.page}
+                  pageSize={epochPage.pageSize}
+                  total={epochPage.total}
+                  onPageChange={epochPage.setPage}
+                  onPageSizeChange={epochPage.setPageSize}
+                />
               </details>
             )}
           </TabsContent>
@@ -574,16 +627,6 @@ export function TrainingRunMonitor({
                 </div>
               </section>
             ))}
-            {!activeTrainingStates.has(run.status) && (
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={pending}
-                onClick={() => onAction({ kind: "delete", run })}
-              >
-                删除实验
-              </Button>
-            )}
           </TabsContent>
           <TabsContent value="config">
             <div className="mb-4 flex flex-wrap items-center gap-2">

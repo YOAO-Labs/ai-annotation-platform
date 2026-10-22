@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPagination } from "@/hooks/useListPagination";
+import { listStyles } from "@/components/ui/listStyles";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { Icon } from "@/components/ui/Icon";
 import { Button } from "@/components/ui/Button";
@@ -95,6 +98,7 @@ function RefreshNotice({
 export function ReviewerDashboard() {
   const statsQuery = useReviewerStats();
   const stats = statsQuery.data;
+  const batchPagination = useListPagination(stats?.reviewing_batches ?? []);
   const hasStatsData = statsQuery.data !== undefined;
   const statsLoading = statsQuery.isLoading && !hasStatsData;
   const statsInitialPaused = isInitialQueryPaused(statsQuery, hasStatsData);
@@ -328,7 +332,7 @@ export function ReviewerDashboard() {
               </h3>
             </div>
             <div className="py-2">
-              {stats.reviewing_batches!.map((b) => {
+              {batchPagination.items.map((b) => {
                 const remaining = Math.max(0, b.total_tasks - b.completed_tasks - b.review_tasks);
                 const reviewPct = b.total_tasks
                   ? Math.round((b.completed_tasks / b.total_tasks) * 100)
@@ -338,7 +342,7 @@ export function ReviewerDashboard() {
                     key={b.batch_id}
                     type="button"
                     onClick={() => navigate(`/review?project=${b.project_id}&batch=${b.batch_id}`)}
-                    className="flex w-full cursor-pointer appearance-none items-center justify-between gap-3 border-0 border-t border-border bg-transparent px-4 py-2.5 text-left [font:inherit] text-inherit"
+                    className={`flex w-full cursor-pointer appearance-none items-center justify-between gap-3 border-0 bg-transparent text-left [font:inherit] text-inherit ${listStyles.row}`}
                   >
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium">{b.batch_name}</div>
@@ -363,6 +367,14 @@ export function ReviewerDashboard() {
                 );
               })}
             </div>
+            <ListPagination
+              label="审核中批次"
+              page={batchPagination.page}
+              pageSize={batchPagination.pageSize}
+              total={batchPagination.total}
+              onPageChange={batchPagination.setPage}
+              onPageSizeChange={batchPagination.setPageSize}
+            />
           </Card>
         </div>
       )}

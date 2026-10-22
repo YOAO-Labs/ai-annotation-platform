@@ -148,7 +148,14 @@ import type {
 import type { VideoLoopRegion } from "../stage/videoNavigationState";
 import { VideoTrackSidebar } from "../stage/VideoTrackSidebar";
 import type { TrackFilter } from "../stage/VideoTrackPanel";
-import { VideoTrackerPropagateDialog } from "../stage/VideoTrackerPropagateDialog";
+import {
+  VideoTrackerPropagateDialog,
+  visibleTrackerModelOptions,
+} from "../stage/VideoTrackerPropagateDialog";
+import {
+  resolveWorkbenchAiAvailability,
+  resolveWorkbenchAiRunUnavailableReason,
+} from "./workbenchAiAvailability";
 import {
   VideoMaskCorrectionDialog,
   type VideoMaskCorrectionModel,
@@ -439,6 +446,51 @@ export function useWorkbenchShellModel({
 
   const aiModel =
     selectedBackend?.name ?? (currentProject?.ml_backend_id ? "已接入模型" : "未接入模型");
+  // 交互线能力路由: 对每个注册后端拉 /setup 建 capIndex, 按当前工具 prompt 解析交互后端。
+  // 交互后端选择的服务端持久化偏好 (按 project, 跨设备; 替代旧 localStorage)。
+  const interactiveBackendPref = useInteractiveBackendPref(projectId);
+  const routing = useBackendRouting({
+    projectId,
+    backends,
+    defaultBackendId: currentProject?.ml_backend_id ?? null,
+    savedInteractiveBackendId: interactiveBackendPref.savedBackendId ?? null,
+    onSaveInteractiveBackend: interactiveBackendPref.save,
+  });
+  // tracker 可用性按项目已启用、已连接且 reachable 的 backend 分别计算；保留 provider
+  // 归属，避免把两个 backend 的原子能力误拼成一个可执行 combo。
+  const trackerModelProviders = useMemo(() => {
+    const providers: Record<string, string[]> = {};
+    for (const backend of backends) {
+      const entry = routing.capIndex[backend.id];
+      if (backend.state !== "connected" || !entry?.reachable) continue;
+      for (const tracker of entry.trackers) {
+        (providers[tracker] ??= []).push(backend.name);
+      }
+      if (
+        entry.trackers.includes("sam3_video") &&
+        entry.trackers.includes("sam3_video_interactive")
+      ) {
+        (providers.sam3_video_combo ??= []).push(backend.name);
+      }
+    }
+    return providers;
+  }, [backends, routing.capIndex]);
+  const allSupportedTrackers = useMemo(
+    () => Object.keys(trackerModelProviders),
+    [trackerModelProviders],
+  );
+  const { aiUnavailableReason, trackerUnavailableReason } = resolveWorkbenchAiAvailability({
+    backends,
+    capIndex: routing.capIndex,
+    backendsLoading: backendsQ.isLoading,
+    backendsError: backendsQ.isError,
+    capabilitiesLoading: routing.isLoading,
+    hasTrackers: visibleTrackerModelOptions(true, false, allSupportedTrackers).length > 0,
+  });
+  const notifyAiUnavailable = useCallback(
+    (reason: string) => pushToast({ msg: "AI 暂不可用", sub: reason, kind: "warning" }),
+    [pushToast],
+  );
 
   const meUserId = useAuthStore((s) => s.user?.id);
   const { hasPermission } = usePermissions();
@@ -939,10 +991,9 @@ export function useWorkbenchShellModel({
     disarmChapterDraft,
     clearPropagateBrush,
     trackerJobs,
+    unavailableReason: trackerUnavailableReason,
+    onUnavailable: notifyAiUnavailable,
   });
-  const toggleAiPopover = useCallback(() => {
-    workspaceCommands.current?.show("ai-task");
-  }, []);
   useEffect(() => {
     if (!isVideoTask) return;
     if (videoChaptersData.length === 0) return;
@@ -1838,39 +1889,6 @@ export function useWorkbenchShellModel({
     [interpolateScene, runSceneWrite],
   );
 
-  // 交互线能力路由: 对每个注册后端拉 /setup 建 capIndex, 按当前工具 prompt 解析交互后端。
-  // 交互后端选择的服务端持久化偏好 (按 project, 跨设备; 替代旧 localStorage)。
-  const interactiveBackendPref = useInteractiveBackendPref(projectId);
-  const routing = useBackendRouting({
-    projectId,
-    backends,
-    defaultBackendId: currentProject?.ml_backend_id ?? null,
-    savedInteractiveBackendId: interactiveBackendPref.savedBackendId ?? null,
-    onSaveInteractiveBackend: interactiveBackendPref.save,
-  });
-  // tracker 可用性按项目已启用、已连接且 reachable 的 backend 分别计算；保留 provider
-  // 归属，避免把两个 backend 的原子能力误拼成一个可执行 combo。
-  const trackerModelProviders = useMemo(() => {
-    const providers: Record<string, string[]> = {};
-    for (const backend of backends) {
-      const entry = routing.capIndex[backend.id];
-      if (backend.state !== "connected" || !entry?.reachable) continue;
-      for (const tracker of entry.trackers) {
-        (providers[tracker] ??= []).push(backend.name);
-      }
-      if (
-        entry.trackers.includes("sam3_video") &&
-        entry.trackers.includes("sam3_video_interactive")
-      ) {
-        (providers.sam3_video_combo ??= []).push(backend.name);
-      }
-    }
-    return providers;
-  }, [backends, routing.capIndex]);
-  const allSupportedTrackers = useMemo(
-    () => Object.keys(trackerModelProviders),
-    [trackerModelProviders],
-  );
   const correctionModels = useMemo<VideoMaskCorrectionModel[]>(() => {
     const models = new Map<string, VideoMaskCorrectionModel>();
     for (const backend of backends) {
@@ -2374,6 +2392,7 @@ export function useWorkbenchShellModel({
   // 与批量页 ProjectDetailPanel 同一 hook + PreannotateConfigForm (单一事实源). 驱动批量 AI 面板
   // (运行当前题 AI) — 批量线, 用 batchBackendId.
   const preCfg = usePreannotateConfig({
+    executionScope: "workbench",
     projectId: projectId ?? "",
     backendId: batchBackendId,
     // 工作台「当前题 AI」面板恒做**单帧检测**(方案 a): 传 executionUnit="frame" 放开
@@ -2381,6 +2400,12 @@ export function useWorkbenchShellModel({
     // to_video_bbox_result 落 video_bbox。整段追踪走 Ctrl+B 种子追踪 / 批量页 (execution_unit=video)。
     // (图像项目 isVideoProject=false, 此参数无副作用。)
     executionUnit: "frame",
+  });
+  const aiRunUnavailableReason = resolveWorkbenchAiRunUnavailableReason({
+    backendId: isVideoTask ? batchBackendId : preCfg.backendId,
+    backends,
+    capIndex: routing.capIndex,
+    unavailableReason: aiUnavailableReason,
   });
   useEffect(() => {
     sam.cancel();
@@ -3325,7 +3350,11 @@ export function useWorkbenchShellModel({
 
   const handleRunAi = useCallback(() => {
     if (!projectId || !taskId) return;
-    const mlBackendId = batchBackendId;
+    if (aiRunUnavailableReason) {
+      notifyAiUnavailable(aiRunUnavailableReason);
+      return;
+    }
+    const mlBackendId = preCfg.backendId;
     if (!mlBackendId) {
       pushToast({
         msg: "AI 暂不可用",
@@ -3375,7 +3404,6 @@ export function useWorkbenchShellModel({
     });
   }, [
     projectId,
-    batchBackendId,
     aiModel,
     task?.display_id,
     taskId,
@@ -3383,6 +3411,8 @@ export function useWorkbenchShellModel({
     pushToast,
     preCfg,
     aiRequest,
+    aiRunUnavailableReason,
+    notifyAiUnavailable,
   ]);
 
   // 项目默认命名编排成为 popover「按项目编排」来源; 旧 preannotate_pipeline 仅作读兼容兜底。
@@ -3393,9 +3423,16 @@ export function useWorkbenchShellModel({
   );
   const hasProjectPipeline = (projectPipeline?.length ?? 0) > 0;
   const projectPipelineStageCount = projectPipeline?.length ?? 0;
-  // claude[bot] P1 #5 · 编排引用的 backend 被删/停时, popover 入口该不可点 + 弹明确原因, 而非默默 422。
-  // 复用上面已拉的 backends 列表 (line ~199 backendsQ), 不重复 query。
-  const availableBackendIds = useMemo(() => new Set<string>(backends.map((b) => b.id)), [backends]);
+  // Pipeline admission follows its referenced backends, independently of the selected single-task backend.
+  const availableBackendIds = useMemo(
+    () =>
+      new Set(
+        backends
+          .filter((b) => b.state === "connected" && routing.capIndex[b.id]?.reachable)
+          .map((b) => b.id),
+      ),
+    [backends, routing.capIndex],
+  );
   const pipelineMissingBackends = useMemo(
     () => missingBackendIdsForStages(projectPipeline, availableBackendIds),
     [projectPipeline, availableBackendIds],
@@ -3406,7 +3443,7 @@ export function useWorkbenchShellModel({
     if (pipelineMissingBackends.length > 0) {
       pushToast({
         msg: "项目编排引用的后端不可用",
-        sub: `请到「AI 预标」修编排或重新注册 ${pipelineMissingBackends.length} 个后端`,
+        sub: `请检查编排引用的 ${pipelineMissingBackends.length} 个后端是否已启用、连接且能力可达`,
         kind: "warning",
       });
       return;
@@ -4283,6 +4320,10 @@ export function useWorkbenchShellModel({
   // 与图像的 handleRunAi 走不同路(那条投 task_id 让后端从 task URL 取图, 视频 task URL 是整段 mp4)。
   const handleRunVideoFrameAi = useCallback(() => {
     if (!projectId || !taskId) return;
+    if (aiRunUnavailableReason) {
+      notifyAiUnavailable(aiRunUnavailableReason);
+      return;
+    }
     const mlBackendId = batchBackendId;
     if (!mlBackendId) {
       pushToast({
@@ -4344,6 +4385,8 @@ export function useWorkbenchShellModel({
     batchBackendId,
     preCfg,
     aiModel,
+    aiRunUnavailableReason,
+    notifyAiUnavailable,
     task?.display_id,
     taskId,
     videoFrameIndex,
@@ -4668,10 +4711,18 @@ export function useWorkbenchShellModel({
       mode === "annotate" &&
       isVideoTask &&
       workspaceState.videoTrackerVisible &&
+      !trackerUnavailableReason &&
       !propagateDialog
     )
       openPropagateDialog(null);
-  }, [isVideoTask, mode, openPropagateDialog, propagateDialog, workspaceState.videoTrackerVisible]);
+  }, [
+    isVideoTask,
+    mode,
+    openPropagateDialog,
+    propagateDialog,
+    trackerUnavailableReason,
+    workspaceState.videoTrackerVisible,
+  ]);
   const setWorkbenchLayout = s.setWorkbenchLayout;
   const leftOpen = workspaceState.taskQueueVisible;
   const rightOpen = workspaceState.inspectorVisible;
@@ -5402,6 +5453,17 @@ export function useWorkbenchShellModel({
       : isVideoTask
         ? aiBoxes.filter((b) => aiBoxOnFrame(b, s.videoFrameIndex)).length
         : aiBoxes.length;
+  const aiEntryDisabled = Boolean(
+    aiUnavailableReason &&
+    !workspaceState.aiTaskVisible &&
+    aiRequest.presentation.status === "idle" &&
+    aiPopoverBoxCount === 0,
+  );
+  const trackerEntryDisabled = Boolean(trackerUnavailableReason && !propagateDialog);
+  const toggleAiPopover = () => {
+    if (aiEntryDisabled) return;
+    workspaceCommands.current?.show("ai-task");
+  };
   const aiPopoverBatchEligibleCount = modeState.diffMode === "final" ? 0 : batchEligibleCount;
 
   const selectedMaskJoinCandidates = [
@@ -5563,11 +5625,14 @@ export function useWorkbenchShellModel({
       onToggleSide: toggleWorkspaceSide,
       onRunAi: stageKind === "3d" ? undefined : toggleAiPopover,
       aiOpen: workspaceState.aiTaskVisible,
-      // 视频项目也开放当前题 AI(单帧 → 图像 backend), 不再禁用工具栏 AI 按钮。
-      aiDisabled: false,
+      aiDisabled: aiEntryDisabled,
+      aiDisabledReason: aiUnavailableReason,
+      isVideoTask,
       onToggleTracker: isVideoTask ? togglePropagateDialog : undefined,
       trackerOpen: workspaceState.videoTrackerVisible,
       trackerRunning: Boolean(trackingJobId),
+      trackerDisabled: trackerEntryDisabled,
+      trackerDisabledReason: trackerUnavailableReason,
       onPrev: () => navigateTask("prev"),
       onNext: () => navigateTask("next"),
       onSubmit: sceneWriteBlocked
@@ -6288,6 +6353,7 @@ export function useWorkbenchShellModel({
       aiModel,
       aiRunning,
       aiBoxCount: aiPopoverBoxCount,
+      runUnavailableReason: aiRunUnavailableReason,
       request: aiRequest.presentation,
       onRetryRequest: aiRequest.retry,
       onCancelRequest: aiRequest.cancel,

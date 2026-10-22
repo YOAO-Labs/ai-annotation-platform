@@ -16,6 +16,7 @@ import { expect, type Page } from "@playwright/test";
 import { runE2eQuickstart } from "./e2e-quickstart";
 import { runAiPredictionImport } from "./ai-prediction-import";
 import { runAiPreannotate } from "./ai-preannotate";
+import { runDetectionOnlineTraining } from "./detection-online-training";
 import { runReviewReject } from "./review-reject";
 import { runBatchBulkActions } from "./batch-bulk-actions";
 import { runAiPreVariantSelector } from "./ai-pre-variant-selector";
@@ -392,6 +393,7 @@ test.afterAll(async ({}, testInfo) => {
   // 后续 worker 继续使用已经失效的项目 / 任务 ID，造成整批录制级联跳回 Dashboard。
   // 营销录制使用隔离库，由外层录制流程在整批开始前准备、结束后统一恢复。
   if (testInfo.project.name === MARKETING_PROJECT_NAME) return;
+  if (SKIP_CAPTURE_SEED_REPAIR) return;
   repairScreenshotProfile(screenshotBackendMode(cached));
 });
 
@@ -1015,6 +1017,26 @@ test.describe("flow recordings", () => {
       throw new Error(
         "Explicitly selected recording was skipped; no successful capture was produced",
       );
+    }
+  });
+
+  test("detection-online-training — 检测在线训练完整闭环", async ({ page, seed }) => {
+    test.skip(!SELECTED_CAPTURE, "Private training demo requires an explicit recording selection");
+    if (!cached) throw new Error("screenshot seed catalog 未完成");
+    setFlowTimeout(1_200_000);
+    await installScreenshotEnvironment(page, { clock: "live" });
+    await seed.injectToken(page, cached.users.admin.email);
+    await applyScreenshotTheme(page, "dark");
+    await installRecordingWorkbenchLayout(page, "both");
+    const win = await runDetectionOnlineTraining(page, {
+      marketing: test.info().project.name === MARKETING_PROJECT_NAME,
+    });
+    flowInferenceEvidence["detection-online-training"] = win.evidence;
+    if (!VALIDATE_ONLY) {
+      await archiveMarketingRecording(page, "detection-online-training", {
+        startEpochMs: win.drawStartMs,
+        endEpochMs: win.drawEndMs,
+      });
     }
   });
 

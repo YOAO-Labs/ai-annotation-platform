@@ -17,11 +17,14 @@ export function useTrainingInitializationSource(
   value?: TrainingInitialization,
   task = "detect",
 ) {
-  const supportsProjectWeights = task === "detect" && !baseModel.endsWith("-seg");
+  const supportsProjectWeights =
+    !!baseModel &&
+    ((task === "detect" && !baseModel.endsWith("-seg")) ||
+      (task === "segment" && framework === "ultralytics" && baseModel === "yolo11n-seg"));
   const selectedId = value?.kind === "trained_model" ? (value.model_version_id ?? "") : "";
   const view = useTrainingViewOwner(
     projectId,
-    JSON.stringify([framework, baseModel, datasetId, selectedId]),
+    JSON.stringify([framework, baseModel, datasetId, selectedId, task]),
   );
   const scope = useMemo(() => ({ owner: view.owner, key: randomId() }), [view.owner]).key;
   const source = useQuery({
@@ -51,7 +54,7 @@ export function useTrainingInitializationSource(
       !source.isFetching &&
       !!value.source_digest &&
       value.source_digest === source.data.pin?.source_digest);
-  return { source, valid, selectedId, supportsProjectWeights };
+  return { source, valid, selectedId, supportsProjectWeights, task, framework, baseModel };
 }
 
 export function TrainingInitializationSource({
@@ -60,14 +63,26 @@ export function TrainingInitializationSource({
   disabled,
   qualification,
   onChange,
+  pretrained = true,
+  supportsScratch = false,
 }: {
   projectId: string;
   value?: TrainingInitialization;
   disabled: boolean;
   qualification: ReturnType<typeof useTrainingInitializationSource>;
-  onChange: (value: TrainingInitialization | undefined) => void;
+  onChange: (value: TrainingInitialization | undefined, pretrained?: boolean) => void;
+  pretrained?: boolean;
+  supportsScratch?: boolean;
 }) {
-  const view = useTrainingViewOwner(projectId, "initialization-choices");
+  const view = useTrainingViewOwner(
+    projectId,
+    JSON.stringify([
+      "initialization-choices",
+      qualification.task,
+      qualification.framework,
+      qualification.baseModel,
+    ]),
+  );
   const scope = useMemo(() => ({ owner: view.owner, key: randomId() }), [view.owner]).key;
   const choices = useInfiniteQuery({
     queryKey: ["training-initialization-choices", projectId, scope],
@@ -75,7 +90,10 @@ export function TrainingInitializationSource({
     enabled: qualification.supportsProjectWeights,
     queryFn: async ({ pageParam, signal }) => {
       view.assert(signal);
-      const result = await trainedModelsApi.list(projectId, pageParam, { signal }, "include");
+      const result = await trainedModelsApi.list(projectId, pageParam, { signal }, "include", {
+        task: qualification.task as "detect" | "segment",
+        framework: qualification.framework,
+      });
       view.assert(signal);
       return result;
     },
@@ -84,13 +102,24 @@ export function TrainingInitializationSource({
   });
   const { source, selectedId } = qualification;
   const pin = source.data?.pin;
-  const items = choices.data?.pages.flatMap((page) => page.items) ?? [];
+  const items =
+    choices.data?.pages
+      .flatMap((page) => page.items)
+      .filter((item) => {
+        const base = item.provenance?.base_model;
+        const baseId = base && typeof base === "object" && "id" in base ? base.id : undefined;
+        return (
+          (item.task ?? "detect") === qualification.task &&
+          item.framework === qualification.framework &&
+          (typeof baseId !== "string" || baseId === qualification.baseModel)
+        );
+      }) ?? [];
   return (
     <section
-      aria-label="训练初始化"
+      aria-label="模型初始化"
       className="mt-5 space-y-3 rounded-lg border border-border p-4 text-xs"
     >
-      <h3 className="font-medium">训练初始化</h3>
+      <h3 className="font-medium">模型初始化</h3>
       <p className="leading-relaxed text-muted-foreground">
         新实验从第 0
         轮开始，使用全新的优化器、调度器与最佳成绩。实验中断后，可从本实验自己的检查点续训。
@@ -102,17 +131,19 @@ export function TrainingInitializationSource({
             id="training-initialization"
             aria-label="初始化权重"
             className={`${trainingInputClass} min-w-0 flex-1`}
-            value={selectedId || ""}
+            value={!pretrained ? "scratch" : selectedId || ""}
             disabled={disabled}
             onChange={(event) =>
               onChange(
-                event.target.value
+                event.target.value && event.target.value !== "scratch"
                   ? { kind: "trained_model", model_version_id: event.target.value }
                   : undefined,
+                event.target.value !== "scratch",
               )
             }
           >
             <option value="">预训练基础权重</option>
+            {supportsScratch && <option value="scratch">从零训练（随机初始化）</option>}
             {selectedId && !items.some((item) => item.id === selectedId) && (
               <option value={selectedId} disabled={!qualification.supportsProjectWeights}>
                 {pin?.model_name ?? "所选候选模型"}（保留的选择）
@@ -130,13 +161,19 @@ export function TrainingInitializationSource({
           )}
         </div>
         <p className="mt-2 leading-relaxed text-muted-foreground">
-          使用上方所选基础模型的预训练权重，也可选择本项目已训练的候选模型。
+          {pretrained
+            ? "使用所选基础模型的预训练权重，也可选择本项目已训练的候选模型。"
+            : "仅加载所选模型的架构并随机初始化，不加载预训练或项目模型权重。"}
         </p>
       </div>
-      {!qualification.supportsProjectWeights && (
-        <p className="text-muted-foreground">
-          分割暂不支持从项目候选模型初始化，请使用预训练基础权重；中断后可从本实验检查点续训。
-        </p>
+      {!qualification.baseModel ? (
+        <p className="text-muted-foreground">选择基础模型后，可配置初始化方式。</p>
+      ) : (
+        !qualification.supportsProjectWeights && (
+          <p className="text-muted-foreground">
+            当前任务或基础模型尚未取得项目权重初始化资格，请使用预训练基础权重；中断后可从本实验检查点续训。
+          </p>
+        )
       )}
       {choices.hasNextPage && (
         <Button

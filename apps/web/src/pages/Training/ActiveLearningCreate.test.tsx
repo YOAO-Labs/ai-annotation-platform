@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { activeLearningApi } from "@/api/activeLearning";
@@ -113,6 +113,146 @@ async function choose() {
   await screen.findByRole("heading", { name: "3. 已核验预览" });
 }
 describe("explicit active learning creation", () => {
+  it("previews and creates a ready segmentation candidate using instance mask signals", async () => {
+    vi.mocked(trainedModelsApi.list).mockResolvedValue({
+      total: 1,
+      items: [
+        {
+          id: model,
+          name: "固定候选",
+          framework: "ultralytics",
+          project_id: project,
+          task: "segment",
+        },
+      ],
+    } as never);
+    vi.mocked(trainedModelsApi.get).mockResolvedValue({
+      model: { id: model, project_id: project, framework: "ultralytics", task: "segmentation" },
+      deployments: [
+        {
+          id: deployment,
+          registry_id: id(4),
+          status: "ready",
+          created_at: "2025-01-02",
+          checked_at: null,
+        },
+      ],
+    } as never);
+    vi.mocked(activeLearningApi.preview).mockResolvedValue({
+      preview_digest: "a".repeat(64),
+      pool_size: 6,
+      candidate_count: 6,
+      omitted: [],
+      samples: [],
+      batch_size: 2,
+      model_ref: { task: "segment", model_version_id: model, deployment_id: deployment },
+    } as never);
+    vi.mocked(activeLearningApi.create).mockResolvedValue({
+      id: id(20),
+      project_id: project,
+      spec: { round_id: id(20) },
+    } as never);
+    mount();
+    await screen.findByRole("option", { name: "固定候选 · ultralytics · 图片实例分割" });
+    fireEvent.change(screen.getByLabelText("已注册模型"), { target: { value: model } });
+    await screen.findByRole("option", { name: /就绪/ });
+    fireEvent.change(screen.getByLabelText("就绪部署"), { target: { value: deployment } });
+    fireEvent.change(screen.getByLabelText("轮次名称"), { target: { value: "原生掩码选样" } });
+    fireEvent.click(await screen.findByRole("button", { name: "选择本页候选" }));
+    fireEvent.click(screen.getByRole("button", { name: "核验并预览" }));
+    await screen.findByRole("heading", { name: "3. 已核验预览" });
+    expect(screen.getByText(/每张原图最多 1,280,000 像素/)).toBeVisible();
+    expect(screen.getByText(/这些信号不使用像素概率，也不是 AP/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "创建选样轮次" }));
+    await screen.findByText("已创建选样轮次");
+    expect(vi.mocked(activeLearningApi.create).mock.calls[0][1]).toMatchObject({
+      model_version_id: model,
+      deployment_id: deployment,
+    });
+    expect(vi.mocked(activeLearningApi.create).mock.calls[0][1]).not.toHaveProperty("task");
+  });
+  it("rejects a preview whose task differs from the chosen model", async () => {
+    vi.mocked(activeLearningApi.preview).mockResolvedValue({
+      model_ref: { task: "segment" },
+    } as never);
+    mount();
+    await screen.findByRole("option", { name: "固定候选 · ultralytics" });
+    fireEvent.change(screen.getByLabelText("已注册模型"), { target: { value: model } });
+    await screen.findByRole("option", { name: /就绪/ });
+    fireEvent.change(screen.getByLabelText("就绪部署"), { target: { value: deployment } });
+    fireEvent.click(await screen.findByRole("button", { name: "选择本页候选" }));
+    fireEvent.click(screen.getByRole("button", { name: "核验并预览" }));
+    expect(await screen.findByText("选样预览与候选模型任务不一致")).toBeVisible();
+    expect(screen.getByRole("button", { name: "创建选样轮次" })).toBeDisabled();
+  });
+  it("retains the exact selected model when moving to a different model page", async () => {
+    vi.mocked(trainedModelsApi.list).mockImplementation(
+      async (_project, offset) =>
+        ({
+          total: 21,
+          items: [
+            {
+              id: offset ? id(40) : model,
+              name: offset ? "另一页候选" : "固定候选",
+              framework: "ultralytics",
+              project_id: project,
+            },
+          ],
+        }) as never,
+    );
+    mount();
+    await choose();
+    fireEvent.click(screen.getByRole("button", { name: "模型下一页" }));
+    await screen.findByRole("option", { name: "另一页候选 · ultralytics" });
+    expect(screen.getByRole("combobox", { name: "已注册模型" })).toHaveValue(model);
+    expect(screen.getByRole("combobox", { name: "就绪部署" })).toHaveValue(deployment);
+  });
+  it("retains an unavailable deployment without displaying or submitting a different one", async () => {
+    mount();
+    await choose();
+    vi.mocked(trainedModelsApi.get).mockResolvedValue({
+      model: { id: model, project_id: project, framework: "ultralytics" },
+      deployments: [
+        {
+          id: id(40),
+          registry_id: id(41),
+          status: "ready",
+          created_at: "2025-01-01",
+          checked_at: null,
+        },
+      ],
+    } as never);
+    await act(async () => {
+      await clients[clients.length - 1]!.refetchQueries({
+        queryKey: ["active-learning-model", project],
+      });
+    });
+    const select = screen.getByRole("combobox", { name: "就绪部署" });
+    expect(select).toHaveValue(deployment);
+    await waitFor(() => expect(select).toHaveDisplayValue("已选部署（暂不可用，请重新选择）"));
+    expect(screen.getByRole("button", { name: "核验并预览" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "创建选样轮次" })).toBeDisabled();
+  });
+  it("restores the deployment prompt when a different model is selected", async () => {
+    vi.mocked(trainedModelsApi.list).mockResolvedValue({
+      total: 2,
+      items: [
+        { id: model, name: "固定候选", framework: "ultralytics", project_id: project },
+        { id: id(40), name: "另一候选", framework: "ultralytics", project_id: project },
+      ],
+    } as never);
+    mount();
+    await choose();
+    const select = screen.getByRole("combobox", { name: "就绪部署" });
+    expect(select).toHaveValue(deployment);
+    fireEvent.change(screen.getByRole("combobox", { name: "已注册模型" }), {
+      target: { value: id(40) },
+    });
+    expect(select).toHaveValue("");
+    expect(select.querySelector('option[value=""]')).toBeDisabled();
+    expect(select.querySelector('option[value=""]')).toHaveAttribute("hidden");
+    expect(screen.queryByRole("heading", { name: "3. 已核验预览" })).not.toBeInTheDocument();
+  });
   it("keeps duplicate backend names and selected deployment identity stable across API reordering", async () => {
     const namedRegistryA = id(10);
     const namedRegistryB = id(11);

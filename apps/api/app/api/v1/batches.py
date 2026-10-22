@@ -1171,6 +1171,7 @@ async def list_batch_audit_logs(
     project_id: uuid.UUID,
     batch_id: uuid.UUID,
     limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1200,6 +1201,7 @@ async def list_batch_audit_logs(
                 sa_select(AuditLog)
                 .where(or_(direct, bulk_match))
                 .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+                .offset(offset)
                 .limit(limit)
             )
         )

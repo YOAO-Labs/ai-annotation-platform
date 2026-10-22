@@ -136,7 +136,7 @@ describe("HistoryTable v0.9.12 多选", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "选择 B0" }));
     fireEvent.click(screen.getByRole("button", { name: /下一页/ }));
     fireEvent.click(screen.getByRole("button", { name: /下一页/ }));
-    expect(screen.getByText(/第 3\/3 页/)).toBeInTheDocument();
+    expect(screen.getByText(/第 3 \/ 3 页/)).toBeInTheDocument();
 
     view.rerender(
       <QueryClientProvider client={new QueryClient()}>
@@ -145,12 +145,54 @@ describe("HistoryTable v0.9.12 多选", () => {
         </MemoryRouter>
       </QueryClientProvider>,
     );
-    await waitFor(() => expect(screen.queryByText(/第 3\/3 页/)).toBeNull());
+    await waitFor(() => expect(screen.queryByText(/第 3 \/ 3 页/)).toBeNull());
     expect(screen.getByText("B0")).toBeInTheDocument();
     expect(screen.getByText("已选 1 项")).toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText("搜索批次/项目..."), {
       target: { value: "missing" },
     });
     expect(screen.getByText("已选 1 项")).toBeInTheDocument();
+  });
+  it("切换页容量回到首页，并保留跨页选择和当前页全选语义", () => {
+    const items = Array.from({ length: 41 }, (_, index) =>
+      makeItem({ batch_id: `b${index}`, batch_name: `B${index}` }),
+    );
+    renderUI(items);
+    fireEvent.click(screen.getByRole("checkbox", { name: "选择 B0" }));
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "选择 B20" }));
+    expect(screen.getByText("已选 2 项")).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("combobox", { name: "每页已就绪批次数" }), {
+      target: { value: "10" },
+    });
+    expect(screen.getByRole("checkbox", { name: "选择 B0" })).toBeChecked();
+    expect(screen.queryByRole("checkbox", { name: "选择 B20" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: "全选当前页" }));
+    expect(screen.getByText("已选 11 项")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "上一页" })).toBeDisabled();
+  });
+
+  it("100 行页面的批量操作仍遵守每次 50 个批次的接口约束", async () => {
+    const items = Array.from({ length: 61 }, (_, index) =>
+      makeItem({ batch_id: `b${index}`, batch_name: `B${index}` }),
+    );
+    mockBulkClear.mockImplementation(async ({ batch_ids }) => ({
+      succeeded: batch_ids,
+      skipped: [],
+      failed: [],
+    }));
+    renderUI(items);
+    fireEvent.change(screen.getByRole("combobox", { name: "每页已就绪批次数" }), {
+      target: { value: "100" },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: "全选当前页" }));
+    fireEvent.click(screen.getByRole("button", { name: /批量重激活/ }));
+    fireEvent.change(screen.getByPlaceholderText(/批次配置错误/), {
+      target: { value: "批量修正预标任务配置的原因" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "确认" }));
+    await waitFor(() => expect(mockBulkClear).toHaveBeenCalledTimes(2));
+    expect(mockBulkClear.mock.calls.map(([payload]) => payload.batch_ids.length)).toEqual([50, 11]);
+    await waitFor(() => expect(screen.queryByText("已选 61 项")).not.toBeInTheDocument());
   });
 });

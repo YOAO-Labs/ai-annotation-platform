@@ -247,12 +247,21 @@ export interface ReviewerMiniStats {
 
 export const dashboardApi = {
   getAdminStats: () => apiClient.get<AdminDashboardStats>("/dashboard/admin"),
-  getReviewerStats: () => apiClient.get<ReviewerDashboardStats>("/dashboard/reviewer"),
+  getReviewerStats: (signal?: AbortSignal) =>
+    apiClient.get<ReviewerDashboardStats>("/dashboard/reviewer", { signal }),
+  getReviewerBatches: (limit = 100, offset = 0, signal?: AbortSignal) =>
+    apiClient.get<ReviewingBatchItem[]>(
+      `/dashboard/reviewer/batches?limit=${limit}&offset=${offset}`,
+      { signal },
+    ),
   getAnnotatorStats: () => apiClient.get<AnnotatorDashboardStats>("/dashboard/annotator"),
   // v0.8.6 F4
   getPredictionCostStats: (range: "7d" | "30d" = "30d") =>
     apiClient.get<PredictionCostStats>(`/dashboard/admin/prediction-cost-stats?range=${range}`),
-  getMyBatches: () => apiClient.get<MyBatchItem[]>("/dashboard/annotator/batches"),
+  getMyBatches: (limit = 100, offset = 0, signal?: AbortSignal) =>
+    apiClient.get<MyBatchItem[]>(`/dashboard/annotator/batches?limit=${limit}&offset=${offset}`, {
+      signal,
+    }),
   getOnboardingProjectSummary: (projectId: string) =>
     apiClient.get<OnboardingProjectSummary>(
       `/dashboard/annotator/projects/${projectId}/onboarding`,

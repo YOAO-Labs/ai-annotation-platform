@@ -1220,6 +1220,17 @@ async def apply_project_pipeline(
         raise HTTPException(status_code=404, detail="编排不存在")
     await assert_pipeline_visible(db, pipeline, current_user)
     canonical_stages = _validate_saved_pipeline(pipeline.stages)
+    from app.services.pipeline_template import assert_model_reference_scope
+
+    if pipeline.project_id != project.id and any(
+        s.get("model_id") in {"project-release", "project-release:segment"}
+        or str(s.get("model_id", "")).startswith("trained:")
+        for s in canonical_stages
+    ):
+        raise HTTPException(
+            status_code=422, detail="跨项目复制前请将项目模型替换为目标项目可用模型"
+        )
+    await assert_model_reference_scope(db, canonical_stages, "private", project.id)
 
     missing = await unenabled_backend_ids(db, project.id, pipeline.stages)
     if missing:
@@ -2292,6 +2303,10 @@ def _stage_supported_inputs(backend, model_id: str | None) -> list[str]:
     health_meta.capabilities.models[] 已由 extract_capabilities 规范化 (含合成默认)。
     无快照 / 无 model_id / 匹配不到 → 返回 [] (调用方据此放过门控, 保持零退化)。
     """
+    from app.services.trained_models import is_controlled
+
+    if is_controlled(model_id):
+        return ["full_image", "crop"]
     meta = getattr(backend, "health_meta", None)
     caps = meta.get("capabilities") if isinstance(meta, dict) else None
     models = caps.get("models") if isinstance(caps, dict) else None
@@ -2309,6 +2324,17 @@ def _stage_model(backend, model_id: str | None) -> dict:
     供 dispatch-time 校验读 resource_profile / output_attribute_types。读
     health_meta.capabilities.models[] (extract_capabilities 已规范化), 不走 /instances。
     """
+    from app.services.trained_models import is_controlled
+
+    if is_controlled(model_id):
+        return {
+            "id": model_id,
+            "task": "detect",
+            "supported_inputs": ["full_image", "crop"],
+            "supported_geometric_outputs": ["bbox"],
+            "resource_profile": {"batchable": True},
+            "output_attribute_types": ["class"],
+        }
     meta = getattr(backend, "health_meta", None)
     caps = meta.get("capabilities") if isinstance(meta, dict) else None
     models = caps.get("models") if isinstance(caps, dict) else None
@@ -2422,6 +2448,7 @@ async def _validate_preannotate_task_scope(
             select(Task, TaskBatch)
             .outerjoin(TaskBatch, TaskBatch.id == Task.batch_id)
             .where(Task.project_id == project.id, Task.id.in_(requested))
+            .execution_options(populate_existing=True)
         )
     ).all()
     if len(rows) != len(requested):
@@ -2500,6 +2527,7 @@ async def _validate_workbench_task_scope(
             select(Task, TaskBatch)
             .outerjoin(TaskBatch, TaskBatch.id == Task.batch_id)
             .where(Task.project_id == project.id, Task.id == requested[0])
+            .execution_options(populate_existing=True)
         )
     ).first()
     if row is None:
@@ -2518,6 +2546,11 @@ async def _validate_workbench_task_scope(
         else:
             detail = "当前任务尚未就绪，请等待上传完成后再运行 AI"
         raise HTTPException(status_code=409, detail=detail)
+    from app.services.project_write_guard import assert_phase_write_allowed
+
+    await assert_phase_write_allowed(
+        db, task, actor, action="run current-task AI", lock_membership=False
+    )
     from app.services.task_lock import TaskLockService
 
     # 同一 task 可能存在多行残留锁 (unique 仅在 (task_id, user_id) 上), 必须逐行判断,
@@ -2535,7 +2568,7 @@ async def _validate_workbench_task_scope(
 async def trigger_preannotation(
     body: PreannotateRequest,
     request: Request,
-    project: Project = Depends(require_project_owner),
+    project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     idempotency_key: str | None = Header(
@@ -2549,10 +2582,19 @@ async def trigger_preannotation(
     from app.workers.tasks import _build_predict_context, _retryable_request_context
     from app.services import trained_models
 
+    access = await resolve_project_access(db, user=current_user, project=project)
+    if body.execution_scope == "workbench":
+        if not access.has(ProjectCapability.ANNOTATION_WRITE.value):
+            raise HTTPException(status_code=403, detail="没有当前项目的标注权限")
+    elif not access.is_manager:
+        raise HTTPException(status_code=403, detail="批量预标注需要项目管理权限")
+
     uses_controlled_model = trained_models.is_controlled(body.model_id) or any(
         trained_models.is_controlled(stage.model_id)
         for stage in (body.pipeline_stages or [])
     )
+    needs_snapshot = uses_controlled_model or bool(body.pipeline_stages)
+    execution_snapshot = None
     frozen_model_ref = None
     if uses_controlled_model:
         root_source = (
@@ -2611,7 +2653,11 @@ async def trigger_preannotation(
         box_threshold=float(project.box_threshold),
         text_threshold=float(project.text_threshold),
     )
-    if retry_context is not None and _retryable_request_context(retry_context) is None:
+    if (
+        not needs_snapshot
+        and retry_context is not None
+        and _retryable_request_context(retry_context) is None
+    ):
         raise HTTPException(status_code=422, detail="预标注模型上下文不能超过 8 KiB")
 
     # v0.19.2 WS2 · 源阶段 (单模型预标 / 流水线源) batchable 闸门: 交互/有状态模型不可批量。
@@ -2833,26 +2879,121 @@ async def trigger_preannotation(
         if await db.scalar(select(Task.id).where(*media_scope).limit(1)):
             raise HTTPException(status_code=422, detail="所选任务包含非图片素材")
 
-    async def freeze_controlled_model():
-        ref = await trained_models.resolve_reference(
-            db, project, body.model_id, source_backend_id
+    async def freeze_execution():
+        nonlocal execution_snapshot, pipeline_stages_payload
+        from app.services.prediction_execution import (
+            create_snapshot,
+            freeze_builtin_defaults,
         )
-        checked = _build_predict_context(
-            prompt=body.prompt,
-            output_mode=body.output_mode,
-            params=body.params,
-            model_id=body.model_id,
-            task=body.task,
-            prompt_type=body.prompt_type,
-            model_variants=body.model_variants,
-            class_filter=body.class_filter,
-            frozen_model_ref=ref,
-        )
-        if checked is not None and _retryable_request_context(checked) is None:
-            raise HTTPException(
-                status_code=422, detail="模型类别与来源上下文超过 8 KiB 限制"
+        from app.services.model_catalog import native_metadata
+
+        stages = pipeline_stages_payload or [
+            {
+                "stage": 0,
+                "parent_stage": None,
+                "ml_backend_id": str(source_backend_id),
+                "model_id": body.model_id,
+                "task": body.task,
+                "prompt_type": body.prompt_type,
+                "model_variants": body.model_variants,
+                "params": body.params,
+                "class_filter": body.class_filter,
+                "write": {"target": "geometry"},
+                "input": {"mode": "full_image"},
+            }
+        ]
+        root_ref = None
+        for stage in stages:
+            stage_backend = await svc.get(uuid.UUID(stage["ml_backend_id"]))
+            ref = await trained_models.resolve_reference(
+                db, project, stage.get("model_id"), stage_backend.id
             )
-        return ref
+            if ref:
+                if ref["framework"] != "ultralytics" and len(stages) > 1:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="训练模型管线目前仅支持 Ultralytics 检测；此框架请使用单阶段推理",
+                    )
+                try:
+                    _build_predict_context(
+                        prompt=None,
+                        output_mode=body.output_mode,
+                        params=stage.get("params"),
+                        model_id=stage.get("model_id"),
+                        task=stage.get("task"),
+                        class_filter=stage.get("class_filter"),
+                        frozen_model_ref=ref,
+                    )
+                except ValueError as exc:
+                    raise HTTPException(status_code=422, detail=str(exc)) from exc
+                stage["frozen_model_ref"] = ref
+                stage["model_id"] = f"trained:{ref['model_version_id']}"
+                if stage.get("parent_stage") is None:
+                    root_ref = ref
+            else:
+                if not stage.get("model_id"):
+                    capabilities = (stage_backend.health_meta or {}).get(
+                        "capabilities"
+                    ) or {}
+                    candidates = [
+                        item
+                        for item in capabilities.get("models", [])
+                        if isinstance(item, dict)
+                        and (
+                            not stage.get("task")
+                            or normalize_task(
+                                item.get("task") or "unknown", allow_unknown=True
+                            )
+                            == stage["task"]
+                        )
+                        and not item.get("is_interactive")
+                    ]
+                    if len(candidates) == 1:
+                        stage["model_id"] = candidates[0]["id"]
+                    elif len(candidates) > 1:
+                        raise HTTPException(
+                            status_code=422,
+                            detail="管线需要明确选择模型，无法冻结隐式默认模型",
+                        )
+                model = _stage_model(stage_backend, stage.get("model_id"))
+                freeze_builtin_defaults(
+                    stage_backend,
+                    model,
+                    stage,
+                    project_thresholds={
+                        "box_threshold": float(project.box_threshold),
+                        "text_threshold": float(project.text_threshold),
+                    },
+                )
+                metadata, _ = native_metadata(
+                    stage_backend, model, stage.get("model_variants") or {}
+                )
+                if (
+                    stage.get("class_filter")
+                    and metadata.verification_status == "mismatch"
+                ):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="模型权重类别与声明不一致，不能使用旧类别索引过滤",
+                    )
+                stage["class_metadata"] = metadata.model_dump(mode="json")
+                if metadata.verification_status == "verified":
+                    stage["identity_guarantee"] = "checkpoint_verified"
+        pipeline_stages_payload = stages
+        execution_snapshot = await create_snapshot(
+            db,
+            project.id,
+            {
+                "stages": stages,
+                "prompt": body.prompt,
+                "output_mode": body.output_mode,
+                "execution_scope": body.execution_scope,
+                "execution_unit": execution_unit,
+                "box_threshold": float(project.box_threshold),
+                "text_threshold": float(project.text_threshold),
+            },
+        )
+        return root_ref
 
     # 派发前预建持久作业, 让客户端可轮询同一 job、并发重试不会重复入队。
     # - 数据管理重试可带幂等键 (复用/去重)。
@@ -2905,12 +3046,17 @@ async def trigger_preannotation(
             # before publishing to Celery. Reuse the row and safely republish;
             # the worker's row lock makes a duplicate delivery a no-op.
             precreated_job = existing
-            if uses_controlled_model:
-                frozen_model_ref = (existing.payload or {}).get("frozen_model_ref")
-                if not frozen_model_ref:
-                    raise HTTPException(
-                        status_code=409, detail="原任务缺少冻结模型身份"
-                    )
+            if needs_snapshot:
+                from app.services.prediction_execution import load_snapshot
+
+                saved, _ = await load_snapshot(
+                    db, existing.execution_snapshot_id, project.id
+                )
+                pipeline_stages_payload = saved["stages"]
+                root = next(
+                    s for s in pipeline_stages_payload if s.get("parent_stage") is None
+                )
+                frozen_model_ref = root.get("frozen_model_ref")
         else:
             scoped_ids = (
                 [str(task_id) for task_id in explicit_task_ids]
@@ -2931,8 +3077,8 @@ async def trigger_preannotation(
             if scoped_ids is not None:
                 precreated_payload["scope"] = {"task_ids": scoped_ids}
                 precreated_payload["task_ids"] = scoped_ids
-            if uses_controlled_model:
-                frozen_model_ref = await freeze_controlled_model()
+            if needs_snapshot:
+                frozen_model_ref = await freeze_execution()
                 precreated_payload["frozen_model_ref"] = frozen_model_ref
             precreated_job = await async_job_svc.create_job(
                 db,
@@ -2941,6 +3087,8 @@ async def trigger_preannotation(
                 project_id=project.id,
                 payload=precreated_payload,
             )
+        if execution_snapshot is not None:
+            precreated_job.execution_snapshot_id = execution_snapshot.id
         # Use the durable async job id as the Celery task id. The failure hook
         # can therefore resolve a job even if the worker fails before the API
         # request reaches its post-dispatch commit.
@@ -2948,7 +3096,7 @@ async def trigger_preannotation(
         await db.commit()
     elif (
         body.execution_scope == "workbench" and explicit_task_ids is not None
-    ) or uses_controlled_model:
+    ) or needs_snapshot:
         # issue #121 review · 工作台单题请求 (无幂等键) 同样预建持久作业: worker 在派发
         # 前的范围复校验失败时, on_failure 能按 celery_task_id 落一条 failed 作业,
         # 工作台面板不会因找不到终态记录而无限轮询。
@@ -2957,8 +3105,8 @@ async def trigger_preannotation(
             if explicit_task_ids is not None
             else None
         )
-        if uses_controlled_model:
-            frozen_model_ref = await freeze_controlled_model()
+        if needs_snapshot:
+            frozen_model_ref = await freeze_execution()
         precreated_job = await async_job_svc.create_job(
             db,
             kind="batch_predict",
@@ -2980,6 +3128,8 @@ async def trigger_preannotation(
                 **({"frozen_model_ref": frozen_model_ref} if frozen_model_ref else {}),
             },
         )
+        if execution_snapshot is not None:
+            precreated_job.execution_snapshot_id = execution_snapshot.id
         precreated_job.celery_task_id = str(precreated_job.id)
         await db.commit()
 

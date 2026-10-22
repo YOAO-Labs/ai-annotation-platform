@@ -30,7 +30,12 @@ from app.services.training_dataset_bridge import (
     semantic_partitions,
 )
 from app.services.training_datasets import MAX_IMAGE_BYTES, MAX_SAMPLES
-from training_contract.dataset import SEGMENTATION
+from training_contract.dataset import (
+    SEGMENTATION,
+    is_instance_rle,
+    instance_rle_evidence,
+    INSTANCE_RLE_LIMITS,
+)
 from app.services.training_dataset_insight_adapters import (
     adapter_cache_identity,
     adapter_for_profile,
@@ -227,16 +232,31 @@ def derive(
                 raise TrainingDatasetError(
                     "frozen_labels_unavailable", "冻结标注或类别映射未保留"
                 )
-            text, instances, labels = adapter.labels(
-                source["annotations"], classes, contract
-            )
+            if is_instance_rle(contract):
+                instances, labels = adapter.mask_labels(
+                    source["annotations"], classes, member
+                )
+                text = None
+                from app.services.training_dataset_bridge import instance_rle_semantic
+
+                if member.get("semantic_label_sha256") != instance_rle_semantic(
+                    instances
+                ):
+                    raise TrainingDatasetError(
+                        "frozen_labels_mismatch", "掩码像素语义摘要不一致"
+                    )
+            else:
+                text, instances, labels = adapter.labels(
+                    source["annotations"], classes, contract
+                )
             if segmentation and member.get("instances") != instances:
                 raise TrainingDatasetError(
                     "frozen_instances_mismatch", "冻结实例来源与训练包不一致"
                 )
             if (
                 not row["label_sha256"]
-                or hashlib.sha256(text.encode()).hexdigest() != row["label_sha256"]
+                or text is not None
+                and hashlib.sha256(text.encode()).hexdigest() != row["label_sha256"]
             ):
                 raise TrainingDatasetError(
                     "frozen_labels_mismatch", "冻结标签与训练包摘要不一致"
@@ -838,3 +858,61 @@ def stream_media(source):
             yield chunk
     finally:
         source.close()
+
+
+def read_instance_masks(project_id, version, sample, annotation_ids):
+    """Read and verify requested instances from one independent frozen object."""
+    if not sample.included or not sample.label_sha256:
+        raise TrainingDatasetError(
+            "frozen_mask_unavailable", "冻结掩码不可用", status_code=404
+        )
+    requested = {str(identifier) for identifier in annotation_ids}
+    if not requested:
+        return {}
+    key = f"projects/{project_id}/datasets/{version.id}/masks/{sample.task_id}.json"
+    result = {}
+    try:
+        response = storage.client.get_object(Bucket=storage.training_bucket, Key=key)
+        try:
+            data = response["Body"].read(
+                INSTANCE_RLE_LIMITS["max_sample_label_bytes"] + 1
+            )
+        finally:
+            response["Body"].close()
+        if len(data) > INSTANCE_RLE_LIMITS["max_sample_label_bytes"]:
+            raise ValueError("frozen mask object exceeds budget")
+        if hashlib.sha256(data).hexdigest() != sample.label_sha256:
+            raise ValueError("frozen mask object digest mismatch")
+        import json
+
+        payload = json.loads(data)
+        for instance in payload["instances"]:
+            identifier = instance["annotation_id"]
+            if identifier in requested:
+                if identifier in result:
+                    raise ValueError("duplicate frozen mask identity")
+                evidence = instance_rle_evidence(instance["rle"])
+                if any(instance[key] != value for key, value in evidence.items()):
+                    raise ValueError("frozen mask evidence mismatch")
+                result[identifier] = {
+                    "annotation_id": identifier,
+                    "annotation_version": instance["annotation_version"],
+                    "pixel_sha256": evidence["pixel_sha256"],
+                    "rle": instance["rle"],
+                }
+    except (BotoCoreError, ClientError, ValueError, KeyError, TypeError) as exc:
+        raise TrainingDatasetError(
+            "frozen_mask_unavailable", "冻结掩码不可用或校验失败", status_code=409
+        ) from exc
+    if set(result) != requested:
+        raise TrainingDatasetError(
+            "frozen_mask_not_found", "实例不属于该冻结样本", status_code=404
+        )
+    return result
+
+
+def read_instance_mask(project_id, version, sample, annotation_id):
+    """Read one frozen mask from the version-owned independent training object."""
+    return read_instance_masks(project_id, version, sample, [annotation_id])[
+        str(annotation_id)
+    ]

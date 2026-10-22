@@ -51,6 +51,8 @@ GET /api/v1/admin/preannotate-queue?project_id=&status=
 
 只看当前 `pre_annotated` 批次（与 jobs 历史区分）。批量清理预标队列仍走 `/admin/preannotate-queue/bulk-clear`。
 
+支持 `limit`（接口默认 50，1–200；界面默认 20）和 `offset`（默认 0）；按更新时间、批次 ID 倒序稳定分页。`project_id` 与 `status` 在分页前应用，不传时保留原范围。响应继续为批次数组；客户端可请求下一页判断是否结束，不能把单页长度当作全部记录数。
+
 ## 查询任务预测
 
 ```http

@@ -29,6 +29,7 @@ from app.schemas.trained_model import (
 from app.services import trained_models as service
 from app.services import model_lineage as lineage
 from app.schemas.model_lineage import ArchiveFilter
+from app.schemas._jsonb_types import CocoRleContent
 from app.services.training_list_filters import (
     ISODate,
     created_date_bounds,
@@ -75,6 +76,7 @@ async def list_models(
     archive: ArchiveFilter = "exclude",
     q: str = Query("", max_length=120),
     framework: Literal["ultralytics", "libreyolo"] | None = None,
+    task: Literal["detect", "segment"] | None = None,
     created_from: ISODate | None = Query(
         None, description="创建日期下界，UTC 日期（含）"
     ),
@@ -92,6 +94,8 @@ async def list_models(
         predicates.append(TrainedModelVersion.name.ilike(pattern, escape="\\"))
     if framework is not None:
         predicates.append(TrainedModelVersion.framework == framework)
+    if task is not None:
+        predicates.append(service.model_task_expression() == task)
     if start is not None:
         predicates.append(TrainedModelVersion.created_at >= start)
     if end is not None:
@@ -165,6 +169,40 @@ async def model_detail(
     }
 
 
+@router.get(
+    "/trained-models/{version_id}/deployments/{deployment_id}/mask-content/{shape_index}",
+    response_model=CocoRleContent,
+)
+async def trial_mask_content(
+    version_id: uuid.UUID,
+    deployment_id: uuid.UUID,
+    shape_index: int,
+    project: Project = Depends(require_project_owner),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.config import settings
+    from app.services.raster_mask_storage import load_coco_rle
+
+    await lock_owner(db, user, project)
+    await service.load_version(db, project.id, version_id)
+    deployment = await db.get(ModelDeployment, deployment_id)
+    if (
+        not settings.raster_mask_read_enabled
+        or not deployment
+        or deployment.model_version_id != version_id
+        or deployment.status != "ready"
+    ):
+        raise HTTPException(status_code=404, detail="分割试用掩码不存在或未开放读取")
+    shapes = deployment.trial.get("result", [])
+    if not 0 <= shape_index < len(shapes):
+        raise HTTPException(status_code=404, detail="分割试用实例不存在")
+    geometry = shapes[shape_index].get("geometry", {})
+    if geometry.get("type") != "raster_mask":
+        raise HTTPException(status_code=404, detail="分割试用实例不是掩码")
+    return await load_coco_rle(geometry["mask"])
+
+
 @router.post(
     "/trained-models/{version_id}/deploy",
     response_model=ModelDeploymentOut,
@@ -180,7 +218,9 @@ async def deploy_model(
     await serialize(db, project)
     await lock_owner(db, user, project)
     version = await service.load_version(db, project.id, version_id)
-    service.validate_bindings(project, version.classes, version.bindings)
+    service.validate_bindings(
+        project, version.classes, version.bindings, service.model_task(version)
+    )
     backend = await service.enabled_backend(db, project.id, body.registry_id)
     deployment = await db.scalar(
         select(ModelDeployment)
@@ -213,7 +253,10 @@ async def deploy_model(
                 status_code=503, detail="暂时无法复查推理实例，请稍后重试"
             ) from exc
         else:
-            return deployment
+            if receipt.get("inference_runtime") == (deployment.receipt or {}).get(
+                "inference_runtime"
+            ):
+                return deployment
     check_id = uuid.uuid4()
     deployment.check_id = check_id
     deployment.status = "checking"
@@ -280,8 +323,9 @@ async def list_releases(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    task: Literal["detect", "segment"] = "detect",
 ) -> dict:
-    selection = await db.get(ProjectModelSelection, project.id)
+    selection = await db.get(ProjectModelSelection, (project.id, task))
     current = (
         await db.get(ModelRelease, selection.release_id)
         if selection and selection.release_id
@@ -290,18 +334,19 @@ async def list_releases(
     total = await db.scalar(
         select(func.count())
         .select_from(ModelRelease)
-        .where(ModelRelease.project_id == project.id)
+        .where(ModelRelease.project_id == project.id, ModelRelease.task == task)
     )
     items = (
         await db.scalars(
             select(ModelRelease)
-            .where(ModelRelease.project_id == project.id)
+            .where(ModelRelease.project_id == project.id, ModelRelease.task == task)
             .order_by(ModelRelease.generation.desc())
             .limit(limit)
             .offset(offset)
         )
     ).all()
     return {
+        "task": task,
         "current": ModelReleaseOut.model_validate(current).model_dump(mode="json")
         if current
         else None,

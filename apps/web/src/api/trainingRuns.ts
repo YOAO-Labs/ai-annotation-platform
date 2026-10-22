@@ -9,7 +9,6 @@ import type {
   TrainingEvaluationOut,
   TrainingInitialization,
   TrainingInitializationEligibility,
-  FrozenTrainingInitialization,
   TrainingRunDetail,
 } from "./generated/types.gen";
 
@@ -21,7 +20,17 @@ export type {
   TrainingEvaluationOut,
   TrainingInitialization,
   TrainingInitializationEligibility,
-  FrozenTrainingInitialization,
+};
+
+export type FrozenTrainingInitialization = NonNullable<TrainingInitializationEligibility["pin"]>;
+
+export type TrainingCatalogModel = TrainingTemplate["base_models"][number] & {
+  model_family?: string | null;
+  model_size?: string | null;
+};
+
+export type TrainingCatalogTemplate = Omit<TrainingTemplate, "base_models"> & {
+  base_models: TrainingCatalogModel[];
 };
 
 export interface TrainingCatalog {
@@ -31,7 +40,7 @@ export interface TrainingCatalog {
   resource_id: string | null;
   initialization_policy_digest?: string | null;
   native_budget_policy_digest?: string | null;
-  items: TrainingTemplate[];
+  items: TrainingCatalogTemplate[];
 }
 
 export interface TrainingEpochEvent {
@@ -84,8 +93,9 @@ export const trainingRunsApi = {
     offset = 0,
     options?: RequestInit,
     filters: TrainingRunFilters = {},
+    limit = 20,
   ) => {
-    const query = new URLSearchParams({ limit: "20", offset: String(offset) });
+    const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     Object.entries(filters).forEach(([key, value]) => {
       if (value) query.set(key, value);
     });
@@ -107,9 +117,10 @@ export const trainingRunsApi = {
     attemptId: string,
     offset = 0,
     options?: RequestInit,
+    limit = 20,
   ) =>
     apiClient.get<TrainingEvaluationOut>(
-      `${base(projectId)}/${id}/attempts/${attemptId}/evaluation?limit=50&offset=${offset}`,
+      `${base(projectId)}/${id}/attempts/${attemptId}/evaluation?limit=${limit}&offset=${offset}`,
       options,
     ),
   preflight: (projectId: string, body: TrainingRunCreate, options?: RequestInit) =>

@@ -1,3 +1,4 @@
+import { ListPagination } from "@/components/ui/ListPagination";
 import { randomId } from "@/utils/id";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { useMemo, useState } from "react";
@@ -32,10 +33,12 @@ function TrainingComparisonContent({ projectId, scope }: { projectId: string; sc
   const [params, setParams] = useSearchParams();
   const state = parseComparison(params);
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
   const client = useQueryClient();
   const runs = useQuery({
-    queryKey: ["training-comparison-picker", projectId, scope, page],
-    queryFn: ({ signal }) => trainingRunsApi.list(projectId, page * 20, { signal }),
+    queryKey: ["training-comparison-picker", projectId, scope, page, pageSize],
+    queryFn: ({ signal }) =>
+      trainingRunsApi.list(projectId, page * pageSize, { signal }, {}, pageSize),
     retry: false,
   });
   const details = useQueries({
@@ -85,14 +88,16 @@ function TrainingComparisonContent({ projectId, scope }: { projectId: string; sc
         s.runId,
         s.attemptId,
         state.classPage,
+        state.classPageSize,
       ],
       queryFn: async ({ signal }: { signal: AbortSignal }) => {
         const result = await trainingRunsApi.evaluation(
           projectId,
           s.runId,
           s.attemptId,
-          state.classPage * 50,
+          state.classPage * state.classPageSize,
           { signal },
+          state.classPageSize,
         );
         signal.throwIfAborted();
         if (result.provenance.run_id !== s.runId || result.provenance.attempt_id !== s.attemptId)
@@ -127,6 +132,7 @@ function TrainingComparisonContent({ projectId, scope }: { projectId: string; sc
     setParams((previous) => {
       const next = new URLSearchParams(previous);
       next.set(key, value);
+      if (key === "class_page_size") next.delete("class_page");
       return next;
     });
   const choose = (selections: ComparisonSelection[]) =>
@@ -227,23 +233,20 @@ function TrainingComparisonContent({ projectId, scope }: { projectId: string; sc
             <p className="py-4 text-sm text-muted-foreground">项目尚无训练实验。</p>
           )}
         </div>
-        {!!runs.data?.total && (
-          <div className="mt-3 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-            <Button size="sm" disabled={!page} onClick={() => setPage((p) => p - 1)}>
-              上一页实验
-            </Button>
-            <span>
-              {page + 1} / {Math.ceil(runs.data.total / 20)}
-            </span>
-            <Button
-              size="sm"
-              disabled={(page + 1) * 20 >= runs.data.total}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              下一页实验
-            </Button>
-          </div>
-        )}
+        <ListPagination
+          label="实验"
+          page={page}
+          pageSize={pageSize}
+          total={runs.data?.total ?? 0}
+          loading={runs.isFetching}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(0);
+          }}
+          previousLabel="上一页实验"
+          nextLabel="下一页实验"
+        />
       </details>
       <div
         className={`mb-5 grid items-start gap-3 ${experiments.length === 2 ? "md:grid-cols-2" : experiments.length === 3 ? "md:grid-cols-2 xl:grid-cols-3" : "md:grid-cols-2 xl:grid-cols-4"}`}

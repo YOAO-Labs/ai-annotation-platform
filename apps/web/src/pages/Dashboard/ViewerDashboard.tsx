@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { useListPagination } from "@/hooks/useListPagination";
+import { listStyles } from "@/components/ui/listStyles";
 import { FilterGroup, FilterToggle } from "@/components/filters/FilterControls";
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -54,6 +57,7 @@ export function ViewerDashboard() {
     search: query || undefined,
   });
   const { data: stats } = useProjectStats();
+  const pagination = useListPagination(projects, `${filter}\0${query}`);
 
   return (
     <PageContainer>
@@ -100,7 +104,7 @@ export function ViewerDashboard() {
           <SearchInput placeholder="搜索项目..." value={query} onChange={setQuery} width={220} />
         </div>
         <div className="w-full overflow-x-auto [overscroll-behavior-x:contain]">
-          <table className="w-full min-w-[760px] border-separate border-spacing-0 text-sm">
+          <table className={`${listStyles.table} min-w-[760px]`}>
             <thead>
               <tr>
                 {["项目", "进度", "AI 模型", "状态"].map((h, i) => (
@@ -119,7 +123,7 @@ export function ViewerDashboard() {
                 </tr>
               )}
               {!isLoading &&
-                projects.map((p) => {
+                pagination.items.map((p) => {
                   const total = p.total_tasks || 1;
                   const pct = Math.round((p.completed_tasks / total) * 100);
                   return (
@@ -176,6 +180,14 @@ export function ViewerDashboard() {
             </tbody>
           </table>
         </div>
+        <ListPagination
+          label="项目"
+          page={pagination.page}
+          pageSize={pagination.pageSize}
+          total={pagination.total}
+          onPageChange={pagination.setPage}
+          onPageSizeChange={pagination.setPageSize}
+        />
       </Card>
     </PageContainer>
   );

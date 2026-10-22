@@ -104,9 +104,11 @@ async function openEditor(page: Page) {
   });
   await page.goto(`/projects/${projectId}/learning/new`);
   const dialog = page.getByRole("dialog", { name: "新建训练实验" });
+  await expect(dialog.getByLabel("训练数据", { exact: true })).toBeDisabled();
+  await dialog.getByLabel("实验任务", { exact: true }).selectOption("detect");
   await dialog.getByLabel("实验名称", { exact: true }).fill("重置交互");
   await dialog.getByLabel("训练数据", { exact: true }).selectOption(dataset.id);
-  await dialog.getByLabel("基础权重", { exact: true }).selectOption("yolo11n");
+  await dialog.getByLabel("基础模型", { exact: true }).selectOption("yolo11n");
   await dialog.getByRole("button", { name: "下一步", exact: true }).click();
   await expect(dialog.getByLabel("搜索训练参数")).toBeVisible();
   return dialog;

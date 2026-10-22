@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-20
 ---
 
 # 环境变量参考
@@ -61,7 +61,7 @@ last_reviewed: 2026-10-19
 | `MINIO_IMPORT_BUCKET` | `import` | 导入预标注产物桶（7 天 lifecycle，短生命周期） |
 | `MINIO_EXPORT_BUCKET` | `export` | 导出标注产物桶（7 天 lifecycle，短生命周期） |
 | `MINIO_AVATARS_BUCKET` | `avatars` | 用户头像桶（永久保留，不可重生，纳入备份；不挂 lifecycle） |
-| `MINIO_TRAINING_BUCKET` | `training` | Immutable training datasets and model artifacts; no automatic expiration. |
+| `MINIO_TRAINING_BUCKET` | `training` | Immutable training datasets, model artifacts and SHA256 base-model assets; no automatic expiration. Bucket names are scoped to one endpoint/environment; node caches are prepared independently. |
 
 ## 项目受控训练，默认关闭。API 与独立 executor 使用同一随机凭据（至少 32 字符）。
 
@@ -71,13 +71,13 @@ last_reviewed: 2026-10-19
 | `TRAINING_EXECUTOR_TOKEN` | `—` | — |
 | `TRAINING_NODE_ID` | `local` | — |
 | `TRAINING_GPU_UUID` | `—` | — |
-| `TRAINING_CATALOG_JSON` | `{}` | JSON: {"ultralytics":{"version":"PINNED_VERSION","image_digest":"sha256:IMAGE_DIGEST", "base_models":{"yolo11n":{"filename":"yolo11n.pt","sha256":"WEIGHTS_SHA256"}}}} Qualified adapters: ultralytics 8.4.177 / libreyolo 1.6.0; entries share the same shape. Ultralytics additionally qualifies yolo11n-seg simple-polygon instance training; configure its verified weight entry explicitly. Revision-2 detection image upgrades require a qualified source-image -> complete schema-identity allowlist in compatible_config_images. LibreYOLO9 t/s/m/c native detection weights can return through the qualified CPU inference adapter. |
+| `TRAINING_CATALOG_JSON` | `{}` | JSON: {"ultralytics":{"version":"PINNED_VERSION","image_digest":"sha256:IMAGE_DIGEST", "base_models":{"yolo11n":{"filename":"yolo11n.pt","sha256":"WEIGHTS_SHA256"}}}} Current adapters: ultralytics 8.4.183 / libreyolo 1.6.0; entries share the same shape. Explicitly list verified YOLOv8/11/26 n/s/m/l/x detect/segment or LibreYOLO9 t/s/m/c detect assets. A bucket-backed entry also pins size_bytes and object_key=model-assets/sha256/SHA256/weights.pt. Prepare that digest on each target node before accepting experiments; bucket existence alone is insufficient. Historical 8.4.177 experiments require their original qualified runtime, not an implicit version rewrite. Revision-2 detection image upgrades require a qualified source-image -> complete schema-identity allowlist in compatible_config_images. LibreYOLO9 t/s/m/c native detection weights can return through the qualified CPU inference adapter. |
 | `TRAINING_HEARTBEAT_TIMEOUT_SECONDS` | `60` | — |
 | `TRAINING_IMAGE` | `—` | 仅供 docker-compose.training.yml：先准备已发布镜像，Compose 不构建镜像。 TRAINING_IMAGE 为仓库名（可带标签），不得包含 @digest；凭据文件不进入镜像。 TRAINING_IMAGE_DIGEST 必须为 registry manifest digest（RepoDigests），不能用镜像 .Id。 Compose 用同一 repository@sha256 引用选择镜像并生成 TRAINING_IMAGE_REFERENCE。 |
 | `TRAINING_IMAGE_DIGEST` | `—` | — |
 | `TRAINING_API_URL` | `http://host.docker.internal:8000/api/v1/internal/training` | — |
 | `TRAINING_EXECUTOR_TOKEN_PATH` | `—` | — |
-| `TRAINING_MODELS_PATH` | `./training/models` | — |
+| `TRAINING_MODELS_PATH` | `./training/models` | Executor /models and YOLO Backend /model-assets share this read-only host directory only on the same host. On different hosts, prepare separate local directories from the same authoritative bucket. |
 
 ## 超大图 Image Pyramid
 

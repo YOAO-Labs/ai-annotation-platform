@@ -2,6 +2,7 @@ import { useSearchParams } from "react-router-dom";
 import type { ReactNode } from "react";
 import { Search } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { ListPagination, listPageSize } from "@/components/ui/ListPagination";
 
 export type TrainingListFilters = {
   q: string;
@@ -22,6 +23,7 @@ export function useTrainingListFilters(prefix: "run" | "data_list" | "model") {
   ) as TrainingListFilters;
   const rawPage = Number(params.get(`${prefix}_page`) ?? 0);
   const page = Number.isSafeInteger(rawPage) && rawPage >= 0 ? rawPage : 0;
+  const pageSize = listPageSize(params.get(`${prefix}_page_size`));
   const update = (values: Partial<TrainingListFilters>, reset = false) => {
     setParams(
       (previous) => {
@@ -45,7 +47,15 @@ export function useTrainingListFilters(prefix: "run" | "data_list" | "model") {
       else next.delete(`${prefix}_page`);
       return next;
     });
-  return { filters, page, setPage, update, reset: () => update({}, true) };
+  const setPageSize = (size: number) =>
+    setParams((previous) => {
+      const next = new URLSearchParams(previous);
+      if (size !== 20) next.set(`${prefix}_page_size`, String(size));
+      else next.delete(`${prefix}_page_size`);
+      next.delete(`${prefix}_page`);
+      return next;
+    });
+  return { filters, page, pageSize, setPage, setPageSize, update, reset: () => update({}, true) };
 }
 
 export function trainingListPath(
@@ -60,6 +70,14 @@ export function trainingListPath(
     "attempt",
     "dataset",
     "model",
+    "model_view",
+    "relation",
+    "cursor",
+    "before",
+    "trail",
+    "record_pages",
+    "note_pages",
+    "returnTo",
     "register_run",
     "register_attempt",
     "data_view",
@@ -203,31 +221,28 @@ export function TrainingListPagination({
   total,
   pending,
   onPage,
+  pageSize,
+  onPageSize,
 }: {
   kind: string;
   page: number;
   total: number;
   pending: boolean;
   onPage: (page: number) => void;
+  pageSize: number;
+  onPageSize: (size: number) => void;
 }) {
   return (
-    <nav
-      aria-label={`${kind}分页`}
-      className="flex flex-wrap items-center gap-2 border-t border-border p-3"
-    >
-      <span className="mr-auto text-2xs tabular-nums text-muted-foreground">
-        共 {total} 条 · 第 {page + 1} / {Math.max(1, Math.ceil(total / 20))} 页
-      </span>
-      <Button size="xs" disabled={pending || !page} onClick={() => onPage(page - 1)}>
-        上一页{kind}
-      </Button>
-      <Button
-        size="xs"
-        disabled={pending || (page + 1) * 20 >= total}
-        onClick={() => onPage(page + 1)}
-      >
-        下一页{kind}
-      </Button>
-    </nav>
+    <ListPagination
+      label={kind}
+      page={page}
+      pageSize={pageSize}
+      total={total}
+      loading={pending}
+      onPageChange={onPage}
+      onPageSizeChange={onPageSize}
+      previousLabel={`上一页${kind}`}
+      nextLabel={`下一页${kind}`}
+    />
   );
 }

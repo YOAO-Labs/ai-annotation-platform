@@ -65,6 +65,8 @@ def validate_checkpoint(blob, spec, *, epoch=None, resume=False):
         blob["task"] != "detect"
         or blob["model_family"] != "yolo9"
         or blob["libreyolo_version"] != VERSION
+        or spec["frozen_config"].get("base_model") is not None
+        and blob.get("size") != spec["frozen_config"]["base_model"]["id"][-1].lower()
         or ordered_names(blob) != spec["frozen_config"]["classes"]
     ):
         raise InputMismatchError(

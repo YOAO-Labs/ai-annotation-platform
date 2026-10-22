@@ -33,7 +33,7 @@ def frozen(framework="ultralytics", **values):
     }
 
 
-@pytest.mark.parametrize("framework,count", [("ultralytics", 113), ("libreyolo", 92)])
+@pytest.mark.parametrize("framework,count", [("ultralytics", 114), ("libreyolo", 92)])
 def test_complete_inventory_has_disposition_and_stable_content_identity(
     framework, count
 ):
@@ -182,3 +182,64 @@ def test_historical_task_identities_and_digests_are_immutable():
             )
             == identity
         )
+
+
+def test_optional_train_evaluation_and_random_initialization_are_frozen_separately():
+    from training_contract.validation import native_values
+
+    default = frozen()
+    assert default["configuration"]["effective_values"]["pretrained"] is True
+    assert default["configuration"]["effective_values"]["evaluate_train"] is False
+    config = frozen(pretrained=False, evaluate_train=True)
+    resolved = verify_frozen(config)
+    assert resolved["effective_values"]["pretrained"] is False
+    assert resolved["effective_values"]["evaluate_train"] is True
+    assert "evaluate_train" not in native_values(resolved)
+    with pytest.raises(ValueError, match="初始化"):
+        verify_frozen({**config, "initialization": {"kind": "trained_model"}})
+
+
+@pytest.mark.parametrize(
+    "base,expected",
+    [
+        ("yolo11n", "3d04d5bdad575864f7773b35441f30d14b608cc63bc5c779c36399e50d293232"),
+        (
+            "yolo11n-seg",
+            "4e0b42e370210e2dc0acd0291221a1af50ae2b40991c9d602a936c6e99c6fecd",
+        ),
+    ],
+)
+def test_prior_parameter_schema_is_still_exactly_resolvable(base, expected):
+    from training_contract.catalog import definition_for_identity, schema_identity
+
+    prior = definition("ultralytics", base, revision=3)
+    assert prior["schema_digest"] == expected
+    assert definition_for_identity("ultralytics", base, schema_identity(prior)) == prior
+    resolved = resolve(
+        "ultralytics",
+        base,
+        {
+            "schema_id": prior["schema_id"],
+            "schema_digest": prior["schema_digest"],
+            "values": {},
+        },
+    )
+    assert "evaluate_train" not in resolved["effective_values"]
+    assert resolved["effective_values"]["pretrained"] is True
+
+
+@pytest.mark.parametrize(
+    "base,expected",
+    [
+        ("yolo11n", "2fa8760d69bc97f3ce5a042163a2f3e50b419159ce8dfabcd8ec86f7f042c5fa"),
+        (
+            "yolo11n-seg",
+            "79ecff81a2dac4071aadd78a0205ee02f2abe5f58190f5ba0dd89e71dc84d5e8",
+        ),
+    ],
+)
+def test_previous_current_schema_and_version_remain_frozen(base, expected):
+    schema = definition("ultralytics", base, version="8.4.177")
+    assert schema["schema_digest"] == expected
+    assert schema["framework_version"] == "8.4.177"
+    assert schema["schema_id"].endswith("-4")

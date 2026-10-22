@@ -69,4 +69,33 @@ it("disables all binding mutations while registration is pending", () => {
   render(<Editor disabled />);
   expect(screen.getByRole("button", { name: "按同名绑定" })).toBeDisabled();
   screen.getAllByRole("combobox").forEach((select) => expect(select).toBeDisabled());
+  expect(screen.getByRole("button", { name: "清除原生类别 0 · 类别0 的绑定" })).toBeDisabled();
+});
+
+it("clears a binding explicitly without submitting or changing other rows", async () => {
+  const user = userEvent.setup();
+  const submit = vi.fn((event) => event.preventDefault());
+  render(<Editor submit={submit} />);
+  await user.selectOptions(screen.getByLabelText("原生类别 1 · 类别1"), "类别1");
+  await user.click(screen.getByRole("button", { name: "清除原生类别 0 · 类别0 的绑定" }));
+  expect(screen.getByLabelText("原生类别 0 · 类别0")).toHaveValue("");
+  expect(JSON.parse(screen.getByLabelText("绑定结果").textContent!)).toEqual({ 0: "", 1: "类别1" });
+  expect(submit).not.toHaveBeenCalled();
+});
+
+it("allows clearing a stored binding whose project class no longer exists", async () => {
+  const user = userEvent.setup();
+  const onChange = vi.fn();
+  render(
+    <ModelClassBindings
+      nativeClasses={["car"]}
+      projectClasses={[]}
+      bindings={{ 0: "removed" }}
+      disabled={false}
+      onChange={onChange}
+    />,
+  );
+  expect(screen.getByRole("combobox")).toBeDisabled();
+  await user.click(screen.getByRole("button", { name: "清除原生类别 0 · car 的绑定" }));
+  expect(onChange).toHaveBeenCalledWith({ 0: "" });
 });

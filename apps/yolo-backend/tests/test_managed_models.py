@@ -4,7 +4,6 @@ import hashlib
 import sys
 import uuid
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import httpx
 import pytest
@@ -141,6 +140,7 @@ async def test_installation_is_atomic_immutable_and_detects_disk_corruption(
     assert len(inspected) == 1
     path, actual = store.resolve(str(body.model_version_id), body.sha256)
     assert actual == receipt
+    path.chmod(0o600)
     path.write_bytes(b"corrupt")
     with pytest.raises(HTTPException):
         store.receipt(str(body.model_version_id))
@@ -177,7 +177,9 @@ async def test_invalid_install_never_publishes_partial_weights(
     with pytest.raises(HTTPException) as error:
         await store.install(body)
     assert error.value.status_code == 422
-    assert list(tmp_path.iterdir()) == []
+    assert not [path for path in tmp_path.iterdir() if not path.name.startswith(".")]
+    assert not list(tmp_path.glob(".install-*"))
+    assert not list(tmp_path.glob(".blobs/sha256/*.pt"))
 
 
 @pytest.mark.parametrize("fault", ["classes", "task", "runtime"])
@@ -216,7 +218,7 @@ def test_controlled_context_has_a_separate_pool_key_and_never_uses_builtin_defau
         body.sha256,
     )
     assert context.variants is None
-    for unsupported in ("text", "segmentation", "tracker", "exemplar"):
+    for unsupported in ("text", "keypoint", "tracker", "exemplar"):
         with pytest.raises(ValidationError):
             Context(type=unsupported, model_id=context.model_id, frozen_model_ref=ref)
     with pytest.raises(ValidationError):
@@ -230,9 +232,6 @@ def test_controlled_context_has_a_separate_pool_key_and_never_uses_builtin_defau
 async def test_two_versions_keep_separate_classes_and_cannot_evict_an_active_borrower(
     monkeypatch,
 ):
-    sys.modules.setdefault(
-        "torch", MagicMock(cuda=MagicMock(is_available=MagicMock(return_value=False)))
-    )
     from model_pool import ModelPool, PoolBusyError
 
     def build(_task, series, _size):
@@ -252,3 +251,27 @@ async def test_two_versions_keep_separate_classes_and_cannot_evict_an_active_bor
         {"index": 0, "name": "person"}
     ]
     assert pool.class_names("detection") is None
+
+
+async def test_runtime_receipt_is_separate_from_immutable_installation(
+    tmp_path, monkeypatch
+):
+    import json
+    from managed_models import runtime_receipt
+
+    body = installation()
+    download(monkeypatch, b"controlled checkpoint")
+    monkeypatch.setattr(ManagedModelStore, "inspect", staticmethod(lambda *_: None))
+    monkeypatch.setitem(
+        sys.modules, "ultralytics", SimpleNamespace(__version__="8.4.183")
+    )
+    store = ManagedModelStore(tmp_path)
+    receipt = await store.install(body)
+    raw = (tmp_path / str(body.model_version_id) / "receipt.json").read_bytes()
+    wire = runtime_receipt(receipt)
+    assert wire["framework_version"] == "8.4.177"
+    assert wire["inference_runtime"]["version"] == "8.4.183"
+    assert json.loads(raw) == receipt
+    assert "inference_runtime" not in store.receipt(str(body.model_version_id))
+    assert await store.install(body) == receipt
+    assert (tmp_path / str(body.model_version_id) / "receipt.json").read_bytes() == raw

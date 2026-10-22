@@ -306,7 +306,9 @@ async def execute(factory, attempt_id, celery_task_id=None):
                 if (
                     not version
                     or version.snapshot_digest != spec["snapshot_digest"]
-                    or service.checked_dataset(version)["content_digest"]
+                    or service.checked_dataset(
+                        version, "segment" if spec["schema"] == 2 else "detect"
+                    )["content_digest"]
                     != spec["manifest_digest"]
                 ):
                     raise ValueError("Frozen dataset identity differs")

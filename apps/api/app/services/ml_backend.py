@@ -1363,9 +1363,17 @@ class MLBackendService:
             from app.services.ml_capabilities import extract_capabilities
 
             try:
-                caps = extract_capabilities(await client.setup())
+                setup_payload = await client.setup()
+                caps = extract_capabilities(setup_payload)
             except Exception:
                 caps = None
+            if (
+                caps is not None
+                and setup_payload.get("model_metadata_endpoint") is True
+            ):
+                metadata = await client.model_metadata()
+                if metadata is not None:
+                    meta = {**meta, "model_metadata": metadata}
 
         # GPU proof binds the complete /health + /setup observation window.  A
         # timestamp captured before setup could authorize a capability that was

@@ -305,7 +305,9 @@ def test_capacity_cleanup_never_unlinks_lock_inode_or_running_native_request(
 def test_profile_records_actual_pinned_source_and_shared_storage_identity(tmp_path):
     store = EvaluationRequestStore(tmp_path)
     profile = qualification_profile("cpu", store.storage_identity)
-    assert profile["ultralytics_version"] == "8.4.177"
+    import importlib.metadata
+
+    assert profile["ultralytics_version"] == importlib.metadata.version("ultralytics")
     assert profile["options"] == FIXED_OPTIONS
     assert profile["options"]["quantize"] == 32 and profile["options"]["rect"] is False
     assert len(profile["source_digest"]) == 64
@@ -315,6 +317,50 @@ def test_profile_records_actual_pinned_source_and_shared_storage_identity(tmp_pa
     assert profile == qualification_profile(
         "cpu", EvaluationRequestStore(tmp_path).storage_identity
     )
+
+
+def test_mask_profile_and_persistent_receipts_have_independent_identity_and_budget(
+    tmp_path,
+    monkeypatch,
+):
+    import segmentation_evaluations
+    from segmentation_evaluations import qualification_profile as mask_profile
+
+    monkeypatch.setattr(segmentation_evaluations, "verify_runtime", lambda: None)
+
+    detect = EvaluationRequestStore(tmp_path / "detection")
+    segment = EvaluationRequestStore(
+        tmp_path / "segmentation", response_bytes=17 * 1024 * 1024
+    )
+    profile = mask_profile("cpu", segment.storage_identity)
+    assert profile["implementation"] == "aap-ultralytics-instance-mask"
+    assert profile["options"]["retina_masks"] is True
+    assert (
+        profile["profile_digest"]
+        != qualification_profile("cpu", detect.storage_identity)["profile_digest"]
+    )
+    assert profile["storage_identity"] != str(detect.storage_identity)
+    body = request(segment).model_copy(
+        update={"profile_digest": profile["profile_digest"]}
+    )
+    large = response()
+    large["results"][0]["meta"]["mask_evidence"] = "a" * (300 * 1024)
+    with segment.execution(body) as record:
+        segment.publish(body, record, large)
+    assert (
+        EvaluationRequestStore(segment.root, response_bytes=17 * 1024 * 1024).receipt(
+            body.request_id,
+            binding_digest=body.binding_digest,
+            storage_identity=body.storage_identity,
+        )["response"]
+        == large
+    )
+    with pytest.raises(HTTPException):
+        detect.receipt(
+            body.request_id,
+            binding_digest=body.binding_digest,
+            storage_identity=body.storage_identity,
+        )
 
 
 def test_input_is_exact_bounded_metadata_free_rgb_png(tmp_path, monkeypatch):
@@ -376,10 +422,11 @@ def test_evaluation_context_cannot_escape_controlled_single_full_class_contract(
         {"classes": [0]},
         {"params": {"max_det": 300}},
         {"frozen_model_ref": None},
-        {"type": "segmentation"},
+        {"type": "keypoint"},
     ):
         with pytest.raises(ValidationError):
             Context.model_validate({**wire, **change})
+    assert Context.model_validate({**wire, "type": "segmentation"}).task == "segment"
     with pytest.raises(ValidationError):
         BatchPredictRequest.model_validate(
             {
@@ -546,10 +593,14 @@ async def test_transport_cancellation_keeps_native_lock_until_exit_then_seal_blo
         lambda _: {
             **req.context.frozen_model_ref.model_dump(mode="json"),
             "framework": "ultralytics",
+            "framework_version": "8.4.183",
+            "model_family": "yolo11",
+            "model_size": "n",
+            "task": "detection",
         },
     )
     task = asyncio.create_task(main._run_sample_evaluation(req, operation=None))
-    assert await asyncio.wait_for(asyncio.to_thread(started.wait), timeout=3)
+    assert await asyncio.wait_for(asyncio.to_thread(started.wait, 3), timeout=3)
     task.cancel()
     await asyncio.sleep(0)
     try:
@@ -599,10 +650,14 @@ async def test_cold_native_loader_keeps_request_lock_after_borrower_leaves(
         lambda _: {
             **req.context.frozen_model_ref.model_dump(mode="json"),
             "framework": "ultralytics",
+            "framework_version": "8.4.183",
+            "model_family": "yolo11",
+            "model_size": "n",
+            "task": "detection",
         },
     )
     task = asyncio.create_task(main._run_sample_evaluation(req, operation=None))
-    assert await asyncio.wait_for(asyncio.to_thread(started.wait), timeout=3)
+    assert await asyncio.wait_for(asyncio.to_thread(started.wait, 3), timeout=3)
     if interruption == "cancel":
         task.cancel()
     await asyncio.sleep(0.06)
@@ -665,3 +720,43 @@ except HTTPException as exc:
         with store.execution(body):
             pytest.fail("A tombstone from the other process must block late work")
     assert late.value.status_code == 410
+
+
+@pytest.mark.asyncio
+async def test_old_weights_require_explicit_runtime_pin_and_emit_actual_version(
+    tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    import main
+    from training_contract.inference_runtime import inference_runtime
+
+    req, _body, _profile = qualified_batch(EvaluationRequestStore(tmp_path))
+    req.context.sample_evaluation = None
+    receipt = {
+        **req.context.frozen_model_ref.model_dump(mode="json", exclude_none=True),
+        "framework": "ultralytics",
+        "framework_version": "8.4.177",
+        "task": "detection",
+    }
+    monkeypatch.setattr(main._managed_models, "receipt", lambda _: receipt)
+    predictor = SimpleNamespace(predict_one=AsyncMock(return_value=([], False, 0, 1)))
+    monkeypatch.setattr(main, "_predictor", predictor)
+    monkeypatch.setattr(main, "_model_pool", object())
+    with pytest.raises(HTTPException) as error:
+        await main._run_predict(req)
+    assert error.value.status_code == 409
+    predictor.predict_one.assert_not_awaited()
+    actual = inference_runtime(receipt, "8.4.183")
+    req.context.frozen_model_ref.inference_runtime = actual
+    results = await main._run_predict(req)
+    assert results[0].meta["inference_runtime"] == actual
+    assert set(results[0].meta["trained_model"]) == {
+        "model_version_id",
+        "sha256",
+        "classes_digest",
+    }
+    req.context.frozen_model_ref.inference_runtime = {**actual, "version": "8.4.184"}
+    with pytest.raises(HTTPException) as error:
+        await main._run_predict(req)
+    assert error.value.status_code == 409

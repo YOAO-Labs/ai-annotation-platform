@@ -1,5 +1,7 @@
 """Manager-owned automatic training policy and paginated trigger history."""
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import delete, func, select
 from app.db.models.learning_policy import LearningPolicy, LearningTrigger
@@ -28,10 +30,14 @@ router = APIRouter(
 
 @router.get("")
 async def get_policy(
-    project: Project = Depends(require_project_owner), db=Depends(get_db)
+    project: Project = Depends(require_project_owner),
+    db=Depends(get_db),
+    task: Literal["detect", "segment"] = "detect",
 ) -> LearningPolicyOut | None:
     return await db.scalar(
-        select(LearningPolicy).where(LearningPolicy.project_id == project.id)
+        select(LearningPolicy).where(
+            LearningPolicy.project_id == project.id, LearningPolicy.task == task
+        )
     )
 
 
@@ -47,11 +53,12 @@ async def save_policy(
     user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
+    task = body.task
     await service.project_lock(db, project.id)
     await lock_owner(db, user, project)
     policy = await db.scalar(
         select(LearningPolicy)
-        .where(LearningPolicy.project_id == project.id)
+        .where(LearningPolicy.project_id == project.id, LearningPolicy.task == task)
         .with_for_update()
         .execution_options(populate_existing=True)
     )
@@ -79,8 +86,12 @@ async def save_policy(
         parent_task = adapter_for(parent.manifest).task
     except TrainingDatasetError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if parent_task != "detect":
-        raise HTTPException(status_code=422, detail="自动学习策略仅接受检测父数据版本")
+    if parent_task != task:
+        raise HTTPException(
+            status_code=422, detail="自动学习策略任务与父数据版本不匹配"
+        )
+    if task == "segment" and body.configuration is None:
+        raise HTTPException(status_code=422, detail="分割策略须提交完整训练配置")
     pin = await initialization.resolve(
         db,
         project.id,
@@ -89,7 +100,7 @@ async def save_policy(
         body.base_model,
         parent.manifest.get("classes"),
     )
-    template = service.fixed_template(body.framework, body.base_model)
+    template = service.fixed_template(body.framework, body.base_model, task)
     configuration = (
         runs.resolve_configuration(
             body.framework, body.base_model, body.configuration.model_dump()
@@ -97,6 +108,13 @@ async def save_policy(
         if body.configuration is not None
         else None
     )
+    if configuration is not None:
+        from training_contract.validation import configuration_for_data_contract
+        from app.services.training_dataset_bridge import contract_of
+
+        configuration = configuration_for_data_contract(
+            configuration, contract_of(parent.manifest)
+        )
     origin = await recipes.origin_snapshot(
         db,
         project.id,
@@ -112,7 +130,10 @@ async def save_policy(
     if body.enabled and project.status != "in_progress":
         raise HTTPException(status_code=409, detail="仅进行中的项目可启用自动训练")
     selection = TrainingDatasetSelection(
-        parent_id=body.parent_id, batch_id=body.batch_id
+        parent_id=body.parent_id,
+        batch_id=body.batch_id,
+        task=task,
+        **({"bridge": parent.manifest["bridge"]} if task == "segment" else {}),
     )
     if body.batch_id:
         from app.db.models.task_batch import TaskBatch
@@ -121,7 +142,7 @@ async def save_policy(
         if not batch or batch.project_id != project.id:
             raise HTTPException(status_code=404, detail="批次不属于当前项目")
     if policy is None:
-        policy = LearningPolicy(project_id=project.id, revision=0, config={})
+        policy = LearningPolicy(project_id=project.id, task=task, revision=0, config={})
         db.add(policy)
         await db.flush()
     await service.cancel_unstarted(db, policy)
@@ -138,6 +159,8 @@ async def save_policy(
         "check_interval_minutes": body.check_interval_minutes,
         "cooldown_minutes": body.cooldown_minutes,
     }
+    if task == "segment":
+        policy.config = {**policy.config, "bridge": parent.manifest["bridge"]}
     if configuration is not None:
         from training_contract.validation import CANONICAL
 
@@ -169,6 +192,7 @@ async def save_policy(
     dependencies=[Depends(require_scopes("datasets:write"))],
 )
 async def disable_policy(
+    task: Literal["detect", "segment"] = "detect",
     expected_revision: int = Query(ge=1),
     project: Project = Depends(require_project_owner),
     user: User = Depends(get_current_user),
@@ -178,7 +202,7 @@ async def disable_policy(
     await lock_owner(db, user, project)
     policy = await db.scalar(
         select(LearningPolicy)
-        .where(LearningPolicy.project_id == project.id)
+        .where(LearningPolicy.project_id == project.id, LearningPolicy.task == task)
         .with_for_update()
         .execution_options(populate_existing=True)
     )
@@ -201,6 +225,7 @@ async def disable_policy(
     dependencies=[Depends(require_scopes("datasets:write"))],
 )
 async def check_policy(
+    task: Literal["detect", "segment"] = "detect",
     project: Project = Depends(require_project_owner),
     user: User = Depends(get_current_user),
     db=Depends(get_db),
@@ -208,7 +233,9 @@ async def check_policy(
     await service.project_lock(db, project.id)
     await lock_owner(db, user, project)
     policy = await db.scalar(
-        select(LearningPolicy).where(LearningPolicy.project_id == project.id)
+        select(LearningPolicy).where(
+            LearningPolicy.project_id == project.id, LearningPolicy.task == task
+        )
     )
     if not policy:
         raise HTTPException(status_code=404, detail="自动策略尚未配置")
@@ -221,6 +248,7 @@ async def check_policy(
 
 @router.get("/triggers", response_model=LearningTriggerPage)
 async def list_triggers(
+    task: Literal["detect", "segment"] = "detect",
     project: Project = Depends(require_project_owner),
     db=Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
@@ -229,12 +257,27 @@ async def list_triggers(
     total = await db.scalar(
         select(func.count())
         .select_from(LearningTrigger)
-        .where(LearningTrigger.project_id == project.id)
+        .where(
+            LearningTrigger.project_id == project.id,
+            LearningTrigger.policy_id.in_(
+                select(LearningPolicy.id).where(
+                    LearningPolicy.project_id == project.id, LearningPolicy.task == task
+                )
+            ),
+        )
     )
     triggers = list(
         await db.scalars(
             select(LearningTrigger)
-            .where(LearningTrigger.project_id == project.id)
+            .where(
+                LearningTrigger.project_id == project.id,
+                LearningTrigger.policy_id.in_(
+                    select(LearningPolicy.id).where(
+                        LearningPolicy.project_id == project.id,
+                        LearningPolicy.task == task,
+                    )
+                ),
+            )
             .order_by(LearningTrigger.created_at.desc(), LearningTrigger.id.desc())
             .limit(limit)
             .offset(offset)
@@ -271,6 +314,7 @@ async def list_triggers(
     dependencies=[Depends(require_scopes("datasets:write"))],
 )
 async def delete_policy(
+    task: Literal["detect", "segment"] = "detect",
     project: Project = Depends(require_project_owner),
     user: User = Depends(get_current_user),
     db=Depends(get_db),
@@ -279,7 +323,7 @@ async def delete_policy(
     await lock_owner(db, user, project)
     policy = await db.scalar(
         select(LearningPolicy)
-        .where(LearningPolicy.project_id == project.id)
+        .where(LearningPolicy.project_id == project.id, LearningPolicy.task == task)
         .with_for_update()
     )
     if not policy:

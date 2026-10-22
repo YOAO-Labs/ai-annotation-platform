@@ -236,8 +236,18 @@ async def retry_failed_prediction(
                 "frozen_model_ref"
             ):
                 device = controlled_device(backend)
+    devices = [device]
+    if fp.execution_snapshot_id is not None:
+        from app.services.prediction_execution import load_snapshot
+        from app.api.v1.projects import _stage_device
+
+        snapshot, _ = await load_snapshot(db, fp.execution_snapshot_id, fp.project_id)
+        devices = []
+        for stage in snapshot["stages"]:
+            stage_backend = await db.get(MLBackend, uuid.UUID(stage["ml_backend_id"]))
+            devices.append(_stage_device(stage_backend, stage.get("model_id")))
     queue = resolve_preannotate_queue(
-        [device],
+        devices,
         gpu_queue=settings.preannotate_gpu_queue,
         cpu_queue=settings.preannotate_cpu_queue,
     )

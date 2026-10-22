@@ -1,3 +1,6 @@
+import { useOffsetListPagination } from "@/hooks/useOffsetListPagination";
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
 import { useEffect, useState } from "react";
 
 import { Icon } from "@/components/ui/Icon";
@@ -46,8 +49,6 @@ const VIDEO_ASSET_LABELS: Record<VideoAssetKind, string> = {
   chunk: "Chunk",
   frame: "Frame cache",
 };
-
-const VIDEO_ASSET_FAILURE_PAGE_SIZE = 20;
 
 const CARD_TITLE_CLASS = "m-0 text-sm font-semibold";
 
@@ -150,21 +151,19 @@ function assetDetail(asset: VideoAssetFailureItem): string {
 
 function VideoAssetFailuresPanel() {
   const [page, setPage] = useState(0);
-  const offset = page * VIDEO_ASSET_FAILURE_PAGE_SIZE;
-  const { data, isLoading, isError } = useVideoAssetFailures(VIDEO_ASSET_FAILURE_PAGE_SIZE, offset);
+  const [pageSize, setPageSize] = useState(20);
+  const offset = page * pageSize;
+  const { data, isLoading, isError } = useVideoAssetFailures(pageSize, offset);
   const retry = useRetryVideoAsset();
   const pushToast = useToastStore((s) => s.push);
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
-  const hasNext = offset + VIDEO_ASSET_FAILURE_PAGE_SIZE < total;
-  const pageStart = total === 0 ? 0 : offset + 1;
-  const pageEnd = Math.min(total, offset + items.length);
 
   useEffect(() => {
     if (isLoading) return;
-    const lastPage = Math.max(0, Math.ceil(total / VIDEO_ASSET_FAILURE_PAGE_SIZE) - 1);
+    const lastPage = Math.max(0, Math.ceil(total / pageSize) - 1);
     if (page > lastPage) setPage(lastPage);
-  }, [isLoading, page, total]);
+  }, [isLoading, page, pageSize, total]);
 
   const onRetry = (asset: VideoAssetFailureItem) => {
     retry.mutate(
@@ -217,7 +216,7 @@ function VideoAssetFailuresPanel() {
         ) : (
           <div>
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-sm">
+              <table className={listStyles.table}>
                 <thead>
                   <tr className="border-b border-border">
                     <th className={thClass}>类型</th>
@@ -273,33 +272,20 @@ function VideoAssetFailuresPanel() {
                 </tbody>
               </table>
             </div>
-            {(page > 0 || hasNext) && (
-              <div className="flex items-center justify-between gap-3 px-3 pb-3 pt-2.5">
-                <span className="text-xs text-muted-foreground">
-                  第 {page + 1} 页 · {pageStart}-{pageEnd} / 共 {total} 条
-                </span>
-                <div className="inline-flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={page === 0}
-                    onClick={() => setPage((p) => Math.max(0, p - 1))}
-                  >
-                    <Icon name="chevLeft" size={11} /> 上一页
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={!hasNext}
-                    onClick={() => setPage((p) => p + 1)}
-                  >
-                    下一页 <Icon name="chevRight" size={11} />
-                  </Button>
-                </div>
-              </div>
-            )}
           </div>
         )}
+        <ListPagination
+          label="视频资产失败"
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          loading={isLoading}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(0);
+          }}
+        />
       </Card>
     </div>
   );
@@ -308,11 +294,21 @@ function VideoAssetFailuresPanel() {
 export function StoragePage() {
   const qc = useQueryClient();
   const { data: bucketsData, isError: bucketsError } = useStorageBuckets();
-  const { data: datasetsData } = useDatasets();
+  const pagination = useOffsetListPagination();
+  const {
+    data: datasetsData,
+    isLoading: datasetsLoading,
+    isFetching: datasetsFetching,
+  } = useDatasets({ limit: pagination.pageSize, offset: pagination.offset });
 
   const buckets = bucketsData?.items ?? [];
   const datasets = datasetsData?.items ?? [];
   const totalDatasets = datasetsData?.total ?? 0;
+  useEffect(() => {
+    if (!datasetsData || datasetsFetching) return;
+    const lastPage = Math.max(0, Math.ceil(totalDatasets / pagination.pageSize) - 1);
+    if (pagination.page > lastPage) pagination.setPage(lastPage);
+  }, [datasetsData, datasetsFetching, totalDatasets, pagination]);
 
   const handleRefresh = () => {
     qc.invalidateQueries({ queryKey: ["storage-buckets"] });
@@ -337,7 +333,7 @@ export function StoragePage() {
       </div>
 
       {/* Stats */}
-      <div className="mb-5 grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard icon="db" label="存储后端" value="MinIO (S3)" />
         <StatCard icon="folder" label="存储桶" value={String(buckets.length)} />
         <StatCard icon="layers" label="数据集数量" value={String(totalDatasets)} />
@@ -384,7 +380,7 @@ export function StoragePage() {
             <h3 className={CARD_TITLE_CLASS}>数据集存储概览</h3>
           </div>
           {datasets.length > 0 ? (
-            <table className="w-full border-separate border-spacing-0 text-sm">
+            <table className={listStyles.table}>
               <thead>
                 <tr>
                   {["数据集", "类型", "文件数", "容量", "关联项目"].map((h, i) => (
@@ -409,6 +405,15 @@ export function StoragePage() {
               <div>暂无数据集</div>
             </div>
           )}
+          <ListPagination
+            label="存储数据集"
+            page={pagination.page}
+            pageSize={pagination.pageSize}
+            total={totalDatasets}
+            loading={datasetsLoading}
+            onPageChange={pagination.setPage}
+            onPageSizeChange={pagination.setPageSize}
+          />
         </Card>
       </div>
 

@@ -1,3 +1,6 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
+import { useListPagination } from "@/hooks/useListPagination";
 import { CopyableError } from "@/components/ui/CopyableError";
 /**
  * v0.23.4 · runtime observation orchestrator (plan §6.2 / §9.3).
@@ -460,6 +463,7 @@ function EnvOnlySection({
   onRegister: (url: string) => void;
 }): React.ReactElement {
   const [collapsed, setCollapsed] = useState(true);
+  const pagination = useListPagination(targets);
   return (
     <section className="flex flex-col gap-2.5">
       <button
@@ -477,10 +481,18 @@ function EnvOnlySection({
         <span className="text-2xs font-normal">来自 ML_BACKEND_OBSERVE_URLS，未注册到全局表</span>
       </button>
       {!collapsed && (
-        <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
-          {targets.map((t) => (
-            <EnvOnlyContainerCard key={t.url} target={t} onRegister={onRegister} />
+        <div className={listStyles.surface}>
+          {pagination.items.map((t) => (
+            <div key={t.url} className={listStyles.row}>
+              <EnvOnlyContainerCard target={t} onRegister={onRegister} />
+            </div>
           ))}
+          <ListPagination
+            label="未纳管容器"
+            {...pagination}
+            onPageChange={pagination.setPage}
+            onPageSizeChange={pagination.setPageSize}
+          />
         </div>
       )}
     </section>

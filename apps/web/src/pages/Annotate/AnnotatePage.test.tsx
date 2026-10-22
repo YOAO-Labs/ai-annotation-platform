@@ -190,7 +190,7 @@ describe("AnnotatePage", () => {
     const fetchNextPage = vi.fn().mockResolvedValue(undefined);
     mockUseTaskList.mockReturnValue(
       taskQuery({
-        data: { pages: [{ items: [task("t1"), task("t2")], total: 3 }] },
+        data: { pages: [{ items: [task("t1"), task("t2")], total: 3, next_cursor: "next" }] },
         hasNextPage: true,
         fetchNextPage,
         isPaused: true,
@@ -198,10 +198,16 @@ describe("AnnotatePage", () => {
       }),
     );
     renderUI("/annotate?batch=b1");
-    fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "网络连接已断开，更多任务当前内容已保留，恢复连接后会自动更新",
-    );
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    expect(
+      screen
+        .getAllByRole("status")
+        .some((element) =>
+          element.textContent?.includes(
+            "网络连接已断开，更多任务当前内容已保留，恢复连接后会自动更新",
+          ),
+        ),
+    ).toBe(true);
     expect(fetchNextPage).toHaveBeenCalledOnce();
   });
 
@@ -292,7 +298,11 @@ describe("AnnotatePage", () => {
     expect(screen.getByRole("button", { name: "选择 b1" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "选择 b2" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "选择 b1" }));
-    expect(mockUseTaskList).toHaveBeenLastCalledWith("p1", { batch_id: "b1", status: "rejected" });
+    expect(mockUseTaskList).toHaveBeenLastCalledWith("p1", {
+      batch_id: "b1",
+      status: "rejected",
+      limit: 20,
+    });
     expect(screen.getByText("该批次没有待重做任务")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "返回全部批次" }));
     expect(screen.queryByRole("button", { name: "选择 b2" })).not.toBeInTheDocument();
@@ -300,56 +310,46 @@ describe("AnnotatePage", () => {
     expect(screen.getByRole("button", { name: "选择 b2" })).toBeInTheDocument();
   });
 
-  it("250 条任务可加载到末页、跨页去重，并在切批次后丢弃旧列表", () => {
-    const firstHundred = Array.from({ length: 100 }, (_, index) =>
-      task(`t-${index + 1}`, `T-${index + 1}`),
-    );
-    const secondPage = [task("t-100", "T-100"), task("t-101", "T-101")];
-    const lastPage = [task("t-250", "T-250")];
-    const firstQuery = taskQuery({
-      data: {
-        pages: [{ items: firstHundred, total: 250 }, { items: secondPage }],
+  it("cursor 页独立显示，上一页复用历史，切批次与行数返回首页", async () => {
+    const pages = [
+      {
+        items: Array.from({ length: 20 }, (_, index) => task(`t-${index + 1}`, `T-${index + 1}`)),
+        total: 45,
+        next_cursor: "next-20",
       },
-      hasNextPage: true,
-    });
-    const lastQuery = taskQuery({
-      data: {
-        pages: [{ items: firstHundred, total: 250 }, { items: secondPage }, { items: lastPage }],
-      },
-      hasNextPage: false,
-    });
-    const secondBatchQuery = taskQuery({
-      data: { pages: [{ items: [task("b2-task", "B2-1")], total: 1 }] },
-    });
-    let loadedLastPage = false;
+      { items: [task("t-21", "T-21")], next_cursor: "next-40" },
+      { items: [task("t-45", "T-45")], next_cursor: null },
+    ];
+    const fetchNextPage = vi.fn();
     mockUseMyBatches.mockReturnValue({
       data: [batch, secondBatch],
       isLoading: false,
       isError: false,
-      refetch: vi.fn(),
     });
-    mockUseTaskList.mockImplementation((_projectId: string, params: { batch_id?: string }) => {
-      if (params?.batch_id === "b2") return secondBatchQuery;
-      return loadedLastPage ? lastQuery : firstQuery;
-    });
-
-    const view = renderUI("/annotate?batch=b1");
-    expect(screen.getByText("T-1")).toBeInTheDocument();
-    expect(screen.getByText("T-101")).toBeInTheDocument();
-    expect(screen.getAllByText("T-100")).toHaveLength(1);
-    expect(screen.getByText("共 250 个任务（已加载 101）")).toBeInTheDocument();
-
-    loadedLastPage = true;
-    fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
-    view.rerender(
-      <QueryClientProvider client={new QueryClient()}>
-        <MemoryRouter initialEntries={["/annotate?batch=b1"]}>
-          <AnnotatePage />
-        </MemoryRouter>
-      </QueryClientProvider>,
+    mockUseTaskList.mockImplementation((_projectId: string, params: { batch_id?: string }) =>
+      taskQuery({
+        data: {
+          pages:
+            params?.batch_id === "b2" ? [{ items: [task("b2-task", "B2-1")], total: 1 }] : pages,
+        },
+        fetchNextPage,
+      }),
     );
-    expect(screen.getByText("T-250")).toBeInTheDocument();
-
+    renderUI("/annotate?batch=b1");
+    expect(screen.getByText("T-1")).toBeInTheDocument();
+    expect(screen.queryByText("T-21")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    expect(screen.getByText("T-21")).toBeInTheDocument();
+    expect(screen.queryByText("T-1")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    expect(screen.getByText("T-45")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "下一页" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "上一页" }));
+    expect(screen.getByText("T-21")).toBeInTheDocument();
+    expect(fetchNextPage).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("每页任务数"), { target: { value: "50" } });
+    expect(screen.getByText("T-1")).toBeInTheDocument();
+    expect(mockUseTaskList).toHaveBeenLastCalledWith("p1", { batch_id: "b1", limit: 50 });
     fireEvent.click(screen.getByRole("button", { name: "选择 b2" }));
     expect(screen.getByText("B2-1")).toBeInTheDocument();
     expect(screen.queryByText("T-1")).not.toBeInTheDocument();

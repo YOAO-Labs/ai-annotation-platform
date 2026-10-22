@@ -18,8 +18,8 @@ import type { UrlStateCodec, UrlStateIssue } from "@/hooks/useUrlFilterState";
 
 // ── 枚举 ─────────────────────────────────────────────────────────────────────
 
-export type MarketTab = "catalog" | "runtime" | "registry";
-export const MARKET_TAB_VALUES = ["catalog", "runtime", "registry"] as const;
+export type MarketTab = "models" | "protocol" | "runtime" | "registry";
+export const MARKET_TAB_VALUES = ["models", "protocol", "runtime", "registry"] as const;
 
 export type RegistryView = "pools" | "instances" | "gpu" | "projects" | "issues";
 export const REGISTRY_VIEW_VALUES = ["pools", "instances", "gpu", "projects", "issues"] as const;
@@ -74,7 +74,23 @@ export interface MarketTabUrlState {
   tab: MarketTab;
 }
 
-export const MARKET_TAB_DEFAULTS: MarketTabUrlState = { tab: "catalog" };
+export const MARKET_TAB_DEFAULTS: MarketTabUrlState = { tab: "models" };
+
+export function migrateLegacyCatalogUrl(current: URLSearchParams): URLSearchParams {
+  const next = new URLSearchParams(current);
+  if (next.get("tab") !== "catalog") return next;
+  const protocol = !next.get("catalog_group") || next.get("catalog_group") === "task";
+  next.set("tab", protocol ? "protocol" : "models");
+  const prefix = protocol ? "protocol" : "model";
+  for (const [old, target] of [
+    ["catalog_q", "q"],
+    ["catalog_task", "task"],
+  ]) {
+    if (next.has(old)) next.set(`${prefix}_${target}`, next.get(old)!);
+  }
+  for (const key of Array.from(next.keys())) if (key.startsWith("catalog_")) next.delete(key);
+  return next;
+}
 
 function isMarketTab(value: string): value is MarketTab {
   return (MARKET_TAB_VALUES as readonly string[]).includes(value);
@@ -84,13 +100,15 @@ export function parseMarketTabUrlWithIssues(search: string | URLSearchParams): {
   state: MarketTabUrlState;
   issues: UrlStateIssue[];
 } {
-  const params = new URLSearchParams(typeof search === "string" ? search : search.toString());
+  const params = migrateLegacyCatalogUrl(
+    new URLSearchParams(typeof search === "string" ? search : search.toString()),
+  );
   const issues: UrlStateIssue[] = [];
   const raw = params.get(MARKET_URL_KEYS.tab)?.trim() ?? "";
   if (raw && !isMarketTab(raw)) {
     issues.push({ key: MARKET_URL_KEYS.tab, message: "未知的模型市场视图" });
   }
-  return { state: { tab: isMarketTab(raw) ? raw : "catalog" }, issues };
+  return { state: { tab: isMarketTab(raw) ? raw : "models" }, issues };
 }
 
 export const marketTabCodec: UrlStateCodec<MarketTabUrlState> = {

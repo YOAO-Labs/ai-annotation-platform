@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-22
 ---
 
 # 项目模块
@@ -214,6 +214,8 @@ Project 决定 task 的这些上层语义：
 ## 主要 API 面
 
 `apps/api/app/api/v1/projects.py` 当前覆盖项目 CRUD、成员、导出、预标注触发和数据关联；ML 启用 / 服务池由 `ml_backends.py` 管理，命名编排 CRUD 由 `/project-pipelines` 管理，项目套用编排走 `/projects/{id}/pipelines/apply`。
+
+在线学习的项目模型由独立的训练模型路由管理。`TrainedModelVersion` 保存不可变的训练来源、权重和训练版本，`ModelDeployment` 记录各推理实例的试用及实际推理版本；同一项目和任务可以保留多个部署，默认预标选择按任务独立维护。模型列表按全部类型或具体任务查看，模型名称进入统一详情；已回流的执行不能重复添加，来源实验仍受引用保护。操作入口见[模型回流与默认预标](../../user-guide/online-learning/models)。
 
 项目主路由覆盖的主要能力：
 

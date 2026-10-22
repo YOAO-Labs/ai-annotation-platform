@@ -40,7 +40,7 @@ Immutable recipe revision -> explicit policy save -> pinned automatic run
 - Add `apps/web/src/api/trainingRecipes.ts`, `pages/Training/TrainingRecipeLibrary.tsx`, and `TrainingReuseDialog.tsx`; integrate `TrainingCreatePage.tsx`, `trainingDraftStorage.ts`, `TrainingRunMonitor.tsx`, and `pages/Projects/ProjectLearningPolicyPanel.tsx`.
 - Add backend recipe regression tests and frontend recipe/diff tests; extend the affected draft, create-page and policy tests. Preserve the existing run/parameter/policy suites.
 - Update OpenAPI snapshot, regenerate ignored web client, classify web-only SDK endpoints in `packages/python-sdk/api-coverage.toml`, and verify the SDK OpenAPI contract.
-- Update `README.md`, `CHANGELOG.md`, `docs-site/user-guide/projects/online-learning.md`, `docs-site/api/guides/training-datasets.md`, `docs-site/dev/concepts/training-datasets.md`, generated API route index and backlog/dependency links.
+- Update `README.md`, `CHANGELOG.md`, `docs-site/user-guide/online-learning/index.md`, `docs-site/api/guides/training-datasets.md`, `docs-site/dev/concepts/training-datasets.md`, generated API route index and backlog/dependency links.
 
 ## Verification and runtime
 

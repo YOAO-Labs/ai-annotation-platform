@@ -8,21 +8,24 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { batchesApi } from "@/api/batches";
 import { asyncJobsApi } from "@/api/asyncJobs";
 import { tasksApi } from "@/api/tasks";
+import { trainingRunsApi } from "@/api/trainingRuns";
 import {
   trainingDatasetsApi,
   type TrainingDatasetSummary,
   type TrainingDatasetPreflight,
   type TrainingDatasetSelection,
+  type TrainingDatasetCreate,
 } from "@/api/trainingDatasets";
 import { useProject } from "@/hooks/useProjects";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { Button } from "@/components/ui/Button";
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
 import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { Modal } from "@/components/ui/Modal";
 import { confirmDialog } from "@/components/ui/decisionDialog";
 import { ProjectTrainingDataVersions } from "./ProjectTrainingDataVersions";
 import { ProjectLearningSectionHeader } from "./ProjectLearningSectionHeader";
-import { cn } from "@/lib/utils";
 import { TrainingError } from "../Training/TrainingFeedback";
 import { ProjectTrainingPanel } from "./ProjectTrainingPanel";
 import { lineageReturn } from "@/api/modelLineage";
@@ -34,7 +37,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { segmentationTask, trainingTaskLabel } from "../Training/trainingPresentation";
 import { newTrainingVersionName } from "../Training/trainingNames";
 import { TASKS } from "@/api/generated/capabilityVocab.gen";
-import type { ProjectTaskDatasetOut, TrainingDatasetCreate } from "@/api/generated/types.gen";
+import type { ProjectTaskDatasetOut } from "@/api/generated/types.gen";
 import { datasetParentReason } from "./datasetCompatibility";
 import { ApiError } from "@/api/client";
 import { useTrainingSessionRevision, useTrainingViewOwner } from "../Training/trainingViewOwner";
@@ -45,10 +48,21 @@ import {
   type TrainingDatasetDraftOwner,
 } from "../Training/trainingDatasetDraftStorage";
 
+import {
+  datasetDraftScope,
+  nativeBridgeOf,
+  supportsInstanceMaskBridge,
+  instanceMaskBridge,
+  type InstanceMaskBridge,
+} from "../Training/trainingDatasetBridges";
+
 type DatasetTask = ProjectTaskDatasetOut["task"];
+type DatasetTaskFilter = DatasetTask | "all";
 const datasetTasks: DatasetTask[] = ["detect", "segment", "classify", "pose", "obb"];
 const isDatasetTask = (value: unknown): value is DatasetTask =>
   datasetTasks.includes(value as DatasetTask);
+const isDatasetTaskFilter = (value: unknown): value is DatasetTaskFilter =>
+  value === "all" || isDatasetTask(value);
 
 export type ProjectLearningOutletContext = {
   createButtonRef: RefObject<HTMLButtonElement>;
@@ -119,27 +133,41 @@ function ProjectLearningContent({
   const [params, setParams] = useSearchParams();
   const { owner, owns, assert } = useTrainingViewOwner(projectId, scope);
   const datasetOwner = useCallback(
-    (task: "detect" | "segment"): TrainingDatasetDraftOwner => ({
+    (task: "detect" | "segment", bridge?: InstanceMaskBridge): TrainingDatasetDraftOwner => ({
       userId: owner.userId ?? "",
       sessionId: owner.sessionId ?? "",
       projectId,
       task,
+      ...(bridge ? { bridge } : {}),
     }),
     [owner.userId, owner.sessionId, projectId],
   );
+  const initialTask = params.get("data_task") === segmentationTask ? segmentationTask : "detect";
+  const initialBridge =
+    initialTask === "segment" && params.get("data_bridge") === instanceMaskBridge
+      ? instanceMaskBridge
+      : undefined;
   const [storedRequests] = useState(
     () =>
       new Map(
-        (["detect", "segment"] as const).map((task) => [
-          task,
-          owner.userId && owner.sessionId && owns()
-            ? readTrainingDatasetDraft(datasetOwner(task))
-            : { body: null, error: "登录会话不可用，请重新登录。" },
-        ]),
+        (
+          [
+            { task: "detect" },
+            { task: "segment" },
+            { task: "segment", bridge: instanceMaskBridge },
+          ] as const
+        ).map((entry) => {
+          const bridge = "bridge" in entry ? entry.bridge : undefined;
+          return [
+            datasetDraftScope(entry.task, bridge),
+            owner.userId && owner.sessionId && owns()
+              ? readTrainingDatasetDraft(datasetOwner(entry.task, bridge))
+              : { body: null, error: "登录会话不可用，请重新登录。" },
+          ] as const;
+        }),
       ),
   );
-  const initialTask = params.get("data_task") === segmentationTask ? segmentationTask : "detect";
-  const initialRequest = storedRequests.get(initialTask)!;
+  const initialRequest = storedRequests.get(datasetDraftScope(initialTask, initialBridge))!;
   const initialBody = initialRequest.body;
   const tab = ["training", "data", "models", "automation"].includes(params.get("tab") ?? "")
     ? params.get("tab")!
@@ -159,14 +187,20 @@ function ProjectLearningContent({
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState(() => initialBody?.name ?? newTrainingVersionName());
   const [batchId, setBatchId] = useState(initialBody?.batch_id ?? "");
+  const [bridge, setBridge] = useState<InstanceMaskBridge | undefined>(
+    nativeBridgeOf(initialBody?.bridge) ?? initialBridge,
+  );
   const [parentId, setParentId] = useState(initialBody?.parent_id ?? "");
   const [trainingTask, setTrainingTask] =
     useState<NonNullable<TrainingDatasetSelection["task"]>>(initialTask);
-  const [browseTask, setBrowseTask] = useState<DatasetTask>(
-    isDatasetTask(params.get("data_task")) ? (params.get("data_task") as DatasetTask) : "detect",
+  const [browseTask, setBrowseTask] = useState<DatasetTaskFilter>(
+    isDatasetTaskFilter(params.get("data_task"))
+      ? (params.get("data_task") as DatasetTaskFilter)
+      : "detect",
   );
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [diagnosticsPage, setDiagnosticsPage] = useState(0);
+  const [diagnosticsPageSize, setDiagnosticsPageSize] = useState(20);
   const taskChosen = useRef(params.has("data_task") || params.has("dataset"));
   const [mode, setMode] = useState<"reviewed" | "manager_confirmed">(
     initialBody?.mode ?? "reviewed",
@@ -177,7 +211,7 @@ function ProjectLearningContent({
   const [negatives, setNegatives] = useState<string[]>(initialBody?.confirmed_negative_ids ?? []);
   const [taskPage, setTaskPage] = useState(0);
   const datasetList = useTrainingListFilters("data_list");
-  const { page, setPage } = datasetList;
+  const { page, setPage, pageSize, setPageSize } = datasetList;
   const datasetSearch = useDebouncedValue(datasetList.filters.q);
   const [parentPage, setParentPage] = useState(0);
   const setDetailId = (value: string) => {
@@ -215,6 +249,7 @@ function ProjectLearningContent({
     name,
     batchId,
     parentId,
+    bridge,
     mode,
     seed,
     fraction,
@@ -229,11 +264,15 @@ function ProjectLearningContent({
   };
   const currentDraft = useRef(draftSnapshot);
   currentDraft.current = draftSnapshot;
-  const taskDrafts = useRef(new Map<typeof trainingTask, typeof draftSnapshot>());
-  const activeTask = useRef(trainingTask);
+  const taskDrafts = useRef(new Map<string, typeof draftSnapshot>());
+  const activeDraft = useRef(datasetDraftScope(trainingTask, bridge));
+  const preferredBridges = useRef(
+    new Map<string, InstanceMaskBridge | undefined>([[initialTask, bridge]]),
+  );
   const selection: TrainingDatasetSelection = useMemo(
     () => ({
       task: trainingTask,
+      ...(bridge ? { bridge } : {}),
       batch_id: batchId || null,
       parent_id: parentId || null,
       mode,
@@ -242,7 +281,7 @@ function ProjectLearningContent({
       task_ids: mode === "manager_confirmed" ? selected : [],
       confirmed_negative_ids: mode === "manager_confirmed" ? negatives : [],
     }),
-    [trainingTask, batchId, parentId, mode, seed, fraction, selected, negatives],
+    [trainingTask, bridge, batchId, parentId, mode, seed, fraction, selected, negatives],
   );
   const versions = useQuery({
     queryKey: [
@@ -251,6 +290,7 @@ function ProjectLearningContent({
       scope,
       browseTask,
       page,
+      pageSize,
       datasetSearch,
       datasetList.filters.status,
       datasetList.filters.created_from,
@@ -259,11 +299,11 @@ function ProjectLearningContent({
     queryFn: ({ signal }) =>
       trainingDatasetsApi.list(
         projectId,
-        page * 20,
+        page * pageSize,
         undefined,
         { signal },
         {
-          task: browseTask,
+          ...(browseTask !== "all" && { task: browseTask }),
           ...(datasetSearch && { q: datasetSearch }),
           ...(datasetList.filters.status && { status: datasetList.filters.status }),
           ...(datasetList.filters.created_from && {
@@ -271,6 +311,7 @@ function ProjectLearningContent({
           }),
           ...(datasetList.filters.created_to && { created_to: datasetList.filters.created_to }),
         },
+        pageSize,
       ),
     enabled: tab === "data",
     refetchInterval: (query) =>
@@ -292,14 +333,27 @@ function ProjectLearningContent({
         : false,
   });
   const diagnostics = useQuery({
-    queryKey: ["task-dataset-diagnostics", projectId, scope, diagnosticsPage],
+    queryKey: ["task-dataset-diagnostics", projectId, scope, diagnosticsPage, diagnosticsPageSize],
     queryFn: ({ signal }) =>
-      trainingDatasetsApi.unrecognizedVersions(projectId, diagnosticsPage * 20, { signal }),
+      trainingDatasetsApi.unrecognizedVersions(
+        projectId,
+        diagnosticsPage * diagnosticsPageSize,
+        { signal },
+        diagnosticsPageSize,
+      ),
     enabled: tab === "data" && diagnosticsOpen,
     retry: false,
   });
+  const catalog = useQuery({
+    queryKey: ["training-catalog", projectId, scope],
+    queryFn: ({ signal }) => trainingRunsApi.catalog(projectId, { signal }),
+    enabled: tab === "data" && createOpen && trainingTask === "segment",
+    retry: false,
+  });
+  const nativeMaskSupported = supportsInstanceMaskBridge(catalog.data);
+  const bridgeQualified = bridge !== instanceMaskBridge || nativeMaskSupported;
   const parents = useQuery({
-    queryKey: ["training-dataset-parents", projectId, scope, trainingTask, parentPage],
+    queryKey: ["training-dataset-parents", projectId, scope, trainingTask, bridge, parentPage],
     queryFn: ({ signal }) =>
       trainingDatasetsApi.list(
         projectId,
@@ -341,6 +395,7 @@ function ProjectLearningContent({
       assert();
       if (currentDraft.current.pendingCreate || currentDraft.current.storageError)
         throw new DOMException("请先确认原创建请求", "AbortError");
+      if (!bridgeQualified) throw new Error("当前训练执行器未提供原生实例掩码桥接资格");
       return trainingDatasetsApi.preflight(projectId, selection);
     },
     onMutate: () => selectionEpoch.current,
@@ -365,7 +420,10 @@ function ProjectLearningContent({
     },
     onMutate: (body) => {
       assert();
-      const failure = saveTrainingDatasetDraft(datasetOwner(body.task ?? "detect"), body);
+      const failure = saveTrainingDatasetDraft(
+        datasetOwner(body.task ?? "detect", nativeBridgeOf(body.bridge)),
+        body,
+      );
       if (failure) throw new Error(failure);
       currentDraft.current.pendingCreate = body;
       setPendingCreate(body);
@@ -373,22 +431,30 @@ function ProjectLearningContent({
     },
     onSuccess: (value, body, epoch) => {
       if (!owns()) return;
-      const failure = removeMatchingTrainingDatasetDraft(datasetOwner(body.task ?? "detect"), body);
+      const failure = removeMatchingTrainingDatasetDraft(
+        datasetOwner(body.task ?? "detect", nativeBridgeOf(body.bridge)),
+        body,
+      );
       if (failure) {
         setError(failure);
         return;
       }
       refresh();
-      const previous = taskDrafts.current.get(body.task ?? "detect");
+      const previous = taskDrafts.current.get(
+        datasetDraftScope(body.task ?? "detect", nativeBridgeOf(body.bridge)),
+      );
       if (previous?.pendingCreate?.request_id === body.request_id)
-        taskDrafts.current.set(body.task ?? "detect", {
-          ...previous,
-          pendingCreate: null,
-          report: null,
-          error: "",
-          requestId: randomId(),
-          checkedDigest: null,
-        });
+        taskDrafts.current.set(
+          datasetDraftScope(body.task ?? "detect", nativeBridgeOf(body.bridge)),
+          {
+            ...previous,
+            pendingCreate: null,
+            report: null,
+            error: "",
+            requestId: randomId(),
+            checkedDigest: null,
+          },
+        );
       setPendingCreate((current) => (current?.request_id === body.request_id ? null : current));
       if (epoch !== selectionEpoch.current) return;
       setDetailId(value.id);
@@ -417,21 +483,26 @@ function ProjectLearningContent({
         !transientConflict;
       if (refused) {
         const failure = removeMatchingTrainingDatasetDraft(
-          datasetOwner(body.task ?? "detect"),
+          datasetOwner(body.task ?? "detect", nativeBridgeOf(body.bridge)),
           body,
         );
         if (failure) {
           setError(failure);
           return;
         }
-        const previous = taskDrafts.current.get(body.task ?? "detect");
+        const previous = taskDrafts.current.get(
+          datasetDraftScope(body.task ?? "detect", nativeBridgeOf(body.bridge)),
+        );
         if (previous?.pendingCreate?.request_id === body.request_id)
-          taskDrafts.current.set(body.task ?? "detect", {
-            ...previous,
-            pendingCreate: null,
-            report: null,
-            error: reason.message,
-          });
+          taskDrafts.current.set(
+            datasetDraftScope(body.task ?? "detect", nativeBridgeOf(body.bridge)),
+            {
+              ...previous,
+              pendingCreate: null,
+              report: null,
+              error: reason.message,
+            },
+          );
         setPendingCreate((current) => (current?.request_id === body.request_id ? null : current));
       }
       if (epoch !== undefined && epoch !== selectionEpoch.current) return;
@@ -500,20 +571,29 @@ function ProjectLearningContent({
     setError("");
   };
   const activateTask = useCallback(
-    (task: typeof trainingTask) => {
-      if (activeTask.current === task) return;
-      taskDrafts.current.set(activeTask.current, currentDraft.current);
-      activeTask.current = task;
+    (task: typeof trainingTask, requestedBridge?: InstanceMaskBridge | "polygon") => {
+      const nextBridge =
+        task === "segment"
+          ? requestedBridge === "polygon"
+            ? undefined
+            : (requestedBridge ?? preferredBridges.current.get(task))
+          : undefined;
+      const draftKey = datasetDraftScope(task, nextBridge);
+      if (activeDraft.current === draftKey) return;
+      taskDrafts.current.set(activeDraft.current, currentDraft.current);
+      activeDraft.current = draftKey;
+      preferredBridges.current.set(task, nextBridge);
       selectionEpoch.current += 1;
-      const stored = storedRequests.get(task)!;
+      const stored = storedRequests.get(draftKey)!;
       const body = stored.body;
       const draft =
-        taskDrafts.current.get(task) ??
+        taskDrafts.current.get(draftKey) ??
         (body
           ? {
               name: body.name,
               batchId: body.batch_id ?? "",
               parentId: body.parent_id ?? "",
+              bridge: nativeBridgeOf(body.bridge),
               mode: body.mode ?? "reviewed",
               seed: String(body.seed ?? 42),
               fraction: String((body.validation_fraction ?? 0.2) * 100),
@@ -528,6 +608,7 @@ function ProjectLearningContent({
             }
           : undefined);
       setTrainingTask(task);
+      setBridge(nextBridge);
       setName(draft?.name ?? newTrainingVersionName());
       setBatchId(draft?.batchId ?? "");
       setParentId(draft?.parentId ?? "");
@@ -547,7 +628,7 @@ function ProjectLearningContent({
     },
     [storedRequests],
   );
-  const chooseTask = (task: DatasetTask) => {
+  const chooseTask = (task: DatasetTaskFilter, resetFilters = false) => {
     taskChosen.current = true;
     setBrowseTask(task);
     if (task === "detect" || task === "segment") activateTask(task);
@@ -558,7 +639,14 @@ function ProjectLearningContent({
     setParams((previous) => {
       const next = new URLSearchParams(previous);
       next.set("data_task", task);
+      const nextBridge = task === "segment" ? preferredBridges.current.get(task) : undefined;
+      if (nextBridge) next.set("data_bridge", nextBridge);
+      else next.delete("data_bridge");
       next.delete("data_list_page");
+      if (resetFilters)
+        [...next.keys()]
+          .filter((key) => key.startsWith("data_list_"))
+          .forEach((key) => next.delete(key));
       [
         "dataset",
         "data_baseline",
@@ -588,10 +676,21 @@ function ProjectLearningContent({
   const selectedTaskEnabled =
     trainingTask === segmentationTask ? segmentationEnabled : detectionEnabled;
   const taskDataset = taskDatasets.data?.items.find((item) => item.task === browseTask);
-  const createCapability = taskDataset?.capabilities.create_version;
-  const qualifiedTask = browseTask === "detect" || browseTask === "segment";
+  const createCapability = (
+    browseTask === "all"
+      ? taskDatasets.data?.items.find((item) => item.task === trainingTask)
+      : taskDataset
+  )?.capabilities.create_version;
+  const qualifiedTask = browseTask === "all" || browseTask === "detect" || browseTask === "segment";
   const parentReason =
-    parentId && selectedParent.data ? datasetParentReason(selectedParent.data, trainingTask) : null;
+    parentId && selectedParent.data
+      ? datasetParentReason(
+          selectedParent.data,
+          trainingTask,
+          bridge ??
+            (trainingTask === "segment" ? "ultralytics-simple-polygon-1" : "ultralytics-bbox-1"),
+        )
+      : null;
   useEffect(() => {
     if (taskChosen.current || !project.data) return;
     if (!segmentationEnabled && !detectionEnabled) {
@@ -610,10 +709,24 @@ function ProjectLearningContent({
   }, [project.data, segmentationEnabled, detectionEnabled, activateTask, taskDatasets.data]);
   useEffect(() => {
     const rawTask = params.get("data_task");
-    if (!isDatasetTask(rawTask) || rawTask === browseTask) return;
+    if (
+      !isDatasetTaskFilter(rawTask) ||
+      (rawTask !== "detect" && rawTask !== "segment" && rawTask === browseTask)
+    )
+      return;
+    const requestedBridge =
+      rawTask === "segment" && params.get("data_bridge") === instanceMaskBridge
+        ? instanceMaskBridge
+        : undefined;
+    if (
+      rawTask === browseTask &&
+      activeDraft.current === datasetDraftScope(rawTask as "detect" | "segment", requestedBridge)
+    )
+      return;
     taskChosen.current = true;
     setBrowseTask(rawTask);
-    if (rawTask === "detect" || rawTask === "segment") activateTask(rawTask);
+    if (rawTask === "detect" || rawTask === "segment")
+      activateTask(rawTask, requestedBridge ?? "polygon");
     else {
       selectionEpoch.current += 1;
       setCreateOpen(false);
@@ -710,32 +823,6 @@ function ProjectLearningContent({
             description="按任务管理冻结版本，检查数据分布与迭代变化。"
             actions={
               <>
-                <label className="flex shrink-0 items-center gap-2 whitespace-nowrap text-xs font-medium">
-                  数据集任务
-                  <select
-                    className={cn(inputClass, "h-8 py-0")}
-                    value={browseTask}
-                    disabled={busy}
-                    onChange={(event) => chooseTask(event.target.value as DatasetTask)}
-                  >
-                    {(taskDatasets.data?.items.length
-                      ? taskDatasets.data.items.map((item) => item.task)
-                      : (["detect", "segment"] as DatasetTask[])
-                    ).map((task) => (
-                      <option value={task} key={task}>
-                        {task === "detect" || task === "segment"
-                          ? trainingTaskLabel(task)
-                          : TASKS[task].label}
-                      </option>
-                    ))}
-                    {taskDatasets.data &&
-                      !taskDatasets.data.items.some((item) => item.task === browseTask) && (
-                        <option value={browseTask}>
-                          {TASKS[browseTask].label} · 尚无任务数据集
-                        </option>
-                      )}
-                  </select>
-                </label>
                 <Button
                   ref={prepareButtonRef}
                   size="sm"
@@ -823,13 +910,13 @@ function ProjectLearningContent({
                     />
                   )}
                   {diagnostics.data?.items.map((item, index) => (
-                    <div key={item.id} className="rounded-md bg-muted p-3">
+                    <div key={item.id} className={listStyles.row}>
                       <p className="flex min-w-0 items-center gap-1 font-medium">
                         <span className="min-w-0 truncate" title={item.name}>
                           {item.name}
                         </span>
                         <span className="shrink-0 text-xs font-normal text-muted-foreground">
-                          记录 {diagnosticsPage * 20 + index + 1}
+                          记录 {diagnosticsPage * diagnosticsPageSize + index + 1}
                         </span>
                         <CopyValueButton value={item.id} kind="id" label="复制历史数据版本 ID" />
                       </p>
@@ -838,25 +925,20 @@ function ProjectLearningContent({
                       </p>
                     </div>
                   ))}
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      size="sm"
-                      disabled={!diagnosticsPage || diagnostics.isFetching}
-                      onClick={() => setDiagnosticsPage((value) => value - 1)}
-                    >
-                      上一页诊断
-                    </Button>
-                    <Button
-                      size="sm"
-                      disabled={
-                        (diagnosticsPage + 1) * 20 >= (diagnostics.data?.total ?? 0) ||
-                        diagnostics.isFetching
-                      }
-                      onClick={() => setDiagnosticsPage((value) => value + 1)}
-                    >
-                      下一页诊断
-                    </Button>
-                  </div>
+                  <ListPagination
+                    label="历史版本诊断"
+                    page={diagnosticsPage}
+                    pageSize={diagnosticsPageSize}
+                    total={diagnostics.data?.total ?? 0}
+                    loading={diagnostics.isFetching}
+                    previousLabel="上一页诊断"
+                    nextLabel="下一页诊断"
+                    onPageChange={setDiagnosticsPage}
+                    onPageSizeChange={(size) => {
+                      setDiagnosticsPageSize(size);
+                      setDiagnosticsPage(0);
+                    }}
+                  />
                 </div>
               )}
             </section>
@@ -873,12 +955,43 @@ function ProjectLearningContent({
             pending={action.isPending}
             page={page}
             onPage={setPage}
+            pageSize={pageSize}
+            onPageSize={setPageSize}
             onRetry={() => void versions.refetch()}
             href={(id) => trainingRecordPath(projectId, "data", id, params)}
             onAction={(kind, version) => action.mutate({ kind, version })}
             filters={datasetList.filters}
             onFilter={datasetList.update}
-            onReset={datasetList.reset}
+            onReset={() => chooseTask("all", true)}
+            hasExtraFilters={browseTask !== "all"}
+            showTask={browseTask === "all"}
+            taskFilter={
+              <select
+                aria-label="数据类型筛选"
+                className="min-w-0 rounded-md border border-border bg-background px-2.5 py-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                value={browseTask}
+                disabled={busy}
+                onChange={(event) => chooseTask(event.target.value as DatasetTaskFilter)}
+              >
+                <option value="all">全部类型</option>
+                {[
+                  ...new Set<DatasetTask>([
+                    "detect",
+                    "segment",
+                    ...(taskDatasets.data?.items.map((item) => item.task) ?? []),
+                    ...(browseTask === "all" ? [] : [browseTask]),
+                  ]),
+                ].map((task) => (
+                  <option value={task} key={task}>
+                    {task === "detect"
+                      ? "目标检测"
+                      : task === "segment"
+                        ? "实例分割"
+                        : TASKS[task].label}
+                  </option>
+                ))}
+              </select>
+            }
           />
           <Modal
             open={createOpen}
@@ -918,6 +1031,36 @@ function ProjectLearningContent({
                   </p>
                 </div>
               )}
+              {trainingTask === "segment" && (
+                <label className="mb-4 grid gap-1.5 text-xs font-medium">
+                  分割训练桥接
+                  <select
+                    className={inputClass}
+                    value={bridge ?? "polygon"}
+                    onChange={(event) => {
+                      const nextBridge =
+                        event.target.value === instanceMaskBridge ? instanceMaskBridge : "polygon";
+                      activateTask("segment", nextBridge);
+                      setParams(
+                        (previous) => {
+                          const next = new URLSearchParams(previous);
+                          next.set("data_task", "segment");
+                          if (nextBridge === instanceMaskBridge)
+                            next.set("data_bridge", nextBridge);
+                          else next.delete("data_bridge");
+                          return next;
+                        },
+                        { replace: true },
+                      );
+                    }}
+                  >
+                    <option value="polygon">多边形训练</option>
+                    <option value={instanceMaskBridge} disabled={!nativeMaskSupported}>
+                      原生实例掩码训练{!nativeMaskSupported ? "（当前执行器尚未取得资格）" : ""}
+                    </option>
+                  </select>
+                </label>
+              )}
               <fieldset
                 disabled={busy || !!pendingCreate || !!storageError}
                 className="grid gap-4 border-0 p-0 sm:grid-cols-2"
@@ -933,7 +1076,7 @@ function ProjectLearningContent({
                       图片目标检测 · 矩形框
                     </option>
                     <option value={segmentationTask} disabled={!segmentationEnabled}>
-                      图片实例分割 · 单多边形
+                      图片实例分割
                     </option>
                   </select>
                 </label>
@@ -1014,11 +1157,27 @@ function ProjectLearningContent({
                         <option
                           key={version.id}
                           value={version.id}
-                          disabled={!!datasetParentReason(version, trainingTask)}
+                          disabled={
+                            !!datasetParentReason(
+                              version,
+                              trainingTask,
+                              bridge ??
+                                (trainingTask === "segment"
+                                  ? "ultralytics-simple-polygon-1"
+                                  : "ultralytics-bbox-1"),
+                            )
+                          }
                         >
                           {version.name}
-                          {datasetParentReason(version, trainingTask)
-                            ? ` · ${datasetParentReason(version, trainingTask)}`
+                          {datasetParentReason(
+                            version,
+                            trainingTask,
+                            bridge ??
+                              (trainingTask === "segment"
+                                ? "ultralytics-simple-polygon-1"
+                                : "ultralytics-bbox-1"),
+                          )
+                            ? ` · ${datasetParentReason(version, trainingTask, bridge ?? (trainingTask === "segment" ? "ultralytics-simple-polygon-1" : "ultralytics-bbox-1"))}`
                             : ""}
                         </option>
                       ))}
@@ -1076,7 +1235,20 @@ function ProjectLearningContent({
                     每个版本固定一个训练任务。同一项目可分别创建检测、分割等数据版本；其他工具标注会排除并计数。无目标确认仅针对当前所选任务。
                   </p>
                 </div>
-                {trainingTask === segmentationTask && (
+                {trainingTask === segmentationTask && !nativeMaskSupported && (
+                  <p className="text-xs text-muted-foreground sm:col-span-2">
+                    {catalog.isFetching
+                      ? "正在确认原生实例掩码训练资格…"
+                      : "当前训练执行器未提供原生实例掩码桥接资格，暂不能选择该训练方式。"}
+                  </p>
+                )}
+                {trainingTask === segmentationTask && bridge === instanceMaskBridge && (
+                  <p className="text-xs leading-relaxed text-muted-foreground sm:col-span-2">
+                    使用冻结的逐实例 RLE，纳入画笔、SAM
+                    修正和多边形栅格化后的掩码；孔洞、多部件与重叠实例分别保留。该训练包只供已资格验证的原生掩码消费者使用。不同桥接不能直接继承划分。
+                  </p>
+                )}
+                {trainingTask === segmentationTask && !bridge && (
                   <p className="text-xs leading-relaxed text-muted-foreground sm:col-span-2">
                     仅接受 region 的无洞单多边形。洞、多部件、栅格 mask
                     会在预检时报错；其他工具的标注会单独计数并排除。训练包保留实例来源；原生 mask
@@ -1178,6 +1350,7 @@ function ProjectLearningContent({
                     !!storageError ||
                     !!pendingCreate ||
                     !selectedTaskEnabled ||
+                    !bridgeQualified ||
                     !selectedClasses.length ||
                     !!parentReason ||
                     (!!parentId && !selectedParent.isSuccess) ||
@@ -1195,7 +1368,8 @@ function ProjectLearningContent({
                     busy ||
                     !!storageError ||
                     (!pendingCreate &&
-                      (!report?.ready ||
+                      (!bridgeQualified ||
+                        !report?.ready ||
                         !name.trim() ||
                         !!parentReason ||
                         (!!parentId && !selectedParent.isSuccess)))
@@ -1294,25 +1468,46 @@ function ProjectLearningContent({
           )}
         </TabsContent>
         <TabsContent value="models">
-          {(unsupported || !detectionEnabled) && (
+          {(unsupported || (!detectionEnabled && !segmentationEnabled)) && (
             <p className="rounded-lg bg-muted p-5 text-sm text-muted-foreground">
-              当前模型回流支持图片矩形框检测项目。
+              当前模型回流支持图片目标检测与实例分割项目。
             </p>
           )}
-          {!unsupported && detectionEnabled && (
+          {!unsupported && (detectionEnabled || segmentationEnabled) && (
             <ProjectModelsPanel
               projectId={projectId}
-              classes={(project.data?.tool_bindings?.bbox?.classes ?? []).map((item) => item.name)}
+              classes={[]}
+              taskClasses={{
+                ...(detectionEnabled
+                  ? {
+                      detect: (project.data?.tool_bindings?.bbox?.classes ?? []).map(
+                        (item) => item.name,
+                      ),
+                    }
+                  : {}),
+                ...(segmentationEnabled
+                  ? {
+                      segment: (project.data?.tool_bindings?.region?.classes ?? []).map(
+                        (item) => item.name,
+                      ),
+                    }
+                  : {}),
+              }}
             />
           )}
         </TabsContent>
         <TabsContent value="automation">
-          {(unsupported || !detectionEnabled) && (
+          {(unsupported || (!detectionEnabled && !segmentationEnabled)) && (
             <p className="rounded-lg bg-muted p-5 text-sm text-muted-foreground">
-              当前自动训练支持图片矩形框检测项目。
+              当前自动训练支持图片目标检测与实例分割项目。
             </p>
           )}
-          {!unsupported && detectionEnabled && <ProjectLearningPolicyPanel projectId={projectId} />}
+          {!unsupported && (detectionEnabled || segmentationEnabled) && (
+            <ProjectLearningPolicyPanel
+              projectId={projectId}
+              taskAvailability={{ detect: detectionEnabled, segment: segmentationEnabled }}
+            />
+          )}
         </TabsContent>
       </Tabs>
     </PageContainer>

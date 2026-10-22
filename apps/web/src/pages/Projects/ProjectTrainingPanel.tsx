@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { trainingRunsApi, type TrainingRunOut } from "@/api/trainingRuns";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Plus, FlaskConical, GitCompareArrows } from "lucide-react";
+import { Plus, FlaskConical, GitCompareArrows, Trash2 } from "lucide-react";
 import { TrainingRunMonitor } from "../Training/TrainingRunMonitor";
 import { TrainingStudyPanel } from "../Training/TrainingStudyPanel";
 import { useTrainingEvents } from "../Training/useTrainingEvents";
@@ -73,10 +73,16 @@ export function ProjectTrainingPanel({
     refetchInterval: visible ? 5000 : false,
   });
   const runs = useQuery({
-    queryKey: ["training-runs", projectId, scope, list.page, filters],
+    queryKey: ["training-runs", projectId, scope, list.page, list.pageSize, filters],
     queryFn: async ({ signal }) => {
       session.assert(signal);
-      const data = await trainingRunsApi.list(projectId, list.page * 20, { signal }, filters);
+      const data = await trainingRunsApi.list(
+        projectId,
+        list.page * list.pageSize,
+        { signal },
+        filters,
+        list.pageSize,
+      );
       session.assert(signal);
       return data;
     },
@@ -95,9 +101,7 @@ export function ProjectTrainingPanel({
     },
     enabled: detailVisible && !!detailId,
     refetchInterval: (query) =>
-      detailVisible && query.state.data?.run && active.has(query.state.data.run.status)
-        ? 3000
-        : false,
+      detailVisible ? (active.has(query.state.data?.run.status ?? "") ? 3000 : 5000) : false,
   });
   const selectedAttemptId = attemptId || detail.data?.run.current_attempt_id || "";
   const events = useTrainingEvents(
@@ -112,6 +116,13 @@ export function ProjectTrainingPanel({
     session.assert,
   );
   const current = detail.data?.run;
+  const deletionBlocked = current
+    ? active.has(current.status)
+      ? "实验尚未结束，请先停止训练。"
+      : detail.data?.registered_models?.length
+        ? "实验已被项目模型引用，不能删除。归档模型仍会保留来源引用。"
+        : ""
+    : "正在加载实验详情。";
   const viewKey = `${scope}:${detailId}:${selectedAttemptId}:${current?.current_attempt_id ?? ""}`;
   const currentView = useRef(viewKey);
   if (currentView.current !== viewKey) {
@@ -173,6 +184,8 @@ export function ProjectTrainingPanel({
         await trainingRunsApi.resume(projectId, run.id);
       } else if (
         kind === "delete" &&
+        !active.has(run.status) &&
+        !deletionBlocked &&
         (await confirmDialog({
           title: `删除实验“${run.name}”`,
           description: "将删除此实验的全部权重、检查点和日志。训练数据版本会保留。",
@@ -217,23 +230,47 @@ export function ProjectTrainingPanel({
               <GitCompareArrows className="size-3.5" />
               比较实验
             </Button>
-            <Button
-              ref={createButtonRef}
-              size="sm"
-              variant="primary"
-              disabled={!catalog.data?.enabled}
-              onClick={() =>
-                navigate(
-                  `/projects/${projectId}/learning/new${detailId ? `?return_run=${encodeURIComponent(detailId)}` : ""}`,
-                )
-              }
-            >
-              <Plus className="size-3.5" />
-              新建实验
-            </Button>
+            {mode === "list" ? (
+              <Button
+                ref={createButtonRef}
+                size="sm"
+                variant="primary"
+                disabled={!catalog.data?.enabled}
+                onClick={() => navigate(`/projects/${projectId}/learning/new`)}
+              >
+                <Plus className="size-3.5" />
+                新建实验
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="danger"
+                disabled={!!deletionBlocked || action.isPending}
+                aria-describedby={
+                  current && deletionBlocked ? "training-deletion-blocked" : undefined
+                }
+                onClick={() => {
+                  if (!current) return;
+                  setError("");
+                  action.mutate({
+                    kind: "delete",
+                    run: current,
+                    view: { owner: session.owner, revision: revision.current },
+                  });
+                }}
+              >
+                <Trash2 className="size-3.5" />
+                删除实验
+              </Button>
+            )}
           </>
         }
       />
+      {mode === "detail" && current && deletionBlocked && (
+        <p id="training-deletion-blocked" className="mb-3 text-xs text-muted-foreground">
+          {deletionBlocked}
+        </p>
+      )}
       <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <Badge
           dot
@@ -304,6 +341,8 @@ export function ProjectTrainingPanel({
             failed={runs.isError}
             page={list.page}
             onPage={list.setPage}
+            pageSize={list.pageSize}
+            onPageSize={list.setPageSize}
             selectedId={detailId}
             href={(id) => trainingRecordPath(projectId, "experiments", id, params)}
           />
@@ -349,6 +388,7 @@ export function ProjectTrainingPanel({
               recovery={recovery.data}
               recoveryError={recovery.error?.message}
               registrationEligibility={detail.data?.registration_eligibility}
+              registeredModels={detail.data?.registered_models}
               scope={scope}
               visible={detailVisible}
               assertOwner={session.assert}

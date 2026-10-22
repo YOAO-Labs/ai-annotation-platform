@@ -2,7 +2,7 @@
  * StoragePage 单测 — 存储桶/数据集/视频资产失败 主路径.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, within, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import userEvent from "@testing-library/user-event";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -273,11 +273,15 @@ describe("StoragePage", () => {
     renderUI();
     expect(mockUseVideoAssetFailures).toHaveBeenLastCalledWith(20, 0);
 
-    fireEvent.click(screen.getByRole("button", { name: /下一页/ }));
+    fireEvent.click(
+      within(screen.getByRole("navigation", { name: "视频资产失败分页" })).getByRole("button", {
+        name: "下一页",
+      }),
+    );
 
     await waitFor(() => {
       expect(mockUseVideoAssetFailures).toHaveBeenLastCalledWith(20, 20);
     });
-    expect(screen.getByText(/第 2 页/)).toBeInTheDocument();
+    expect(screen.getByText(/第 2 \/ 2 页/)).toBeInTheDocument();
   });
 });

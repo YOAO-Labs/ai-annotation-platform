@@ -315,3 +315,27 @@ async def test_partial_later_evaluations_keep_unknown_delta(
     result = await feedback.evaluation_facts(db_session, world.project, round, refs)
     assert not result["comparable"] and result["delta_second_minus_first"] is None
     assert "取消" in result["reasons"][0]
+
+
+async def test_later_feedback_rejects_an_evaluation_from_another_task(
+    db_session, super_admin, monkeypatch
+):
+    from app.schemas.active_learning import EvaluationReference
+    from tests.sample_evaluation_fixtures import evaluation
+
+    owner, _ = super_admin
+    world = await seed(db_session, owner, monkeypatch)
+    round, _attempt, _ = await create(db_session, owner, world)
+    run, attempt = await evaluation(db_session, owner, world)
+    run.spec = {**run.spec, "model_ref": {**run.spec["model_ref"], "task": "segment"}}
+    reader = AsyncMock()
+    monkeypatch.setattr(feedback.sample_evaluations, "read_report", reader)
+    with pytest.raises(HTTPException) as caught:
+        await feedback.evaluation_facts(
+            db_session,
+            world.project,
+            round,
+            [EvaluationReference(evaluation_id=run.id, attempt_id=attempt.id)],
+        )
+    assert caught.value.detail["code"] == "evaluation_task"
+    reader.assert_not_awaited()

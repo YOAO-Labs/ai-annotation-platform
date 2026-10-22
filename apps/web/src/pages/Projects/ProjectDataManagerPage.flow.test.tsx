@@ -95,9 +95,20 @@ describe("ProjectDataManagerPage task data", () => {
       filter_json: {},
       sort_json: [{ field: "task.created_at", direction: "asc" }],
       columns_json: ["display_id"],
-      limit: 50,
+      limit: 20,
       offset: 0,
     });
+  });
+
+  it("uses the selected row count at the API boundary and returns to the first page", async () => {
+    const captured = installDataManagerApi();
+    renderDataManager("/projects/p1/data-manager?lens=tasks&view=builtin:all");
+    expect(await screen.findByText("T-1")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("每页任务数"), { target: { value: "50" } });
+    await waitFor(() =>
+      expect(lastTaskQuery(captured.taskQueries)).toMatchObject({ limit: 50, offset: 0 }),
+    );
+    expect(screen.getByRole("button", { name: "上一页" })).toBeDisabled();
   });
 
   it("restores the URL filter for a saved view without issuing a premature query", async () => {

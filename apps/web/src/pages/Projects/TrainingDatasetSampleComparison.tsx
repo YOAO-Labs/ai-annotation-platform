@@ -1,6 +1,8 @@
+import { ListPagination } from "@/components/ui/ListPagination";
+import { listStyles } from "@/components/ui/listStyles";
 import { randomId } from "@/utils/id";
 import { CopyableError } from "@/components/ui/CopyableError";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   trainingDatasetsApi,
@@ -37,7 +39,6 @@ type Owner = {
   key: string;
 };
 
-const MEMBER_PAGE_SIZE = 10;
 const CONTENT_HASH = /^[a-f0-9]{64}$/;
 
 function ownsComparison(owner: Owner) {
@@ -53,6 +54,7 @@ function ownsComparison(owner: Owner) {
 
 function useContentMembers(owner: Owner, versionId: string) {
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const query = useQuery({
     queryKey: [
@@ -62,12 +64,13 @@ function useContentMembers(owner: Owner, versionId: string) {
       versionId,
       owner.contentSha256,
       page,
+      pageSize,
     ],
     queryFn: async ({ signal }) => {
       if (!ownsComparison(owner)) throw new Error("登录会话已变化，请重新打开样本对照");
       const filters: DatasetSampleFilters & { content_sha256: string } = {
-        limit: MEMBER_PAGE_SIZE,
-        offset: page * MEMBER_PAGE_SIZE,
+        limit: pageSize,
+        offset: page * pageSize,
         content_sha256: owner.contentSha256,
       };
       const result = await trainingDatasetsApi.samples(owner.projectId, versionId, filters, {
@@ -77,7 +80,7 @@ function useContentMembers(owner: Owner, versionId: string) {
         throw new DOMException("样本对照所属会话已变化", "AbortError");
       if (
         result.source_version_id !== versionId ||
-        result.offset !== page * MEMBER_PAGE_SIZE ||
+        result.offset !== page * pageSize ||
         result.items.some(
           (sample) =>
             sample.version_id !== versionId ||
@@ -92,11 +95,24 @@ function useContentMembers(owner: Owner, versionId: string) {
     enabled: CONTENT_HASH.test(owner.contentSha256) && ownsComparison(owner),
     retry: false,
   });
+  const lastPage = Math.max(0, Math.ceil((query.data?.total ?? 0) / pageSize) - 1);
+  useEffect(() => {
+    if (query.data && page > lastPage) {
+      setSelectedTaskId("");
+      setPage(lastPage);
+    }
+  }, [query.data, page, lastPage]);
   const selected =
     query.data?.items.find((sample) => sample.task_id === selectedTaskId) ?? query.data?.items[0];
   return {
     query,
     page,
+    pageSize,
+    resize: (size: number) => {
+      setSelectedTaskId("");
+      setPage(0);
+      setPageSize(size);
+    },
     selected,
     select: setSelectedTaskId,
     navigate: (next: number) => {
@@ -234,10 +250,10 @@ function ComparisonSide({
   unknownContents: number | null;
   onObserved: () => void;
 }) {
-  const { query, page, selected, select, navigate } = members;
+  const { query, page, pageSize, resize, selected, select, navigate } = members;
   const data = query.data;
   return (
-    <section aria-label={label} className="min-w-0 rounded-lg border border-border p-3">
+    <section aria-label={label} className={`${listStyles.surface} min-w-0 p-3`}>
       <header className="mb-3 flex flex-wrap items-start justify-between gap-2 border-b border-border pb-3">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-foreground">{label}</h3>
@@ -295,7 +311,7 @@ function ComparisonSide({
                 >
                   {data.items.map((sample, index) => (
                     <option key={sample.task_id} value={sample.task_id}>
-                      样本 {page * MEMBER_PAGE_SIZE + index + 1} ·{" "}
+                      样本 {page * pageSize + index + 1} ·{" "}
                       {sample.split === "val"
                         ? "验证集"
                         : sample.split === "train"
@@ -314,7 +330,7 @@ function ComparisonSide({
             </div>
             <span className="text-xs tabular-nums text-muted-foreground">
               {data.items.length
-                ? `${page * MEMBER_PAGE_SIZE + 1}–${page * MEMBER_PAGE_SIZE + data.items.length}`
+                ? `${page * pageSize + 1}–${page * pageSize + data.items.length}`
                 : "当前页为空"}{" "}
               / {data.total} 个成员
             </span>
@@ -329,26 +345,20 @@ function ComparisonSide({
           {!selected && (
             <p className="text-sm text-muted-foreground">当前成员页为空，请返回上一页。</p>
           )}
-          {data.total > MEMBER_PAGE_SIZE && (
-            <div className="mt-3 flex justify-end gap-2">
-              <Button
-                size="xs"
-                disabled={!page || query.isFetching}
-                onClick={() => navigate(page - 1)}
-              >
-                上一页成员
-              </Button>
-              <Button
-                size="xs"
-                disabled={(page + 1) * MEMBER_PAGE_SIZE >= data.total || query.isFetching}
-                onClick={() => navigate(page + 1)}
-              >
-                下一页成员
-              </Button>
-            </div>
-          )}
         </>
       )}
+      <ListPagination
+        label={`${label}成员`}
+        page={page}
+        pageSize={pageSize}
+        total={data?.total}
+        count={data?.items.length}
+        loading={query.isFetching}
+        previousLabel="上一页成员"
+        nextLabel="下一页成员"
+        onPageChange={navigate}
+        onPageSizeChange={resize}
+      />
     </section>
   );
 }

@@ -17,6 +17,7 @@ import {
   instancesForPoolPatch,
   issueResetPatch,
   marketTabCodec,
+  migrateLegacyCatalogUrl,
   parseMarketTabUrlWithIssues,
   parseRegistryUrlWithIssues,
   registryUrlCodec,
@@ -31,12 +32,12 @@ describe("marketTabCodec", () => {
 
   it("未知 tab → 回退 catalog 并给出 issue（调用方负责规范化 URL）", () => {
     const { state, issues } = parseMarketTabUrlWithIssues("?tab=bogus");
-    expect(state.tab).toBe("catalog");
+    expect(state.tab).toBe("models");
     expect(issues).toEqual([{ key: "tab", message: "未知的模型市场视图" }]);
   });
 
   it("合法枚举原样解析", () => {
-    for (const tab of ["catalog", "runtime", "registry"] as const) {
+    for (const tab of ["models", "protocol", "runtime", "registry"] as const) {
       const { state, issues } = parseMarketTabUrlWithIssues(`?tab=${tab}`);
       expect(state.tab).toBe(tab);
       expect(issues).toEqual([]);
@@ -45,11 +46,25 @@ describe("marketTabCodec", () => {
 
   it("encode 只写 tab 键，默认值删除该键，其它键保留", () => {
     const current = new URLSearchParams("tab=registry&registry_view=instances&foo=1");
-    const next = marketTabCodec.encode(current, { tab: "catalog" });
+    const next = marketTabCodec.encode(current, { tab: "models" });
     expect(next.get(MARKET_URL_KEYS.tab)).toBeNull();
     // registry_view 与外部键不被触碰。
     expect(next.get(MARKET_URL_KEYS.registryView)).toBe("instances");
     expect(next.get("foo")).toBe("1");
+  });
+
+  it("旧目录链接按实体迁移，保留无关命名空间且迁移幂等", () => {
+    const old = new URLSearchParams(
+      "tab=catalog&catalog_group=backend&catalog_q=YOLO&catalog_task=detect&catalog_view=cards&registry_view=instances",
+    );
+    const next = migrateLegacyCatalogUrl(old);
+    expect(next.get("tab")).toBe("models");
+    expect(next.get("model_q")).toBe("YOLO");
+    expect(next.get("model_task")).toBe("detect");
+    expect(next.get("registry_view")).toBe("instances");
+    expect(next.has("catalog_view")).toBe(false);
+    expect(migrateLegacyCatalogUrl(next).toString()).toBe(next.toString());
+    expect(parseMarketTabUrlWithIssues("tab=catalog").state.tab).toBe("protocol");
   });
 });
 

@@ -4,7 +4,7 @@
  * UI 测试合并写.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 const mockUseBatches = vi.fn();
@@ -141,5 +141,35 @@ describe("BatchesSection (smoke)", () => {
     });
     renderUI();
     expect(screen.queryByText("提交质检")).not.toBeInTheDocument();
+  });
+  it("paginates batches and selects only current-page rows while preserving earlier selections", () => {
+    mockUseBatches.mockReturnValue({
+      data: Array.from({ length: 25 }, (_, index) => ({
+        ...baseBatch,
+        id: `b-${index + 1}`,
+        display_id: `B-${index + 1}`,
+        name: `批次 ${index + 1}`,
+      })),
+      isLoading: false,
+    });
+    renderUI();
+    expect(screen.getByText("批次 1")).toBeInTheDocument();
+    expect(screen.queryByText("批次 21")).not.toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("checkbox")[0]);
+    expect(screen.getByText("20", { selector: "strong" }).parentElement).toHaveTextContent(
+      "已选 20 个批次",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+    expect(screen.getByText("批次 21")).toBeInTheDocument();
+    expect(screen.queryByText("批次 1")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox")[0]).not.toBeChecked();
+    fireEvent.click(screen.getAllByRole("checkbox")[0]);
+    expect(screen.getByText("25", { selector: "strong" }).parentElement).toHaveTextContent(
+      "已选 25 个批次",
+    );
+    fireEvent.change(screen.getByLabelText("每页批次数"), { target: { value: "10" } });
+    expect(screen.getByText("批次 1")).toBeInTheDocument();
+    expect(screen.queryByText("批次 11")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox")[0]).toBeChecked();
   });
 });

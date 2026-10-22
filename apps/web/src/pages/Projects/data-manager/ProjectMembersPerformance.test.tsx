@@ -386,7 +386,7 @@ describe("ProjectMembersPerformance", () => {
       );
       renderPage();
       fireEvent.click(screen.getByRole("button", { name: /Ada Lovelace/ }));
-      fireEvent.click(screen.getByRole("button", { name: "加载更多依据" }));
+      fireEvent.click(screen.getByRole("button", { name: "下一页活动依据" }));
       expect(screen.getByText("next-events")).toBeInTheDocument();
       if (filter === "account status") {
         fireEvent.change(screen.getByLabelText("账号状态"), { target: { value: "inactive" } });
@@ -418,7 +418,7 @@ describe("ProjectMembersPerformance", () => {
     },
   );
 
-  it("keeps accumulated evidence and shows progress while the next page is loading", () => {
+  it("shows loading for the requested evidence page without presenting previous rows as current", () => {
     mocks.events.mockImplementation(
       (_projectId: string, memberId: string | null, query: { cursor: string | null }) => ({
         data:
@@ -444,12 +444,16 @@ describe("ProjectMembersPerformance", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: /Ada Lovelace/ }));
     expect(screen.getByText("visible evidence")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "加载更多依据" }));
-    expect(screen.getByText("visible evidence")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "加载中…" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "下一页活动依据" }));
+    expect(screen.queryByText("visible evidence")).not.toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "活动依据分页" })).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "下一页活动依据" })).toBeDisabled();
   });
 
-  it("appends paginated evidence instead of widening its scope", () => {
+  it("replaces evidence rows with the requested cursor page and restores previous history", () => {
     const first = {
       id: "event-1",
       at: "2026-09-09T01:00:00Z",
@@ -480,8 +484,12 @@ describe("ProjectMembersPerformance", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: /Ada Lovelace/ }));
     expect(screen.getByText("first")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "加载更多依据" }));
+    fireEvent.click(screen.getByRole("button", { name: "下一页活动依据" }));
     expect(screen.getByText("second")).toBeInTheDocument();
+    expect(screen.queryByText("first")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "上一页活动依据" }));
+    expect(screen.getByText("first")).toBeInTheDocument();
+    expect(screen.queryByText("second")).not.toBeInTheDocument();
   });
 
   it("starts evidence pagination over when the member sort changes", async () => {
@@ -537,7 +545,7 @@ describe("ProjectMembersPerformance", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /Ada Lovelace/ }));
     expect(screen.getByText("first sort")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "加载更多依据" }));
+    fireEvent.click(screen.getByRole("button", { name: "下一页活动依据" }));
     expect(screen.getByText("second sort")).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("sort-navigation"));

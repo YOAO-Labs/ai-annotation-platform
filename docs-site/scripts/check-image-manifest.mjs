@@ -8,7 +8,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { collectMarkdownImageReferences, walkFiles } from "../../scripts/image-reference-utils.mjs";
+import { walkFiles } from "../../scripts/image-reference-utils.mjs";
+import { collectPublishedMedia } from "./media-review-lib.mjs";
 import {
   readImageDimensions,
   readScreenshotManifest,
@@ -17,8 +18,6 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../..");
-const DOCS_ROOT = path.join(REPO_ROOT, "docs-site");
-const USER_GUIDE_ROOT = path.join(DOCS_ROOT, "user-guide");
 const MANIFEST_PATH = path.join(REPO_ROOT, "apps/web/e2e/screenshots/outputs/manifest.json");
 const SCENES_ROOT = path.join(REPO_ROOT, "apps/web/e2e/screenshots/scenes");
 const SEED_SPEC_PATH = path.join(REPO_ROOT, "apps/api/app/services/screenshot_seed_spec.py");
@@ -60,11 +59,7 @@ function targetBelongsToScene(target, canonical) {
 const expectedSeedRevision = currentSeedRevision();
 const sceneInventory = collectSceneInventory();
 const { schemaVersion, metadata, entries } = readScreenshotManifest(MANIFEST_PATH);
-const allReferences = collectMarkdownImageReferences({
-  scanRoot: USER_GUIDE_ROOT,
-  repoRoot: REPO_ROOT,
-  docsRoot: DOCS_ROOT,
-});
+const allReferences = collectPublishedMedia();
 const staticReferences = new Map(
   [...allReferences].filter(
     ([key]) => key.startsWith(SCREENSHOT_IMAGE_PREFIX) && !/\.gif$/i.test(key),

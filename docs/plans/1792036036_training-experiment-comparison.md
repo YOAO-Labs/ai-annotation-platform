@@ -77,7 +77,7 @@ Exact implementation files: `apps/api/app/schemas/training_run.py`,
 `apps/web/src/pages/Training/{trainingComparison,useTrainingEvents}.ts`,
 `apps/web/src/pages/Training/TrainingRunMonitor.tsx`, corresponding comparison/hook tests,
 `docs-site/api/openapi.json`, `docs-site/api/guides/training-datasets.md`,
-`docs-site/user-guide/projects/online-learning.md`,
+`docs-site/user-guide/online-learning/index.md`,
 `docs-site/dev/concepts/training-datasets.md`, `README.md`, `CHANGELOG.md`, this plan,
 and links in backlog index/roadmap.
 
@@ -145,6 +145,6 @@ removed test caches, temporary scripts/state/screenshots and the browser auth/se
 The owned development runtime remains healthy with refreshed workers and the rebuilt
 executor. These are local checks and live local acceptance; no remote CI, push or release.
 
-Official documentation: `docs-site/user-guide/projects/online-learning.md`,
+Official documentation: `docs-site/user-guide/online-learning/index.md`,
 `docs-site/api/guides/training-datasets.md`, `docs-site/dev/concepts/training-datasets.md`,
 `README.md` and the Unreleased `CHANGELOG.md` entry. No release milestone was assigned.
