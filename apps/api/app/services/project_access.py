@@ -56,6 +56,9 @@ _WORKSPACE_PROJECT_ACCESS_STEP = text(
     "SELECT aap_workspace_v1.project_access_step("
     "CAST(:actor_id AS uuid), CAST(:project_id AS uuid), CAST(:phase AS text))"
 )
+_WORKSPACE_PROJECT_READ = text(
+    "SELECT aap_workspace_v1.read_project_row(CAST(:project_id AS uuid))"
+)
 _WORKSPACE_PROJECT_ACCESS_STEP_SCHEMA = "aap-workspace-project-access-step/v1"
 
 
@@ -173,25 +176,34 @@ async def _read_unlocked_project_row(
 async def _workspace_project_values(
     db: AsyncSession,
     *,
-    actor_id: uuid.UUID,
+    actor_id: uuid.UUID | None,
     project_id: uuid.UUID,
 ) -> dict[str, object] | None:
-    payload = await db.scalar(
-        _WORKSPACE_PROJECT_ACCESS_STEP,
-        {
-            "actor_id": actor_id,
-            "project_id": project_id,
-            "phase": "read_project_row",
-        },
-    )
-    facts = _decode_workspace_project_access_step(
-        payload,
-        actor_id=actor_id,
-        project_id=project_id,
-        phase="read_project_row",
-    )
+    if actor_id is None:
+        row_json = await db.scalar(_WORKSPACE_PROJECT_READ, {"project_id": project_id})
+        if row_json is not None and type(row_json) is not str:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="项目查询服务暂不可用",
+            )
+    else:
+        payload = await db.scalar(
+            _WORKSPACE_PROJECT_ACCESS_STEP,
+            {
+                "actor_id": actor_id,
+                "project_id": project_id,
+                "phase": "read_project_row",
+            },
+        )
+        facts = _decode_workspace_project_access_step(
+            payload,
+            actor_id=actor_id,
+            project_id=project_id,
+            phase="read_project_row",
+        )
+        row_json = facts["row_json"]
     try:
-        return materialize_project_base_row(facts["row_json"], target_id=project_id)
+        return materialize_project_base_row(row_json, target_id=project_id)
     except ProjectQueryUnavailable:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -212,7 +224,7 @@ async def _load_after_expired_project_disappeared(
     db: AsyncSession,
     *,
     cached: Project,
-    actor_id: uuid.UUID,
+    actor_id: uuid.UUID | None,
     project_id: uuid.UUID,
 ) -> Project | None:
     # Session.get removes a fully expired identity that vanished during refresh,
@@ -233,7 +245,7 @@ async def _load_after_expired_project_disappeared(
 async def get_workspace_project(
     db: AsyncSession,
     *,
-    actor_id: uuid.UUID,
+    actor_id: uuid.UUID | None = None,
     project_id: uuid.UUID,
     populate_existing: bool = False,
 ) -> Project | None:
