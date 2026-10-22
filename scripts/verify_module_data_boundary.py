@@ -388,6 +388,8 @@ SCHEMA_ARTIFACTS = (
     "0303_identity_scale_seed_actors.schema.json",
 )
 TEST_FILES = (
+    "tests/test_identity_role_audit_native.py",
+    "tests/test_identity_role_audit_live.py",
     "tests/test_identity_seed_selection_live.py",
     "tests/test_identity_seed_selection_native.py",
     "tests/test_media_seed_identity_live.py",

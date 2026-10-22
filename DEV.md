@@ -750,6 +750,37 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 事务和四项失败后再次提交检查。主脚本的媒体子入口仍单独跟踪，完整状态见
 [唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
 
+### 历史角色审计的 Identity 读取
+
+`audit_project_roles.py` 通过 `aap_identity_audit_v1` 的三个固定关系读取账号角色、
+邀请审计字段和准备列事实。它保持单一 `REPEATABLE READ, READ ONLY` 事务，未安装
+关系时返回退出码 2，不建表、不修改 revision，也不回退到 User／邀请私表。
+
+在迁移前数据库上，由明确的迁移账号安装只读能力；以下角色必须已由维护者准备：
+
+```bash
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v identity_owner=identity_code -v consumer_role=role_auditor \
+  -f infra/docker/identity-role-audit-grants.sql
+```
+
+`identity_owner` 是既有非 LOGIN 角色，`consumer_role` 是无管理权限、无继承成员关系的
+专用审计 LOGIN。安装器撤销它对 User／邀请私表的表级和列级权限，只追加三个审计
+关系的 SELECT。其他领域所需的只读权限和 Alembic 元数据读取由原领域维护者提供；
+普通 Identity API 的五函数／两视图配置保持。
+
+将单次命令的 `DATABASE_URL` 指向审计 LOGIN 后，按原方式执行。安装器在命令之外
+显式运行，不依赖较新的应用迁移，也不改变 Alembic revision：
+
+```bash
+cd apps/api
+uv run python scripts/audit_project_roles.py --pretty
+```
+
+原始角色、停用状态、NULL／未知值和邀请状态不被规范化。旧库尚无邀请项目角色列时
+报告未知；该列加入后，既有关系自动读取真实列值。当前定向和冷工件资格见
+[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
+
 ### 图片导入与规模种子的 Identity 选择
 
 `import_images.py` 只从公开账号事实选任意首账号，保留不检查角色／启用状态的行为。

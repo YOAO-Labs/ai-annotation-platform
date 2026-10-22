@@ -55,6 +55,30 @@ Migration 0251 在 `aap_identity_v1` 提供三项安全函数：`lock_accounts_s
 
 跨帧 worker 每个待写帧都重新锁定并核对当前账号及项目／成员／任务权限，不使用跨帧快照或 `db.refresh(User)` 替代。忙碌仍映射到既有 `permission_changed`，无新重试；账号删除、停用、基础设施失败与阶段拒绝的分类也保持旧区分。非锁定 Workspace authority 查询与 bootstrap/import 写入由下文的 provisioning 切片接管。最新本地 qualification 去重后 231 项全部通过，包括受限 Node 调用、转移／角色变更竞态、恢复与新 Celery 进程。源码及非 editable 安装各通过 595 项，119 个包文件与独立 owner／API 容器指纹一致。旧行为 baseline 的一个测试覆盖 15 个场景，不能叠加到新资格数量。细节见 [ADR-0131](/dev/adr/0131-identity-transactional-account-locks)。
 
+## 历史角色审计关系
+
+`aap-identity-role-audit/v1` 是可信运维只读关系契约，独立于普通 HTTP 凭据配置。
+
+| 关系                                        | 字段与用途                                                                          |
+| ------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `aap_identity_audit_v1.account_roles`       | id、原始 role、is_active；保留 NULL、未知角色与停用行                               |
+| `aap_identity_audit_v1.invitation_facts`    | id、project_id、role、project_role、expires_at、accepted_at、revoked_at、invited_by |
+| `aap_identity_audit_v1.schema_capabilities` | 单行布尔值 invitation_project_role，表示源库是否存在该准备列                        |
+
+关系没有筛选、排序、权限决策或提交，调用方在原 SQL 中保留作用域、连接和计数。
+邀请的项目角色通过整行 JSON 的单字段表达式读取：旧库缺列时为 NULL，列加入后
+自动读到新值。整行 JSON 和 email／token 不返回给消费者。
+
+维护者显式运行 `infra/docker/identity-role-audit-grants.sql`，验证目标库及迁移角色、
+既有非 LOGIN Identity owner 和受限审计 LOGIN。该步骤兼容普通 Identity schema
+出现之前的数据库，不属于审计 CLI 的只读事务，也不修改 Alembic revision。普通
+Identity API 仍只有两视图／五函数；审计 LOGIN 仅追加三个审计关系的 SELECT，并
+被撤销 User／邀请私表及列权限。其他领域的读取与 Alembic 元数据由原 owner 提供。
+
+审计 CLI 继续使用 `REPEATABLE READ, READ ONLY`，缺少关系或权限时返回退出码 2，
+不自动降级为私表读取。安装命令见仓库 `DEV.md`；资格和剩余项见
+[历史角色审计](/dev/concepts/module-deployment#identity-历史角色审计)。
+
 ## 运维账号选择
 
 `aap-identity-scale-seed-actors/v1` 提供两项固定只读 Native 能力，回复只有

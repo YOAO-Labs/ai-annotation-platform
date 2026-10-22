@@ -7004,3 +7004,60 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Reuse this acceptance unless related source changes invalidate it. The next
   bounded operation is historical audit compatibility, followed by guarded
   recording/recovery/preference fixtures; whole Identity remains open.
+
+### Historical project-role audit Identity boundary
+
+- Previous goal turn is verified progress: operational image import and scale
+  seed Identity selection is implemented and independently qualified; preserve
+  dce7d425a, 3a1861611 and 18865c060 evidence. Whole goal remains active.
+- Inspect every actual audit query before binding the owner. In addition to
+  User id/role/active joins and counts, the report reads invitation values and
+  optional-column metadata. Close both Identity sources in this operation; keep
+  other domains' explicit read-only scope separate.
+- Capture six actual current-schema reports and four existing behavior checks
+  before consumer edits at 18865c060; all ten pass with owned cleanup. Freeze
+  deterministic fixture round UUIDs as well as row UUIDs, retain the first
+  reports/driver, then capture six current reports plus two actual 0171 reports.
+  All eight pass; both historical databases are genuinely migrated from empty,
+  without aap_identity_v1 or avatar_ref, rather than dropping 0173 columns on a
+  modern schema. Original production SQL is unchanged during both captures.
+- Existing 0286 account_profiles cannot satisfy actual 0171 compatibility,
+  because its avatar_ref column appears in 0172 and its schema appears later.
+  Use an explicit audit-only installer and three fixed relations under the
+  existing Identity owner, outside both the read-only CLI and Alembic graph.
+  This avoids bootstrapping a future application schema ahead of its migration.
+  No role, DSN, transport or deployment mode is implicitly created.
+- Account rows retain nullable/unknown role and activity diagnostics. Invitation
+  project_role uses a single-key whole-row JSON projection, NULL before the
+  additive column and automatically visible afterward; only the eight actual
+  report fields cross the boundary. Owner metadata reports column presence.
+  Every original SQL scope, count, ordering and RR/RO transaction is retained.
+  The ordinary five-function/two-view Identity profile remains unchanged.
+
+- Integrate owner source bebe40cb4 as 8ef1d7efc and cold source 9c36230ff as
+  1860299b0. Root corrects the cold test's function comparison to use qualified
+  names before execution; no production function or CLI output is changed.
+- First Native attempt stops three report cases before any query because the
+  fresh fixture LOGIN lacks CONNECT on the managed database. Add only that
+  prerequisite to the fixture; the empty report reproducer then passes. The
+  remaining thirteen report/snapshot/existing cases pass. The transition/Node
+  case reaches successful 0171-to-0173 consumption without reinstall, but its
+  restore into an already initialized target fails while dropping old partition
+  constraints. Use a newly reserved empty owned restore target; the targeted
+  transition/Node/full-backup/restore case then passes. All failed receipts and
+  cleanup outcomes remain available. Latest unique Native union is fifteen,
+  including eight immutable report replays and five existing audit regressions.
+- The standalone installer uses fixed temporary reference views to compare
+  existing view definitions, rather than brittle SQL-text normalization. Repeat
+  preserves OIDs; wrong API-role composition is rejected. Actual private User
+  and invitation access is denied, RR snapshots stay stable across external
+  account/invitation writes, and ordinary API remains exactly five functions
+  and two views. Frozen descriptors are shipped in the owner package and beside
+  the operator installer. Source, architecture and cold checks follow next.
+
+- Focused contract, source and architecture checks pass 379 cases, with 150
+  existing inapplicable rules skipped. Tooling/migration policy checks pass
+  58 tests; OpenAPI comparison is unchanged. Native union fifteen and all
+  successful/failed owned cleanup receipts are retained without rerunning
+  passing cases for counts. Matching owner/API artifacts and real cold CLI
+  acceptance are the remaining gates for this bounded operation.

@@ -92,7 +92,9 @@ async def _identity_api_profile(engine) -> tuple[set[str], set[str]]:
                 {"relation": view},
             )
         }
-    assert functions == _IDENTITY_API_FUNCTIONS
+    assert functions == {
+        f"aap_identity_v1.{signature}" for signature in _IDENTITY_API_FUNCTIONS
+    }
     assert views == _IDENTITY_API_VIEWS
     return functions, views
 

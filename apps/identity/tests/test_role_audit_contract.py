@@ -155,3 +155,24 @@ def test_schema_freezes_all_three_read_relations_and_nullable_fields():
     assert "ordinary Identity API consumer" in descriptor["authorization_boundary"]
     assert "five-function, " in descriptor["authorization_boundary"]
     assert "two-view" in descriptor["authorization_boundary"]
+
+
+def test_role_audit_schema_files_match():
+    import json
+    from pathlib import Path
+    import aap_identity.role_audit_contract as contract
+
+    expected = contract.role_audit_schema()
+    assert (
+        json.loads(
+            Path(contract.__file__).with_name("role_audit.schema.json").read_text()
+        )
+        == expected
+    )
+    repository = Path(__file__).resolve().parents[3]
+    assert (
+        json.loads(
+            (repository / "infra/docker/identity-role-audit.schema.json").read_text()
+        )
+        == expected
+    )
