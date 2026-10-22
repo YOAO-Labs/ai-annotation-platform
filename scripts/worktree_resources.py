@@ -617,6 +617,8 @@ class LocalResources:
                     "aap_workspace_v1.clear_primary_backend_bindings(uuid), "
                     "aap_workspace_v1.read_import_project(text), "
                     "aap_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb), "
+                    "aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb), "
+                    "aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb), "
                     "aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb), "
                     "aap_inference_backend_probe_v1.backend_probe_policy(), "
                     "aap_inference_backend_probe_v1.open_backend_probe_subject(text,uuid), "

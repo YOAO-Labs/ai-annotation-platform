@@ -76,6 +76,8 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.clear_primary_backend_bindings(uuid)
     TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.read_import_project(text),
     aap_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb),
+    aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb),
+    aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb),
     aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)
     TO :"application_role";
 GRANT USAGE ON SCHEMA aap_inference_backend_probe_v1 TO :"application_role";

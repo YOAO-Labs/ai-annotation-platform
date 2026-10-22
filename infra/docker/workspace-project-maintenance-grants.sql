@@ -1,4 +1,4 @@
--- Grant the Workspace project-maintenance LOGIN only its three fixed native functions.
+-- Grant the trusted Workspace maintenance LOGIN only its five fixed native functions.
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v workspace_owner=workspace_code
 --   -v workspace_project_maintenance_role=workspace_project_maintenance_client
@@ -64,6 +64,8 @@ BEGIN
     FOREACH signature IN ARRAY ARRAY[
         'aap_workspace_v1.read_import_project(text)',
         'aap_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb)',
+        'aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)',
+        'aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)',
         'aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)'
     ] LOOP
         function_oid := pg_catalog.to_regprocedure(signature);
@@ -126,6 +128,8 @@ GRANT USAGE ON SCHEMA aap_workspace_v1
 GRANT EXECUTE ON FUNCTION
     aap_workspace_v1.read_import_project(text),
     aap_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb),
+    aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb),
+    aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb),
     aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)
     TO :"workspace_project_maintenance_role";
 
@@ -138,7 +142,9 @@ DECLARE
     actual_functions text[];
     expected_functions text[] := ARRAY[
         'aap_workspace_v1.create_import_project(uuid, text, text, uuid, jsonb)',
+        'aap_workspace_v1.create_point_cloud_seed_project(uuid, text, text, uuid, jsonb)',
         'aap_workspace_v1.read_import_project(text)',
+        'aap_workspace_v1.write_nuscenes_seed_defaults(uuid, text, jsonb)',
         'aap_workspace_v1.write_point_cloud_quality_config(uuid, jsonb)'
     ];
 BEGIN

@@ -1,0 +1,395 @@
+{
+  "source_revision": "93933849568836993cfde81bcd80fbb1b229d5a1",
+  "capture_sha256": "7de81005d40912b5e34702bcdbdf6086d54c7b5ea65fb95329f61b04926d27e7",
+  "scope": "original Project seed behavior; tiny fixtures with fake S3; reused post-import cases isolate importer and batch execution",
+  "workflow": {
+    "directory_project": {
+      "name": "点云联合标注 (dev)",
+      "status": "in_progress",
+      "due_date": null,
+      "sampling": "sequence",
+      "type_key": "lidar",
+      "data_type": "lidar",
+      "ai_enabled": false,
+      "display_id": "P-SEED-CAPTURE",
+      "scene_mode": false,
+      "type_label": "点云检测",
+      "total_tasks": 1,
+      "guide_assets": [],
+      "label_config": {},
+      "review_tasks": 0,
+      "batch_summary": {},
+      "box_threshold": 0.35,
+      "model_version": null,
+      "tool_bindings": {
+        "lidar_box_3d": {
+          "classes": [
+            {
+              "name": "car",
+              "order": 0
+            },
+            {
+              "name": "person",
+              "order": 1
+            }
+          ],
+          "enabled": true,
+          "attribute_schema": {
+            "fields": []
+          }
+        },
+        "point_mask_3d": {
+          "classes": [
+            {
+              "name": "ground",
+              "order": 0
+            },
+            {
+              "name": "obstacle",
+              "order": 1
+            }
+          ],
+          "enabled": true,
+          "attribute_schema": {
+            "fields": []
+          }
+        }
+      },
+      "mask_qc_config": {},
+      "text_threshold": 0.25,
+      "video_sampling": {},
+      "completed_tasks": 0,
+      "organization_id": null,
+      "annotation_guide": null,
+      "default_variants": {},
+      "rendering_config": {},
+      "in_progress_tasks": 0,
+      "ml_backend_pool_id": null,
+      "show_overlap_first": false,
+      "iou_dedup_threshold": 0.7,
+      "maximum_annotations": 1,
+      "video_collaboration": {},
+      "preannotate_pipeline": null,
+      "task_lock_ttl_seconds": 300,
+      "ai_interactive_enabled": true,
+      "point_cloud_quality_config": {},
+      "scene_continuation_window_min": 30,
+      "prefer_same_scene_continuation": false,
+      "raster_mask_native_editing_enabled": true
+    },
+    "directory_result": {
+      "project": "P-SEED-CAPTURE",
+      "files": 1,
+      "tasks": {
+        "created": 1,
+        "total": 1
+      }
+    },
+    "directory_workflow_commits": 3,
+    "existing_project_skips_missing_fixture": true,
+    "nuscenes_project_before_rollback": {
+      "name": "nuScenes mini 自动驾驶场景（dev）",
+      "status": "in_progress",
+      "due_date": null,
+      "sampling": "sequence",
+      "type_key": "lidar",
+      "data_type": "lidar",
+      "ai_enabled": false,
+      "display_id": "P-PC-DEV",
+      "scene_mode": true,
+      "type_label": "点云检测",
+      "total_tasks": 1,
+      "guide_assets": [],
+      "label_config": {},
+      "review_tasks": 0,
+      "batch_summary": {},
+      "box_threshold": 0.35,
+      "model_version": null,
+      "tool_bindings": {
+        "lidar_box_3d": {
+          "classes": [
+            {
+              "name": "car",
+              "order": 0
+            },
+            {
+              "name": "person",
+              "order": 1
+            }
+          ],
+          "enabled": true,
+          "attribute_schema": {
+            "fields": []
+          }
+        },
+        "point_mask_3d": {
+          "classes": [
+            {
+              "name": "ground",
+              "order": 0
+            },
+            {
+              "name": "obstacle",
+              "order": 1
+            }
+          ],
+          "enabled": true,
+          "attribute_schema": {
+            "fields": []
+          }
+        }
+      },
+      "mask_qc_config": {},
+      "text_threshold": 0.25,
+      "video_sampling": {},
+      "completed_tasks": 0,
+      "organization_id": null,
+      "annotation_guide": null,
+      "default_variants": {},
+      "rendering_config": {},
+      "in_progress_tasks": 0,
+      "ml_backend_pool_id": null,
+      "show_overlap_first": false,
+      "iou_dedup_threshold": 0.7,
+      "maximum_annotations": 1,
+      "video_collaboration": {},
+      "preannotate_pipeline": null,
+      "task_lock_ttl_seconds": 300,
+      "ai_interactive_enabled": true,
+      "point_cloud_quality_config": {},
+      "scene_continuation_window_min": 30,
+      "prefer_same_scene_continuation": true,
+      "raster_mask_native_editing_enabled": true
+    },
+    "nuscenes_not_visible_before_caller_commit": true,
+    "fake_storage_objects": 6
+  },
+  "reused": [
+    {
+      "state": "changed",
+      "autoflush": false,
+      "cached_identity_retained": true,
+      "batch_snapshot": [
+        [
+          "nuScenes mini 自动驾驶场景（dev）",
+          true,
+          true,
+          {
+            "lidar_box_3d": {
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true,
+              "attribute_schema": {
+                "fields": []
+              }
+            },
+            "point_mask_3d": {
+              "classes": [
+                {
+                  "name": "ground",
+                  "order": 0
+                },
+                {
+                  "name": "obstacle",
+                  "order": 1
+                }
+              ],
+              "enabled": true,
+              "attribute_schema": {
+                "fields": []
+              }
+            }
+          }
+        ]
+      ],
+      "equal_timestamp_preserved": false,
+      "pending_work_flushed": true,
+      "commits": 0,
+      "caller_rollback_retained": true,
+      "scope": "original post-import consumer; importer and batch execution isolated"
+    },
+    {
+      "state": "changed",
+      "autoflush": true,
+      "cached_identity_retained": true,
+      "batch_snapshot": [
+        [
+          "nuScenes mini 自动驾驶场景（dev）",
+          true,
+          true,
+          {
+            "lidar_box_3d": {
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true,
+              "attribute_schema": {
+                "fields": []
+              }
+            },
+            "point_mask_3d": {
+              "classes": [
+                {
+                  "name": "ground",
+                  "order": 0
+                },
+                {
+                  "name": "obstacle",
+                  "order": 1
+                }
+              ],
+              "enabled": true,
+              "attribute_schema": {
+                "fields": []
+              }
+            }
+          }
+        ]
+      ],
+      "equal_timestamp_preserved": false,
+      "pending_work_flushed": true,
+      "commits": 0,
+      "caller_rollback_retained": true,
+      "scope": "original post-import consumer; importer and batch execution isolated"
+    },
+    {
+      "state": "equal",
+      "autoflush": false,
+      "cached_identity_retained": true,
+      "batch_snapshot": [
+        [
+          "nuScenes mini 自动驾驶场景（dev）",
+          true,
+          true,
+          {
+            "lidar_box_3d": {
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true,
+              "attribute_schema": {
+                "fields": []
+              }
+            },
+            "point_mask_3d": {
+              "classes": [
+                {
+                  "name": "ground",
+                  "order": 0
+                },
+                {
+                  "name": "obstacle",
+                  "order": 1
+                }
+              ],
+              "enabled": true,
+              "attribute_schema": {
+                "fields": []
+              }
+            }
+          }
+        ]
+      ],
+      "equal_timestamp_preserved": true,
+      "pending_work_flushed": true,
+      "commits": 0,
+      "caller_rollback_retained": true,
+      "scope": "original post-import consumer; importer and batch execution isolated"
+    },
+    {
+      "state": "equal",
+      "autoflush": true,
+      "cached_identity_retained": true,
+      "batch_snapshot": [
+        [
+          "nuScenes mini 自动驾驶场景（dev）",
+          true,
+          true,
+          {
+            "lidar_box_3d": {
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true,
+              "attribute_schema": {
+                "fields": []
+              }
+            },
+            "point_mask_3d": {
+              "classes": [
+                {
+                  "name": "ground",
+                  "order": 0
+                },
+                {
+                  "name": "obstacle",
+                  "order": 1
+                }
+              ],
+              "enabled": true,
+              "attribute_schema": {
+                "fields": []
+              }
+            }
+          }
+        ]
+      ],
+      "equal_timestamp_preserved": true,
+      "pending_work_flushed": true,
+      "commits": 0,
+      "caller_rollback_retained": true,
+      "scope": "original post-import consumer; importer and batch execution isolated"
+    },
+    {
+      "state": "missing",
+      "autoflush": false,
+      "cached_identity_retained": true,
+      "batch_snapshot": [null],
+      "equal_timestamp_preserved": false,
+      "pending_work_flushed": true,
+      "commits": 0,
+      "caller_rollback_retained": true,
+      "scope": "original post-import consumer; importer and batch execution isolated"
+    },
+    {
+      "state": "missing",
+      "autoflush": true,
+      "cached_identity_retained": true,
+      "batch_snapshot": [null],
+      "equal_timestamp_preserved": false,
+      "pending_work_flushed": true,
+      "commits": 0,
+      "caller_rollback_retained": true,
+      "scope": "original post-import consumer; importer and batch execution isolated"
+    }
+  ]
+}

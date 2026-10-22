@@ -205,10 +205,30 @@ baseline 与候选修订。Native setter 只写精确配置与事务时间戳，
 或回滚，错绑定回复不能确认整个工作流。能力不增加 CAS、授权检查、提交或回滚。
 
 预建的 `workspace_project_maintenance_client` 通过
-`infra/docker/workspace-project-maintenance-grants.sql` 获取三项业务 owner 执行权，
+`infra/docker/workspace-project-maintenance-grants.sql` 获取五项固定业务 owner 执行权，
 没有私表／列、序列、DDL 或 TEMP 权限；PostgreSQL/public invoker helpers 不属于这项
 业务能力计数。迁移、owner grants 与精确授权入口见 `DEV.md`。严格回复及 Native／Node／
 真实消费者的限定本地证据见 [ADR-0164](/dev/adr/0164-workspace-transactional-project-maintenance)。
+
+开发点云种子还使用 `aap-workspace-seed-project/v1`，仍在同一 SQL Session 内调用：
+
+| 能力                                                         | 返回值                                                         |
+| ------------------------------------------------------------ | -------------------------------------------------------------- |
+| `create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)` | `schema/display_id/project_id`，严格绑定创建 UUID              |
+| `write_nuscenes_seed_defaults(uuid,text,jsonb)`              | `schema/project_id/updated_at`；项目不存在时 timestamp 为 null |
+
+`seed_pointcloud.py` 的目录种子按 display ID 跳过已有项目，缺失夹具检查在此之后；
+新项目关闭两个 scene 标志。nuScenes 路径则开启 scene 模式，重跑时只重设名称、
+工具绑定和两个 scene 标志，相同值不推进时间戳。读取旧种子会填充已过期字段，
+保留仍已加载的本地修改；写入后同步缓存，供随后按 scene 建包使用。
+目录建题保留内部提交，nuScenes 保留外层提交，旧 S3 对象仍只在外层提交后显式清理。
+
+这两项固定运维写入不提供用户授权、通用字段补丁或提交能力。maintenance LOGIN
+现有五项固定函数；其最初三项合同与快照保持不变。原开发兼容角色继续可运行脚本；
+已应用普通消费者围栏的**可信运维账号**可显式追加
+`infra/docker/workspace-seed-operator-grants.sql`。普通 API／worker 的配置仍只有原来的
+32 项函数和两张事实视图；不能把运维追加配置用于 HTTP／worker 账号。
+这不代表开发种子的 Assets 私表操作或其他运维脚本已完成模块提取。
 
 ## 锁定权限与会话快照
 

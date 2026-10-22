@@ -266,6 +266,7 @@ SQL_ARTIFACTS = (
     "0298_workspace_project_facts.sql",
     "0299_labeling_project_counter_deltas.sql",
     "0300_video_deletion_retirement.sql",
+    "0301_workspace_seed_project.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -378,8 +379,11 @@ SCHEMA_ARTIFACTS = (
     "0298_workspace_project_facts.schema.json",
     "0299_labeling_project_counter_deltas.schema.json",
     "0300_video_deletion_retirement.schema.json",
+    "0301_workspace_seed_project.schema.json",
 )
 TEST_FILES = (
+    "tests/test_workspace_seed_operator_live.py",
+    "tests/test_workspace_seed_operator_native.py",
     "tests/test_workspace_capacity_live.py",
     "tests/test_workspace_import_cli_live.py",
     "tests/test_workspace_worker_assembly_live.py",
@@ -2326,6 +2330,8 @@ def _install_and_rollback_frozen_sql(
             "AND to_regprocedure('aap_workspace_v1.clear_primary_backend_bindings(uuid)') IS NULL "
             "AND to_regprocedure('aap_workspace_v1.read_import_project(text)') IS NULL "
             "AND to_regprocedure('aap_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb)') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)') IS NULL "
             "AND to_regprocedure('aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)') IS NULL "
             "AND to_regprocedure('aap_learning_v1.registry_evaluation_reference_exists(uuid)') IS NULL "
             "AND to_regprocedure('aap_jobs_v1.count_running_registry_predictions(uuid)') IS NULL "
@@ -2912,8 +2918,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0300"]:
-            raise RuntimeError("module-data acceptance requires migration head 0300")
+        if heads != ["0301"]:
+            raise RuntimeError("module-data acceptance requires migration head 0301")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -3930,7 +3936,9 @@ def main(argv: list[str] | None = None) -> int:
             },
         )
         if (
-            (
+            "tests/test_workspace_seed_operator_native.py" in selected_test_paths
+            or "tests/test_workspace_seed_operator_live.py" in selected_test_paths
+            or (
                 "tests/test_workspace_module_assembly_live.py" in selected_test_paths
                 and os.environ.get("AAP_WORKSPACE_MODULE_ASSEMBLY_LIVE") == "1"
             )
@@ -3970,7 +3978,11 @@ def main(argv: list[str] | None = None) -> int:
                 ).hexdigest(),
             }
         workspace_import_cli_fence = None
-        if (
+        seed_operator_live = (
+            "tests/test_workspace_seed_operator_live.py" in selected_test_paths
+            and os.environ.get("AAP_WORKSPACE_SEED_OPERATOR_LIVE") == "1"
+        )
+        if seed_operator_live or (
             "tests/test_workspace_import_cli_live.py" in selected_test_paths
             and os.environ.get("AAP_WORKSPACE_IMPORT_CLI_LIVE") == "1"
         ):
@@ -4054,6 +4066,34 @@ def main(argv: list[str] | None = None) -> int:
                     "other_domains": "existing trusted operator runtime grants retained",
                     "ordinary_api_unchanged": True,
                 }
+                if seed_operator_live:
+                    phase = "install-workspace-seed-operator-capabilities"
+                    seed_grants = (
+                        ROOT / "infra/docker/workspace-seed-operator-grants.sql"
+                    )
+                    _psql(
+                        container_id,
+                        container_name,
+                        container_identity,
+                        username="owner",
+                        password=owner_password,
+                        database=database,
+                        sql=seed_grants.read_text(),
+                        variables={
+                            "expected_database": database,
+                            "migration_role": "owner",
+                            "workspace_owner": "workspace_code",
+                            "consumer_role": "legacy_runtime",
+                        },
+                    )
+                    evidence["workspace_seed_operator_consumer"] = {
+                        "role": "legacy_runtime",
+                        "grant_path": str(seed_grants.relative_to(ROOT)),
+                        "sha256": hashlib.sha256(seed_grants.read_bytes()).hexdigest(),
+                        "ordinary_api_unchanged": True,
+                        "project_private_tables_denied": True,
+                        "other_domains": "existing trusted operator runtime grants retained",
+                    }
 
         phase = "verify-identity-api-consumer-acl"
         identity_consumer_acl = json.loads(

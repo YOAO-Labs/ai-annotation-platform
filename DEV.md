@@ -681,8 +681,8 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/workspace-project-maintenance-grants.sql
 ```
 
-这个数据账号仅有三项业务 Native 执行权，没有私表／列、序列、DDL 或 TEMP 权限；
-系统及历史 public invoker helpers 不计入三项业务能力。它不承载完整导入工作流的其他
+这个数据账号有五项业务 Native 执行权，包含下述两项开发种子写入，没有私表／列、
+序列、DDL 或 TEMP 权限；系统及历史 public invoker helpers 不计入业务能力。它不承载完整导入工作流的其他
 领域权限。复验使用验收器拥有的新 PostgreSQL／Redis／桶：
 
 ```bash
@@ -697,6 +697,34 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 直接调用和整事务回滚已通过本地定向验收，详见
 [ADR-0164](docs/adr/0164-workspace-transactional-project-maintenance.md)。完整 Workspace
 冷安装／容器／完整迁移／恢复仍在一致模块里程碑集中验收，日常主环境未切换。
+
+### Workspace 开发点云种子
+
+`scripts/seed_pointcloud.py` 的 Project 读取、目录种子创建和 nuScenes 重设通过固定
+Workspace 能力执行。目录模式默认关闭 scene，保留建题内部提交；nuScenes 模式默认
+开启 scene，并保留调用方提交及提交后旧对象清理。API/worker 普通消费者配置不追加
+运维写入。受信任运维连接在普通 Workspace 围栏后显式组合：
+
+```bash
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v workspace_owner=workspace_code -v consumer_role=legacy_runtime \
+  -f infra/docker/workspace-seed-operator-grants.sql
+```
+
+该示例数据库必须由当前任务拥有，不能用于日常开发库的测试重置。此配置只追加两项
+固定 Project 写入，其他领域沿用已有运维权限，不能据此认定整个种子已使用最小凭据。
+受限数据库复验：
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/workspace-seed-native.json \
+  --test-file tests/test_workspace_seed_operator_native.py
+```
+
+冻结旧行为涵盖完整默认值、已有项目先跳过缺失夹具、三次目录内部提交和 nuScenes
+调用方回滚，以及 changed/equal/missing 与 autoflush 两种设置。Node 直接调用、原始
+数据库错误、缓存过期字段与加载中本地修改也有定向检查。独立冷运行证据与完整模块
+剩余项见[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
 
 ### Workspace 锁定权限与会话快照
 

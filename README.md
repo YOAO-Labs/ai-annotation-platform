@@ -387,6 +387,8 @@ Identity 准入、API key、核心会话、自助账户、注册恢复／邮件�
 
 项目／模板配置模型与纯策略已移到 Workspace 包，预标注阶段结构与规范化由共享 Inference 契约包持有，Workspace 无需安装 Inference 提供方。六项公开配置调用已接入配置 owner，默认保留调用方事务；独立安装包、进程、受限镜像与本地并发执行已完成限定验收，见 [配置命令 ADR](./docs/adr/0136-workspace-configuration-command-owner.md)。
 
+开发点云种子的 Project 读写也已接入固定 Workspace 能力，保留目录／nuScenes 的不同默认值、提交时点和提交后对象清理。运维授权与定向复验见 [开发点云种子](./DEV.md#workspace-开发点云种子)；其他开发脚本和完整模块资格继续按部署台账推进。
+
 类别重命名已接入同一个配置 owner，在单一事务内组合项目绑定和 Labeling 类名写入；同名请求由独立提供方持锁完成投影。三路径、独立安装包、受限镜像、重启、恢复与完整迁移已通过限定本地验收，见 [类别改名 ADR](./docs/adr/0143-workspace-project-class-rename-owner.md)。
 
 指南对象的受限签名、HEAD 与普通删除能力已加入既有 Assets Source 运行时，支持无需数据库凭据的 `guide-only` 模式。公共指南工作流由 Workspace 编排，借用事务、专用 DSN 与独立 HTTP 三路径已通过冻结回放、实际权限锁及备份恢复验收；受限容器重启后仍可读取已登记素材。范围见 [指南素材 ADR](./docs/adr/0144-workspace-guide-assets-owner.md)，完整模块与语言替换资格继续推进。

@@ -123,7 +123,13 @@ async def test_descriptor_and_function_only_login_match_exact_capabilities(test_
         )
         assert [(r["name"], r["prosecdef"], r["owner"]) for r in actual] == [
             ("aap_workspace_v1.create_import_project", True, "workspace_code"),
+            (
+                "aap_workspace_v1.create_point_cloud_seed_project",
+                True,
+                "workspace_code",
+            ),
             ("aap_workspace_v1.read_import_project", True, "workspace_code"),
+            ("aap_workspace_v1.write_nuscenes_seed_defaults", True, "workspace_code"),
             (
                 "aap_workspace_v1.write_point_cloud_quality_config",
                 True,

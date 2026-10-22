@@ -14,9 +14,11 @@ from aap_workspace.project_maintenance_contract import (
 )
 from app.db.models.project import Project
 from app.services.project_workspace import (
+    create_point_cloud_seed_project,
     create_import_project,
     find_import_project,
     set_point_cloud_quality_config,
+    set_nuscenes_seed_defaults,
 )
 import pytest
 from sqlalchemy import inspect
@@ -205,5 +207,81 @@ async def test_quality_writer_rejects_an_unbound_write_reply():
             config={"enabled": True, "config_revision": 4},
         )
 
+    db.flush.assert_awaited_once()
+    _assert_caller_owns_transaction(db)
+
+
+@pytest.mark.parametrize("valid", [True, False])
+async def test_seed_writer_synchronizes_cache_only_after_a_bound_reply(valid):
+    from aap_workspace.seed_project_contract import PROTOCOL as SEED_PROTOCOL
+
+    project_id = uuid.uuid4()
+    timestamp = datetime(2026, 10, 23, tzinfo=UTC)
+    project = Project(
+        id=project_id,
+        name="old",
+        scene_mode=False,
+        prefer_same_scene_continuation=False,
+        tool_bindings={},
+    )
+    db = _db(
+        {
+            "schema": SEED_PROTOCOL,
+            "project_id": str(project_id if valid else uuid.uuid4()),
+            "updated_at": timestamp.isoformat(),
+        },
+        autoflush=False,
+    )
+    bindings = {"lidar_box_3d": {"enabled": True}}
+    if valid:
+        assert (
+            await set_nuscenes_seed_defaults(
+                db, project=project, name="scene", tool_bindings=bindings
+            )
+            == timestamp
+        )
+        for key, value in {
+            "name": "scene",
+            "scene_mode": True,
+            "prefer_same_scene_continuation": True,
+            "tool_bindings": bindings,
+            "updated_at": timestamp,
+        }.items():
+            assert getattr(project, key) == value
+            assert not inspect(project).attrs[key].history.has_changes()
+    else:
+        with pytest.raises(ProjectMaintenanceUnavailable):
+            await set_nuscenes_seed_defaults(
+                db, project=project, name="scene", tool_bindings=bindings
+            )
+        assert project.name == "old" and project.scene_mode is False
+        assert project.tool_bindings == {}
+    db.flush.assert_awaited_once()
+    _assert_caller_owns_transaction(db)
+
+
+async def test_directory_seed_creator_rejects_mismatched_id_without_committing(
+    monkeypatch,
+):
+    from aap_workspace.seed_project_contract import PROTOCOL as SEED_PROTOCOL
+
+    project_id = uuid.uuid4()
+    monkeypatch.setattr("app.services.project_workspace.uuid.uuid4", lambda: project_id)
+    db = _db(
+        {
+            "schema": SEED_PROTOCOL,
+            "display_id": "P-seed",
+            "project_id": str(uuid.UUID(int=1)),
+        },
+        autoflush=False,
+    )
+    with pytest.raises(ProjectMaintenanceUnavailable):
+        await create_point_cloud_seed_project(
+            db,
+            display_id="P-seed",
+            name="seed",
+            owner_id=uuid.UUID(int=2),
+            tool_bindings={},
+        )
     db.flush.assert_awaited_once()
     _assert_caller_owns_transaction(db)

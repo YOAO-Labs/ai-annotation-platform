@@ -6699,3 +6699,43 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   capability; it does not close full Workspace or the cross-module goal. Next
   bounded work remains the named development operator/worker consumers in the
   sole ledger, with historical no-proof drain still requiring genuine evidence.
+
+### Workspace point-cloud seed Project boundary
+
+- Capture the original seed behavior at 939338495 before replacing its Project
+  accesses: one actual tiny directory/nuScenes workflow case plus six isolated
+  post-import changed/equal/missing cases under both autoflush settings. Retain
+  the immutable original driver/hash and seven receipts under .worktree; publish
+  the normalized oracle in tests/fixtures/workspace_seed_operator_legacy.json.
+- Add two fixed SQL capabilities in migration 0301, with a separate closed seed
+  descriptor. Keep frozen 0288 functions/schema unchanged: directory defaults are
+  non-scene while nuScenes import defaults remain scene-enabled. The setter only
+  reasserts name/bindings/the two true flags; equal values preserve updated_at and
+  a missing row is a no-op. No generic patch, new service, authorization or commit.
+- Move all seed_pointcloud.py Project access through Workspace, including legacy
+  validation and post-import cache synchronization. A source review found that a
+  plain Session.get-compatible reader would leave partially expired name/owner
+  fields unloaded. The bounded import reader now hydrates only unloaded fields
+  through the owner, preserving loaded dirty values and avoiding an ORM fallback.
+- Keep normal Workspace consumer profile at 32 functions/two facts. Trusted
+  maintenance profile intentionally grows from three to five functions; an
+  explicit seed-only composition adds only the two new writes to a fenced
+  operational connection. Existing compatibility bindings retain their previous
+  broad other-domain rights; this does not qualify Assets seed/reset ownership.
+- Fifteen different selected PostgreSQL cases pass across the retained native
+  attempts, including exact old behavior, restricted Project credentials, Native
+  SQLSTATE/rollback, Node producer, partial expiration and post-commit cleanup.
+  Source contract/binding/architecture checks pass 390 with 150 existing explicit
+  inapplicable rules. Original failures are retained: a resolved interpreter path
+  outside the venv, a too-long fixture display ID, missing function ownership,
+  missing operator Assets ACL in a fixture, an unfenced ordinary-role fixture,
+  and JSONB REAL shortest decimal vs exact ORM binary32 representation. The last
+  uses lossless binary32 decoding of the frozen storage oracle, not a tolerance.
+- Cold installed consumer and real S3 acceptance are pending at this checkpoint.
+  The sole remaining-work ledger continues to define all broader scope; no
+  primary cutover, push, release, production deployment or Go expansion occurred.
+- A second source review identified a reverse role-membership leak in the new
+  explicit operator grant profile. Reject child roles that inherit the operator,
+  retaining only the existing migration-owner membership. The owned negative case
+  passes and confirms no seed write is granted on rejection. Migration-policy
+  and verifier-selection units also pass 40 cases plus three subtests.

@@ -1707,6 +1707,10 @@ ALTER FUNCTION aap_workspace_v1.read_import_project(text)
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb)
     OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)
+    OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)
     OWNER TO :"workspace_owner";
 
