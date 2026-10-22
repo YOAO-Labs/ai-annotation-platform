@@ -5590,3 +5590,35 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   API/Celery/Workspace provider needs refresh; acceptance processes imported
   current source. This closes the selected Task/Training getters and scalar
   reference prerequisite, not complete Workspace assembly or the full goal.
+
+## Workspace transactional member locks checkpoint
+
+- Both remaining live private ProjectMember lock reads now use Workspace Native:
+  scalar SHARE NOWAIT/wait reference fences and one sorted blocking full-row set
+  for Batch assignment. Account/Project order, complete nine-column cache merge,
+  current role/account policy and the caller transaction remain unchanged.
+- The real pre-change 025b801e6 consumer baseline freezes 22 cases. Its twelve
+  cache/autoflush cases and ten scalar null/missing/invalid-time cases replay;
+  capture refuses overwrites. The old executions are excluded from new counts.
+- Source-only worker 3f207bcc1 integrates as 6d5f149db. Review caught Identity's
+  earlier autoflush: the unlocked expired-dirty primer now runs before account
+  locks, then the original flush and sorted SHARE set. Root's trace fence rejects
+  private member SELECTs. The stale top-level schema signature is corrected and
+  the actual function inventory/ACL check reads both artifact declarations.
+- Effective union: 224 distinct selected cases, zero effective failures/errors/
+  skips. Includes 38 member-lock cases, 19 Identity adapter cases and 167 actual
+  assignment/final-write consumers. A first critical batch had three timestamp
+  seed failures because asyncpg expected datetime values; an explicit text cast
+  fixes the fixture. Only failed/changed cases were rechecked and unrun cases
+  continued; valid passing results and original failures/JUnit/exits are retained.
+- Restricted API and direct Node, waiting sorted sets, two scalar modes, strict
+  malformed reply rollback, exact owner/application grants, cache/history and
+  temporal parity pass. Three unused task membership helpers and their stale
+  Markdown symbol reference are removed/updated. Seven export-cache AsyncMock
+  warnings remain in the original consumer log; they are not effective failures.
+- Frozen Native install/rollback and the owned 0189-to-head-0292 roundtrip pass.
+  Cold install, images, fresh migration and backup/restore remain batched for
+  complete Workspace assembly. Only module-deployment.md maintains remaining
+  work: other business/actorless snapshots, member set filters/projections and
+  coherent module assembly. Unretired-video deletion/unlink policy is pending.
+  No primary cutover, push, release, production or Go expansion occurs.

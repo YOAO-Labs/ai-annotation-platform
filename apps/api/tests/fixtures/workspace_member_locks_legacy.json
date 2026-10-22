@@ -1,0 +1,229 @@
+{
+  "cases": {
+    "assignment:clean:autoflush=False": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "annotator",
+          "version": 2,
+          "weekly_target": 31
+        }
+      },
+      "error": null,
+      "pending_task": true,
+      "same_identity": true,
+      "trace": ["member_read"]
+    },
+    "assignment:clean:autoflush=True": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "annotator",
+          "version": 2,
+          "weekly_target": 31
+        }
+      },
+      "error": null,
+      "pending_task": false,
+      "same_identity": true,
+      "trace": ["task_insert", "member_read"]
+    },
+    "assignment:dirty:autoflush=False": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "annotator",
+          "version": 2,
+          "weekly_target": 31
+        }
+      },
+      "error": null,
+      "pending_task": true,
+      "same_identity": true,
+      "trace": ["member_read"]
+    },
+    "assignment:dirty:autoflush=True": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "viewer",
+          "version": 2,
+          "weekly_target": 31
+        }
+      },
+      "error": [400, "assignment_project_member_required"],
+      "pending_task": false,
+      "same_identity": true,
+      "trace": ["member_update", "task_insert", "member_read"]
+    },
+    "assignment:expired:autoflush=False": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "annotator",
+          "version": 2,
+          "weekly_target": 31
+        }
+      },
+      "error": null,
+      "pending_task": true,
+      "same_identity": true,
+      "trace": ["member_read"]
+    },
+    "assignment:expired:autoflush=True": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "annotator",
+          "version": 2,
+          "weekly_target": 31
+        }
+      },
+      "error": null,
+      "pending_task": false,
+      "same_identity": true,
+      "trace": ["task_insert", "member_read"]
+    },
+    "assignment:expired_dirty:autoflush=False": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "annotator",
+          "version": 2,
+          "weekly_target": 31
+        }
+      },
+      "error": null,
+      "pending_task": true,
+      "same_identity": true,
+      "trace": ["member_read"]
+    },
+    "assignment:expired_dirty:autoflush=True": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "viewer",
+          "version": 2,
+          "weekly_target": 31
+        }
+      },
+      "error": [400, "assignment_project_member_required"],
+      "pending_task": false,
+      "same_identity": true,
+      "trace": ["member_read", "member_update", "task_insert", "member_read"]
+    },
+    "assignment:miss:autoflush=False": {
+      "cached": null,
+      "error": null,
+      "pending_task": true,
+      "same_identity": false,
+      "trace": ["member_read"]
+    },
+    "assignment:miss:autoflush=True": {
+      "cached": null,
+      "error": null,
+      "pending_task": false,
+      "same_identity": false,
+      "trace": ["task_insert", "member_read"]
+    },
+    "assignment:partial:autoflush=False": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "annotator",
+          "version": 2,
+          "weekly_target": 31
+        }
+      },
+      "error": null,
+      "pending_task": true,
+      "same_identity": true,
+      "trace": ["member_read"]
+    },
+    "assignment:partial:autoflush=True": {
+      "cached": {
+        "dirty_role": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "unloaded": [],
+        "values": {
+          "role": "annotator",
+          "version": 2,
+          "weekly_target": 31
+        }
+      },
+      "error": null,
+      "pending_task": false,
+      "same_identity": true,
+      "trace": ["task_insert", "member_read"]
+    },
+    "reference:bad_date:nowait=False": {
+      "result": null
+    },
+    "reference:bad_date:nowait=True": {
+      "result": null
+    },
+    "reference:exists:nowait=False": {
+      "result": null
+    },
+    "reference:exists:nowait=True": {
+      "result": null
+    },
+    "reference:missing_member:nowait=False": {
+      "result": null
+    },
+    "reference:missing_member:nowait=True": {
+      "result": null
+    },
+    "reference:null_actor:nowait=False": {
+      "result": null
+    },
+    "reference:null_actor:nowait=True": {
+      "result": null
+    },
+    "reference:null_project:nowait=False": {
+      "result": null
+    },
+    "reference:null_project:nowait=True": {
+      "result": null
+    }
+  },
+  "source_commit": "025b801e64fe82e61ba2ded92663f4554e26e418"
+}

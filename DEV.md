@@ -795,6 +795,29 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 冻结 getter 样本是一次性基线，不设置捕获变量重写。实际受限 LOGIN、Node、缓存、
 回滚及权限资格见 [ADR-0169](docs/adr/0169-workspace-task-training-project-snapshots.md)。
 
+### Workspace 同事务成员锁
+
+最终写入围栏使用 scalar `lock_project_member_reference(uuid,uuid,boolean)`，保留
+账号 → 项目 → 成员顺序、等待／NOWAIT 和 membership_busy。它不解码无关时间列。
+批量分派使用 `project_member_rows(uuid,uuid[],boolean)`：一次排序集合等待 SHARE 锁，
+完整九列复用已有解码器并刷新原 Session。false 分支仅用于过期脏缓存的无锁 preflush
+读取，随后再执行原 flush 与锁定集合读取。所有操作仍由调用方提交或回滚。
+
+安装当前迁移并同步 owner／应用授权清单，不扩张建题或删除专用 LOGIN。验证器使用
+独占 PostgreSQL 与隔离资源，不向日常数据库授予新权限：
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/workspace-member-locks.json \
+  --test-file tests/test_workspace_member_locks_native.py \
+  --test-file tests/test_identity_authority_reads.py \
+  --test-file tests/test_batch_assignment_guards.py
+```
+
+冻结成员锁样本不重新捕获。限定边界见
+[ADR-0170](docs/adr/0170-workspace-transactional-member-locks.md)；完整 Workspace 资格仍
+以模块台账为准。
+
 ### Workspace 调用方事务内的项目删除
 
 `aap-project-delete/v1` 的可移植命令和回执位于 `aap-workspace`。API 继续使用原请求

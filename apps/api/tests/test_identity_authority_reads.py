@@ -181,16 +181,23 @@ async def test_batch_assignment_locks_sorted_accounts_before_members(monkeypatch
         accounts={first_id: _facts(first_id), second_id: _facts(second_id)},
     )
 
-    async def execute(statement):
-        events.append(("members", statement))
-        return _Rows(
-            [
-                SimpleNamespace(user_id=second_id, role="annotator"),
-                SimpleNamespace(user_id=first_id, role="reviewer"),
-            ]
-        )
+    async def read_members(db, selected_project, user_ids):
+        events.append(("members", selected_project, user_ids))
+        return [
+            SimpleNamespace(user_id=second_id, role="annotator"),
+            SimpleNamespace(user_id=first_id, role="reviewer"),
+        ]
 
-    db = SimpleNamespace(execute=AsyncMock(side_effect=execute))
+    async def lock_accounts(user_ids, **options):
+        events.append(("accounts", user_ids, options))
+        return {first_id: _facts(first_id), second_id: _facts(second_id)}
+
+    data.lock_accounts.side_effect = lock_accounts
+    member_lock = AsyncMock(side_effect=read_members)
+    primer = AsyncMock(side_effect=lambda *_args: events.append(("primer",)))
+    monkeypatch.setattr(batch, "lock_project_members", member_lock)
+    monkeypatch.setattr(batch, "prime_expired_dirty_project_members", primer)
+    db = SimpleNamespace()
     await batch.BatchService(db).lock_and_validate_assignment_targets(
         project_id, [("annotator", second_id), ("reviewer", first_id)]
     )
@@ -198,9 +205,13 @@ async def test_batch_assignment_locks_sorted_accounts_before_members(monkeypatch
     data.lock_accounts.assert_awaited_once_with(
         [first_id, second_id], mode="share", nowait=False
     )
-    assert len(events) == 1
-    assert events[0][1]._for_update_arg.read is True
-    assert events[0][1]._for_update_arg.nowait is False
+    member_lock.assert_awaited_once_with(db, project_id, [first_id, second_id])
+    primer.assert_awaited_once_with(db, project_id, [first_id, second_id])
+    assert events == [
+        ("primer",),
+        ("accounts", [first_id, second_id], {"mode": "share", "nowait": False}),
+        ("members", project_id, [first_id, second_id]),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -246,20 +257,21 @@ async def test_batch_assignment_keeps_target_failure_policy(
         batch,
         accounts={actor_id: actor} if actor is not None else {},
     )
-    db = SimpleNamespace(
-        execute=AsyncMock(
-            return_value=_Rows([SimpleNamespace(user_id=actor_id, role="annotator")])
-        )
+    member_lock = AsyncMock(
+        return_value=[SimpleNamespace(user_id=actor_id, role="annotator")]
     )
-
+    monkeypatch.setattr(batch, "lock_project_members", member_lock)
+    monkeypatch.setattr(batch, "prime_expired_dirty_project_members", AsyncMock())
+    db = SimpleNamespace()
+    project_id = uuid.UUID(int=51)
     with pytest.raises(HTTPException) as rejected:
         await batch.BatchService(db).lock_and_validate_assignment_targets(
-            uuid.UUID(int=51), [("annotator", actor_id)]
+            project_id, [("annotator", actor_id)]
         )
 
     assert (rejected.value.status_code, rejected.value.detail) == (400, expected_detail)
     data.lock_accounts.assert_awaited_once_with([actor_id], mode="share", nowait=False)
-    db.execute.assert_awaited_once()
+    member_lock.assert_awaited_once_with(db, project_id, [actor_id])
 
 
 async def test_batch_actor_scope_does_not_hydrate_user(monkeypatch):

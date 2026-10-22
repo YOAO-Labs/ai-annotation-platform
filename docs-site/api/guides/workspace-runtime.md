@@ -258,6 +258,19 @@ Project 事实读取配置。调用方的缓存命中、autoflush、强制刷新
 [ADR-0169](/dev/adr/0169-workspace-task-training-project-snapshots)。其余消费者和
 完整模块资格仍按[唯一台账](/dev/concepts/module-deployment#剩余工作台账)推进。
 
+## 最终写入与批量分派的成员锁
+
+单成员围栏使用只返回 user_id／null 的 owner SHARE 能力，保留等待／NOWAIT、原
+membership_busy 与账号 → 项目 → 成员锁序，不解码无关时间列。批量分派按已排序
+账号取得 Identity 锁，再一次锁定排序成员集合，完整快照刷新原 ORM identity map；
+当前账号、项目职责及原输入顺序的错误判定仍由调用方执行。
+
+过期脏缓存的 preflush 读取使用同一 owner 的无锁分支，随后再 flush 和获取成员锁；
+所有操作保留调用方 Session 与提交边界。返回行严格校验项目、请求用户集、重复与
+顺序；异常范围失败由调用方回滚。只新增现有应用可执行的两项固定函数，没有新增
+运行进程或凭据。语义与限定验收见
+[ADR-0170](/dev/adr/0170-workspace-transactional-member-locks)；完整装配仍按模块台账推进。
+
 ## 项目删除的调用方事务
 
 项目删除使用已有 `aap-project-delete/v1` 和
