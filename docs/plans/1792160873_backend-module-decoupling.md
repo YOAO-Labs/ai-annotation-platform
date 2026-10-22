@@ -6682,3 +6682,20 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   after verified exact patch/Git bundle/cache archive and clean checkout removal.
   Full remaining scope stays in the sole ledger; no primary cutover, push,
   release, production deployment or Go expansion occurred.
+- Final focused selection units pass 2/2; docs build passes 17.297 seconds. Normal
+  source/doc commit hooks pass, including the explicit current OpenAPI exporter;
+  no required validation is replaced by the source-only worker hook limits.
+- Preservation at documentation commit c5cf5f296 confirms 20 unchanged editable
+  bindings, clean unchanged protected primary HEAD 856fa79c8, four exact shared
+  container IDs/names/running states, 32 known owned PG containers absent, no owned
+  assembly/probe fixture container or network, and no persistent Root runtime.
+  All four current image COPY manifests still match source. Receipt:
+  .worktree/workspace-pipeline-preservation.json.
+- Aggregate .worktree/workspace-pipeline-qualification.json records source,
+  installation, API/SDK/architecture, cold consumer/load, original failures,
+  resource cleanup, image and worker archive hashes. SHA256
+  2869649d3697dfbdd8dd4d05958fc505f79d6008007b74776b8f945a33a448e0.
+  This closes the public structural-contract dependency and fixed local-load
+  capability; it does not close full Workspace or the cross-module goal. Next
+  bounded work remains the named development operator/worker consumers in the
+  sole ledger, with historical no-proof drain still requiring genuine evidence.
