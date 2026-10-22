@@ -6352,3 +6352,10 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   not relaxed or replaced, and a real worker startup/task/restart remains a
   separate missing qualification. Original failed evidence and clean teardown
   are retained.
+- Third assembly passes startup, template writes/reads and the selected-owner
+  outage response. On restart, the template owner is healthy but Docker assigns
+  a new ephemeral host port and the fixture keeps polling the old origin. An
+  isolated image/transport reproducer confirms59461 ->59482, HTTP200 at the new
+  endpoint, and clean owned-container/network removal. Both start/restart now
+  refresh published origins before readiness, matching the existing Identity
+  helper pattern. The original failure and migration/cleanup results remain.

@@ -268,6 +268,7 @@ class WorkspaceModuleStack:
         self._validate_service(service)
         self._verify_project_ownership()
         self._compose("start", service, timeout=90)
+        self._refresh_origins()
         await self._wait_service_ready(service)
         self._refresh_inspection_evidence()
 
@@ -275,6 +276,7 @@ class WorkspaceModuleStack:
         self._validate_service(service)
         self._verify_project_ownership()
         self._compose("restart", service, timeout=90)
+        self._refresh_origins()
         await self._wait_service_ready(service)
         self._refresh_inspection_evidence()
 
