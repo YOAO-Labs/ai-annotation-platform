@@ -23,6 +23,8 @@ import httpx
 import pytest
 
 from app.db.models.dataset import Dataset, ProjectDataset
+from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
+from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.prediction import FailedPrediction
 from app.db.models.user import User
 from tests.factory import create_user
@@ -214,20 +216,28 @@ async def _seed_native_dataset_link(maker, *, owner_id, project_id):
 
 
 async def _seed_backend(test_engine, backend_id, backend_url):
-    async with test_engine.begin() as db:
-        await db.execute(
-            text(
-                "INSERT INTO public.ml_backend_registry "
-                "(id,name,url,state,is_interactive,auth_method,auth_token,extra_params,source) "
-                "VALUES (:id,:name,:url,'disconnected',false,'token','snapshot-secret',"
-                "'{}'::jsonb,'manual')"
-            ),
-            {
-                "id": backend_id,
-                "name": f"Workspace probe {backend_id}",
-                "url": backend_url,
-            },
+    async with async_sessionmaker(test_engine).begin() as db:
+        registry = MLBackendRegistry(
+            id=backend_id,
+            name=f"Workspace probe {backend_id}",
+            url=backend_url,
+            state="disconnected",
+            is_interactive=False,
+            auth_method="token",
+            auth_token="snapshot-secret",
+            extra_params={},
+            source="manual",
         )
+        db.add(registry)
+        await db.flush()
+        pool = MLBackendServicePool(
+            name=f"Workspace probe pool {backend_id}",
+            enabled=False,
+            legacy_instance_id=registry.id,
+        )
+        db.add(pool)
+        await db.flush()
+        db.add(MLBackendPoolMember(pool_id=pool.id, registry_id=registry.id))
 
 
 @asynccontextmanager

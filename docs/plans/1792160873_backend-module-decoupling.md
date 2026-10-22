@@ -6359,3 +6359,10 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   endpoint, and clean owned-container/network removal. Both start/restart now
   refresh published origins before readiness, matching the existing Identity
   helper pattern. The original failure and migration/cleanup results remain.
+- Fourth assembly passes template restart, project/class/member operations,
+  current/stale/revoked previews and ownership transfer with outage fencing.
+  Backend-enabled project creation then exposes an incomplete fixture: the
+  registry row has no singleton service pool. The existing owner rejects this
+  invalid registry as designed. The seed now follows the existing Native
+  dependency test's registry/pool/active-member shape; no production behavior or
+  credentials change. The original500 and clean teardown remain recorded.
