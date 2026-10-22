@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
+from sqlalchemy.orm import aliased
 from aap_identity.read_relation_contract import AccountProfile
 from app.deps import (
     assert_project_visible,
@@ -47,6 +48,7 @@ from app.services.identity_read_relations import (
     read_account_profile,
     read_account_profiles,
 )
+from app.services.workspace_read_relations import project_member_facts
 
 router = APIRouter()
 
@@ -244,11 +246,14 @@ async def admin_people_list(
             if role == "annotator"
             else ProjectRole.REVIEWER.value
         )
-        membership_scope = select(ProjectMember.user_id).where(
-            ProjectMember.role == target_role
+        member_facts = aliased(
+            ProjectMember, project_member_facts(), adapt_on_names=True
+        )
+        membership_scope = select(member_facts.user_id).where(
+            member_facts.role == target_role
         )
         if pid:
-            membership_scope = membership_scope.where(ProjectMember.project_id == pid)
+            membership_scope = membership_scope.where(member_facts.project_id == pid)
         user_q = user_q.where(account_profiles.c.id.in_(membership_scope))
     if q:
         like = f"%{q}%"
@@ -267,11 +272,14 @@ async def admin_people_list(
 
     # Per-user project roles for this scope (single query, no N+1): drives the
     # annotator/reviewer metric classification below.
+    role_membership = aliased(
+        ProjectMember, project_member_facts(), adapt_on_names=True
+    )
     role_rows = (
         await db.execute(
-            select(ProjectMember.user_id, ProjectMember.role).where(
-                ProjectMember.user_id.in_(user_ids),
-                *([ProjectMember.project_id == pid] if pid else []),
+            select(role_membership.user_id, role_membership.role).where(
+                role_membership.user_id.in_(user_ids),
+                *([role_membership.project_id == pid] if pid else []),
             )
         )
     ).all()
@@ -280,14 +288,17 @@ async def admin_people_list(
         user_roles_map.setdefault(member_user_id, set()).add(member_role)
 
     # 项目隶属计数
+    count_membership = aliased(
+        ProjectMember, project_member_facts(), adapt_on_names=True
+    )
     pm_rows = (
         await db.execute(
-            select(ProjectMember.user_id, func.count().label("n"))
+            select(count_membership.user_id, func.count().label("n"))
             .where(
-                ProjectMember.user_id.in_(user_ids),
-                *([ProjectMember.project_id == pid] if pid else []),
+                count_membership.user_id.in_(user_ids),
+                *([count_membership.project_id == pid] if pid else []),
             )
-            .group_by(ProjectMember.user_id)
+            .group_by(count_membership.user_id)
         )
     ).all()
     pm_count_map = {r.user_id: int(r.n) for r in pm_rows}
@@ -512,10 +523,15 @@ async def admin_people_list(
 
     # 项目过滤：指定项目时只返回该项目成员（聚合数字已在上面按 pid 切分）。
     if pid:
+        allowed_membership = aliased(
+            ProjectMember, project_member_facts(), adapt_on_names=True
+        )
         allowed = (
             (
                 await db.execute(
-                    select(ProjectMember.user_id).where(ProjectMember.project_id == pid)
+                    select(allowed_membership.user_id).where(
+                        allowed_membership.project_id == pid
+                    )
                 )
             )
             .scalars()
@@ -623,11 +639,12 @@ async def admin_person_detail(
     # v0.12.6 (A3) 安全收口:project_admin 只能查其项目内的成员详情。否则可借任意
     # user_id + 自有 project 枚举他人存在性 + 读取全局 timeline(IDOR)。非成员 → 404。
     if current_user.role == UserRole.PROJECT_ADMIN and pid is not None:
+        member = aliased(ProjectMember, project_member_facts(), adapt_on_names=True)
         membership = (
             await db.execute(
-                select(ProjectMember).where(
-                    ProjectMember.project_id == pid,
-                    ProjectMember.user_id == uid,
+                select(member).where(
+                    member.project_id == pid,
+                    member.user_id == uid,
                 )
             )
         ).scalar_one_or_none()
@@ -801,13 +818,16 @@ async def admin_person_detail(
     quality_score = trend_quality[-1] if trend_quality else 50
     composite = int(round((min(100, throughput) + quality_score + 50) / 3))
 
+    project_membership_count = aliased(
+        ProjectMember, project_member_facts(), adapt_on_names=True
+    )
     proj_count = (
         await db.execute(
             select(func.count())
-            .select_from(ProjectMember)
+            .select_from(project_membership_count)
             .where(
-                ProjectMember.user_id == uid,
-                *([ProjectMember.project_id == pid] if pid else []),
+                project_membership_count.user_id == uid,
+                *([project_membership_count.project_id == pid] if pid else []),
             )
         )
     ).scalar() or 0

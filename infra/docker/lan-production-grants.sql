@@ -139,6 +139,7 @@ GRANT USAGE ON SCHEMA aap_identity_v1, aap_identity_keys_v1,
     aap_settings_v1, aap_notifications_v1 TO :"application_role";
 GRANT SELECT ON aap_identity_v1.account_profiles,
     aap_identity_v1.invitation_audit_targets TO :"application_role";
+GRANT SELECT ON aap_workspace_v1.project_member_facts TO :"application_role";
 GRANT EXECUTE ON FUNCTION
     aap_identity_v1.authentication_policy(),
     aap_identity_v1.read_provisioning_account(text),

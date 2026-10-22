@@ -131,7 +131,9 @@ def test_membership_helpers_filter_by_role():
     assert "workspace_member_facts.role" in _sql(
         membership_project_ids(user, ANNOTATOR_ROLE)
     )
-    assert "project_members.role" in _sql(member_user_ids(uuid.uuid4(), REVIEWER_ROLE))
+    assert "workspace_project_member_facts.role" in _sql(
+        member_user_ids(uuid.uuid4(), REVIEWER_ROLE)
+    )
 
 
 def test_async_job_query_gates_export_results():
@@ -183,10 +185,10 @@ class RejectProvider(importlib.abc.MetaPathFinder):
             raise ImportError('client must not load the Workspace provider runtime')
 
 sys.meta_path.insert(0, RejectProvider())
-from app.services.workspace_read_relations import actor_project_memberships, project_search_scope, project_search_member_ids
+from app.services.workspace_read_relations import actor_project_memberships, project_search_scope, project_search_member_ids, project_member_facts
 from sqlalchemy import select
 actor = SimpleNamespace(id=uuid.uuid4(), role='employee')
-for relation in (actor_project_memberships(actor.id), project_search_scope(actor), project_search_member_ids(actor)):
+for relation in (actor_project_memberships(actor.id), project_search_scope(actor), project_search_member_ids(actor), project_member_facts()):
     assert 'aap_workspace' in str(select(relation))
 print('ok')
 """

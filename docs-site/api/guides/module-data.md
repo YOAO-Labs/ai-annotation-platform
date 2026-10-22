@@ -117,6 +117,19 @@ HINT；客户端按 phase 恢复原有冲突原因，不向外暴露数据库异
 限定验收见 [Workspace 运行指南](./workspace-runtime#项目范围看板与列表读取)和
 [ADR-0173](/dev/adr/0173-workspace-actor-scope-relations)。
 
+## 非锁定成员事实关系
+
+Workspace 拥有 `aap_workspace_v1.project_member_facts` 安全屏障视图，公开固定九列
+成员事实；类型、列顺序及行键见 `aap-workspace-read-relations/v1`。它保留原生 UUID、
+文本、整数和带时区日期，不做 JSON 全行解码或成员资格判断。客户端只申请 SELECT，
+不获得视图写入或锁行权限；PUBLIC 无权限。
+
+关系可在原 SQL 内联接、聚合及参与 Task UPDATE 的相关 NOT EXISTS。调用方继续
+持有授权、账号校验和事务，保留各操作的不同规则。默认应用账号仍使用兼容宽权限，
+完整模块凭据待集中收紧；受限账号验收的具体范围见
+[运行指南](./workspace-runtime#非锁定成员集合与名册)和
+[ADR-0174](/dev/adr/0174-workspace-nonlocking-member-facts)。
+
 ## 同事务的主后端绑定清理
 
 `aap_workspace_v1.clear_primary_backend_bindings(pool_id)` 只清空指向给定服务池的

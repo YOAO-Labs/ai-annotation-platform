@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-workspace-read-relations/v1",
+  "title": "Workspace fixed read relations",
+  "$comment": "Public read-only owner projections with fixed row layouts. The caller retains authorization and transaction ownership.",
+  "$defs": {
+    "ProjectMemberRow": {
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "assigned_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Assigned By"
+        },
+        "assigned_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Assigned At"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Updated At"
+        },
+        "weekly_target": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Weekly Target"
+        }
+      },
+      "required": [
+        "id",
+        "project_id",
+        "user_id",
+        "role",
+        "assigned_by",
+        "assigned_at",
+        "version",
+        "updated_at",
+        "weekly_target"
+      ],
+      "title": "ProjectMemberRow",
+      "type": "object",
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "x-project-member-columns": [
+    "id",
+    "project_id",
+    "user_id",
+    "role",
+    "assigned_by",
+    "assigned_at",
+    "version",
+    "updated_at",
+    "weekly_target"
+  ],
+  "x-postgresql-relations": {
+    "aap_workspace_v1.project_member_facts": {
+      "columns": [
+        "id",
+        "project_id",
+        "user_id",
+        "role",
+        "assigned_by",
+        "assigned_at",
+        "version",
+        "updated_at",
+        "weekly_target"
+      ],
+      "row": {
+        "$ref": "#/$defs/ProjectMemberRow"
+      },
+      "row_key": ["id"],
+      "read_only": true,
+      "security_barrier": true,
+      "semantics": "Return every raw ProjectMember row and native column without filtering, joining, casting, ordering, locking or mutation. The caller owns transaction and authorization semantics."
+    }
+  }
+}

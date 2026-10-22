@@ -44,6 +44,7 @@
 - [0167](0167-workspace-unlocked-authority-snapshots.md) — Workspace 无锁权限读取与调用方快照（限定本地定向验收通过）
 - [0168](0168-workspace-exclusive-project-snapshots.md) — Workspace 独占 Project 快照（限定本地定向验收通过）
 - [0173](0173-workspace-actor-scope-relations.md) — Workspace actor 范围与列表读取（限定本地验收通过）
+- [0174](0174-workspace-nonlocking-member-facts.md) — Workspace 非锁定成员事实与 ORM 名册（限定本地验收通过）
 - [0172](0172-project-set-locks-and-labeling-counters.md) — Workspace 项目集合锁与 Labeling 计数持久化（限定本地验收通过）
 - [0171](0171-workspace-actorless-business-snapshots.md) — Workspace 无 actor 的业务快照（限定本地定向验收通过）
 - [0170](0170-workspace-transactional-member-locks.md) — Workspace 同事务成员锁（限定本地定向验收通过）

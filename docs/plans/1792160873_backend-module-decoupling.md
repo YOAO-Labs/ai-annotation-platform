@@ -5808,3 +5808,45 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   restorable. This is operation-level local qualification; the full goal remains
   active and the next coherent scope is nonlocking membership set/projection
   facts, with all remaining items kept solely in module-deployment.md.
+
+### Workspace nonlocking membership facts qualification
+
+- Root starts at f109006597df34af5af632439d91698e76e6b5f0. Three isolated,
+  source-only workers provide 14dfdca412435d59fe72bc107abee2e826114063,
+  367a3f9d53affc073dd7c61a80955eb30e4cae7f and
+  cc0b761e131def314e29a32ecd4f7da21a80b4fc. Root integrates their disjoint
+  changes and owns grants, schema regeneration, tests and documentation.
+- Revision 0297 adds a Workspace-owned security-barrier view with the nine
+  native ProjectMember columns, no joins, filters, ordering, casts or locks.
+  The portable row reuses ProjectMemberRow/PROJECT_MEMBER_COLUMNS; client
+  construction remains independent of the Workspace provider runtime.
+- All remaining application nonlocking ProjectMember reads use ORM aliases.
+  Caller-specific policies, full entity cache/dirty/expired/autoflush semantics,
+  partial date decoding, four notification statement snapshots and correlated
+  Task UPDATE membership checks remain. No service, connection or commit point
+  is added. Existing actor-only and locking capabilities remain unchanged.
+- Root captures 30 cases against the old source, then replays unchanged golden
+  values. Two new harness defects (missing generated schema titles and an
+  incorrect positional getter argument) are fixed; the three failed cases
+  pass a minimal rerun before the exact unrun continuation. Original failure,
+  JUnit, logs and real exit receipts are retained, not counted as new passes.
+- Effective union is 130 distinct passing cases with no failures/errors/skips:
+  30 legacy replays, 12 Native/restricted HTTP/Node cases, 16 SQL/client checks
+  and 72 actual consumer cases. Evidence is bound by
+  .worktree/workspace-member-facts-qualification.json and ADR-0174.
+- The API fixture loses private membership SELECT. Operations still containing
+  independent Project SQL retain Project SELECT. The broad default application
+  credential is an explicit compatibility boundary, not a least-privilege
+  production claim. Full Workspace credential/cold image/restore/capacity
+  qualification remains batched. No primary cutover, push, release, production
+  deployment or Go expansion is authorized or performed. Remaining operations
+  stay only in docs-site/dev/concepts/module-deployment.md.
+
+- Focused final checks pass: 20 grant/selection units, Ruff/format, explicit
+  OpenAPI snapshot check, docs build and diff. Architecture initially found the
+  comment service's missing read-client dependency declaration. The narrow
+  declaration and a SQLAlchemy-only/no-app dependency rule for the client are
+  added; only the failed rule and new cases run next. The effective architecture
+  union is 358 passes with 150 explicitly inapplicable rules, with the original
+  failed report retained. Business acceptance is not repeated for this static
+  dependency declaration or formatting-only changes.

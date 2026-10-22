@@ -32,6 +32,7 @@ from sqlalchemy import (
     union_all,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from aap_identity.read_relation_contract import AccountProfile
 
@@ -70,6 +71,7 @@ from app.services.identity_read_relations import (
     read_account_profile,
     read_account_profiles,
 )
+from app.services.workspace_read_relations import project_member_facts
 
 
 _WORKFLOW_ACTIONS = (
@@ -699,11 +701,12 @@ async def _build_roster(
         "avatar_ref",
     )
     profile_columns = [profile.c[field].label(field) for field in profile_fields]
+    membership = aliased(ProjectMember, project_member_facts(), adapt_on_names=True)
     rows = (
         await db.execute(
-            select(ProjectMember, *profile_columns)
-            .join(profile, profile.c.id == ProjectMember.user_id)
-            .where(ProjectMember.project_id == project.id)
+            select(membership, *profile_columns)
+            .join(profile, profile.c.id == membership.user_id)
+            .where(membership.project_id == project.id)
         )
     ).all()
     by_id: dict[UUID, RosterEntry] = {}

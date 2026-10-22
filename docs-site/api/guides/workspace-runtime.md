@@ -301,9 +301,27 @@ API／Node 验收见 [ADR-0172](/dev/adr/0172-project-set-locks-and-labeling-cou
 转换为可写实体或额外加载时间字段。API 在项目、成员和用户私表 SELECT 被拒绝时
 可完成这些选定读取，认证与姓名资料仍走各自 Identity owner。
 
-范围见 [ADR-0173](/dev/adr/0173-workspace-actor-scope-relations)。通知任意接收人对、
-成员目录与相关成员存在性查询，以及其余 Project 集合／标量仍待单独迁移；完整模块
+范围见 [ADR-0173](/dev/adr/0173-workspace-actor-scope-relations)。非锁定成员集合使用下述
+成员事实关系；其余 Project 集合／标量仍待单独迁移。完整模块
 凭据、冷工件与恢复继续按[唯一台账](/dev/concepts/module-deployment#剩余工作台账)集中验收。
+
+## 非锁定成员集合与名册
+
+`aap_workspace_v1.project_member_facts` 由 Workspace 持有，以固定顺序公开成员的
+九个原生列：`id/project_id/user_id/role/assigned_by/assigned_at/version/updated_at/weekly_target`。
+它不联接、过滤、排序或授权；未知职责与可空值保持原样。便携描述复用共享
+`ProjectMemberRow`，应用只增加此视图的 SELECT，PUBLIC 不获权限。
+
+任意接收人通知、绩效名册、管理看板、批次内的相关成员判断和评论提及查询已接入。
+各调用保留原规则：通知仍分四次查询；批次只看所需项目职责，不追加账号状态；
+提及允许任意职责成员；个人绩效的团队分母仍只要求活跃账号和 annotator 成员关系。
+完整 ORM 别名保留 identity map、脏字段、过期字段与 autoflush；局部字段查询不解码
+未读取的日期。没有新增连接、锁或提交点。
+
+受限 API LOGIN 在成员私表 SELECT 被撤销后完成选定 SQL 与真实 HTTP 读取，Node
+直接读取同一关系。通知、提及和管理看板内独立的 Project 查询仍属后续范围。默认
+应用宽角色也仍是兼容装配，不能把本轮定向撤权试验视为默认凭据已收紧。边界见
+[ADR-0174](/dev/adr/0174-workspace-nonlocking-member-facts)。
 
 ## 最终写入与批量分派的成员锁
 

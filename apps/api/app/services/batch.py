@@ -1324,8 +1324,11 @@ class BatchService:
         Returns: cascade_counts (含 tasks_reset / predictions / failed_predictions /
                  prediction_jobs / ai_annotations_deactivated).
         """
+        from sqlalchemy.orm import aliased
+
         from app.db.models.project_member import ProjectMember
         from app.services.async_job import delete_batch_predict_jobs
+        from app.services.workspace_read_relations import project_member_facts
 
         result = await self.db.execute(
             update(Task)
@@ -1357,6 +1360,8 @@ class BatchService:
                 {"reviewer_claimed_at": None},
             ),
         ):
+            member_facts = project_member_facts()
+            membership = aliased(ProjectMember, member_facts, adapt_on_names=True)
             await self.db.execute(
                 update(Task)
                 .where(
@@ -1364,11 +1369,12 @@ class BatchService:
                     Task.status == "pending",
                     column.is_not(None),
                     override_column.is_(False),
-                    ~select(ProjectMember.id)
+                    ~select(membership.id)
+                    .select_from(membership)
                     .where(
-                        ProjectMember.project_id == Task.project_id,
-                        ProjectMember.user_id == column,
-                        ProjectMember.role == role_value,
+                        membership.project_id == Task.project_id,
+                        membership.user_id == column,
+                        membership.role == role_value,
                     )
                     .exists(),
                 )

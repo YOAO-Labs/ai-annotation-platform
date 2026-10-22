@@ -34,6 +34,7 @@ from app.services.identity_contracts import IdentityActorFacts, IdentityActorSta
 from app.services.identity_read_relations import account_profiles
 from app.services.workspace_read_relations import (
     actor_project_memberships,
+    project_member_facts,
     project_search_scope,
 )
 
@@ -51,7 +52,7 @@ REVIEWER_ROLE = ProjectRole.REVIEWER.value
 VIEWER_ROLE = ProjectRole.VIEWER.value
 
 
-def _valid_membership_conditions(project_role_column=ProjectMember.role):
+def _valid_membership_conditions(project_role_column):
     """SQL conditions mirroring the shared resolver's membership contract.
 
     A membership only authorizes when the account is active, its platform role
@@ -72,7 +73,7 @@ def _valid_membership_conditions(project_role_column=ProjectMember.role):
     )
 
 
-def valid_membership_conditions():
+def valid_membership_conditions(project_role_column):
     """Public alias for the shared valid-membership SQL contract.
 
     Other aggregate/delivery owners (for example notification delivery) reuse
@@ -80,7 +81,7 @@ def valid_membership_conditions():
     pairing contract is defined once.
     """
 
-    return _valid_membership_conditions()
+    return _valid_membership_conditions(project_role_column)
 
 
 def membership_project_ids(
@@ -109,13 +110,19 @@ def membership_project_ids(
 def member_user_ids(project_id, *project_roles: str) -> Select[tuple[object]]:
     """User IDs holding a valid membership in ``project_id``, optionally role-filtered."""
 
+    member_facts = project_member_facts()
+    membership = aliased(ProjectMember, member_facts, adapt_on_names=True)
     stmt = (
-        select(ProjectMember.user_id)
-        .join(account_profiles, account_profiles.c.id == ProjectMember.user_id)
-        .where(ProjectMember.project_id == project_id, *_valid_membership_conditions())
+        select(membership.user_id)
+        .select_from(membership)
+        .join(account_profiles, account_profiles.c.id == membership.user_id)
+        .where(
+            membership.project_id == project_id,
+            *_valid_membership_conditions(membership.role),
+        )
     )
     if project_roles:
-        stmt = stmt.where(ProjectMember.role.in_(list(project_roles)))
+        stmt = stmt.where(membership.role.in_(list(project_roles)))
     return stmt
 
 

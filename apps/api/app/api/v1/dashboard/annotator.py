@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, cast, Date, or_, and_
+from sqlalchemy.orm import aliased
 from app.deps import (
     get_current_user,
     get_db,
@@ -41,6 +42,7 @@ from app.services.dashboard_stats import (
 )
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.identity_read_relations import account_profiles
+from app.services.workspace_read_relations import project_member_facts
 
 router = APIRouter()
 
@@ -646,17 +648,20 @@ async def my_performance(
     # 团队 annotator 群体（活跃），用于每周均线分母。
     # 项目职责来自 project_members，账户必须是当前活跃账号；legacy 全局
     # annotator 账号角色不再参与统计。
+    annotator_membership = aliased(
+        ProjectMember, project_member_facts(), adapt_on_names=True
+    )
     team_ids = (
         (
             await db.execute(
-                select(ProjectMember.user_id)
+                select(annotator_membership.user_id)
                 .join(
                     account_profiles,
-                    account_profiles.c.id == ProjectMember.user_id,
+                    account_profiles.c.id == annotator_membership.user_id,
                 )
                 .where(
                     account_profiles.c.is_active.is_(True),
-                    ProjectMember.role == ProjectRole.ANNOTATOR.value,
+                    annotator_membership.role == ProjectRole.ANNOTATOR.value,
                 )
                 .distinct()
             )

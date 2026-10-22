@@ -26,6 +26,7 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.config import settings
 from app.db.enums import (
@@ -48,7 +49,10 @@ from app.services.project_aggregates import (
     owned_project_ids,
     valid_membership_conditions,
 )
-from app.services.workspace_read_relations import project_search_scope
+from app.services.workspace_read_relations import (
+    project_member_facts,
+    project_search_scope,
+)
 
 
 log = logging.getLogger(__name__)
@@ -380,23 +384,36 @@ class NotificationService:
                 if not restricted
             }
 
+        member_facts = project_member_facts()
+        membership = aliased(ProjectMember, member_facts, adapt_on_names=True)
         member_rows = await self.db.execute(
-            select(ProjectMember.project_id, ProjectMember.user_id)
-            .join(account_profiles, account_profiles.c.id == ProjectMember.user_id)
+            select(membership.project_id, membership.user_id)
+            .select_from(membership)
+            .join(account_profiles, account_profiles.c.id == membership.user_id)
             .where(
-                tuple_(ProjectMember.project_id, ProjectMember.user_id).in_(pairs),
-                *valid_membership_conditions(),
+                tuple_(membership.project_id, membership.user_id).in_(pairs),
+                *valid_membership_conditions(membership.role),
             )
         )
         member_pairs = {(pid, uid) for pid, uid in member_rows.all()}
 
+        reviewer_facts = project_member_facts()
+        reviewer_membership = aliased(
+            ProjectMember, reviewer_facts, adapt_on_names=True
+        )
         reviewer_rows = await self.db.execute(
-            select(ProjectMember.project_id, ProjectMember.user_id)
-            .join(account_profiles, account_profiles.c.id == ProjectMember.user_id)
+            select(reviewer_membership.project_id, reviewer_membership.user_id)
+            .select_from(reviewer_membership)
+            .join(
+                account_profiles,
+                account_profiles.c.id == reviewer_membership.user_id,
+            )
             .where(
-                tuple_(ProjectMember.project_id, ProjectMember.user_id).in_(pairs),
-                *valid_membership_conditions(),
-                ProjectMember.role == ProjectRole.REVIEWER.value,
+                tuple_(reviewer_membership.project_id, reviewer_membership.user_id).in_(
+                    pairs
+                ),
+                *valid_membership_conditions(reviewer_membership.role),
+                reviewer_membership.role == ProjectRole.REVIEWER.value,
             )
         )
         reviewer_pairs = {(pid, uid) for pid, uid in reviewer_rows.all()}

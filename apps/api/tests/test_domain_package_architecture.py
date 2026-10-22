@@ -632,6 +632,12 @@ DOMAIN_PACKAGES = (
         allowed_framework_imports=("sqlalchemy",),
     ),
     DomainSpec(
+        package="workspace_read_relations",
+        legacy_facades=(),
+        allowed_app_imports=(),
+        allowed_framework_imports=("sqlalchemy",),
+    ),
+    DomainSpec(
         package="annotation_comment",
         legacy_facades=(),
         allowed_app_imports=(
@@ -640,6 +646,7 @@ DOMAIN_PACKAGES = (
             "app.db.models.project",
             "app.db.models.project_member",
             "app.services.identity_read_relations",
+            "app.services.workspace_read_relations",
         ),
     ),
     DomainSpec(

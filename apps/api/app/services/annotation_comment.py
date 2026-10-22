@@ -7,12 +7,14 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.db.enums import MANAGER_PLATFORM_ROLES, PlatformRole
 from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.services.identity_read_relations import account_profiles
+from app.services.workspace_read_relations import project_member_facts
 
 
 class AnnotationCommentService:
@@ -51,11 +53,15 @@ class AnnotationCommentService:
 
         if not user_ids:
             return
+        member_facts = project_member_facts()
+        membership = aliased(ProjectMember, member_facts, adapt_on_names=True)
         rows = (
             await self.db.execute(
-                select(ProjectMember.user_id).where(
-                    ProjectMember.project_id == project_id,
-                    ProjectMember.user_id.in_(user_ids),
+                select(membership.user_id)
+                .select_from(membership)
+                .where(
+                    membership.project_id == project_id,
+                    membership.user_id.in_(user_ids),
                 )
             )
         ).all()

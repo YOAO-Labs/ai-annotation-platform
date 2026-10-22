@@ -576,6 +576,7 @@ class LocalResources:
                     f"aap_assets_v1.spatial_scene_references TO {role}",
                     "GRANT SELECT ON aap_identity_v1.account_profiles, "
                     f"aap_identity_v1.invitation_audit_targets TO {role}",
+                    f"GRANT SELECT ON aap_workspace_v1.project_member_facts TO {role}",
                     f"GRANT EXECUTE ON FUNCTION aap_workspace_owner_transfer_v1.owner_transfer_policy(), "
                     "aap_workspace_owner_transfer_v1.transfer_project_owner(jsonb), "
                     "aap_identity_v1.workspace_template_query_org_ids(uuid), "
