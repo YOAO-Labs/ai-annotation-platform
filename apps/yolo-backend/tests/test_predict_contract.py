@@ -7,18 +7,10 @@ predictor._emit_* 函数把 ultralytics 原始 tensor 映射成符合协议 v2 �
 from __future__ import annotations
 
 import math
-import sys
 from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-
-
-@pytest.fixture(scope="module", autouse=True)
-def _stub_modules() -> None:
-    sys.modules.setdefault(
-        "torch", MagicMock(cuda=MagicMock(is_available=MagicMock(return_value=False)))
-    )
 
 
 def _mk_tensor(arr) -> MagicMock:

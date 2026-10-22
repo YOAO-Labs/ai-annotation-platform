@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 import threading
 import time
-from unittest.mock import MagicMock
 
 import pytest
 from aap_protocol_v2.errors import LifecycleHTTPError
@@ -18,10 +16,6 @@ from aap_protocol_v2.lifecycle import (
     sign_admission_token,
 )
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-
-sys.modules.setdefault(
-    "torch", MagicMock(cuda=MagicMock(is_available=MagicMock(return_value=False)))
-)
 
 
 class _Model:

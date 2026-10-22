@@ -1,7 +1,6 @@
 """Controlled built-in weights must use the prepared read-only asset identity."""
 
 import hashlib
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -14,10 +13,6 @@ from training_contract.assets import AssetReference, AssetUnavailable, prepare_a
 
 @pytest.fixture
 def builtin(monkeypatch, tmp_path):
-    sys.modules.setdefault(
-        "torch", MagicMock(cuda=MagicMock(is_available=MagicMock(return_value=False)))
-    )
-    sys.modules.setdefault("ultralytics", MagicMock())
     import main
 
     assets = tmp_path / "read-only-assets"
@@ -28,7 +23,9 @@ def builtin(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "STRICT_OFFLINE", False)
     monkeypatch.setattr(main, "_move_model_to_effective_device", lambda model: model)
     loader = MagicMock(return_value=SimpleNamespace(task="segment"))
-    monkeypatch.setitem(sys.modules, "ultralytics", SimpleNamespace(YOLO=loader))
+    import ultralytics
+
+    monkeypatch.setattr(ultralytics, "YOLO", loader)
     return main, assets, checkpoints, loader
 
 

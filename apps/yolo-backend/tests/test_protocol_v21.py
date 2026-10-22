@@ -3,18 +3,8 @@
 from __future__ import annotations
 
 import os
-import sys
-from unittest.mock import MagicMock
 
 import pytest
-
-
-@pytest.fixture(scope="module", autouse=True)
-def _stub_modules() -> None:
-    sys.modules.setdefault(
-        "torch", MagicMock(cuda=MagicMock(is_available=MagicMock(return_value=False)))
-    )
-    sys.modules.setdefault("ultralytics", MagicMock())
 
 
 @pytest.fixture()

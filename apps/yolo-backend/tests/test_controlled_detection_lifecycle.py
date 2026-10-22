@@ -235,6 +235,33 @@ def test_detection_requires_two_exact_cold_cycles_and_separate_box_evidence(cont
     )
 
 
+@pytest.mark.parametrize("change", [None, "missing", "version", "extra"])
+def test_detection_evidence_retains_only_the_pinned_inference_runtime(
+    controlled, change
+):
+    from training_contract.inference_runtime import inference_runtime
+
+    response, snapshot = _prediction(controlled)
+    runtime = inference_runtime(controlled.receipt, "8.4.183")
+    controlled.receipt["inference_runtime"] = runtime
+    snapshot["loaded_keys"] = [{"key": controlled.pool_key}]
+    meta = response["results"][0]["meta"]
+    meta["inference_runtime"] = copy.deepcopy(runtime)
+    if change == "missing":
+        del meta["inference_runtime"]
+    elif change == "version":
+        meta["inference_runtime"]["version"] = "8.4.184"
+    elif change == "extra":
+        meta["mask_objects"] = {}
+    if change is None:
+        controlled.inspect_prediction(response, cycle=1, snapshot=snapshot)
+        assert len(controlled.cycles) == 1
+    else:
+        with pytest.raises(AssertionError):
+            controlled.inspect_prediction(response, cycle=1, snapshot=snapshot)
+        assert controlled.cycles == []
+
+
 @pytest.mark.parametrize(
     "change",
     [

@@ -397,12 +397,15 @@ class ControlledSegmentationFixture:
 
     def _inspect_boxes(self, item, meta):
         boxes = item.get("result")
+        expected_meta = {"trained_model"}
+        if "inference_runtime" in self.reference:
+            expected_meta.add("inference_runtime")
         if (
             not isinstance(boxes, list)
             or not self.fixture["min_instances"]
             <= len(boxes)
             <= self.fixture["max_det"]
-            or set(meta) != {"trained_model"}
+            or set(meta) != expected_meta
         ):
             raise AssertionError("Controlled detection requires bounded native boxes")
         for box in boxes:

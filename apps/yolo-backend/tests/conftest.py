@@ -1,4 +1,9 @@
-"""Explicit authentication for backend business tests."""
+"""Explicit authentication for backend business tests.
+
+Keep the locked framework modules real across collection and test execution.
+Replace model builders or loader attributes within scoped fixtures instead of
+installing global framework stubs that hide native runtime identity.
+"""
 
 # Business/lifecycle tests use an explicit test credential; the shared runtime
 # auth suite separately exercises disk bootstrap, denial, and manual precedence.
