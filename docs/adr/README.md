@@ -40,6 +40,7 @@
 
 ### 待决（Proposed / Draft）
 
+- [0164](0164-workspace-transactional-project-maintenance.md) — Workspace 相邻项目写入的同事务能力（限定本地定向验收通过）
 - [0163](0163-identity-registration-policy-owner.md) — Identity 注册状态与部署默认值的统一读取（限定本地定向验收通过）
 - [0162](0162-identity-read-relations-and-consumer-grants.md) — Identity 集合读取关系与独立 API 消费者权限（限定本地定向验收通过）
 - [0157](0157-video-execution-claims-and-route-binding.md) — 视频执行代次、原子路由绑定与当前写入检查（完整恢复继续实施）

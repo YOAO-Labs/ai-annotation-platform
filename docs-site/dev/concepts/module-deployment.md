@@ -27,7 +27,7 @@ last_reviewed: 2026-10-22
 | Identity：准入、API key、会话、自助账户、恢复及邮件 | 已有各自 owner 与版本化合同；注册策略统一到实际 owner                                     | 已迁移公开入口与邮件消费者，远程 API 不持有 owner 签名密钥                       | [整模块装配](#identity-整模块独立装配)通过冷安装、真实 REST／Socket、邮件和完整恢复                                              | 私网装配的本地功能资格已闭合；日常签名与运行环境未切换，其他网络拓扑和生产容量未获资格                                                           |
 | Identity：分组、邀请、目录、管理员生命周期          | 已实现分组／邀请、目录、UserBrief、重置密码、角色、暂停／恢复、删除、离职 owner           | 公开入口及内部资料读取使用 owner 或最小公开关系                                  | [整模块装配](#identity-整模块独立装配)覆盖真实 API、Node 重放、账号撤销、职责交接和恢复；操作级证据继续保留                      | 本地私网功能资格已闭合；未验收另一语言的完整提供方                                                                                               |
 | Identity：账号事实、锁、provisioning、完整装配      | 同事务事实锁、accepted-key 最终围栏、provisioning 及完整运行包已实现                      | 账号权威与集合／展示读取已迁移；验收 API 的 Identity 权限仅为两视图及五函数      | [整模块装配](#identity-整模块独立装配)：658 项安装包检查、匹配冷镜像、完整迁移及两轮私网恢复通过                                 | 主 API 仍保留兼容装配。旧宿主机转发实验曾出现间歇性 503，根因未确认；私网通过不视为修复该路径                                                    |
-| Workspace：项目、成员、配置及访问                   | 已有成员、交接、配置／模板、查询与访问 owners                                             | 对应三路径及选定跨域消费者已迁移                                                 | [Workspace 协议](/api/guides/workspace-runtime)及下文保留资格                                                                    | **下一交付**：收口相邻项目写入及其余跨 owner Project 消费者，再完成整模块凭据／装配                                                              |
+| Workspace：项目、成员、配置及访问                   | 成员、交接、配置／模板、查询及相邻项目写入已实现                                          | nuScenes／点云质量晋升已迁到同事务 Native，其他选定消费者已迁移                  | [相邻写入](#workspace-相邻项目写入)通过 65 项定向检查；既有运行资格见 [Workspace 协议](/api/guides/workspace-runtime)            | **下一交付**：项目删除的独立提供方与 API 绑定；随后收口数据集解绑、其余 Project 权限／锁消费者及整模块凭据／装配                                 |
 | Assets：来源、目录、连接及媒体／输入                | 已有 Source、Catalog、Media、Images、accepted inputs 和视频输入能力                       | 已迁移选定导入、Workbench 和推理输入消费者                                       | [数据能力协议](/api/guides/module-data)及既有 Assets ADR 保存受限进程／容器证据                                                  | 一般 Blob、其余输入及运维写入和完整装配待提取；素材仍被辅助引用时返回 409，先在所属项目解除引用，保留任务来源、标注与主动学习证据                |
 | Labeling：建题、类别及视频最终发布                  | 选定事务 owner 已实现；视频终结由唯一 owner 发布                                          | 视频 bbox／Mask 的借用事务、DSN 与 HTTP 消费者已迁移                             | [ADR-0159](/dev/adr/0159-independent-labeling-video-writer)：受限容器、重启、有限写入样本；恢复见下一行                          | 人工 accept／decide／discard、中间 start／progress、其余任务／审核／标注写入、整模块凭据和语言替换仍缺                                           |
 | Inference／Jobs：协调视频恢复                       | `aap-video-restore/v1`、两类权威屏障／轮换、不可变退休证明已实现                          | 实际 runner 已经独立安装 CLI 恢复，同 run 新代次复用窗口并由 Labeling owner 发布 | [ADR-0160](/dev/adr/0160-coordinated-video-restore)：五个 Native／消费者场景、源码和安装各 420 项、51 项旧路径回归、完整迁移通过 | 本切片已闭合：独立安装 CLI 实际消费者与匹配 Inference／API 冷镜像均通过，源码提交 `968212e4e`；对象存储备份恢复、GPU／生产容量不在本切片通过范围 |
@@ -47,7 +47,7 @@ last_reviewed: 2026-10-22
 
 API 使用既有远程 consumer 权限模型：在 owner 及兼容应用授权之后，最后应用 `identity-consumer-grants.sql`。真实 LOGIN 只能读取两个公开关系及执行五项同事务事实／锁函数；密码、key hash、私有回执和 User 写入均拒绝。独立提供方保管签名密钥，API 使用不同的 edge secret；实际登录、刷新、注册、REST 和 Socket 均使用 owner 凭据。API 不持有 Identity 命令 DSN、签名密钥或邮件 key，远程故障返回 503。
 
-冷安装的非 editable 包通过 658 项检查；129 个包文件与独立安装及两个镜像匹配，API 镜像另核对 1,294 个应用／Native／元数据文件。完整迁移通过当前 head 的五阶段 fresh、升级、降级再升级及快照恢复检查。已有操作级事务、锁、撤销及协议资格继续有效，各批数字独立保留，不与 658 项相加。
+冷安装的非 editable 包通过 658 项检查；129 个包文件与独立安装及两个镜像匹配，API 镜像另核对 1,294 个应用／Native／元数据文件。完整迁移通过该次验收 head 0287 的五阶段 fresh、升级、降级再升级及快照恢复检查。已有操作级事务、锁、撤销及协议资格继续有效，各批数字独立保留，不与 658 项相加。
 
 整模块真实消费者场景连续两轮通过。每轮记录 66 个公开请求，另含私有 RPC、Node 与 Socket 调用；覆盖注册设置、分组／邀请、目录／UserBrief、管理员生命周期、到期注销、停服拒绝、重启重放、两种实际邮件发送、通知积压后投递，以及完整 dump/restore 后的 JWT、撤销、回执、待发邮件、通知与受限 ACL。两轮是同一案例的重复验证，不计为两个去重案例。恢复保持原有 owner 密钥，没有执行密钥轮换。
 
@@ -60,6 +60,24 @@ Identity 已将认证后的主体资料读取绑定到既有 AUTH owner：私有
 Identity account-lock boundary 用三项 typed SQL functions（SHARE／UPDATE／KEY SHARE）让现有 Workspace、Labeling、Inference、Learning 和 workflow owners 在同一 caller transaction 中持有账号事实锁，再完成各自写入；它不新增 HTTP lock endpoint、LOGIN 或 DSN，也不扩张 AUTH/FENCE 权限。锁异常、NOWAIT/wait 与 UserLifecycle 显式 rollback 均保留 caller 原语义。新锁切片通过 231 个 distinct selected cases、无有效跳过，含独立 Node 调用、真实锁等待、转移／角色变更的两种顺序、八项恢复及新 Celery 进程。源码和非 editable 安装各通过 595 项，119 个包文件与新 owner／API 容器指纹一致，API 另核对 150 个应用／native 文件。Pre-change baseline 的 15 个场景和 actor-context 的 114 项资格均单独保留，不能相加或借用。本次不收口非锁定 Workspace 查询、bootstrap/import writer、完整 Identity、十模块／七门槛或生产切换。精确边界见 [ADR-0131](/dev/adr/0131-identity-transactional-account-locks)。
 
 运维 provisioning 是新的 Identity 账号写入切片。两个既有 bootstrap/import 入口改为调用 Identity owner；受限验收角色 `identity_provisioning_client` 仅可执行 `read_provisioning_account(text)` 与 `create_provisioning_account(jsonb)`。默认 CLI/import 继续使用调用方的数据库连接，保留外层 SQL transaction；账号写入及固定 Audit 由 owner 组合。这是按 email 的 bootstrap 与环境门控 import，不是一般账号创建、注册或邀请。Authority readers 只复用现有账号状态和同事务锁能力，不新增 SQL、角色或 wire operation。Provisioning 与 authority consumers 已通过 236 个去重选定案例、无有效跳过，覆盖受限 Node client、实际 CLI、全新 Celery worker、八项恢复和事务／锁语义。源码与非 editable 安装各通过 619 项检查；独立 owner 和禁网只读 API 镜像均核对 122 个包文件，API 另核对 61 个本轮应用／native 输入。先前 actor-context 的 114 项与 account-lock 的 231 项各自独立，不计入本次资格。该操作级证据与上文整模块装配资格独立保留；十模块／七门槛目标仍未完成。详见 [ADR-0132](/dev/adr/0132-identity-operational-provisioning-and-authority-reads)。
+
+## Workspace 相邻项目写入
+
+nuScenes 运维导入的精确查找／创建，以及点云质量评估晋升的配置写入，已通过
+`aap-workspace-project-maintenance/v1` 的三项 Workspace Native 能力执行。导入只传递
+项目 UUID，保留稳定 display ID、原创建默认值和 Assets／Labeling／标定的外层事务；
+晋升保留原权限重验、Project 锁、评估策略、Audit 和提交，写后同步调用方的 ORM 视图。
+不通过独立 HTTP／数据库连接拆分这些跨域写入。
+
+函数专用 LOGIN 只有三项业务 owner 能力，无私表／列、序列、DDL 或 TEMP 权限；建题
+账号没有因此扩权。修改前 28 项旧行为检查与当前 65 项去重定向检查分别保留，覆盖严格
+合同、实际权限、完整默认值、调用方回滚、SQL 错误／失败事务、真实锁等待、Node 直接
+调用及现有公开 API／导入回归。SQL 冻结工件安装／回滚和资源清理通过。详细边界见
+[ADR-0164](/dev/adr/0164-workspace-transactional-project-maintenance)。
+
+这只收口相邻写入能力，Project 权限读取仍有旧 ORM 适配器。项目删除／数据集解绑已有
+同事务 Native 协调器，但尚未接入 Workspace 独立运行包；完整模块资格仍以本页台账为准。
+冷安装、容器、完整迁移和备份恢复集中在一致模块里程碑验收，既有资格不重复执行。
 
 ## Workspace 项目负责人转移命令
 

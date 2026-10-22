@@ -47,7 +47,7 @@ class ImportProjectCreated(ImportProjectReference):
 
 
 class PointQualityConfigWrite(_ProjectMaintenanceModel):
-    """Receipt for the caller's point-cloud quality configuration write."""
+    """Result of the caller's point-cloud quality configuration write."""
 
     protocol: Literal["aap-workspace-project-maintenance/v1"] = Field(alias="schema")
     project_id: uuid.UUID
@@ -121,7 +121,7 @@ def decode_point_quality_config_write(
     *,
     project_id: uuid.UUID,
 ) -> datetime:
-    """Decode a write receipt and require it to name the requested Project."""
+    """Decode a write result and require it to name the requested Project."""
     if not isinstance(project_id, uuid.UUID):
         raise ProjectMaintenanceUnavailable()
     try:
@@ -144,7 +144,7 @@ class _NativeFunction:
 
 _UUID_SCHEMA = TypeAdapter(uuid.UUID)
 _TEXT_SCHEMA = TypeAdapter(StrictStr)
-_JSONB_SCHEMA = TypeAdapter(JsonValue)
+_JSONB_SCHEMA = TypeAdapter(dict[StrictStr, JsonValue])
 
 _NATIVE_FUNCTIONS = (
     _NativeFunction(

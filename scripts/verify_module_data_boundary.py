@@ -66,6 +66,7 @@ IDENTITY_CLIENT_ROLES = {
     "PROVISIONING": "identity_provisioning_client",
     "WORKSPACE_MEMBERSHIP": "workspace_membership_client",
     "WORKSPACE_OWNER_TRANSFER": "workspace_owner_transfer_client",
+    "WORKSPACE_PROJECT_MAINTENANCE": "workspace_project_maintenance_client",
     "WORKSPACE_CONFIGURATION": "workspace_configuration_client",
     "WORKSPACE_TEMPLATE_QUERY": "workspace_template_query_client",
     "WORKSPACE_PROJECT_QUERY": "workspace_project_query_client",
@@ -250,6 +251,7 @@ SQL_ARTIFACTS = (
     "0285_identity_accepted_api_key.sql",
     "0286_identity_read_relations.sql",
     "0287_identity_registration_status.sql",
+    "0288_workspace_project_maintenance.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -349,8 +351,10 @@ SCHEMA_ARTIFACTS = (
     "0285_identity_accepted_api_key.schema.json",
     "0286_identity_read_relations.schema.json",
     "0287_identity_registration_status.schema.json",
+    "0288_workspace_project_maintenance.schema.json",
 )
 TEST_FILES = (
+    "tests/test_workspace_project_maintenance_native.py",
     "tests/test_identity_registration_status_native.py",
     "tests/test_identity_read_relations_native.py",
     "tests/test_identity_accepted_api_key_native.py",
@@ -2263,6 +2267,9 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_inference_backend_probe_v1') IS NULL "
             "AND to_regclass('aap_inference_backend_probe_v1.probe_secret') IS NULL "
             "AND to_regprocedure('aap_workspace_v1.clear_primary_backend_bindings(uuid)') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.read_import_project(text)') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb)') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)') IS NULL "
             "AND to_regprocedure('aap_learning_v1.registry_evaluation_reference_exists(uuid)') IS NULL "
             "AND to_regprocedure('aap_jobs_v1.count_running_registry_predictions(uuid)') IS NULL "
             "AND to_regnamespace('aap_workspace_directory_query_v1') IS NULL "
@@ -2495,6 +2502,9 @@ def main(argv: list[str] | None = None) -> int:
         workspace_owner_transfer_grants_path = (
             ROOT / "infra/docker/workspace-owner-transfer-grants.sql"
         )
+        workspace_project_maintenance_grants_path = (
+            ROOT / "infra/docker/workspace-project-maintenance-grants.sql"
+        )
         workspace_configuration_grants_path = (
             ROOT / "infra/docker/workspace-configuration-grants.sql"
         )
@@ -2578,6 +2588,7 @@ def main(argv: list[str] | None = None) -> int:
             or not identity_provisioning_grants_path.is_file()
             or not workspace_membership_grants_path.is_file()
             or not workspace_owner_transfer_grants_path.is_file()
+            or not workspace_project_maintenance_grants_path.is_file()
             or not workspace_configuration_grants_path.is_file()
             or not workspace_template_query_grants_path.is_file()
             or not workspace_project_query_grants_path.is_file()
@@ -2658,6 +2669,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         workspace_owner_transfer_grant_sql = (
             workspace_owner_transfer_grants_path.read_text(encoding="utf-8")
+        )
+        workspace_project_maintenance_grant_sql = (
+            workspace_project_maintenance_grants_path.read_text(encoding="utf-8")
         )
         workspace_configuration_grant_sql = (
             workspace_configuration_grants_path.read_text(encoding="utf-8")
@@ -2827,8 +2841,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0287"]:
-            raise RuntimeError("module-data acceptance requires migration head 0287")
+        if heads != ["0288"]:
+            raise RuntimeError("module-data acceptance requires migration head 0288")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -3459,6 +3473,22 @@ def main(argv: list[str] | None = None) -> int:
                 "identity_owner": "identity_code",
                 "workspace_owner": "workspace_code",
                 "workspace_owner_transfer_role": "workspace_owner_transfer_client",
+            },
+        )
+        phase = "install-workspace-project-maintenance-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=workspace_project_maintenance_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "workspace_owner": "workspace_code",
+                "workspace_project_maintenance_role": "workspace_project_maintenance_client",
             },
         )
         phase = "install-workspace-configuration-grants"

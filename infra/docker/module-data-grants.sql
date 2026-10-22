@@ -1689,6 +1689,12 @@ ALTER FUNCTION aap_workspace_v1.project_access_step(uuid, uuid, text)
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.clear_primary_backend_bindings(uuid)
     OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1.read_import_project(text)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)
+    OWNER TO :"workspace_owner";
 
 GRANT CREATE ON SCHEMA aap_inference_backend_probe_v1 TO :"inference_owner";
 ALTER SCHEMA aap_inference_backend_probe_v1 OWNER TO :"inference_owner";

@@ -5223,3 +5223,48 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   patch-equivalence checks; one ignored Ruff cache was archived first. Branches
   remain. Root editable bindings, the clean primary checkout and four shared
   containers are preserved; no owned assembly container/network remains.
+
+### Workspace transactional adjacent project writes (2026-10-22)
+
+- The previous goal turn made concrete progress: complete Identity private-network
+  functionality and evidence were committed as `8cd394eef` / `55386aad6`.
+  The goal remains active for the full module scope. Read-only Workspace audits
+  identified two remaining production direct writers: nuScenes project import
+  and point-cloud quality configuration promotion. Labeling-owned Project counts
+  are explicitly excluded from this Workspace write group.
+- Added Native 0288 in the existing `aap_workspace_v1`: exact import reference
+  lookup, caller-specified import creation and quality configuration write.
+  The portable `aap-workspace-project-maintenance/v1` descriptor and strict
+  response decoders bind references/timestamps without carrying ORM objects.
+  No new service, runtime DSN selector, retry, CAS, authorization or receipt
+  ledger is introduced. Existing caller transactions and public APIs remain.
+- Import retains stable display IDs, legacy ORM defaults, read-then-create unique
+  errors, lookup autoflush/no_autoflush and explicit creation flush. The workflow
+  passes only UUIDs through existing Assets/Labeling/calibration operations.
+  Quality promotion retains Project FOR UPDATE/cached-read behavior, evaluation
+  gate/baseline/revision policy, Audit and commit; only the write moves to Native,
+  with set_committed_value synchronizing the caller's config/timestamp.
+- Privilege review rejected broadening the existing workflow role because it is
+  actually append_client. The existing function-only grant pattern instead
+  provisions workspace_project_maintenance_client for exactly three business
+  owner functions, with no table/column/sequence/DDL/TEMP rights. Public invoker
+  helpers are outside that business-capability count. Other module clients keep
+  their allowlists; application/runtime sources gain the explicit new functions.
+- Pre-change Identity-evidence HEAD passed 28 existing quality/import cases and
+  cleaned its isolated state. Current qualification passes 26 contract/adapter
+  cases, one real LOGIN/descriptor case and 38 Native/actual-consumer/regression
+  cases: 65 distinct cases, no failures/skips. The old 28 are not counted again.
+  Actual checks include full ORM-default comparison, stable/missing references,
+  same-value timestamps, match scope, SQLSTATE/aborted transactions, real lock
+  waits/retention, evaluation/config rollback after later failure or bad binding,
+  and a Node process consuming all three functions without Python/API proxying.
+  Frozen SQL install/rollback and owned resource cleanup pass.
+- Contract and caller worker source commits are `c987d6185` / `bcb836143`,
+  integrated as `96e7b6f37` / `cf44f8d4a`. Root owns Native/grant/verifier integration
+  and the final qualifications. Aggregate evidence is
+  .worktree/workspace-project-maintenance-qualification.json; ADR-0164 records
+  the operation boundary. Full cold artifact/migration/restore checks remain
+  batched at the coherent complete-Workspace milestone; prior valid checks stay
+  closed. The one module-deployment ledger retains every remaining blocker,
+  with project deletion provider/API binding as the next bounded deliverable.
+  No primary cutover, push, production deployment, release or Go expansion.

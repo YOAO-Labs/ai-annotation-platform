@@ -2,10 +2,10 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-22
 ---
 
-# Workspace 成员与负责人转移运行协议
+# Workspace 私有运行与事务能力
 
 项目成员创建、职责预览／变更与移除由 Workspace membership owner 组合。现有公开 API 路径、DTO、权限入口、错误映射和 SDK 不变；本页描述 API 到领域 owner 的内部边界，不是新的用户 API。
 
@@ -35,7 +35,7 @@ API 默认使用本地 caller Session；可选 `WORKSPACE_MEMBERSHIP_DATABASE_UR
 
 成员命令切片已通过独立安装包、受限 Native 权限、进程／镜像、真实 API、并发交接、重启重放和备份恢复的本地限定验收；计数与边界见 [ADR-0133](/dev/adr/0133-workspace-membership-lifecycle-owner)。命令 owner 只持有三项 RPC 权限，API 验收仍使用过渡期 `legacy_runtime` 装配。
 
-配置、项目查询和成员目录的当前接入见本文后续说明。其余 Workspace consumers 继续迁移。完整 Workspace、其余模块、完整 Identity、十模块／七门槛目标、完整模块的另一语言提供方、生产容量验证与 primary cutover 也仍未完成。Go 月报保持多语言架构实验，不构成该 owner 的语言提供方。
+配置、项目查询和成员目录的当前接入见本文后续说明。其余 Workspace consumers 继续迁移。完整 Workspace、其余模块和十模块／七门槛目标仍未完成；Identity 的本地私网资格见[模块台账](/dev/concepts/module-deployment#identity-整模块独立装配)。完整模块的另一语言提供方、生产容量与 primary cutover 也未获资格。Go 月报保持多语言架构实验，不构成该 owner 的语言提供方。
 
 ## 项目负责人转移
 
@@ -170,4 +170,31 @@ API 随后调用独立 Labeling 统计边界，配置见 [Labeling 运行协议]
 
 此目录切片已通过三路径公开响应对照、独立安装包、受限 owner/API 镜像、故障与重启、
 备份恢复及完整迁移的限定本地验收。1 CPU／256 MiB 下的16次并发读取不代表生产容量；
-API 与数据库不在该容器预算内。`/access`、相邻命令和完整模块替换仍待推进。
+API 与数据库不在该容器预算内。完整模块当前状态见[模块台账](/dev/concepts/module-deployment#剩余工作台账)。
+
+## 同事务运维导入与质量配置
+
+`aap-workspace-project-maintenance/v1` 是固定 SQL 数据合同，复用 `aap_workspace_v1`，
+没有新 HTTP endpoint 或 runtime DSN selector：
+
+| 能力                                               | 返回值                                                |
+| -------------------------------------------------- | ----------------------------------------------------- |
+| `read_import_project(text)`                        | `schema/display_id/project_id`；未找到时 UUID 为 null |
+| `create_import_project(uuid,text,text,uuid,jsonb)` | 同上；UUID 必须与调用方指定值一致                     |
+| `write_point_cloud_quality_config(uuid,jsonb)`     | `schema/project_id/updated_at`；时间必须带时区        |
+
+导入按稳定 display ID 精确复用项目，不增加 owner／类型判断。创建保持旧 ORM 默认值，
+不分配普通项目序号，不执行 upsert 或冲突重试；长度、外键、唯一错误保留原 SQLSTATE。
+查找保留 caller autoflush／no_autoflush；创建仍显式 flush 全部 pending work。后续素材
+关联、建题、标定和计数保留同一外层事务。导入标识来自受信任运维入口，不是用户授权。
+
+质量晋升继续由原入口重验项目管理权，在既有 Project `FOR UPDATE` 下校验评估 gate、
+baseline 与候选修订。Native setter 只写精确配置与事务时间戳，相同 JSONB 不推进时间；
+调用方同步 Project 的配置／updated_at，不追加 ORM 写入。评估和 Audit 与配置一起提交
+或回滚，错绑定回复不能确认整个工作流。能力不增加 CAS、授权检查、提交或回滚。
+
+预建的 `workspace_project_maintenance_client` 通过
+`infra/docker/workspace-project-maintenance-grants.sql` 获取三项业务 owner 执行权，
+没有私表／列、序列、DDL 或 TEMP 权限；PostgreSQL/public invoker helpers 不属于这项
+业务能力计数。迁移、owner grants 与精确授权入口见 `DEV.md`。严格回复及 Native／Node／
+真实消费者的限定本地证据见 [ADR-0164](/dev/adr/0164-workspace-transactional-project-maintenance)。

@@ -74,6 +74,10 @@ GRANT EXECUTE ON FUNCTION aap_inference_pipelines_v1.pipeline_policy(),
     TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.clear_primary_backend_bindings(uuid)
     TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_workspace_v1.read_import_project(text),
+    aap_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb),
+    aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)
+    TO :"application_role";
 GRANT USAGE ON SCHEMA aap_inference_backend_probe_v1 TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_inference_backend_probe_v1.backend_probe_policy(),
     aap_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)

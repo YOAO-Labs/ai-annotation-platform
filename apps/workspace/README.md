@@ -37,7 +37,8 @@ owner transfer. Public API callers use the same owner with a borrowed session
 by default; the old configuration ORM writers are removed. These six commands
 passed bounded local package, restricted database, process, container, restart,
 restore and concurrency qualification. See ADR-0136 for evidence and scope.
-Directory reads, adjacent writers and the full Workspace module remain open.
+Current query and maintenance capabilities are described below; complete-module
+status is maintained in the [module ledger](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账).
 
 Template list/detail and receipt-bound response projection now have a portable
 query contract, policy manager and raw scalar materializer. Public callers now
@@ -72,8 +73,8 @@ frozen HTTP observations match all three bindings; noneditable package
 manifests and bounded process-failure/restart checks pass. Restricted owner/API
 images, real container response projection and restart, backup/restore and full
 migration261 pass. The bounded local concurrency sample does not establish
-production capacity. Directory reads, adjacent writes and the remaining
-cross-domain Project consumers still prevent full Workspace qualification.
+production capacity. Remaining complete-module scope is maintained in the
+module ledger rather than inferred from this query qualification.
 See ADR-0139 for authority phases and the current acceptance boundary.
 
 Configuration managers no longer read backend URL/auth/token/extra_params or execute
@@ -84,3 +85,21 @@ Inference probe returns only modalities. Standalone configuration uses
 provider is unavailable only when a backend modality probe is needed. Backend
 setup failure keeps legacy fail-open behavior; internal provider failure aborts,
 and legacy materialization failure retains generic500/rollback. See ADR-0149.
+
+Adjacent import and point-cloud quality writes use three fixed SQL capabilities
+in `aap_workspace_v1`, described by `aap-workspace-project-maintenance/v1`.
+The nuScenes caller retains its stable display ID, ORM creation defaults and
+outer Assets/Labeling/calibration transaction, consuming only a Project UUID.
+Point-quality promotion keeps its caller-held Project lock, evaluation policy
+and Audit transaction; the native write synchronizes the API identity map without
+another ORM mutation. Neither path commits or rolls back the caller, selects an
+independent DSN, retries a unique conflict or adds authorization/CAS policy.
+
+The dedicated `workspace_project_maintenance_client` LOGIN has exactly these
+three application-owned Native capabilities, with no table/column, sequence,
+DDL or TEMP access. Standard PostgreSQL/public invoker helpers are outside that
+count. Existing task-creation/configuration capability roles are unchanged.
+The portable descriptor and migration snapshot are generated together. Source,
+restricted Native, actual API/import, Node and transaction/lock checks pass;
+complete-module artifact/restore qualification remains a coherent milestone.
+See [ADR-0164](../../docs/adr/0164-workspace-transactional-project-maintenance.md).

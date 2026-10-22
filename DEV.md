@@ -664,6 +664,40 @@ Identity 的窄账号事实，不初始化 Briefs。空成员列表同样不访�
 三路径响应对照、独立安装包、受限 owner/API 镜像、故障恢复、备份恢复和完整迁移
 已通过限定本地验收；完整 Workspace、另一语言提供方和生产容量仍未完成。
 
+### Workspace 同事务导入与质量配置
+
+nuScenes 导入与点云质量评估晋升通过 `aap-workspace-project-maintenance/v1` 的三项
+Native 数据能力写项目；调用方继续拥有原外层事务，不新增 HTTP 进程或运行时 DSN
+selector。导入保持稳定 display ID 和原始唯一／长度／外键错误；晋升保留原权限重验、
+Project 锁、评估和 Audit，失败一起回滚。Labeling 的计数列继续由其 owner 持有。
+
+先安装当前迁移及 `module-data-grants.sql`，再为预建、无角色成员关系的 LOGIN 应用
+精确授权。普通应用／工作树连接仍使用原来的连接与显式函数清单：
+
+```bash
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v workspace_owner=workspace_code \
+  -v workspace_project_maintenance_role=workspace_project_maintenance_client \
+  -f infra/docker/workspace-project-maintenance-grants.sql
+```
+
+这个数据账号仅有三项业务 Native 执行权，没有私表／列、序列、DDL 或 TEMP 权限；
+系统及历史 public invoker helpers 不计入三项业务能力。它不承载完整导入工作流的其他
+领域权限。复验使用验收器拥有的新 PostgreSQL／Redis／桶：
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/workspace-project-maintenance.json \
+  --test-file tests/test_workspace_project_maintenance_native.py \
+  --test-file tests/test_point_cloud_quality_evaluation.py \
+  --test-file tests/test_import_nuscenes_lite.py
+```
+
+合同与适配器检查、实际受限 LOGIN、完整导入默认值、锁等待、原始 SQLSTATE、Node
+直接调用和整事务回滚已通过本地定向验收，详见
+[ADR-0164](docs/adr/0164-workspace-transactional-project-maintenance.md)。完整 Workspace
+冷安装／容器／完整迁移／恢复仍在一致模块里程碑集中验收，日常主环境未切换。
+
 ### Labeling 类别与属性统计查询
 
 `class-usage` 的 API 先调用 Workspace `require_project_manager`，再调用独立 Labeling
