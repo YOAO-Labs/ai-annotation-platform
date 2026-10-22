@@ -207,6 +207,7 @@ async def _seed_retry_world(test_engine, *, backend_url, backend_token, index):
                 status="pending",
             )
         )
+        await db.flush()
         db.add(
             FailedPrediction(
                 id=failed_id,

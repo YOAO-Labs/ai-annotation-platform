@@ -6409,3 +6409,8 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   checks require changed StartedAt on the same container/image. Delivery proof
   requires live inspect replies, empty queue and zero Redis unacknowledged
   messages. The real worker qualification remains pending execution.
+- First worker run fails before container startup because the fixture queues the
+  Task and its FailedPrediction without flushing the Task FK first. Root adds
+  the missing flush, retaining the original failed log/JUnit and real exit. All
+  migrations and owned cleanup pass with no errors; no worker task is claimed
+  as executed by this attempt.
