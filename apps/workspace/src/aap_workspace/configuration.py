@@ -13,7 +13,7 @@ from aap_inference_contract.probe import (
     BackendProbeInvalidRequest,
     BackendProbeUnavailable,
 )
-from aap_inference import (
+from aap_inference_contract.pipeline import (
     PipelineValidationError,
     validate_saved_pipeline,
 )

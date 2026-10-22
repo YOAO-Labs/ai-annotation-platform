@@ -26,6 +26,8 @@ from .health_observation_outcome import (
     decode_health_observation_outcome,
     health_observation_outcome_text,
 )
+from .pipeline import PipelineValidationError, validate_saved_pipeline
+from .preannotate import PipelineStage, PreannotateRequest
 from .probe import (
     BACKEND_PROBE_NATIVE_FUNCTIONS,
     BACKEND_PROBE_NATIVE_POLICY_SCHEMA,
@@ -87,6 +89,9 @@ __all__ = [
     "BackendProbeSuccess",
     "BackendProbeUnavailable",
     "CapabilityLimits",
+    "PipelineStage",
+    "PipelineValidationError",
+    "PreannotateRequest",
     "SCOPE_RETIREMENT_NATIVE_FUNCTIONS",
     "SCOPE_RETIREMENT_PROTOCOL",
     "SCOPE_RETIREMENT_REPLY_MAX_BYTES",
@@ -125,4 +130,5 @@ __all__ = [
     "reply_modalities",
     "scope_retirement_request_bytes",
     "scope_retirement_result_bytes",
+    "validate_saved_pipeline",
 ]

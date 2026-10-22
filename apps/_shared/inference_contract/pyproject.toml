@@ -5,9 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "aap-inference-contract"
 version = "0.1.0"
-description = "Portable contracts for credential-owning Inference backend probes"
+description = "Portable Inference contracts and shared preannotation pipeline structure"
 requires-python = ">=3.11"
-dependencies = ["pydantic>=2.10.0"]
+dependencies = ["aap-task-contract", "pydantic>=2.10.0"]
+
+[tool.uv.sources]
+aap-task-contract = { path = "../task_contract", editable = true }
 
 [project.optional-dependencies]
 client = ["httpx>=0.28.0"]

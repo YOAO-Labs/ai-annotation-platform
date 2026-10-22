@@ -5,7 +5,7 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from aap_inference import PipelineStage, PreannotateRequest
+from aap_inference_contract.preannotate import PipelineStage, PreannotateRequest
 
 
 def test_preannotate_flat_request_defaults_and_required_backend():

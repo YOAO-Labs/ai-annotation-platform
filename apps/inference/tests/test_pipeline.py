@@ -4,7 +4,35 @@ import uuid
 
 import pytest
 
-from aap_inference import PipelineValidationError, validate_saved_pipeline
+from aap_inference import (
+    PipelineValidationError as LegacyPipelineValidationError,
+    validate_saved_pipeline as legacy_validate_saved_pipeline,
+)
+from aap_inference.pipeline import (
+    PipelineValidationError as PipelineModuleValidationError,
+    validate_saved_pipeline as pipeline_module_validate_saved_pipeline,
+)
+from aap_inference.preannotate import (
+    PipelineStage as LegacyPipelineStage,
+    PreannotateRequest as LegacyPreannotateRequest,
+)
+from aap_inference_contract.pipeline import (
+    PipelineValidationError,
+    validate_saved_pipeline,
+)
+from aap_inference_contract.preannotate import PipelineStage, PreannotateRequest
+
+
+def test_inference_reexports_shared_pipeline_contracts_by_identity():
+    from aap_inference import PipelineStage as PackagePipelineStage
+    from aap_inference import PreannotateRequest as PackagePreannotateRequest
+
+    assert LegacyPipelineValidationError is PipelineValidationError
+    assert PipelineModuleValidationError is PipelineValidationError
+    assert legacy_validate_saved_pipeline is validate_saved_pipeline
+    assert pipeline_module_validate_saved_pipeline is validate_saved_pipeline
+    assert LegacyPipelineStage is PackagePipelineStage is PipelineStage
+    assert LegacyPreannotateRequest is PackagePreannotateRequest is PreannotateRequest
 
 
 def test_empty_pipeline_values_pass_through():
