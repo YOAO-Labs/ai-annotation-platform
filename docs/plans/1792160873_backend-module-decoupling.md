@@ -6488,3 +6488,33 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   importer test/helper files. Root owns verifier/docs integration and all imports,
   dependency operations, builds, DB, Docker and runtime checks. The fixture and
   grant setup are not yet executed or claimed qualified.
+
+- Source-only worker commit f165e6848 is integrated as 6ab5509b5; Root verifier
+  fence source 90fc18f85 and ordering correction d86ea287a preserve the actual final
+  launcher profile. First actual attempt fails the strict ACL preflight because
+  run_processes prepares/regrants legacy_runtime; no CLI runs in that attempt.
+  The selected verifier now keeps real resource preparation and applies the two
+  existing fences afterward. The second attempt passes the five-stage baseline.
+- Cancellation source a034b467e initially uses a 120-second artificial task trigger.
+  The actual owned container stops with exit 137, but default PostgreSQL does not
+  release that in-flight sleeping query within the 15-second assertion. Original
+  failed log/JUnit and successful resource teardown remain preserved; no SQL
+  client is forcibly terminated or runtime setting changed to manufacture proof.
+- Source 3ea9d4b21 bounds only the artificial query to 10 seconds and matches the
+  actual PostgreSQL client address to the verified CLI container endpoint. Fourth
+  attempt passes one distinct integrated case with six real CLI executions:
+  missing capability, late task failure, physical cancellation, same-name recovery,
+  replay and source drift. Cancellation is not a promise of immediate interruption
+  of arbitrary long SQL. Actual exit 137 is externally stopped, not timed out;
+  account/source/project/task/receipt rows roll back after connection release.
+- Latest report: .worktree/workspace-import-cli-fourth.json and sibling JUnit/log;
+  source_commit 3ea9d4b21, verifier elapsed 65.303 seconds. Cold API image verifies
+  1,271 files including the actual CLI entrypoint. Application/owner source is
+  unchanged, so the prior 439 installed checks, nine-process restore and selected
+  Celery worker evidence are reused rather than rerun or added to a new count.
+- Worker exact patch, verified Git bundle and Ruff cache archive are preserved in
+  .worktree/workspace-import-cli-source-worker-preservation/receipt.json. The
+  clean integrated source-only worktree is removed; its branch remains retained.
+- Focused verifier selection units pass 2/2 with the actual Root interpreter and
+  repository PYTHONPATH; documentation build passes in 16.717 seconds. The unchanged
+  18 resource units retain their previous milestone result rather than rerunning.

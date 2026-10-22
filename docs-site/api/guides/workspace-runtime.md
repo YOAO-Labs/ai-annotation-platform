@@ -188,6 +188,13 @@ API 与数据库不在该容器预算内。完整模块当前状态见[模块台
 查找保留 caller autoflush／no_autoflush；创建仍显式 flush 全部 pending work。后续素材
 关联、建题、标定和计数保留同一外层事务。导入标识来自受信任运维入口，不是用户授权。
 
+冷运维验收从 API 镜像运行实际 nuScenes CLI，用既有可信运维账号的 Identity／Workspace
+消费者围栏及两项 provisioning 能力验证同事务行为；普通 API 不增加运维权限。真实
+对象存储的小夹具通过缺失能力、后置失败、容器中断后同名恢复、重复导入及来源漂移
+检查。失败时 SQL 共同回滚，外部对象可能保留；重放也可能重写同键对象。中断只证明
+连接释放后的最终回滚，不保证立即中断正在执行的长 SQL。可重复命令见 `DEV.md`，
+限定证据见[冷运维导入验收](/dev/concepts/module-deployment#workspace-冷运维导入验收)。
+
 质量晋升继续由原入口重验项目管理权，在既有 Project `FOR UPDATE` 下校验评估 gate、
 baseline 与候选修订。Native setter 只写精确配置与事务时间戳，相同 JSONB 不推进时间；
 调用方同步 Project 的配置／updated_at，不追加 ORM 写入。评估和 Audit 与配置一起提交

@@ -2397,3 +2397,25 @@ worker 案例检查真实 broker 投递、Native 项目资料、结果 owner 写
 确定性 HTTP peer 只用于协议联通，不证明真实 ML、来源读取或公共 retry 入队端点。
 当前通过边界、有限本地采样与遗留视频恢复缺口见
 [唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。主环境不自动切换。
+
+### Workspace 冷运维导入验收
+
+复用上表 API 冷镜像及其身份变量，使用独占验收数据库和全部十个隔离桶：
+
+```bash
+AAP_WORKSPACE_IMPORT_CLI_LIVE=1 apps/api/.venv/bin/python \
+  scripts/verify_module_data_boundary.py --output .worktree/workspace-import-cli.json \
+  --test-file tests/test_workspace_import_cli_live.py
+```
+
+该开关只选择验收夹具，不是运行时部署配置。验收器在环境准备完成后收紧既有可信
+`legacy_runtime` 的 Identity／Workspace 权限，仅补回两项 provisioning 能力；普通 API
+凭据不变。真实 `python -m scripts.import_nuscenes_scene` 使用冷镜像和只读数据挂载，
+存储身份仅能操作隔离 datasets 桶的 nuScenes 保留前缀，不持有桶管理权限。
+
+一个集成案例覆盖缺失能力、后置 SQL 失败、实际容器中断、同名恢复导入、重复导入和
+来源漂移。两场景各两帧的夹具成功产生十项素材和四项任务；中断时核对数据库客户端
+地址，停止实际容器，等待连接释放后确认 SQL 回滚，再重新导入。PostgreSQL 可能在
+当前查询结束后才发现客户端断开；十秒人工阻塞只证明最终回滚，不证明即时取消长 SQL。
+失败保留的 S3 字节由隔离桶销毁清理；重放可能重新上传同键对象和追加操作回执。
+这不证明真实数据集、容量或整模块完成，剩余边界继续见唯一台账。
