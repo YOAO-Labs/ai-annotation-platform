@@ -380,6 +380,7 @@ SCHEMA_ARTIFACTS = (
     "0300_video_deletion_retirement.schema.json",
 )
 TEST_FILES = (
+    "tests/test_workspace_module_assembly_live.py",
     "tests/test_workspace_module_healthcheck.py",
     "tests/test_workspace_consumer_profile_native.py",
     "tests/test_video_deletion_retirement_native.py",
@@ -3925,6 +3926,33 @@ def main(argv: list[str] | None = None) -> int:
                 "consumer_role": IDENTITY_API_CONSUMER_ROLE,
             },
         )
+        if "tests/test_workspace_module_assembly_live.py" in selected_test_paths:
+            phase = "install-workspace-api-consumer-fence-last"
+            workspace_consumer_path = (
+                ROOT / "infra/docker/workspace-consumer-grants.sql"
+            )
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=workspace_consumer_path.read_text(),
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "workspace_owner": "workspace_code",
+                    "consumer_role": IDENTITY_API_CONSUMER_ROLE,
+                },
+            )
+            evidence["workspace_api_consumer"] = {
+                "role": IDENTITY_API_CONSUMER_ROLE,
+                "grant_path": str(workspace_consumer_path.relative_to(ROOT)),
+                "sha256": hashlib.sha256(
+                    workspace_consumer_path.read_bytes()
+                ).hexdigest(),
+            }
         phase = "verify-identity-api-consumer-acl"
         identity_consumer_acl = json.loads(
             _psql(
@@ -4098,6 +4126,7 @@ SELECT pg_catalog.jsonb_build_object(
         if selected_test_paths & {
             "tests/test_video_consumers_containers.py",
             "tests/test_identity_module_assembly_live.py",
+            "tests/test_workspace_module_assembly_live.py",
         }:
             api_bootstrap_storage = _cleanup_storage_scope(backend)
             api_bootstrap_storage["buckets"] = resources["buckets"]

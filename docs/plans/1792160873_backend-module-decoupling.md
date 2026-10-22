@@ -6303,3 +6303,26 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   capability/exclusion assertion. The prior real database role evidence remains
   valid; this follow-up corrects the static checker. Original failing unit log
   and the attempted empty commit (no source change) are retained separately.
+
+- Corrected owner image builds from9d975baa0151139f6561e63ce7476f67cf518d4a as
+  sha256:6999548343ea1dfae4d2a1589539da7f16549d0d9f7fc3d6aaaa1e3147ff554f.
+  Minimal config-port replay passes first, then the other five service ports pass
+  on private owned PostgreSQL networks. The six real image probes retain the
+  actual image command and remove only owned container/network fixtures.
+- Noneditable runtime install qualifies439 distinct applicable cases:402 Workspace,
+  35 shared Workspace contract and2 Audit contract. Initial Workspace run has400
+  passes and2 missing frozen-schema fixture paths after relocation; preserving
+  original repository-relative topology and copying the2 frozen JSON artifacts
+  lets only those2 failures replay successfully. A harness directory guess for
+  owner_data/tests is corrected; no such suite exists or is claimed. All323
+  installed Python/schema files across14 namespaces match current src exactly,
+  and API/SQLAlchemy/Celery/boto3/torch are absent. Original logs/JUnit retained.
+- Isolated source worker006e829ec618036afae4fc46832012b1be2106be supplies two
+  combined Workspace test/helper files. Root integrates them and owns actual
+  imports/runtime. Root wires selected assembly tests to API startup-scoped S3
+  credentials and applies Workspace consumer fence after the existing Identity
+  fence. Static integration fixes use current successor authority after transfer,
+  validate the full owned-resource manifest before seed/grant changes, separate
+  surviving-project read proof from deleted-project receipt proof on restore,
+  and derive a Video Job project through Task rather than a nonexistent column.
+  This support is not yet runtime qualification or whole-module closure.
