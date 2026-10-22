@@ -7,7 +7,14 @@ name = "aap-workspace"
 version = "0.1.0"
 description = "Portable Workspace membership, owner-transfer and configuration values/policy"
 requires-python = ">=3.11"
-dependencies = ["aap-inference-contract", "aap-owner-data", "aap-workspace-contract", "aap-inference", "pydantic>=2.10"]
+dependencies = [
+    "aap-audit-contract",
+    "aap-inference-contract",
+    "aap-owner-data",
+    "aap-workspace-contract",
+    "aap-inference",
+    "pydantic>=2.10",
+]
 
 [tool.uv.sources]
 aap-inference-contract = { path = "../_shared/inference_contract", editable = true }
