@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 import json
 import uuid
 from typing import NoReturn
@@ -10,6 +11,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import make_transient_to_detached
 
 from aap_workspace_contract.access import (
     ProjectAccess as _ProjectAccess,
@@ -23,7 +25,7 @@ from aap_workspace_contract.access import (
     platform_role_is_manager as _platform_role_is_manager,
 )
 from aap_workspace_contract.member_values import decode_project_member_rows
-from aap_workspace_contract.project_query_values import decode_project_authority_row
+from aap_workspace_contract.project_query_values import materialize_project_base_row
 from aap_workspace_contract.wire import _reject_constant, _unique_object
 from app.db.enums import (
     PlatformRole,
@@ -111,79 +113,38 @@ async def _lock_project_actor(
     return user
 
 
-async def lock_project_access_authority(
-    db: AsyncSession, *, actor_id: uuid.UUID, project_id: uuid.UUID
-) -> tuple[IdentityActorFacts, _ProjectAccess]:
-    """Lock current Workspace authority without hydrating its Project ORM row."""
-    with db.no_autoflush:
-        user = await _lock_project_actor(db, actor_id=actor_id)
-        project_facts = _decode_workspace_project_access_step(
-            await _locked_access_row(
-                db,
-                _WORKSPACE_PROJECT_ACCESS_STEP,
-                busy_reason="project_busy",
-                parameters={
-                    "actor_id": actor_id,
-                    "project_id": project_id,
-                    "phase": "lock_project_key_share",
-                },
-            ),
-            actor_id=actor_id,
-            project_id=project_id,
-            phase="lock_project_key_share",
-        )
-        project_identity = decode_project_authority_row(
-            project_facts["row_json"], target_id=project_id
-        )
-        if project_identity is None:
-            raise HTTPException(status_code=404, detail="项目不存在")
-        current_project_id, owner_id = project_identity
+async def _locked_workspace_project_access_phase(
+    db: AsyncSession,
+    *,
+    actor_id: uuid.UUID,
+    project_id: uuid.UUID,
+    phase: str,
+    busy_reason: str,
+) -> dict[str, object]:
+    return _decode_workspace_project_access_step(
+        await _locked_access_row(
+            db,
+            _WORKSPACE_PROJECT_ACCESS_STEP,
+            busy_reason=busy_reason,
+            parameters={
+                "actor_id": actor_id,
+                "project_id": project_id,
+                "phase": phase,
+            },
+        ),
+        actor_id=actor_id,
+        project_id=project_id,
+        phase=phase,
+    )
 
-        try:
-            manager = project_manager_access(
-                actor_id=user.id,
-                platform_role=user.role,
-                project_id=current_project_id,
-                owner_id=owner_id,
-            )
-            if manager is not None:
-                return user, manager
 
-            member_facts = _decode_workspace_project_access_step(
-                await _locked_access_row(
-                    db,
-                    _WORKSPACE_PROJECT_ACCESS_STEP,
-                    busy_reason="membership_busy",
-                    parameters={
-                        "actor_id": actor_id,
-                        "project_id": project_id,
-                        "phase": "lock_member_share",
-                    },
-                ),
-                actor_id=actor_id,
-                project_id=project_id,
-                phase="lock_member_share",
-            )
-            members = decode_project_member_rows(
-                member_facts["rows_json"],
-                target_id=project_id,
-                user_id=actor_id,
-                max_rows=1,
-            )
-            member = members[0] if members else None
-            access = project_member_access(
-                actor_id=user.id,
-                platform_role=user.role,
-                project_id=current_project_id,
-                membership_id=member.id if member is not None else None,
-                project_role=member.role if member is not None else None,
-                membership_version=member.version if member is not None else None,
-            )
-        except ProjectAccessPolicyFailure as failure:
-            raise HTTPException(
-                status_code=failure.status_code, detail=failure.detail
-            ) from failure
-        return user, access
+async def _merge_locked_snapshot(db: AsyncSession, model, values: dict[str, object]):
+    mapped_columns = {column.key for column in model.__table__.columns}
+    if set(values) != mapped_columns:
+        raise ValueError("Workspace snapshot does not match ORM mapped columns")
+    detached = model(**values)
+    make_transient_to_detached(detached)
+    return await db.merge(detached, load=False)
 
 
 async def lock_creation_project_manager(
@@ -281,7 +242,6 @@ async def _resolve_current_project_access(
     user: IdentityActorFacts | IdentityActorStatus,
     project: Project,
     lock_membership: bool,
-    nowait: bool = False,
 ) -> _ProjectAccess:
     try:
         manager = project_manager_access(
@@ -294,20 +254,34 @@ async def _resolve_current_project_access(
             return manager
 
         # Retain the caller's refreshed row and optional lock before pure policy.
-        stmt = (
-            select(ProjectMember)
-            .where(
-                ProjectMember.project_id == project.id,
-                ProjectMember.user_id == user.id,
-            )
-            .execution_options(populate_existing=True)
-        )
         if lock_membership:
-            stmt = stmt.with_for_update(read=True, nowait=nowait)
-        if nowait:
-            member = await _locked_access_row(db, stmt, busy_reason="membership_busy")
+            member_facts = await _locked_workspace_project_access_phase(
+                db,
+                actor_id=user.id,
+                project_id=project.id,
+                phase="lock_member_share",
+                busy_reason="membership_busy",
+            )
+            members = decode_project_member_rows(
+                member_facts["rows_json"],
+                target_id=project.id,
+                user_id=user.id,
+                max_rows=1,
+            )
+            member = members[0] if members else None
+            if member is not None:
+                await _merge_locked_snapshot(db, ProjectMember, asdict(member))
         else:
-            member = (await db.execute(stmt)).scalar_one_or_none()
+            member = (
+                await db.execute(
+                    select(ProjectMember)
+                    .where(
+                        ProjectMember.project_id == project.id,
+                        ProjectMember.user_id == user.id,
+                    )
+                    .execution_options(populate_existing=True)
+                )
+            ).scalar_one_or_none()
         return project_member_access(
             actor_id=user.id,
             platform_role=user.role,
@@ -353,16 +327,19 @@ async def lock_current_project_rows(
     """Refresh and fence account/project rows without granting project visibility."""
     with db.no_autoflush:
         user = await _lock_project_actor(db, actor_id=actor_id)
-        project = await _locked_access_row(
+        project_facts = await _locked_workspace_project_access_phase(
             db,
-            select(Project)
-            .where(Project.id == project_id)
-            .with_for_update(read=True, key_share=True, nowait=True)
-            .execution_options(populate_existing=True),
+            actor_id=actor_id,
+            project_id=project_id,
+            phase="lock_project_key_share",
             busy_reason="project_busy",
         )
-        if project is None:
+        project_values = materialize_project_base_row(
+            project_facts["row_json"], target_id=project_id
+        )
+        if project_values is None:
             raise HTTPException(status_code=404, detail="项目不存在")
+        project = await _merge_locked_snapshot(db, Project, project_values)
     return user, project
 
 
@@ -381,7 +358,7 @@ async def lock_current_project_access(
     )
     with db.no_autoflush:
         access = await _resolve_current_project_access(
-            db, user=user, project=project, lock_membership=True, nowait=True
+            db, user=user, project=project, lock_membership=True
         )
     return user, project, access
 
@@ -394,7 +371,7 @@ class SqlProjectWritePolicyResolver:
 
     async def resolve(self, request: ProjectWritePolicyRequest) -> _ProjectAccess:
         try:
-            _, access = await lock_project_access_authority(
+            _, _, access = await lock_current_project_access(
                 self._db,
                 actor_id=request.actor_id,
                 project_id=request.project_id,

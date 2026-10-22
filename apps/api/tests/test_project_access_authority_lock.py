@@ -10,6 +10,8 @@ from sqlalchemy.exc import DBAPIError
 
 from aap_workspace_contract.member_values import PROJECT_MEMBER_COLUMNS
 from aap_workspace_contract.project_query_contract import PROJECT_ROW_COLUMNS
+from app.db.models.project import Project
+from app.db.models.project_member import ProjectMember
 from app.services import project_access
 from app.services.identity_contracts import IdentityActorFacts
 
@@ -18,8 +20,8 @@ _STEP_SCHEMA = "aap-workspace-project-access-step/v1"
 
 def _project_row(project_id, owner_id):
     row = {column: None for column in PROJECT_ROW_COLUMNS}
-    row["id"] = str(project_id)
-    row["owner_id"] = str(owner_id) if owner_id is not None else None
+    row.update(id=str(project_id), owner_id=str(owner_id) if owner_id else None)
+    row["name"] = "Project"
     return json.dumps(row)
 
 
@@ -41,9 +43,7 @@ def _member_rows(actor_id, project_id, *, role="annotator", version=1):
         project_id=str(project_id),
         user_id=str(actor_id),
         role=role,
-        assigned_at="2026-01-01T00:00:00+00:00",
         version=version,
-        updated_at="2026-01-02T00:00:00+00:00",
     )
     return json.dumps([row]), member_id
 
@@ -59,24 +59,20 @@ class _Result:
 class _Session:
     def __init__(self, responses):
         self.no_autoflush = nullcontext()
-        self.autoflush = True
         self.responses = iter(responses)
         self.steps = []
-        self.commits = 0
-        self.rollbacks = 0
+        self.merges = []
 
-    async def execute(self, statement, parameters):
+    async def execute(self, _statement, parameters):
         self.steps.append(parameters)
         response = next(self.responses)
         if isinstance(response, BaseException):
             raise response
         return _Result(response)
 
-    async def commit(self):
-        self.commits += 1
-
-    async def rollback(self):
-        self.rollbacks += 1
+    async def merge(self, instance, *, load):
+        self.merges.append((instance, load))
+        return instance
 
 
 def _actor(actor_id, role="employee"):
@@ -101,7 +97,53 @@ def _bind_actor_lock(monkeypatch, actor, events):
 
 
 @pytest.mark.asyncio
-async def test_authority_lock_uses_ordered_native_facts_without_project_hydration(
+async def test_locked_project_snapshot_hydrates_existing_interface_without_select(
+    monkeypatch,
+):
+    actor_id, project_id, owner_id = uuid4(), uuid4(), uuid4()
+    actor = _actor(actor_id)
+    events = []
+    _bind_actor_lock(monkeypatch, actor, events)
+    session = _Session(
+        [
+            _step(
+                actor_id,
+                project_id,
+                "lock_project_key_share",
+                {"row_json": _project_row(project_id, owner_id)},
+            )
+        ]
+    )
+    execute = session.execute
+
+    async def record_execute(statement, parameters):
+        events.append(
+            (parameters["phase"], parameters["actor_id"], parameters["project_id"])
+        )
+        return await execute(statement, parameters)
+
+    session.execute = record_execute
+
+    locked_actor, project = await project_access.lock_current_project_rows(
+        session, actor_id=actor_id, project_id=project_id
+    )
+
+    assert locked_actor is actor
+    assert isinstance(project, Project)
+    assert (project.id, project.owner_id, project.name) == (
+        project_id,
+        owner_id,
+        "Project",
+    )
+    assert events == [
+        ("actor", [actor_id], "share", True),
+        ("lock_project_key_share", actor_id, project_id),
+    ]
+    assert len(session.merges) == 1 and session.merges[0][1] is False
+
+
+@pytest.mark.asyncio
+async def test_locked_member_snapshot_preserves_project_tuple_and_phase_order(
     monkeypatch,
 ):
     actor_id, project_id, owner_id = uuid4(), uuid4(), uuid4()
@@ -130,38 +172,33 @@ async def test_authority_lock_uses_ordered_native_facts_without_project_hydratio
     execute = session.execute
 
     async def record_execute(statement, parameters):
-        events.append(
-            (parameters["phase"], parameters["actor_id"], parameters["project_id"])
-        )
+        events.append(parameters["phase"])
         return await execute(statement, parameters)
 
     session.execute = record_execute
 
-    locked_actor, access = await project_access.lock_project_access_authority(
+    locked_actor, project, access = await project_access.lock_current_project_access(
         session, actor_id=actor_id, project_id=project_id
     )
 
     assert locked_actor is actor
-    assert (access.user_id, access.project_id, access.membership_id) == (
-        actor_id,
-        project_id,
+    assert isinstance(project, Project)
+    assert project.owner_id == owner_id
+    assert (access.membership_id, access.project_role, access.membership_version) == (
         member_id,
+        "reviewer",
+        4,
     )
-    assert (access.project_role, access.membership_version) == ("reviewer", 4)
-    assert events == [
-        ("actor", [actor_id], "share", True),
-        ("lock_project_key_share", actor_id, project_id),
-        ("lock_member_share", actor_id, project_id),
-    ]
-    assert session.commits == session.rollbacks == 0
+    assert events == ["lock_project_key_share", "lock_member_share"]
+    assert [type(row) for row, _ in session.merges] == [Project, ProjectMember]
+    assert all(load is False for _, load in session.merges)
 
 
 @pytest.mark.asyncio
-async def test_authority_lock_skips_member_phase_for_manager(monkeypatch):
+async def test_locked_manager_snapshot_skips_membership_phase(monkeypatch):
     actor_id, project_id = uuid4(), uuid4()
     actor = _actor(actor_id, role="project_admin")
-    events = []
-    _bind_actor_lock(monkeypatch, actor, events)
+    _bind_actor_lock(monkeypatch, actor, [])
     session = _Session(
         [
             _step(
@@ -173,44 +210,40 @@ async def test_authority_lock_skips_member_phase_for_manager(monkeypatch):
         ]
     )
 
-    locked_actor, access = await project_access.lock_project_access_authority(
+    locked_actor, project, access = await project_access.lock_current_project_access(
         session, actor_id=actor_id, project_id=project_id
     )
 
     assert locked_actor is actor
-    assert access.is_manager is True
-    assert access.is_owner is True
-    assert len(session.steps) == 1
-    assert session.commits == session.rollbacks == 0
+    assert project.id == project_id
+    assert access.is_manager is True and access.is_owner is True
+    assert [parameters["phase"] for parameters in session.steps] == [
+        "lock_project_key_share"
+    ]
+    assert [type(row) for row, _ in session.merges] == [Project]
 
 
 @pytest.mark.asyncio
-async def test_authority_lock_rejects_unbound_native_reply_without_fallback(
+async def test_locked_project_snapshot_rejects_bad_native_scope_without_select(
     monkeypatch,
 ):
     actor_id, project_id = uuid4(), uuid4()
     actor = _actor(actor_id)
     _bind_actor_lock(monkeypatch, actor, [])
-    session = _Session(
-        [
-            {
-                **_step(
-                    actor_id,
-                    project_id,
-                    "lock_project_key_share",
-                    {"row_json": _project_row(project_id, uuid4())},
-                ),
-                "unexpected": True,
-            }
-        ]
+    reply = _step(
+        actor_id,
+        project_id,
+        "lock_project_key_share",
+        {"row_json": _project_row(project_id, uuid4())},
     )
+    session = _Session([{**reply, "extra": True}])
 
     with pytest.raises(ValueError, match="Invalid Workspace Project access step"):
-        await project_access.lock_project_access_authority(
+        await project_access.lock_current_project_rows(
             session, actor_id=actor_id, project_id=project_id
         )
     assert len(session.steps) == 1
-    assert session.commits == session.rollbacks == 0
+    assert session.merges == []
 
 
 @pytest.mark.asyncio
@@ -225,7 +258,7 @@ async def test_authority_lock_rejects_unbound_native_reply_without_fallback(
         ("lock_member_share", "40P01", "membership_busy"),
     ],
 )
-async def test_authority_lock_maps_native_phase_contention(
+async def test_locked_workspace_phase_contention_maps_to_existing_conflicts(
     monkeypatch, phase, sqlstate, reason
 ):
     actor_id, project_id, owner_id = uuid4(), uuid4(), uuid4()
@@ -251,7 +284,7 @@ async def test_authority_lock_maps_native_phase_contention(
     session = _Session(responses)
 
     with pytest.raises(HTTPException) as rejected:
-        await project_access.lock_project_access_authority(
+        await project_access.lock_current_project_access(
             session, actor_id=actor_id, project_id=project_id
         )
 
@@ -259,4 +292,34 @@ async def test_authority_lock_maps_native_phase_contention(
         409,
         {"reason": reason},
     )
-    assert session.commits == session.rollbacks == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sqlstate", ["55P03", "40001", "40P01"])
+async def test_extracted_actor_lock_keeps_account_contention_mapping(
+    monkeypatch, sqlstate
+):
+    actor_id, project_id = uuid4(), uuid4()
+    driver_error = RuntimeError("private identity details")
+    driver_error.sqlstate = sqlstate
+    busy_error = DBAPIError("Identity account lock", {}, driver_error, False)
+
+    async def lock_accounts(self, *_args, **_kwargs):
+        raise busy_error
+
+    monkeypatch.setattr(
+        project_access.IdentityAccountLockData, "lock_accounts", lock_accounts
+    )
+    session = _Session([])
+
+    with pytest.raises(HTTPException) as rejected:
+        await project_access.lock_current_project_rows(
+            session, actor_id=actor_id, project_id=project_id
+        )
+
+    assert (rejected.value.status_code, rejected.value.detail) == (
+        409,
+        {"reason": "account_busy"},
+    )
+    assert session.steps == []
+    assert session.merges == []

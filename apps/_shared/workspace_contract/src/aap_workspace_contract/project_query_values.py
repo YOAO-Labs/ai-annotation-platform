@@ -120,38 +120,6 @@ def decode_project_row(row_json, *, target_id=None):
     return raw_project_row(value, target_id=target_id)
 
 
-def decode_project_authority_row(
-    row_json: str | None, *, target_id: uuid.UUID
-) -> tuple[uuid.UUID, uuid.UUID | None] | None:
-    """Decode only the Project identity needed for locked access authority."""
-    if row_json is None:
-        return None
-    if type(row_json) is not str:
-        raise ProjectQueryUnavailable()
-    try:
-        value = json.loads(
-            row_json, object_pairs_hook=_unique_object, parse_constant=_reject_constant
-        )
-    except (ValueError, TypeError, UnicodeError, RecursionError):
-        raise ProjectQueryUnavailable() from None
-    if type(value) is not dict or set(value) != set(PROJECT_ROW_COLUMNS):
-        raise ProjectQueryUnavailable()
-    project_value = value["id"]
-    owner_value = value["owner_id"]
-    if type(project_value) is not str or (
-        owner_value is not None and type(owner_value) is not str
-    ):
-        raise ProjectQueryUnavailable()
-    try:
-        project_id = uuid.UUID(project_value)
-        owner_id = uuid.UUID(owner_value) if owner_value is not None else None
-    except ValueError:
-        raise ProjectQueryUnavailable() from None
-    if project_id != target_id:
-        raise ProjectQueryUnavailable()
-    return project_id, owner_id
-
-
 def decode_project_rows(rows_json):
     try:
         rows = json.loads(
@@ -178,23 +146,41 @@ def _json_column(value):
         raise ProjectQueryUnavailable() from None
 
 
+def _materialize_project_base_row(row):
+    data = dict(row)
+    for field in PROJECT_JSON_COLUMNS:
+        data[field] = project_json_value(row, field)
+    for field in _FLOAT_COLUMNS:
+        data[field] = float(data[field]) if data[field] is not None else None
+    for field in _UUID_COLUMNS:
+        data[field] = uuid.UUID(data[field]) if data[field] is not None else None
+    data["due_date"] = _date_value(data["due_date"])
+    for field in ("created_at", "updated_at"):
+        data[field] = decode_postgres_timestamp(data[field])
+    return data
+
+
+def materialize_project_base_row(row_json, *, target_id=None):
+    """Materialize mapped Project columns without ProjectQuery enrichments."""
+    row = decode_project_row(row_json, target_id=target_id)
+    if row is None:
+        return None
+    return _materialize_project_base_row(row)
+
+
 def materialize_project_row(row, *, with_my_role=False):
     expected = set(PROJECT_ROW_COLUMNS) | set(PROJECT_ENRICHMENT_COLUMNS)
     if with_my_role:
         expected.add("my_project_role")
     if type(row) is not dict or set(row) != expected:
         raise ProjectQueryUnavailable()
+    base_row = {key: row[key] for key in PROJECT_ROW_COLUMNS}
+    raw_project_row(base_row)
     data = dict(row)
-    raw_project_row({key: data[key] for key in PROJECT_ROW_COLUMNS})
-    for field in PROJECT_JSON_COLUMNS:
-        data[field] = project_json_value(row, field)
-    for field in _FLOAT_COLUMNS:
-        data[field] = float(data[field]) if data[field] is not None else None
-    for field in (*_UUID_COLUMNS, "ml_backend_id"):
-        data[field] = uuid.UUID(data[field]) if data[field] is not None else None
-    data["due_date"] = _date_value(data["due_date"])
-    for field in ("created_at", "updated_at"):
-        data[field] = decode_postgres_timestamp(data[field])
+    data.update(_materialize_project_base_row(base_row))
+    data["ml_backend_id"] = (
+        uuid.UUID(data["ml_backend_id"]) if data["ml_backend_id"] is not None else None
+    )
     for field in ("member_count", "ai_completed_tasks"):
         if (
             type(data[field]) is not str

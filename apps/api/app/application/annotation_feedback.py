@@ -41,7 +41,7 @@ from app.services.notification import NotificationService
 from app.services.point_cloud_quality.service import refresh_issue_staleness
 from aap_workspace_contract.access import ProjectAccess
 from app.services.project_access import (
-    lock_project_access_authority,
+    lock_current_project_access,
     resolve_project_access_by_id,
 )
 
@@ -96,7 +96,7 @@ class AnnotationFeedbackWorkflow:
         actor_id: uuid.UUID,
         origin: AuditOriginContext,
     ) -> FeedbackMutationResult:
-        actor, access = await lock_project_access_authority(
+        actor, _project, access = await lock_current_project_access(
             self.db, actor_id=actor_id, project_id=payload.project_id
         )
         self._assert_platform_role(actor)
@@ -585,7 +585,7 @@ class AnnotationFeedbackWorkflow:
             feedback_id, missing_detail=_FEEDBACK_NOT_FOUND
         )
         root_snapshot = snapshots[-1]
-        actor, access = await lock_project_access_authority(
+        actor, _project, access = await lock_current_project_access(
             self.db, actor_id=actor_id, project_id=root_snapshot.project_id
         )
         self._assert_platform_role(actor)
