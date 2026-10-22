@@ -141,6 +141,10 @@ async def test_export_worker_rejects_removed_member_before_cache_or_build(
     task_id = uuid.UUID("33333333-3333-3333-3333-333333333333")
     actor_id = uuid.UUID("44444444-4444-4444-4444-444444444444")
     project = SimpleNamespace(id=project_id, owner_id=uuid.uuid4())
+    monkeypatch.setattr(
+        "app.services.project_access.get_workspace_project",
+        AsyncMock(return_value=project),
+    )
     job = SimpleNamespace(
         id=job_id,
         status="pending",

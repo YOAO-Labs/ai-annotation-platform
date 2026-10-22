@@ -12,7 +12,6 @@ from fastapi import HTTPException
 
 from app.db.enums import PlatformRole
 from app.db.models.async_job import AsyncJob, AsyncJobKind
-from app.db.models.project import Project
 from app.services import async_job_access, batch, project_access, task_lock
 from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 
@@ -296,6 +295,8 @@ async def test_batch_actor_scope_does_not_hydrate_user(monkeypatch):
     )
     active_guard = AsyncMock(return_value=True)
     resolve_access = AsyncMock(return_value=SimpleNamespace(is_manager=True))
+    project_reader = AsyncMock(return_value=project)
+    monkeypatch.setattr(batch, "get_workspace_project", project_reader)
     monkeypatch.setattr(task_lock, "assert_task_user_active", active_guard)
     monkeypatch.setattr(
         "app.services.annotation_evidence.lock_tasks_for_evidence", AsyncMock()
@@ -308,7 +309,10 @@ async def test_batch_actor_scope_does_not_hydrate_user(monkeypatch):
         batch_id: batch_row
     }
     active_guard.assert_awaited_once_with(db, actor_id)
-    assert db.get.await_args.args == (Project, project_id)
+    db.get.assert_not_awaited()
+    project_reader.assert_awaited_once_with(
+        db, project_id=project_id, populate_existing=True
+    )
     resolve_access.assert_awaited_once_with(
         db, actor_id=actor_id, project=project, lock_membership=True
     )

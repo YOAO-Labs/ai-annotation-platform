@@ -795,6 +795,27 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 冻结 getter 样本是一次性基线，不设置捕获变量重写。实际受限 LOGIN、Node、缓存、
 回滚及权限资格见 [ADR-0169](docs/adr/0169-workspace-task-training-project-snapshots.md)。
 
+### Workspace 普通业务项目快照
+
+普通 Project getter 统一使用 `get_workspace_project`，保留当前 Session、普通缓存命中、
+autoflush 和显式刷新。缺省 actor 使用 `read_project_row(uuid)`，无需为后台元数据
+构造 actor；已有 actor-aware 调用继续走原事实阶段。空项目 ID 先遵循原 autoflush
+再返回 None。当前权限、最终写入围栏和提交仍由原调用方持有。
+
+迁移／owner 与应用授权清单须一起更新。以下验收使用独占数据库，不修改日常角色：
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/workspace-project-read.json \
+  --test-file tests/test_workspace_project_get_native.py \
+  --test-file tests/test_workspace_actorless_project_read_native.py
+```
+
+已有 40 项 ORM golden 只作复验，不设置 capture 变量覆盖。两条绑定、受限 LOGIN、
+Node、空 ID 和调用方回滚见
+[ADR-0171](docs/adr/0171-workspace-actorless-business-snapshots.md)。批量查询、排序
+Project 锁和计数投影仍按模块台账收口，不能改成逐行 RPC。
+
 ### Workspace 同事务成员锁
 
 最终写入围栏使用 scalar `lock_project_member_reference(uuid,uuid,boolean)`，保留

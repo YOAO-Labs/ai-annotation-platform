@@ -258,6 +258,20 @@ Project 事实读取配置。调用方的缓存命中、autoflush、强制刷新
 [ADR-0169](/dev/adr/0169-workspace-task-training-project-snapshots)。其余消费者和
 完整模块资格仍按[唯一台账](/dev/concepts/module-deployment#剩余工作台账)推进。
 
+## 普通业务项目快照与无 actor 读取
+
+`read_project_row(uuid)` 通过同一调用方事务返回现有完整项目快照。普通 getter 在
+缺省 actor 时使用该能力，有 actor 的既有入口继续使用原事实阶段；后台元数据不会
+为读配置而伪造账号。空目标先遵循原 autoflush，再返回缺失。快照不是授权凭据，
+原入口仍复核当前账号、项目职责和最终写入范围。
+
+86 处普通只读 getter 保留会话、条件分支、项目缓存及十处强制刷新；受限 API 的
+READ ONLY、Node、异常回复回滚和实际后台 relay 已通过限定本地检查。完整缓存
+兼容继续使用已有行解码与会话绑定。安装当前迁移及 owner／应用授权，不新增运行
+进程或凭据。范围见
+[ADR-0171](/dev/adr/0171-workspace-actorless-business-snapshots)。集合查询、计数
+写入、排序项目锁及完整模块装配仍按唯一台账推进。
+
 ## 最终写入与批量分派的成员锁
 
 单成员围栏使用只返回 user_id／null 的 owner SHARE 能力，保留等待／NOWAIT、原

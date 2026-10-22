@@ -63,6 +63,7 @@ def _state(obj):
     }
 
 
+@pytest.mark.parametrize("actorless", [False, True], ids=["actor-facts", "actor-free"])
 @pytest.mark.parametrize("refresh", [False, True])
 @pytest.mark.parametrize("autoflush", [False, True])
 @pytest.mark.parametrize(
@@ -81,7 +82,7 @@ def _state(obj):
     ],
 )
 async def test_project_get_matches_frozen_session_behavior(
-    test_engine, refresh, autoflush, cache
+    test_engine, refresh, autoflush, cache, actorless
 ):
     async with _world(test_engine) as (owner, _api, world, _url):
         async with owner.begin() as seed:
@@ -142,8 +143,10 @@ async def test_project_get_matches_frozen_session_behavior(
 
             def capture(_conn, _cursor, statement, _parameters, _context, _many):
                 lowered = statement.lower()
-                if "project_access_step(" in lowered or (
-                    "select " in lowered and "from projects" in lowered
+                if (
+                    "project_access_step(" in lowered
+                    or "aap_workspace_v1.read_project_row(" in lowered
+                    or ("select " in lowered and "from projects" in lowered)
                 ):
                     trace.append("project_read")
                 elif "insert into tasks" in lowered:
@@ -155,7 +158,12 @@ async def test_project_get_matches_frozen_session_behavior(
             result, error = None, None
             try:
                 with nullcontext() if autoflush else db.no_autoflush:
-                    result = await _read(db, project_id, world["member_id"], refresh)
+                    result = await _read(
+                        db,
+                        project_id,
+                        None if actorless else world["member_id"],
+                        refresh,
+                    )
             except Exception as exc:
                 error = type(exc).__name__
             finally:

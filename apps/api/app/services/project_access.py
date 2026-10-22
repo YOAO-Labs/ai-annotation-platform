@@ -177,9 +177,9 @@ async def _workspace_project_values(
     db: AsyncSession,
     *,
     actor_id: uuid.UUID | None,
-    project_id: uuid.UUID,
+    project_id: uuid.UUID | None,
 ) -> dict[str, object] | None:
-    if actor_id is None:
+    if actor_id is None or project_id is None:
         row_json = await db.scalar(_WORKSPACE_PROJECT_READ, {"project_id": project_id})
         if row_json is not None and type(row_json) is not str:
             raise HTTPException(
@@ -246,7 +246,7 @@ async def get_workspace_project(
     db: AsyncSession,
     *,
     actor_id: uuid.UUID | None = None,
-    project_id: uuid.UUID,
+    project_id: uuid.UUID | None,
     populate_existing: bool = False,
 ) -> Project | None:
     """Preserve Session.get semantics while reading rows through Workspace."""

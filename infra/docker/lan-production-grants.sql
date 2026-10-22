@@ -236,6 +236,7 @@ REVOKE ALL ON FUNCTION
     FROM :"application_role";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
     aap_workspace_v1.lock_project_reference_nowait(uuid),
+    aap_workspace_v1.read_project_row(uuid),
     aap_workspace_v1.lock_project_member_reference(uuid, uuid, boolean),
     aap_workspace_v1.project_member_rows(uuid, uuid[], boolean),
     aap_workspace_v1.lock_project_manager(uuid, uuid),

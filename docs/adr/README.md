@@ -43,6 +43,7 @@
 - [0166](0166-workspace-locked-authority-snapshots.md) — Workspace 锁定权限读取与会话快照（限定本地定向验收通过）
 - [0167](0167-workspace-unlocked-authority-snapshots.md) — Workspace 无锁权限读取与调用方快照（限定本地定向验收通过）
 - [0168](0168-workspace-exclusive-project-snapshots.md) — Workspace 独占 Project 快照（限定本地定向验收通过）
+- [0171](0171-workspace-actorless-business-snapshots.md) — Workspace 无 actor 的业务快照（限定本地定向验收通过）
 - [0170](0170-workspace-transactional-member-locks.md) — Workspace 同事务成员锁（限定本地定向验收通过）
 - [0169](0169-workspace-task-training-project-snapshots.md) — Task／Training 的 Workspace 项目快照（限定本地定向验收通过）
 - [0165](0165-workspace-caller-transaction-project-deletion.md) — Workspace 项目删除的调用方事务边界（调用边界定向通过，视频前置未闭合）

@@ -257,6 +257,7 @@ SQL_ARTIFACTS = (
     "0290_workspace_project_lock.sql",
     "0291_workspace_reference_nowait.sql",
     "0292_workspace_member_locks.sql",
+    "0293_workspace_project_read.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -361,8 +362,10 @@ SCHEMA_ARTIFACTS = (
     "0290_workspace_project_lock.schema.json",
     "0291_workspace_reference_nowait.schema.json",
     "0292_workspace_member_locks.schema.json",
+    "0293_workspace_project_read.schema.json",
 )
 TEST_FILES = (
+    "tests/test_workspace_actorless_project_read_native.py",
     "tests/test_workspace_member_locks_native.py",
     "tests/test_workspace_project_get_native.py",
     "tests/test_workspace_project_reference_native.py",
@@ -2865,8 +2868,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0292"]:
-            raise RuntimeError("module-data acceptance requires migration head 0292")
+        if heads != ["0293"]:
+            raise RuntimeError("module-data acceptance requires migration head 0293")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(

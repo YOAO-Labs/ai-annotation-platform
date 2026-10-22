@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -84,7 +85,7 @@ def _session_factory(job, task):
 @pytest.mark.parametrize("with_job_id", [False, True])
 @pytest.mark.parametrize("scene_mode", [False, True])
 async def test_bulk_image_without_manifest_identity_fails_closed(
-    with_job_id, scene_mode
+    with_job_id, scene_mode, monkeypatch
 ):
     from app.db.models.async_job import AsyncJobStatus
 
@@ -92,6 +93,10 @@ async def test_bulk_image_without_manifest_identity_fails_closed(
     job_id = uuid.uuid4() if with_job_id else None
     actor_id = uuid.uuid4()
     project = SimpleNamespace(data_type="image", scene_mode=scene_mode)
+    monkeypatch.setattr(
+        "app.application.preannotation_execution.get_workspace_project",
+        AsyncMock(return_value=project),
+    )
     job = SimpleNamespace(
         kind="batch_predict",
         project_id=project_id,
@@ -131,6 +136,10 @@ async def test_bulk_image_without_manifest_identity_fails_closed(
 async def test_running_legacy_bulk_image_job_is_drained(monkeypatch, scene_mode):
     project_id, job_id, actor_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     project = SimpleNamespace(data_type="image", scene_mode=scene_mode)
+    monkeypatch.setattr(
+        "app.application.preannotation_execution.get_workspace_project",
+        AsyncMock(return_value=project),
+    )
     job = SimpleNamespace(
         id=job_id,
         kind="batch_predict",

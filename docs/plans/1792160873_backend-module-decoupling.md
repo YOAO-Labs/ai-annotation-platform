@@ -5636,3 +5636,42 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   No persistent Root API/Celery/Workspace provider needs refresh. This closes the
   two selected live member-lock consumers, not member set queries, complete
   Workspace assembly, primary cutover or the full goal.
+
+## Workspace ordinary business Project snapshots checkpoint
+
+- Actor-free read_project_row(uuid) reuses the frozen 43-column serializer and
+  typed Labeling counters. The existing getter keeps shared cache, autoflush and
+  deleted-state behavior; actor-aware fact phases remain. NULL targets use the
+  STRICT scalar after original autoflush, regardless of actor presence.
+- Complete AST inventory at f0bbbb4: 88 production Project gets plus three test
+  seeds. Two are Labeling counter writers. All 86 ordinary read-only gets across
+  52 files migrate; all 10 explicit refreshes, session expressions, targets and
+  scopes match the baseline AST. Only the two writers and three seeds remain raw
+  gets. Set/scalar queries and Batch's sorted exclusive lock remain separate.
+- Native source bb4ea14aa integrates as 9fd3ca46d; API source 6eb4a21e6 (26 calls)
+  as ddf6c2c73; service/application/worker source d214d4868 (60 calls) as 808573d58.
+  Root owns grants, verifier, nullable-target correction, replay/LOGIN/Node/
+  rollback/actual relay checks, fixture alignment and documentation. No new
+  service, credential, selector, serializer or autonomous transaction is added.
+- Effective union: 957 distinct selected cases, zero effective failures/errors/
+  skips. Includes 80 replays of 40 pre-change ORM scenarios through two bindings,
+  explicit NULL/actor/autoflush parity and 785 selected consumer cases. Existing
+  golden data is reused, never recaptured. Earlier passing evidence is retained.
+- First adapter failure was a mock patched at the wrong lookup site. Three broad
+  consumer failures were fixtures: post-registration file_size invalidates image
+  dimensions, and an unload stub lacked expected_topology. Minimal failed/changed
+  cases pass after stable source seeding and matching the real signature. One
+  remaining old pool-generation assertion expected 2 instead of 3; AST proves
+  create/singleton/enable bodies unchanged and the frozen routing trigger hash
+  matches f0. Pool activation and project association each advance the existing
+  fence. The exact assertion is corrected; no policy or trigger is relaxed.
+- The full 56-file collection contains 785 cases. 714 first ran; the 71 unrun cases
+  continue by exact node ID after the fixture repro. Only failed/changed cases
+  are repeated. Original JUnit/logs/real exits and AsyncMock fixture warnings are
+  retained in .worktree/workspace-project-read-qualification.json.
+- Frozen Native install/rollback and the owned 0189-to-head-0293 roundtrip pass.
+  Full cold install/images/fresh migration/backup-restore remain batched for
+  coherent Workspace assembly. Only module-deployment.md maintains the remaining
+  ledger: Project/member set and scalar reads, sorted reference locks, Labeling
+  counter-write prerequisites, unlink binding and unretired-video delete policy.
+  No primary cutover, push, release, production or Go expansion occurs.

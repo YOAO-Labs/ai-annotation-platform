@@ -399,6 +399,8 @@ Identity 准入、API key、核心会话、自助账户、注册恢复／邮件�
 
 项目访问纯规则与行解码位于共享契约包；Workspace 新增分阶段锁定事实接口，供 Inference 在同一事务内组合原有权限围栏。它是命名流水线独立 owner 的前置能力，范围见 [项目访问事实 ADR](./docs/adr/0145-workspace-project-access-facts.md)。
 
+普通单项目业务读取已统一经过 Workspace 快照边界，支持无 actor 的后台元数据读取，保留原缓存、刷新和调用方事务；当前权限检查仍在原入口完成。集合查询、计数投影和完整模块装配继续按[唯一台账](./docs-site/dev/concepts/module-deployment.md#剩余工作台账)推进，边界见[业务快照 ADR](./docs/adr/0171-workspace-actorless-business-snapshots.md)。
+
 命名流水线的列表、详情、创建、更新、删除和应用已接入 Inference owner，支持借用调用方事务、专用数据库连接及独立 HTTP 进程。公开接口保留原样；嵌入项目的预标注配置继续由 Workspace 持有。三路径、独立工件、受限容器、并发与恢复已通过限定本地验收，配置见 [Inference 运行指南](./docs-site/api/guides/inference-runtime.md)。
 
 Workspace 的后端能力探测通过 Inference 私有协议返回模态，Workspace 只持有事务绑定的不透明快照；API 的借用连接、专用 DSN 和 HTTP 以及独立 Workspace 均使用同一能力。配置与边界见 [Inference 运行指南](./docs-site/api/guides/inference-runtime.md#workspace-的后端能力探测)；完整模块与语言替换仍按部署台账推进。
@@ -411,7 +413,7 @@ Workspace 的后端能力探测通过 Inference 私有协议返回模态，Works
 
 推理路由正在接入独立的持久执行账本；运行计数不再依赖 Redis 租约，卸载与重载要求管理占用和真实后端连续性。配置与本地验证边界见[路由执行权指南](./docs-site/api/guides/inference-runtime.md#持久路由执行权)。GPU 自动驱逐、作业重启交接与完整模块资格仍在推进。
 
-作业交接的定向退役协议已提供并通过限定本地验收：先关闭单个 scope 的准入，再确认该范围的实际后端工作结束，其他作业继续运行。视频 runner 已接入执行代次、原子路由绑定和当前业务写入检查，重派发复用后台汇总；持久窗口检查点与崩溃恢复仍未闭合，见[执行权 ADR](./docs/adr/0157-video-execution-claims-and-route-binding.md)。
+作业交接的定向退役协议已提供并通过限定本地验收：先关闭单个 scope 的准入，再确认该范围的实际后端工作结束，其他作业继续运行。视频 runner 已接入执行代次、原子路由绑定和当前业务写入检查，重派发复用后台汇总；持久窗口检查点与协调恢复已完成限定本地验收，见[协调恢复 ADR](./docs/adr/0160-coordinated-video-restore.md)；完整 Inference 装配仍按模块台账推进。
 
 类别与属性用量已接入 Labeling 读取边界，先核验当前项目管理权，保留原统计口径和两次顺序读取；独立安装包、三路径响应、语句间提交、受限镜像与备份恢复已完成限定本地验收，见 [Labeling 运行协议](./docs-site/api/guides/labeling-runtime.md)与 [统计 owner ADR](./docs/adr/0142-labeling-class-usage-query-owner.md)。
 
