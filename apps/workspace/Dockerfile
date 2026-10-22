@@ -25,5 +25,5 @@ ENV PATH="/opt/venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 USER 10004:10004
 EXPOSE 8172
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8172/ready', timeout=2)"
+  CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('WORKSPACE_PORT', '8172') + '/ready', timeout=2)"
 CMD ["python", "-m", "aap_workspace"]

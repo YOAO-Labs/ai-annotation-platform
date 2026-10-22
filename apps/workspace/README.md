@@ -156,3 +156,8 @@ Thirteen local cases qualify this credential boundary, including actual HTTP,
 Node and worker-service rollback. Eight existing module-role cases also pass;
 legacy API grants retain the existing eight cleanup-worker capabilities. Complete-module cold artifacts/assembly/restore
 remain separate. See ADR-0179 and the single module ledger.
+
+The image health probe follows the existing `WORKSPACE_PORT` setting (default
+8172), including owner transfer on8173 and configuration on8174. It checks the
+selected service's `/ready` endpoint; lazy external dependencies still need their
+actual operation acceptance.

@@ -380,6 +380,7 @@ SCHEMA_ARTIFACTS = (
     "0300_video_deletion_retirement.schema.json",
 )
 TEST_FILES = (
+    "tests/test_workspace_module_healthcheck.py",
     "tests/test_workspace_consumer_profile_native.py",
     "tests/test_video_deletion_retirement_native.py",
     "tests/test_video_deletion_retirement_bindings.py",

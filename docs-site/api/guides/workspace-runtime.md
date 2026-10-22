@@ -414,3 +414,7 @@ membership_busy 与账号 → 项目 → 成员锁序，不解码无关时间列
 Node、worker计数及回滚，另有8项既有角色回归通过。兼容授权保持清理 worker
 已有的八项函数，避免重新授权 API 时退回两项 outbox 能力。完整模块冷工件／装配／恢复仍待集中验收，见
 [ADR-0179](/dev/adr/0179-workspace-consumer-credential-closure)。
+
+镜像健康探针读取既有 `WORKSPACE_PORT`，默认8172，负责人转移8173和配置8174也使用
+各自的 `/ready`。该探针只检查已选择的 Native SQL policy；不能代替 Guide、后端探测
+和 Identity Briefs 等延迟依赖的实际操作验收。

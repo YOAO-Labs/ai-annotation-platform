@@ -6275,3 +6275,31 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   helpers/tests in two disjoint new files; Root owns all installs/builds/imports/
   DB/runtime and the upcoming healthcheck repro. No primary cutover, push,
   release, production deployment or Go expansion occurs.
+
+- Core dependency lock fix is committed as59f22bbecb74716ac727c92d90e3c71308a445fa.
+  Noneditable build created13 untracked setuptools staging files in shared
+  workspace_contract; each exactly matches current src. Root archives/verifies
+  them before removing only that generated directory. Receipt:
+  .worktree/workspace-module-generated-staging-cleanup.json. API bindings remain
+  local to Root; no install targets the API environment.
+- Baseline owner image from that clean commit builds successfully with all copied
+  package/schema/input hashes recorded. Image:
+  sha256:ded01d5e0721c8eaf4c1f7d15a35d88a415c0663dd0e59678bd24d80a78d42a0.
+  Actual configuration service runs on8174, serves ready200 over its published
+  local port, and uses a private owned network for PostgreSQL. The unchanged
+  image health command still connects to8172 and returns1; the minimal case fails
+  while preserving Docker health logs and cleanup. Receipt:
+  .worktree/workspace-module-health-repro.json.
+- Root fixes the image probe at the common Dockerfile to read the existing
+  WORKSPACE_PORT (default8172), preserving all six service ports and entrypoints.
+  New actual-image regression covers each port; scheduling is accelerated only
+  for the owned fixture, with the actual image command unchanged. The complete
+  Workspace artifact/assembly/restore qualification remains open.
+
+- Rechecking grant/selection units after the actual Cleanup grants correction
+  exposes two static false positives: their regex starts at a Cleanup GRANT and
+  crosses semicolons until the next application-role grant. Root confines all
+  four application-role extractors to one statement, retaining every existing
+  capability/exclusion assertion. The prior real database role evidence remains
+  valid; this follow-up corrects the static checker. Original failing unit log
+  and the attempted empty commit (no source change) are retained separately.

@@ -366,7 +366,7 @@ class BucketUpgradeTests(unittest.TestCase):
             / "infra/docker/lan-production-grants.sql"
         ).read_text()
         grants = re.findall(
-            r'GRANT EXECUTE ON FUNCTION\s+(.*?)\s+TO\s+:"application_role";',
+            r'GRANT EXECUTE ON FUNCTION\s+([^;]*?)\s+TO\s+:"application_role";',
             sql,
             flags=re.DOTALL,
         )
@@ -387,7 +387,7 @@ class BucketUpgradeTests(unittest.TestCase):
         )
         sql = grant_file.read_text()
         runtime_grants = re.findall(
-            r'GRANT EXECUTE ON FUNCTION\s+(.*?)\s+TO\s+:"application_role";',
+            r'GRANT EXECUTE ON FUNCTION\s+([^;]*?)\s+TO\s+:"application_role";',
             sql,
             flags=re.DOTALL,
         )
@@ -411,7 +411,7 @@ class BucketUpgradeTests(unittest.TestCase):
         )
         sql = grant_file.read_text()
         runtime_grants = re.findall(
-            r'GRANT EXECUTE ON FUNCTION\s+(.*?)\s+TO\s+:"application_role";',
+            r'GRANT EXECUTE ON FUNCTION\s+([^;]*?)\s+TO\s+:"application_role";',
             sql,
             flags=re.DOTALL,
         )
@@ -444,7 +444,7 @@ class BucketUpgradeTests(unittest.TestCase):
             / "infra/docker/lan-production-grants.sql"
         ).read_text()
         runtime_grants = re.findall(
-            r'GRANT EXECUTE ON FUNCTION\s+(.*?)\s+TO\s+:"application_role";',
+            r'GRANT EXECUTE ON FUNCTION\s+([^;]*?)\s+TO\s+:"application_role";',
             sql,
             flags=re.DOTALL,
         )
