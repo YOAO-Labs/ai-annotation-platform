@@ -5210,3 +5210,16 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   profile. Primary cutover, production/AMD64/remote-CI qualification and a complete
   alternate-language provider are not claimed; Go remains experimental. Other
   modules keep their existing blockers; Workspace is the next bounded module.
+
+- Complete-module fixture/documentation integration commit:
+  `8cd394eef201498a542d573af15b2b1055fdae33`; supporting fixture commits are
+  `7490c3bdf` and `bb19118f8`. Runtime source remains the qualified
+  `956f52fbec0f23e2c138d0961727c84c5a1ca041` checkpoint. The aggregate binds 46
+  source/test/grant/documentation fingerprints to the integration commit and
+  retains the two exact image IDs, source drift limited to documentation and
+  a host-only restore fixture, real exits and JUnit receipts. Ruff, selection
+  units, test collection, docs build and normal commit hooks pass. The two owned
+  source worktrees are removed only after exact branch/HEAD/clean-state and
+  patch-equivalence checks; one ignored Ruff cache was archived first. Branches
+  remain. Root editable bindings, the clean primary checkout and four shared
+  containers are preserved; no owned assembly container/network remains.
