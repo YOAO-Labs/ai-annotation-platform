@@ -6988,3 +6988,19 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   historical audit and guarded recording/fixture rows; whole Identity and the
   full goal remain active. No primary cutover, push, release, production work
   or Go expansion is authorized by this evidence.
+- Documentation builds in 16.784 seconds; documentation commit 3a1861611
+  records the bounded result in the sole ledger. Preservation verifies all
+  twenty editable bindings, protected clean primary HEAD 856fa79c8, the same
+  four shared running containers, 68 known owned PostgreSQL containers absent,
+  no fixture runtime/network or persistent Root runtime, and matching source
+  manifests for all four images. The first ignored preservation driver stopped
+  before checking resources because its prior-input path had been replaced by
+  its output path; the corrected check passes. A first aggregate assertion
+  compared the oracle's short source SHA literally to the full SHA; resolving
+  it through Git fixes the receipt tool without changing the immutable oracle.
+  Both failed receipt attempts remain available alongside successful results.
+- Aggregate .worktree/identity-seed-selection-qualification.json has SHA256
+  ca8f2f418d7b1bc7443a6a9361009c0bf132b0e0f03a215095120437b06ce90b.
+  Reuse this acceptance unless related source changes invalidate it. The next
+  bounded operation is historical audit compatibility, followed by guarded
+  recording/recovery/preference fixtures; whole Identity remains open.
