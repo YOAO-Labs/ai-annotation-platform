@@ -9,6 +9,7 @@ import os
 import re
 import secrets
 import threading
+import time
 import uuid
 
 from aap_identity.security import create_access_token
@@ -534,6 +535,32 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                 )
                 assert concurrent_reads[1].json()["id"] == str(project_id)
                 assert concurrent_reads[2].json()["access_kind"] == "owner"
+
+                gate = asyncio.Semaphore(4)
+                latencies = []
+
+                async def read_under_load():
+                    async with gate:
+                        started = time.monotonic()
+                        response = await client.get(
+                            f"/api/v1/projects/{project_id}", headers=headers["owner"]
+                        )
+                        latencies.append(time.monotonic() - started)
+                        assert response.status_code == 200, response.text
+                        assert response.json()["id"] == str(project_id)
+
+                started = time.monotonic()
+                await asyncio.gather(*(read_under_load() for _ in range(16)))
+                record_property(
+                    "workspace_module_local_capacity",
+                    {
+                        "requests": 16,
+                        "concurrency": 4,
+                        "seconds": round(time.monotonic() - started, 3),
+                        "observed_p95_seconds": round(sorted(latencies)[-1], 3),
+                        "scope": "bounded local correctness sample, not production capacity",
+                    },
+                )
 
                 renamed = await client.post(
                     f"/api/v1/projects/{project_id}/classes/rename",

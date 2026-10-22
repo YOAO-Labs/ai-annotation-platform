@@ -3926,7 +3926,10 @@ def main(argv: list[str] | None = None) -> int:
                 "consumer_role": IDENTITY_API_CONSUMER_ROLE,
             },
         )
-        if "tests/test_workspace_module_assembly_live.py" in selected_test_paths:
+        if (
+            "tests/test_workspace_module_assembly_live.py" in selected_test_paths
+            and os.environ.get("AAP_WORKSPACE_MODULE_ASSEMBLY_LIVE") == "1"
+        ):
             phase = "install-workspace-api-consumer-fence-last"
             workspace_consumer_path = (
                 ROOT / "infra/docker/workspace-consumer-grants.sql"
