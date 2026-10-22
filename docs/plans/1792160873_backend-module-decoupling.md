@@ -5060,7 +5060,12 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - Bounded final review found and closed the missing learning_owner EXECUTE on
   read_actor_facts. One additional actual restricted-role probe confirms the
   account SHARE/status/key sequence in the same transaction while raw User
-  SELECT remains denied. It passes separately and brings the selected union to
+  SELECT remains denied. It passes separately and brings the selected union to406. No broader User
+  table grant or new client role was added. Architecture passes352 with148
+  existing inapplicable rules skipped; docs build passes.
 
-406.  No broader User table grant or new client role was added. Architecture
-      passes352 with148 existing inapplicable rules skipped; docs build passes.
+- Source integration commit: `48643cbdcaa93dcee0baa0409b45438932d7fa65`. Matching focused evidence is
+  `.worktree/identity-closure-current-authority-qualification.json`; it remains
+  an intentionally incomplete whole-Identity qualification. Independent module
+  cutover and broad cold/restore gates are pending the remaining owner relations,
+  private-table grant closure, registration policy and full existing assembly.
