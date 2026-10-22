@@ -24,7 +24,15 @@ from aap_workspace_contract.access import (
     membership_role_compatible as _membership_role_compatible,
     platform_role_is_manager as _platform_role_is_manager,
 )
-from aap_workspace_contract.member_values import decode_project_member_rows
+from aap_workspace_contract.member_values import (
+    ProjectMemberRowsUnavailable,
+    decode_project_member_rows,
+)
+from aap_workspace_contract.project_query_contract import (
+    ProjectQueryUnavailable,
+    decode_project_query_step,
+    project_query_request,
+)
 from aap_workspace_contract.project_query_values import materialize_project_base_row
 from aap_workspace_contract.wire import _reject_constant, _unique_object
 from app.db.enums import (
@@ -38,6 +46,7 @@ from app.services.task_creation_contract import (
 )
 from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.workspace_project_query_data import WorkspaceProjectQueryData
 
 _WORKSPACE_PROJECT_ACCESS_STEP = text(
     "SELECT aap_workspace_v1.project_access_step("
@@ -78,7 +87,7 @@ def _decode_workspace_project_access_step(
         raise ValueError("Invalid Workspace Project access step reply")
 
     facts = payload["facts"]
-    if phase == "lock_project_key_share":
+    if phase in {"read_project_row", "lock_project_key_share"}:
         if set(facts) != {"row_json"} or (
             facts["row_json"] is not None and type(facts["row_json"]) is not str
         ):
@@ -138,13 +147,82 @@ async def _locked_workspace_project_access_phase(
     )
 
 
-async def _merge_locked_snapshot(db: AsyncSession, model, values: dict[str, object]):
+async def _merge_project_snapshot(db: AsyncSession, model, values: dict[str, object]):
     mapped_columns = {column.key for column in model.__table__.columns}
     if set(values) != mapped_columns:
         raise ValueError("Workspace snapshot does not match ORM mapped columns")
     detached = model(**values)
     make_transient_to_detached(detached)
     return await db.merge(detached, load=False)
+
+
+async def _read_unlocked_project_row(
+    db: AsyncSession,
+    *,
+    actor_id: uuid.UUID,
+    project_id: uuid.UUID,
+) -> Project | None:
+    """Read the initial by-id row without locking or consulting actor status."""
+    if db.autoflush:
+        await db.flush()
+    payload = await db.scalar(
+        _WORKSPACE_PROJECT_ACCESS_STEP,
+        {
+            "actor_id": actor_id,
+            "project_id": project_id,
+            "phase": "read_project_row",
+        },
+    )
+    facts = _decode_workspace_project_access_step(
+        payload,
+        actor_id=actor_id,
+        project_id=project_id,
+        phase="read_project_row",
+    )
+    values = materialize_project_base_row(facts["row_json"], target_id=project_id)
+    if values is None:
+        return None
+    return await _merge_project_snapshot(db, Project, values)
+
+
+async def _read_project_query_row(
+    db: AsyncSession,
+    *,
+    request,
+    transaction,
+    project_id: uuid.UUID,
+) -> Project:
+    raw = await transaction.step(request, "get_row")
+    facts = decode_project_query_step(request, "get_row", None, raw).facts
+    values = materialize_project_base_row(facts.row_json, target_id=project_id)
+    if values is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
+    return await _merge_project_snapshot(db, Project, values)
+
+
+async def _read_project_query_member(
+    db: AsyncSession,
+    *,
+    request,
+    transaction,
+    actor_id: uuid.UUID,
+    project_id: uuid.UUID,
+) -> ProjectMember | None:
+    raw = await transaction.step(request, "access_member_rows")
+    facts = decode_project_query_step(request, "access_member_rows", None, raw).facts
+    try:
+        members = decode_project_member_rows(
+            facts.rows_json,
+            target_id=project_id,
+            user_id=actor_id,
+            max_rows=1,
+        )
+    except ProjectMemberRowsUnavailable:
+        raise ProjectQueryUnavailable() from None
+    member = members[0] if members else None
+    if member is None:
+        return None
+    return await _merge_project_snapshot(db, ProjectMember, asdict(member))
 
 
 async def lock_creation_project_manager(
@@ -228,12 +306,43 @@ async def resolve_project_access(
     actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
     if actor is None or not actor.is_active:
         raise _invalid_account()
-    fresh_project = await db.get(Project, project.id, populate_existing=True)
-    if fresh_project is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
-    return await _resolve_current_project_access(
-        db, user=actor, project=fresh_project, lock_membership=lock_membership
+    request = project_query_request(
+        "get_project_access",
+        actor.id,
+        getattr(actor.role, "value", actor.role),
+        target_id=project.id,
     )
+    try:
+        data = WorkspaceProjectQueryData(db)
+        async with data.transaction() as transaction:
+            fresh_project = await _read_project_query_row(
+                db,
+                request=request,
+                transaction=transaction,
+                project_id=project.id,
+            )
+
+            async def read_member():
+                return await _read_project_query_member(
+                    db,
+                    request=request,
+                    transaction=transaction,
+                    actor_id=actor.id,
+                    project_id=project.id,
+                )
+
+            return await _resolve_current_project_access(
+                db,
+                user=actor,
+                project=fresh_project,
+                lock_membership=False,
+                member_reader=read_member,
+            )
+    except ProjectQueryUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="项目查询服务暂不可用",
+        ) from None
 
 
 async def _resolve_current_project_access(
@@ -242,6 +351,7 @@ async def _resolve_current_project_access(
     user: IdentityActorFacts | IdentityActorStatus,
     project: Project,
     lock_membership: bool,
+    member_reader=None,
 ) -> _ProjectAccess:
     try:
         manager = project_manager_access(
@@ -270,7 +380,9 @@ async def _resolve_current_project_access(
             )
             member = members[0] if members else None
             if member is not None:
-                await _merge_locked_snapshot(db, ProjectMember, asdict(member))
+                await _merge_project_snapshot(db, ProjectMember, asdict(member))
+        elif member_reader is not None:
+            member = await member_reader()
         else:
             member = (
                 await db.execute(
@@ -339,7 +451,7 @@ async def lock_current_project_rows(
         )
         if project_values is None:
             raise HTTPException(status_code=404, detail="项目不存在")
-        project = await _merge_locked_snapshot(db, Project, project_values)
+        project = await _merge_project_snapshot(db, Project, project_values)
     return user, project
 
 
@@ -410,7 +522,15 @@ async def resolve_project_access_by_id(
     project_id: uuid.UUID,
     lock_membership: bool = False,
 ) -> tuple[Project, _ProjectAccess]:
-    project = await db.get(Project, project_id, populate_existing=True)
+    try:
+        project = await _read_unlocked_project_row(
+            db, actor_id=actor_id, project_id=project_id
+        )
+    except ProjectQueryUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="项目查询服务暂不可用",
+        ) from None
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
     access = await resolve_project_access(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -125,14 +126,25 @@ async def test_project_access_preserves_account_order_and_failures(
     project = SimpleNamespace(id=uuid.UUID(int=30), owner_id=uuid.UUID(int=31))
     events = []
     data = _identity_adapter(monkeypatch, project_access, status=actor)
-    db = SimpleNamespace(
-        get=AsyncMock(
-            side_effect=lambda model, key, **kwargs: (
-                events.append((model, key, kwargs)) or project
-            )
-        ),
-        execute=AsyncMock(),
+    data.read_actor_status.side_effect = lambda _actor_id: (
+        events.append("actor_status") or actor
     )
+
+    @asynccontextmanager
+    async def transaction():
+        yield object()
+
+    async def read_project_row(_db, *, request, transaction, project_id):
+        events.append(("get_row", request.admitted_actor.role, project_id))
+        return project
+
+    monkeypatch.setattr(
+        project_access,
+        "WorkspaceProjectQueryData",
+        lambda _db: SimpleNamespace(transaction=transaction),
+    )
+    monkeypatch.setattr(project_access, "_read_project_query_row", read_project_row)
+    db = SimpleNamespace()
 
     if expected_status == 200:
         access = await project_access.resolve_project_access(
@@ -151,10 +163,12 @@ async def test_project_access_preserves_account_order_and_failures(
 
     data.read_actor_status.assert_awaited_once_with(actor_id)
     if expected_status == 401:
-        db.get.assert_not_awaited()
+        assert events == ["actor_status"]
     else:
-        assert events == [(Project, project.id, {"populate_existing": True})]
-    db.execute.assert_not_awaited()
+        assert events == [
+            "actor_status",
+            ("get_row", actor.role, project.id),
+        ]
 
 
 async def test_batch_assignment_locks_sorted_accounts_before_members(monkeypatch):
