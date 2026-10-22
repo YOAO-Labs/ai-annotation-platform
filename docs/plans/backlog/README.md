@@ -30,20 +30,20 @@ Promotion requires a fresh decision based on the actual repository, not a few no
 
 共同约束：[架构与决策](1792661016_dataset-storage-architecture.md) · [信息架构](1792661016_dataset-storage-information-architecture.md) · [交付与 33 项跨 Epic 验收](1792661016_dataset-storage-delivery-acceptance.md) · [基线、来源映射与参考](1792661016_dataset-storage-baseline.md)。
 
-| 草案                                                                             | 独立结果                             | 依赖或触发条件               |
-| -------------------------------------------------------------------------------- | ------------------------------------ | ---------------------------- |
-| [E01 领域与存储抽象](../1792661016_dataset-storage-domain-abstraction.md)        | 稳定样本/内容/位置、兼容历史真实键   | 先行兼容；不搬原件           |
-| [E02 位置、连接与用途](../1792661016_dataset-storage-locations-connections.md)   | 只读根、节点能力、九用途映射         | E01；授权矩阵与真实挂载      |
-| [E03 已有目录原地注册](../1792661016_dataset-in-place-directory-registration.md) | 不先复制原图即可浏览、关联和标注     | E02、E04-A、E05-A；最小权限  |
-| [E04 增量同步与任务](../1792661016_dataset-incremental-sync-jobs.md)             | 幂等扫描、游标、变化裁决、单项重试   | 扫描基座先行；定时后置       |
-| [E05 文件访问与缓存](../1792661016_dataset-asset-access-cache.md)                | 同内容读取、分离原图/预览和缓存      | E01/E02；读取/提交授权       |
-| [E06 多站点 Agent](1792661016_dataset-multi-site-agent.md)                       | 隔离站点出站扫描/读取和断线恢复      | 真实网络触发；不阻塞首目录   |
-| [E07 S3 选型与迁移](1792661016_dataset-s3-selection-migration.md)                | 候选契约、全用途迁移及回滚           | 试验独立；切换另过恢复门     |
-| [E08 数据集工作台与质量](1792661016_dataset-workbench-quality.md)                | 独立详情、动态视图、质量与项目上下文 | 迁现有功能；接真实来源状态   |
-| [E09 存储控制台与去重](1792661016_dataset-storage-console-boundaries.md)         | 唯一配置、准确指标和上下文深链       | E02；与 E08 迁旧入口         |
-| [E10 版本与训练消费](1792661016_dataset-versions-training-consumption.md)        | 目录进入已有冻结体系、血缘及缓存     | 现有任务版本流与 E05；不重建 |
-| [E11 权限与生命周期](1792661016_dataset-permissions-lifecycle.md)                | 只读/修订保护、影响预览、恢复/回收   | 最小保护随核心；治理独立启用 |
-| [E12 容量、运维与恢复](1792661016_dataset-storage-operations-recovery.md)        | 异步统计、定位故障、一致恢复         | 诊断随核心；恢复先于迁移     |
+| 草案                                                                                               | 独立结果                             | 依赖或触发条件               |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------ | ---------------------------- |
+| [E01 领域与存储抽象](../1792661016_dataset-storage-domain-abstraction.md)                          | 稳定样本/内容/位置、兼容历史真实键   | 先行兼容；不搬原件           |
+| [E02 位置、连接与用途](../1792661016_dataset-storage-locations-connections.md)                     | 只读根、节点能力、九用途映射         | E01；授权矩阵与真实挂载      |
+| [E03 已有目录原地注册（已完成）](../archive/1792661016_dataset-in-place-directory-registration.md) | 不先复制原图即可浏览、关联和标注     | E02、E04-A、E05-A；最小权限  |
+| [E04 增量同步与任务](../1792661016_dataset-incremental-sync-jobs.md)                               | 幂等扫描、游标、变化裁决、单项重试   | 扫描基座先行；定时后置       |
+| [E05 文件访问与缓存](../1792661016_dataset-asset-access-cache.md)                                  | 同内容读取、分离原图/预览和缓存      | E01/E02；读取/提交授权       |
+| [E06 多站点 Agent](1792661016_dataset-multi-site-agent.md)                                         | 隔离站点出站扫描/读取和断线恢复      | 真实网络触发；不阻塞首目录   |
+| [E07 S3 选型与迁移](1792661016_dataset-s3-selection-migration.md)                                  | 候选契约、全用途迁移及回滚           | 试验独立；切换另过恢复门     |
+| [E08 数据集工作台与质量](1792661016_dataset-workbench-quality.md)                                  | 独立详情、动态视图、质量与项目上下文 | 迁现有功能；接真实来源状态   |
+| [E09 存储控制台与去重](1792661016_dataset-storage-console-boundaries.md)                           | 唯一配置、准确指标和上下文深链       | E02；与 E08 迁旧入口         |
+| [E10 版本与训练消费](1792661016_dataset-versions-training-consumption.md)                          | 目录进入已有冻结体系、血缘及缓存     | 现有任务版本流与 E05；不重建 |
+| [E11 权限与生命周期](1792661016_dataset-permissions-lifecycle.md)                                  | 只读/修订保护、影响预览、恢复/回收   | 最小保护随核心；治理独立启用 |
+| [E12 容量、运维与恢复](1792661016_dataset-storage-operations-recovery.md)                          | 异步统计、定位故障、一致恢复         | 诊断随核心；恢复先于迁移     |
 
 实施前逐项通过本页 promotion gate，不能直接从 backlog 开始编码。E07 生产迁移和 E06 站点部署需要各自触发条件与实施授权，不能从本次转草案请求推定。
 

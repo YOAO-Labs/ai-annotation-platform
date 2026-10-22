@@ -1,12 +1,12 @@
 # EPIC-03：已有图片目录原地注册为数据集
 
-> 状态：approved / implementing；用户明确授权完整推进 E03 并实际浏览器验收。E03-A1 已完成，现按完整 E03 范围补齐 A2/B；不分配发布版本。
+> 状态：completed；E03-A1/A2、授权、策略、生命周期和外部 S3/SFTP 持续引用均已实现并完成本地真实浏览器验收。详见末尾完整验收矩阵；不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
-> 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
+> 实施前须通过 [backlog promotion gate](../backlog/README.md#promotion-gate)。[草案总览](../backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](../backlog/1792661016_dataset-storage-architecture.md)和[交付验收](../backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 | 项目          | 内容                                                           |
 | ------------- | -------------------------------------------------------------- |
-| 状态          | E03-A1/A2 已落地；完整 E03 的策略、授权、生命周期及 B 继续实施 |
+| 状态          | 完整 E03 已完成并归档；周期同步等后续由对应 Epic 承担 |
 | 日期          | 2026-10-22（Asia/Shanghai）                                    |
 | 优先级 / 阶段 | P0；M1 核心交付                                                |
 | 负责角色      | 后端、前端、部署运维、测试                                     |
@@ -26,7 +26,7 @@
 | 策略     | ownership_mode 与 cache_policy/effective_cache_policy 独立；reference 默认 preview，可选 none；既有 managed_copy 入口保留 | 策略及派生计量测试，浏览器选择                 |
 | 最小授权 | 超管配置位置可见范围，获授权数据管理员使用对应目录；标注员仅读取分配任务                                                  | 不同用户正/反向测试与浏览器                    |
 | 生命周期 | 重扫保留已注册身份，来源停用/恢复与注销不动源文件；删除按已有业务引用边界处理                                             | 源树字节/结构对比，实际浏览器注销              |
-| B 适配器 | 外部 S3/SFTP 持续引用逐个交付；精确定位、边界、读取期间变化、条件读取与能力资格不可由复制导入代替                         | 独立真实服务和浏览器验收                       |
+| B 适配器 | 外部 S3/SFTP 持续引用逐个交付；精确定位、边界、读取期间变化及各协议的一致性和准入资格不可由复制导入代替                         | 独立真实服务和浏览器验收                       |
 | 最终门   | E03-S01–S07、AC01–AC10 与相关跨 Epic 门逐条审计；当前文档/API/SDK/CHANGELOG 同步                                          | 验收矩阵及本轮 Outcome                         |
 
 A2 新增 `DatasetRegistrationRun/Entry` 和迁移0199，不复用扫描 entry.state 或 Source.generation。长操作沿用 AsyncJob，但注册账本不随任务历史清理。worker 明确使用自己的节点身份，claim 校验能力和固定锚点，后续逐项实际安全读取；探测 TTL 不使合法长任务在五分钟后自动失效。每项在当前租约/配置/账号复核后提交，取消保留已提交部分并拒绝旧 attempt 的后续落库。注册最终阶段仍重新读取固定摘要，避免预检后换图。
@@ -70,11 +70,11 @@ A2 新增 `DatasetRegistrationRun/Entry` 和迁移0199，不复用扫描 entry.s
 
 | 当前 owner / 代码锚点                                                                     | 已有能力、缺口与复用约束                                                                                   |
 | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| [dataset_import.py](../../apps/api/app/workers/dataset_import.py)                         | 现有 S3/SFTP 导入把流交给 ingest_one 复制入桶；复用任务生命周期，新增 reference 登记路径。                 |
-| [ImportDatasetWizard.tsx](../../apps/web/src/components/datasets/ImportDatasetWizard.tsx) | 保留本机文件/ZIP/复制导入，新增服务器目录入口；本机选文件夹仍为上传。                                      |
-| [dataset.py](../../apps/api/app/services/dataset.py)                                      | 复用 link_project/create_tasks_for_items；来源路径和内容修订是新幂等边界，不用相同内容跳过来合并业务身份。 |
+| [dataset_import.py](../../../apps/api/app/workers/dataset_import.py)                         | 现有 S3/SFTP 导入把流交给 ingest_one 复制入桶；复用任务生命周期，新增 reference 登记路径。                 |
+| [ImportDatasetWizard.tsx](../../../apps/web/src/components/datasets/ImportDatasetWizard.tsx) | 保留本机文件/ZIP/复制导入，新增服务器目录入口；本机选文件夹仍为上传。                                      |
+| [dataset.py](../../../apps/api/app/services/dataset.py)                                      | 复用 link_project/create_tasks_for_items；来源路径和内容修订是新幂等边界，不用相同内容跳过来合并业务身份。 |
 
-候选修改入口：[dataset_import.py](../../apps/api/app/workers/dataset_import.py)、[dataset.py](../../apps/api/app/services/dataset.py)、[datasets.py](../../apps/api/app/api/v1/datasets.py)、[base.py](../../apps/api/app/services/sources/base.py)、[ImportDatasetWizard.tsx](../../apps/web/src/components/datasets/ImportDatasetWizard.tsx)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
+候选修改入口：[dataset_import.py](../../../apps/api/app/workers/dataset_import.py)、[dataset.py](../../../apps/api/app/services/dataset.py)、[datasets.py](../../../apps/api/app/api/v1/datasets.py)、[base.py](../../../apps/api/app/services/sources/base.py)、[ImportDatasetWizard.tsx](../../../apps/web/src/components/datasets/ImportDatasetWizard.tsx)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
 
 ## 1. 核心用户结果
 
@@ -84,9 +84,9 @@ A2 新增 `DatasetRegistrationRun/Entry` 和迁移0199，不复用扫描 entry.s
 
 ## 2. 当前基础与缺口
 
-现有导入向导支持本地文件、压缩包和外部连接来源；后端导入 worker 通过 source adapter 读取内容，再调用 `ingest_one` 存入统一 datasets 桶。该能力适合“复制导入”，需要新增“只注册引用”路径。[代码依据：导入向导](../../apps/web/src/components/datasets/ImportDatasetWizard.tsx)、[导入 worker](../../apps/api/app/workers/dataset_import.py)、[数据集服务](../../apps/api/app/services/dataset.py)
+现有导入向导支持本地文件、压缩包和外部连接来源；后端导入 worker 通过 source adapter 读取内容，再调用 `ingest_one` 存入统一 datasets 桶。该能力适合“复制导入”，需要新增“只注册引用”路径。[代码依据：导入向导](../../../apps/web/src/components/datasets/ImportDatasetWizard.tsx)、[导入 worker](../../../apps/api/app/workers/dataset_import.py)、[数据集服务](../../../apps/api/app/services/dataset.py)
 
-当前 Docker 部署已经支持自定义 MinIO 数据目录，但更换 MinIO 挂载磁盘不会让已有业务目录自动成为数据集。本 Epic 解决的是注册与访问语义。[代码依据：部署配置](../../docker-compose.yml)
+当前 Docker 部署已经支持自定义 MinIO 数据目录，但更换 MinIO 挂载磁盘不会让已有业务目录自动成为数据集。本 Epic 解决的是注册与访问语义。[代码依据：部署配置](../../../docker-compose.yml)
 
 ## 3. 范围
 
@@ -219,13 +219,13 @@ A2 新增 `DatasetRegistrationRun/Entry` 和迁移0199，不复用扫描 entry.s
 
 ## 12. 工程任务与完成定义
 
-- [ ] 增加已有目录来源类型、允许根配置和可达性检查。
-- [ ] 实现根内浏览、过滤、预扫描和正式登记分离。
-- [ ] 支持 reference 原图策略与独立缓存策略。
-- [ ] 实现幂等逐批注册、校验队列、错误明细和取消恢复。
-- [ ] 接入 E05 文件访问及现有项目关联/标注流程。
-- [ ] 补齐只读、路径边界、源变化、离线和取消测试。
-- [ ] 提供服务器/NAS 挂载示例和“本机上传不是原地目录”的说明。
+- [x] 增加已有目录来源类型、允许根配置和可达性检查。
+- [x] 实现根内浏览、过滤、预扫描和正式登记分离。
+- [x] 支持 reference 原图策略与独立缓存策略。
+- [x] 实现幂等逐批注册、校验队列、错误明细和取消恢复。
+- [x] 接入 E05 文件访问及现有项目关联/标注流程。
+- [x] 补齐只读、路径边界、源变化、离线和取消测试。
+- [x] 提供服务器/NAS 挂载示例和“本机上传不是原地目录”的说明。
 
 完成定义：以一个真实已有目录完成“不复制原图的注册 → 浏览 → 项目关联 → 标注 → 重扫 → 注销”的端到端演示，源目录未被平台修改。
 
@@ -236,15 +236,15 @@ A2 新增 `DatasetRegistrationRun/Entry` 和迁移0199，不复用扫描 entry.s
 | 切片  | 独立结果           | 交付范围                                                                                  | 验收 / 回退边界                                                   |
 | ----- | ------------------ | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | E03-A | 一个目录的原地闭环 | 依赖 E02-A、E04-A、E05-A；预检、逐批登记/校验、取消恢复、最小详情、项目关联和标注同交付。 | X01/X03/X05–X08/X10/X11/X13/X14；原件新增持久副本 0，派生物另计。 |
-| E03-B | 扩展已验证来源     | 目录闭环后，外部 S3/SFTP 持续引用适配器逐个验收。                                         | 每个适配器证明条件读取和内容一致性；复制导入不代替持续引用测试。  |
+| E03-B | 扩展已验证来源     | 目录闭环后，外部 S3/SFTP 持续引用适配器逐个验收。                                         | 每个适配器证明其协议对应的身份、一致性与准入边界；复制导入不代替持续引用测试。  |
 
 前置合同不等于等待前置 Epic 全量完成。每个切片合并后系统仍须可用；含新来源的回退保留兼容读取和授权，不能把其相对路径交给旧 S3 拼接逻辑。预计多数切片涉及超过 8 个文件，实施时明确大范围边界与准确清单。
 
-已有回归入口：[test_dataset_import.py](../../apps/api/tests/test_dataset_import.py)、[test_dataset_link.py](../../apps/api/tests/test_dataset_link.py)、[test_task_dataset_link.py](../../apps/api/tests/test_task_dataset_link.py)、[ImportDatasetWizard.test.tsx](../../apps/web/src/components/datasets/ImportDatasetWizard.test.tsx)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
+已有回归入口：[test_dataset_import.py](../../../apps/api/tests/test_dataset_import.py)、[test_dataset_link.py](../../../apps/api/tests/test_dataset_link.py)、[test_task_dataset_link.py](../../../apps/api/tests/test_task_dataset_link.py)、[ImportDatasetWizard.test.tsx](../../../apps/web/src/components/datasets/ImportDatasetWizard.test.tsx)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](../backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
 
-实现时同步：[import-images.md](../../docs-site/user-guide/datasets/import-images.md)、[index.md](../../docs-site/user-guide/datasets/index.md)、[docker-compose.md](../../docs-site/ops/deploy/docker-compose.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
+实现时同步：[import-images.md](../../../docs-site/user-guide/datasets/import-images.md)、[index.md](../../../docs-site/user-guide/datasets/index.md)、[docker-compose.md](../../../docs-site/ops/deploy/docker-compose.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
 
-完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+完成实施后按[计划规范](../README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
 
 ## Outcome
 
@@ -365,3 +365,27 @@ Paramiko 使用只含该部署公钥的独立 HostKeys 与 RejectPolicy，在认
 - 文档：README/DEV、CHANGELOG Unreleased、数据集首页/导入/连接器、来源/位置/严格内容API、存储架构、部署指南、环境变量参考及ADR0099同步。
 - 清理：关闭浏览器并删除临时认证档案；停止本轮API/Web/worker，销毁owned dev/test数据库、Redis和桶；移除专属SFTP容器与临时凭据、原图、日志、截图、JUnit及文档构建输出。共享配置、宿主机业务数据和镜像保持原状。
 - 完整E03范围已具备收尾条件；下一提交逐条记录故事/验收矩阵并归档本计划。周期同步、Agent、训练冻结和完整原图缓存归其他Epic；自动GC及十万图片性能资格不在当前交付中宣称完成。
+
+
+## Outcome — 完整 E03 验收与归档
+
+- 实施提交：`984cb64f3`（A1）、`a0b3e11c0`（A2）、`023279447`（最小授权）、`7df597884`（策略/预览/生命周期）、`36c4ae794`（S3）、`117996e38`（SFTP）。前置存储根、扫描及读取基座保留各自计划和后续合同，不因 E03 完成而归档未完的其他 Epic。
+- 故事结论：S01 受控开放与指定节点、S02 原地建集、S03 提交前影响预检、S04 读图关联并标注、S05 批量进度与恢复、S06 区分本机上传、S07 注销保留外部图片均已闭合。以下为本地实现与验收证据，不代表远程 CI、生产挂载或十万图片性能资格。
+
+| 验收 | 对应故事 | 已得到的证据 |
+| ---- | -------- | ------------ |
+| AC01 原地0复制 | S02 | 目录、S3、SFTP真实登记核对源名称/结构/SHA不变；平台原图0字节，派生独立入账；四种ownership/cache组合已验收 |
+| AC02 直接标注 | S04 | 目录管理员/员工、S3及SFTP均由真实Workbench读原图并保存矩形；Item→Task固定SHA，关联使用既有流程 |
+| AC03 节点可达 | S01 | 指定Celery hostname专属队列探测，API/worker分别验证；位置/根不可达、错误映射和旧资格失败关闭，禁止空成功 |
+| AC04 根边界 | S01 | filesystem安全打开回归覆盖跳转/绝对路径/链接/跨挂载；SFTP真实只读jail拒绝越界和写入，链接跳过；S3固定精确key与前缀边界 |
+| AC05 取消幂等 | S05 | A2真实241项取消/关闭重开/继续；旧lease和并发回归；SFTP重扫后仍3 Item/3 Task，无重复关系 |
+| AC06 部分失败 | S03/S05 | A2真实240正常+1损坏，错误分页、修复单项重试后241通过；SFTP3可用+1损坏，其余可直接标注 |
+| AC07 离线保留 | S04 | 目录/S3/SFTP严格读写409、旧索引/标注保留；缓存256×160仍可读且不作为原图开放编辑；托管副本来源离线仍独立可用 |
+| AC08 生命周期 | S07 | 来源停用/恢复/注销影响确认、失效活动租约且保留业务对象；真实注销后源树不变；删除仅清理捕获的精确派生键 |
+| AC09 登记复核 | S03 | 预检后替换与读取间变化回归拒绝；S3条件/版本与SHA，SFTP同大小同mtime异字节实际409；不覆盖旧身份 |
+| AC10 本机上传 | S06 | 接入面板明确本机文件夹通过上传；服务器根/远端来源独立选择，保留多文件/文件夹/ZIP与复制导入入口 |
+
+- 跨 Epic 边界：受控位置/节点证据、持久扫描账本、严格内容/标注门禁和最小授权已随 E03 主链路验证；周期同步与变化接纳归 E04，远端 Agent 归 E06，完整原图缓存归 E05，训练冻结归 E10，完整工作台重整归 E08/E09。它们不再列为本计划剩余实施项。
+- 正式知识已进入 README/DEV、用户数据集与存储说明、来源/位置/内容API、存储架构、部署与环境参考、ADR0095–0099及CHANGELOG Unreleased。API/SDK合同保持同步，未调整版本或发布安排。
+- 本轮最终验证与清理见前节 SFTP Outcome；代码与文档检查通过，owned dev/test资源、SFTP容器、浏览器、临时凭据及构建/测试输出均已清理。未重建后端镜像、未推送、未发布。
+- 归档：完整 E03 无剩余必做项，移入 archive 并同步总览和所有 Markdown 引用。历史 Outcome 的“尚未完成”属于当时阶段记录，以本节最终结论为准。
