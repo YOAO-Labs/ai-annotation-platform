@@ -219,6 +219,23 @@ async def _database_snapshot(test_engine) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+async def _control_state(test_engine, project_id, actor_id) -> tuple:
+    async with test_engine.connect() as db:
+        row = (
+            await db.execute(
+                text(
+                    "SELECT "
+                    "(SELECT count(*) FROM public.project_members WHERE project_id=:project), "
+                    "(SELECT count(*) FROM public.workspace_membership_operation_receipts "
+                    " WHERE project_id=:project), "
+                    "(SELECT count(*) FROM public.audit_logs WHERE actor_id=:actor)"
+                ),
+                {"project": project_id, "actor": actor_id},
+            )
+        ).one()
+    return tuple(row)
+
+
 async def _verify_final_database(maker, lanes: list[dict], revoked_project_id):
     async with maker() as db:
         for lane in lanes:
@@ -358,7 +375,7 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
         }
         record_property(
             "workspace_capacity_auth_profile",
-            "super_admin JWT for the mixed load; actual employee JWT for membership and revocation checks",
+            "independent super_admin/account set per load lane; separate actual employee JWT for membership and revocation checks",
         )
 
         async with httpx.AsyncClient(
@@ -368,10 +385,17 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
         ) as client:
             suffix = uuid.uuid4().hex[:10]
             for lane_index in range(8):
+                _, lane_actors = await _seed_users(test_engine)
+                lane_owner_headers = {
+                    "Authorization": f"Bearer {_token(lane_actors['owner'], api_secret)}"
+                }
+                lane_load_headers = {
+                    "Authorization": f"Bearer {_token(lane_actors['super_admin'], api_secret)}"
+                }
                 template_name = f"Capacity {suffix} template {lane_index}"
                 template_response = await client.post(
                     "/api/v1/project-templates",
-                    headers=headers["owner"],
+                    headers=lane_owner_headers,
                     json={
                         "name": template_name,
                         "description": "bounded capacity fixture",
@@ -386,7 +410,7 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
                 project_name = f"Capacity {suffix} project {lane_index} seed"
                 project_response = await client.post(
                     "/api/v1/projects",
-                    headers=headers["owner"],
+                    headers=lane_owner_headers,
                     json={"name": project_name, "template_id": str(template_id)},
                 )
                 assert project_response.status_code == 200, project_response.text
@@ -396,8 +420,13 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
                         "index": lane_index,
                         "template_id": template_id,
                         "project_id": project_id,
-                        "member_id": actors["member"].id,
-                        "owner_id": actors["owner"].id,
+                        "member_id": lane_actors["member"].id,
+                        "owner_id": lane_actors["owner"].id,
+                        "owner_candidates": (
+                            lane_actors["owner"].id,
+                            lane_actors["successor"].id,
+                        ),
+                        "headers": lane_load_headers,
                         "sequence": 0,
                         "expected_name": project_name,
                     }
@@ -531,7 +560,7 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
                         "configuration_project_update",
                         "PATCH",
                         f"/api/v1/projects/{project_id}",
-                        headers=headers["super_admin"],
+                        headers=lane["headers"],
                         expected_status=200,
                         json={"name": name},
                     )
@@ -547,7 +576,7 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
                         "project_detail",
                         "GET",
                         f"/api/v1/projects/{project_id}",
-                        headers=headers["super_admin"],
+                        headers=lane["headers"],
                         expected_status=200,
                     )
                     assert detail.json()["name"] == name
@@ -558,7 +587,7 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
                         "private_template_list",
                         "GET",
                         "/api/v1/project-templates?scope=private",
-                        headers=headers["super_admin"],
+                        headers=lane["headers"],
                         expected_status=200,
                     )
                     assert any(
@@ -572,7 +601,7 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
                         "membership_add",
                         "POST",
                         f"/api/v1/projects/{project_id}/members",
-                        headers=headers["super_admin"],
+                        headers=lane["headers"],
                         expected_status=201,
                         json={
                             "user_id": str(lane["member_id"]),
@@ -588,7 +617,7 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
                         "directory_member_list",
                         "GET",
                         f"/api/v1/projects/{project_id}/members",
-                        headers=headers["super_admin"],
+                        headers=lane["headers"],
                         expected_status=200,
                     )
                     assert any(
@@ -601,15 +630,15 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
                         "membership_remove",
                         "DELETE",
                         f"/api/v1/projects/{project_id}/members/{membership_id}",
-                        headers=headers["super_admin"],
+                        headers=lane["headers"],
                         expected_status=204,
                     )
                     assert not removed.content
 
                     target_owner = (
-                        actors["successor"].id
-                        if lane["owner_id"] == actors["owner"].id
-                        else actors["owner"].id
+                        lane["owner_candidates"][1]
+                        if lane["owner_id"] == lane["owner_candidates"][0]
+                        else lane["owner_candidates"][0]
                     )
                     transferred = await _request(
                         client,
@@ -617,7 +646,7 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
                         "owner_transfer",
                         "POST",
                         f"/api/v1/projects/{project_id}/transfer",
-                        headers=headers["super_admin"],
+                        headers=lane["headers"],
                         expected_status=200,
                         json={"new_owner_id": str(target_owner)},
                     )
@@ -679,6 +708,43 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
                         revocation_started = time.monotonic()
                         revocation_metrics["started_monotonic"] = revocation_started
                         revoked_headers = headers["owner"]
+                        control_before_busy = await _control_state(
+                            test_engine, revoked_project_id, actors["owner"].id
+                        )
+                        async with test_engine.begin() as blocker:
+                            await blocker.execute(
+                                text(
+                                    "SELECT id FROM public.users WHERE id=:id FOR UPDATE"
+                                ),
+                                {"id": actors["member"].id},
+                            )
+                            busy = await _request(
+                                client,
+                                revocation_metrics,
+                                "membership_account_busy",
+                                "POST",
+                                f"/api/v1/projects/{revoked_project_id}/members",
+                                headers=revoked_headers,
+                                expected_status=409,
+                                json={
+                                    "user_id": str(actors["member"].id),
+                                    "role": "annotator",
+                                },
+                            )
+                            assert busy.json()["detail"] == "账号正在更新，请刷新后重试"
+                        assert (
+                            await _control_state(
+                                test_engine, revoked_project_id, actors["owner"].id
+                            )
+                            == control_before_busy
+                        )
+                        report_busy = {
+                            "status": 409,
+                            "memberships_receipts_and_actor_audit_unchanged": True,
+                        }
+                        record_property(
+                            "workspace_capacity_account_contention", report_busy
+                        )
                         await _request(
                             client,
                             revocation_metrics,
