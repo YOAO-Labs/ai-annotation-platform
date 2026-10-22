@@ -5311,10 +5311,24 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   video Job fences further writes but can leave an unretired execution, retained
   input and running detached summary. That diagnosis is excluded from passing
   qualification. The project-deletion policy question remains unanswered; the
-  selected Assets auxiliary-reference 409 policy is distinct and is recorded as
-  decided, not implemented. The deletion capability is not marked closed.
+  selected Assets auxiliary-reference 409 policy is distinct and already has a
+  Native guard; targeted camera/scene/execution deletion acceptance and unlink
+  availability still need verification. The deletion capability is not marked closed.
 - Evidence aggregate: `.worktree/workspace-project-deletion-qualification.json`.
   ADR-0165 records the caller-transaction boundary. Full Workspace cold artifacts,
   migration and restore remain batched at the coherent module milestone. Only
   `docs-site/dev/concepts/module-deployment.md` holds remaining work. No primary
   cutover, push, production deployment, release or Go expansion is claimed.
+
+- Source/grant/fixture/documentation integration commit:
+  `b625741383693930e267b0be407c008bb6103903`. The aggregate binds 26 files to
+  this checkpoint, records all 76 passing cases and explicitly excludes the video
+  defect diagnosis. Grant/selection units pass 20; architecture passes 355 with
+  149 inapplicable rules. Descriptor generation, Ruff, formatting, docs build,
+  final diff review and normal commit hooks pass; public OpenAPI is unchanged.
+  Both owned source worktrees were removed after clean-state, exact HEAD/branch
+  and patch-equivalence checks, with their Ruff caches archived first. Twenty
+  editable Root bindings still point here; the clean primary and four shared
+  containers are preserved, and all eight owned PostgreSQL containers from this
+  slice's checks and reproducers are confirmed absent. This closes the portable
+  invocation boundary only; the video deletion safety prerequisite stays open.
