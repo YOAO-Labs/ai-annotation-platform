@@ -205,6 +205,34 @@ class WorkspaceImportCli:
             raise RuntimeError("nuScenes CLI network has not been started")
         if not dataset_name or "\n" in dataset_name or "\x00" in dataset_name:
             raise ValueError("Dataset name must be non-empty single-line text")
+        return self.run_command(
+            (
+                "python",
+                "-m",
+                "scripts.import_nuscenes_scene",
+                "--nuscenes-root",
+                "/fixture",
+                "--scene-tokens",
+                "scene-0000,scene-0001",
+                "--dataset-name",
+                dataset_name,
+                "--frame",
+                "ego",
+            )
+        )
+
+    def run_command(self, command: tuple[str, ...]) -> CliRun:
+        """Run one explicit argv through the same owned one-shot container."""
+        if self.network_id is None:
+            raise RuntimeError("nuScenes CLI network has not been started")
+        if not command or any(
+            type(argument) is not str
+            or not argument
+            or "\n" in argument
+            or "\x00" in argument
+            for argument in command
+        ):
+            raise ValueError("CLI command must be non-empty single-line arguments")
         run_id = uuid.uuid4().hex[:12]
         container_name = f"{self.network_name}-{run_id}"
         container_id = self._docker(
@@ -245,17 +273,7 @@ class WorkspaceImportCli:
             "--workdir",
             "/app",
             self.image,
-            "python",
-            "-m",
-            "scripts.import_nuscenes_scene",
-            "--nuscenes-root",
-            "/fixture",
-            "--scene-tokens",
-            "scene-0000,scene-0001",
-            "--dataset-name",
-            dataset_name,
-            "--frame",
-            "ego",
+            *command,
         )
         self.container_id = container_id
         self._current_container_stopped = False
