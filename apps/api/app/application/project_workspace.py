@@ -5,7 +5,6 @@ from __future__ import annotations
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +15,7 @@ from app.services.project_access import (
     lock_current_project_access,
 )
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.project_workspace import lock_project_row
 from app.services.workspace_project_query import prepare_transfer_projection
 from app.services.workspace_owner_transfer import (
     transfer_project_owner as execute_owner_transfer,
@@ -31,11 +31,11 @@ async def lock_workspace_project(db: AsyncSession, project_id: uuid.UUID) -> Pro
     """Refresh the project under its bounded exclusive configuration fence."""
     try:
         with db.no_autoflush:
-            project = await db.scalar(
-                select(Project)
-                .where(Project.id == project_id)
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True)
+            project = await lock_project_row(
+                db,
+                project_id,
+                nowait=True,
+                populate_existing=True,
             )
     except DBAPIError as exc:
         state = getattr(exc.orig, "sqlstate", None) or getattr(exc.orig, "pgcode", None)

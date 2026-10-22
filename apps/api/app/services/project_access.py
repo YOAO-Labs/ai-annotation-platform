@@ -12,7 +12,6 @@ from fastapi import HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import make_transient_to_detached
 
 from aap_workspace_contract.access import (
     ProjectAccess as _ProjectAccess,
@@ -47,6 +46,9 @@ from app.services.task_creation_contract import (
 )
 from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.project_workspace import (
+    merge_project_snapshot as _merge_project_snapshot,
+)
 from app.services.workspace_project_query_data import WorkspaceProjectQueryData
 
 _WORKSPACE_PROJECT_ACCESS_STEP = text(
@@ -146,15 +148,6 @@ async def _locked_workspace_project_access_phase(
         project_id=project_id,
         phase=phase,
     )
-
-
-async def _merge_project_snapshot(db: AsyncSession, model, values: dict[str, object]):
-    mapped_columns = {column.key for column in model.__table__.columns}
-    if set(values) != mapped_columns:
-        raise ValueError("Workspace snapshot does not match ORM mapped columns")
-    detached = model(**values)
-    make_transient_to_detached(detached)
-    return await db.merge(detached, load=False)
 
 
 async def _read_unlocked_project_row(

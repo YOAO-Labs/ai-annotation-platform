@@ -1,4 +1,4 @@
-"""Bind adjacent Workspace project writes to the caller's transaction."""
+"""Bind Workspace project snapshots and adjacent writes to caller transactions."""
 
 from __future__ import annotations
 
@@ -7,15 +7,86 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import text
+from fastapi import HTTPException, status
+from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import make_transient_to_detached
 from sqlalchemy.orm.attributes import set_committed_value
 
 from aap_workspace.project_maintenance_contract import (
     decode_import_project_reference,
     decode_point_quality_config_write,
 )
+from aap_workspace_contract.project_lock import (
+    ProjectLockUnavailable,
+    decode_project_lock_reply,
+)
+from aap_workspace_contract.project_query_contract import ProjectQueryUnavailable
+from aap_workspace_contract.project_query_values import materialize_project_base_row
 from app.db.models.project import Project
+
+_LOCK_PROJECT_ROW = text(
+    "SELECT aap_workspace_v1.lock_project_row("
+    "CAST(:project_id AS uuid), CAST(:nowait AS boolean))"
+)
+
+
+async def merge_project_snapshot(db: AsyncSession, model, values: dict[str, object]):
+    """Merge a complete Workspace row into the caller's identity map without SQL."""
+    mapped_columns = {column.key for column in model.__table__.columns}
+    if set(values) != mapped_columns:
+        raise ValueError("Workspace snapshot does not match ORM mapped columns")
+    detached = model(**values)
+    make_transient_to_detached(detached)
+    return await db.merge(detached, load=False)
+
+
+async def lock_project_row(
+    db: AsyncSession,
+    project_id: uuid.UUID,
+    *,
+    nowait: bool,
+    populate_existing: bool,
+) -> Project | None:
+    """Lock and materialize one current Project row in the caller's transaction."""
+    if db.autoflush:
+        await db.flush()
+    try:
+        raw = await db.scalar(
+            _LOCK_PROJECT_ROW,
+            {"project_id": project_id, "nowait": nowait},
+        )
+        row_json = decode_project_lock_reply(
+            raw,
+            project_id=project_id,
+            nowait=nowait,
+        )
+        values = materialize_project_base_row(row_json, target_id=project_id)
+    except (ProjectLockUnavailable, ProjectQueryUnavailable):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="项目锁定服务暂不可用",
+        ) from None
+    if values is None:
+        return None
+
+    if populate_existing:
+        return await merge_project_snapshot(db, Project, values)
+
+    identity_key = Project.__mapper__.identity_key_from_primary_key((project_id,))
+    project = db.sync_session.identity_map.get(identity_key)
+    if project is None:
+        return await merge_project_snapshot(db, Project, values)
+
+    # A normal ORM SELECT refreshes expired/unloaded fields but leaves loaded and
+    # locally dirty fields alone unless populate_existing was requested. The
+    # complete row has already been decoded above, so hydrate only those fields
+    # without issuing a second SELECT or disturbing dirty attributes.
+    unloaded = inspect(project).unloaded
+    for key, value in values.items():
+        if key in unloaded:
+            set_committed_value(project, key, value)
+    return project
 
 
 async def find_import_project(db: AsyncSession, display_id: str) -> uuid.UUID | None:
