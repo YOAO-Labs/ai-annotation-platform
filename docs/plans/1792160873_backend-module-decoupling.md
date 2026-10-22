@@ -7061,3 +7061,28 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   successful/failed owned cleanup receipts are retained without rerunning
   passing cases for counts. Matching owner/API artifacts and real cold CLI
   acceptance are the remaining gates for this bounded operation.
+
+- Implementation 980576b7a41471536bb57f1ed45adce25621461e passes first cold
+  qualification: one actual 0171 case and seven real container calls. Missing
+  views and revoked SELECT return 2 with sanitized errors; compact/pretty reports
+  match their expected data and revision remains 0171. A fresh non-admin,
+  non-inheriting audit LOGIN reads only six non-Identity business tables plus
+  Alembic metadata and the three views; private User/invitation table and column
+  access is denied. The original legacy LOGIN is restored after all owned
+  one-shot connections close, while ordinary API stays five functions/two views.
+- Physical cancellation exits 137, externally stopped and not timed out. Actual
+  account_roles SQL, role, application tag, container IP and PostgreSQL PID are
+  correlated; exact backend absence and unchanged source data precede successful
+  re-execution. Ten-second SQL gating proves eventual release, not instantaneous
+  cancellation. Modern downgrade/frozen-SQL rollback/head0303 re-upgrade and all
+  historical/current owned cleanup pass. The backup is 406787 bytes, SHA256
+  f01bb3bc8ab5436e1508766039f42da233fb38a45091b1d4e0b9e68911d2ee7d;
+  restored 0173 rows, ACLs, metadata and Node reads match the source.
+- New owner artifact verifies 284 package files in twelve namespaces without
+  API/ORM/Celery/Inference-provider dependencies. Matching API verifies 768 app,
+  516 package and 32 actual script files, 1316 total. Reuse unchanged Inference
+  and Assets-source manifests/evidence. Both source workers have verified exact
+  incremental bundles, patches and ignored Ruff archives before clean checkout
+  removal; source branches remain available. This closes the audit's Identity
+  operations, not whole Identity. Next are recording/recovery and guarded
+  preference fixtures. Local-only boundaries and the full goal remain active.

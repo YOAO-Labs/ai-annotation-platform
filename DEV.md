@@ -778,7 +778,19 @@ uv run python scripts/audit_project_roles.py --pretty
 ```
 
 原始角色、停用状态、NULL／未知值和邀请状态不被规范化。旧库尚无邀请项目角色列时
-报告未知；该列加入后，既有关系自动读取真实列值。当前定向和冷工件资格见
+报告未知；该列加入后，既有关系自动读取真实列值。15 项定向检查和一个包含七次真实容器调用的冷案例已通过，覆盖原报告复验、无重装
+schema 过渡、Node、备份恢复、权限拒绝和物理取消后的后端释放。参照下文组合私网
+验收表设置当前四项镜像及身份变量后，可运行同一自有资源案例：
+
+```bash
+AAP_IDENTITY_ROLE_AUDIT_LIVE=1 \
+  apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/identity-role-audit-cold.json \
+  --test-file tests/test_identity_role_audit_live.py
+```
+
+收据见 `.worktree/identity-role-audit-qualification.json`。这是本机 ARM64 的有限正确性
+资格，未覆盖完整 Identity 或生产容量；整体剩余项见
 [唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
 
 ### 图片导入与规模种子的 Identity 选择
