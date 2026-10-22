@@ -289,7 +289,11 @@ def decode_video_scope_data(action: str, arguments: dict, value: object) -> dict
             or str(intent.scope_id) != arguments["scope_id"]
         ):
             raise RoutingUnavailable()
-        if (intent.state == "bound") != (scope is not None):
+        # Status preserves a retired acquisition's intent without exposing a
+        # foreign-realm capability. Jobs independently verifies retirement.
+        if (intent.state == "bound") != (scope is not None) and not (
+            action == "status" and intent.state == "bound" and scope is None
+        ):
             raise RoutingUnavailable()
         if scope is not None and (
             scope.id != intent.scope_id

@@ -147,9 +147,21 @@ the old receipt. Attempt admission and heartbeat reject superseded bindings;
 cancellation permits only the current worker's heartbeat and partial finalization,
 without admitting another model attempt. Transient contention is retried.
 
-The API runner uses durable Jobs claims and transaction-bound checks before its
-current business writes. Frozen execution-plan and checkpoint value codecs are
-available, but checkpoint persistence, model-context recovery and automatic
-handoff remain unfinished; recovery-required runs defer. The legacy business
-writers have not been replaced by an independent Labeling writer service.
-See ADR-0156, ADR-0157 and the Inference runtime guide.
+The API runner uses durable Jobs claims and transaction-bound checks. Frozen
+plans/window journals and final Labeling publication have portable owners;
+human candidate decisions and intermediate writes remain separate migrations.
+See ADR-0156 through ADR-0159 and the Inference runtime guide.
+
+The offline `aap-video-restore` operator coordinates restored Jobs and Inference
+authority through one function-only LOGIN. `--database-url-file` is required;
+choose `--inspect`, `--command-file`, or `--status`. Inspect emits only nonsecret
+realm/key fingerprints; execution emits a closed restore record. Raw DB URLs,
+backend tokens, signing keys and worker proofs are never CLI arguments/output.
+The operator binds a backup digest and external-fence record, blocks ordinary
+authority while prepared, observes the actual controller epoch/incarnation,
+drains/binds fixed control IDs and atomically rotates authority. Retry the same
+command after unknown/pending results; no automatic rollback or model retry.
+Source process/IAM/storage fences are external prerequisites, not consequences of
+the digest. The Native contract requires READ COMMITTED. This capability is under
+local qualification; full object-store restore and whole-module replacement are
+not implied. See ADR-0160 and `infra/docker/video-restore-grants.sql`.

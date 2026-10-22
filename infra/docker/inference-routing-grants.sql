@@ -58,7 +58,10 @@ DECLARE
     expected_tables text[] := ARRAY[
         'attempts', 'authority_secret', 'command_receipts', 'control_attempts',
         'controls', 'registry_state', 'scope_retirements', 'scopes',
-        'video_execution_scope_permits', 'weights'
+        'video_execution_scope_permits', 'video_restore_attempts',
+        'video_restore_contexts', 'video_restore_function_restore',
+        'video_restore_no_scope_receipts', 'video_restore_records',
+        'video_restore_scope_retirements', 'video_restore_scopes', 'weights'
     ];
     bad_function text;
     required record;

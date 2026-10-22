@@ -72,12 +72,25 @@ NATIVE_MANAGED_RELATIONS = frozenset(
             "video_execution_windows",
             "video_execution_window_parts",
             "video_execution_span_closures",
+            "video_restore_fence",
         )
     }
     | {
         ("aap_labeling_v1", "video_execution_checkpoint_mask_sets"),
         ("aap_labeling_v1", "video_writer_receipts"),
         ("aap_inference_routing_v1", "video_execution_scope_permits"),
+    }
+    | {
+        ("aap_inference_routing_v1", name)
+        for name in (
+            "video_restore_records",
+            "video_restore_contexts",
+            "video_restore_scopes",
+            "video_restore_attempts",
+            "video_restore_scope_retirements",
+            "video_restore_no_scope_receipts",
+            "video_restore_function_restore",
+        )
     }
 )
 

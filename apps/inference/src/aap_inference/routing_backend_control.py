@@ -16,6 +16,7 @@ import httpx
 from aap_protocol_v2.routing import (
     ROUTE_CONTROL_PATH,
     ROUTE_CONTROL_PROTOCOL,
+    ROUTE_STATUS_PATH,
     MAX_ROUTE_CONTROL_BYTES,
     BackendRouteControlReply,
     RoutingProtocolError,
@@ -216,6 +217,61 @@ class BackendRoutingControl:
             return bind_reply.as_dict()
         raise BackendRoutingControlUnavailable()
 
+    async def status(self, private_context: Mapping[str, Any]) -> dict[str, Any]:
+        """Read the authenticated controller status for a frozen incarnation."""
+        context = _private_context(private_context)
+        incarnation = context["backend_incarnation"]
+        if incarnation is None:
+            raise BackendRoutingControlUnavailable()
+        endpoint = context["endpoint"]
+        url = endpoint["url"].rstrip("/") + ROUTE_STATUS_PATH
+        headers = {
+            "Authorization": f"Bearer {endpoint['auth_token']}",
+            "Accept": "application/json",
+            "Accept-Encoding": "identity",
+        }
+        transport = (
+            self._transport_factory() if self._transport_factory is not None else None
+        )
+        try:
+            async with asyncio.timeout(self.timeout_seconds):
+                async with httpx.AsyncClient(
+                    timeout=self.timeout_seconds,
+                    follow_redirects=False,
+                    trust_env=False,
+                    transport=transport,
+                ) as client:
+                    async with client.stream("GET", url, headers=headers) as response:
+                        if (
+                            response.headers.get("content-encoding", "identity")
+                            .strip()
+                            .lower()
+                            != "identity"
+                            or response.headers.get("content-type", "")
+                            .split(";", 1)[0]
+                            .strip()
+                            .lower()
+                            != "application/json"
+                        ):
+                            raise BackendRoutingControlUnavailable()
+                        raw_reply = await self._read_response(response)
+                        if response.status_code != 200:
+                            raise BackendRoutingControlUnavailable()
+        except (BackendRoutingControlUnavailable, asyncio.CancelledError):
+            raise
+        except (httpx.HTTPError, OSError, TimeoutError):
+            raise BackendRoutingControlUnavailable() from None
+        try:
+            reply = decode_backend_route_control_reply(_strict_reply_object(raw_reply))
+        except (RoutingProtocolError, ValueError, TypeError, UnicodeError):
+            raise BackendRoutingControlUnavailable() from None
+        if (
+            reply.registry_id != context["registry_id"]
+            or reply.backend_incarnation != incarnation
+        ):
+            raise BackendRoutingControlUnavailable()
+        return reply.as_dict()
+
     async def _post(
         self, context: Mapping[str, Any], *, action: str
     ) -> BackendRouteControlReply:
@@ -258,6 +314,10 @@ class BackendRoutingControl:
             or reply.registry_id != context["registry_id"]
             or reply.authority_epoch != context["new_epoch"]
             or reply.challenge != context["challenge"]
+            or (
+                context["backend_incarnation"] is not None
+                and reply.backend_incarnation != context["backend_incarnation"]
+            )
         ):
             raise BackendRoutingControlUnavailable()
         return reply

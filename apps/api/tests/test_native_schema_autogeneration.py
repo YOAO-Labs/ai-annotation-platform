@@ -29,6 +29,21 @@ async def test_native_ledgers_are_retained_while_unmapped_orm_drops_still_surfac
         "mask_gc_write_permit_secrets",
         "identity_revoked_jtis",
     } <= NATIVE_MANAGED_TABLES
+    assert {
+        ("aap_jobs_v1", "video_restore_fence"),
+        *(
+            ("aap_inference_routing_v1", name)
+            for name in (
+                "video_restore_records",
+                "video_restore_contexts",
+                "video_restore_scopes",
+                "video_restore_attempts",
+                "video_restore_scope_retirements",
+                "video_restore_no_scope_receipts",
+                "video_restore_function_restore",
+            )
+        ),
+    } <= NATIVE_MANAGED_RELATIONS
     control = "test_autogen_control_" + uuid4().hex
 
     def proposed_drops(connection, include_object=None):

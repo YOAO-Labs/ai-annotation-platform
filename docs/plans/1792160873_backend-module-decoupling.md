@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: 进行中。当前目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。前序 Python 进程内切片、常驻 API 恢复和既有训练作业执行权交接已完成。assets 视频探测三个操作已提供独立 Python 工件、流式合同及真实调用端的 Node 替换验收；同步 ZIP 与旧前缀扫描已纳入既有 Assets Source 工件及 0215 原生合同，并通过真实隔离服务、受限角色与故障恢复验收。Scene、位姿和标定切片已提取至既有 Catalog 工件，并通过隔离数据库、真实 HTTP/S3 与消费者资格验证；连接管理及本地图片/nuScenes 来源登记已迁入各自合同并完成本地验收；媒体/Blob、其余运维流程和其他模块继续推进。Identity 注册恢复／邮件、分组目录／指派、自助注销／due、完整 invitation lifecycle/MailV2 sender、四项用户目录读取、管理员临时密码重置与平台角色预览／变更 owner 均已有各自限定的本地资格；管理员暂停／恢复、管理员 DELETE、管理员 offboarding preview/commit 与批量 UserBrief reads owner 也各自通过限定的本地资格。offboarding 最新 union 为 77 个 selected cases（76 DB/process、1 static artifact）；UserBrief 为 64 个 distinct cases（59 DB/process、5 pure/static），均零跳过。其他 hydration 与剩余模块继续推进，既有 public API filters、字段和 statuses 保持。Go 月报保持独立实验，其可用性和容量不作为本目标门槛。当前各模块缺口见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md)。
+> Status: 进行中。目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。当前先完成协调视频恢复切片，再收口完整 Identity，之后才推进其他切片。唯一剩余工作台账见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)，分开记录实现、消费者迁移、独立运行资格与阻塞。文末 Outcome 保留历史证据，不作为另一份待办。共享物理 PostgreSQL 可以保留，所有者能力、事务／撤权／取消／旧写者与恢复语义必须保持。Go 保持实验；不推送、不发布、不切生产，当前视频恢复切片也不切日常主环境。
 >
 > 创建日期：2026-10-16。
 >
@@ -4931,3 +4931,50 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   it also distinguishes the health-restart marker from an actual write fence.
   The coordinated operator capability, exact object-storage restore and resumed
   unfinished-job acceptance are still unimplemented, not passing gates.
+
+### Coordinated video restore implementation and consumer acceptance
+
+- Implemented the existing Inference artifact's offline `aap-video-restore/v1`
+  operator, a function-only LOGIN, Native0284 and its frozen schema. No normal
+  HTTP API, default runtime, or new deployment mode is introduced. External
+  source-process, DB/storage credential and in-flight writer fences remain an
+  operator prerequisite; the command only binds their evidence digest.
+- Jobs and Inference authority helpers share a transaction barrier with restore;
+  READ COMMITTED is required. Prepare waits for accepted Native writers and
+  fences both authorities. Actual authenticated backend status supplies the
+  predecessor epoch, including requests created after backup. Drain/bind retains
+  fixed control IDs and the exact incarnation. Finish atomically rotates both
+  secrets, invalidates copied proofs, rewraps identical command plaintext and
+  preserves run, generation, plans, canonical window bytes and old receipts.
+- Additive target-realm retirement proofs retain original scope facts and remain
+  valid after later ordinary epoch changes. Foreign scopes receive no ordinary
+  capabilities. Only exact proven retired status may return a null scope;
+  recovery_ready independently checks every historical intent. Uncertain or
+  active work stays prepared; incarnation changes refuse same-job continuation.
+- Five distinct selected Native/consumer scenarios pass across retained latest
+  reports: role/replay/conflict, same-identity rotation with an in-flight writer,
+  cold-backend refusal, late-fault rollback/replay with post-backup work, and the
+  actual interrupted runner. The intended offline deployment entry point is the
+  main runner acceptance: a noneditable CLI child reads only the restricted DSN
+  file, waits for old work, completes restore, and returns immutable status and
+  completed replay. The target reads the exact same versioned S3 source through
+  Assets Media, reuses the sealed prefix, computes the remaining two windows and
+  publishes six bbox rows through the Labeling owner. This reuses the same owned
+  S3 store and does not qualify object-storage backup/restore.
+- Source and noneditable Inference/shared-contract suites each pass420 cases;
+  six installed distributions and82 package files match source without API,
+  ORM, Celery, S3 SDK or ML packages. The51 affected existing routing, retirement,
+  execution-fence and final-writer cases pass. Full migration validation passes
+  fresh284,173-to-base,110-step suffix downgrade/upgrade, historical conversion
+  and preconversion restore. Four derived databases were removed without errors.
+  Native restore tables are also registered against ORM autogeneration.
+- Evidence: `.worktree/video-restore-worker-installed-cli.*`,
+  `video-restore-native-fourth.*`, `video-restore-live-fifth.*`,
+  `video-restore-consumers-eleventh.*`, `video-restore-existing-regressions.*`,
+  `video-restore-installed-inference.*` and
+  `video-restore-migration-validation.json`. Earlier failed reports remain
+  separate. Independent image qualification is the remaining slice checkpoint.
+- Execution strategy now finishes this restore milestone, then closes Identity
+  as a complete module before unrelated slices. Existing source/installed,
+  container, restore and migration evidence is reused unless a subsequent change
+  invalidates it. No percentage is used to estimate remaining time.

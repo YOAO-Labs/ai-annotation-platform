@@ -34,6 +34,10 @@ test = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
 ]
+video-restore = [
+    { name = "asyncpg" },
+    { name = "httpx" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -44,15 +48,17 @@ requires-dist = [
     { name = "aap-workspace-contract", editable = "../_shared/workspace_contract" },
     { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.29" },
     { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.29" },
+    { name = "asyncpg", marker = "extra == 'video-restore'", specifier = ">=0.29" },
     { name = "httpx", marker = "extra == 'client'", specifier = ">=0.28.0" },
     { name = "httpx", marker = "extra == 'probe'", specifier = ">=0.28.0" },
     { name = "httpx", marker = "extra == 'runtime'", specifier = ">=0.28.0" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.0" },
+    { name = "httpx", marker = "extra == 'video-restore'", specifier = ">=0.28.0" },
     { name = "pydantic", specifier = ">=2.10.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24" },
 ]
-provides-extras = ["probe", "postgres", "client", "runtime", "test"]
+provides-extras = ["probe", "postgres", "client", "runtime", "video-restore", "test"]
 
 [[package]]
 name = "aap-inference-contract"

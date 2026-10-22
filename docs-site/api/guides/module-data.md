@@ -561,3 +561,23 @@ Mask 对象键会在 Labeling 事务内锁定，再通过 Assets Mask Content ow
 Mask 独立验证、全量备份恢复、受限镜像与容量尚未资格验证。参见
 [Labeling 运行协议](/api/guides/labeling-runtime)和
 [ADR-0159](/dev/adr/0159-independent-labeling-video-writer)。
+
+## 视频执行权的离线恢复
+
+`video_restore_operator_client` 只执行 Inference 的
+`aap_inference_routing_v1.video_restore_step(text,text)`，没有原表、DDL 或 TEMP 权限。
+专用授权脚本为 `infra/docker/video-restore-grants.sql`。固定命令与结果分别使用
+`aap-video-restore/v1`、`aap-video-restore-data/v1`，冻结 schema 位于
+`0284_video_restore.schema.json`。该操作不属于普通 API 或 routing listener。
+
+Inference 以仅授予其 owner 的 `aap_jobs_v1.video_restore_authority(text,jsonb)`
+协调 Jobs 权威轮换与原路由命令重新包裹；operator 不获得 Jobs 表或内部函数权限。
+准备态关闭两类普通权威，事务屏障先排空旧 Native 写入；相关入口只接受
+READ COMMITTED。完成事务保存目标 realm 的不可变 scope 退休证明，并使旧执行证明失效，
+保留逻辑 run、窗口、历史 intent 和发布回执。新执行代次仍由普通 claim 产生。
+八张恢复表由 Native 持有，ORM autogeneration 不得删除。
+
+外部源进程／数据库／对象存储凭据围栏仍由操作人员建立；命令中的围栏摘要只引用记录。
+实际 CPU 后台及独立 CLI 的本地验收已覆盖中断续跑，未验证对象存储备份恢复。
+操作顺序见 [Inference 运行协议](/api/guides/inference-runtime#离线视频恢复-operator)，
+完整恢复语义见 [ADR-0160](/dev/adr/0160-coordinated-video-restore)。

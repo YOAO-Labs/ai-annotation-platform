@@ -1888,3 +1888,30 @@ Native 能力，不能授予原表权限。
 目标数据库与角色归属。该账号不能与路由 LOGIN 合并。现有 API bridge 在原业务事务内
 调用 guard，不新增运行时 DSN selector；`AAP_MODULE_DATA_VIDEO_EXECUTION_URL` 仅供
 隔离 verifier 验收。完整恢复仍未开启，详见 [ADR-0157](docs/adr/0157-video-execution-claims-and-route-binding.md)。
+
+### 离线视频恢复 operator（实施中）
+
+此 operator 使用现有 Inference 工件，不增加普通服务配置或环境变量。源端进程、数据库／
+对象存储写入凭据与在途写入须先由操作人员围住，目标保持业务停写；健康 marker 不能代替
+这些前提。数据库身份、指纹与 SHA-256 绑定具体恢复，不允许手工改写冻结计划或旧回执。
+
+先应用当前迁移和 `infra/docker/module-data-grants.sql`，再由迁移角色在明确目标库应用
+`infra/docker/video-restore-grants.sql`，变量为 `expected_database`、`migration_role`、
+`inference_owner=inference_code`、`video_restore_operator_role=video_restore_operator_client`。
+LOGIN 只有一项 Inference Native 函数权限，没有表、TEMP、角色继承或 Jobs RPC 权限。
+
+```bash
+# DSN 文件仅当前用户可读；以下命令只指向明确的隔离恢复目标。
+chmod 600 /secure/restore-database-url
+python -m aap_inference.restore_cli --database-url-file /secure/restore-database-url --inspect
+python -m aap_inference.restore_cli --database-url-file /secure/restore-database-url --command-file /secure/restore-command.json
+python -m aap_inference.restore_cli --database-url-file /secure/restore-database-url --status RESTORE_UUID
+```
+
+命令固定 restore UUID、备份 SHA-256、外部围栏记录 SHA-256 及 inspect 返回的六项身份／
+指纹，协议为 `aap-video-restore/v1`。首次准备后只重放同一文件；未知结果、活跃 drain 或
+后台变化不会自动解开围栏。READ COMMITTED 是此 Native 事务合同的一部分。完成前实际
+backend 的 epoch／incarnation 都需重新核验，完成后由普通 claim 恢复新代次。
+完整契约、实施中的本地验收与尚未完成的对象存储恢复见
+[Inference 运行协议](docs-site/api/guides/inference-runtime.md#离线视频恢复-operator实施中)
+和 [ADR-0160](docs/adr/0160-coordinated-video-restore.md)。

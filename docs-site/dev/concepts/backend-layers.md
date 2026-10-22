@@ -447,7 +447,15 @@ Mask QC 与点云质检问题的人工状态转移分别由 `services/mask_qc/se
 
 组织两表仍由 identity 承接历史持久化责任；源码复核未发现普通生产入口写入它们，不因此删除表或假定数据无用。`video_segments` 虽定义在 dataset 模型文件中，仍是 labeling 聚合；`project_task_views` 是 SQL 表，不是 view。主动学习报告存于 Attempt JSON，不另造报告表或对象前缀。
 
-已接受媒体输入、图片批量清单和视频帧计划另有十四张由 native SQL 迁移持有、未映射为 ORM 的表。Assets 持有图片输入/尝试、共享垃圾账本、图片清单/成员，以及视频清单/成员、视频输入/尝试、所选帧时间、派生帧/尝试，共十二张；Labeling 持有图片和视频 Annotation 证据表。它们不计入上表的 136 张映射表，但同样受 owner 凭据、保留责任与显式迁移约束。Alembic autogenerate 只排除这十四张明确管理的表，仍报告其他未映射表的删除。视频状态表没有 live Task/Job/User 外键，视频证据只引用 Labeling 自有 Annotation。
+已接受媒体输入、图片批量清单和视频帧计划另有十四张由 native SQL 迁移持有、未映射为 ORM 的表。Assets 持有图片输入/尝试、共享垃圾账本、图片清单/成员，以及视频清单/成员、视频输入/尝试、所选帧时间、派生帧/尝试，共十二张；Labeling 持有图片和视频 Annotation 证据表。它们不计入上表的 136 张映射表，但同样受 owner 凭据、保留责任与显式迁移约束。Alembic autogenerate 按 `app/db/native_schema.py` 的明确清单保留 Native 表，仍报告其他未映射表的删除。视频状态表没有 live Task/Job/User 外键，视频证据只引用 Labeling 自有 Annotation。
+
+协调视频恢复另有八张 Native 私表：Jobs 持有 `video_restore_fence`；Inference 持有
+`video_restore_records`、`video_restore_contexts`、`video_restore_scopes`、
+`video_restore_attempts`、`video_restore_scope_retirements`、
+`video_restore_no_scope_receipts` 与 `video_restore_function_restore`。
+operator LOGIN 只可执行固定函数，不能读写这些表；存在恢复状态时拒绝降级。
+ORM autogeneration 的真实对照已验证这八张表保留、普通未映射控制表的删除仍可见。
+恢复编排、屏障及退休证明见 [ADR-0160](/dev/adr/0160-coordinated-video-restore)。
 
 ### 字段级所有权与派生投影
 

@@ -268,7 +268,7 @@ GPU 驻留驱逐使用独立的执行 scope，与既有 GPU 签名凭据共同�
 丢失的推理结果成功，也不能据此重发模型写请求。
 
 该能力已通过限定本地验收，覆盖实际 TCP、三种 API 连接方式、独立安装进程的停止／
-重启与克隆恢复隔离；尚未接入视频作业的完整崩溃交接。边界见
+重启与克隆恢复隔离；视频 runner 已消费精确退休证明恢复封存窗口。边界见
 [ADR-0156](/dev/adr/0156-scoped-inference-retirement)。
 
 ### 视频执行代次与路由绑定
@@ -285,6 +285,35 @@ GPU 驻留驱逐使用独立的执行 scope，与既有 GPU 签名凭据共同�
 guard 结果当作写许可。后台任务汇总使用稳定身份，仅投影锁定的主作业终态。
 
 租约到期不证明旧后端工作结束。存在绑定 scope 时，runner 暂缓需要恢复的执行；只有精确
-退役证明才能允许后续路由重绑定。冻结计划和检查点尚未持久接入，模型上下文恢复及独立
-Labeling writer 仍未完成。协议与限定本地验收见
-[ADR-0157](/dev/adr/0157-video-execution-claims-and-route-binding)。
+退役证明才能允许后续路由重绑定。冻结计划、窗口检查点和 worker 最终 Labeling writer
+已有持久协议与限定本地验收；人工审核及中间写入仍未完整迁移。协议与边界见
+[ADR-0157](/dev/adr/0157-video-execution-claims-and-route-binding)、
+[ADR-0158](/dev/adr/0158-video-window-journals-and-replay) 与
+[ADR-0159](/dev/adr/0159-independent-labeling-video-writer)。
+
+### 离线视频恢复 operator
+
+恢复交接使用 `aap-video-restore/v1` 与独立 `video_restore_operator_client` LOGIN，
+只调用 `aap_inference_routing_v1.video_restore_step(text,text)`。它不是路由 listener 的
+HTTP 功能，也不授予普通 routing／Jobs／API 角色。先应用迁移与 module-data owner 授权，
+再单独应用 `infra/docker/video-restore-grants.sql`；不能把日常 API 宽权限连接交给 operator。
+
+operator 显式读取权限仅限当前用户的数据库连接文件，通过 `--inspect` 获取非敏感源／
+目标 realm 与密钥指纹。提交文件包含这些值、固定 restore UUID、备份文件 SHA-256 和
+外部围栏记录的 SHA-256；连接串、控制 token、签名密钥与执行证明不放入命令行或输出。
+`fence_sha256` 是记录引用，不是自动验证源环境已停写的凭据。
+
+准备恢复后，普通 Jobs／Inference 权威保持关闭。Native 事务屏障先排空既有写事务；
+该能力要求 READ COMMITTED，避免较旧的重复读快照绕过围栏。operator 读取实际后台的
+当前 epoch，再按相同 incarnation 与 predecessor CAS 执行全局 drain/bind。活跃请求
+未退出或结果不明时，保持准备态并重复同一命令；完成前再次核对每个后台的当前绑定。
+源进程、普通 API ORM、数据库与对象存储凭据的外部围栏仍由操作人员负责。
+
+最终事务轮换权威、使旧证明失效、重新包裹相同路由命令并保存追加的退休证据。
+普通 claim 随后产生新代次，恢复继续使用原 run、冻结计划、输入身份与窗口字节；
+后台 incarnation 改变、输入原始版本缺失或未知控制过渡仍拒绝同作业续跑。
+限定本地验收已通过独立安装 CLI、真实 CPU 后台、数据库副本及实际 runner 的中断续跑，
+包括旧请求未退出时保持准备态、后台 incarnation 变化拒绝、事务故障回滚与重复命令。
+验收复用同一 S3 原始版本；完整对象存储恢复、GPU／生产容量与全部模块资格仍需单独验证。
+决策与故障语义见 [ADR-0160](/dev/adr/0160-coordinated-video-restore) 和
+[备份恢复前提](/ops/deploy/docker-compose#_5-0-恢复前提与执行权)。

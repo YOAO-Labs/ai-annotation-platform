@@ -3099,4 +3099,57 @@ ALTER FUNCTION aap_jobs_v1.video_writer_authority(text,jsonb) OWNER TO :"jobs_ow
 REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
 GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_writer_authority(text,jsonb)
     TO :"labeling_owner";
+
+-- Offline restore coordinates existing owners through one fixed Jobs capability.
+GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.video_restore_fence OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.video_restore_authority(text,jsonb) OWNER TO :"jobs_owner";
+DO $video_restore_jobs_owners$
+DECLARE
+    capability regprocedure;
+BEGIN
+    FOR capability IN
+        SELECT function.oid::regprocedure
+        FROM pg_catalog.pg_proc AS function
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = function.pronamespace
+        WHERE namespace.nspname = 'aap_jobs_v1'
+          AND pg_catalog.left(function.proname,15) = '_video_restore_'
+    LOOP
+        EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I',
+            capability, current_setting('aap.jobs_owner'));
+    END LOOP;
+END
+$video_restore_jobs_owners$;
+REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_restore_authority(text,jsonb)
+    TO :"inference_owner";
+GRANT CREATE ON SCHEMA aap_inference_routing_v1 TO :"inference_owner";
+ALTER TABLE aap_inference_routing_v1.video_restore_records OWNER TO :"inference_owner";
+ALTER TABLE aap_inference_routing_v1.video_restore_contexts OWNER TO :"inference_owner";
+ALTER TABLE aap_inference_routing_v1.video_restore_scopes OWNER TO :"inference_owner";
+ALTER TABLE aap_inference_routing_v1.video_restore_attempts OWNER TO :"inference_owner";
+ALTER TABLE aap_inference_routing_v1.video_restore_scope_retirements OWNER TO :"inference_owner";
+ALTER TABLE aap_inference_routing_v1.video_restore_no_scope_receipts OWNER TO :"inference_owner";
+ALTER TABLE aap_inference_routing_v1.video_restore_function_restore OWNER TO :"inference_owner";
+DO $video_restore_owners$
+DECLARE
+    capability regprocedure;
+BEGIN
+    FOR capability IN
+        SELECT function.oid::regprocedure
+        FROM pg_catalog.pg_proc AS function
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = function.pronamespace
+        WHERE namespace.nspname = 'aap_inference_routing_v1'
+          AND (function.proname = 'video_restore_step'
+               OR function.proname = '_video_execution_scope_step_pre_restore'
+               OR pg_catalog.left(function.proname,15) = '_video_restore_')
+    LOOP
+        EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I',
+            capability, current_setting('aap.inference_owner'));
+    END LOOP;
+END
+$video_restore_owners$;
+REVOKE CREATE ON SCHEMA aap_inference_routing_v1 FROM :"inference_owner";
 COMMIT;

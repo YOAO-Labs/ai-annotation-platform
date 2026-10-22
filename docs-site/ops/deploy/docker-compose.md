@@ -393,11 +393,17 @@ marker 只约束健康恢复脚本，不是全局写入围栏。开始执行权�
 beat、所有 worker 和独立 owner 的数据库／对象存储写入凭据，确认旧连接与在途写入已结束；
 停止接收新请求本身不能证明后台模型已退出。
 
-当前尚无受控的 Jobs／Inference 跨环境重新绑定流程。目标环境保持写入关闭；数据库恢复
-成功不能作为未完成视频作业可继续运行的依据。后续交接还需轮换权威、从实际 backend
-的当前 epoch 证明全局 drain／退休，并校验原 backend incarnation、模型身份与精确输入
-版本。只清理备份内已知 scope 无法覆盖备份之后新增的后台请求。具体状态见
-[Labeling 运行协议](/api/guides/labeling-runtime#视频-worker-的最终写入)。
+隔离目标可显式使用 [离线视频恢复 operator](/api/guides/inference-runtime#离线视频恢复-operator)
+协调 Jobs／Inference 执行权交接；该入口不随普通服务启动。先应用迁移、owner 授权及专用
+`video-restore-grants.sql`，只将函数专用 LOGIN 文件交给 operator。目标业务写入保持关闭，
+以固定 restore ID、备份摘要和外部围栏记录执行；活跃请求或结果不明时重复同一命令。
+完成记录确认两类权威已轮换，并按实际 backend 当前 epoch 全局 drain／退休后，才允许
+普通 claim 取得新代次。backend incarnation、冻结模型身份与精确输入版本仍必须匹配；
+不能只清理备份内已知 scope。
+
+独立安装 CLI、CPU 后台和实际 runner 已通过限定本地数据库副本续跑验收；它复用同一
+S3 原始版本，不证明对象存储备份恢复、生产部署或 GPU 容量。后台重启导致 incarnation
+变化时拒绝同作业续跑。完整前提及失败处理见 [ADR-0160](/dev/adr/0160-coordinated-video-restore)。
 
 ### 5.1 Postgres
 

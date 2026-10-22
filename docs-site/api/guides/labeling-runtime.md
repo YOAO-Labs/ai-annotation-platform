@@ -128,8 +128,10 @@ control token 和按需 Mask token 文件。API 冷镜像另以禁网、只读�
 仍可在原租约有效期内完成物理清理；Native 拒绝该状态下的业务写入，过期或被替代的证明仍失效。
 
 同一受控 PostgreSQL 实例中的非空备份恢复保留冻结计划、窗口原始字节、收据和权限。
-副本拒绝源环境的旧执行证明；当前尚无受控的新环境重新绑定流程，不能据此宣称恢复后可继续
-未完成作业。Mask／原片对象存储恢复及完整容量门槛仍需独立验证。
+副本拒绝源环境的旧执行证明。[离线视频恢复 operator](/api/guides/inference-runtime#离线视频恢复-operator)
+已通过限定本地验收：同 incarnation 的 CPU 后台退休旧请求后，实际 runner 以同 run、
+新代次复用封存窗口并发布结果。验收复用同一 S3 原始版本；Mask／原片对象存储备份恢复
+及完整容量门槛仍需独立验证。
 人工审核及中间 start/progress 仍由 API 持有，不能据此认定整个 Labeling
 已独立部署或可替换语言。Go 月报服务继续作为架构实验。范围和限制见
 [ADR-0159](/dev/adr/0159-independent-labeling-video-writer)。
