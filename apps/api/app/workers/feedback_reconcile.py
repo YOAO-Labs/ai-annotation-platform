@@ -18,9 +18,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import UserRole
-from app.db.models.user import User
 from app.services.audit import AuditAction, AuditService
 from app.services.feedback_reconcile import compute_feedback_drift
+from app.services.identity_read_relations import account_profiles
 from app.services.notification import NotificationService
 from app.workers._db import task_session
 from app.workers.celery_app import celery_app
@@ -66,10 +66,14 @@ async def run_reconcile(db: AsyncSession) -> dict:
             target_type="feedback_reconcile",
             detail={"drift": drift, "total_missing": total_missing},
         )
+        if db.autoflush:
+            await db.flush()
         superadmin_ids = list(
             (
                 await db.execute(
-                    select(User.id).where(User.role == UserRole.SUPER_ADMIN.value)
+                    select(account_profiles.c.id).where(
+                        account_profiles.c.role == UserRole.SUPER_ADMIN.value
+                    )
                 )
             )
             .scalars()

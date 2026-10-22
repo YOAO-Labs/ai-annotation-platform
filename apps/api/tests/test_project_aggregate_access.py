@@ -154,7 +154,8 @@ async def test_legacy_global_staff_role_is_rejected(
     resp = await httpx_client.get(
         "/api/v1/dashboard/reviewer", headers=_headers(legacy)
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 401
+    assert resp.headers.get("WWW-Authenticate") == "Bearer"
 
 
 async def test_async_job_access_drops_after_membership_revocation(

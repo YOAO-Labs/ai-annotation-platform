@@ -573,6 +573,8 @@ class LocalResources:
                     f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_membership_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_inference_pipelines_v1, aap_inference_backend_probe_v1, aap_inference_health_observation_v1, aap_inference_health_data_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, aap_assets_v1, aap_labeling_v1, aap_labeling_class_query_v1, aap_jobs_v1, aap_learning_v1, aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_briefs_v1, aap_notifications_v1, aap_settings_v1 TO {role}",
                     "GRANT SELECT ON aap_assets_v1.spatial_item_references, "
                     f"aap_assets_v1.spatial_scene_references TO {role}",
+                    "GRANT SELECT ON aap_identity_v1.account_profiles, "
+                    f"aap_identity_v1.invitation_audit_targets TO {role}",
                     f"GRANT EXECUTE ON FUNCTION aap_workspace_owner_transfer_v1.owner_transfer_policy(), "
                     "aap_workspace_owner_transfer_v1.transfer_project_owner(jsonb), "
                     "aap_identity_v1.workspace_template_query_org_ids(uuid), "

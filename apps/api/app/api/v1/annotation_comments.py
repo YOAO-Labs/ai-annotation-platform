@@ -28,7 +28,6 @@ from app.deps import (
 from app.db.enums import PlatformRole
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_comment import AnnotationComment
-from app.db.models.user import User
 from app.schemas.annotation_comment import (
     ATTACHMENT_KEY_PREFIX,
     AnnotationCommentCreate,
@@ -41,6 +40,7 @@ from app.schemas.annotation_comment import (
     TaskDiscussionPage,
 )
 from app.services.audit import audit_origin_from_request
+from app.services.identity_read_relations import account_profiles
 from app.services.storage import storage_service
 from app.services.task_discussion import (
     list_task_discussion,
@@ -93,10 +93,11 @@ async def list_comments(
 ):
     """v0.8.8 · 旧端点保留作向后兼容；新调用方走 ``/comments/page`` keyset 分页。"""
     await require_visible_annotation(db, annotation_id, actor_id)
+    author = account_profiles.alias("annotation_comment_author")
     rows = (
         await db.execute(
-            select(AnnotationComment, User.name)
-            .join(User, User.id == AnnotationComment.author_id)
+            select(AnnotationComment, author.c.name)
+            .join(author, author.c.id == AnnotationComment.author_id)
             .where(
                 AnnotationComment.annotation_id == annotation_id,
                 AnnotationComment.is_active.is_(True),
@@ -222,9 +223,10 @@ async def list_task_comments_paged(
     聚合该 task 下所有 annotation 的 active 评论, DESC(created_at, id) keyset 分页.
     """
     await require_visible_task(db, task_id, actor_id)
+    author = account_profiles.alias("annotation_comment_author")
     q = (
-        select(AnnotationComment, User.name)
-        .join(User, User.id == AnnotationComment.author_id)
+        select(AnnotationComment, author.c.name)
+        .join(author, author.c.id == AnnotationComment.author_id)
         .join(Annotation, Annotation.id == AnnotationComment.annotation_id)
         .where(
             Annotation.task_id == task_id,
@@ -272,9 +274,10 @@ async def list_comments_paged(
     + 加载更早」按需拉取。返回 ``next_cursor=None`` 即末尾。
     """
     await require_visible_annotation(db, annotation_id, actor_id)
+    author = account_profiles.alias("annotation_comment_author")
     q = (
-        select(AnnotationComment, User.name)
-        .join(User, User.id == AnnotationComment.author_id)
+        select(AnnotationComment, author.c.name)
+        .join(author, author.c.id == AnnotationComment.author_id)
         .where(
             AnnotationComment.annotation_id == annotation_id,
             AnnotationComment.is_active.is_(True),

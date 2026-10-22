@@ -65,8 +65,8 @@ def test_non_manager_scope_is_membership_only(platform_role):
     assert "project_members.role" in sql
     assert "projects.owner_id" not in sql
     # Strict membership contract: active account, known platform role, pairing.
-    assert "users.is_active" in sql
-    assert "users.role" in sql
+    assert "account_profiles.is_active" in sql
+    assert "account_profiles.role" in sql
 
 
 @pytest.mark.parametrize("platform_role", ["annotator", "reviewer", "unknown"])
@@ -116,8 +116,8 @@ def test_role_filters_are_explicit():
     assert annotator_sql != reviewer_sql
     # The project role is a membership value; the account role is only checked
     # against the current known platform-role set, never as an alias.
-    assert "users.role IN ('annotator'" not in annotator_sql
-    assert "users.role IN ('reviewer'" not in reviewer_sql
+    assert "account_profiles.role IN ('annotator'" not in annotator_sql
+    assert "account_profiles.role IN ('reviewer'" not in reviewer_sql
 
 
 def test_membership_helpers_filter_by_role():
@@ -147,11 +147,11 @@ def test_async_job_query_gates_export_results():
 def test_membership_helpers_require_known_active_account():
     user = _user("employee")
     sql = _sql(membership_project_ids(user, ANNOTATOR_ROLE))
-    assert "users.is_active" in sql
-    assert "users.role" in sql
+    assert "account_profiles.is_active" in sql
+    assert "account_profiles.role" in sql
     member_sql = _sql(member_user_ids(uuid.uuid4(), REVIEWER_ROLE))
-    assert "users.is_active" in member_sql
-    assert "users.role" in member_sql
+    assert "account_profiles.is_active" in member_sql
+    assert "account_profiles.role" in member_sql
 
 
 def test_platform_role_is_manager():

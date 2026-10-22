@@ -40,6 +40,7 @@
 
 ### 待决（Proposed / Draft）
 
+- [0162](0162-identity-read-relations-and-consumer-grants.md) — Identity 集合读取关系与独立 API 消费者权限（限定本地定向验收通过）
 - [0157](0157-video-execution-claims-and-route-binding.md) — 视频执行代次、原子路由绑定与当前写入检查（完整恢复继续实施）
 - [0156](0156-scoped-inference-retirement.md) — 推理执行范围的定向退役与作业交接边界（定向退役通过限定本地验收）
 - [0009](0009-task-events-table-and-partition.md) — task_events 表与按月分区方案

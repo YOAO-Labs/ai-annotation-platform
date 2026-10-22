@@ -5069,3 +5069,44 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   an intentionally incomplete whole-Identity qualification. Independent module
   cutover and broad cold/restore gates are pending the remaining owner relations,
   private-table grant closure, registration policy and full existing assembly.
+
+### Identity set/display read relations and consumer ACL checkpoint (2026-10-22)
+
+- Migration0286 adds two Identity-owned security-barrier relations with exactly
+  seven account profile columns and two invitation target columns. Owner-generated
+  portable/package/frozen descriptors agree. Set/search/statistics/performance,
+  notification recipients, author projections and invitation audit scope retain
+  their same-statement filters, joins, counts, order, limits and snapshots. Core
+  adapters preserve autoflush/no-autoflush and caller transactions; unused
+  management scope SQL is removed instead of duplicated.
+- The existing remote API role can apply identity-consumer-grants.sql after owner
+  and legacy grants: no Identity private table/column privileges or credential
+  command functions, only two SELECT relations and five existing same-transaction
+  facts/lock/accepted-key capabilities. It reuses the existing role/bindings and
+  does not replace the compatible embedded/isolated seed profile. Legacy default
+  ACLs remain; grant refresh/migrations must reevaluate and apply this profile last.
+- Latest effective union passes172 distinct selected cases with no effective
+  failures/errors/skips, including17 Native/adapter/grant guard cases and6 actual
+  committed HTTP notification/Redis-failure/rollback cases. The additional commit
+  database is verified/marked/removed inside the owned verifier PostgreSQL; an
+  overlong initial fixture name was refused by the physical-name guard and fixed
+  before final acceptance. The three stale role/cache assertions reproduce with
+  their pre-slice readers; updated checks retain401/Bearer, current persisted
+  author/response names and exact notification payloads. Their baseline probes
+  are separate, not counted as new business coverage. Earlier failed reports are
+  retained and only matching successful cases supersede their effective status.
+- Runtime grant/selection unit checks pass20. Architecture passes355 with149
+  inapplicable rules; annotation_comment loses its private User import allowance
+  and the public relation adapter explicitly forbids app dependencies. The
+  RowMapping strict-validation and grant-guard CASE syntax defects were each
+  reproduced narrowly, fixed, then qualified with actual restricted roles.
+- Evidence: ADR-0162 and .worktree/identity-read-relations-qualification.json.
+  Whole Identity is still incomplete: the one module-deployment ledger records
+  the next registration-policy and existing full-assembly acceptance. Cold
+  installation/container/full migration/restore qualification remains batched at
+  that coherent milestone. No primary cutover, push, release or Go expansion.
+
+- Final privilege review removed speculative profile enumeration grants for other
+  owners: only Identity ownership and the actual API application/remote consumer
+  SELECT grants remain. A real ACL probe covers unused owners and function-only
+  clients, alongside the existing restricted API read/deny acceptance.

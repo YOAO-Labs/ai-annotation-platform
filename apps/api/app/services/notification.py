@@ -38,8 +38,9 @@ from app.db.models.notification import Notification
 from app.db.models.notification_preference import NotificationPreference
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
-from app.db.models.user import User
 from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.identity_contracts import IdentityActorStatus
+from app.services.identity_read_relations import account_profiles
 from app.services.async_job_access import GLOBAL_ASYNC_JOB_KINDS
 from aap_workspace_contract.access import platform_role_is_manager
 from app.services.project_aggregates import valid_membership_conditions
@@ -173,10 +174,10 @@ def _requires_export_capability_expr():
     )
 
 
-def _member_project_text_select(user: User, *project_roles: str):
+def _member_project_text_select(user: IdentityActorStatus, *project_roles: str):
     stmt = (
         select(func.cast(ProjectMember.project_id, String))
-        .join(User, User.id == ProjectMember.user_id)
+        .join(account_profiles, account_profiles.c.id == ProjectMember.user_id)
         .where(ProjectMember.user_id == user.id, *valid_membership_conditions())
     )
     if project_roles:
@@ -184,11 +185,11 @@ def _member_project_text_select(user: User, *project_roles: str):
     return stmt
 
 
-def _owned_project_text_select(user: User):
+def _owned_project_text_select(user: IdentityActorStatus):
     return select(func.cast(Project.id, String)).where(Project.owner_id == user.id)
 
 
-def _accessible_project_clause(user: User, project_text):
+def _accessible_project_clause(user: IdentityActorStatus, project_text):
     if user.role == PlatformRole.SUPER_ADMIN.value:
         return None
     arms = [project_text.in_(_member_project_text_select(user))]
@@ -197,7 +198,7 @@ def _accessible_project_clause(user: User, project_text):
     return or_(*arms)
 
 
-def _export_capable_project_clause(user: User, project_text):
+def _export_capable_project_clause(user: IdentityActorStatus, project_text):
     if user.role == PlatformRole.SUPER_ADMIN.value:
         return None
     arms = [
@@ -380,7 +381,7 @@ class NotificationService:
 
         member_rows = await self.db.execute(
             select(ProjectMember.project_id, ProjectMember.user_id)
-            .join(User, User.id == ProjectMember.user_id)
+            .join(account_profiles, account_profiles.c.id == ProjectMember.user_id)
             .where(
                 tuple_(ProjectMember.project_id, ProjectMember.user_id).in_(pairs),
                 *valid_membership_conditions(),
@@ -390,7 +391,7 @@ class NotificationService:
 
         reviewer_rows = await self.db.execute(
             select(ProjectMember.project_id, ProjectMember.user_id)
-            .join(User, User.id == ProjectMember.user_id)
+            .join(account_profiles, account_profiles.c.id == ProjectMember.user_id)
             .where(
                 tuple_(ProjectMember.project_id, ProjectMember.user_id).in_(pairs),
                 *valid_membership_conditions(),
@@ -401,23 +402,26 @@ class NotificationService:
 
         owner_rows = await self.db.execute(
             select(Project.id, Project.owner_id)
-            .join(User, User.id == Project.owner_id)
+            .join(account_profiles, account_profiles.c.id == Project.owner_id)
             .where(
                 tuple_(Project.id, Project.owner_id).in_(pairs),
-                User.is_active.is_(True),
-                User.role.in_(list(MANAGER_PLATFORM_ROLES)),
+                account_profiles.c.is_active.is_(True),
+                account_profiles.c.role.in_(list(MANAGER_PLATFORM_ROLES)),
             )
         )
         owner_pairs = {(pid, uid) for pid, uid in owner_rows.all()}
 
         super_rows = await self.db.execute(
-            select(Project.id, User.id)
+            select(Project.id, account_profiles.c.id)
             .select_from(Project)
-            .join(User, User.id.in_({uid for _pid, uid in pairs}))
+            .join(
+                account_profiles,
+                account_profiles.c.id.in_({uid for _pid, uid in pairs}),
+            )
             .where(
-                tuple_(Project.id, User.id).in_(pairs),
-                User.is_active.is_(True),
-                User.role == PlatformRole.SUPER_ADMIN.value,
+                tuple_(Project.id, account_profiles.c.id).in_(pairs),
+                account_profiles.c.is_active.is_(True),
+                account_profiles.c.role == PlatformRole.SUPER_ADMIN.value,
             )
         )
         super_pairs = set(super_rows.all())
@@ -579,7 +583,7 @@ class NotificationService:
                 e,
             )
 
-    def _scope_conditions(self, user: User) -> list:
+    def _scope_conditions(self, user: IdentityActorStatus) -> list:
         """SQL conditions hiding project-restricted rows the account cannot read.
 
         Mirrors the shared resolver: super administrators see everything; every

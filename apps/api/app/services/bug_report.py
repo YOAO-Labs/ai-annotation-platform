@@ -8,8 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.selectable import FromClause
 
 from app.db.models.bug_report import BugReport, BugComment
-from app.db.models.user import User
 from app.services.display_id import next_display_id
+from app.services.identity_read_relations import (
+    account_profiles,
+    read_account_profile,
+)
 
 
 TERMINAL_STATUSES = {"fixed", "wont_fix", "duplicate"}
@@ -118,9 +121,10 @@ class BugReportService:
         report = await self.db.get(BugReport, report_id)
         if not report:
             return None, []
+        author = account_profiles.alias("bug_comment_author")
         result = await self.db.execute(
-            select(BugComment, User.name, User.role)
-            .join(User, User.id == BugComment.author_id)
+            select(BugComment, author.c.name, author.c.role)
+            .join(author, author.c.id == BugComment.author_id)
             .where(BugComment.bug_report_id == report_id)
             .order_by(BugComment.created_at)
         )
@@ -156,7 +160,7 @@ class BugReportService:
         self.db.add(comment)
         await self.db.flush()
 
-        author = await self.db.get(User, author_id)
+        author = await read_account_profile(self.db, author_id)
         author_name = (author.name if author else "") or ""
         author_role = (author.role if author else "") or ""
         return comment, was_reopened, author_name, author_role

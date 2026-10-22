@@ -626,6 +626,12 @@ DOMAIN_PACKAGES = (
     DomainSpec(package="labeling_class_query_data", legacy_facades=()),
     DomainSpec(package="identity_organization_scope", legacy_facades=()),
     DomainSpec(
+        package="identity_read_relations",
+        legacy_facades=(),
+        allowed_app_imports=(),
+        allowed_framework_imports=("sqlalchemy",),
+    ),
+    DomainSpec(
         package="annotation_comment",
         legacy_facades=(),
         allowed_app_imports=(
@@ -633,7 +639,7 @@ DOMAIN_PACKAGES = (
             "app.db.models.annotation_comment",
             "app.db.models.project",
             "app.db.models.project_member",
-            "app.db.models.user",
+            "app.services.identity_read_relations",
         ),
     ),
     DomainSpec(

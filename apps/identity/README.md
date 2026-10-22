@@ -543,5 +543,38 @@ existing `read_actor_facts` or caller-transaction account locks. Existing lack o
 an active check in existence-only paths is preserved; project/task authorization
 still runs at its original boundary. Focused source/Native acceptance is recorded
 in [ADR-0161](../../docs/adr/0161-identity-current-authority-consumers.md).
-Complete-module installation/container/restore qualification is batched with the
-remaining set-query and display consumers; this is not full Identity closure.
+Complete-module installation/container/restore qualification is batched at the
+Identity milestone; this is not full Identity closure.
+
+## Transactional read relations
+
+`aap-identity-read-relations/v1` publishes two fixed PostgreSQL relations owned
+by Identity. `account_profiles` has exactly `id`, `name`, `email`, `role`,
+`is_active`, `status` and nullable string `avatar_ref`;
+`invitation_audit_targets` has `id` and nullable `project_id`. Both are
+security-barrier views. Values remain raw and unfiltered, without credentials,
+credential generations, account lifecycle details or invitation tokens.
+
+Trusted backend consumers retain their original scope predicates, joins,
+counts, ordering, limits and caller transaction snapshot in the same SQL
+statement. The relations do not authorize the caller or replace final account
+locks. They expose an enumerable profile projection, so they must never be
+granted to PUBLIC, browser roles or ordinary function-only Identity clients.
+`identity_read_relation_schema()` generates the package and migration JSON
+descriptors. API Core adapters honor ORM autoflush/no-autoflush and never
+commit or roll back the caller's transaction.
+
+For an existing API role whose Identity bindings are all remote, apply
+`infra/docker/identity-consumer-grants.sql` **after** migration, owner and legacy
+grants. Its explicit variables are `expected_database`, `migration_role`,
+`identity_owner` and `consumer_role`. It validates ownership and removes direct
+table/column Identity privileges and Identity command functions, then permits
+only these two SELECT relations plus `read_actor_facts`, the three account-lock
+functions and `check_accepted_api_key`. Missing remote bindings fail instead of
+falling back to local credential commands.
+
+The embedded/isolated seed profile remains compatible and broad. The consumer
+profile does not rewrite its default privileges: run it last after each grant
+refresh and reevaluate new Identity relations during migration. It does not
+create another runtime, LOGIN, DSN or deployment mode. Focused source and real
+LOGIN evidence are in [ADR-0162](../../docs/adr/0162-identity-read-relations-and-consumer-grants.md).

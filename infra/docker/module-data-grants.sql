@@ -1390,6 +1390,8 @@ GRANT CREATE ON SCHEMA aap_identity_briefs_v1 TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.lock_active_actor(uuid) OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.lock_audit_actor(uuid) OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.read_actor_facts(uuid) OWNER TO :"identity_owner";
+ALTER VIEW aap_identity_v1.account_profiles OWNER TO :"identity_owner";
+ALTER VIEW aap_identity_v1.invitation_audit_targets OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.check_accepted_api_key(uuid, uuid, text[])
     OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.workspace_configuration_org_scope(uuid, uuid)

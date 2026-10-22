@@ -15,7 +15,6 @@ from app.db.models.dataset import DatasetItem, Scene
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
-from app.db.models.user import User
 from app.schemas.data_manager import (
     DataManagerEntityLocation,
     DataManagerEntityFacets,
@@ -25,6 +24,7 @@ from app.schemas.data_manager import (
     DataManagerObjectQueryResponse,
 )
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.identity_read_relations import account_profiles
 from app.services.data_management.cursor import (
     decode_cursor,
     encode_cursor,
@@ -184,7 +184,7 @@ def _object_projection(created_by, item, scene):
         Annotation.attributes,
         Annotation.attributes_meta,
         Annotation.user_id.label("created_by_id"),
-        created_by.name.label("created_by_name"),
+        created_by.c.name.label("created_by_name"),
         Annotation.created_at,
         Annotation.updated_at,
         _feedback_count_sq(Annotation).label("unresolved_feedback_count"),
@@ -203,7 +203,7 @@ class DataManagerObjectService:
     def _base(
         self,
         project_id: uuid.UUID,
-        user: User | IdentityActorFacts,
+        user: IdentityActorFacts,
         project: Project,
         *,
         project_role: str | None = None,
@@ -229,7 +229,7 @@ class DataManagerObjectService:
         *,
         project_id: uuid.UUID,
         payload: DataManagerEntityQueryRequest,
-        user: User | IdentityActorFacts,
+        user: IdentityActorFacts,
         project: Project,
         project_role: str | None = None,
     ) -> DataManagerObjectQueryResponse:
@@ -284,7 +284,7 @@ class DataManagerObjectService:
         for dimension, value, count in facet_rows:
             distributions[str(dimension)][str(value)] = int(count)
 
-        created_by = aliased(User)
+        created_by = account_profiles.alias("created_by_account_profile")
         item = aliased(DatasetItem)
         scene = aliased(Scene)
         matches = base.subquery("dm_object_matches")
@@ -296,7 +296,7 @@ class DataManagerObjectService:
             .select_from(Annotation)
             .join(matches, matches.c.id == Annotation.id)
             .join(Task, Task.id == Annotation.task_id)
-            .outerjoin(created_by, created_by.id == Annotation.user_id)
+            .outerjoin(created_by, created_by.c.id == Annotation.user_id)
             .outerjoin(item, item.id == task_dataset_item_id_expr())
             .outerjoin(scene, scene.id == item.scene_id)
         )
@@ -354,11 +354,11 @@ class DataManagerObjectService:
         *,
         project_id: uuid.UUID,
         annotation_id: uuid.UUID,
-        user: User | IdentityActorFacts,
+        user: IdentityActorFacts,
         project: Project,
         project_role: str | None = None,
     ) -> DataManagerObjectDetailResponse:
-        created_by = aliased(User)
+        created_by = account_profiles.alias("created_by_account_profile")
         item = aliased(DatasetItem)
         scene = aliased(Scene)
         base = self._base(project_id, user, project, project_role=project_role).where(
@@ -371,7 +371,7 @@ class DataManagerObjectService:
                 .select_from(Annotation)
                 .join(match, match.c.id == Annotation.id)
                 .join(Task, Task.id == Annotation.task_id)
-                .outerjoin(created_by, created_by.id == Annotation.user_id)
+                .outerjoin(created_by, created_by.c.id == Annotation.user_id)
                 .outerjoin(item, item.id == task_dataset_item_id_expr())
                 .outerjoin(scene, scene.id == item.scene_id)
             )

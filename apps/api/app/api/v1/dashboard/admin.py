@@ -6,12 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
+from aap_identity.read_relation_contract import AccountProfile
 from app.deps import (
     assert_project_visible,
     get_db,
     require_roles,
 )
-from app.db.models.user import User
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.annotation import Annotation
@@ -41,6 +41,11 @@ from app.services.dashboard_stats import (
 )
 from app.api.v1.audit_logs import _managed_audit_scope
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.identity_read_relations import (
+    account_profiles,
+    read_account_profile,
+    read_account_profiles,
+)
 
 router = APIRouter()
 
@@ -50,14 +55,20 @@ async def admin_dashboard(
     db: AsyncSession = Depends(get_db),
     _: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
-    users_result = await db.execute(select(User).where(User.is_active.is_(True)))
-    users = users_result.scalars().all()
+    if db.autoflush:
+        await db.flush()
+    users_result = await db.execute(
+        select(account_profiles.c.role, account_profiles.c.status).where(
+            account_profiles.c.is_active.is_(True)
+        )
+    )
+    users = users_result.all()
     total_users = len(users)
-    active_users = sum(1 for u in users if u.status == "online")
+    active_users = sum(1 for _, status in users if status == "online")
 
     role_distribution: dict[str, int] = {}
-    for u in users:
-        role_distribution[u.role] = role_distribution.get(u.role, 0) + 1
+    for role, _ in users:
+        role_distribution[role] = role_distribution.get(role, 0) + 1
 
     projects_result = await db.execute(select(Project))
     projects = projects_result.scalars().all()
@@ -154,7 +165,7 @@ async def admin_dashboard(
 
 
 async def _resolve_people_scope(
-    db: AsyncSession, current_user: User | IdentityActorFacts, project: str | None
+    db: AsyncSession, current_user: IdentityActorFacts, project: str | None
 ) -> uuid.UUID | None:
     """v0.12.6 (A3) · 解析成员绩效的项目范围 + 强制 RBAC。
 
@@ -225,7 +236,7 @@ async def admin_people_list(
     # 拉用户：标注 / 审核分组由 project_members.role 决定，平台账号角色不再
     # 参与分组（避免 employee 同时在不同项目承担不同职责时被错误归类）。
     # project 给定时只保留该项目内持有对应职责的成员。
-    user_q = select(User).where(User.is_active.is_(True))
+    user_q = select(account_profiles).where(account_profiles.c.is_active.is_(True))
     if role in {"annotator", "reviewer"}:
         target_role = (
             ProjectRole.ANNOTATOR.value
@@ -237,11 +248,16 @@ async def admin_people_list(
         )
         if pid:
             membership_scope = membership_scope.where(ProjectMember.project_id == pid)
-        user_q = user_q.where(User.id.in_(membership_scope))
+        user_q = user_q.where(account_profiles.c.id.in_(membership_scope))
     if q:
         like = f"%{q}%"
-        user_q = user_q.where(or_(User.name.ilike(like), User.email.ilike(like)))
-    users = (await db.execute(user_q)).scalars().all()
+        user_q = user_q.where(
+            or_(
+                account_profiles.c.name.ilike(like),
+                account_profiles.c.email.ilike(like),
+            )
+        )
+    users = await read_account_profiles(db, user_q)
 
     if not users:
         return AdminPeopleList(items=[], total=0, period=period)
@@ -400,7 +416,7 @@ async def admin_people_list(
     active_minutes_map = {r.user_id: int((r.ms or 0) // 60000) for r in active_rows}
 
     # 计算分位
-    def _is_reviewer(u: User) -> bool:
+    def _is_reviewer(u: AccountProfile) -> bool:
         roles = user_roles_map.get(u.id, set())
         if role == "reviewer":
             # The request explicitly asks for reviewers; a mixed employee is
@@ -599,7 +615,7 @@ async def admin_person_detail(
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="invalid user_id")
 
-    user = await db.get(User, uid)
+    user = await read_account_profile(db, uid)
     if not user or not user.is_active:
         raise HTTPException(status_code=404, detail="user not found")
 

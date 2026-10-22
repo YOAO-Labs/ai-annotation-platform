@@ -530,11 +530,51 @@ commit／rollback，函数不改事务范围；等待后以 `clock_timestamp()` 
 
 单账号读取复用已有的 Identity 最小状态与锁能力，保留当前权限、原查询／锁序、取消和
 错误语义。Mask Repair 等原来仅检查账号存在的入口不增加 active 拒绝；作业取消的停用
-账号保持 401 与 Bearer 错误。集合查询和展示投影仍按[剩余台账](/dev/concepts/module-deployment#剩余工作台账)
-继续收口，当前定向结果不代表完整 Identity 独立部署完成。详见
+账号保持 401 与 Bearer 错误。集合查询和展示投影通过下文公开关系读取，当前定向结果
+不代表完整 Identity 独立部署完成；实际剩余项见[模块台账](/dev/concepts/module-deployment#剩余工作台账)。详见
 [ADR-0161](/dev/adr/0161-identity-current-authority-consumers)。
 
 独立 HTTP Identity 保管自己的签发／派生 secret；API edge 的 `SECRET_KEY` 可以不同，
 RPC 使用独立的 `IDENTITY_TOKEN`。API 的远程响应解码不重新派生 Identity 输出。
 这项源码边界的不同密钥真实验收仍待模块里程碑补齐。已有 Identity secret 影响 JWT、
 派生凭据和持久回执，不能为此改动已有部署或静默恢复旧结果。
+
+## 集合与展示的同事务读取关系
+
+Identity 的 `aap-identity-read-relations/v1` 固定两个 PostgreSQL 只读关系：
+
+| 关系                                       | 发布字段                                                                         |
+| ------------------------------------------ | -------------------------------------------------------------------------------- |
+| `aap_identity_v1.account_profiles`         | `id/name/email/role/is_active/status/avatar_ref`，其中 `avatar_ref` 是可空字符串 |
+| `aap_identity_v1.invitation_audit_targets` | `id/project_id`，其中 `project_id` 可空                                          |
+
+它们由 Identity owner 持有，设置 `security_barrier`，不向 PUBLIC 或浏览器开放。
+关系保留原值及禁用／历史角色行，不发布密码、API-key hash、凭据代次、生命周期详情
+或邀请 token。受信任后端可以枚举这些最小资料；每个消费者仍须在原 SQL 中保留其
+权限范围、成员配对、筛选、inner／outer join、count、排序和游标。关系本身不作
+行级授权，不代替提交前的账号事实锁。
+
+成员／通知集合、搜索、管理统计、绩效 roster、作者／创建者展示和邀请审计范围已
+迁到这两个关系。读取处在调用方 connection／transaction 中，遵循原快照与
+autoflush／no-autoflush，不引入逐行 HTTP 调用或额外提交。仅供隔离测试的 seed
+读写保留在有显式开关、非生产环境及测试库名守卫的操作入口。
+
+全部 Identity binding 使用远程 owner 的既有 API 角色，可在迁移和 owner／旧运行
+授权脚本之后应用 `infra/docker/identity-consumer-grants.sql`：
+
+```bash
+psql "$MIGRATION_DATABASE_URL" \
+  -v expected_database="$DATABASE_NAME" \
+  -v migration_role="$MIGRATION_ROLE" \
+  -v identity_owner="$IDENTITY_OWNER_ROLE" \
+  -v consumer_role="$API_RUNTIME_ROLE" \
+  -f infra/docker/identity-consumer-grants.sql
+```
+
+脚本核对数据库、操作者、NOLOGIN owner、无角色成员资格的普通 consumer LOGIN、
+五个能力的 owner 及关系形状。随后撤销 Identity 私表和列级权限、Identity 命令函数及
+私有 schema 权限，只授予两个 SELECT 关系，以及 `read_actor_facts`、三项账号锁和
+`check_accepted_api_key`。它不创建新角色或部署模式；内嵌 Identity 和隔离 seed 的
+旧配置继续可用。旧宽授权及其默认权限不因此改写；每次刷新宽授权后必须最后重应用
+consumer 清单，新 Identity 关系也需复核。当前脚本和定向证据不代表主 API 已切换
+到这份凭据。设计与验证见 [ADR-0162](/dev/adr/0162-identity-read-relations-and-consumer-grants)。

@@ -1,7 +1,7 @@
 """Project-role SQL scopes for aggregate, search and delivery reads (B3).
 
 This module owns the *list / count / dashboard / job* side of the
-project-scoped employee model.  It never reads ``User.role`` as project
+project-scoped employee model.  It never treats platform role as project
 authority: the project role always comes from ``project_members`` and a
 missing/unknown membership fails closed.  Management is a super administrator
 or the project owner whose *platform* role is administrative, matching
@@ -27,9 +27,10 @@ from app.db.enums import (
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
-from app.db.models.user import User
+from aap_identity.read_relation_contract import AccountProfile
 from aap_workspace_contract.access import platform_role_is_manager
-from app.services.identity_contracts import IdentityActorFacts
+from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
+from app.services.identity_read_relations import account_profiles
 
 #: Platform roles allowed to open the personal annotator/reviewer dashboards.
 #: Legacy ``annotator`` / ``reviewer`` account values are intentionally absent;
@@ -52,15 +53,15 @@ def _valid_membership_conditions():
     is a current known value (never legacy ``annotator``/``reviewer``), the
     project role is a known current value, and the platform/project-role pairing
     is valid (a platform viewer may only hold a viewer membership).  Callers
-    must join :class:`User` on the membership.
+    must join ``account_profiles`` on the membership.
     """
 
     return (
-        User.is_active.is_(True),
-        User.role.in_(list(PLATFORM_ROLES)),
+        account_profiles.c.is_active.is_(True),
+        account_profiles.c.role.in_(list(PLATFORM_ROLES)),
         ProjectMember.role.in_(list(PROJECT_ROLES)),
         or_(
-            User.role != PlatformRole.VIEWER.value,
+            account_profiles.c.role != PlatformRole.VIEWER.value,
             ProjectMember.role == ProjectRole.VIEWER.value,
         ),
     )
@@ -78,13 +79,14 @@ def valid_membership_conditions():
 
 
 def membership_project_ids(
-    user: User | IdentityActorFacts, *project_roles: str
+    user: AccountProfile | IdentityActorFacts | IdentityActorStatus,
+    *project_roles: str,
 ) -> Select[tuple[object]]:
     """Project IDs where ``user`` holds a valid membership, optionally role-filtered."""
 
     stmt = (
         select(ProjectMember.project_id)
-        .join(User, User.id == ProjectMember.user_id)
+        .join(account_profiles, account_profiles.c.id == ProjectMember.user_id)
         .where(ProjectMember.user_id == user.id, *_valid_membership_conditions())
     )
     if project_roles:
@@ -97,7 +99,7 @@ def member_user_ids(project_id, *project_roles: str) -> Select[tuple[object]]:
 
     stmt = (
         select(ProjectMember.user_id)
-        .join(User, User.id == ProjectMember.user_id)
+        .join(account_profiles, account_profiles.c.id == ProjectMember.user_id)
         .where(ProjectMember.project_id == project_id, *_valid_membership_conditions())
     )
     if project_roles:
@@ -105,11 +107,15 @@ def member_user_ids(project_id, *project_roles: str) -> Select[tuple[object]]:
     return stmt
 
 
-def _managed_project_ids(user: User | IdentityActorFacts) -> Select[tuple[object]]:
+def _managed_project_ids(
+    user: AccountProfile | IdentityActorFacts | IdentityActorStatus,
+) -> Select[tuple[object]]:
     return select(Project.id).where(Project.owner_id == user.id)
 
 
-def managed_project_scope_clause(user: User | IdentityActorFacts, project_column):
+def managed_project_scope_clause(
+    user: AccountProfile | IdentityActorFacts | IdentityActorStatus, project_column
+):
     """Management-only aggregate scope, mirroring the canonical access resolver."""
     if not getattr(user, "is_active", False) or user.role not in PLATFORM_ROLES:
         return false()
@@ -121,7 +127,10 @@ def managed_project_scope_clause(user: User | IdentityActorFacts, project_column
 
 
 def project_scope_clause(
-    user: User | IdentityActorFacts, project_column, *, project_roles=()
+    user: AccountProfile | IdentityActorFacts | IdentityActorStatus,
+    project_column,
+    *,
+    project_roles=(),
 ):
     """SQL predicate restricting ``project_column`` to the account's projects.
 
@@ -148,13 +157,17 @@ def project_scope_clause(
     return or_(*arms)
 
 
-def task_project_scope(user: User | IdentityActorFacts, *, project_roles=()):
+def task_project_scope(
+    user: AccountProfile | IdentityActorFacts | IdentityActorStatus, *, project_roles=()
+):
     """``project_scope_clause`` bound to ``Task.project_id``."""
 
     return project_scope_clause(user, Task.project_id, project_roles=project_roles)
 
 
-def is_platform_manager(user: User) -> bool:
+def is_platform_manager(
+    user: AccountProfile | IdentityActorFacts | IdentityActorStatus,
+) -> bool:
     """True for an administrative *platform* role (ownership still required)."""
 
     return platform_role_is_manager(user.role)

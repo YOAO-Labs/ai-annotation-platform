@@ -15,13 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.deps import get_db, require_roles
 from app.db.enums import UserRole
 from app.db.models.audit_log import AuditLog
-from app.db.models.user import User
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_feedback import AnnotationFeedback
-from app.db.models.user_invitation import UserInvitation
 from app.config import settings
 from app.schemas.audit import (
     AuditArchiveOut,
@@ -33,6 +31,10 @@ from app.schemas.audit import (
 from app.services.audit_partition_service import AuditPartitionService
 from app.services.audit_summary import build_monthly_summary
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.identity_read_relations import (
+    account_profiles,
+    invitation_audit_targets,
+)
 
 router = APIRouter()
 
@@ -146,8 +148,9 @@ def _build_base_query(
     detail_key + detail_value（A.3）：走 PG GIN 索引 + JSONB `@>` 子集匹配，
     例如 `?detail_key=role&detail_value=super_admin` 等价 `WHERE detail_json @> '{"role":"super_admin"}'`。
     """
-    j = outerjoin(AuditLog, User, AuditLog.actor_id == User.id)
-    base = select(AuditLog, User.email.label("_u_email")).select_from(j)
+    actor_profile = account_profiles.alias("audit_actor_profile")
+    j = outerjoin(AuditLog, actor_profile, AuditLog.actor_id == actor_profile.c.id)
+    base = select(AuditLog, actor_profile.c.email.label("_u_email")).select_from(j)
     count_base = select(func.count()).select_from(AuditLog)
 
     if action:
@@ -188,9 +191,7 @@ def _row_to_out(row) -> AuditLogOut:
     return result
 
 
-def _managed_audit_scope(
-    actor: User | IdentityActorFacts, *, project_id: UUID | None = None
-):
+def _managed_audit_scope(actor: IdentityActorFacts, *, project_id: UUID | None = None):
     conditions = (
         [] if actor.role == UserRole.SUPER_ADMIN else [Project.owner_id == actor.id]
     )
@@ -210,8 +211,8 @@ def _managed_audit_scope(
     feedbacks = select(cast(AnnotationFeedback.id, String)).where(
         AnnotationFeedback.project_id.in_(project_ids)
     )
-    invitations = select(cast(UserInvitation.id, String)).where(
-        UserInvitation.project_id.in_(project_ids)
+    invitations = select(cast(invitation_audit_targets.c.id, String)).where(
+        invitation_audit_targets.c.project_id.in_(project_ids)
     )
     video_items = select(cast(Task.dataset_item_id, String)).where(
         Task.project_id.in_(project_ids), Task.dataset_item_id.is_not(None)

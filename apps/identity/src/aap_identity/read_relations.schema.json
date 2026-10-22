@@ -1,0 +1,104 @@
+{
+  "$defs": {
+    "AccountProfile": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "avatar_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Avatar Ref"
+        }
+      },
+      "required": ["id", "name", "email", "role", "is_active", "status", "avatar_ref"],
+      "title": "AccountProfile",
+      "type": "object"
+    },
+    "InvitationAuditTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        }
+      },
+      "required": ["id", "project_id"],
+      "title": "InvitationAuditTarget",
+      "type": "object"
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/AccountProfile"
+    },
+    {
+      "$ref": "#/$defs/InvitationAuditTarget"
+    }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-identity-read-relations/v1",
+  "$comment": "Fixed read-only owner relations, not authorization decisions. Trusted consumers retain their existing scope predicates, joins, ordering and transaction snapshot. No credential, generation or lifecycle fields are published.",
+  "x-postgresql-relations": {
+    "aap_identity_v1.account_profiles": {
+      "columns": ["id", "name", "email", "role", "is_active", "status", "avatar_ref"],
+      "row": {
+        "$ref": "#/$defs/AccountProfile"
+      },
+      "row_key": ["id"],
+      "read_only": true,
+      "security_barrier": true
+    },
+    "aap_identity_v1.invitation_audit_targets": {
+      "columns": ["id", "project_id"],
+      "row": {
+        "$ref": "#/$defs/InvitationAuditTarget"
+      },
+      "row_key": ["id"],
+      "read_only": true,
+      "security_barrier": true
+    }
+  }
+}

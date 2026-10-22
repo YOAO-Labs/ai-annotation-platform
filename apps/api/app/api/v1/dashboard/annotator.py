@@ -8,7 +8,6 @@ from app.deps import (
     get_db,
     require_roles,
 )
-from app.db.models.user import User
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
@@ -41,6 +40,7 @@ from app.services.dashboard_stats import (
     _reject_reason_breakdown,
 )
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.identity_read_relations import account_profiles
 
 router = APIRouter()
 
@@ -359,7 +359,7 @@ async def annotator_dashboard(
     else:
         weekly_compare_pct = None
 
-    # 周目标：ProjectMember.weekly_target → User.weekly_target_default → 200
+    # 周目标：ProjectMember.weekly_target → Identity weekly_target_default → 200
     weekly_target = getattr(current_user, "weekly_target_default", None) or 200
 
     # v0.8.4.1 hotfix · 接通 task_events 真实数据（与 0.8.3 心跳基座并行开发遗留）
@@ -640,9 +640,12 @@ async def my_performance(
         (
             await db.execute(
                 select(ProjectMember.user_id)
-                .join(User, User.id == ProjectMember.user_id)
+                .join(
+                    account_profiles,
+                    account_profiles.c.id == ProjectMember.user_id,
+                )
                 .where(
-                    User.is_active.is_(True),
+                    account_profiles.c.is_active.is_(True),
                     ProjectMember.role == ProjectRole.ANNOTATOR.value,
                 )
                 .distinct()

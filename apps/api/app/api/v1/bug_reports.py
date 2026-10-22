@@ -13,7 +13,6 @@ from app.core.ratelimit import limiter
 from app.deps import get_db, get_current_user, require_roles
 from app.db.enums import UserRole
 from app.db.models.notification import Notification
-from app.db.models.user import User
 from app.schemas.bug_report import (
     BugReportCreate,
     BugReportUpdate,
@@ -29,6 +28,7 @@ from app.services.bug_report import BugReportService
 from app.services.audit import AuditService
 from app.services.notification import NotificationService
 from app.services.storage import storage_service
+from app.services.identity_read_relations import account_profiles
 from sqlalchemy import select
 from pydantic import BaseModel, Field, field_validator
 from app.services.identity_contracts import IdentityActorFacts
@@ -127,7 +127,7 @@ async def init_bug_screenshot_upload(
     )
 
 
-def _bug_is_visible_to_user(report, current_user: User | IdentityActorFacts) -> bool:
+def _bug_is_visible_to_user(report, current_user: IdentityActorFacts) -> bool:
     is_admin = current_user.role in (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
     return bool(is_admin or report.reporter_id == current_user.id)
 
@@ -450,12 +450,15 @@ async def add_bug_comment(
         if report.assigned_to_id:
             recipient_ids = [report.assigned_to_id]
         else:
+            if db.autoflush:
+                await db.flush()
             admin_rows = await db.execute(
-                select(User.id).where(
-                    User.role == UserRole.SUPER_ADMIN.value, User.is_active.is_(True)
+                select(account_profiles.c.id).where(
+                    account_profiles.c.role == UserRole.SUPER_ADMIN.value,
+                    account_profiles.c.is_active.is_(True),
                 )
             )
-            recipient_ids = [r[0] for r in admin_rows.all()]
+            recipient_ids = list(admin_rows.scalars().all())
         recipient_ids = [uid for uid in recipient_ids if uid != current_user.id]
         if recipient_ids:
             pending_notifications = await notif_svc.notify_many(

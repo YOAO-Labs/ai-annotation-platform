@@ -29,9 +29,6 @@ from app.db.models.annotation import Annotation
 from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.task import Task
-from app.db.models.user import User
-from app.services.identity_account_lock_data import IdentityAccountLockData
-from app.services.identity_contracts import IdentityActorStatus
 from app.schemas.annotation_comment import (
     AnnotationCommentOut,
     TaskDiscussionItem,
@@ -39,6 +36,9 @@ from app.schemas.annotation_comment import (
 )
 from app.schemas.annotation_feedback import AnnotationFeedbackOut
 from app.services.discussion_actions import discussion_actions
+from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.identity_contracts import IdentityActorStatus
+from app.services.identity_read_relations import account_profiles
 from app.services.user_brief import resolve_briefs
 
 
@@ -466,10 +466,11 @@ async def list_task_discussion(
 
     annotation_by_id: dict[uuid.UUID, tuple[AnnotationComment, str | None]] = {}
     if annotation_ids:
+        author = account_profiles.alias("annotation_comment_author")
         annotation_rows = (
             await db.execute(
-                select(AnnotationComment, User.name)
-                .join(User, User.id == AnnotationComment.author_id)
+                select(AnnotationComment, author.c.name)
+                .join(author, author.c.id == AnnotationComment.author_id)
                 .where(AnnotationComment.id.in_(annotation_ids))
             )
         ).all()
