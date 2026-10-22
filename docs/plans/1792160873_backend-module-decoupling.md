@@ -6375,3 +6375,9 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   confirms PermissionError. Reusing Identity's unchanged-value/read-only-secret
   rewrite pattern passes changed/unchanged writes, final0444 mode and symlink
   rejection. Runtime restore must still complete before claiming qualification.
+- Sixth assembly restarts all nine services healthy against the restored clone.
+  The next assertion incorrectly uses auth/me, which requires an Identity Account
+  provider absent from this Workspace assembly and correctly returns503. The
+  restored authentication proof now uses the actual Workspace project/detail
+  and access routes plus invalid-token401, retaining only the existing Auth and
+  Briefs credentials. Original response and clean teardown remain recorded.

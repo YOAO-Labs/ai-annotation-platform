@@ -1118,10 +1118,6 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                         async with httpx.AsyncClient(
                             base_url=stack.api_origin, trust_env=False, timeout=45
                         ) as restored_client:
-                            restored_me = await restored_client.get(
-                                "/api/v1/auth/me", headers=headers["successor"]
-                            )
-                            assert restored_me.status_code == 200, restored_me.text
                             restored_project = await restored_client.get(
                                 f"/api/v1/projects/{project_id}",
                                 headers=headers["successor"],
@@ -1133,6 +1129,21 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                                 actors["successor"].id
                             )
                             assert "Automobile" in restored_project.json()["classes"]
+                            restored_access = await restored_client.get(
+                                f"/api/v1/projects/{project_id}/access",
+                                headers=headers["successor"],
+                            )
+                            assert restored_access.status_code == 200, (
+                                restored_access.text
+                            )
+                            assert restored_access.json()["access_kind"] == "owner"
+                            rejected_token = await restored_client.get(
+                                f"/api/v1/projects/{project_id}",
+                                headers={"Authorization": "Bearer invalid-token"},
+                            )
+                            assert rejected_token.status_code == 401, (
+                                rejected_token.text
+                            )
                             restored_receipt = await restored_client.post(
                                 stack.service_origin("workspace-configuration")
                                 + "/v1/workspace/configuration/execute",
