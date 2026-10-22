@@ -161,7 +161,7 @@ async def _assert_parent_operator_profile(test_engine) -> None:
                             "replace(pg_catalog.oidvectortypes(proc.proargtypes), ' ', '') || ')' "
                             "FROM pg_catalog.pg_proc AS proc "
                             "JOIN pg_catalog.pg_namespace AS ns ON ns.oid=proc.pronamespace "
-                            "WHERE ns.nspname='aap_workspace_v1' "
+                            "WHERE ns.nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$' "
                             "AND pg_catalog.has_function_privilege(current_user, proc.oid, 'EXECUTE')"
                         )
                     )
