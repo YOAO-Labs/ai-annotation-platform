@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-identity-scale-seed-actors/v1",
+  "$ref": "#/$defs/ScaleSeedActorReply",
+  "$defs": {
+    "ScaleSeedActorReply": {
+      "additionalProperties": false,
+      "description": "One exact result shape shared by both fixed Identity owner selectors.",
+      "properties": {
+        "schema": {
+          "const": "aap-identity-scale-seed-actors/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "kind": {
+          "enum": ["super_admin", "annotator"],
+          "title": "Kind",
+          "type": "string"
+        },
+        "account_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Account Id"
+        }
+      },
+      "required": ["schema", "kind", "account_id"],
+      "title": "ScaleSeedActorReply",
+      "type": "object"
+    }
+  },
+  "x-native-capabilities": {
+    "protocol": "aap-identity-scale-seed-actors/v1",
+    "postgres_schema": "aap_identity_v1",
+    "functions": [
+      {
+        "name": "read_scale_seed_super_admin",
+        "signature": "aap_identity_v1.read_scale_seed_super_admin()",
+        "arguments": [],
+        "result_postgres_type": "jsonb",
+        "result_model": "ScaleSeedActorReply",
+        "result_schema_ref": "#/$defs/ScaleSeedActorReply",
+        "result_kind": "super_admin",
+        "transaction_semantics": "Select the earliest-created public.users row with role super_admin. Do not filter is_active or add a tie-breaker; equal created_at values remain unspecified. This read-only STABLE function does not authorize the caller or commit its transaction."
+      },
+      {
+        "name": "read_scale_seed_annotator",
+        "signature": "aap_identity_v1.read_scale_seed_annotator(uuid[])",
+        "arguments": [
+          {
+            "name": "p_candidate_ids",
+            "postgres_type": "uuid[]",
+            "json_schema": {
+              "type": ["array", "null"],
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          }
+        ],
+        "result_postgres_type": "jsonb",
+        "result_model": "ScaleSeedActorReply",
+        "result_schema_ref": "#/$defs/ScaleSeedActorReply",
+        "result_kind": "annotator",
+        "transaction_semantics": "Select the earliest-created active public.users row whose ID is in the caller-supplied annotator candidate UUID array. Do not apply a platform role filter or add a tie-breaker; equal created_at values remain unspecified. The function does not read Workspace membership or project tables. The caller selects project_member_facts candidates and invokes this STABLE function in the same SQL statement, preserving one statement snapshot across candidate and account reads. This function does not authorize the caller or commit its transaction."
+      }
+    ],
+    "authorization_boundary": "Trusted scale-seed callers retain actor selection policy and the surrounding workflow; these fixed read functions add no authorization.",
+    "transaction_boundary": "The caller owns the transaction. For annotator selection, the candidate UUID array must be selected from Workspace facts inside the same SQL statement that invokes the Identity function."
+  }
+}

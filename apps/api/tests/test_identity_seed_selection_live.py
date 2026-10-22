@@ -578,13 +578,13 @@ async def _run_scale(cli: WorkspaceImportCli):
     )
 
 
-def _scale_actor_ids(stdout: str) -> tuple[uuid.UUID, uuid.UUID]:
-    owner_match = re.search(r"^\s*project_id\s*=\s*([0-9a-f-]{36})\s*$", stdout, re.M)
+def _scale_result_ids(stdout: str) -> tuple[uuid.UUID, uuid.UUID]:
+    project_match = re.search(r"^\s*project_id\s*=\s*([0-9a-f-]{36})\s*$", stdout, re.M)
     annotator_match = re.search(
         r"^\s*annotator_id\s*=\s*([0-9a-f-]{36})\s*$", stdout, re.M
     )
-    assert owner_match and annotator_match, stdout
-    return uuid.UUID(owner_match.group(1)), uuid.UUID(annotator_match.group(1))
+    assert project_match and annotator_match, stdout
+    return uuid.UUID(project_match.group(1)), uuid.UUID(annotator_match.group(1))
 
 
 async def _image_import(
@@ -852,10 +852,10 @@ async def test_installed_identity_seed_selection_consumers(
         assert not first_scale.timed_out and first_scale.exit_code == 0, (
             first_scale.evidence
         )
-        first_project_owner, first_annotator = _scale_actor_ids(first_scale.stdout)
-        assert first_project_owner == expected_admin
+        first_project, first_annotator = _scale_result_ids(first_scale.stdout)
         assert first_annotator == expected_annotator
         first_scale_state = await _scale_state(test_engine)
+        assert first_project == first_scale_state["project"]["id"]
         assert first_scale_state["project"]["owner_id"] == expected_admin
         assert first_scale_state["dataset"]["created_by"] == expected_admin
         assert first_scale_state["selected_members"] == [expected_annotator]
@@ -870,12 +870,14 @@ async def test_installed_identity_seed_selection_consumers(
         assert not repeated_scale.timed_out and repeated_scale.exit_code == 0, (
             repeated_scale.evidence
         )
-        second_project_owner, second_annotator = _scale_actor_ids(repeated_scale.stdout)
+        second_project, second_annotator = _scale_result_ids(repeated_scale.stdout)
         second_scale_state = await _scale_state(test_engine)
         assert (
-            second_project_owner == expected_admin
+            second_project == second_scale_state["project"]["id"]
             and second_annotator == expected_annotator
         )
+        assert second_scale_state["project"]["owner_id"] == expected_admin
+        assert second_scale_state["dataset"]["created_by"] == expected_admin
         assert second_scale_state["project"]["id"] != first_scale_state["project"]["id"]
         assert second_scale_state["dataset"]["id"] != first_scale_state["dataset"]["id"]
         assert {
@@ -941,12 +943,14 @@ async def test_installed_identity_seed_selection_consumers(
         recovered = await _run_scale(cli)
         record_property("identity_seed_scale_late_failure_recovery", recovered.evidence)
         assert not recovered.timed_out and recovered.exit_code == 0, recovered.evidence
-        recovered_owner, recovered_annotator = _scale_actor_ids(recovered.stdout)
+        recovered_project, recovered_annotator = _scale_result_ids(recovered.stdout)
         recovered_state = await _scale_state(test_engine)
         assert (
-            recovered_owner == expected_admin
+            recovered_project == recovered_state["project"]["id"]
             and recovered_annotator == expected_annotator
         )
+        assert recovered_state["project"]["owner_id"] == expected_admin
+        assert recovered_state["dataset"]["created_by"] == expected_admin
         assert {
             key: recovered_state[key]
             for key in ("items", "batches", "tasks", "annotations")
@@ -1009,12 +1013,14 @@ async def test_installed_identity_seed_selection_consumers(
         recovery = await _run_scale(cli)
         record_property("identity_seed_scale_cancellation_recovery", recovery.evidence)
         assert not recovery.timed_out and recovery.exit_code == 0, recovery.evidence
-        recovery_owner, recovery_annotator = _scale_actor_ids(recovery.stdout)
+        recovery_project, recovery_annotator = _scale_result_ids(recovery.stdout)
         recovery_state = await _scale_state(test_engine)
         assert (
-            recovery_owner == expected_admin
+            recovery_project == recovery_state["project"]["id"]
             and recovery_annotator == expected_annotator
         )
+        assert recovery_state["project"]["owner_id"] == expected_admin
+        assert recovery_state["dataset"]["created_by"] == expected_admin
         assert {
             key: recovery_state[key]
             for key in ("items", "batches", "tasks", "annotations")

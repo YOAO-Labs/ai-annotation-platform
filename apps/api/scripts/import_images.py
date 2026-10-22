@@ -24,7 +24,6 @@ from pathlib import Path
 from uuid import uuid4
 
 import boto3
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 from aap_assets_source.operator_contract import (
@@ -33,7 +32,7 @@ from aap_assets_source.operator_contract import (
     OperatorSourceEntry,
 )
 from app.config import settings
-from app.db.models.user import User
+from app.services.identity_commands import IdentityCommandService
 from app.services.assets_operator import AssetsOperatorGateway
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif"}
@@ -95,7 +94,7 @@ async def import_to_dataset(
     ensure_bucket(s3, bucket)
 
     async with Session() as db:
-        owner = (await db.execute(select(User).limit(1))).scalar_one_or_none()
+        owner = await IdentityCommandService(db).lookup_first_seed_account()
         if not owner:
             print("错误: 数据库中没有用户，请先运行 seed.py")
             return
@@ -104,13 +103,13 @@ async def import_to_dataset(
         created = await assets.create_operator_image_dataset(
             CreateOperatorImageDatasetRequest(
                 operation_id=uuid4(),
-                created_by=owner.id,
+                created_by=owner[0],
                 name=name,
                 description=f"从本地文件夹 {folder.name} 导入",
             )
         )
         ds = created.dataset
-        print(f"数据集: {ds.display_id} (owner: {owner.email})\n")
+        print(f"数据集: {ds.display_id} (owner: {owner[1]})\n")
 
         imported = 0
         pending_entries: list[OperatorSourceEntry] = []

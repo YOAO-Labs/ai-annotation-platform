@@ -46,6 +46,8 @@ IDENTITY_RUNTIME_CAPABILITIES = (
     "aap_identity_v1.read_provisioning_account(text)",
     "aap_identity_v1.create_provisioning_account(jsonb)",
     "aap_identity_v1.create_seed_persona_account(jsonb)",
+    "aap_identity_v1.read_scale_seed_super_admin()",
+    "aap_identity_v1.read_scale_seed_annotator(uuid[])",
     "aap_identity_v1.read_actor_context(uuid,text)",
     "aap_identity_v1.read_actor_facts(uuid)",
     "aap_identity_v1.lock_accounts_share(uuid[],boolean)",

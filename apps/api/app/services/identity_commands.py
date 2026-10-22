@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from aap_identity.contract import IdentityUnavailable
 from aap_identity.provisioning import AccountProvisioningManager
+from aap_identity.scale_seed_actor_contract import decode_scale_seed_actor_reply
 from app.db.enums import UserRole
 from app.services.user_lifecycle import UserLifecycleService
 from app.services.identity_contracts import IdentityActorFacts
@@ -67,6 +68,26 @@ class IdentityCommandService:
 
     async def lookup_seed_accounts(self, emails: set[str]) -> dict[str, uuid.UUID]:
         return await IdentityProvisioningData(self.db).lookup_seed_accounts(emails)
+
+    async def lookup_first_seed_account(self) -> tuple[uuid.UUID, str] | None:
+        return await IdentityProvisioningData(self.db).lookup_first_seed_account()
+
+    async def resolve_scale_seed_actors(
+        self,
+    ) -> tuple[uuid.UUID | None, uuid.UUID | None]:
+        data = IdentityProvisioningData(self.db)
+        try:
+            admin_id = decode_scale_seed_actor_reply(
+                await data.read_scale_seed_super_admin(), "super_admin"
+            )
+            annotator_id = decode_scale_seed_actor_reply(
+                await data.read_scale_seed_annotator(), "annotator"
+            )
+            return admin_id, annotator_id
+        except IdentityUnavailable:
+            raise HTTPException(
+                status_code=503, detail="身份认证服务暂不可用"
+            ) from None
 
     async def lookup_seed_account_facts(
         self, email: str

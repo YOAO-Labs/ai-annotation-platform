@@ -55,6 +55,24 @@ Migration 0251 在 `aap_identity_v1` 提供三项安全函数：`lock_accounts_s
 
 跨帧 worker 每个待写帧都重新锁定并核对当前账号及项目／成员／任务权限，不使用跨帧快照或 `db.refresh(User)` 替代。忙碌仍映射到既有 `permission_changed`，无新重试；账号删除、停用、基础设施失败与阶段拒绝的分类也保持旧区分。非锁定 Workspace authority 查询与 bootstrap/import 写入由下文的 provisioning 切片接管。最新本地 qualification 去重后 231 项全部通过，包括受限 Node 调用、转移／角色变更竞态、恢复与新 Celery 进程。源码及非 editable 安装各通过 595 项，119 个包文件与独立 owner／API 容器指纹一致。旧行为 baseline 的一个测试覆盖 15 个场景，不能叠加到新资格数量。细节见 [ADR-0131](/dev/adr/0131-identity-transactional-account-locks)。
 
+## 运维账号选择
+
+`aap-identity-scale-seed-actors/v1` 提供两项固定只读 Native 能力，回复只有
+`schema`／`kind`／`account_id`；缺失账号为 null。创建时间保留在 Identity 内部。
+
+| 能力                                | 选择规则                                                        |
+| ----------------------------------- | --------------------------------------------------------------- |
+| `read_scale_seed_super_admin()`     | 最早创建的 super_admin，保留停用账号，kind 为 super_admin       |
+| `read_scale_seed_annotator(uuid[])` | 输入候选中最早创建的启用账号，不检查平台角色，kind 为 annotator |
+
+没有额外的 UUID 排序、账号锁、授权或提交。这些 `STABLE` 函数只对调用语句的快照
+负责；规模种子把 Workspace annotator 成员事实组成 UUID 数组，在同一 SQL 语句中传给
+第二项能力。可信账号的追加配置是 `identity-scale-seed-grants.sql`；普通消费者仍是
+既有两视图／五函数，无法执行选择能力。不能拆成跨连接的先读候选、再选账号。
+
+图片导入只复用既有公开账号事实，无序选择任意首账号，不增加角色或启用条件。
+定向与冷运行范围见[运维账号选择](/dev/concepts/module-deployment#identity-运维账号选择)。
+
 ## 运维账号 provisioning
 
 开发主种子另使用 `aap-identity-seed-persona/v1` 和固定函数

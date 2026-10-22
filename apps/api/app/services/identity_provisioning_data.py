@@ -34,6 +34,35 @@ class IdentityProvisioningData:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    async def lookup_first_seed_account(self) -> tuple[uuid.UUID, str] | None:
+        profile = aliased(User, account_profiles, adapt_on_names=True)
+        user = (
+            await self.db.execute(
+                select(profile).options(load_only(profile.id, profile.email)).limit(1)
+            )
+        ).scalar_one_or_none()
+        return (user.id, user.email) if user is not None else None
+
+    async def read_scale_seed_super_admin(self):
+        return _payload(
+            await self.db.scalar(
+                text("SELECT aap_identity_v1.read_scale_seed_super_admin()")
+            )
+        )
+
+    async def read_scale_seed_annotator(self):
+        # Both owner reads use the calling statement's snapshot. Do not fetch
+        # membership candidates in a separate Python/SQL round trip.
+        return _payload(
+            await self.db.scalar(
+                text(
+                    "SELECT aap_identity_v1.read_scale_seed_annotator(ARRAY("
+                    "SELECT user_id FROM aap_workspace_v1.project_member_facts "
+                    "WHERE role='annotator'))"
+                )
+            )
+        )
+
     async def lookup_seed_account_facts(
         self, email: str
     ) -> list[tuple[uuid.UUID, str, str, bool]]:

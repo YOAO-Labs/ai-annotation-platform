@@ -1404,6 +1404,10 @@ ALTER FUNCTION aap_identity_v1.create_provisioning_account(jsonb)
     OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.create_seed_persona_account(jsonb)
     OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.read_scale_seed_super_admin()
+    OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.read_scale_seed_annotator(uuid[])
+    OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1._admission_failure(text)
     OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.authentication_policy()

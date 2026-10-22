@@ -750,6 +750,33 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 事务和四项失败后再次提交检查。主脚本的媒体子入口仍单独跟踪，完整状态见
 [唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
 
+### 图片导入与规模种子的 Identity 选择
+
+`import_images.py` 只从公开账号事实选任意首账号，保留不检查角色／启用状态的行为。
+`seed_scale.py` 使用 `aap-identity-scale-seed-actors/v1` 两项固定只读能力，创建时间留在
+Identity 内部。普通 Identity API／worker 配置保持五项函数；可信运维账号在普通围栏后
+显式追加选择能力：
+
+```bash
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v identity_owner=identity_code -v consumer_role=legacy_runtime \
+  -f infra/docker/identity-scale-seed-grants.sql
+```
+
+此例只用于自己拥有的测试资源；不能把追加能力交给普通 HTTP／worker。实际图片导入
+还需要既有 Assets 运维能力。规模种子仍使用其他领域的原可信写入权限，不代表它们
+的最小凭据已经收口。原有清理先提交，后续选择失败或中断不会恢复旧标记图谱。
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/identity-seed-selection-native.json \
+  --test-file tests/test_identity_seed_selection_native.py
+```
+
+创建时间并列仍不规定次序；annotator 是项目职责，不是平台角色。成员事实与启用账号
+必须在同一 SQL 语句内读取，不能先拉取 ID 再单独请求 Identity。
+[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)记录实际资格与剩余项。
+
 ### 媒体种子的 Identity 边界
 
 COCO8／视频／OCR 的账号创建使用现有 persona owner；截图准备和目录只读取公开账号

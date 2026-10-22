@@ -269,6 +269,7 @@ SQL_ARTIFACTS = (
     "0301_workspace_seed_project.sql",
     "0302_identity_seed_persona.sql",
     "0302_workspace_seed_members.sql",
+    "0303_identity_scale_seed_actors.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -384,8 +385,11 @@ SCHEMA_ARTIFACTS = (
     "0301_workspace_seed_project.schema.json",
     "0302_identity_seed_persona.schema.json",
     "0302_workspace_seed_members.schema.json",
+    "0303_identity_scale_seed_actors.schema.json",
 )
 TEST_FILES = (
+    "tests/test_identity_seed_selection_live.py",
+    "tests/test_identity_seed_selection_native.py",
     "tests/test_media_seed_identity_live.py",
     "tests/test_media_seed_identity_native.py",
     "tests/test_seed_parent_operator_live.py",
@@ -2342,6 +2346,8 @@ def _install_and_rollback_frozen_sql(
             "AND to_regprocedure('aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)') IS NULL "
             "AND to_regprocedure('aap_workspace_v1.write_seed_members(jsonb)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.create_seed_persona_account(jsonb)') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.read_scale_seed_super_admin()') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.read_scale_seed_annotator(uuid[])') IS NULL "
             "AND to_regprocedure('aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)') IS NULL "
             "AND to_regprocedure('aap_learning_v1.registry_evaluation_reference_exists(uuid)') IS NULL "
             "AND to_regprocedure('aap_jobs_v1.count_running_registry_predictions(uuid)') IS NULL "
@@ -2928,8 +2934,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0302"]:
-            raise RuntimeError("module-data acceptance requires migration head 0302")
+        if heads != ["0303"]:
+            raise RuntimeError("module-data acceptance requires migration head 0303")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -4002,12 +4008,24 @@ def main(argv: list[str] | None = None) -> int:
             "tests/test_media_seed_identity_live.py" in selected_test_paths
             and os.environ.get("AAP_MEDIA_SEED_IDENTITY_LIVE") == "1"
         )
-        if media_seed_identity_live:
+        identity_seed_selection_live = (
+            "tests/test_identity_seed_selection_live.py" in selected_test_paths
+            and os.environ.get("AAP_IDENTITY_SEED_SELECTION_LIVE") == "1"
+        )
+        if media_seed_identity_live or identity_seed_selection_live:
 
             def workspace_import_cli_fence():
                 nonlocal phase
-                phase = "install-media-seed-identity-operator"
-                persona_grants = ROOT / "infra/docker/identity-seed-operator-grants.sql"
+                phase = "install-seed-identity-operator"
+                persona_grants = (
+                    ROOT
+                    / "infra/docker"
+                    / (
+                        "identity-scale-seed-grants.sql"
+                        if identity_seed_selection_live
+                        else "identity-seed-operator-grants.sql"
+                    )
+                )
                 for sql in (identity_consumer_grant_sql, persona_grants.read_text()):
                     _psql(
                         container_id,
@@ -4024,7 +4042,11 @@ def main(argv: list[str] | None = None) -> int:
                             "consumer_role": "legacy_runtime",
                         },
                     )
-                evidence["media_seed_identity_operator"] = {
+                evidence[
+                    "identity_seed_selection_operator"
+                    if identity_seed_selection_live
+                    else "media_seed_identity_operator"
+                ] = {
                     "role": "legacy_runtime",
                     "grant_path": str(persona_grants.relative_to(ROOT)),
                     "sha256": hashlib.sha256(persona_grants.read_bytes()).hexdigest(),

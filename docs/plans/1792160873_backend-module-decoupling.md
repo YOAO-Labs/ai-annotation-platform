@@ -6919,3 +6919,46 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   then remaining historical audit and guarded recording/fixture operations from
   the sole ledger. No primary runtime cutover, push, release, production work or
   Go expansion occurred.
+
+### Operational image import and scale-seed Identity selection
+
+- Capture twelve actual old-consumer cases at 44171ef27 before source edits.
+  Immutable driver SHA256:
+  3c32e9651225d8b9182adaf3e4242f4a29d87e25b57ca5e3338c5893bb550fe5.
+  All twelve pass with owned cleanup. Scale cases execute full tiny seed(4,2,1),
+  preserving original commit stages, filters, cross-project/duplicate candidates,
+  unspecified ties and negative-infinity created_at; import uses real database
+  operations and a controlled object sink. Actual cold S3 remains a separate gate.
+- Add two fixed read-only Identity functions in 0303, separate from frozen
+  provisioning/persona contracts. JSON replies bind schema/kind/nullable UUID.
+  Admin selection includes inactive super_admin; active annotator candidate
+  selection has no platform-role filter. Created_at never crosses the boundary.
+  SQL STABLE functions use caller-statement snapshots. The API passes the
+  Workspace member candidate array within that same SQL statement; admin and
+  annotator remain two ordered calls even when the first returns null.
+- Source owner worker ffac2f794 is integrated as 20ded2970. Root binds the two
+  real script consumers, extends only trusted legacy grants and adds an explicit
+  fenced scale-seed reader profile; ordinary Identity stays five functions and
+  two views. Image import still chooses an unordered first account and permits
+  inactive/viewer ownership, preserving its existing workflow and error order.
+- First Native attempt passes the empty-user import but stops three nonempty
+  imports because the LAN-profile fixture lacks existing Assets operator grants.
+  Match the actual worktree CLI's two required Assets functions in the fixture,
+  without changing production grants; the three imports and eight scale cases
+  then pass. Latest unique baseline replay is twelve; no repeated case is added.
+- Two further Native cases pass: a real Node read-only, User-private-denied
+  consumer and deterministic statement-start snapshot behavior. The latter
+  pauses the actual combined selector using a MATERIALIZED advisory-lock CTE,
+  commits both member-duty and active-state changes elsewhere, then proves old
+  state for that statement and new state for the next. No fake selector replies.
+  The selected Native union is fourteen; cold qualification remains pending.
+- Focused contract, adapter, architecture and fresh-process guard checks pass
+  393 cases, with 150 existing inapplicable architecture rules skipped. Tooling
+  and migration policy checks pass 58 tests; OpenAPI comparison is unchanged.
+  Keep the new command-service import inside seed(): a production invocation
+  must refuse before importing any path that constructs the application engine.
+  The fresh-process guard test traps engine construction and verifies exit 2.
+- Integrate cold source worker 8d7ec0882 as 0888ee335. Before executing cold
+  acceptance, correct its result parser assertions: the CLI prints project_id,
+  not owner_id. Compare that ID to the persisted project and separately verify
+  project owner and dataset creator, preserving actual command output.
