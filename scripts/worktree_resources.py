@@ -599,6 +599,7 @@ class LocalResources:
                     "aap_workspace_membership_v1.apply_membership_command(jsonb), "
                     f"aap_workspace_v1.lock_project_reference(uuid), "
                     "aap_workspace_v1.lock_project_manager(uuid, uuid), "
+                    "aap_workspace_v1.project_access_step(uuid, uuid, text), "
                     "aap_workspace_v1.clear_primary_backend_bindings(uuid), "
                     "aap_workspace_v1.read_import_project(text), "
                     "aap_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb), "

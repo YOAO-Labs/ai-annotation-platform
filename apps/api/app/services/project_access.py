@@ -68,9 +68,9 @@ def _decode_workspace_project_access_step(
         or type(payload["schema"]) is not str
         or payload["schema"] != _WORKSPACE_PROJECT_ACCESS_STEP_SCHEMA
         or type(payload["actor_id"]) is not str
-        or payload["actor_id"] != str(actor_id)
+        or payload["actor_id"].lower() != str(actor_id)
         or type(payload["project_id"]) is not str
-        or payload["project_id"] != str(project_id)
+        or payload["project_id"].lower() != str(project_id)
         or type(payload["phase"]) is not str
         or payload["phase"] != phase
         or type(payload["facts"]) is not dict

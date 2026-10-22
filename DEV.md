@@ -698,6 +698,34 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 [ADR-0164](docs/adr/0164-workspace-transactional-project-maintenance.md)。完整 Workspace
 冷安装／容器／完整迁移／恢复仍在一致模块里程碑集中验收，日常主环境未切换。
 
+### Workspace 锁定权限与会话快照
+
+`lock_current_project_rows`／`lock_current_project_access` 保持原接口，通过已有
+`aap-workspace-project-access-step/v1` 读取锁定的 Project／成员快照。账号仍用 Identity
+SHARE NOWAIT，Project 用 KEY SHARE NOWAIT，非 manager 再锁成员 SHARE NOWAIT；
+连接、`no_autoflush`、提交及回滚仍由原调用方持有。
+
+完整快照直接同步原 Session 的 ORM 对象，保持训练冻结、标注配置及成员缓存刷新。
+不在锁后另行查询 Project，不丢失其他 pending work。现有应用账号授权清单须包含
+`aap_workspace_v1.project_access_step(uuid,uuid,text)`；本地资源装配的 `grant_runtime`
+及 `infra/docker/lan-production-grants.sql` 已列出，不扩展 append 或删除专用账号。
+
+限定复验使用验收器独占的测试资源：
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/workspace-authority-locks.json \
+  --test-file tests/test_workspace_project_authority_locking.py \
+  --test-file tests/test_project_access_authority_lock.py \
+  --test-file tests/test_labeling_write_scope.py
+```
+
+时间字段 HTTP 兼容案例另需现有测试变量 `AAP_WORKSPACE_RUNTIME_PYTHON` 指向当前
+Workspace 提供方解释器；源码检查可使用本工作树 API 解释器来启动独立进程，不据此
+声称非 editable／冷工件已通过。锁、真实 API LOGIN 私读拒绝、Node、缓存与外层回滚
+证据见 [ADR-0166](docs/adr/0166-workspace-locked-authority-snapshots.md)。完整模块装配
+资格仍按唯一台账集中收口，日常主环境未切换。
+
 ### Workspace 调用方事务内的项目删除
 
 `aap-project-delete/v1` 的可移植命令和回执位于 `aap-workspace`。API 继续使用原请求

@@ -199,6 +199,23 @@ baseline 与候选修订。Native setter 只写精确配置与事务时间戳，
 业务能力计数。迁移、owner grants 与精确授权入口见 `DEV.md`。严格回复及 Native／Node／
 真实消费者的限定本地证据见 [ADR-0164](/dev/adr/0164-workspace-transactional-project-maintenance)。
 
+## 锁定权限与会话快照
+
+API 写入权限入口保留原元组接口，通过现有
+`aap_workspace_v1.project_access_step(uuid,uuid,text)` 获取 Project KEY SHARE 和
+成员 SHARE 快照。Identity 的完整账号 SHARE facts、NOWAIT 错误、manager 跳过成员
+及当前权限策略不变。它们属于调用方同一事务，不是可跨事务重放的授权 token。
+
+完整 Project／成员数据通过既有编解码恢复到原 Session，保留对象身份、配置／状态
+刷新及无 autoflush 行为；不在锁后再次读取 Project，不新开连接。调用方仍提交或回滚
+整个业务。应用授权脚本和本地 runtime allowlist 包含已有 Native 函数，无新 DSN、
+服务或客户端账号；非锁定查询继续保持原路径。
+
+真实 API LOGIN 在撤销私表 SELECT 后仍可读取权限并保持锁；Node 直接消费同一组
+能力。共享编解码与实际标注／训练等定向结果见
+[ADR-0166](/dev/adr/0166-workspace-locked-authority-snapshots)。完整模块凭据与冷工件
+仍待集中验收，本项局部资格不替代完整独立部署。
+
 ## 项目删除的调用方事务
 
 项目删除使用已有 `aap-project-delete/v1` 和

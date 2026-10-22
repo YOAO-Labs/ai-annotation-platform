@@ -5361,3 +5361,49 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Camera-only unlink intentionally preserves Tasks whose primary belongs to
   another Dataset, and separate camera-link/scene-history removal is not added.
   No primary cutover, push, release, production deployment or Go expansion.
+
+### Workspace locked authority snapshots (2026-10-22)
+
+- Previous goal turn completed and committed the project-deletion portable
+  boundary (`b62574138` / `ef8ef8af4`) and Assets retention policy acceptance
+  (`6e019b45a`), which is concrete progress. The full module goal remains active;
+  the unretired video deletion/unlink policy is still pending and independent
+  Workspace authority work can proceed.
+- Reused Native 0270 for the existing locked Project and ProjectMember path,
+  retaining Identity rich SHARE facts, Project KEY SHARE, membership SHARE,
+  NOWAIT, manager skip, no-autoflush and caller-owned commit/rollback. Existing
+  public helper tuples and all consumers stay unchanged. Production/local runtime
+  allowlists grant the existing function to the existing API application role;
+  append_client and deletion-only privileges do not grow. No migration or service.
+- Consumer review proved that the old discarded Project result also refreshed
+  business cache used by training freeze/status and annotation bindings. The
+  complete locked snapshot therefore hydrates the same Session identities via
+  fresh detached values and merge(load=False), with complete mapped-column
+  checks for Project43/Member9. This resets stale/dirty values without a second
+  SELECT or flushing unrelated work. The base Project materializer is factored
+  from the existing codec and keeps legacy JSON/scalar/temporal behavior.
+- Source commits `12a30d113` and `1120b2829` are integrated as `94872a563` and
+  `84e68b534`. Root owns grants, actual LOGIN/Node/transaction/cache acceptance
+  and documentation. A pre-change owned ORM baseline passed the exact dirty-cache
+  and pending-Task case, then the same case passed on the Native implementation.
+- Effective union: 163 distinct selected cases, zero failures/errors/skips.
+  Includes 23 shared contract cases, API adapter cases, nine new actual database
+  cases, real consumer regressions (permissions, labeling scope, frame persistence,
+  validation, feedback, training snapshot/study and secondary children), plus
+  frozen temporal HTTP comparison through borrowed/DSN/HTTP paths. The actual
+  API LOGIN works with private User/Project/Member SELECT denied; original ACLs
+  are restored. Locks retain the caller backend/transaction, ordinary counters
+  can update, bad reply scope rolls back prior writes, and Node calls Native
+  capabilities directly without a Python API proxy.
+- Initial unit failure omitted the actor event in the expected sequence; its pure
+  fake-session repro passes with conftest disabled. The HTTP temporal fixture
+  initially lacked its provider interpreter; supplying the existing test selector
+  passed that one case in a separate current-source Workspace process. Other
+  valid passes are reused, and original failures/cleanup are retained. This does
+  not add noneditable/cold complete-Workspace artifact or restore qualification.
+- ADR-0166 and `.worktree/workspace-authority-locks-qualification.json` record the
+  boundary. The only remaining-work ledger is module-deployment.md. Non-locking
+  authority reads, exclusive configuration/data paths and whole-module assembly
+  are not closed. Root has no persistent API/Celery runtime to refresh; qualifier
+  processes import current source. The primary runtime, production, release and
+  Go experiment are not changed.

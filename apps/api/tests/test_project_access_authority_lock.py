@@ -97,23 +97,25 @@ def _bind_actor_lock(monkeypatch, actor, events):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("uppercase_scope", [False, True])
 async def test_locked_project_snapshot_hydrates_existing_interface_without_select(
     monkeypatch,
+    uppercase_scope,
 ):
     actor_id, project_id, owner_id = uuid4(), uuid4(), uuid4()
     actor = _actor(actor_id)
     events = []
     _bind_actor_lock(monkeypatch, actor, events)
-    session = _Session(
-        [
-            _step(
-                actor_id,
-                project_id,
-                "lock_project_key_share",
-                {"row_json": _project_row(project_id, owner_id)},
-            )
-        ]
+    reply = _step(
+        actor_id,
+        project_id,
+        "lock_project_key_share",
+        {"row_json": _project_row(project_id, owner_id)},
     )
+    if uppercase_scope:
+        reply["actor_id"] = reply["actor_id"].upper()
+        reply["project_id"] = reply["project_id"].upper()
+    session = _Session([reply])
     execute = session.execute
 
     async def record_execute(statement, parameters):
@@ -189,7 +191,11 @@ async def test_locked_member_snapshot_preserves_project_tuple_and_phase_order(
         "reviewer",
         4,
     )
-    assert events == ["lock_project_key_share", "lock_member_share"]
+    assert events == [
+        ("actor", [actor_id], "share", True),
+        "lock_project_key_share",
+        "lock_member_share",
+    ]
     assert [type(row) for row, _ in session.merges] == [Project, ProjectMember]
     assert all(load is False for _, load in session.merges)
 
