@@ -5576,3 +5576,17 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   business snapshots, membership locks/set reads and complete module assembly.
   Unretired-video project deletion/unlink policy is still separately pending.
   Primary runtime, production, push/release and the Go experiment are unchanged.
+
+- Source/grant/fixture/documentation checkpoint:
+  `e37d9406f400b310c658386a24cceddf15e2241f`. The aggregate binds 25 files
+  to this source commit. Grant/selection units pass 20; architecture passes
+  355 with 149 inapplicable rules. Ruff, format, docs build, final diff review
+  and normal applicable commit hooks pass; public API generation inputs are
+  unchanged and generation hooks naturally skip. Both clean owned source
+  worktrees are removed after exact branch/HEAD, patch and scoped-tree checks;
+  caches are archived and branches retained. All seven owned PostgreSQL
+  containers are absent. Twenty editable bindings still point to Root; the
+  clean primary and four shared containers are preserved. No persistent Root
+  API/Celery/Workspace provider needs refresh; acceptance processes imported
+  current source. This closes the selected Task/Training getters and scalar
+  reference prerequisite, not complete Workspace assembly or the full goal.
