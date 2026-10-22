@@ -5730,3 +5730,17 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   correlated membership checks and actorless enumeration stay in the one ledger.
 - Aggregate: .worktree/project-owner-persistence-qualification.json; ADR-0172.
   No push, release, production/cutover or Go expansion is authorized or performed.
+
+- Integrated implementation and documentation commit:
+  `584d3d543f4ec5fb7864262ed783aa2074ac6ad4`. The aggregate binds all 27 changed
+  files to this source. Architecture passes 355 with 149 inapplicable rules;
+  grant/selection units pass 20. Ruff/format, OpenAPI consistency, docs build,
+  diff and normal applicable source hooks pass. The first unit launcher lacked
+  the scripts PYTHONPATH; its original failure and corrected 20-case run remain.
+- Preservation is reverified: all 10 owned PostgreSQL containers are absent,
+  verifier local resources are destroyed, 20 editable AAP bindings and shared
+  symlinks are unchanged, and the clean primary plus four shared containers stay
+  intact. Root has no persistent API/Celery/provider process to refresh. The two
+  clean committed source worktrees are retained for review; they have no runtime.
+  Final remaining work stays solely in module-deployment.md. The active overall
+  goal is not complete; next is the actor-visible Project scope query slice.
