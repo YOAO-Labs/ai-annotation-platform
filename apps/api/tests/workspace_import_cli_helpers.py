@@ -78,6 +78,8 @@ class CliRun:
     stdout: str
     stderr: str
     diagnostics_path: str
+    timed_out: bool
+    externally_stopped: bool
 
     @property
     def evidence(self) -> dict[str, object]:
@@ -86,6 +88,8 @@ class CliRun:
             "stdout": self.stdout,
             "stderr": self.stderr,
             "diagnostics_path": self.diagnostics_path,
+            "timed_out": self.timed_out,
+            "externally_stopped": self.externally_stopped,
         }
 
 
@@ -335,7 +339,14 @@ class WorkspaceImportCli:
                 encoding="utf-8",
             )
             path.chmod(0o600)
-            return CliRun(exit_code, stdout, stderr, str(path))
+            return CliRun(
+                exit_code,
+                stdout,
+                stderr,
+                str(path),
+                timed_out,
+                self._current_container_stopped,
+            )
         finally:
             record = self._inspect(container_id, required=False)
             if record is not None:

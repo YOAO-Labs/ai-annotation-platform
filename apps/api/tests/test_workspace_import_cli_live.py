@@ -530,12 +530,20 @@ def _assert_real_object_bytes(
     assert hashlib.sha256(map_bytes).hexdigest() == export["map_sha256"]
 
 
-async def _install_task_failure_trigger(test_engine, marker: str) -> tuple[str, str]:
+async def _install_task_trigger(
+    test_engine, marker: str | None = None
+) -> tuple[str, str]:
+    """Fail task insertion, or pause it for the physical CLI cancellation case."""
     suffix = uuid.uuid4().hex[:12]
     function_name = f"workspace_import_cli_fail_{suffix}"
     trigger_name = f"workspace_import_cli_fail_{suffix}_trigger"
     function = f"public.{function_name}"
     trigger = f"public.{trigger_name}"
+    action = (
+        "PERFORM pg_sleep(120); "
+        if marker is None
+        else f"RAISE EXCEPTION '{marker}' USING ERRCODE='P0001'; "
+    )
     try:
         async with test_engine.begin() as db:
             await db.execute(
@@ -544,8 +552,8 @@ async def _install_task_failure_trigger(test_engine, marker: str) -> tuple[str, 
                     "LANGUAGE plpgsql AS $$ BEGIN "
                     "IF NEW.file_type='point_cloud' "
                     "AND NEW.file_name='scene-0000_000000.pcd' THEN "
-                    f"RAISE EXCEPTION '{marker}' USING ERRCODE='P0001'; "
-                    "END IF; RETURN NEW; END $$"
+                    + action
+                    + "END IF; RETURN NEW; END $$"
                 )
             )
             await db.execute(
@@ -555,17 +563,60 @@ async def _install_task_failure_trigger(test_engine, marker: str) -> tuple[str, 
                 )
             )
     except BaseException:
-        await _drop_task_failure_trigger(test_engine, function, trigger)
+        await _drop_task_trigger(test_engine, function, trigger)
         raise
     return function, trigger
 
 
-async def _drop_task_failure_trigger(test_engine, function: str, trigger: str) -> None:
+async def _drop_task_trigger(test_engine, function: str, trigger: str) -> None:
     async with test_engine.begin() as db:
         await db.execute(
             text(f"DROP TRIGGER IF EXISTS {trigger.split('.')[-1]} ON public.tasks")
         )
         await db.execute(text(f"DROP FUNCTION IF EXISTS {function}()"))
+
+
+async def _wait_for_import_pause(test_engine, pending) -> dict:
+    async with asyncio.timeout(30):
+        while True:
+            if pending.done():
+                raise AssertionError(pending.result().evidence)
+            async with test_engine.connect() as db:
+                sessions = (
+                    (
+                        await db.execute(
+                            text(
+                                "SELECT pid, client_addr::text AS client_addr, "
+                                "wait_event_type, wait_event "
+                                "FROM pg_catalog.pg_stat_activity "
+                                "WHERE datname=current_database() "
+                                "AND usename='legacy_runtime' AND state='active' "
+                                "AND wait_event_type='Timeout' AND wait_event='PgSleep'"
+                            )
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+            if sessions:
+                assert len(sessions) == 1
+                return dict(sessions[0])
+            await asyncio.sleep(0.1)
+
+
+async def _wait_for_import_disconnect(test_engine) -> None:
+    async with asyncio.timeout(15):
+        while True:
+            async with test_engine.connect() as db:
+                count = await db.scalar(
+                    text(
+                        "SELECT count(*) FROM pg_catalog.pg_stat_activity "
+                        "WHERE datname=current_database() AND usename='legacy_runtime'"
+                    )
+                )
+            if count == 0:
+                return
+            await asyncio.sleep(0.1)
 
 
 async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabilities(
@@ -648,6 +699,7 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
             record_property(
                 "workspace_import_missing_capability", missing_capability.evidence
             )
+            assert not missing_capability.timed_out
             assert missing_capability.exit_code != 0, missing_capability.stdout
             assert (
                 "permission denied for function create_import_project"
@@ -669,13 +721,12 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
 
         trigger_name = "workspace-import-trigger-" + uuid.uuid4().hex[:8]
         trigger_marker = "workspace_import_cli_late_task_" + uuid.uuid4().hex[:12]
-        function, trigger = await _install_task_failure_trigger(
-            test_engine, trigger_marker
-        )
+        function, trigger = await _install_task_trigger(test_engine, trigger_marker)
         keys_before_trigger = await _object_keys(owner_s3, datasets_bucket)
         try:
             late_failure = await asyncio.to_thread(cli.run, dataset_name=trigger_name)
             record_property("workspace_import_late_task_failure", late_failure.evidence)
+            assert not late_failure.timed_out
             assert late_failure.exit_code != 0, late_failure.stdout
             assert trigger_marker in late_failure.stderr, late_failure.stderr
             await _assert_reimport_transaction_rolled_back(test_engine)
@@ -685,9 +736,36 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
             )
             assert keys_before_trigger <= keys_after_trigger
         finally:
-            await _drop_task_failure_trigger(test_engine, function, trigger)
+            await _drop_task_trigger(test_engine, function, trigger)
 
-        dataset_name = "workspace-import-success-" + uuid.uuid4().hex[:8]
+        function, trigger = await _install_task_trigger(test_engine)
+        keys_before_cancel = await _object_keys(owner_s3, datasets_bucket)
+        dataset_name = "workspace-import-recovery-" + uuid.uuid4().hex[:8]
+        pending = asyncio.create_task(
+            asyncio.to_thread(cli.run, dataset_name=dataset_name)
+        )
+        try:
+            paused_session = await _wait_for_import_pause(test_engine, pending)
+            record_property("workspace_import_cancel_paused_session", paused_session)
+            await _assert_empty_owned_rows(test_engine)
+            keys_during_cancel = await _object_keys(owner_s3, datasets_bucket)
+            assert keys_during_cancel - keys_before_cancel
+            assert await asyncio.to_thread(cli.stop_current_container)
+            cancelled = await pending
+            record_property("workspace_import_cancelled", cancelled.evidence)
+            assert cancelled.exit_code in {137, 143}, cancelled.evidence
+            assert cancelled.externally_stopped and not cancelled.timed_out
+            await _wait_for_import_disconnect(test_engine)
+            await _assert_reimport_transaction_rolled_back(test_engine)
+            assert keys_during_cancel == await _object_keys(owner_s3, datasets_bucket)
+        finally:
+            try:
+                if not pending.done():
+                    await asyncio.to_thread(cli.stop_current_container)
+                await pending
+            finally:
+                await _drop_task_trigger(test_engine, function, trigger)
+
         first = await asyncio.to_thread(cli.run, dataset_name=dataset_name)
         record_property("workspace_import_success", first.evidence)
         assert first.exit_code == 0, first.stderr
@@ -739,6 +817,7 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
         raw_lidar.write_bytes(original_lidar + b"\x00source-drift")
         stale_source = await asyncio.to_thread(cli.run, dataset_name=dataset_name)
         record_property("workspace_import_stale_source", stale_source.evidence)
+        assert not stale_source.timed_out
         assert stale_source.exit_code != 0, stale_source.stdout
         assert "source drift" in stale_source.stderr.lower(), stale_source.stderr
         stale_state = await _read_import_state(test_engine, dataset_id, project_id)
