@@ -222,6 +222,17 @@ GRANT EXECUTE ON FUNCTION
     aap_workspace_owner_transfer_v1.owner_transfer_policy(),
     aap_workspace_owner_transfer_v1.transfer_project_owner(jsonb)
     TO :"application_role";
+GRANT USAGE ON SCHEMA aap_workspace_configuration_v1,
+    aap_workspace_template_query_v1, aap_workspace_directory_query_v1
+    TO :"application_role";
+GRANT EXECUTE ON FUNCTION
+    aap_workspace_configuration_v1.configuration_policy(),
+    aap_workspace_configuration_v1.configuration_step(jsonb,text,jsonb,text[],text[]),
+    aap_workspace_template_query_v1.template_query_policy(),
+    aap_workspace_template_query_v1.template_query_step(jsonb,text,jsonb,text,text[],text),
+    aap_workspace_directory_query_v1.directory_query_policy(),
+    aap_workspace_directory_query_v1.directory_query_step(jsonb,text,jsonb)
+    TO :"application_role";
 GRANT USAGE ON SCHEMA aap_workspace_project_query_v1 TO :"application_role";
 GRANT EXECUTE ON FUNCTION
     aap_workspace_project_query_v1.project_query_policy(),
@@ -242,6 +253,7 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
     aap_workspace_v1.read_project_row(uuid),
     aap_workspace_v1.actor_project_memberships(uuid),
     aap_workspace_project_query_v1.project_search_scope(uuid, text),
+    aap_workspace_project_query_v1.project_search_member_ids(uuid, text),
     aap_workspace_v1.lock_project_references_for_update(uuid[]),
     aap_workspace_v1.lock_project_member_reference(uuid, uuid, boolean),
     aap_workspace_v1.project_member_rows(uuid, uuid[], boolean),
@@ -425,7 +437,13 @@ GRANT USAGE ON SCHEMA aap_assets_v1 TO :"asset_cleanup_role";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions_v2(
     text, timestamptz, uuid, uuid, integer
 ),
-    aap_assets_v1.complete_storage_deletion(uuid, uuid)
+    aap_assets_v1.complete_storage_deletion(uuid, uuid),
+    aap_assets_v1.claim_image_garbage(uuid,integer,integer),
+    aap_assets_v1.complete_image_garbage(uuid,uuid),
+    aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer),
+    aap_assets_v1.complete_accepted_input_garbage(uuid,uuid),
+    aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer),
+    aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)
     TO :"asset_cleanup_role";
 ALTER DEFAULT PRIVILEGES FOR ROLE :"migration_role" IN SCHEMA public
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"application_role";
@@ -470,6 +488,16 @@ END $$;
 DO $$
 DECLARE
     relation oid;
+    cleanup_functions oid[] := ARRAY[
+        'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)'::regprocedure::oid,
+        'aap_assets_v1.complete_storage_deletion(uuid,uuid)'::regprocedure::oid,
+        'aap_assets_v1.claim_image_garbage(uuid,integer,integer)'::regprocedure::oid,
+        'aap_assets_v1.complete_image_garbage(uuid,uuid)'::regprocedure::oid,
+        'aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)'::regprocedure::oid,
+        'aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)'::regprocedure::oid,
+        'aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)'::regprocedure::oid,
+        'aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)'::regprocedure::oid
+    ];
 BEGIN
     FOR relation IN
         SELECT catalog.oid
@@ -528,6 +556,11 @@ BEGIN
         RAISE EXCEPTION 'The Assets cleanup role has access outside Assets';
     END IF;
 
+    IF (SELECT count(*) FROM unnest(cleanup_functions) AS function(oid)
+        WHERE has_function_privilege(current_setting('aap.asset_cleanup_role'),function.oid,'EXECUTE')) <> 8 THEN
+        RAISE EXCEPTION 'The Assets cleanup role is missing an approved cleanup function';
+    END IF;
+
     IF EXISTS (
         SELECT 1
         FROM pg_catalog.pg_proc AS proc
@@ -535,15 +568,12 @@ BEGIN
           ON namespace.oid = proc.pronamespace
         WHERE pg_catalog.left(namespace.nspname, 4) = 'aap_'
           AND pg_catalog.right(namespace.nspname, 3) = '_v1'
-          AND proc.oid NOT IN (
-              'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)'::pg_catalog.regprocedure,
-              'aap_assets_v1.complete_storage_deletion(uuid,uuid)'::pg_catalog.regprocedure
-          )
+          AND NOT proc.oid = ANY(cleanup_functions)
           AND pg_catalog.has_function_privilege(
               current_setting('aap.asset_cleanup_role'), proc.oid, 'EXECUTE'
           )
     ) THEN
-        RAISE EXCEPTION 'The Assets cleanup role can execute outside its two outbox functions';
+        RAISE EXCEPTION 'The Assets cleanup role can execute outside its eight cleanup functions';
     END IF;
 END $$;
 COMMIT;

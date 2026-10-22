@@ -398,8 +398,8 @@ UUID、素材 UUID 数组与唯一操作 UUID，返回 `aap-task-append/v1` JSON
 独立数据接口使用 Identity、Workspace、Assets、Jobs、Labeling、Learning、Inference、
 Insights、Diagnostics、Export、Audit、Settings、Notifications 十三个无登录函数 owner；基础授权脚本另使用
 `append_client`、`asset_cleanup_client` 和 `labeling_mask_gc_client` 三个独立登录角色。
-其中 `asset_cleanup_client` 只可使用 `aap_assets_v1` 的四项清理函数：
-既有 storage outbox 的领取/确认，以及图片垃圾的领取/确认；`append_client` 不可调用这些清理函数。
+其中 `asset_cleanup_client` 只可使用 `aap_assets_v1` 的八项清理函数：
+storage outbox、图片垃圾、保留图片输入和保留视频输入各自的领取/确认；`append_client` 不可调用这些清理函数。
 `infra/docker/module-data-grants.sql` 只向显式数据库中的既有角色授权，不创建角色或
 修改密码。部署操作者先提供角色及迁移者向其转交函数的权限，再运行：
 
@@ -2336,3 +2336,22 @@ backend 的 epoch／incarnation 都需重新核验，完成后由普通 claim �
 普通 AUTH、key-management 与建题 LOGIN 不获得这项能力。源码及定向验收见
 [ADR-0161](docs/adr/0161-identity-current-authority-consumers.md)，完整 Identity 的冷安装、
 容器和恢复证据见上文“Identity 整模块私网验收”，与这里的定向结果独立保留。
+
+### Workspace 普通调用账号权限
+
+在迁移、`module-data-grants.sql` 和现有应用授权之后，由迁移账号对选定普通 API／
+worker LOGIN 显式执行下面的配置。连接参数由当前隔离环境提供；不要使用日常库
+进行验收或把 seed／截图操作账号作为普通调用账号。
+
+```bash
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v workspace_owner=workspace_code -v consumer_role=ordinary_api_role \
+  -f infra/docker/workspace-consumer-grants.sql
+```
+
+该配置只保留32项 Workspace 固定函数和两张事实视图，撤销私表／列、内部回执、
+项目序列和私有 schema 创建权限，同时移除未来 public 表／序列的宽默认授权。
+其他领域当前权限和 Labeling 计数关系保持。错误身份或遗留 PUBLIC 权限会使整份
+配置回滚；迁移者继承运行账号的维护方向仍允许。迁移或重新执行宽授权后需重跑。
+旧应用授权已补齐默认配置／模板／目录及成员搜索能力。完整边界见
+[Workspace 运行指南](docs-site/api/guides/workspace-runtime.md#普通消费者的-sql-凭据边界)。

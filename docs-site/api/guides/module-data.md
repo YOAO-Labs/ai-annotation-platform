@@ -139,8 +139,8 @@ Workspace 拥有 `aap_workspace_v1.project_member_facts` 安全屏障视图，�
 不获得视图写入或锁行权限；PUBLIC 无权限。
 
 关系可在原 SQL 内联接、聚合及参与 Task UPDATE 的相关 NOT EXISTS。调用方继续
-持有授权、账号校验和事务，保留各操作的不同规则。默认应用账号仍使用兼容宽权限，
-完整模块凭据待集中收紧；受限账号验收的具体范围见
+持有授权、账号校验和事务，保留各操作的不同规则。普通账号可显式应用
+[Workspace 凭据边界](./workspace-runtime#普通消费者的-sql-凭据边界)；完整模块装配仍待验收。具体范围见
 [运行指南](./workspace-runtime#非锁定成员集合与名册)和
 [ADR-0174](/dev/adr/0174-workspace-nonlocking-member-facts)。
 

@@ -144,3 +144,15 @@ full module credentials/artifacts/restore remain separate. See
 [ADR-0178](../../docs/adr/0178-video-retirement-deletion-fences.md).
 See [ADR-0177](../../docs/adr/0177-workspace-caller-transaction-dataset-unlink.md)
 and the single module ledger.
+
+Ordinary API/worker LOGINs can apply the explicit Workspace consumer profile after
+owner and legacy application grants. It retains 32 fixed functions and the two
+contracted facts views while removing private relation/column, receipt, sequence,
+helper and schema-CREATE access. Broad default grants on future public tables and
+sequences are removed for that consumer. Labeling counter facts and unrelated
+current privileges remain. Seed/screenshot operators retain a separate profile;
+the migrator may retain its existing inheritance of the ordinary runtime role.
+Thirteen local cases qualify this credential boundary, including actual HTTP,
+Node and worker-service rollback. Eight existing module-role cases also pass;
+legacy API grants retain the existing eight cleanup-worker capabilities. Complete-module cold artifacts/assembly/restore
+remain separate. See ADR-0179 and the single module ledger.

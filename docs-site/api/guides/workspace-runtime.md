@@ -395,3 +395,22 @@ membership_busy 与账号 → 项目 → 成员锁序，不解码无关时间列
 幂等头。持有原 operation ID 的内部调用方可重放冻结回执，仍受 Native 当前 active-actor
 检查约束。受限 Node、Python 和实际公开 API 定向检查通过；未退役时由上述门禁返回
 409。无证明旧作业的排空／修复及完整资格仍见[唯一模块台账](/dev/concepts/module-deployment#剩余工作台账)。
+
+## 普通消费者的 SQL 凭据边界
+
+普通 API／worker 的 Workspace 本地调用使用既有32个固定函数及两张事实视图。
+`infra/docker/workspace-consumer-grants.sql` 可在 owner 与兼容应用授权后显式应用，
+撤销项目、成员、模板、删除／解绑回执和内部状态的表／列权限，以及项目序列、
+私有 schema 创建和内部 helper 权限。固定视图仍为38列项目事实与9列成员事实；
+项目计数继续从 Labeling 的公开关系读取。它不改变请求的连接、提交或权限校验。
+
+配置脚本拒绝不匹配的数据库、owner、管理账号和普通账号向外的角色继承，并检查
+有效的 PUBLIC 权限；失败整份回滚。迁移者可保持继承运行账号的既有维护方向。
+未来 public 表／序列不再自动获得宽权限；迁移或重新应用兼容授权后应重新执行配置。
+显式 seed／截图准备使用单独操作账号；普通账号不再直接读写这些私表。
+
+兼容部署脚本也提供默认同事务配置、模板及目录查询的 policy／step 和成员搜索能力，
+无需为了补权限而改选连接。13项本地定向案例通过，含真实HTTP生命周期与搜索、
+Node、worker计数及回滚，另有8项既有角色回归通过。兼容授权保持清理 worker
+已有的八项函数，避免重新授权 API 时退回两项 outbox 能力。完整模块冷工件／装配／恢复仍待集中验收，见
+[ADR-0179](/dev/adr/0179-workspace-consumer-credential-closure)。

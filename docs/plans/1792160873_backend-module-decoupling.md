@@ -6147,3 +6147,82 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   recovery or complete Workspace deployment. The active goal remains unchanged.
   Next bounded deliverable is a reliable legacy drain/repair evidence path;
   unrelated independent module assembly may proceed where prerequisites allow.
+
+### Workspace ordinary-consumer credential closure
+
+- Previous goal turn is concrete progress: retirement deletion gate source
+  b897a9a3766b4056ee6f831b6c8f850dbdbc705d and evidence
+  64c8c22b804859c1d76e5b3f56b814c1a85653e4. Root starts this slice clean.
+- Source-only legacy recovery audit distinguishes current proof-bound recovery,
+  old durable tracker scopes without a complete per-job coordinator/worker fence,
+  and earlier/off/observe requests without a durable physical identity. Existing
+  global restore requires externally fenced source actors/credentials and actual
+  original backend retirement responses; its fence hash is a reference, not a
+  Native machine verification. No status flip, absent-row inference, synthetic
+  journal or operator assertion is accepted as retirement. Old no-proof records
+  remain409. Receipt: .worktree/legacy-video-retirement-feasibility.json. This
+  analysis is not runtime qualification. Independent Workspace assembly continues.
+- Read-only source audit inventories32 ordinary Workspace calls, two Workspace
+  facts views and the separate Labeling counter relation. Production raw
+  Project/ProjectMember/ProjectTemplate access is absent from ordinary consumers;
+  explicit seed/screenshot operators remain separate. Root adds an opt-in
+  consumer ACL profile on the existing LOGIN/transaction, with no new service,
+  DSN or runtime variable. It removes private tables/column ACLs, receipts,
+  sequences, helpers, schema CREATE and future public relation broad defaults.
+  Fixed function ownership/security and view layouts are checked. Effective
+  PUBLIC/ownership leaks reject the whole transaction. Existing migration-owner
+  inheritance of a runtime role is permitted; the runtime cannot inherit others.
+- Minimal1-case verification first fails on a test-only nonexistent helper name;
+  corrected fixture then exposes an actual SQL evaluation issue: planner calls
+  has_sequence_privilege for an index despite a relkind AND filter. CASE guards
+  the function's argument. The minimal corrected case passes before expansion.
+- Expanded11 cases yield10 passes and a Node fixture dependency-resolution
+  failure. Root uses the existing conformance package's pg dependency rather
+  than installing one; the one Node case then passes. Existing deployment grants
+  also omit embedded configuration/template/directory and member search. A
+  new minimal case actually fails42501 before the grant change. Root adds three
+  schema USAGE grants, six policy/step functions and the member-search TVF; the
+  one failure replays successfully. Original logs/JUnit/real exits remain.
+- Effective union:13 distinct passes, zero effective failures/errors/skips:
+  11 Native/profile/transaction/worker/legacy,1 real HTTP lifecycle/search,1 Node.
+  The closed profile always revokes and regrants the same fixed32 functions, so
+  adding those already-allowed7 legacy grants does not invalidate its passing
+  cases. No completed business checks are repeated for counts. Frozen SQL and
+  migration head0300 remain unchanged; owned verifier roundtrips pass. Aggregate:
+  .worktree/workspace-consumer-profile-qualification.json.
+- ADR-0179 and the sole ledger close only this local ordinary-consumer SQL
+  credential boundary. Whole Workspace cold artifacts, combined owner/API
+  assembly, backup/restore and bounded capacity qualification are the next
+  coherent milestone. The historical no-proof physical-drain prerequisite stays
+  explicit. Primary is not cut over; no push/release/production/Go expansion.
+
+- Final integration review finds that running the legacy grant script inside a
+  fixture transfers maintenance partition/materialized-view ownership. Root
+  snapshots/restores those owners, removes temporary LOGINs/ACLs and future test
+  relations, and preserves audited data. Minimal profile plus append role pass.
+  All13 profile cases pass again; extended role checks uncover cleanup privileges
+  missing. A separate temporary cleanup LOGIN does not remove the failure; the
+  existing cleanup case also fails alone in a fresh verifier before any Workspace
+  fixture. This proves a pre-existing deployment-order defect rather than merely
+  fixture pollution: the final API-consumer legacy-grant phase truncates the
+  actual Cleanup role to2 functions while its current worker requires8.
+- Legacy grant installation now retains exactly the existing8 Cleanup capabilities,
+  checks all8 are present, and rejects any extra function. No private table or
+  other-domain privilege is added. Minimal profile plus the original Cleanup
+  case pass. The final effective union is21 distinct passes:13 Workspace and8
+  existing role cases, zero effective failures/errors/skips. Other passing cases
+  remain applicable: the unused temporary cleanup identity only isolates setup,
+  and the Cleanup grant correction leaves the fixed32 Workspace profile unchanged.
+  Original failures and real exits are retained. The profile/worker docs state
+  the extra existing-role regression scope separately.
+- Focused checks pass: pinned Ruff/format, Prettier, Node syntax,20 grant/selection
+  units,358 applicable architecture cases plus150 explicitly inapplicable rules,
+  unchanged OpenAPI, docs build and diff. The first unit invocation omitted the
+  scripts PYTHONPATH; its original import failure remains and the corrected20-unit
+  invocation passes. Later fixture/grant/doc corrections do not change package
+  architecture or public OpenAPI; formatting/docs/diff are checked after them.
+
+- Final delta Ruff/format, Prettier, docs build and diff pass after fixture and
+  Cleanup grant corrections. Architecture remains358+150 and explicit OpenAPI
+  unchanged; completed package/architecture checks are reused. No cold install
+  or image rebuild is claimed for this SQL deployment-profile milestone.
