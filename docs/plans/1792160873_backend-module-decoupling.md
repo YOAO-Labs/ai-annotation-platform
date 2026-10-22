@@ -6414,3 +6414,9 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   the missing flush, retaining the original failed log/JUnit and real exit. All
   migrations and owned cleanup pass with no errors; no worker task is claimed
   as executed by this attempt.
+- Second worker run starts the actual cold prefork process, receives a broker
+  delivery, observes its real API-consumer PostgreSQL connection, calls the
+  deterministic backend and stores a SUCCESS result. The acknowledgement
+  fixture then calls values() on its tuple of active/reserved replies. Root
+  fixes the flattening expression; the actual task and its original diagnostics
+  remain recorded, but terminal-row/restart acceptance is not yet claimed.

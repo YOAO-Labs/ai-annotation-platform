@@ -258,8 +258,9 @@ async def _wait_broker_ack(sender: Celery, worker: WorkspaceCeleryWorker, task_i
             reserved = await asyncio.to_thread(inspect.reserved)
             outstanding = [
                 task
-                for snapshots in (active or {}, reserved or {}).values()
-                for task in snapshots or []
+                for snapshot in (active or {}, reserved or {})
+                for tasks in snapshot.values()
+                for task in tasks or []
                 if task.get("id") == str(task_id)
             ]
             if (
