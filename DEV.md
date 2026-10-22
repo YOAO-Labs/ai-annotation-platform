@@ -788,7 +788,9 @@ AAP_IDENTITY_RECORDING_FIXTURE_LIVE=1 \
   --test-file tests/test_identity_recording_live.py
 ```
 
-冷工件、权限撤销／恢复和物理取消资格按
+一个冷案例的 23 次原始 CLI 容器调用已通过，包含权限撤销／恢复、物理取消 137、
+真实后端释放、未提交值回滚及恢复。owner／API 工件分别匹配 286／1,318 个文件。
+收据见 `.worktree/identity-recording-qualification.json`，整体状态按
 [唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)记录。这不替代实际
 浏览器录制、ML 推理或完整录制工作流验收；旧媒体资产和人工审阅来源不被重写。
 

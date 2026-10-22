@@ -7122,7 +7122,33 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   row lock, and actual \_e2e, \_dev and \_TEST databases. The first run passed the three
   suffix cases but had two missing-fixture setup errors. After fixture registration,
   only those two cases were rerun and passed. All failed receipts are retained.
-- Source and installed cold qualification are in progress; do not infer completion
-  of Identity or the full recording workflow from this consumer slice. The next
-  concrete Identity prerequisite is the gated \_test_seed/\_test_seed_filters runtime
-  routes that still create/delete users and invitations through tests.factory.
+- Implementation c59ea11a024521820e736499690db79965428643 integrates owner source
+  882a3fa3dd8b0587731a6a0f9ccd63566bc4ab0e as c3d020f2e, and cold source
+  7abd647570863126d4c13bcaef64c33e0d6150c8 as bd37b8b55. Root corrected the
+  physical suffix guard, descriptor $defs, fixture registration, qualified
+  function comparisons, synchronous file calls and the cold grant selection.
+- Source checks passed 392 with 150 existing architecture deferrals; tool checks
+  passed 58 and OpenAPI remained unchanged. Owner and API installed artifacts
+  matched 286 and 1,318 files respectively. Unchanged Inference/Assets-source
+  artifacts were reused, rather than rebuilt for counts.
+- One cold installed-image case passed 23 actual original-CLI container calls.
+  Scope/user failures, repeat operations and capability revocation preserved the
+  prior state. Restoring EXECUTE recovered the write. Physical cancellation was
+  correlated with the exact Native query, legacy_runtime role, container IP and
+  PostgreSQL PID; exit 137 released the backend, rolled back the new preferences,
+  and a later execution recovered. The verifier removed every owned resource,
+  and full migrations plus frozen SQL installation/rollback passed at head 0304.
+- The first Native attempt failed descriptor preflight before resource allocation
+  because $defs was absent. Its original receipt is retained; no test pass is
+  attributed to it. The extra Native setup failure is retained separately above.
+- Root archived verified incremental Git bundles, binary patches and ignored Ruff
+  caches for both clean source workers before removing only those two owned
+  checkouts. Their branches remain. Shared infrastructure, editable bindings and
+  the protected primary must match the final preservation receipt.
+- The documentation build passed in 17.244 seconds. This qualifies only the three
+  consumers' Identity operations on local ARM64, not their other domain writes,
+  browser media, real ML, the full recording workflow, production capacity, remote
+  CI or primary runtime cutover. Existing media provenance/review hashes remain
+  unchanged; no recording was regenerated. The next concrete Identity prerequisite
+  is the gated `_test_seed`/`_test_seed_filters` runtime routes that still
+  create/delete users and invitations through `tests.factory`.
