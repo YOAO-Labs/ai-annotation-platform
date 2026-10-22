@@ -2355,3 +2355,45 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 配置回滚；迁移者继承运行账号的维护方向仍允许。迁移或重新执行宽授权后需重跑。
 旧应用授权已补齐默认配置／模板／目录及成员搜索能力。完整边界见
 [Workspace 运行指南](docs-site/api/guides/workspace-runtime.md#普通消费者的-sql-凭据边界)。
+
+### Workspace 组合私网验收
+
+准备当前源码的非 editable Workspace 工件，以及下表四个冷镜像。每个镜像设置唯一的
+`org.aap.acceptance-id`，并用当前提交设置 `org.aap.source-revision`；对应 `IDENTITY`
+变量须与该镜像标签一致。六个 Workspace 服务复用同一个 owner 镜像。
+
+| Dockerfile                      | `org.aap.acceptance`             | 镜像／身份环境变量                                                                        |
+| ------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------- |
+| `apps/workspace/Dockerfile`     | `workspace-module-owner`         | `AAP_WORKSPACE_MODULE_IMAGE`／`AAP_WORKSPACE_MODULE_IDENTITY`                             |
+| `infra/docker/Dockerfile.api`   | `workspace-module-api`           | `AAP_WORKSPACE_MODULE_API_IMAGE`／`AAP_WORKSPACE_MODULE_API_IDENTITY`                     |
+| `apps/inference/Dockerfile`     | `workspace-module-inference`     | `AAP_WORKSPACE_MODULE_INFERENCE_IMAGE`／`AAP_WORKSPACE_MODULE_INFERENCE_IDENTITY`         |
+| `apps/assets-source/Dockerfile` | `workspace-module-assets-source` | `AAP_WORKSPACE_MODULE_ASSETS_SOURCE_IMAGE`／`AAP_WORKSPACE_MODULE_ASSETS_SOURCE_IDENTITY` |
+
+配置上述变量后，每个案例单独使用一个新的验收数据库：
+
+```bash
+AAP_WORKSPACE_MODULE_ASSEMBLY_LIVE=1 apps/api/.venv/bin/python \
+  scripts/verify_module_data_boundary.py --output .worktree/workspace-module-assembly.json \
+  --test-file tests/test_workspace_module_assembly_live.py
+```
+
+该入口复用六个现有 Workspace Compose 片段，另起 API、Inference probe 和 Guide 对象
+服务；只连接验收器拥有的 PostgreSQL／Redis 私网。测试保留 seeded 业务行直到整库销毁，
+完整恢复 clone 先检查所有权标记和连接，再删除；不终止未知连接。对象身份只覆盖隔离桶／
+前缀，API 启动凭据不能读写源对象。普通 API 最后应用 Workspace consumer 权限配置，
+私表读取拒绝，借用事务操作通过固定函数执行。
+
+API 的容器就绪检查覆盖 DB／Redis／MinIO；该组合未启动 Celery，总 `/health` 仍可返回
+503。组合案例已通过故障拒绝、重启重放、事务共同回滚和真实恢复后的 API／owner 检查。
+实际 Celery 的后续独占案例使用同一个 API 冷镜像，当前仍待执行：
+
+```bash
+AAP_WORKSPACE_WORKER_ASSEMBLY_LIVE=1 apps/api/.venv/bin/python \
+  scripts/verify_module_data_boundary.py --output .worktree/workspace-worker-assembly.json \
+  --test-file tests/test_workspace_worker_assembly_live.py
+```
+
+worker 案例检查真实 broker 投递、Native 项目资料、结果 owner 写入、消息确认和进程重启；
+确定性 HTTP peer 只用于协议联通，不证明真实 ML、来源读取或公共 retry 入队端点。
+当前通过边界、有限本地采样与遗留视频恢复缺口见
+[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。主环境不自动切换。

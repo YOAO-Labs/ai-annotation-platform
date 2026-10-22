@@ -310,7 +310,7 @@ Session 执行既有 Native 函数。独立调用方可用
 
 本地资格覆盖调用边界及[视频退役门禁](./module-data#视频退役与删除围栏)。未退役时
 返回 video_execution_not_retired 409，锁竞争沿用 project_busy；两者均保留原事务。
-旧作业无证明的排空／修复入口仍缺，完整 Workspace 凭据、工件与恢复继续按台账验收。
+旧作业无证明的排空／修复入口仍缺；组合凭据、冷工件和恢复的本地资格见[模块台账](/dev/concepts/module-deployment#workspace-组合运行与恢复验收)。
 
 ## 项目范围、看板与列表读取
 

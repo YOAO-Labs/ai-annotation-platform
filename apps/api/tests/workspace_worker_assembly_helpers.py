@@ -166,7 +166,7 @@ class WorkspaceCeleryWorker:
     def restart(self) -> None:
         if self.container_id is None:
             raise RuntimeError("Worker container has not been created")
-        self._verify_owned_container()
+        self._verify_container_record(self._inspect(self.container_id))
         self._docker("restart", "--time", "20", self.container_id, timeout=45)
         self.assert_runtime()
         self.assert_private_network()
@@ -287,6 +287,10 @@ class WorkspaceCeleryWorker:
             "container_id": record.get("Id"),
             "image_id": record.get("Image"),
             "restart_count": (record.get("RestartCount") or 0),
+            "started_at": (record.get("State") or {}).get("StartedAt"),
+            "database_client_address": record["NetworkSettings"]["Networks"][
+                self.network_name
+            ]["IPAddress"],
             "running": (record.get("State") or {}).get("Running") is True,
             "user": config.get("User"),
             "read_only": host.get("ReadonlyRootfs"),
@@ -325,8 +329,16 @@ class WorkspaceCeleryWorker:
                 else None
             )
             if record is not None:
-                output = self._docker("logs", "--tail", "250", self.container_id)
-                records["logs"] = self.redact(output)
+                output = subprocess.run(
+                    ["docker", "logs", "--tail", "250", self.container_id],
+                    env=self._docker_environment,
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                    check=False,
+                )
+                records["logs"] = self.redact(output.stdout + output.stderr)
+                records["log_exit_code"] = output.returncode
         path = ROOT / ".worktree" / f"workspace-worker-{self.identity}.json"
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         path.touch(mode=0o600, exist_ok=True)
@@ -471,10 +483,6 @@ class WorkspaceCeleryWorker:
         return container_url.set(
             host="worker-postgres",
             port=5432,
-            query={
-                **container_url.query,
-                "application_name": f"aap_workspace_worker_{self.identity}",
-            },
         )
 
     def _role_dsn(self, variable: str, role: str) -> URL:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -14,19 +13,16 @@ from urllib.parse import urlsplit
 import uuid
 
 from celery import Celery
-from sqlalchemy import delete, select, text, update
+from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 import pytest
 
 from app.db.models.async_job import AsyncJob
-from app.db.models.audit_log import AuditLog
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
-from app.db.models.project import Project
 from app.db.models.task import Task
-from app.db.models.user import User
 from tests.project_guide_asset_owner_helpers import (
     assert_workspace_identity,
     create_guide_storage_scope,
@@ -255,9 +251,7 @@ async def _wait_broker_ack(sender: Celery, worker: WorkspaceCeleryWorker, task_i
     deadline = asyncio.get_running_loop().time() + 20
     while asyncio.get_running_loop().time() < deadline:
         if await asyncio.to_thread(lambda: result.state) == "SUCCESS":
-            queue_size = await asyncio.to_thread(
-                _broker_queue_size, sender, worker.queue
-            )
+            broker = await asyncio.to_thread(_broker_state, sender, worker.queue)
             inspect = sender.control.inspect(timeout=1, destination=[worker.node_name])
             active = await asyncio.to_thread(inspect.active)
             reserved = await asyncio.to_thread(inspect.reserved)
@@ -267,8 +261,16 @@ async def _wait_broker_ack(sender: Celery, worker: WorkspaceCeleryWorker, task_i
                 for task in snapshots or []
                 if task.get("id") == str(task_id)
             ]
-            if queue_size == 0 and not outstanding:
-                return
+            if (
+                active is not None
+                and reserved is not None
+                and worker.node_name in active
+                and worker.node_name in reserved
+                and broker["queue_size"] == 0
+                and broker["unacknowledged"] == 0
+                and not outstanding
+            ):
+                return {"task_id": str(task_id), **broker, "worker_answered": True}
         await asyncio.sleep(0.25)
     raise AssertionError(
         "Celery result was stored but the broker message stayed outstanding"
@@ -281,22 +283,28 @@ async def _wait_backend_request(event: threading.Event, worker) -> None:
     worker.assert_runtime()
 
 
-def _broker_queue_size(sender: Celery, queue: str) -> int:
+def _broker_state(sender: Celery, queue: str) -> dict[str, int]:
     with sender.connection_for_read() as connection:
-        return connection.default_channel._size(queue)
+        channel = connection.default_channel
+        return {
+            "queue_size": channel._size(queue),
+            "unacknowledged": channel.client.hlen(channel.unacked_key),
+        }
 
 
 async def _assert_worker_database_identity(test_engine, worker) -> None:
+    client_address = worker.assert_runtime()["database_client_address"]
+    assert client_address
     async with test_engine.connect() as db:
         active = await db.scalar(
             text(
                 "SELECT count(*) FROM pg_catalog.pg_stat_activity "
                 "WHERE datname=current_database() "
                 "AND usename='identity_api_consumer' "
-                "AND application_name=:application_name "
+                "AND client_addr=CAST(:client_address AS inet) "
                 "AND state IN ('active','idle in transaction','idle')"
             ),
-            {"application_name": f"aap_workspace_worker_{worker.identity}"},
+            {"client_address": client_address},
         )
     assert active >= 1, "worker did not hold a session under identity_api_consumer"
 
@@ -313,61 +321,19 @@ async def _assert_terminal_retry(test_engine, world, task_result_value) -> None:
         assert job.payload["project_name"] == world["project_name"]
         assert job.result["success_count"] == 1
         assert job.result["failed_count"] == 0
-        assert (
-            await db.scalar(
-                select(Prediction.id).where(Prediction.task_id == world["task_id"])
-            )
-            is not None
+        prediction = await db.scalar(
+            select(Prediction).where(Prediction.task_id == world["task_id"])
         )
+        assert prediction is not None
+        assert prediction.model_version == "workspace-worker-assembly-fixture"
+        meta = await db.scalar(
+            select(PredictionMeta).where(PredictionMeta.prediction_id == prediction.id)
+        )
+        assert meta is not None
+        assert meta.prediction_created_at == prediction.created_at
+        assert meta.inference_time_ms == 2
+        assert meta.total_cost == pytest.approx(0.001)
         assert await db.get(FailedPrediction, world["failed_id"]) is None
-
-
-async def _cleanup_retry_worlds(test_engine, worlds) -> None:
-    if not worlds:
-        return
-    maker = async_sessionmaker(test_engine, expire_on_commit=False)
-    async with maker.begin() as db:
-        for world in worlds:
-            await db.execute(
-                update(AsyncJob)
-                .where(
-                    AsyncJob.id == world["job_id"],
-                    AsyncJob.status.in_(["pending", "running"]),
-                )
-                .values(status="failed", completed_at=datetime.now(timezone.utc))
-            )
-            prediction_ids = select(Prediction.id).where(
-                Prediction.task_id == world["task_id"]
-            )
-            failure_ids = select(FailedPrediction.id).where(
-                FailedPrediction.task_id == world["task_id"]
-            )
-            await db.execute(
-                delete(PredictionMeta).where(
-                    PredictionMeta.prediction_id.in_(prediction_ids)
-                    | PredictionMeta.failed_prediction_id.in_(failure_ids)
-                )
-            )
-            await db.execute(
-                delete(Prediction).where(Prediction.task_id == world["task_id"])
-            )
-            await db.execute(
-                delete(FailedPrediction).where(
-                    FailedPrediction.task_id == world["task_id"]
-                )
-            )
-            await db.execute(delete(AsyncJob).where(AsyncJob.id == world["job_id"]))
-            await db.execute(delete(Task).where(Task.id == world["task_id"]))
-            await db.execute(delete(Project).where(Project.id == world["project_id"]))
-            await db.execute(
-                delete(MLBackendRegistry).where(
-                    MLBackendRegistry.id == world["backend_id"]
-                )
-            )
-            await db.execute(
-                delete(AuditLog).where(AuditLog.actor_id == world["actor_id"])
-            )
-            await db.execute(delete(User).where(User.id == world["actor_id"]))
 
 
 async def test_real_celery_retry_worker_uses_native_workspace_acl_and_restarts(
@@ -465,15 +431,25 @@ async def test_real_celery_retry_worker_uses_native_workspace_acl_and_restarts(
                 first_delivery.get, timeout=120, propagate=False
             )
             assert first_delivery.state == "SUCCESS"
-            await _wait_broker_ack(sender, worker, worlds[0]["job_id"])
+            record_property(
+                "first_delivery_ack",
+                await _wait_broker_ack(sender, worker, worlds[0]["job_id"]),
+            )
             await _assert_terminal_retry(test_engine, worlds[0], first_value)
-            first_restart_count = worker.assert_runtime()["restart_count"]
+            before_restart = worker.assert_runtime()
 
             worker.restart()
             await _wait_worker_ready(sender, worker)
-            assert worker.assert_runtime()["restart_count"] == first_restart_count + 1
+            after_restart = worker.assert_runtime()
+            assert after_restart["started_at"] != before_restart["started_at"]
+            assert after_restart["container_id"] == before_restart["container_id"]
+            assert after_restart["image_id"] == before_restart["image_id"]
             assert (
-                await asyncio.to_thread(first_delivery.get, timeout=5, propagate=False)
+                await asyncio.to_thread(
+                    sender.AsyncResult(str(worlds[0]["job_id"])).get,
+                    timeout=5,
+                    propagate=False,
+                )
                 == first_value
             )
 
@@ -488,7 +464,10 @@ async def test_real_celery_retry_worker_uses_native_workspace_acl_and_restarts(
                 second_delivery.get, timeout=120, propagate=False
             )
             assert second_delivery.state == "SUCCESS"
-            await _wait_broker_ack(sender, worker, worlds[1]["job_id"])
+            record_property(
+                "second_delivery_ack",
+                await _wait_broker_ack(sender, worker, worlds[1]["job_id"]),
+            )
             await _assert_terminal_retry(test_engine, worlds[1], second_value)
             assert len(backend_calls) == 2
             assert all(call["path"].endswith("/predict") for call in backend_calls)
@@ -536,10 +515,7 @@ async def test_real_celery_retry_worker_uses_native_workspace_acl_and_restarts(
                         finally:
                             sender.close()
                 finally:
-                    try:
-                        await _cleanup_retry_worlds(test_engine, worlds)
-                    finally:
-                        destroy_guide_scope(guide_scope)
+                    destroy_guide_scope(guide_scope)
 
 
 def _delete_owned_queue(sender: Celery, queue: str) -> None:

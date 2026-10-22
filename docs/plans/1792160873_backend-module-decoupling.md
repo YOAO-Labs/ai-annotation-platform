@@ -6388,3 +6388,24 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   three-state commit and stale baseline409. No new owner selector or grants are
   introduced. The build manifest now discovers all tracked COPY inputs so new
   test helpers participate in the matching API image identity.
+- Seventh assembled case passes on clean sourcebb4b15c7c: all six owners and the
+  cold API, probe/Guide peers, real public operations and selected-owner failure
+  fencing; Native transactions while all six HTTP owners are stopped; quality
+  promotion's forced Audit rollback and successful/stale commits; and full clone
+  restore with all nine processes healthy, project/access authentication,
+  invalid-token401, receipt replay and legacy video409 with intact evidence.
+  This is one integrated acceptance case, not hundreds of individual tests.
+  The16-request/concurrency4 local sample takes1.180s, observed p95.335s. All
+  migrations/artifact rollback/upgrade checks through0300 and owned cleanup pass.
+  Receipt:.worktree/workspace-module-assembly-seventh.json and sibling JUnit/log.
+- Source worker3f9b890854ce1a478d0fd562b7ab51ad4396d171 supplies a real Celery
+  retry/start/ack/restart acceptance. Root integrates it, keeps the ordinary API
+  consumer fence gated to this explicit test selection, and retains all seeded
+  rows until the verifier destroys its unique owned DB. Source review fixes a
+  missing ownership-check method and captures stderr logs as well as stdout.
+  Actual dialect and image reproducers prove that application_name is not an
+  asyncpg kwarg and manual Docker restart leaves RestartCount0. Identity checks
+  instead match the owned container's network address at PostgreSQL, and restart
+  checks require changed StartedAt on the same container/image. Delivery proof
+  requires live inspect replies, empty queue and zero Redis unacknowledged
+  messages. The real worker qualification remains pending execution.
