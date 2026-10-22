@@ -6,7 +6,6 @@ from aap_assets_source.operator_contract import RecountOperatorItemsRequest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
-from app.db.models.project import Project
 from app.services.dataset import DatasetService
 from app.services.assets_operator import AssetsOperatorGateway
 from app.services.project_workspace import create_import_project, find_import_project
@@ -26,10 +25,10 @@ class NuScenesImportWorkflow:
         project_name: str,
         owner_id: uuid.UUID,
         tool_bindings: dict | None,
-    ) -> Project:
-        project = await find_import_project(self.db, project_display_id)
-        if project is None:
-            project = await create_import_project(
+    ) -> uuid.UUID:
+        project_id = await find_import_project(self.db, project_display_id)
+        if project_id is None:
+            project_id = await create_import_project(
                 self.db,
                 display_id=project_display_id,
                 name=project_name,
@@ -38,10 +37,10 @@ class NuScenesImportWorkflow:
             )
 
         assets = DatasetService(self.db)
-        await assets.associate_project(dataset_id, project.id, actor_id=owner_id)
+        await assets.associate_project(dataset_id, project_id, actor_id=owner_id)
         await DatasetTaskCreationWorkflow(self.db).create_tasks_for_linked_dataset(
             dataset_id=dataset_id,
-            project_id=project.id,
+            project_id=project_id,
             actor_id=owner_id,
             commit_calibration=False,
             commit_task_chunks=False,
@@ -52,4 +51,4 @@ class NuScenesImportWorkflow:
                 operation_id=uuid.uuid4(), dataset_id=dataset_id
             )
         )
-        return project
+        return project_id

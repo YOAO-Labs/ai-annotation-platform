@@ -34,8 +34,8 @@ async def promote_point_cloud_quality_evaluation(
         evaluation,
         current_config=project.point_cloud_quality_config,
     )
-    set_point_cloud_quality_config(
-        project=project, config=candidate.model_dump(mode="json")
+    await set_point_cloud_quality_config(
+        db, project=project, config=candidate.model_dump(mode="json")
     )
     record_evaluation_promotion(
         evaluation,
