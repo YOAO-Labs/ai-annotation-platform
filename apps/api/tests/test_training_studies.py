@@ -324,7 +324,9 @@ async def test_lost_child_blocks_next_and_manual_queue_shares_same_resource(
     # PostgreSQL now() is transaction-stable in this rollback fixture. Give the
     # earlier manual request a distinct timestamp before testing FIFO order.
     manual_row = await db_session.get(TrainingRun, uuid.UUID(manual["id"]))
-    manual_row.created_at = runs.now() - timedelta(seconds=1)
+    manual_row.created_at = await db_session.scalar(select(func.now())) - timedelta(
+        seconds=1
+    )
     await db_session.flush()
     _, _, study, _, _, _, _ = await setup(db_session, httpx_client, owner, token)
     claim = native_claim()

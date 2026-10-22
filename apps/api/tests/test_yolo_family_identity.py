@@ -153,6 +153,7 @@ def managed_case(base_model):
     }
     runtime = profile()
     runtime.update(
+        revision=2,
         ultralytics_version="8.4.183",
         implementation="aap-ultralytics-instance-mask"
         if native.task == "segment"
@@ -218,7 +219,7 @@ async def test_managed_profile_requests_exact_frozen_model_and_checks_native_bra
             ref["model_version_id"],
             uuid.UUID(ref["deployment_id"]),
         )
-    assert error.value.detail["code"] == "runtime_unqualified"
+    assert error.value.detail["code"] == "deployment_runtime_changed"
 
 
 @pytest.mark.parametrize(

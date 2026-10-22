@@ -14,6 +14,7 @@ from tests.test_trained_models import (
     controlled_artifacts,  # noqa: F401
     headers,
     mock_live_receipts,
+    next_successful_attempt,
     publish,
     ready_deployment,
     register,
@@ -42,8 +43,9 @@ async def test_task_scoped_generations_history_cas_and_current_metadata(
     owner, token = super_admin
     project, run, attempt = await seed_source(db_session, owner)
     a, _ = await register(httpx_client, token, project, run, attempt)
+    segment_attempt = await next_successful_attempt(db_session, run, attempt)
     b, _ = await register(
-        httpx_client, token, project, run, attempt, name="Segmentation fixture"
+        httpx_client, token, project, run, segment_attempt, name="Segmentation fixture"
     )
     detect = await db_session.get(TrainedModelVersion, uuid.UUID(a["id"]))
     segment = await db_session.get(TrainedModelVersion, uuid.UUID(b["id"]))
