@@ -52,7 +52,7 @@ def _api_url(test_engine):
 
 
 @asynccontextmanager
-async def _world(test_engine):
+async def _world(test_engine, *, retain_audited=False):
     owner, world = await _seed(test_engine)
     url = _api_url(test_engine)
     engine = create_async_engine(
@@ -112,7 +112,9 @@ async def _world(test_engine):
                     ).all()
                     assert after == before
         finally:
-            await _cleanup(owner, world)
+            # Audit rows stay immutable; audited fixtures leave with the owned database.
+            if not retain_audited:
+                await _cleanup(owner, world)
 
 
 async def _assert_private_denied(db):

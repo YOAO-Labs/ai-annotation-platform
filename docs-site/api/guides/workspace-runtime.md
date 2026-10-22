@@ -232,6 +232,20 @@ policy 和 step，不新增角色或服务。
 [ADR-0167](/dev/adr/0167-workspace-unlocked-authority-snapshots)。本项局部资格仍不
 替代完整 Workspace 装配与恢复验收。
 
+## 独占 Project 快照
+
+清理孤儿标注和点云评估晋升通过 `aap-workspace-project-lock/v1` 借用同一请求事务，
+分别保留 NOWAIT 与等待锁。原管理权检查、清理的缓存刷新／无 autoflush、晋升的
+普通缓存／autoflush，以及 evaluation、Audit 和提交顺序不变。锁在调用方结束时释放。
+
+Native `lock_project_row(uuid,boolean)` 不承接权限策略；只返回严格绑定的完整行或
+缺失。等待后在持锁期间生成新快照，避免计数来自等待前的状态。应用授权清单加入
+此单一函数，没有新增角色、服务、连接或 HTTP 提交边界。
+
+受限真实 API、Node、锁、缓存和隔离级别资格见
+[ADR-0168](/dev/adr/0168-workspace-exclusive-project-snapshots)。完整模块装配仍见
+[唯一台账](/dev/concepts/module-deployment#剩余工作台账)。
+
 ## 项目删除的调用方事务
 
 项目删除使用已有 `aap-project-delete/v1` 和

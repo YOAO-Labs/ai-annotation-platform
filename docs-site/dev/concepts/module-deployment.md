@@ -27,9 +27,10 @@ last_reviewed: 2026-10-22
 | Identity：准入、API key、会话、自助账户、恢复及邮件 | 已有各自 owner 与版本化合同；注册策略统一到实际 owner                                     | 已迁移公开入口与邮件消费者，远程 API 不持有 owner 签名密钥                       | [整模块装配](#identity-整模块独立装配)通过冷安装、真实 REST／Socket、邮件和完整恢复                                                               | 私网装配的本地功能资格已闭合；日常签名与运行环境未切换，其他网络拓扑和生产容量未获资格                                                           |
 | Identity：分组、邀请、目录、管理员生命周期          | 已实现分组／邀请、目录、UserBrief、重置密码、角色、暂停／恢复、删除、离职 owner           | 公开入口及内部资料读取使用 owner 或最小公开关系                                  | [整模块装配](#identity-整模块独立装配)覆盖真实 API、Node 重放、账号撤销、职责交接和恢复；操作级证据继续保留                                       | 本地私网功能资格已闭合；未验收另一语言的完整提供方                                                                                               |
 | Identity：账号事实、锁、provisioning、完整装配      | 同事务事实锁、accepted-key 最终围栏、provisioning 及完整运行包已实现                      | 账号权威与集合／展示读取已迁移；验收 API 的 Identity 权限仅为两视图及五函数      | [整模块装配](#identity-整模块独立装配)：658 项安装包检查、匹配冷镜像、完整迁移及两轮私网恢复通过                                                  | 主 API 仍保留兼容装配。旧宿主机转发实验曾出现间歇性 503，根因未确认；私网通过不视为修复该路径                                                    |
-| Workspace：项目、成员、配置及访问                   | 成员、交接、配置／模板、查询及相邻项目写入已实现                                          | nuScenes／点云质量晋升和对应公开入口已迁移，其他选定消费者已迁移                 | [相邻写入](#workspace-相邻项目写入)通过 65 项定向检查；既有运行资格见 [Workspace 协议](/api/guides/workspace-runtime)                             | **下一项独立工作**：独占配置锁及其他 Project 消费者；整模块凭据、工件与恢复待集中验收                                                            |
-| Workspace：当前权限 SHARE／KEY SHARE                | 复用 0270，完整 Project／成员锁定快照与会话同步已实现                                     | 原元组接口、权限端口及实际写入消费者集中切换；保持缓存与 pending work 行为       | [锁定读取](#workspace-锁定权限读取)通过 163 项去重定向检查，包含真实受限 API LOGIN、Node 及三路径时间字段兼容                                     | 本操作的限定源码／Native 调用边界已闭合；完整 Workspace 凭据与冷工件待集中验收，无锁读取见下一行，独占配置路径在上一行跟踪                       |
+| Workspace：项目、成员、配置及访问                   | 成员、交接、配置／模板、查询及相邻项目写入已实现                                          | nuScenes／点云质量晋升和对应公开入口已迁移，其他选定消费者已迁移                 | [相邻写入](#workspace-相邻项目写入)通过 65 项定向检查；既有运行资格见 [Workspace 协议](/api/guides/workspace-runtime)                             | **下一项独立工作**：单项目业务快照、成员锁与集合查询；整模块凭据、工件与恢复待集中验收                                                           |
+| Workspace：当前权限 SHARE／KEY SHARE                | 复用 0270，完整 Project／成员锁定快照与会话同步已实现                                     | 原元组接口、权限端口及实际写入消费者集中切换；保持缓存与 pending work 行为       | [锁定读取](#workspace-锁定权限读取)通过 163 项去重定向检查，包含真实受限 API LOGIN、Node 及三路径时间字段兼容                                     | 本操作的限定源码／Native 调用边界已闭合；完整 Workspace 凭据与冷工件待集中验收，其余操作在本台账跟踪                                             |
 | Workspace：当前权限无锁读取                         | 初始 Project 无锁阶段、现有 Query facts 和完整快照同步已实现                              | by-id 与直接 helper 已迁移；保持 autoflush、错误顺序与公开 GET 第二轮检查        | [无锁读取](#workspace-无锁权限读取)通过 180 项去重定向检查，含真实受限 API LOGIN、READ ONLY、Node 及缓存基线复验                                  | 当前源码／Native 边界已实现；完整 Workspace 凭据与冷工件仍待集中验收                                                                             |
+| Workspace：Project 独占快照                         | actor-free Native 锁与严格完整行合同已实现                                                | 孤儿标注清理与点云晋升已迁移，分别保留 NOWAIT／等待和原缓存／autoflush           | [独占快照](#workspace-独占-project-快照)通过 245 项去重定向检查，含真实受限 API、Node、九项旧缓存基线复验及隔离级别                               | 本操作限定源码／Native 边界已闭合；完整 Workspace 凭据、冷工件与恢复仍待集中验收                                                                 |
 | Workspace：项目删除                                 | 原子 Native 协调器及 Workspace 可移植命令／连接式客户端已实现                             | API 已通过同一请求事务调用 owner；不新增独立提交点                               | [项目删除](#workspace-项目删除事务切片)的调用边界通过 76 项源码／受限 PG／Node／实际 API 定向检查                                                 | **安全阻塞待决**：未退役视频执行可因删除失去 canonical Job，并留下运行态摘要／输入 pin；删除规则待确认，尚未修复，整项能力不记为闭合             |
 | Workspace：数据集解绑                               | 已有同事务预览／协调器、关联代次围栏及回执                                                | 仍由 API 的数据适配器调用                                                        | [解绑切片](#workspace-数据集解绑事务切片)保留既有资格                                                                                             | 可移植包／调用绑定及完整装配待收口；源审计发现与项目删除同类的未退役视频执行残留，完整安全资格待修复                                             |
 | Assets：来源、目录、连接及媒体／输入                | 已有 Source、Catalog、Media、Images、accepted inputs 和视频输入能力                       | 已迁移选定导入、Workbench 和推理输入消费者                                       | [数据能力协议](/api/guides/module-data)及既有 ADR 保留受限进程／容器证据；[辅助保留](#来源删除的辅助引用)的实际删除与 HTTP 映射通过 11 项定向检查 | 已确认沿用既有辅助引用 409 guard；部分相机／轨迹引用缺少独立解除入口，任务、标注及学习证据保留；一般 Blob、其余输入、运维写入与完整装配仍待收口  |
@@ -113,6 +114,21 @@ transaction 保持，另一事务仍能获取账号／Project／成员 UPDATE �
 [ADR-0167](/dev/adr/0167-workspace-unlocked-authority-snapshots) 记录边界，汇总位于
 `.worktree/workspace-access-unlocked-qualification.json`。完整装配与剩余操作仍以顶部
 台账为准；本次没有切换日常主环境或增加冷工件／生产资格。
+
+## Workspace 独占 Project 快照
+
+孤儿标注清理与点云评估晋升已在原调用方事务中使用严格完整行锁合同，保留 NOWAIT／
+等待、缓存刷新／普通缓存以及原 autoflush 差异。等待后在持锁期间重新生成完整快照，
+避免 Labeling 计数与 Project 字段来自不同时间。原管理权、业务写入、Audit 和提交
+保持；没有增加服务、凭据或独立连接。
+
+245 项去重定向检查通过，无有效失败或跳过；修改前九项缓存基线单独保留。包含
+受限真实 API、Node、24 项新 Native／消费者用例、原权限读取及清理／点云／标注／
+训练回归。首次等待探针揭示的混合快照已最小复验修复；AUTH、单元和 immutable Audit
+夹具失败也已修正，原报告保留。边界见
+[ADR-0168](/dev/adr/0168-workspace-exclusive-project-snapshots)，汇总为
+`.worktree/workspace-exclusive-qualification.json`。完整模块与剩余操作仍按顶部台账
+集中收口，日常主环境未切换。
 
 ## Workspace 项目负责人转移命令
 

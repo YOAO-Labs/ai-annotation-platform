@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: 进行中。目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。协调视频恢复切片已完成限定本地验收，当前收口完整 Identity，之后才推进其他切片。唯一剩余工作台账见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)，分开记录实现、消费者迁移、独立运行资格与阻塞。文末 Outcome 保留历史证据，不作为另一份待办。共享物理 PostgreSQL 可以保留，所有者能力、事务／撤权／取消／旧写者与恢复语义必须保持。Go 保持实验；不推送、不发布、不切生产，当前视频恢复切片也不切日常主环境。
+> Status: 进行中。目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。协调视频恢复与 Identity 整模块已完成限定本地功能验收，当前继续收口 Workspace。唯一剩余工作台账见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)，分开记录实现、消费者迁移、独立运行资格与阻塞。文末 Outcome 保留历史证据，不作为另一份待办。共享物理 PostgreSQL 可以保留，所有者能力、事务／撤权／取消／旧写者与恢复语义必须保持。Go 保持实验；不推送、不发布、不切生产，当前视频恢复切片也不切日常主环境。
 >
 > 创建日期：2026-10-16。
 >
@@ -5480,3 +5480,49 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   process inventory initially encountered non-UTF-8 process arguments; decoding
   with replacement passes without rerunning application acceptance. The retained
   receipt distinguishes that probe from the 180 passing application cases.
+
+## Workspace exclusive Project snapshots checkpoint
+
+- The two existing exclusive Project consumers now use an actor-free owner
+  capability in the caller transaction. Cleanup retains NOWAIT, no_autoflush,
+  full refresh, manager fences, 409 project_busy and missing 404. Point-cloud
+  promotion retains waiting, original autoflush, non-populate-existing cache
+  semantics, evaluation-before-missing checks, writes, Audit and commit order.
+- One thin lock_project_row(uuid,boolean) returns the strict versioned Project
+  identity/wait/row envelope. A real waiting probe first found new Project data
+  mixed with old STABLE Labeling counters. The fixed waiting mode locks first,
+  returns null on missing, then reuses the read serializer under a fresh statement
+  snapshot. Its minimal same-case recheck passes. Old key_share/update/read
+  branches and frozen artifacts remain unchanged; downgrade restores 0289.
+- The shared codec binds schema/UUID/strict boolean/text. The API decodes all
+  Project columns even on cache hits, merges complete refreshes via the existing
+  helper, and fills only expired/unloaded columns on ordinary cached queries.
+  The merge helper moves once to the Workspace binding; old access alias remains.
+  No fake actor/rename, arbitrary lock modes, DSN, role or service is introduced.
+- Native source 2b533fa57 and API source e6ad749b6 are integrated as 13e63edb9
+  and 54bc64eff. Root owns the waiting fix, strict codec, application grants,
+  owner transfer, verifier head/artifacts, actual acceptance and documentation.
+- Pre-change source 13d60a0c2 passes one cleanup cache baseline and eight actual
+  promotion cache/autoflush baselines. The new implementation passes the same
+  cases; old-source executions remain excluded. Effective union is 245 distinct
+  selected cases: 63 contract/adapter/Native cases plus 182 consumer regressions,
+  with zero effective failures/errors/skips. There are 24 new actual Native/API/
+  Node cases, including explicit ACLs, same caller transaction, missing behavior,
+  RR/Serializable 40001, raw wait timeout, NOWAIT mapping and prior-write rollback.
+- Initial critical execution retains 23 valid passes and three fixture failures:
+  a mock omitted candidate revision and two API tests borrowed AUTH privileges
+  from a restricted API login. Dedicated AUTH credentials fix real admission.
+  Teardown then correctly hits immutable Audit DELETE/UPDATE guards; audited
+  fixtures are retained until verified owned database disposal, without disabling
+  guards. The mock and two API reproducers pass; only the unrun cases continue.
+  Original failures/JUnit/real exits are retained in the local aggregate.
+- Frozen Native installation/rollback and the owned 0189-to-head-0290 roundtrip
+  pass. Temporal HTTP uses a separate current-source provider. New cold install,
+  image, full fresh migration and backup/restore work remains batched at the
+  coherent complete-Workspace milestone. ADR-0168 and
+  `.worktree/workspace-exclusive-qualification.json` record the bounded evidence.
+- The sole remaining ledger is module-deployment.md. Next are remaining single
+  Project business snapshots and membership lock/set query consumers, preserving
+  bulk joins and ordered atomic locks. The separate unretired-video deletion/
+  unlink policy remains pending; Assets auxiliary 409 does not decide it. No
+  primary runtime cutover, push, release, production or Go expansion occurs.

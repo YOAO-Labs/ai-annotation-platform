@@ -172,61 +172,17 @@ BEGIN
                 END;
         END;
     ELSIF p_lock_mode = 'update_wait' THEN
-        SELECT aap_workspace_project_query_v1._project_row_json(
-            pg_catalog.jsonb_build_object(
-                'id', project.id,
-                'organization_id', project.organization_id,
-                'display_id', project.display_id,
-                'name', project.name,
-                'type_label', project.type_label,
-                'type_key', project.type_key,
-                'data_type', project.data_type,
-                'owner_id', project.owner_id,
-                'status', project.status,
-                'ai_enabled', project.ai_enabled,
-                'ml_backend_pool_id', project.ml_backend_pool_id,
-                'default_variants', project.default_variants::text,
-                'preannotate_pipeline', project.preannotate_pipeline::text,
-                'label_config', project.label_config::text,
-                'tool_bindings', project.tool_bindings::text,
-                'sampling', project.sampling,
-                'maximum_annotations', project.maximum_annotations,
-                'show_overlap_first', project.show_overlap_first,
-                'iou_dedup_threshold', project.iou_dedup_threshold::double precision::text,
-                'box_threshold', project.box_threshold::double precision::text,
-                'text_threshold', project.text_threshold::double precision::text,
-                'ai_interactive_enabled', project.ai_interactive_enabled,
-                'raster_mask_native_editing_enabled', project.raster_mask_native_editing_enabled,
-                'mask_qc_config', project.mask_qc_config::text,
-                'point_cloud_quality_config', project.point_cloud_quality_config::text,
-                'rendering_config', project.rendering_config::text,
-                'annotation_guide', project.annotation_guide,
-                'guide_assets', project.guide_assets::text,
-                'model_version', project.model_version,
-                'task_lock_ttl_seconds', project.task_lock_ttl_seconds,
-                'video_sampling', project.video_sampling::text,
-                'video_collaboration', project.video_collaboration::text,
-                'scene_mode', project.scene_mode,
-                'prefer_same_scene_continuation', project.prefer_same_scene_continuation,
-                'scene_continuation_window_min', project.scene_continuation_window_min,
-                'due_date', pg_catalog.to_json(project.due_date),
-                'created_at', pg_catalog.to_json(project.created_at),
-                'updated_at', pg_catalog.to_json(project.updated_at)
-            ),
-            counter.total_tasks,
-            counter.completed_tasks,
-            counter.review_tasks,
-            counter.in_progress_tasks,
-            counter.batch_summary::text
-        )
-        INTO v_row_json
+        PERFORM project.id
         FROM public.projects AS project
-        CROSS JOIN LATERAL
-            aap_labeling_v1.workspace_project_query_counters(
-                ARRAY[project.id]::uuid[]
-            ) AS counter
         WHERE project.id = p_project_id
         FOR UPDATE OF project;
+        IF NOT FOUND THEN
+            RETURN NULL;
+        END IF;
+        -- Read the typed counters from a fresh statement snapshot after waiting.
+        RETURN aap_workspace_configuration_v1._class_rename_project_row(
+            p_project_id, 'read'
+        );
     ELSE
         SELECT aap_workspace_project_query_v1._project_row_json(
             pg_catalog.jsonb_build_object(

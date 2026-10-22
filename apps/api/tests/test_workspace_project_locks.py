@@ -217,7 +217,9 @@ async def test_promotion_keeps_blocking_lock_evaluation_order_and_flush(monkeypa
     )
     evaluation = SimpleNamespace(project_id=project_id)
     candidate_config = {"config_revision": 2}
-    candidate = SimpleNamespace(model_dump=lambda *, mode: candidate_config)
+    candidate = SimpleNamespace(
+        config_revision=2, model_dump=lambda *, mode: candidate_config
+    )
 
     async def lock(db, requested_id, *, nowait, populate_existing):
         assert db is session

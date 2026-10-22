@@ -750,6 +750,29 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 自动 flush、时序与外层回滚。边界见
 [ADR-0167](docs/adr/0167-workspace-unlocked-authority-snapshots.md)。
 
+### Workspace 独占 Project 快照
+
+`aap_workspace_v1.lock_project_row(uuid,boolean)` 只在调用方事务中获取 Project
+UPDATE 锁并返回完整快照。`nowait=true` 用于孤儿标注清理，保持原 409 project_busy、
+无 autoflush 和刷新缓存；`false` 用于点云晋升，保留等待、原 autoflush 和普通 ORM
+缓存行为。权限、evaluation、业务写入、Audit 及提交仍由原调用方持有。
+
+等待成功后在锁内生成新语句快照，保证 typed Labeling 计数与 Project 字段一致。
+只恢复普通查询的 expired／unloaded 列；需要刷新时才完整合并。新函数须随当前迁移
+和 `module-data-grants.sql` 安装，并加入应用授权清单；没有独立 DSN 或新服务。
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/workspace-exclusive.json \
+  --test-file tests/test_workspace_project_exclusive_native.py \
+  --test-file tests/test_workspace_project_locks.py \
+  --test-file tests/test_project_orphan_cleanup_transactions.py
+```
+
+实际 API 夹具使用验收器的专用 Identity AUTH 凭据；受限业务 LOGIN 无三类私表 SELECT。
+带 Audit 的夹具留到已验证自有数据库销毁，保持审计不可变约束。基线、失败最小复验和
+限定本地证据见 [ADR-0168](docs/adr/0168-workspace-exclusive-project-snapshots.md)。
+
 ### Workspace 调用方事务内的项目删除
 
 `aap-project-delete/v1` 的可移植命令和回执位于 `aap-workspace`。API 继续使用原请求

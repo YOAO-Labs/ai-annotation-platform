@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 from contextlib import asynccontextmanager
 
@@ -113,6 +114,12 @@ async def _seed_cleanup_world(
 
 
 async def _drop_cleanup_world(maker, world: dict) -> None:
+    if os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1":
+        from tests.labeling_class_query_helpers import assert_owned_test_database
+
+        await assert_owned_test_database(maker.kw["bind"])
+        # Retain immutable Audit rows and their actors until owned database disposal.
+        return
     async with maker() as cleanup:
         project_ids = [world["project_id"]]
         if world["foreign_project_id"] is not None:

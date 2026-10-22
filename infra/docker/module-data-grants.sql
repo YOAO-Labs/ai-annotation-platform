@@ -1687,6 +1687,8 @@ ALTER FUNCTION aap_workspace_v1.read_project_visibility(uuid, uuid)
 ALTER FUNCTION aap_workspace_v1.lock_project_manager(uuid, uuid) OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.project_access_step(uuid, uuid, text)
     OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1.lock_project_row(uuid, boolean)
+    OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.clear_primary_backend_bindings(uuid)
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.read_import_project(text)
