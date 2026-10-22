@@ -6054,3 +6054,14 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   inapplicable rules,20 grant/selection units, pinned Ruff/format, Node syntax,
   explicit OpenAPI, docs build and diff. Existing docs syntax fallback and
   large-chunk warnings remain. No business tests rerun after formatting.
+
+- Integrated source/documentation commit: `921df0cae16854199f07676b54729efc9da8f5f7`. All24 files match the
+  aggregate manifest; normal hooks pass, including actual OpenAPI regeneration
+  with unchanged snapshot. Evidence is local operation-level qualification.
+- Preservation verifies all20 editable bindings, shared symlinks, clean protected
+  primary and four running shared containers. All four owned PostgreSQL test
+  containers are absent and each verifier cleanup succeeds. Root has no
+  persistent backend runtime process. Two clean source worktrees are removed
+  after verified incremental bundle/cache archives; branch refs and Root
+  correction patches remain. The full goal stays active. Next deliverable is
+  the user-confirmed unretired-video409 safety fence for deletion and unlink.
