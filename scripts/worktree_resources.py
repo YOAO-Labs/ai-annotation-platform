@@ -91,6 +91,7 @@ IDENTITY_RUNTIME_CAPABILITIES = (
     "aap_identity_recovery_v1.recovery_policy()",
     "aap_identity_recovery_v1.prepare_recovery_command(jsonb)",
     "aap_identity_recovery_v1.apply_recovery_command(jsonb)",
+    "aap_identity_recovery_v1.read_registration_status(jsonb)",
     "aap_identity_recovery_v1.mail_policy()",
     "aap_identity_recovery_v1.claim_mail(jsonb)",
     "aap_identity_recovery_v1.renew_mail(jsonb)",

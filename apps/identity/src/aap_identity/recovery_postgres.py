@@ -15,6 +15,12 @@ from .recovery_contract import (
     decode_native_recovery_reply,
     decode_recovery_policy,
 )
+from .registration_contract import (
+    REGISTRATION_STATUS_PROTOCOL,
+    RegistrationStatusFallbacks,
+    RegistrationStatusRequest,
+    decode_registration_status_reply,
+)
 
 
 class RecoveryPostgresTransaction:
@@ -125,6 +131,7 @@ class RecoveryPostgresData:
                     "aap_identity_recovery_v1.recovery_policy()",
                     "aap_identity_recovery_v1.prepare_recovery_command(jsonb)",
                     "aap_identity_recovery_v1.apply_recovery_command(jsonb)",
+                    "aap_identity_recovery_v1.read_registration_status(jsonb)",
                 ]
                 allowed = await connection.fetchval(
                     "SELECT bool_and(has_function_privilege(current_user, capability, 'EXECUTE')) "
@@ -135,6 +142,58 @@ class RecoveryPostgresData:
                     raise IdentityUnavailable()
                 value = json.loads(raw) if isinstance(raw, str) else raw
                 return decode_recovery_policy(value)
+        except IdentityUnavailable:
+            raise
+        except (
+            asyncpg.PostgresError,
+            asyncpg.InterfaceError,
+            OSError,
+            TimeoutError,
+            ValueError,
+            TypeError,
+        ):
+            raise IdentityUnavailable() from None
+        finally:
+            if connection is not None:
+                try:
+                    await asyncio.shield(connection.close(timeout=2))
+                except (
+                    asyncpg.PostgresError,
+                    asyncpg.InterfaceError,
+                    OSError,
+                    TimeoutError,
+                ):
+                    if not asyncio.current_task().cancelling():
+                        raise IdentityUnavailable() from None
+
+    async def read_registration_status(self, fallbacks: dict) -> dict:
+        import asyncpg
+
+        connection = None
+        try:
+            validated = RegistrationStatusFallbacks.model_validate(fallbacks)
+            connection = await self._connect(asyncpg)
+            async with connection.transaction():
+                encoded = json.dumps(
+                    validated.model_dump(mode="json"),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=True,
+                    allow_nan=False,
+                )
+                raw = await connection.fetchval(
+                    "SELECT aap_identity_recovery_v1."
+                    "read_registration_status($1::jsonb)",
+                    encoded,
+                )
+                value = json.loads(raw) if isinstance(raw, str) else raw
+                checked = decode_registration_status_reply(
+                    value,
+                    RegistrationStatusRequest(
+                        schema=REGISTRATION_STATUS_PROTOCOL, operation="read_status"
+                    ),
+                )
+                return checked.model_dump(mode="json", by_alias=True)
         except IdentityUnavailable:
             raise
         except (

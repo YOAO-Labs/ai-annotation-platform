@@ -13,7 +13,6 @@ from app.services.audit import audit_origin_from_request
 from app.middleware.request_id import request_id_var
 from app.services.captcha_service import verify_turnstile_token
 from app.services import login_failed_counter
-from app.services.system_settings_service import SystemSettingsService
 from app.services.identity_mail_delivery import kick_credential_mail
 from app.services.identity_recovery_commands import RecoveryCommandsPort
 
@@ -27,7 +26,11 @@ from app.services.identity_session_commands import (
     SessionCommandsPort,
 )
 from app.api.v1.account_commands import execute_account, get_account_commands
-from app.api.v1.recovery_commands import execute_recovery, get_recovery_commands
+from app.api.v1.recovery_commands import (
+    execute_recovery,
+    get_recovery_commands,
+    read_registration_status,
+)
 
 router = APIRouter()
 
@@ -314,8 +317,10 @@ async def send_verification_email_endpoint(
 
 
 @router.get("/registration-status")
-async def registration_status(db: AsyncSession = Depends(get_db)):
-    enabled = bool(await SystemSettingsService.get(db, "allow_open_registration"))
+async def registration_status(
+    commands: RecoveryCommandsPort = Depends(get_recovery_commands),
+):
+    enabled = await read_registration_status(commands)
     return {"open_registration_enabled": enabled}
 
 

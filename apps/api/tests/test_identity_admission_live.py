@@ -23,6 +23,7 @@ from sqlalchemy import delete, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 import websockets
+from jose.exceptions import JWTError
 
 from aap_identity.contract import decode_principal_reply
 from aap_identity.security import (
@@ -436,8 +437,12 @@ def _start_api(
     *,
     database_url=None,
     configuration=None,
+    owner_signing_secret=None,
 ):
     environment = dict(os.environ)
+    if owner_signing_secret is not None:
+        environment.pop("IDENTITY_SIGNING_SECRET", None)
+        environment.pop("IDENTITY_SIGNING_SECRET_FILE", None)
     environment.update(
         {
             "SECRET_KEY": secret,
@@ -499,6 +504,12 @@ def _start_api(
         environment["DATABASE_URL"] = database_url
         environment["AUDIT_ASYNC"] = "true"
     environment.update(configuration or {})
+    if owner_signing_secret is not None and (
+        "IDENTITY_SIGNING_SECRET" in environment
+        or "IDENTITY_SIGNING_SECRET_FILE" in environment
+        or any(value == owner_signing_secret for value in environment.values())
+    ):
+        raise AssertionError("API child environment contains the Identity owner signer")
     for prefix in (
         "ASSETS_CATALOG",
         "ASSETS_SOURCE",
@@ -776,18 +787,33 @@ async def test_real_api_rest_and_socket_use_remote_identity_without_fallback(
     test_engine, tmp_path, record_property
 ):
     maker, actor = await _world(test_engine, password="LiveIdentity123")
-    secret, control = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
+    identity_secret, api_secret, control = (
+        secrets.token_urlsafe(32),
+        secrets.token_urlsafe(32),
+        secrets.token_urlsafe(32),
+    )
+    if len({identity_secret, api_secret, control}) != 3:
+        raise AssertionError(
+            "Identity signer, API signing key, and control token must be distinct"
+        )
     identity = api = None
     jtis = []
     pub = None
     try:
         identity = await _start_container_identity(
-            test_engine, tmp_path, secret, control
+            test_engine, tmp_path, identity_secret, control
         )
         record_property(
             "installed_identity_image", os.environ["AAP_IDENTITY_RUNTIME_IMAGE"]
         )
-        api = _start_api(tmp_path, secret, control, identity.origin)
+        api = _start_api(
+            tmp_path,
+            api_secret,
+            control,
+            identity.origin,
+            owner_signing_secret=identity_secret,
+        )
+        record_property("identity_signer_absent_from_api_environment", True)
         async with httpx.AsyncClient(
             base_url=api.origin, trust_env=False, timeout=20
         ) as client:
@@ -800,7 +826,20 @@ async def test_real_api_rest_and_socket_use_remote_identity_without_fallback(
             )
             assert login.status_code == 200
             value = login.json()["access_token"]
-            jtis.append(uuid.UUID(decode_access_token(value, secret=secret)["jti"]))
+            owner_claims = decode_access_token(value, secret=identity_secret)
+            if owner_claims.get("sub") != str(actor):
+                raise AssertionError(
+                    "Identity-issued access token failed owner verification"
+                )
+            try:
+                decode_access_token(value, secret=api_secret)
+            except JWTError:
+                pass
+            else:
+                raise AssertionError(
+                    "Identity-issued access token verified with the API signing key"
+                )
+            jtis.append(uuid.UUID(owner_claims["jti"]))
             headers = {"Authorization": f"Bearer {value}"}
             me = await client.get("/api/v1/auth/me", headers=headers)
             assert me.status_code == 200 and me.json()["id"] == str(actor)
@@ -887,7 +926,7 @@ async def test_real_api_rest_and_socket_use_remote_identity_without_fallback(
                 async with websockets.connect(socket_url):
                     pytest.fail("revoked JWT completed a socket handshake")
 
-            fresh = _token(actor, secret)
+            fresh = _token(actor, identity_secret)
             all_out = await client.post(
                 "/api/v1/auth/logout-all", headers={"Authorization": f"Bearer {fresh}"}
             )

@@ -676,6 +676,7 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
                 "aap_identity_recovery_v1.recovery_policy()",
                 "aap_identity_recovery_v1.prepare_recovery_command(jsonb)",
                 "aap_identity_recovery_v1.apply_recovery_command(jsonb)",
+                "aap_identity_recovery_v1.read_registration_status(jsonb)",
             },
         )
         await _assert_exact_identity_functions(

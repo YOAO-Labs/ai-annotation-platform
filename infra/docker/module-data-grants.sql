@@ -1484,6 +1484,8 @@ ALTER FUNCTION aap_identity_recovery_v1.prepare_recovery_command(jsonb)
     OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_recovery_v1.apply_recovery_command(jsonb)
     OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_recovery_v1.read_registration_status(jsonb)
+    OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_recovery_v1.mail_policy()
     OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_recovery_v1.claim_mail(jsonb)

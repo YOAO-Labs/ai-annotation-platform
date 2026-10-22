@@ -448,8 +448,8 @@ recipient and frontend URL. Raw challenge tokens never appear in API / RPC repli
 or logs. Recovery operation receipts store a keyed request fingerprint and frozen
 result, not passwords, tokens or JWTs.
 
-The recovery LOGIN has exactly `recovery_policy`, `prepare_recovery_command` and
-`apply_recovery_command`. The mail LOGIN has only `mail_policy`, `claim_mail`,
+The recovery LOGIN has exactly `recovery_policy`, `prepare_recovery_command`,
+`apply_recovery_command` and `read_registration_status`. The mail LOGIN has only `mail_policy`, `claim_mail`,
 `renew_mail` and `finish_mail`. A third MAIL_SETTINGS LOGIN can call only
 `mail_delivery_policy` in Settings. These function roles do not receive direct
 table access. Identity's code owner can call only
@@ -578,3 +578,29 @@ profile does not rewrite its default privileges: run it last after each grant
 refresh and reevaluate new Identity relations during migration. It does not
 create another runtime, LOGIN, DSN or deployment mode. Focused source and real
 LOGIN evidence are in [ADR-0162](../../docs/adr/0162-identity-read-relations-and-consumer-grants.md).
+
+## Registration policy reads
+
+The existing Recovery binding exposes private
+`POST /v1/identity/recovery/registration-status` using
+`aap-identity-registration-status/v1`. Requests contain only `schema` and
+`operation: read_status|read_deployment_default`; successful replies echo that
+operation and return one strict `data.allow_open_registration` boolean. The
+owner holds its own defaults; callers cannot supply policy values on the wire.
+
+Effective reads reuse the existing Settings policy and SHARE fence through the
+new Recovery-owned `read_registration_status(jsonb)` facade. They do not create
+users, receipts, audit events or mail. The separate default-only read performs
+no database I/O, so admin readback can still repair a corrupt override. An
+auth-only runtime can report deployment defaults while its effective registration
+read remains unavailable without Recovery data capabilities.
+
+The API status endpoint reads fresh owner truth. Settings management threads the
+same one-key owner default through snapshots, metadata, version/CAS, reset and
+conflict readback; accepted import limits keep the same management version.
+Embedded and dedicated-database modes use the defaults of their existing
+RecoveryManager. Remote mode uses the owner and never falls back to API defaults
+on failure. Existing email-verification, registration, receipt, CAPTCHA and mail
+semantics remain. There is no new credential, DSN, deployment mode or environment
+variable. Focused evidence and complete-module qualification boundaries are in
+[ADR-0163](../../docs/adr/0163-identity-registration-policy-owner.md).

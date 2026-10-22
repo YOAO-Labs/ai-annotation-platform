@@ -11,28 +11,29 @@ last_reviewed: 2026-10-21
 
 Identity 运行时提供认证准入、API key、核心会话、自助账户、全局分组目录与指派、完整邀请生命周期、四项用户目录读取、自助注销、注销到期处理、账号恢复和在线扫描命令；平台角色预览／变更、管理员暂停／恢复与 UserBrief 批量 reads 均通过各自限定的本地资格。公开用户接口仍是 `/api/v1/auth/`、`/api/v1/me/api-keys` 与 `/api/v1/users`。私有接口要求独立控制 Bearer；需要用户身份的操作将凭据放在 JSON 的 `token` 中，不能代替控制凭据。注册/邀请证明凭据另置于 `payload`，与调用者身份 token 分开。账号恢复使用匿名请求或单次挑战证明，邮件与注销通知分别由独立执行进程投递。
 
-| 接口                                         | 用途                                           |
-| -------------------------------------------- | ---------------------------------------------- |
-| `GET /health`                                | 进程存活                                       |
-| `GET /ready`                                 | 原生策略和所配置能力的精确函数权限             |
-| `POST /v1/identity/authenticate`             | JWT／API key 准入，返回 `aap-identity/v1` 主体 |
-| `POST /v1/identity/actor-context`            | 准入后读取当前主体的基础资料事实               |
-| `POST /v1/identity/api-keys/execute`         | API key 列表、创建、修改、轮换和撤销           |
-| `POST /v1/identity/sessions/execute`         | 登录、刷新、登出和全端登出                     |
-| `POST /v1/identity/accounts/execute`         | 当前资料、改名、偏好、心跳、改密和头像引用     |
-| `POST /v1/identity/presence/mark-inactive`   | 按已固定的 cutoff 批量标记离线                 |
-| `POST /v1/identity/groups/execute`           | 分组目录、查询、指派预览／执行                 |
-| `POST /v1/identity/invitations/execute`      | 邀请管理、批量操作、注册、接受与耐久邮件发送   |
-| `POST /v1/identity/directory/execute`        | 用户目录列表、查询、统计与导出                 |
-| `POST /v1/identity/briefs/execute`           | 已限定本地资格的内部批量 UserBrief 富化        |
-| `POST /v1/identity/admin-passwords/execute`  | 管理员临时密码重置                             |
-| `POST /v1/identity/platform-roles/execute`   | 平台角色预览与变更                             |
-| `POST /v1/identity/suspensions/execute`      | 管理员停用与恢复账号                           |
-| `POST /v1/identity/deletions/execute`        | 管理员删除账号与可选任务转交                   |
-| `POST /v1/identity/offboarding/execute`      | 离职预览与提交、任务职责交接                   |
-| `POST /v1/identity/deactivation/execute`     | 自助注销申请与撤销                             |
-| `POST /v1/identity/deactivation/process-due` | 分页处理已到期的自助注销申请                   |
-| `POST /v1/identity/recovery/execute`         | 开放注册、重置请求／消费、验证邮件重发／消费   |
+| 接口                                             | 用途                                           |
+| ------------------------------------------------ | ---------------------------------------------- |
+| `GET /health`                                    | 进程存活                                       |
+| `GET /ready`                                     | 原生策略和所配置能力的精确函数权限             |
+| `POST /v1/identity/authenticate`                 | JWT／API key 准入，返回 `aap-identity/v1` 主体 |
+| `POST /v1/identity/actor-context`                | 准入后读取当前主体的基础资料事实               |
+| `POST /v1/identity/api-keys/execute`             | API key 列表、创建、修改、轮换和撤销           |
+| `POST /v1/identity/sessions/execute`             | 登录、刷新、登出和全端登出                     |
+| `POST /v1/identity/accounts/execute`             | 当前资料、改名、偏好、心跳、改密和头像引用     |
+| `POST /v1/identity/presence/mark-inactive`       | 按已固定的 cutoff 批量标记离线                 |
+| `POST /v1/identity/groups/execute`               | 分组目录、查询、指派预览／执行                 |
+| `POST /v1/identity/invitations/execute`          | 邀请管理、批量操作、注册、接受与耐久邮件发送   |
+| `POST /v1/identity/directory/execute`            | 用户目录列表、查询、统计与导出                 |
+| `POST /v1/identity/briefs/execute`               | 已限定本地资格的内部批量 UserBrief 富化        |
+| `POST /v1/identity/admin-passwords/execute`      | 管理员临时密码重置                             |
+| `POST /v1/identity/platform-roles/execute`       | 平台角色预览与变更                             |
+| `POST /v1/identity/suspensions/execute`          | 管理员停用与恢复账号                           |
+| `POST /v1/identity/deletions/execute`            | 管理员删除账号与可选任务转交                   |
+| `POST /v1/identity/offboarding/execute`          | 离职预览与提交、任务职责交接                   |
+| `POST /v1/identity/deactivation/execute`         | 自助注销申请与撤销                             |
+| `POST /v1/identity/deactivation/process-due`     | 分页处理已到期的自助注销申请                   |
+| `POST /v1/identity/recovery/execute`             | 开放注册、重置请求／消费、验证邮件重发／消费   |
+| `POST /v1/identity/recovery/registration-status` | 有效注册开关或 owner 部署默认值的只读查询      |
 
 ## 认证后的主体上下文
 
@@ -512,7 +513,7 @@ API／独立 Identity runtime 的自助 DSN 分别使用 `IDENTITY_DEACTIVATION_
 
 已投递和确定拒绝为终态；临时故障、DATA 后断线等结果不明状态继续使用同一挑战、密文与 Message-ID 重试。投递属于至少一次语义，用户可能收到多封相同有效链接。错误 key epoch 保留待投递项，不破坏仍有效的挑战；轮换前应排空旧邮件或保留对应旧 key 的执行器。缺少 SMTP 配置或确定拒绝只使对应重置挑战作废，验证挑战保持有效。
 
-`RECOVERY` LOGIN 仅有 `recovery_policy`、`prepare_recovery_command`、`apply_recovery_command`；`MAIL` 仅有 `mail_policy`、`claim_mail`、`renew_mail`、`finish_mail`；`MAIL_SETTINGS` 仅有 Settings 的 `mail_delivery_policy`。客户端均无直接表、序列或 DDL 权限。内嵌装配与专用连接选择、Compose secret 文件和授权命令见 [DEV.md](https://github.com/yyq19990828/ai-annotation-platform/blob/main/DEV.md#注册密码恢复与凭据邮件)。设计与剩余模块边界见 [ADR-0119](/dev/adr/0119-independent-identity-recovery-and-mail)及[模块台账](/dev/concepts/module-deployment)。
+`RECOVERY` LOGIN 仅有 `recovery_policy`、`prepare_recovery_command`、`apply_recovery_command`、`read_registration_status`；`MAIL` 仅有 `mail_policy`、`claim_mail`、`renew_mail`、`finish_mail`；`MAIL_SETTINGS` 仅有 Settings 的 `mail_delivery_policy`。客户端均无直接表、序列或 DDL 权限。内嵌装配与专用连接选择、Compose secret 文件和授权命令见 [DEV.md](https://github.com/yyq19990828/ai-annotation-platform/blob/main/DEV.md#注册密码恢复与凭据邮件)。设计与剩余模块边界见 [ADR-0119](/dev/adr/0119-independent-identity-recovery-and-mail)及[模块台账](/dev/concepts/module-deployment)。
 
 ## 已接受 API-key 的最终授权与当前账号读取
 
@@ -578,3 +579,28 @@ psql "$MIGRATION_DATABASE_URL" \
 旧配置继续可用。旧宽授权及其默认权限不因此改写；每次刷新宽授权后必须最后重应用
 consumer 清单，新 Identity 关系也需复核。当前脚本和定向证据不代表主 API 已切换
 到这份凭据。设计与验证见 [ADR-0162](/dev/adr/0162-identity-read-relations-and-consumer-grants)。
+
+## 注册策略的 owner 读取
+
+`POST /v1/identity/recovery/registration-status` 使用既有控制 Bearer、并发槽与超时，
+JSON 请求上限为 65,536 bytes。合同为 `aap-identity-registration-status/v1`，请求只有
+`schema` 和 `operation`。操作可选 `read_status` 或 `read_deployment_default`，回复
+精确包含 `schema/operation/ok/data`，`ok` 为 `true`，data 只有严格 boolean
+`allow_open_registration`；不接受调用方提供默认值、账号、凭据或写入参数。
+
+`read_status` 通过新增 Recovery facade `read_registration_status(jsonb)`，复用现有
+Settings owner 的 `identity_recovery_policy`，数据库覆盖优先，缺失／NULL 时使用
+实际 Recovery owner 默认值。原 Settings SHARE 围栏与注册写入、回执及邮箱验证策略
+保持；该读取没有 User、Audit、回执或邮件写入。专用连接在有界读事务结束时释放锁，
+内嵌路径沿用调用方事务和 autoflush／no-autoflush，不自行 commit／rollback。
+
+`read_deployment_default` 只读取 owner 运行配置，不访问覆盖行。管理端将这个单键
+默认值传入现有快照、元数据、版本、PATCH／reset 和冲突回读，因此损坏的历史覆盖值
+仍可显示回退并修复。owner 默认值改变后，旧管理版本仍按现有 409 规则拒绝；导入预算
+快照使用同一默认值，保持与管理端的设置版本一致。只启用认证的运行时也能读取该
+默认值，未配置 Recovery 数据能力时不会宣称有效注册状态可用。
+
+公开 `/auth/registration-status` 的返回形状保持，只读取 owner 当前有效状态，绕过
+API 的旧进程缓存。已有远程、专用 Recovery DSN 与内嵌选择路径保留；缺少 owner、
+损坏响应或连接错误返回 503，不回退 API 默认值或原表读取。没有新增 DSN、环境变量、
+LOGIN 或部署模式。源码／定向进程证据见 [ADR-0163](/dev/adr/0163-identity-registration-policy-owner)。

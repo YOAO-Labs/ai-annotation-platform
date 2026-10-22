@@ -17,6 +17,12 @@ from aap_identity.recovery_contract import (
 from aap_identity.recovery_crypto import mail_encryption_id, mail_key_from_secret
 from aap_identity.recovery_manager import RecoveryManager
 from aap_identity.recovery_postgres import RecoveryPostgresData
+from aap_identity.registration_contract import (
+    REGISTRATION_STATUS_PROTOCOL,
+    RegistrationStatusRequest,
+    decode_registration_status_reply,
+)
+from aap_identity.registration_reader import RegistrationStatusReader
 from app.config import settings
 from app.services.identity_contracts import IdentityGatewayUnavailable
 from app.services.identity_gateway import (
@@ -30,6 +36,10 @@ from app.services.identity_recovery_data import IdentityRecoveryCommandData
 
 class RecoveryCommandsPort(Protocol):
     async def execute(self, request: RecoveryRequest) -> RecoveryReply: ...
+
+    async def registration_status(
+        self, *, deployment_default: bool = False
+    ) -> bool: ...
 
 
 def recovery_mail_key(secret: str) -> str:
@@ -60,6 +70,40 @@ class IdentityRecoveryCommands:
     def __init__(self, db, identity: IdentityGateway):
         self.db = db
         self.identity = identity
+
+    async def registration_status(self, *, deployment_default: bool = False) -> bool:
+        request = RegistrationStatusRequest(
+            schema=REGISTRATION_STATUS_PROTOCOL,
+            operation="read_deployment_default"
+            if deployment_default
+            else "read_status",
+        )
+        try:
+            async with asyncio.timeout(self.identity.timeout_seconds):
+                if self.identity.identity_url is not None:
+                    raw = await self.identity._remote_reply(
+                        "/v1/identity/recovery/registration-status",
+                        request.model_dump(mode="json", by_alias=True),
+                    )
+                    reply = decode_registration_status_reply(raw, request)
+                else:
+                    dsn = identity_database_source(
+                        settings.identity_recovery_database_url,
+                        settings.identity_recovery_database_url_file,
+                    )
+                    data = (
+                        RecoveryPostgresData(dsn)
+                        if dsn
+                        else IdentityRecoveryCommandData(self.db)
+                    )
+                    reply = await RegistrationStatusReader(
+                        data,
+                        allow_open_registration=settings.allow_open_registration,
+                        frontend_base_url=settings.frontend_base_url,
+                    ).read(request)
+                return reply.data.allow_open_registration
+        except (IdentityUnavailable, TimeoutError, ValueError, TypeError, UnicodeError):
+            raise IdentityGatewayUnavailable() from None
 
     async def execute(self, request: RecoveryRequest) -> RecoveryReply:
         try:

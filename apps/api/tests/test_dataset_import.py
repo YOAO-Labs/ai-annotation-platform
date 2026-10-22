@@ -81,7 +81,8 @@ async def test_import_from_connection_api_uses_native_idempotent_acceptance(
             connection_id=kwargs["connection_id"],
         )
 
-    async def snapshot(_db):
+    async def snapshot(_db, *, registration_default):
+        assert type(registration_default) is bool
         return {
             "dataset_import_max_files": 100,
             "dataset_import_max_total_bytes": 10_000,

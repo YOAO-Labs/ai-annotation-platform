@@ -5,6 +5,7 @@ from app.config import settings
 from app.core.ratelimit import limiter
 from app.db.enums import UserRole
 from app.deps import get_db, require_roles
+from app.api.v1.recovery_commands import get_registration_default
 from app.schemas.me import (
     SmtpStatus,
     SystemSettingsOut,
@@ -22,10 +23,16 @@ from app.services.identity_contracts import IdentityActorFacts
 router = APIRouter()
 
 
-async def _build_response(db: AsyncSession) -> SystemSettingsOut:
+async def _build_response(
+    db: AsyncSession, registration_default: bool | None = None
+) -> SystemSettingsOut:
     """Build management readback from committed DB state, bypassing TTL cache."""
 
-    snapshot = await SystemSettingsService.snapshot(db, bypass_cache=True)
+    snapshot = await SystemSettingsService.snapshot(
+        db,
+        bypass_cache=True,
+        registration_default=registration_default,
+    )
     cur = snapshot.values
     smtp_password_set = bool(cur.get("smtp_password"))
     smtp_configured = bool(
@@ -58,13 +65,15 @@ async def _build_response(db: AsyncSession) -> SystemSettingsOut:
 
 
 async def _version_conflict_response(
-    db: AsyncSession, exc: SettingsVersionConflict
+    db: AsyncSession,
+    exc: SettingsVersionConflict,
+    registration_default: bool | None = None,
 ) -> HTTPException:
     # The failed transaction must be rolled back before the readback query; the
     # advisory lock is then released and the response contains the winner's
     # effective values for the UI to reconcile.
     await db.rollback()
-    latest = await _build_response(db)
+    latest = await _build_response(db, registration_default)
     return HTTPException(
         status_code=status.HTTP_409_CONFLICT,
         detail={
@@ -80,8 +89,9 @@ async def _version_conflict_response(
 async def get_system_settings(
     db: AsyncSession = Depends(get_db),
     _: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    registration_default: bool = Depends(get_registration_default),
 ):
-    return await _build_response(db)
+    return await _build_response(db, registration_default)
 
 
 @router.patch("/system", response_model=SystemSettingsOut)
@@ -90,6 +100,7 @@ async def update_system_settings(
     request: Request,
     db: AsyncSession = Depends(get_db),
     actor: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    registration_default: bool = Depends(get_registration_default),
 ):
     keys = (
         "allow_open_registration",
@@ -113,7 +124,7 @@ async def update_system_settings(
         if key in payload.model_fields_set and getattr(payload, key) is not None
     }
     if not updates:
-        return await _build_response(db)
+        return await _build_response(db, registration_default)
 
     try:
         changes = await SystemSettingsService.set_many(
@@ -121,9 +132,10 @@ async def update_system_settings(
             updates,
             actor.id,
             expected_version=payload.expected_version,
+            registration_default=registration_default,
         )
     except SettingsVersionConflict as exc:
-        raise await _version_conflict_response(db, exc)
+        raise await _version_conflict_response(db, exc, registration_default)
     except ValueError as exc:
         await db.rollback()
         raise HTTPException(
@@ -142,7 +154,7 @@ async def update_system_settings(
             detail=SystemSettingsService.safe_audit_detail(changes),
         )
     await db.commit()
-    return await _build_response(db)
+    return await _build_response(db, registration_default)
 
 
 @router.post("/system/reset", response_model=SystemSettingsOut)
@@ -151,6 +163,7 @@ async def reset_system_settings(
     request: Request,
     db: AsyncSession = Depends(get_db),
     actor: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    registration_default: bool = Depends(get_registration_default),
 ):
     try:
         changes = await SystemSettingsService.reset_many(
@@ -158,9 +171,10 @@ async def reset_system_settings(
             payload.keys,
             actor.id,
             expected_version=payload.expected_version,
+            registration_default=registration_default,
         )
     except SettingsVersionConflict as exc:
-        raise await _version_conflict_response(db, exc)
+        raise await _version_conflict_response(db, exc, registration_default)
     except ValueError as exc:
         await db.rollback()
         raise HTTPException(
@@ -184,7 +198,7 @@ async def reset_system_settings(
         },
     )
     await db.commit()
-    return await _build_response(db)
+    return await _build_response(db, registration_default)
 
 
 @router.post("/system/test-smtp", status_code=200)

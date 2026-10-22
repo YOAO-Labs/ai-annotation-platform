@@ -1,4 +1,4 @@
--- Grant only the three native recovery, four mail and one mail-settings functions.
+-- Grant only the four native recovery, four mail and one mail-settings functions.
 -- Database provisioning must revoke PUBLIC TEMP first; this script changes no PUBLIC ACL.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
 --   -v identity_owner=identity_code -v audit_owner=audit_code \
@@ -194,7 +194,8 @@ GRANT USAGE ON SCHEMA aap_identity_recovery_v1
 GRANT EXECUTE ON FUNCTION
     aap_identity_recovery_v1.recovery_policy(),
     aap_identity_recovery_v1.prepare_recovery_command(jsonb),
-    aap_identity_recovery_v1.apply_recovery_command(jsonb)
+    aap_identity_recovery_v1.apply_recovery_command(jsonb),
+    aap_identity_recovery_v1.read_registration_status(jsonb)
     TO :"identity_recovery_role";
 GRANT EXECUTE ON FUNCTION
     aap_identity_recovery_v1.mail_policy(),
@@ -226,7 +227,8 @@ BEGIN
                 ARRAY[
                     pg_catalog.to_regprocedure('aap_identity_recovery_v1.recovery_policy()')::oid,
                     pg_catalog.to_regprocedure('aap_identity_recovery_v1.prepare_recovery_command(jsonb)')::oid,
-                    pg_catalog.to_regprocedure('aap_identity_recovery_v1.apply_recovery_command(jsonb)')::oid
+                    pg_catalog.to_regprocedure('aap_identity_recovery_v1.apply_recovery_command(jsonb)')::oid,
+                    pg_catalog.to_regprocedure('aap_identity_recovery_v1.read_registration_status(jsonb)')::oid
                 ]::oid[]
             ),
             (

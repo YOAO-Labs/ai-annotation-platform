@@ -5117,3 +5117,39 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   worktrees are removed after branch/HEAD/clean-state and derived-artifact checks;
   branches remain. Root editable bindings, primary checkout and four shared
   containers are preserved. Cleanup evidence is linked by the aggregate report.
+
+### Identity registration policy and owner-default checkpoint (2026-10-22)
+
+- Corrected the audit: registration already reads the Settings owner override
+  under its original SHARE fence. The actual mismatch was the public API status
+  cache/API fallback, and admin metadata/version/reset using the API default.
+- Added a closed read-only Recovery protocol and fourth native function, reusing
+  the existing Settings policy and existing HTTP/direct-DSN/embedded bindings.
+  Effective reads are fresh; default-only reads do not touch override rows and
+  remain supported by auth-only runtimes. No new secret/DSN/role/runtime mode.
+- The one owner default flows through management snapshots, HMAC version/CAS,
+  metadata, reset, conflict readback and accepted import-limit version. Historical
+  malformed values remain readable/fallbacked and repairable by same-value save.
+  Owner failure is503 before settings writes, without API fallback. Existing
+  email verification, CAPTCHA, registration receipts and commit boundaries stay.
+- Actual source owner/API processes use opposite defaults, distinct owner/edge/
+  control secrets, and the existing API consumer ACL with Identity private tables
+  denied. Settings GET/PATCH/reset, malformed-row repair, real registration and
+  owner loss pass; Node consumes both read operations. The token verifies only
+  under the owner secret. Full session/key/socket signer acceptance source is
+  prepared for coherent whole-Identity qualification, not counted as run yet.
+- Failed CAS fixture rollback and wrong JWT exception-class expectations were
+  isolated and corrected narrowly. Earlier failed reports remain. The import
+  version equality prerequisite and auth-only default-read compatibility were
+  verified separately; other modules' new capabilities remain out of scope.
+- Evidence and boundaries: ADR-0163 and the existing .worktree/identity-registration-\*
+  reports. The single module-deployment ledger retains the complete remaining
+  scope. Complete Identity assembly, cold install/container/full migration and
+  restore qualification next; preserve the primary runtime and Go experiment.
+
+- Latest effective selected API/database/process union passes113 distinct cases,
+  with no effective failure/skip, separately from658 passing owner-package source
+  cases. Runtime grant/selection checks pass20; architecture passes355 with149
+  inapplicable rules. The aggregate excludes superseded old three-function and
+  unparameterized budget-version names, retaining their failed reports and
+  linking the exact replacements. Whole Identity qualification remains open.

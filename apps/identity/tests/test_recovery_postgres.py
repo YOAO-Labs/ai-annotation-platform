@@ -56,6 +56,15 @@ class Connection:
                     "policy": "aap-identity-recovery/v1",
                 }
             )
+        if "read_registration_status" in sql:
+            return json.dumps(
+                {
+                    "schema": "aap-identity-registration-status/v1",
+                    "operation": "read_status",
+                    "ok": True,
+                    "data": {"allow_open_registration": True},
+                }
+            )
         if "prepare_recovery_command" in sql:
             command = decode_native_recovery_prepare_command(json.loads(args[0]))
             reply = prepare_reply(command, eligible=False)
@@ -90,7 +99,7 @@ class Connection:
 
 
 @pytest.mark.asyncio
-async def test_recovery_policy_checks_only_its_three_native_capabilities(monkeypatch):
+async def test_recovery_policy_checks_its_four_native_capabilities(monkeypatch):
     connection = Connection()
 
     async def connect(*args, **kwargs):
@@ -107,7 +116,39 @@ async def test_recovery_policy_checks_only_its_three_native_capabilities(monkeyp
         "aap_identity_recovery_v1.recovery_policy()",
         "aap_identity_recovery_v1.prepare_recovery_command(jsonb)",
         "aap_identity_recovery_v1.apply_recovery_command(jsonb)",
+        "aap_identity_recovery_v1.read_registration_status(jsonb)",
     ]
+    assert connection.committed and connection.closed
+
+
+@pytest.mark.asyncio
+async def test_read_registration_status_uses_the_owner_function_in_one_transaction(
+    monkeypatch,
+):
+    connection = Connection()
+
+    async def connect(*args, **kwargs):
+        return connection
+
+    monkeypatch.setattr(asyncpg, "connect", connect)
+    fallbacks = {
+        "allow_open_registration": False,
+        "frontend_base_url": "https://identity.example.test",
+    }
+    result = await RecoveryPostgresData(
+        "postgresql://recovery"
+    ).read_registration_status(fallbacks)
+
+    assert result == {
+        "schema": "aap-identity-registration-status/v1",
+        "operation": "read_status",
+        "ok": True,
+        "data": {"allow_open_registration": True},
+    }
+    query, args, in_transaction = connection.calls[0]
+    assert "aap_identity_recovery_v1.read_registration_status($1::jsonb)" in query
+    assert json.loads(args[0]) == fallbacks
+    assert in_transaction
     assert connection.committed and connection.closed
 
 

@@ -88,7 +88,8 @@ async def test_import_route_reuses_explicit_idempotency_key(monkeypatch):
     async def allow(_db, _target):
         return None
 
-    async def snapshot(_db):
+    async def snapshot(_db, *, registration_default):
+        assert registration_default is True
         return {
             "dataset_import_max_files": 100,
             "dataset_import_max_total_bytes": 10_000,
@@ -137,6 +138,7 @@ async def test_import_route_reuses_explicit_idempotency_key(monkeypatch):
             db=db,
             current_user=user,
             idempotency_key=operation_id,
+            registration_default=True,
         )
         assert result.job_id == operation_id
         assert response.headers["Idempotency-Key"] == str(operation_id)

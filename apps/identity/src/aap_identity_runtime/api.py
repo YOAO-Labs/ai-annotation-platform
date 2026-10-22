@@ -123,6 +123,8 @@ from aap_identity.recovery_contract import (
 from aap_identity.recovery_crypto import mail_key_from_secret
 from aap_identity.recovery_manager import RecoveryManager
 from aap_identity.recovery_postgres import RecoveryPostgresData
+from aap_identity.registration_contract import decode_registration_status_request
+from aap_identity.registration_reader import RegistrationStatusReader
 from aap_identity.security import ALGORITHM, ISSUER
 from aap_identity.session_contract import (
     SessionFailure,
@@ -272,6 +274,11 @@ def create_app(
         )
         if recovery_configured and recovery_data is not None
         else None
+    )
+    registration_status_reader = RegistrationStatusReader(
+        recovery_data,
+        allow_open_registration=settings.allow_open_registration,
+        frontend_base_url=settings.frontend_base_url,
     )
     group_configured = group_data is not None or settings.group_database_url is not None
     if group_data is None and settings.group_database_url is not None:
@@ -971,6 +978,51 @@ def create_app(
         except (IdentityUnavailable, TimeoutError):
             return JSONResponse(
                 {"detail": "Identity recovery commands unavailable"},
+                status_code=503,
+            )
+        return JSONResponse(reply.model_dump(mode="json", by_alias=True))
+
+    @app.post("/v1/identity/recovery/registration-status")
+    async def read_registration_status(request: Request):
+        supplied = request.headers.get("authorization", "").encode()
+        expected = ("Bearer " + settings.token.get_secret_value()).encode()
+        if not hmac.compare_digest(supplied, expected):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        if (
+            request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            != "application/json"
+        ):
+            return JSONResponse(
+                {"detail": "Invalid registration status request"}, status_code=400
+            )
+        try:
+            async with asyncio.timeout(settings.request_timeout_seconds):
+                async with slots:
+                    body = bytearray()
+                    async for chunk in request.stream():
+                        body.extend(chunk)
+                        if len(body) > 65536:
+                            return JSONResponse(
+                                {"detail": "Invalid registration status request"},
+                                status_code=400,
+                            )
+                    try:
+                        parsed = decode_registration_status_request(bytes(body))
+                    except (
+                        IdentityUnavailable,
+                        ValidationError,
+                        ValueError,
+                        TypeError,
+                        UnicodeError,
+                    ):
+                        return JSONResponse(
+                            {"detail": "Invalid registration status request"},
+                            status_code=400,
+                        )
+                    reply = await registration_status_reader.read(parsed)
+        except (IdentityUnavailable, TimeoutError):
+            return JSONResponse(
+                {"detail": "Identity registration status unavailable"},
                 status_code=503,
             )
         return JSONResponse(reply.model_dump(mode="json", by_alias=True))

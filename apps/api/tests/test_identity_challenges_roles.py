@@ -90,13 +90,14 @@ async def _assert_only_functions(
 
 
 @pytest.mark.asyncio
-async def test_recovery_login_has_only_three_functions_and_no_direct_access():
+async def test_recovery_login_has_only_four_functions_and_no_direct_access():
     connection = await _assert_only_functions(
         "AAP_MODULE_DATA_IDENTITY_RECOVERY_URL",
         {
             "aap_identity_recovery_v1.recovery_policy()",
             "aap_identity_recovery_v1.prepare_recovery_command(jsonb)",
             "aap_identity_recovery_v1.apply_recovery_command(jsonb)",
+            "aap_identity_recovery_v1.read_registration_status(jsonb)",
         },
     )
     try:

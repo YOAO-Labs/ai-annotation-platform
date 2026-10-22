@@ -65,6 +65,7 @@ class SettingsSnapshot:
     values: dict[str, Any]
     rows: dict[str, SystemSetting]
     version: str
+    registration_default: bool | None = None
 
 
 class SettingsVersionConflict(RuntimeError):
@@ -213,6 +214,12 @@ def _env_default(key: str) -> Any:
     return spec.deployment_default
 
 
+def _deployment_default(key: str, registration_default: bool | None = None) -> Any:
+    if key == "allow_open_registration" and registration_default is not None:
+        return registration_default
+    return _env_default(key)
+
+
 def _coerce(value_type: str, raw: Any) -> Any:
     """Strictly decode JSON values; never turn ``"false"`` into ``True``."""
 
@@ -267,7 +274,9 @@ def _cache_set(key: str, value: Any, read_started_at: float) -> None:
     _cache[key] = (read_started_at, value)
 
 
-def _version(rows: dict[str, SystemSetting]) -> str:
+def _version(
+    rows: dict[str, SystemSetting], registration_default: bool | None = None
+) -> str:
     """Stable opaque version that also changes when the last override is reset."""
 
     payload = []
@@ -288,7 +297,8 @@ def _version(rows: dict[str, SystemSetting]) -> str:
         {
             "overrides": payload,
             "deployment": {
-                key: spec.deployment_default for key, spec in SETTING_SPECS.items()
+                key: _deployment_default(key, registration_default)
+                for key in SETTING_SPECS
             },
         },
         ensure_ascii=False,
@@ -356,7 +366,10 @@ class SystemSettingsService:
         keys: set[str] | None = None,
         bypass_cache: bool = False,
         for_update: bool = False,
+        registration_default: bool | None = None,
     ) -> SettingsSnapshot:
+        if registration_default is not None and type(registration_default) is not bool:
+            raise ValueError("registration_default must be a bool")
         selected_keys = keys or set(SETTING_SPECS)
         unknown = selected_keys.difference(SETTING_SPECS)
         if unknown:
@@ -374,7 +387,8 @@ class SystemSettingsService:
         for key in selected_keys:
             spec = SETTING_SPECS[key]
             row = rows.get(key)
-            value = _env_default(key)
+            deployment_default = _deployment_default(key, registration_default)
+            value = deployment_default
             if row is not None and row.value_json is not None:
                 try:
                     # Existing rows are decoded strictly but deliberately not
@@ -385,14 +399,26 @@ class SystemSettingsService:
                 except (TypeError, ValueError):
                     # Keep a malformed historical row from crashing every read;
                     # type-invalid data falls back to the deployment value.
-                    value = _env_default(key)
+                    value = deployment_default
             values[key] = value
             # A transaction can see its own uncommitted overrides. They must
             # never become a process-wide effective value, including after a
             # nested commit followed by an outer rollback.
-            if not bypass_cache and not db.sync_session.info.get(_CHANGED_KEYS_INFO):
+            if (
+                not bypass_cache
+                and not db.sync_session.info.get(_CHANGED_KEYS_INFO)
+                and not (
+                    key == "allow_open_registration"
+                    and registration_default is not None
+                )
+            ):
                 _cache_set(key, value, read_started_at)
-        return SettingsSnapshot(values=values, rows=rows, version=_version(rows))
+        return SettingsSnapshot(
+            values=values,
+            rows=rows,
+            version=_version(rows, registration_default),
+            registration_default=registration_default,
+        )
 
     @staticmethod
     async def get(db: AsyncSession, key: str) -> Any:
@@ -428,15 +454,25 @@ class SystemSettingsService:
 
     @staticmethod
     async def snapshot(
-        db: AsyncSession, *, bypass_cache: bool = False
+        db: AsyncSession,
+        *,
+        bypass_cache: bool = False,
+        registration_default: bool | None = None,
     ) -> SettingsSnapshot:
-        return await SystemSettingsService._load_snapshot(db, bypass_cache=bypass_cache)
+        return await SystemSettingsService._load_snapshot(
+            db,
+            bypass_cache=bypass_cache,
+            registration_default=registration_default,
+        )
 
     @staticmethod
-    async def get_import_limits_snapshot(db: AsyncSession) -> dict[str, Any]:
+    async def get_import_limits_snapshot(
+        db: AsyncSession, *, registration_default: bool | None = None
+    ) -> dict[str, Any]:
         snapshot = await SystemSettingsService._load_snapshot(
             db,
             bypass_cache=True,
+            registration_default=registration_default,
         )
         return {
             "dataset_import_max_files": snapshot.values["dataset_import_max_files"],
@@ -453,6 +489,7 @@ class SystemSettingsService:
         actor_id: Any | None,
         *,
         expected_version: str | None = None,
+        registration_default: bool | None = None,
     ) -> dict[str, tuple[Any, Any]]:
         """Validate and write explicit overrides in the caller's transaction."""
 
@@ -469,7 +506,11 @@ class SystemSettingsService:
                 raise ValueError(f"{key} 类型或范围错误: {exc}") from exc
         await SystemSettingsService._lock(db)
         current = await SystemSettingsService._load_snapshot(
-            db, keys=set(SETTING_SPECS), bypass_cache=True, for_update=True
+            db,
+            keys=set(SETTING_SPECS),
+            bypass_cache=True,
+            for_update=True,
+            registration_default=registration_default,
         )
         if expected_version is not None and expected_version != current.version:
             raise SettingsVersionConflict(expected_version, current)
@@ -481,7 +522,14 @@ class SystemSettingsService:
             old_value = current.values[key]
             row = current.rows.get(key)
             if row is not None and row.value_json is not None and old_value == stored:
-                continue
+                try:
+                    _coerce(spec.value_type, row.value_json)
+                except (TypeError, ValueError):
+                    # A malformed historical override already falls back to
+                    # this effective value; writing it still repairs the row.
+                    pass
+                else:
+                    continue
 
             stmt = pg_insert(SystemSetting).values(
                 key=key,
@@ -512,6 +560,7 @@ class SystemSettingsService:
         actor_id: Any | None = None,
         *,
         expected_version: str | None = None,
+        registration_default: bool | None = None,
     ) -> dict[str, tuple[Any, Any]]:
         selected = set(keys)
         if not selected:
@@ -521,7 +570,11 @@ class SystemSettingsService:
             raise ValueError(f"非法配置项: {', '.join(sorted(unknown))}")
         await SystemSettingsService._lock(db)
         current = await SystemSettingsService._load_snapshot(
-            db, keys=set(SETTING_SPECS), bypass_cache=True, for_update=True
+            db,
+            keys=set(SETTING_SPECS),
+            bypass_cache=True,
+            for_update=True,
+            registration_default=registration_default,
         )
         if expected_version is not None and expected_version != current.version:
             raise SettingsVersionConflict(expected_version, current)
@@ -537,7 +590,10 @@ class SystemSettingsService:
                 continue
             old_value = current.values[key]
             await db.execute(delete(SystemSetting).where(SystemSetting.key == key))
-            changes[key] = (old_value, _env_default(key))
+            changes[key] = (
+                old_value,
+                _deployment_default(key, registration_default),
+            )
         _mark_changed(db, changed_keys)
         return changes
 
@@ -553,7 +609,7 @@ class SystemSettingsService:
         for key in SYSTEM_SETTINGS_METADATA_KEYS:
             spec = SETTING_SPECS[key]
             row = snapshot.rows.get(key)
-            deployment_default = spec.deployment_default
+            deployment_default = _deployment_default(key, snapshot.registration_default)
             if spec.sensitive:
                 deployment_default = bool(deployment_default)
             source: SettingSource = (

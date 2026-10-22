@@ -17,6 +17,12 @@ from aap_identity.recovery_contract import (
     decode_native_recovery_prepare_reply,
     decode_native_recovery_reply,
 )
+from aap_identity.registration_contract import (
+    REGISTRATION_STATUS_PROTOCOL,
+    RegistrationStatusFallbacks,
+    RegistrationStatusRequest,
+    decode_registration_status_reply,
+)
 from app.db.models.user import User
 from app.services.identity_session_data import _json_value
 
@@ -26,6 +32,26 @@ class IdentityRecoveryCommandData:
 
     def __init__(self, db):
         self.db = db
+
+    async def read_registration_status(self, fallbacks: dict):
+        validated = RegistrationStatusFallbacks.model_validate(fallbacks)
+        try:
+            if self.db.autoflush:
+                await self.db.flush()
+            raw = await self.db.scalar(
+                text(
+                    "SELECT aap_identity_recovery_v1.read_registration_status(CAST(:fallbacks AS jsonb))"
+                ),
+                {"fallbacks": validated.model_dump_json()},
+            )
+        except SQLAlchemyError:
+            raise IdentityUnavailable() from None
+        return decode_registration_status_reply(
+            _json_value(raw),
+            RegistrationStatusRequest(
+                schema=REGISTRATION_STATUS_PROTOCOL, operation="read_status"
+            ),
+        )
 
     @asynccontextmanager
     async def transaction(self):

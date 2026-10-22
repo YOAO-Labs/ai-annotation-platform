@@ -26,6 +26,26 @@ def get_recovery_commands(
     return IdentityRecoveryCommands(db, identity)
 
 
+async def read_registration_status(
+    commands: RecoveryCommandsPort, *, deployment_default: bool = False
+) -> bool:
+    try:
+        value = await commands.registration_status(
+            deployment_default=deployment_default
+        )
+        if type(value) is not bool:
+            raise IdentityGatewayUnavailable()
+        return value
+    except IdentityGatewayUnavailable:
+        raise HTTPException(status_code=503, detail="身份恢复服务暂不可用") from None
+
+
+async def get_registration_default(
+    commands: RecoveryCommandsPort = Depends(get_recovery_commands),
+) -> bool:
+    return await read_registration_status(commands, deployment_default=True)
+
+
 def _reject_recovery_error(error, operation):
     if error.code == "registration_disabled":
         raise HTTPException(status_code=403, detail="开放注册未启用") from None
