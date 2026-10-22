@@ -6598,3 +6598,48 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   no new migration framework is introduced. Identity Briefs' DSN client binding
   and its explicit HTTP alternative are distinguished from the structural
   Inference-provider import. Full remaining scope stays in the sole ledger.
+- Structural source worker ba9929658 is integrated as e5f288e18. Before its
+  integration Root captures 26 old vectors (11 accepted, 15 rejected), both complete
+  model schemas and a request example at aa9cd59ea. Original receipt:
+  .worktree/workspace-pipeline-structural-legacy.json, SHA256
+  1bb80d5362c7750caca74dc80fbe69ab2f77416125d33fbb61ec873e7cd2acfa.
+  Immediate post-move replay matches all outcomes, exact details and complete
+  schemas; old provider import identities are preserved. Executable ASTs of both
+  models, validator and error class are unchanged (only Stage description excluded).
+- Root then corrects only the historical Stage description to current nonzero
+  root/depth-three semantics and publishes generated preannotate.schema.json.
+  Public OpenAPI recursive comparison changes exactly
+  /components/schemas/PipelineStage/description; paths/fields are unchanged.
+  Codegen and SDK OpenAPI-contract checks pass; no SDK coverage/version changes.
+- Shared contract/compatibility/config-policy source suite passes 193 cases,
+  no failures/errors/skips. Root adds a cold Node.js producer to save a canonical
+  pipeline through the actual API, followed by 422 plus unchanged state for an
+  invalid pipeline; these cold consumer checks remain unexecuted until images
+  match the new dependency graph. The fixed timed load profile is unchanged.
+- Offline minimal installation first fails solely on an uncached Pydantic-core
+  wheel. The pinned online install succeeds but reveals an editable task-source
+  path and duplicate source metadata; its count assertion failure and small
+  reproduction are retained. Fresh wheel build/install uses publishable metadata
+  with --no-sources: exactly seven packages, both local contracts noneditable,
+  no repository source in sys.path and no Inference/API/FastAPI/ORM/Celery/HTTP/ML
+  provider modules. The same 26 vectors and all schema fields pass; only the
+  intentionally corrected description differs. Qualification:
+  .worktree/workspace-pipeline-contract-wheel-install/qualification.json.
+- Offline lock refresh updates only API, Inference and Workspace locks. Workspace
+  removes aap-inference, aap-protocol-v2 and PyJWT; runtime Pydantic/core pins stay
+  aligned. Its Dockerfile drops the two unused provider/protocol builder inputs,
+  and package/readme/runtime guidance reflects the public structural contract.
+  Matching cold images and the load case are still required before this slice
+  is called independently qualified. Full goal and sole remaining ledger persist.
+- API/pipeline input regressions pass 103 selected cases on a fresh owned verifier
+  DB, including bulk/workbench scope, saved stages, staged endpoint and frame
+  planning. Full roundtrip/frozen checks and all owned cleanup pass; current
+  migration head stays 0300. SDK contract suite passes 14; source suite stays 193.
+  Architecture guard passes with its existing explicitly inapplicable lazy-root
+  exclusions; exact JUnit remains in .worktree/workspace-pipeline-architecture.\*.
+- The official OpenAPI commit hook is run with UV_NO_SYNC=1 so it executes the
+  real current exporter without rewriting Root's existing editable bindings;
+  all newly declared dependencies already exist in that interpreter, and the
+  separate wheel-only environment proves fresh publishable dependency metadata.
+  Root's normal commit hooks still run. Generated Task build output is verified
+  in an archive before removal; no unknown source cache is deleted.

@@ -385,7 +385,7 @@ Identity 准入、API key、核心会话、自助账户、注册恢复／邮件�
 
 项目成员新增、职责预览／变更及移除支持可选的独立 Workspace owner，保留公开接口、职责交接、冲突和审计语义，并已完成隔离本地验收。负责人转移也支持独立的受限命令绑定，默认路径保留调用方提交边界。项目与模板查询已提供独立读取绑定；成员列表与提及候选也已接入目录 owner，其余 Workspace 入口继续迁移，见 [Workspace 运行指南](./docs-site/api/guides/workspace-runtime.md)。
 
-项目／模板配置模型与纯策略已移到 Workspace 包，预标注值与能力归一化由 Inference 包持有。六项公开配置调用已接入配置 owner，默认保留调用方事务；独立安装包、进程、受限镜像与本地并发执行已完成限定验收，见 [配置命令 ADR](./docs/adr/0136-workspace-configuration-command-owner.md)。
+项目／模板配置模型与纯策略已移到 Workspace 包，预标注阶段结构与规范化由共享 Inference 契约包持有，Workspace 无需安装 Inference 提供方。六项公开配置调用已接入配置 owner，默认保留调用方事务；独立安装包、进程、受限镜像与本地并发执行已完成限定验收，见 [配置命令 ADR](./docs/adr/0136-workspace-configuration-command-owner.md)。
 
 类别重命名已接入同一个配置 owner，在单一事务内组合项目绑定和 Labeling 类名写入；同名请求由独立提供方持锁完成投影。三路径、独立安装包、受限镜像、重启、恢复与完整迁移已通过限定本地验收，见 [类别改名 ADR](./docs/adr/0143-workspace-project-class-rename-owner.md)。
 

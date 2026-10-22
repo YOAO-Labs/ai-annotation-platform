@@ -119,49 +119,17 @@ requires-dist = [
 provides-extras = ["postgres", "runtime", "test"]
 
 [[package]]
-name = "aap-inference"
-version = "0.1.0"
-source = { editable = "../inference" }
-dependencies = [
-    { name = "aap-inference-contract" },
-    { name = "aap-owner-data" },
-    { name = "aap-protocol-v2" },
-    { name = "aap-task-contract" },
-    { name = "aap-workspace-contract" },
-    { name = "pydantic" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aap-inference-contract", editable = "../_shared/inference_contract" },
-    { name = "aap-owner-data", editable = "../_shared/owner_data" },
-    { name = "aap-protocol-v2", editable = "../_shared/protocol_v2" },
-    { name = "aap-task-contract", editable = "../_shared/task_contract" },
-    { name = "aap-workspace-contract", editable = "../_shared/workspace_contract" },
-    { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.29" },
-    { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.29" },
-    { name = "asyncpg", marker = "extra == 'video-restore'", specifier = ">=0.29" },
-    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.28.0" },
-    { name = "httpx", marker = "extra == 'probe'", specifier = ">=0.28.0" },
-    { name = "httpx", marker = "extra == 'runtime'", specifier = ">=0.28.0" },
-    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.0" },
-    { name = "httpx", marker = "extra == 'video-restore'", specifier = ">=0.28.0" },
-    { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24" },
-]
-provides-extras = ["probe", "postgres", "client", "runtime", "video-restore", "test"]
-
-[[package]]
 name = "aap-inference-contract"
 version = "0.1.0"
 source = { editable = "../_shared/inference_contract" }
 dependencies = [
+    { name = "aap-task-contract" },
     { name = "pydantic" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-task-contract", editable = "../_shared/task_contract" },
     { name = "httpx", marker = "extra == 'client'", specifier = ">=0.28.0" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.0" },
     { name = "pydantic", specifier = ">=2.10.0" },
@@ -176,30 +144,6 @@ version = "0.1.0"
 source = { editable = "../_shared/owner_data" }
 
 [[package]]
-name = "aap-protocol-v2"
-version = "0.2.0"
-source = { editable = "../_shared/protocol_v2" }
-dependencies = [
-    { name = "aap-task-contract" },
-    { name = "cryptography" },
-    { name = "fastapi" },
-    { name = "pydantic" },
-    { name = "pyjwt" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aap-task-contract", editable = "../_shared/task_contract" },
-    { name = "cryptography", specifier = ">=43.0.0" },
-    { name = "fastapi", specifier = ">=0.110" },
-    { name = "numpy", marker = "extra == 'test'", specifier = ">=1.24" },
-    { name = "pydantic", specifier = ">=2.5" },
-    { name = "pyjwt", specifier = ">=2.10,<3" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0" },
-]
-provides-extras = ["test"]
-
-[[package]]
 name = "aap-task-contract"
 version = "0.1.0"
 source = { editable = "../_shared/task_contract" }
@@ -211,7 +155,6 @@ source = { editable = "." }
 dependencies = [
     { name = "aap-assets-cleanup" },
     { name = "aap-audit-contract" },
-    { name = "aap-inference" },
     { name = "aap-inference-contract" },
     { name = "aap-owner-data" },
     { name = "aap-workspace-contract" },
@@ -247,7 +190,6 @@ requires-dist = [
     { name = "aap-assets-source", extras = ["client"], marker = "extra == 'runtime'", editable = "../assets-source" },
     { name = "aap-audit-contract", editable = "../_shared/audit_contract" },
     { name = "aap-identity", extras = ["postgres"], marker = "extra == 'runtime'", editable = "../identity" },
-    { name = "aap-inference", editable = "../inference" },
     { name = "aap-inference-contract", editable = "../_shared/inference_contract" },
     { name = "aap-owner-data", editable = "../_shared/owner_data" },
     { name = "aap-workspace-contract", editable = "../_shared/workspace_contract" },
@@ -918,15 +860,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/49/2e/ced460408999b33da6b31b0021b0f37d329e202d4169aeb164493778f25b/pygments-2.21.0.tar.gz", hash = "sha256:610ca751c9bc2492b38eb9a38a7fbc93edbbb2d7182edaf34e66ae493dee5c8c", size = 5005329, upload-time = "2026-08-17T08:02:48.824Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/71/46/17f022dd3e953bf20a04a028a21ec746d942f8d2af30fa0f124fa0e6a684/pygments-2.21.0-py3-none-any.whl", hash = "sha256:2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9", size = 1250147, upload-time = "2026-08-17T08:02:44.912Z" },
-]
-
-[[package]]
-name = "pyjwt"
-version = "2.15.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/43/ea/5194e52748b0da83d71e082d75496eaec6e58f419f5e184786ded517e6a9/pyjwt-2.15.1.tar.gz", hash = "sha256:4f259e80cdfb6b3fc18a7de51fd1ef9ec79652f25019bae68975ca2468a34df8", size = 121252, upload-time = "2026-09-28T18:40:42.598Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/50/ca/44de4e75f8aadc457f0634be3b542815078ded46dca30efb960edeecad6e/pyjwt-2.15.1-py3-none-any.whl", hash = "sha256:42d59d631f7768a1028a64c7ff581a9bf7519804daf91fc5b6c56e30eec5e193", size = 33860, upload-time = "2026-09-28T18:40:41.429Z" },
 ]
 
 [[package]]

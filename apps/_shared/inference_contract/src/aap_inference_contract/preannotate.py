@@ -10,12 +10,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class PipelineStage(BaseModel):
-    """v0.18.1 · 多阶段预标注的单个阶段声明 (路径 B).
+    """多阶段预标注的一项声明。
 
-    stage 0 (parent_stage=None) 是源检测阶段, 吃整图产框; 下游阶段 (parent_stage 指向源阶段)
-    平台按父框 bbox 裁 ROI crop 喂入, 把返回的 attributes 合并进父框 (write.target=attributes)。
-    v0.18.2 (M2): 支持单层并行扇出 (多个下游共享同一 parent_stage)、按类别路由
-    (parent_class_filter)、阶段级失败策略 (on_failure)。深度≥3 / new_shape 留 M3。
+    parent_stage=None 标识源阶段；下游阶段消费父阶段几何，可写入属性、
+    独立几何或中间结果。阶段序号不必从零开始，任一依赖链最多三层。
     """
 
     # 脏键在校验期即 422, 不再原样落进 preannotate_pipeline JSONB (见 issue 0008.1);
@@ -24,7 +22,7 @@ class PipelineStage(BaseModel):
 
     stage: int
     ml_backend_id: uuid.UUID
-    # 初始输入节点 (stage 0) 的数据源描述: {"kind":"dataset","data_type":...,"execution_unit":...}。
+    # 初始输入节点的数据源描述: {"kind":"dataset","data_type":...,"execution_unit":...}。
     # 声明源类型与执行单位；下游 stage 不携带此字段。
     source: dict | None = None
     model_id: str | None = None

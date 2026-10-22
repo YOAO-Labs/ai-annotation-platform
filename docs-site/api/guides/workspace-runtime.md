@@ -172,6 +172,10 @@ API 随后调用独立 Labeling 统计边界，配置见 [Labeling 运行协议]
 备份恢复及完整迁移的限定本地验收。1 CPU／256 MiB 下的16次并发读取不代表生产容量；
 API 与数据库不在该容器预算内。完整模块当前状态见[模块台账](/dev/concepts/module-deployment#剩余工作台账)。
 
+## 保存流水线结构
+
+项目配置保存的预标注阶段通过共享 `aap-inference-contract` 验证和规范化。公开 JSON Schema 位于 `apps/_shared/inference_contract/src/aap_inference_contract/preannotate.schema.json`；阶段序号可非零、父阶段必须更早、依赖深度最多三层，写入目标、ROI 和属性键冲突规则保持。规范化复用任务名称契约；后端存在性、权限和可用性继续由原有入口检查。Workspace 核心与镜像无需安装 Inference 提供方，旧 Python 导入路径保留兼容别名；422 详情、校验时机和调用方事务不变。
+
 ## 同事务运维导入与质量配置
 
 `aap-workspace-project-maintenance/v1` 是固定 SQL 数据合同，复用 `aap_workspace_v1`，

@@ -65,11 +65,13 @@ name = "aap-inference-contract"
 version = "0.1.0"
 source = { editable = "../_shared/inference_contract" }
 dependencies = [
+    { name = "aap-task-contract" },
     { name = "pydantic" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-task-contract", editable = "../_shared/task_contract" },
     { name = "httpx", marker = "extra == 'client'", specifier = ">=0.28.0" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.0" },
     { name = "pydantic", specifier = ">=2.10.0" },

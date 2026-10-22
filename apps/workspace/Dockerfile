@@ -6,8 +6,6 @@ COPY apps/_shared/owner_data /_shared/owner_data
 COPY apps/_shared/inference_contract /_shared/inference_contract
 COPY apps/_shared/workspace_contract /_shared/workspace_contract
 COPY apps/_shared/task_contract /_shared/task_contract
-COPY apps/_shared/protocol_v2 /_shared/protocol_v2
-COPY apps/inference /inference
 COPY apps/identity /identity
 COPY apps/assets-source /assets-source
 COPY apps/assets-cleanup /assets-cleanup

@@ -3,9 +3,9 @@
 `aap-workspace` contains portable contracts and policy for project membership
 creation, role previews, role changes, member removal, project owner transfer,
 and six project/template configuration commands. The core package
-uses Pydantic, the shared Workspace projection contract and Inference's portable
-configuration validation. Inference transitively imports shared protocol FastAPI
-error helpers and lifecycle crypto. Runtime and PostgreSQL bindings are optional;
+uses Pydantic and shared Workspace, Inference, task, Audit and owner-data contracts.
+Saved pipeline structure and normalization come from `aap-inference-contract`;
+the core and standalone image do not install the Inference provider. Runtime and PostgreSQL bindings are optional;
 the PostgreSQL extra includes HTTP dependencies for the credential-owning Inference probe.
 
 The manager accepts a small data port that owns transaction boundaries and

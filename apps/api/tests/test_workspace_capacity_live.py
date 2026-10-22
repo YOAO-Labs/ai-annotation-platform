@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import os
 import secrets
+import shutil
+import subprocess
 import time
 import uuid
 from collections import Counter
@@ -38,6 +41,39 @@ pytestmark = [
 
 _PHASE_SECONDS = 15.0
 _EXPECTED_LIVE_SERVICES = 9
+
+
+async def _node_patch(origin: str, path: str, headers: dict, body: dict) -> dict:
+    node = shutil.which("node")
+    assert node, "the independent Workspace consumer requires installed Node.js"
+    script = """
+let input = '';
+for await (const chunk of process.stdin) input += chunk;
+const request = JSON.parse(input);
+const response = await fetch(request.origin + request.path, {
+  method: 'PATCH',
+  headers: {...request.headers, 'Content-Type': 'application/json'},
+  body: JSON.stringify(request.body),
+  redirect: 'error',
+});
+process.stdout.write(JSON.stringify({
+  status: response.status, body: await response.json(), node_version: process.version,
+}));
+"""
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [node, "--input-type=module", "-e", script],
+        input=json.dumps(
+            {"origin": origin, "path": path, "headers": headers, "body": body}
+        ),
+        env={name: os.environ[name] for name in ("PATH", "HOME") if name in os.environ},
+        text=True,
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
 
 
 def _new_metrics() -> dict:
@@ -189,7 +225,10 @@ async def _verify_final_database(maker, lanes: list[dict], revoked_project_id):
             project = (
                 (
                     await db.execute(
-                        text("SELECT name, owner_id FROM public.projects WHERE id=:id"),
+                        text(
+                            "SELECT name, owner_id, preannotate_pipeline "
+                            "FROM public.projects WHERE id=:id"
+                        ),
                         {"id": lane["project_id"]},
                     )
                 )
@@ -198,6 +237,8 @@ async def _verify_final_database(maker, lanes: list[dict], revoked_project_id):
             )
             assert project["name"] == lane["expected_name"]
             assert project["owner_id"] == lane["owner_id"]
+            if "expected_pipeline" in lane:
+                assert project["preannotate_pipeline"] == lane["expected_pipeline"]
             assert (
                 await db.scalar(
                     text(
@@ -239,7 +280,8 @@ async def _verify_final_database(maker, lanes: list[dict], revoked_project_id):
                 )
             ).mappings()
             expected = lane["sequence"]
-            assert updates == transfers == expected
+            assert updates == expected + lane.get("extra_updates", 0)
+            assert transfers == expected
             assert {
                 row["operation"]: (
                     row["receipts"],
@@ -360,6 +402,52 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
                         "expected_name": project_name,
                     }
                 )
+
+            # Exercise the actual owner policy before the timed workload.
+            # A numeric stage string retains the existing normalization behavior.
+            pipeline = [{"stage": "17", "ml_backend_id": str(uuid.UUID(int=1))}]
+            canonical_pipeline = [{**pipeline[0], "stage": 17}]
+            pipeline_project = lanes[0]
+            pipeline_path = f"/api/v1/projects/{pipeline_project['project_id']}"
+            saved = await _node_patch(
+                stack.api_origin,
+                pipeline_path,
+                headers["super_admin"],
+                {"preannotate_pipeline": pipeline},
+            )
+            assert saved["status"] == 200, saved
+            assert saved["body"]["preannotate_pipeline"] == canonical_pipeline
+            pipeline_project["expected_pipeline"] = canonical_pipeline
+            pipeline_project["extra_updates"] = 1
+            invalid = await client.patch(
+                pipeline_path,
+                headers=headers["super_admin"],
+                json={
+                    "name": "Invalid pipeline must roll back this name",
+                    "preannotate_pipeline": [
+                        *pipeline,
+                        {"stage": 18, "ml_backend_id": str(uuid.UUID(int=2))},
+                    ],
+                },
+            )
+            assert invalid.status_code == 422, invalid.text
+            assert invalid.json()["detail"] == (
+                "preannotate_pipeline 须恰有一个源阶段 (parent_stage=None)"
+            )
+            unchanged = await client.get(pipeline_path, headers=headers["super_admin"])
+            assert unchanged.status_code == 200, unchanged.text
+            assert unchanged.json()["name"] == pipeline_project["expected_name"]
+            assert unchanged.json()["preannotate_pipeline"] == canonical_pipeline
+            record_property(
+                "workspace_pipeline_contract_consumer",
+                {
+                    "producer": "node",
+                    "node_version": saved["node_version"],
+                    "saved_status": 200,
+                    "rejected_status": 422,
+                    "partial_write": False,
+                },
+            )
 
             revoked_create = await client.post(
                 "/api/v1/projects",
