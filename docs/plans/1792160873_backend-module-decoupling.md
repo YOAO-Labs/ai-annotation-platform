@@ -6762,3 +6762,18 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   and verified before removing the clean checkouts. Original branches remain.
   Receipts: .worktree/workspace-seed-contract-worker-preservation/receipt.json
   and .worktree/workspace-seed-live-worker-preservation/receipt.json.
+- Final documentation build passes in 16.692 seconds; the public OpenAPI and
+  frozen 0288 SQL/schema remain byte-identical to the pre-seed source. All normal
+  local commit hooks pass, with a real explicit OpenAPI export verified earlier.
+- Preservation at documentation commit 5dbb0eb12 confirms 20 unchanged editable
+  bindings, clean protected primary HEAD 856fa79c8, four shared running container
+  identities, 43 known owned PG containers absent, no fixture runtime/network or
+  persistent Root runtime, and matching current COPY manifests for all four
+  images. Receipt: .worktree/workspace-seed-preservation.json.
+- Aggregate .worktree/workspace-seed-qualification.json records the original
+  failures, immutable baseline, 15-case Native union, one five-call cold case,
+  package/image hashes, owned cleanup and worker archives. SHA256
+  ad23720a189c44a7825b1be29fd231d5a844cfd0a6609b5d5ac042c1b9627f66.
+  The bounded seed Project capability is closed; the overall goal remains
+  active. Other development seed consumers, the named remaining cold workers
+  and genuine historical video-retirement evidence remain in the sole ledger.
