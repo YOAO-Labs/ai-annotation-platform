@@ -6854,3 +6854,29 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   seed consumers before their Workspace Project operations, named cold workers
   and genuine historical video-retirement evidence. No primary cutover, push,
   release, production deployment or Go expansion occurred.
+
+### Media seed Identity consumers
+
+- Capture the old six-consumer behavior at 790d4c229 before source edits. The
+  immutable driver SHA256 is
+  9d28ab50e77e51bb7c27f5512990f030cbf2cf94a6e4f9a45d0eb578fd7e56c3.
+  All 54 baseline cases pass. The first attempt used overlong fixture display
+  IDs; the second passes all tests but its local-resource cleanup reports
+  an unclassified WorktreeError. Later inspection finds no connections and
+  the existing guarded destruction succeeds; no unknown client is terminated.
+  Preserve both failed receipts and the separate successful cleanup receipt.
+- Reuse the existing persona capability for COCO8/video/OCR admins, including
+  OCR's Admin name, caller commit/rollback and original environment behavior.
+  Screenshot preparation and catalog use the existing public account profile
+  relation, retain cached fields and their distinct role/active rules, and pass
+  UUIDs downstream. Large-image graph creation only changes owner lookup.
+  There is no new protocol, migration, credential selector or domain dependency.
+- Replay all 54 baseline cases with private User table/column access denied.
+  Existing catalog (19) and large-image (4) checks also pass, 77 distinct cases
+  total, with owned resources fully destroyed and no cleanup errors. Source-only
+  review finds no confirmed regression. The cold source worker is integrated as
+  717495514 (original b72353bf0); actual cold qualification remains pending.
+- A wider read-only audit finds more operational Identity consumers, now in the
+  sole ledger: import_images, created_at-ordered seed_scale selection, legacy
+  role audit compatibility, recording recovery/reject tools and test/e2e-only
+  preference restoration. Do not infer whole Identity closure from this slice.

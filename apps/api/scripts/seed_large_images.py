@@ -44,7 +44,7 @@ from app.db.base import async_session, engine
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
 from app.db.models.project import Project
 from app.db.models.task import Task
-from app.db.models.user import User
+from app.services.identity_commands import IdentityCommandService
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.services.assets_images import image_gateway, image_policy
 from app.services.storage import storage_service
@@ -245,8 +245,10 @@ async def _ensure_seed_graph(
     *, owner_email: str, manifest_version: int
 ) -> tuple[Dataset, Project]:
     async with async_session() as db:
-        owner = await db.scalar(select(User).where(User.email == owner_email))
-        if owner is None:
+        owner_id = (
+            await IdentityCommandService(db).lookup_seed_accounts({owner_email})
+        ).get(owner_email)
+        if owner_id is None:
             raise LargeImageSeedError(
                 f"owner {owner_email!r} is missing; run scripts/seed.py first"
             )
@@ -268,7 +270,7 @@ async def _ensure_seed_graph(
                 type_label="图像 · 实例分割",
                 type_key="image-seg",
                 data_type="image",
-                owner_id=owner.id,
+                owner_id=owner_id,
                 ai_enabled=False,
                 ai_interactive_enabled=False,
                 tool_bindings=TOOL_BINDINGS,
@@ -278,7 +280,7 @@ async def _ensure_seed_graph(
                 name=DATASET_NAME,
                 description="NASA 真实超大图开发、浏览器回归与文档截图夹具",
                 data_type="image",
-                created_by=owner.id,
+                created_by=owner_id,
                 metadata_=_dataset_marker(manifest_version),
             )
             db.add_all([project, dataset])
@@ -295,10 +297,10 @@ async def _ensure_seed_graph(
                 project.name != PROJECT_NAME
                 or project.type_key != "image-seg"
                 or project.data_type != "image"
-                or project.owner_id != owner.id
+                or project.owner_id != owner_id
                 or dataset.name != DATASET_NAME
                 or dataset.data_type != "image"
-                or dataset.created_by != owner.id
+                or dataset.created_by != owner_id
             ):
                 raise LargeImageSeedError(
                     "fixed large-image project/dataset was modified; refusing to overwrite it"

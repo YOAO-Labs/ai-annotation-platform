@@ -1,0 +1,1419 @@
+{
+  "source_commit": "790d4c229",
+  "capture_driver_sha256": "9d28ab50e77e51bb7c27f5512990f030cbf2cf94a6e4f9a45d0eb578fd7e56c3",
+  "snapshots": {
+    "admin-seed_ocr-existing_commit-False": {
+      "return_is_uuid": true,
+      "existing_id_reused": true,
+      "profile": {
+        "email": "admin-seed_ocr-existing_commit-False@seed.test",
+        "name": "legacy account",
+        "role": "viewer",
+        "is_active": false,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": false,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": true,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 1,
+      "pending_visible_after_caller_action": true,
+      "account_after_caller_action": {
+        "name": "legacy account",
+        "role": "viewer",
+        "email": "admin-seed_ocr-existing_commit-False@seed.test",
+        "status": "offline",
+        "group_id": null,
+        "is_active": false,
+        "avatar_ref": null,
+        "group_name": "保留分组",
+        "disabled_at": null,
+        "disabled_by": null,
+        "preferences": {
+          "keep": true
+        },
+        "last_seen_at": null,
+        "disabled_kind": null,
+        "last_login_at": null,
+        "disabled_reason": null,
+        "email_verified_at": null,
+        "deactivation_reason": null,
+        "credential_generation": 7,
+        "weekly_target_default": 42,
+        "password_admin_reset_at": null,
+        "deactivation_requested_at": null,
+        "deactivation_scheduled_at": null,
+        "seed_password_matches": false,
+        "existing_hash_preserved": true
+      }
+    },
+    "admin-seed_ocr-production-False": {
+      "return_is_uuid": true,
+      "existing_id_reused": false,
+      "profile": {
+        "email": "admin-seed_ocr-production-False@seed.test",
+        "name": "Admin",
+        "role": "super_admin",
+        "is_active": true,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": true,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": false,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 1,
+      "pending_visible_after_caller_action": true,
+      "account_after_caller_action": {
+        "name": "Admin",
+        "role": "super_admin",
+        "email": "admin-seed_ocr-production-False@seed.test",
+        "status": "offline",
+        "group_id": null,
+        "is_active": true,
+        "avatar_ref": null,
+        "group_name": null,
+        "disabled_at": null,
+        "disabled_by": null,
+        "preferences": {},
+        "last_seen_at": null,
+        "disabled_kind": null,
+        "last_login_at": null,
+        "disabled_reason": null,
+        "email_verified_at": null,
+        "deactivation_reason": null,
+        "credential_generation": 0,
+        "weekly_target_default": null,
+        "password_admin_reset_at": null,
+        "deactivation_requested_at": null,
+        "deactivation_scheduled_at": null,
+        "seed_password_matches": true,
+        "existing_hash_preserved": false
+      }
+    },
+    "admin-seed_coco8-existing_commit-False": {
+      "return_is_uuid": true,
+      "existing_id_reused": true,
+      "profile": {
+        "email": "admin-seed_coco8-existing_commit-False@seed.test",
+        "name": "legacy account",
+        "role": "viewer",
+        "is_active": false,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": false,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": true,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 1,
+      "pending_visible_after_caller_action": true,
+      "account_after_caller_action": {
+        "name": "legacy account",
+        "role": "viewer",
+        "email": "admin-seed_coco8-existing_commit-False@seed.test",
+        "status": "offline",
+        "group_id": null,
+        "is_active": false,
+        "avatar_ref": null,
+        "group_name": "保留分组",
+        "disabled_at": null,
+        "disabled_by": null,
+        "preferences": {
+          "keep": true
+        },
+        "last_seen_at": null,
+        "disabled_kind": null,
+        "last_login_at": null,
+        "disabled_reason": null,
+        "email_verified_at": null,
+        "deactivation_reason": null,
+        "credential_generation": 7,
+        "weekly_target_default": 42,
+        "password_admin_reset_at": null,
+        "deactivation_requested_at": null,
+        "deactivation_scheduled_at": null,
+        "seed_password_matches": false,
+        "existing_hash_preserved": true
+      }
+    },
+    "admin-seed_coco8-production-False": {
+      "return_is_uuid": true,
+      "existing_id_reused": false,
+      "profile": {
+        "email": "admin-seed_coco8-production-False@seed.test",
+        "name": "超级管理员",
+        "role": "super_admin",
+        "is_active": true,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": true,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": false,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 1,
+      "pending_visible_after_caller_action": true,
+      "account_after_caller_action": {
+        "name": "超级管理员",
+        "role": "super_admin",
+        "email": "admin-seed_coco8-production-False@seed.test",
+        "status": "offline",
+        "group_id": null,
+        "is_active": true,
+        "avatar_ref": null,
+        "group_name": null,
+        "disabled_at": null,
+        "disabled_by": null,
+        "preferences": {},
+        "last_seen_at": null,
+        "disabled_kind": null,
+        "last_login_at": null,
+        "disabled_reason": null,
+        "email_verified_at": null,
+        "deactivation_reason": null,
+        "credential_generation": 0,
+        "weekly_target_default": null,
+        "password_admin_reset_at": null,
+        "deactivation_requested_at": null,
+        "deactivation_scheduled_at": null,
+        "seed_password_matches": true,
+        "existing_hash_preserved": false
+      }
+    },
+    "catalog-valid-False": {
+      "users": {
+        "first": {
+          "id": "<first>",
+          "email": "catalog-valid-False-first@seed.test",
+          "role": "employee"
+        },
+        "second": {
+          "id": "<second>",
+          "email": "catalog-valid-False-second@seed.test",
+          "role": "viewer"
+        }
+      },
+      "projects": {},
+      "reads": {
+        "identity": 2,
+        "project": 1
+      },
+      "commits": 0,
+      "pending_materialized": false,
+      "pending_visible_after_close": false,
+      "stored_first_role": "employee"
+    },
+    "profile-cache_stale-True": {
+      "users": {
+        "first": "<first>",
+        "second": "<second>"
+      },
+      "reads": {
+        "identity": 2,
+        "project": 0
+      },
+      "commits": 0,
+      "pending_materialized": true,
+      "cached_dirty": false,
+      "pending_visible_after_close": false,
+      "stored_first_role": "viewer"
+    },
+    "admin-seed_coco8-new_rollback-False": {
+      "return_is_uuid": true,
+      "existing_id_reused": false,
+      "profile": {
+        "email": "admin-seed_coco8-new_rollback-False@seed.test",
+        "name": "超级管理员",
+        "role": "super_admin",
+        "is_active": true,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": true,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": false,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 0,
+      "pending_visible_after_caller_action": false,
+      "account_after_caller_action": null
+    },
+    "admin-seed_coco8-existing_commit-True": {
+      "return_is_uuid": true,
+      "existing_id_reused": true,
+      "profile": {
+        "email": "admin-seed_coco8-existing_commit-True@seed.test",
+        "name": "legacy account",
+        "role": "viewer",
+        "is_active": false,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": true,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": true,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 1,
+      "pending_visible_after_caller_action": true,
+      "account_after_caller_action": {
+        "name": "legacy account",
+        "role": "viewer",
+        "email": "admin-seed_coco8-existing_commit-True@seed.test",
+        "status": "offline",
+        "group_id": null,
+        "is_active": false,
+        "avatar_ref": null,
+        "group_name": "保留分组",
+        "disabled_at": null,
+        "disabled_by": null,
+        "preferences": {
+          "keep": true
+        },
+        "last_seen_at": null,
+        "disabled_kind": null,
+        "last_login_at": null,
+        "disabled_reason": null,
+        "email_verified_at": null,
+        "deactivation_reason": null,
+        "credential_generation": 7,
+        "weekly_target_default": 42,
+        "password_admin_reset_at": null,
+        "deactivation_requested_at": null,
+        "deactivation_scheduled_at": null,
+        "seed_password_matches": false,
+        "existing_hash_preserved": true
+      }
+    },
+    "admin-seed_video-new_rollback-False": {
+      "return_is_uuid": true,
+      "existing_id_reused": false,
+      "profile": {
+        "email": "admin-seed_video-new_rollback-False@seed.test",
+        "name": "超级管理员",
+        "role": "super_admin",
+        "is_active": true,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": true,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": false,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 0,
+      "pending_visible_after_caller_action": false,
+      "account_after_caller_action": null
+    },
+    "profile-wrong_role-False": {
+      "error": "ScreenshotSeedReconcileError",
+      "message": "seed user profile-wrong_role-False-first@seed.test with role employee is required",
+      "reads": {
+        "identity": 1,
+        "project": 0
+      },
+      "commits": 0,
+      "pending_materialized": false,
+      "pending_visible_after_close": false,
+      "stored_first_role": "viewer"
+    },
+    "catalog-inactive-False": {
+      "error": "ScreenshotSeedCatalogError",
+      "issues": [
+        "user catalog-inactive-False-first@seed.test must be active",
+        "user catalog-inactive-False-second@seed.test must be active"
+      ],
+      "reads": {
+        "identity": 2,
+        "project": 1
+      },
+      "commits": 0,
+      "pending_materialized": false,
+      "pending_visible_after_close": false,
+      "stored_first_role": "employee"
+    },
+    "profile-missing_second-False": {
+      "error": "ScreenshotSeedReconcileError",
+      "message": "seed user profile-missing_second-False-second@seed.test with role viewer is required",
+      "reads": {
+        "identity": 2,
+        "project": 0
+      },
+      "commits": 0,
+      "pending_materialized": false,
+      "pending_visible_after_close": false,
+      "stored_first_role": "employee"
+    },
+    "profile-valid-False": {
+      "users": {
+        "first": "<first>",
+        "second": "<second>"
+      },
+      "reads": {
+        "identity": 2,
+        "project": 0
+      },
+      "commits": 0,
+      "pending_materialized": false,
+      "pending_visible_after_close": false,
+      "stored_first_role": "employee"
+    },
+    "profile-missing_second-True": {
+      "error": "ScreenshotSeedReconcileError",
+      "message": "seed user profile-missing_second-True-second@seed.test with role viewer is required",
+      "reads": {
+        "identity": 2,
+        "project": 0
+      },
+      "commits": 0,
+      "pending_materialized": true,
+      "pending_visible_after_close": false,
+      "stored_first_role": "employee"
+    },
+    "catalog-cache_stale-False": {
+      "users": {
+        "first": {
+          "id": "<first>",
+          "email": "catalog-cache_stale-False-first@seed.test",
+          "role": "employee"
+        },
+        "second": {
+          "id": "<second>",
+          "email": "catalog-cache_stale-False-second@seed.test",
+          "role": "viewer"
+        }
+      },
+      "projects": {},
+      "reads": {
+        "identity": 2,
+        "project": 1
+      },
+      "commits": 0,
+      "pending_materialized": false,
+      "cached_dirty": false,
+      "pending_visible_after_close": false,
+      "stored_first_role": "viewer"
+    },
+    "profile-cache_expired-False": {
+      "error": "ScreenshotSeedReconcileError",
+      "message": "seed user profile-cache_expired-False-first@seed.test with role employee is required",
+      "reads": {
+        "identity": 1,
+        "project": 0
+      },
+      "commits": 0,
+      "pending_materialized": false,
+      "cached_dirty": false,
+      "pending_visible_after_close": false,
+      "stored_first_role": "viewer"
+    },
+    "admin-seed_video-production-False": {
+      "return_is_uuid": true,
+      "existing_id_reused": false,
+      "profile": {
+        "email": "admin-seed_video-production-False@seed.test",
+        "name": "超级管理员",
+        "role": "super_admin",
+        "is_active": true,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": true,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": false,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 1,
+      "pending_visible_after_caller_action": true,
+      "account_after_caller_action": {
+        "name": "超级管理员",
+        "role": "super_admin",
+        "email": "admin-seed_video-production-False@seed.test",
+        "status": "offline",
+        "group_id": null,
+        "is_active": true,
+        "avatar_ref": null,
+        "group_name": null,
+        "disabled_at": null,
+        "disabled_by": null,
+        "preferences": {},
+        "last_seen_at": null,
+        "disabled_kind": null,
+        "last_login_at": null,
+        "disabled_reason": null,
+        "email_verified_at": null,
+        "deactivation_reason": null,
+        "credential_generation": 0,
+        "weekly_target_default": null,
+        "password_admin_reset_at": null,
+        "deactivation_requested_at": null,
+        "deactivation_scheduled_at": null,
+        "seed_password_matches": true,
+        "existing_hash_preserved": false
+      }
+    },
+    "admin-seed_ocr-existing_commit-True": {
+      "return_is_uuid": true,
+      "existing_id_reused": true,
+      "profile": {
+        "email": "admin-seed_ocr-existing_commit-True@seed.test",
+        "name": "legacy account",
+        "role": "viewer",
+        "is_active": false,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": true,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": true,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 1,
+      "pending_visible_after_caller_action": true,
+      "account_after_caller_action": {
+        "name": "legacy account",
+        "role": "viewer",
+        "email": "admin-seed_ocr-existing_commit-True@seed.test",
+        "status": "offline",
+        "group_id": null,
+        "is_active": false,
+        "avatar_ref": null,
+        "group_name": "保留分组",
+        "disabled_at": null,
+        "disabled_by": null,
+        "preferences": {
+          "keep": true
+        },
+        "last_seen_at": null,
+        "disabled_kind": null,
+        "last_login_at": null,
+        "disabled_reason": null,
+        "email_verified_at": null,
+        "deactivation_reason": null,
+        "credential_generation": 7,
+        "weekly_target_default": 42,
+        "password_admin_reset_at": null,
+        "deactivation_requested_at": null,
+        "deactivation_scheduled_at": null,
+        "seed_password_matches": false,
+        "existing_hash_preserved": true
+      }
+    },
+    "large-partial": {
+      "error": "LargeImageSeedError",
+      "message": "partial large-image seed exists; remove or repair the fixed project/dataset pair",
+      "project": {
+        "name": "真实超大图金字塔（dev）",
+        "type_label": "图像 · 实例分割",
+        "type_key": "image-seg",
+        "data_type": "image",
+        "ai_enabled": false,
+        "ai_interactive_enabled": false,
+        "scene_mode": false,
+        "prefer_same_scene_continuation": false
+      },
+      "dataset": null,
+      "links": 0
+    },
+    "profile-missing_first-False": {
+      "error": "ScreenshotSeedReconcileError",
+      "message": "seed user profile-missing_first-False-first@seed.test with role employee is required",
+      "reads": {
+        "identity": 1,
+        "project": 0
+      },
+      "commits": 0,
+      "pending_materialized": false,
+      "pending_visible_after_close": false,
+      "stored_first_role": null
+    },
+    "admin-seed_video-existing_commit-True": {
+      "return_is_uuid": true,
+      "existing_id_reused": true,
+      "profile": {
+        "email": "admin-seed_video-existing_commit-True@seed.test",
+        "name": "legacy account",
+        "role": "viewer",
+        "is_active": false,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": true,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": true,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 1,
+      "pending_visible_after_caller_action": true,
+      "account_after_caller_action": {
+        "name": "legacy account",
+        "role": "viewer",
+        "email": "admin-seed_video-existing_commit-True@seed.test",
+        "status": "offline",
+        "group_id": null,
+        "is_active": false,
+        "avatar_ref": null,
+        "group_name": "保留分组",
+        "disabled_at": null,
+        "disabled_by": null,
+        "preferences": {
+          "keep": true
+        },
+        "last_seen_at": null,
+        "disabled_kind": null,
+        "last_login_at": null,
+        "disabled_reason": null,
+        "email_verified_at": null,
+        "deactivation_reason": null,
+        "credential_generation": 7,
+        "weekly_target_default": 42,
+        "password_admin_reset_at": null,
+        "deactivation_requested_at": null,
+        "deactivation_scheduled_at": null,
+        "seed_password_matches": false,
+        "existing_hash_preserved": true
+      }
+    },
+    "catalog-missing_second-True": {
+      "error": "ScreenshotSeedCatalogError",
+      "issues": [
+        "user second (catalog-missing_second-True-second@seed.test) is missing or duplicated"
+      ],
+      "reads": {
+        "identity": 2,
+        "project": 1
+      },
+      "commits": 0,
+      "pending_materialized": true,
+      "pending_visible_after_close": false,
+      "stored_first_role": "employee"
+    },
+    "catalog-inactive-True": {
+      "error": "ScreenshotSeedCatalogError",
+      "issues": [
+        "user catalog-inactive-True-first@seed.test must be active",
+        "user catalog-inactive-True-second@seed.test must be active"
+      ],
+      "reads": {
+        "identity": 2,
+        "project": 1
+      },
+      "commits": 0,
+      "pending_materialized": true,
+      "pending_visible_after_close": false,
+      "stored_first_role": "employee"
+    },
+    "profile-cache_dirty-False": {
+      "users": {
+        "first": "<first>",
+        "second": "<second>"
+      },
+      "reads": {
+        "identity": 2,
+        "project": 0
+      },
+      "commits": 0,
+      "pending_materialized": false,
+      "cached_dirty": true,
+      "pending_visible_after_close": false,
+      "stored_first_role": "viewer"
+    },
+    "admin-seed_video-production-True": {
+      "return_is_uuid": true,
+      "existing_id_reused": false,
+      "profile": {
+        "email": "admin-seed_video-production-True@seed.test",
+        "name": "超级管理员",
+        "role": "super_admin",
+        "is_active": true,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": true,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": false,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 1,
+      "pending_visible_after_caller_action": true,
+      "account_after_caller_action": {
+        "name": "超级管理员",
+        "role": "super_admin",
+        "email": "admin-seed_video-production-True@seed.test",
+        "status": "offline",
+        "group_id": null,
+        "is_active": true,
+        "avatar_ref": null,
+        "group_name": null,
+        "disabled_at": null,
+        "disabled_by": null,
+        "preferences": {},
+        "last_seen_at": null,
+        "disabled_kind": null,
+        "last_login_at": null,
+        "disabled_reason": null,
+        "email_verified_at": null,
+        "deactivation_reason": null,
+        "credential_generation": 0,
+        "weekly_target_default": null,
+        "password_admin_reset_at": null,
+        "deactivation_requested_at": null,
+        "deactivation_scheduled_at": null,
+        "seed_password_matches": true,
+        "existing_hash_preserved": false
+      }
+    },
+    "admin-seed_ocr-new_rollback-False": {
+      "return_is_uuid": true,
+      "existing_id_reused": false,
+      "profile": {
+        "email": "admin-seed_ocr-new_rollback-False@seed.test",
+        "name": "Admin",
+        "role": "super_admin",
+        "is_active": true,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": true,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": false,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 0,
+      "pending_visible_after_caller_action": false,
+      "account_after_caller_action": null
+    },
+    "profile-cache_stale-False": {
+      "users": {
+        "first": "<first>",
+        "second": "<second>"
+      },
+      "reads": {
+        "identity": 2,
+        "project": 0
+      },
+      "commits": 0,
+      "pending_materialized": false,
+      "cached_dirty": false,
+      "pending_visible_after_close": false,
+      "stored_first_role": "viewer"
+    },
+    "admin-seed_ocr-production-True": {
+      "return_is_uuid": true,
+      "existing_id_reused": false,
+      "profile": {
+        "email": "admin-seed_ocr-production-True@seed.test",
+        "name": "Admin",
+        "role": "super_admin",
+        "is_active": true,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": true,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": false,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 1,
+      "pending_visible_after_caller_action": true,
+      "account_after_caller_action": {
+        "name": "Admin",
+        "role": "super_admin",
+        "email": "admin-seed_ocr-production-True@seed.test",
+        "status": "offline",
+        "group_id": null,
+        "is_active": true,
+        "avatar_ref": null,
+        "group_name": null,
+        "disabled_at": null,
+        "disabled_by": null,
+        "preferences": {},
+        "last_seen_at": null,
+        "disabled_kind": null,
+        "last_login_at": null,
+        "disabled_reason": null,
+        "email_verified_at": null,
+        "deactivation_reason": null,
+        "credential_generation": 0,
+        "weekly_target_default": null,
+        "password_admin_reset_at": null,
+        "deactivation_requested_at": null,
+        "deactivation_scheduled_at": null,
+        "seed_password_matches": true,
+        "existing_hash_preserved": false
+      }
+    },
+    "large-modified": {
+      "error": "LargeImageSeedError",
+      "message": "fixed large-image project/dataset was modified; refusing to overwrite it",
+      "project": {
+        "name": "changed",
+        "type_label": "图像 · 实例分割",
+        "type_key": "image-seg",
+        "data_type": "image",
+        "ai_enabled": false,
+        "ai_interactive_enabled": false,
+        "scene_mode": false,
+        "prefer_same_scene_continuation": false
+      },
+      "dataset": {
+        "name": "large-image-dev",
+        "description": "NASA 真实超大图开发、浏览器回归与文档截图夹具",
+        "data_type": "image",
+        "metadata": {
+          "seed": {
+            "managed_by": "large-image-seed",
+            "manifest_version": 1
+          }
+        }
+      },
+      "links": 1
+    },
+    "catalog-valid-True": {
+      "users": {
+        "first": {
+          "id": "<first>",
+          "email": "catalog-valid-True-first@seed.test",
+          "role": "employee"
+        },
+        "second": {
+          "id": "<second>",
+          "email": "catalog-valid-True-second@seed.test",
+          "role": "viewer"
+        }
+      },
+      "projects": {},
+      "reads": {
+        "identity": 2,
+        "project": 1
+      },
+      "commits": 0,
+      "pending_materialized": true,
+      "pending_visible_after_close": false,
+      "stored_first_role": "employee"
+    },
+    "admin-seed_coco8-new_rollback-True": {
+      "return_is_uuid": true,
+      "existing_id_reused": false,
+      "profile": {
+        "email": "admin-seed_coco8-new_rollback-True@seed.test",
+        "name": "超级管理员",
+        "role": "super_admin",
+        "is_active": true,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": true,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": false,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 0,
+      "pending_visible_after_caller_action": false,
+      "account_after_caller_action": null
+    },
+    "admin-seed_ocr-new_commit-False": {
+      "return_is_uuid": true,
+      "existing_id_reused": false,
+      "profile": {
+        "email": "admin-seed_ocr-new_commit-False@seed.test",
+        "name": "Admin",
+        "role": "super_admin",
+        "is_active": true,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": true,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": false,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 1,
+      "pending_visible_after_caller_action": true,
+      "account_after_caller_action": {
+        "name": "Admin",
+        "role": "super_admin",
+        "email": "admin-seed_ocr-new_commit-False@seed.test",
+        "status": "offline",
+        "group_id": null,
+        "is_active": true,
+        "avatar_ref": null,
+        "group_name": null,
+        "disabled_at": null,
+        "disabled_by": null,
+        "preferences": {},
+        "last_seen_at": null,
+        "disabled_kind": null,
+        "last_login_at": null,
+        "disabled_reason": null,
+        "email_verified_at": null,
+        "deactivation_reason": null,
+        "credential_generation": 0,
+        "weekly_target_default": null,
+        "password_admin_reset_at": null,
+        "deactivation_requested_at": null,
+        "deactivation_scheduled_at": null,
+        "seed_password_matches": true,
+        "existing_hash_preserved": false
+      }
+    },
+    "admin-seed_coco8-production-True": {
+      "return_is_uuid": true,
+      "existing_id_reused": false,
+      "profile": {
+        "email": "admin-seed_coco8-production-True@seed.test",
+        "name": "超级管理员",
+        "role": "super_admin",
+        "is_active": true,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": true,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": false,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 1,
+      "pending_visible_after_caller_action": true,
+      "account_after_caller_action": {
+        "name": "超级管理员",
+        "role": "super_admin",
+        "email": "admin-seed_coco8-production-True@seed.test",
+        "status": "offline",
+        "group_id": null,
+        "is_active": true,
+        "avatar_ref": null,
+        "group_name": null,
+        "disabled_at": null,
+        "disabled_by": null,
+        "preferences": {},
+        "last_seen_at": null,
+        "disabled_kind": null,
+        "last_login_at": null,
+        "disabled_reason": null,
+        "email_verified_at": null,
+        "deactivation_reason": null,
+        "credential_generation": 0,
+        "weekly_target_default": null,
+        "password_admin_reset_at": null,
+        "deactivation_requested_at": null,
+        "deactivation_scheduled_at": null,
+        "seed_password_matches": true,
+        "existing_hash_preserved": false
+      }
+    },
+    "admin-seed_coco8-new_commit-False": {
+      "return_is_uuid": true,
+      "existing_id_reused": false,
+      "profile": {
+        "email": "admin-seed_coco8-new_commit-False@seed.test",
+        "name": "超级管理员",
+        "role": "super_admin",
+        "is_active": true,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": true,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": false,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 1,
+      "pending_visible_after_caller_action": true,
+      "account_after_caller_action": {
+        "name": "超级管理员",
+        "role": "super_admin",
+        "email": "admin-seed_coco8-new_commit-False@seed.test",
+        "status": "offline",
+        "group_id": null,
+        "is_active": true,
+        "avatar_ref": null,
+        "group_name": null,
+        "disabled_at": null,
+        "disabled_by": null,
+        "preferences": {},
+        "last_seen_at": null,
+        "disabled_kind": null,
+        "last_login_at": null,
+        "disabled_reason": null,
+        "email_verified_at": null,
+        "deactivation_reason": null,
+        "credential_generation": 0,
+        "weekly_target_default": null,
+        "password_admin_reset_at": null,
+        "deactivation_requested_at": null,
+        "deactivation_scheduled_at": null,
+        "seed_password_matches": true,
+        "existing_hash_preserved": false
+      }
+    },
+    "large-existing": {
+      "owner_reused": true,
+      "project": {
+        "name": "真实超大图金字塔（dev）",
+        "type_label": "图像 · 实例分割",
+        "type_key": "image-seg",
+        "data_type": "image",
+        "ai_enabled": false,
+        "ai_interactive_enabled": false,
+        "scene_mode": false,
+        "prefer_same_scene_continuation": false
+      },
+      "dataset": {
+        "name": "large-image-dev",
+        "description": "NASA 真实超大图开发、浏览器回归与文档截图夹具",
+        "data_type": "image",
+        "metadata": {
+          "seed": {
+            "managed_by": "large-image-seed",
+            "manifest_version": 1
+          }
+        }
+      },
+      "links": 1
+    },
+    "catalog-missing_second-False": {
+      "error": "ScreenshotSeedCatalogError",
+      "issues": [
+        "user second (catalog-missing_second-False-second@seed.test) is missing or duplicated"
+      ],
+      "reads": {
+        "identity": 2,
+        "project": 1
+      },
+      "commits": 0,
+      "pending_materialized": false,
+      "pending_visible_after_close": false,
+      "stored_first_role": "employee"
+    },
+    "catalog-wrong_role-True": {
+      "error": "ScreenshotSeedCatalogError",
+      "issues": [
+        "user catalog-wrong_role-True-first@seed.test must have role employee, got viewer"
+      ],
+      "reads": {
+        "identity": 2,
+        "project": 1
+      },
+      "commits": 0,
+      "pending_materialized": true,
+      "pending_visible_after_close": false,
+      "stored_first_role": "viewer"
+    },
+    "profile-wrong_role-True": {
+      "error": "ScreenshotSeedReconcileError",
+      "message": "seed user profile-wrong_role-True-first@seed.test with role employee is required",
+      "reads": {
+        "identity": 1,
+        "project": 0
+      },
+      "commits": 0,
+      "pending_materialized": true,
+      "pending_visible_after_close": false,
+      "stored_first_role": "viewer"
+    },
+    "admin-seed_video-new_commit-True": {
+      "return_is_uuid": true,
+      "existing_id_reused": false,
+      "profile": {
+        "email": "admin-seed_video-new_commit-True@seed.test",
+        "name": "超级管理员",
+        "role": "super_admin",
+        "is_active": true,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": true,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": false,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 1,
+      "pending_visible_after_caller_action": true,
+      "account_after_caller_action": {
+        "name": "超级管理员",
+        "role": "super_admin",
+        "email": "admin-seed_video-new_commit-True@seed.test",
+        "status": "offline",
+        "group_id": null,
+        "is_active": true,
+        "avatar_ref": null,
+        "group_name": null,
+        "disabled_at": null,
+        "disabled_by": null,
+        "preferences": {},
+        "last_seen_at": null,
+        "disabled_kind": null,
+        "last_login_at": null,
+        "disabled_reason": null,
+        "email_verified_at": null,
+        "deactivation_reason": null,
+        "credential_generation": 0,
+        "weekly_target_default": null,
+        "password_admin_reset_at": null,
+        "deactivation_requested_at": null,
+        "deactivation_scheduled_at": null,
+        "seed_password_matches": true,
+        "existing_hash_preserved": false
+      }
+    },
+    "catalog-cache_email-False": {
+      "users": {
+        "first": {
+          "id": "<first>",
+          "email": "cached-email@seed.test",
+          "role": "employee"
+        },
+        "second": {
+          "id": "<second>",
+          "email": "catalog-cache_email-False-second@seed.test",
+          "role": "viewer"
+        }
+      },
+      "projects": {},
+      "reads": {
+        "identity": 2,
+        "project": 1
+      },
+      "commits": 0,
+      "pending_materialized": false,
+      "cached_dirty": true,
+      "pending_visible_after_close": false,
+      "stored_first_role": "employee"
+    },
+    "admin-seed_ocr-new_commit-True": {
+      "return_is_uuid": true,
+      "existing_id_reused": false,
+      "profile": {
+        "email": "admin-seed_ocr-new_commit-True@seed.test",
+        "name": "Admin",
+        "role": "super_admin",
+        "is_active": true,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": true,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": false,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 1,
+      "pending_visible_after_caller_action": true,
+      "account_after_caller_action": {
+        "name": "Admin",
+        "role": "super_admin",
+        "email": "admin-seed_ocr-new_commit-True@seed.test",
+        "status": "offline",
+        "group_id": null,
+        "is_active": true,
+        "avatar_ref": null,
+        "group_name": null,
+        "disabled_at": null,
+        "disabled_by": null,
+        "preferences": {},
+        "last_seen_at": null,
+        "disabled_kind": null,
+        "last_login_at": null,
+        "disabled_reason": null,
+        "email_verified_at": null,
+        "deactivation_reason": null,
+        "credential_generation": 0,
+        "weekly_target_default": null,
+        "password_admin_reset_at": null,
+        "deactivation_requested_at": null,
+        "deactivation_scheduled_at": null,
+        "seed_password_matches": true,
+        "existing_hash_preserved": false
+      }
+    },
+    "large-new": {
+      "owner_reused": true,
+      "project": {
+        "name": "真实超大图金字塔（dev）",
+        "type_label": "图像 · 实例分割",
+        "type_key": "image-seg",
+        "data_type": "image",
+        "ai_enabled": false,
+        "ai_interactive_enabled": false,
+        "scene_mode": false,
+        "prefer_same_scene_continuation": false
+      },
+      "dataset": {
+        "name": "large-image-dev",
+        "description": "NASA 真实超大图开发、浏览器回归与文档截图夹具",
+        "data_type": "image",
+        "metadata": {
+          "seed": {
+            "managed_by": "large-image-seed",
+            "manifest_version": 1
+          }
+        }
+      },
+      "links": 1
+    },
+    "catalog-wrong_role-False": {
+      "error": "ScreenshotSeedCatalogError",
+      "issues": [
+        "user catalog-wrong_role-False-first@seed.test must have role employee, got viewer"
+      ],
+      "reads": {
+        "identity": 2,
+        "project": 1
+      },
+      "commits": 0,
+      "pending_materialized": false,
+      "pending_visible_after_close": false,
+      "stored_first_role": "viewer"
+    },
+    "admin-seed_coco8-new_commit-True": {
+      "return_is_uuid": true,
+      "existing_id_reused": false,
+      "profile": {
+        "email": "admin-seed_coco8-new_commit-True@seed.test",
+        "name": "超级管理员",
+        "role": "super_admin",
+        "is_active": true,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": true,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": false,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 1,
+      "pending_visible_after_caller_action": true,
+      "account_after_caller_action": {
+        "name": "超级管理员",
+        "role": "super_admin",
+        "email": "admin-seed_coco8-new_commit-True@seed.test",
+        "status": "offline",
+        "group_id": null,
+        "is_active": true,
+        "avatar_ref": null,
+        "group_name": null,
+        "disabled_at": null,
+        "disabled_by": null,
+        "preferences": {},
+        "last_seen_at": null,
+        "disabled_kind": null,
+        "last_login_at": null,
+        "disabled_reason": null,
+        "email_verified_at": null,
+        "deactivation_reason": null,
+        "credential_generation": 0,
+        "weekly_target_default": null,
+        "password_admin_reset_at": null,
+        "deactivation_requested_at": null,
+        "deactivation_scheduled_at": null,
+        "seed_password_matches": true,
+        "existing_hash_preserved": false
+      }
+    },
+    "large-missing_owner": {
+      "error": "LargeImageSeedError",
+      "message": "owner 'large-missing_owner@seed.test' is missing; run scripts/seed.py first",
+      "project": null,
+      "dataset": null,
+      "links": 0
+    },
+    "profile-valid-True": {
+      "users": {
+        "first": "<first>",
+        "second": "<second>"
+      },
+      "reads": {
+        "identity": 2,
+        "project": 0
+      },
+      "commits": 0,
+      "pending_materialized": true,
+      "pending_visible_after_close": false,
+      "stored_first_role": "employee"
+    },
+    "admin-seed_video-new_commit-False": {
+      "return_is_uuid": true,
+      "existing_id_reused": false,
+      "profile": {
+        "email": "admin-seed_video-new_commit-False@seed.test",
+        "name": "超级管理员",
+        "role": "super_admin",
+        "is_active": true,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": true,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": false,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 1,
+      "pending_visible_after_caller_action": true,
+      "account_after_caller_action": {
+        "name": "超级管理员",
+        "role": "super_admin",
+        "email": "admin-seed_video-new_commit-False@seed.test",
+        "status": "offline",
+        "group_id": null,
+        "is_active": true,
+        "avatar_ref": null,
+        "group_name": null,
+        "disabled_at": null,
+        "disabled_by": null,
+        "preferences": {},
+        "last_seen_at": null,
+        "disabled_kind": null,
+        "last_login_at": null,
+        "disabled_reason": null,
+        "email_verified_at": null,
+        "deactivation_reason": null,
+        "credential_generation": 0,
+        "weekly_target_default": null,
+        "password_admin_reset_at": null,
+        "deactivation_requested_at": null,
+        "deactivation_scheduled_at": null,
+        "seed_password_matches": true,
+        "existing_hash_preserved": false
+      }
+    },
+    "profile-missing_first-True": {
+      "error": "ScreenshotSeedReconcileError",
+      "message": "seed user profile-missing_first-True-first@seed.test with role employee is required",
+      "reads": {
+        "identity": 1,
+        "project": 0
+      },
+      "commits": 0,
+      "pending_materialized": true,
+      "pending_visible_after_close": false,
+      "stored_first_role": null
+    },
+    "admin-seed_video-new_rollback-True": {
+      "return_is_uuid": true,
+      "existing_id_reused": false,
+      "profile": {
+        "email": "admin-seed_video-new_rollback-True@seed.test",
+        "name": "超级管理员",
+        "role": "super_admin",
+        "is_active": true,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": true,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": false,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 0,
+      "pending_visible_after_caller_action": false,
+      "account_after_caller_action": null
+    },
+    "large-marker": {
+      "error": "LargeImageSeedError",
+      "message": "D-1e790de6a406 is not owned by large-image-seed",
+      "project": {
+        "name": "真实超大图金字塔（dev）",
+        "type_label": "图像 · 实例分割",
+        "type_key": "image-seg",
+        "data_type": "image",
+        "ai_enabled": false,
+        "ai_interactive_enabled": false,
+        "scene_mode": false,
+        "prefer_same_scene_continuation": false
+      },
+      "dataset": {
+        "name": "large-image-dev",
+        "description": "NASA 真实超大图开发、浏览器回归与文档截图夹具",
+        "data_type": "image",
+        "metadata": {}
+      },
+      "links": 1
+    },
+    "admin-seed_video-existing_commit-False": {
+      "return_is_uuid": true,
+      "existing_id_reused": true,
+      "profile": {
+        "email": "admin-seed_video-existing_commit-False@seed.test",
+        "name": "legacy account",
+        "role": "viewer",
+        "is_active": false,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": false,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": true,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 1,
+      "pending_visible_after_caller_action": true,
+      "account_after_caller_action": {
+        "name": "legacy account",
+        "role": "viewer",
+        "email": "admin-seed_video-existing_commit-False@seed.test",
+        "status": "offline",
+        "group_id": null,
+        "is_active": false,
+        "avatar_ref": null,
+        "group_name": "保留分组",
+        "disabled_at": null,
+        "disabled_by": null,
+        "preferences": {
+          "keep": true
+        },
+        "last_seen_at": null,
+        "disabled_kind": null,
+        "last_login_at": null,
+        "disabled_reason": null,
+        "email_verified_at": null,
+        "deactivation_reason": null,
+        "credential_generation": 7,
+        "weekly_target_default": 42,
+        "password_admin_reset_at": null,
+        "deactivation_requested_at": null,
+        "deactivation_scheduled_at": null,
+        "seed_password_matches": false,
+        "existing_hash_preserved": true
+      }
+    },
+    "catalog-cache_stale-True": {
+      "users": {
+        "first": {
+          "id": "<first>",
+          "email": "catalog-cache_stale-True-first@seed.test",
+          "role": "employee"
+        },
+        "second": {
+          "id": "<second>",
+          "email": "catalog-cache_stale-True-second@seed.test",
+          "role": "viewer"
+        }
+      },
+      "projects": {},
+      "reads": {
+        "identity": 2,
+        "project": 1
+      },
+      "commits": 0,
+      "pending_materialized": true,
+      "cached_dirty": false,
+      "pending_visible_after_close": false,
+      "stored_first_role": "viewer"
+    },
+    "admin-seed_ocr-new_rollback-True": {
+      "return_is_uuid": true,
+      "existing_id_reused": false,
+      "profile": {
+        "email": "admin-seed_ocr-new_rollback-True@seed.test",
+        "name": "Admin",
+        "role": "super_admin",
+        "is_active": true,
+        "status": "offline",
+        "avatar_ref": null
+      },
+      "pending_materialized": true,
+      "commits_during_helper": 0,
+      "account_visible_before_caller_commit": false,
+      "pending_visible_before_caller_commit": false,
+      "commits_after_caller_action": 0,
+      "pending_visible_after_caller_action": false,
+      "account_after_caller_action": null
+    },
+    "profile-cache_expired-True": {
+      "error": "ScreenshotSeedReconcileError",
+      "message": "seed user profile-cache_expired-True-first@seed.test with role employee is required",
+      "reads": {
+        "identity": 1,
+        "project": 0
+      },
+      "commits": 0,
+      "pending_materialized": true,
+      "cached_dirty": false,
+      "pending_visible_after_close": false,
+      "stored_first_role": "viewer"
+    }
+  }
+}

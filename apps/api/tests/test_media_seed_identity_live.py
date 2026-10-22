@@ -418,17 +418,9 @@ async def _wait_for_backend_exit(test_engine, backend_pid: int) -> None:
     pytest.fail("stopped media seed backend is still present in pg_stat_activity")
 
 
-async def _stop_pending_cli_task(cli: WorkspaceImportCli, task: asyncio.Task) -> None:
-    if task.done():
-        return
-    deadline = asyncio.get_running_loop().time() + 15
-    while cli.container_id is None and not task.done():
-        if asyncio.get_running_loop().time() >= deadline:
-            pytest.fail("owned media seed CLI container was not created")
-        await asyncio.sleep(0.02)
-    if task.done():
-        return
-    assert await asyncio.to_thread(cli.stop_current_container) is True
+async def _finish_pending_cli_task(task: asyncio.Task) -> None:
+    # Join the bounded SQL gate before close(), including failed startup, so
+    # separate threads never race to remove the same owned container.
     await asyncio.wait_for(asyncio.shield(task), timeout=35)
 
 
@@ -775,7 +767,7 @@ async def test_media_seed_identity_consumers_use_owned_identity_capabilities(
                     is None
                 )
         finally:
-            await _stop_pending_cli_task(cli, gate_task)
+            await _finish_pending_cli_task(gate_task)
             if gate_trigger is not None:
                 await _drop_user_trigger(test_engine, gate_trigger)
                 gate_trigger = None
@@ -942,7 +934,7 @@ async def test_media_seed_identity_consumers_use_owned_identity_capabilities(
     finally:
         try:
             if gate_task is not None and cli is not None:
-                await _stop_pending_cli_task(cli, gate_task)
+                await _finish_pending_cli_task(gate_task)
         finally:
             try:
                 if gate_trigger is not None:

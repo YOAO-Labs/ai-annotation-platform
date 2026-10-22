@@ -56,24 +56,16 @@ OCR_TOOL_BINDINGS: dict = {
 
 
 async def _ensure_admin(db) -> uuid.UUID:
-    from sqlalchemy import select
+    from app.services.identity_commands import IdentityCommandService
 
-    from app.core.security import hash_password
-    from app.db.models.user import User
-
-    admin = await db.scalar(select(User).where(User.email == ADMIN_EMAIL))
-    if admin:
-        return admin.id
-    admin = User(
+    account_id, _created = await IdentityCommandService(db).ensure_seed_persona(
         email=ADMIN_EMAIL,
         name="Admin",
-        password_hash=hash_password(ADMIN_PASSWORD),
+        password=ADMIN_PASSWORD,
         role="super_admin",
-        is_active=True,
+        group_name=None,
     )
-    db.add(admin)
-    await db.flush()
-    return admin.id
+    return account_id
 
 
 async def seed_ocr(

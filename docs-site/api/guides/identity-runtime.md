@@ -70,6 +70,12 @@ Migration 0251 在 `aap_identity_v1` 提供三项安全函数：`lock_accounts_s
 该配置拒绝普通 API 账号、角色继承和 User 私表／列权限。
 主种子的限定验收见[模块台账](/dev/concepts/module-deployment#主种子账号与演示成员)。
 
+媒体子种子也复用这项固定 persona 能力。COCO8／视频保留中文管理员名称，OCR 保留
+`Admin`，已有账号仍完整复用。截图准备与目录按原顺序读取公开账号事实，分别保留
+角色校验和角色＋启用状态校验；后续只传递 UUID。大图保留原精确邮箱 owner 选择。
+这几项消费者的迁移不增加协议、SQL 函数、角色或公开 REST；其定向与冷运行资格见
+[模块台账](/dev/concepts/module-deployment#媒体种子-identity-边界)。
+
 Identity operational provisioning 是给 bootstrap/import CLI 使用的内部 SQL owner，不是 HTTP/SDK 账号创建接口。Portable protocol `aap-identity-provisioning/v1` 只有 exact-email lookup 与 `bootstrap_admin`／`import_admin` create 两种模式；`AccountProvisioningManager` 通过 `create_bootstrap_super_admin(...)` 返回 UUID 或 `None`，通过 `ensure_import_admin(environment=...)` 返回 UUID。API caller adapter 不返回可变 User 或 password hash。
 
 Bootstrap 按单个 email 判重，不要求全局用户表为空。已有同 email 行无论 role、active 状态、姓名或 hash 都原样复用，不额外 hash、不写 Audit；不同 email 的 bootstrap admin 可共存。CLI 继续 lowercase/trim email、trim name，owner 不增加 normalization、长度或 password-strength policy。新用户保留 role `super_admin`、active、`status=online`、null group、`email_verified_at=caller now`、generation 0、`preferences={}` 和其余 nullable lifecycle fields null；`created_at` 使用 DB transaction time。Identity 与 Audit owners 在同一 caller transaction 原子写固定 `system.bootstrap_admin`，actor 为新用户，target 为 user UUID，detail 只含 `{email}`；method/path/status/IP 为 null，request ID 来自既有 context 或 null，Audit 时间使用 DB 默认值。应用 wrapper 不重复写 Audit。

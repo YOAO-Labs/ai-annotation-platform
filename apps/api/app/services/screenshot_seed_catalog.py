@@ -27,7 +27,7 @@ from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
-from app.db.models.user import User
+from app.services.identity_commands import IdentityCommandService
 from aap_assets_catalog.spatial_values import SensorCalibration
 from app.services.ml_backend import MLBackendService
 from app.services.screenshot_seed_backends import (
@@ -332,7 +332,7 @@ async def _resolve_dataset_and_tasks(
     project: Project,
     logical_key: str,
     spec: ProjectSpec,
-    users: dict[str, User],
+    users: dict[str, uuid.UUID],
     issues: list[str],
 ) -> tuple[Dataset | None, dict[str, Task], dict[str, dict[str, Any]]]:
     prefix = project.display_id
@@ -509,11 +509,11 @@ async def _resolve_dataset_and_tasks(
         expected_reviewer = (
             users.get(task_spec.reviewer_key) if task_spec.reviewer_key else None
         )
-        if expected_assignee is not None and task.assignee_id != expected_assignee.id:
+        if expected_assignee is not None and task.assignee_id != expected_assignee:
             issues.append(f"{prefix}: task {task_spec.key} has the wrong assignee")
         if task_spec.assignee_key is None and task.assignee_id is not None:
             issues.append(f"{prefix}: task {task_spec.key} must be unassigned")
-        if expected_reviewer is not None and task.reviewer_id != expected_reviewer.id:
+        if expected_reviewer is not None and task.reviewer_id != expected_reviewer:
             issues.append(f"{prefix}: task {task_spec.key} has the wrong reviewer")
         if task_spec.reviewer_key is None and task.reviewer_id is not None:
             issues.append(f"{prefix}: task {task_spec.key} must have no reviewer")
@@ -631,7 +631,7 @@ async def _resolve_project(
     db: AsyncSession,
     logical_key: str,
     spec: ProjectSpec,
-    users: dict[str, User],
+    users: dict[str, uuid.UUID],
     issues: list[str],
     backend_requirements: frozenset[str] | None = None,
 ) -> dict[str, Any] | None:
@@ -670,7 +670,7 @@ async def _resolve_project(
         ):
             user = users.get(role_key)
             if user is not None and not any(
-                member.user_id == user.id and member.role == member_role
+                member.user_id == user and member.role == member_role
                 for member in members
             ):
                 issues.append(
@@ -848,25 +848,23 @@ async def build_screenshot_seed_catalog(
 ) -> dict[str, Any]:
     required = parse_backend_requirements(backend_requirements)
     issues: list[str] = []
-    users: dict[str, User] = {}
+    users: dict[str, uuid.UUID] = {}
     user_payload: dict[str, dict[str, str]] = {}
     for logical_key, (email, role) in USER_SPECS.items():
-        rows = list(
-            (await db.execute(select(User).where(User.email == email))).scalars()
-        )
+        rows = await IdentityCommandService(db).lookup_seed_account_facts(email)
         if len(rows) != 1:
             issues.append(f"user {logical_key} ({email}) is missing or duplicated")
             continue
-        user = rows[0]
-        if user.role != role:
-            issues.append(f"user {email} must have role {role}, got {user.role}")
-        if not user.is_active:
+        user_id, user_email, user_role, is_active = rows[0]
+        if user_role != role:
+            issues.append(f"user {email} must have role {role}, got {user_role}")
+        if not is_active:
             issues.append(f"user {email} must be active")
-        users[logical_key] = user
+        users[logical_key] = user_id
         user_payload[logical_key] = {
-            "id": str(user.id),
-            "email": user.email,
-            "role": user.role,
+            "id": str(user_id),
+            "email": user_email,
+            "role": user_role,
         }
 
     project_payload: dict[str, Any] = {}

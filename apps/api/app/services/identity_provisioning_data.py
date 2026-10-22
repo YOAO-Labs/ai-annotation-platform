@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+import uuid
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import aliased, load_only
@@ -32,6 +33,24 @@ def _payload(value: Any) -> dict | bytes:
 class IdentityProvisioningData:
     def __init__(self, db: AsyncSession):
         self.db = db
+
+    async def lookup_seed_account_facts(
+        self, email: str
+    ) -> list[tuple[uuid.UUID, str, str, bool]]:
+        # Preserve loaded/dirty persona fields from the caller's identity map.
+        profile = aliased(User, account_profiles, adapt_on_names=True)
+        users = (
+            await self.db.execute(
+                select(profile)
+                .options(
+                    load_only(
+                        profile.id, profile.email, profile.role, profile.is_active
+                    )
+                )
+                .where(profile.email == email)
+            )
+        ).scalars()
+        return [(user.id, user.email, user.role, user.is_active) for user in users]
 
     async def lookup_seed_accounts(self, emails):
         # One snapshot preserves the bulk lookup and loaded email/ID cache

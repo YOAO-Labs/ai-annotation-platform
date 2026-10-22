@@ -386,6 +386,8 @@ SCHEMA_ARTIFACTS = (
     "0302_workspace_seed_members.schema.json",
 )
 TEST_FILES = (
+    "tests/test_media_seed_identity_live.py",
+    "tests/test_media_seed_identity_native.py",
     "tests/test_seed_parent_operator_live.py",
     "tests/test_seed_parent_operator_native.py",
     "tests/test_workspace_seed_operator_live.py",
@@ -3996,7 +3998,42 @@ def main(argv: list[str] | None = None) -> int:
             "tests/test_workspace_seed_operator_live.py" in selected_test_paths
             and os.environ.get("AAP_WORKSPACE_SEED_OPERATOR_LIVE") == "1"
         )
-        if seed_operator_live or (
+        media_seed_identity_live = (
+            "tests/test_media_seed_identity_live.py" in selected_test_paths
+            and os.environ.get("AAP_MEDIA_SEED_IDENTITY_LIVE") == "1"
+        )
+        if media_seed_identity_live:
+
+            def workspace_import_cli_fence():
+                nonlocal phase
+                phase = "install-media-seed-identity-operator"
+                persona_grants = ROOT / "infra/docker/identity-seed-operator-grants.sql"
+                for sql in (identity_consumer_grant_sql, persona_grants.read_text()):
+                    _psql(
+                        container_id,
+                        container_name,
+                        container_identity,
+                        username="owner",
+                        password=owner_password,
+                        database=database,
+                        sql=sql,
+                        variables={
+                            "expected_database": database,
+                            "migration_role": "owner",
+                            "identity_owner": "identity_code",
+                            "consumer_role": "legacy_runtime",
+                        },
+                    )
+                evidence["media_seed_identity_operator"] = {
+                    "role": "legacy_runtime",
+                    "grant_path": str(persona_grants.relative_to(ROOT)),
+                    "sha256": hashlib.sha256(persona_grants.read_bytes()).hexdigest(),
+                    "identity_private_tables_denied": True,
+                    "ordinary_api_unchanged": True,
+                    "other_domains": "existing trusted operator runtime grants retained",
+                }
+
+        elif seed_operator_live or (
             "tests/test_workspace_import_cli_live.py" in selected_test_paths
             and os.environ.get("AAP_WORKSPACE_IMPORT_CLI_LIVE") == "1"
         ):

@@ -391,6 +391,8 @@ Identity 准入、API key、核心会话、自助账户、注册恢复／邮件�
 
 主种子脚本自身的账号创建和演示成员写入也使用固定 Identity／Workspace 能力，保留已有账号和原事务行为。受限凭据复验见 [主种子账号与演示成员](./DEV.md#主种子账号与演示成员)；主脚本自身已通过冷中断／恢复验收；媒体子入口和完整模块资格仍按同一台账跟踪。
 
+媒体子种子及截图目录的账号操作也已迁移到 Identity 能力，保留各自的默认值与校验规则。范围和剩余运维入口见[模块台账](./docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
+
 类别重命名已接入同一个配置 owner，在单一事务内组合项目绑定和 Labeling 类名写入；同名请求由独立提供方持锁完成投影。三路径、独立安装包、受限镜像、重启、恢复与完整迁移已通过限定本地验收，见 [类别改名 ADR](./docs/adr/0143-workspace-project-class-rename-owner.md)。
 
 指南对象的受限签名、HEAD 与普通删除能力已加入既有 Assets Source 运行时，支持无需数据库凭据的 `guide-only` 模式。公共指南工作流由 Workspace 编排，借用事务、专用 DSN 与独立 HTTP 三路径已通过冻结回放、实际权限锁及备份恢复验收；受限容器重启后仍可读取已登记素材。范围见 [指南素材 ADR](./docs/adr/0144-workspace-guide-assets-owner.md)，完整模块与语言替换资格继续推进。

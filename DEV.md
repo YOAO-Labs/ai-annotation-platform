@@ -750,6 +750,35 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 事务和四项失败后再次提交检查。主脚本的媒体子入口仍单独跟踪，完整状态见
 [唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
 
+### 媒体种子的 Identity 边界
+
+COCO8／视频／OCR 的账号创建使用现有 persona owner；截图准备和目录只读取公开账号
+事实并传递 UUID，大图仍按原 email 查找 owner。截图准备保留角色校验，目录另保留
+启用状态校验；旧账号不被重置。可信运维账号先使用普通 Identity 围栏，再应用
+`identity-seed-operator-grants.sql`，共五项普通函数加精确查询和 persona 创建。
+该配置不增加普通 HTTP／worker 权限，其他领域仍沿用原运维权限。
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/media-seed-identity-native.json \
+  --test-file tests/test_media_seed_identity_native.py \
+  --test-file tests/test_screenshot_seed_catalog.py \
+  --test-file tests/test_seed_large_images.py
+```
+
+参照下文 Workspace 组合私网验收表，准备当前 API 冷镜像及身份变量后执行：
+
+```bash
+AAP_MEDIA_SEED_IDENTITY_LIVE=1 \
+  apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/media-seed-identity-cold.json \
+  --test-file tests/test_media_seed_identity_live.py
+```
+
+该案例只接受验收器自有环境。冷凭据禁止 User 私表／列，保留大图图谱的旧 Project／
+Dataset 运维权限，不冒充其他领域的最小凭据；实际状态见
+[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
+
 ### Workspace 锁定权限与会话快照
 
 `lock_current_project_rows`／`lock_current_project_access` 保持原接口，通过已有
