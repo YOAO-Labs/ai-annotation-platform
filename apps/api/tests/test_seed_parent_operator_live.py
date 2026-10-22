@@ -798,14 +798,18 @@ async def test_seed_parent_helpers_run_with_operator_only_capabilities(
             )
         async with test_engine.connect() as db:
             unchanged_before = (
-                await db.execute(
-                    text(
-                        "SELECT role,assigned_by,version,weekly_target,assigned_at,updated_at "
-                        "FROM public.project_members WHERE id=:id"
-                    ),
-                    {"id": anno_noop_id},
+                (
+                    await db.execute(
+                        text(
+                            "SELECT role,assigned_by,version,weekly_target,assigned_at,updated_at "
+                            "FROM public.project_members WHERE id=:id"
+                        ),
+                        {"id": anno_noop_id},
+                    )
                 )
-            ).one()
+                .mappings()
+                .one()
+            )
 
         pending_noop_dataset = f"SP-NOOP-{uuid.uuid4().hex[:8]}"
         noop_run = await _run_probe(
@@ -823,14 +827,18 @@ async def test_seed_parent_helpers_run_with_operator_only_capabilities(
         await _assert_pending_dataset_absent(test_engine, pending_noop_dataset)
         async with test_engine.connect() as db:
             unchanged_after = (
-                await db.execute(
-                    text(
-                        "SELECT role,assigned_by,version,weekly_target,assigned_at,updated_at "
-                        "FROM public.project_members WHERE id=:id"
-                    ),
-                    {"id": anno_noop_id},
+                (
+                    await db.execute(
+                        text(
+                            "SELECT role,assigned_by,version,weekly_target,assigned_at,updated_at "
+                            "FROM public.project_members WHERE id=:id"
+                        ),
+                        {"id": anno_noop_id},
+                    )
                 )
-            ).one()
+                .mappings()
+                .one()
+            )
         assert unchanged_after == unchanged_before
         assert unchanged_after["assigned_by"] == admin_id
         assert unchanged_after["updated_at"] == unchanged_before["updated_at"]
