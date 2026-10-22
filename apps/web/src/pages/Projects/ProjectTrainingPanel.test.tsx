@@ -232,6 +232,46 @@ describe("managed project training", () => {
     expect(await screen.findByText(/该模型家族尚未支持回流/)).toBeVisible();
     expect(screen.queryByRole("link", { name: "回流到项目模型" })).not.toBeInTheDocument();
   });
+  it("disables return and deletion for an execution already referenced by a project model", async () => {
+    vi.mocked(trainingRunsApi.get).mockResolvedValue({
+      run: { ...run, status: "succeeded" },
+      registration_eligibility: { qualified: true, reason: null },
+      registered_models: [{ id: "model", attempt_id: "attempt", name: "车辆模型" }],
+      attempts: [{ id: "attempt", ordinal: 1, status: "succeeded", artifacts: {} }],
+    } as never);
+    const user = userEvent.setup();
+    mount();
+    expect(await screen.findByRole("button", { name: "已回流到项目模型" })).toBeDisabled();
+    expect(screen.queryByRole("link", { name: "回流到项目模型" })).not.toBeInTheDocument();
+    expect(screen.getByText(/本次执行已添加为项目模型“车辆模型”/)).toBeVisible();
+    const deletion = screen.getByRole("button", { name: "删除实验" });
+    expect(deletion).toBeDisabled();
+    expect(deletion).toHaveAccessibleDescription(/实验已被项目模型引用/);
+    await user.click(deletion);
+    expect(confirmDialog).not.toHaveBeenCalled();
+    expect(trainingRunsApi.remove).not.toHaveBeenCalled();
+  });
+  it("keeps a different successful execution available for return", async () => {
+    vi.mocked(trainingRunsApi.get).mockResolvedValue({
+      run: { ...run, status: "succeeded" },
+      registration_eligibility: { qualified: true, reason: null },
+      registered_models: [{ id: "model", attempt_id: "older", name: "旧模型" }],
+      attempts: [
+        { id: "attempt", ordinal: 2, status: "succeeded", artifacts: {} },
+        { id: "older", ordinal: 1, status: "succeeded", artifacts: {} },
+      ],
+    } as never);
+    const user = userEvent.setup();
+    mount();
+    expect(await screen.findByRole("link", { name: "回流到项目模型" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("register_attempt=attempt"),
+    );
+    await user.selectOptions(screen.getByRole("combobox", { name: "查看执行记录" }), "older");
+    expect(await screen.findByRole("button", { name: "已回流到项目模型" })).toBeDisabled();
+    await user.selectOptions(screen.getByRole("combobox", { name: "查看执行记录" }), "attempt");
+    expect(await screen.findByRole("link", { name: "回流到项目模型" })).toBeVisible();
+  });
   it("does not offer model registration for an unfinished execution", async () => {
     vi.mocked(trainingRunsApi.get).mockResolvedValue({
       run,
@@ -340,10 +380,42 @@ describe("managed project training", () => {
   });
   it("opens the independent project creation page", async () => {
     const user = userEvent.setup();
-    mount();
+    mount("", "list");
     await waitFor(() => expect(screen.getByRole("button", { name: "新建实验" })).toBeEnabled());
+    expect(screen.queryByRole("button", { name: "删除实验" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "新建实验" }));
     expect(screen.getByText("/projects/project/learning/new")).toBeVisible();
+  });
+  it("replaces creation with a visible disabled delete entry while training", async () => {
+    mount();
+    await screen.findByRole("article", { name: "训练实验详情" });
+    expect(screen.queryByRole("button", { name: "新建实验" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "删除实验" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "删除实验" })).toHaveAccessibleDescription(
+      "实验尚未结束，请先停止训练。",
+    );
+  });
+  it("deletes a terminal experiment from its header after confirmation and returns to the list", async () => {
+    vi.mocked(trainingRunsApi.get).mockResolvedValue({
+      run: { ...run, status: "failed" },
+      attempts: [],
+      registered_models: [],
+    } as never);
+    vi.mocked(confirmDialog).mockResolvedValueOnce(true);
+    const user = userEvent.setup();
+    mount();
+    await screen.findByRole("article", { name: "训练实验详情" });
+    expect(screen.queryByRole("button", { name: "新建实验" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "指标曲线" })).toHaveAttribute("aria-selected", "true");
+    await user.click(screen.getByRole("button", { name: "删除实验" }));
+    await waitFor(() => expect(trainingRunsApi.remove).toHaveBeenCalledWith("project", "run"));
+    expect(confirmDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "删除实验“车辆训练”",
+        tone: "danger",
+      }),
+    );
+    expect(screen.getByText("/projects/project/learning")).toBeVisible();
   });
   it("requests cancellation without displaying terminal cancellation early", async () => {
     vi.mocked(trainingRunsApi.list).mockResolvedValue({ items: [run as never], total: 1 });

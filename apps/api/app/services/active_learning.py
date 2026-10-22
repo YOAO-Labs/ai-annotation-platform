@@ -436,6 +436,7 @@ def successful_evidence(round, attempt, row, result):
         or row.request != managed.request_identity(spec, row, sample["preprocessing"])
     ):
         raise ValueError("Candidate request differs from the frozen round")
+    trained_models.validate_result_runtime(result.meta, spec["model_ref"])
     inference = (result.meta or {}).get("sample_evaluation")
     managed.verify_inference(spec, row, inference)
     identity = {
@@ -449,12 +450,16 @@ def successful_evidence(round, attempt, row, result):
         raise ValueError("Prediction task or native model differs")
     if engine.strategy_for(spec["model_ref"]) == engine.MASK_STRATEGY:
         from app.services.sample_evaluation_masks import normalize_predictions
+        from app.services.controlled_segmentation import runtime_for_reference
 
         predictions = normalize_predictions(
             {"result": result.result, "meta": result.meta},
             list(range(len(spec["model_ref"]["classes"]))),
             width=sample["width"],
             height=sample["height"],
+            runtime_qualification=runtime_for_reference(
+                spec["model_ref"], spec["profile"]["ultralytics_version"]
+            ),
         )
     else:
         predictions = detection.predictions_from_wire(

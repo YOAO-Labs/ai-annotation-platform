@@ -80,7 +80,10 @@ export function TrainingRunTable({
                       ? "Ultralytics"
                       : run.config.framework === "libreyolo"
                         ? "LibreYOLO"
-                        : String(run.config.framework ?? "—")}
+                        : String(run.config.framework ?? "—")}{" "}
+                    <span className="text-muted-foreground">
+                      {String(run.config.framework_version ?? "")}
+                    </span>
                   </td>
                   <td className="px-4 py-3 font-mono text-2xs">
                     {typeof run.config.base_model === "object" && run.config.base_model !== null

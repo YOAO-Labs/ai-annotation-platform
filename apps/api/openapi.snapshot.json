@@ -13156,7 +13156,10 @@
             "type": "string"
           },
           "revision": {
-            "const": 1,
+            "enum": [
+              1,
+              2
+            ],
             "title": "Revision",
             "type": "integer"
           },
@@ -46270,6 +46273,31 @@
         "title": "TrainingRecovery",
         "type": "object"
       },
+      "TrainingRegisteredModel": {
+        "properties": {
+          "attempt_id": {
+            "format": "uuid",
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "attempt_id",
+          "name"
+        ],
+        "title": "TrainingRegisteredModel",
+        "type": "object"
+      },
       "TrainingReuseCandidate": {
         "properties": {
           "compatible": {
@@ -46437,6 +46465,13 @@
               "$ref": "#/components/schemas/TrainingAttemptOut"
             },
             "title": "Attempts",
+            "type": "array"
+          },
+          "registered_models": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingRegisteredModel"
+            },
+            "title": "Registered Models",
             "type": "array"
           },
           "registration_eligibility": {

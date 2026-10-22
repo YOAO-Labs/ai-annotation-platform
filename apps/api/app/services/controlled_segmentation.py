@@ -24,6 +24,15 @@ MAX_INSTANCES = 300
 
 def runtime_for_reference(ref, framework_version=None):
     """Resolve only the frozen model/profile, never a response-provided version."""
+    if "inference_runtime" in ref:
+        from training_contract.inference_runtime import validate_inference_runtime
+
+        identity = validate_inference_runtime(ref, ref["inference_runtime"])
+        if framework_version is not None and identity["version"] != framework_version:
+            raise ValueError(
+                "Frozen segmentation inference and profile versions differ"
+            )
+        return identity["qualification"]
     runtime = ref.get("runtime_qualification")
     if (
         framework_version is not None

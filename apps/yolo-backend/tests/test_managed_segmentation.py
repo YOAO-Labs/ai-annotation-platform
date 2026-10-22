@@ -228,8 +228,11 @@ async def test_prediction_wire_retains_mask_objects_and_rejects_cross_task_recei
     from fastapi import HTTPException
     from schemas import BatchPredictRequest
 
-    ref = receipt()
+    from managed_models import runtime_receipt
+
+    ref = runtime_receipt(receipt())
     ctx = context(ref)
+    ctx.frozen_model_ref.inference_runtime = ref["inference_runtime"]
     items, metadata = emit_instances(fixture(), ref, 11, 7, 3)
     calls = []
 
@@ -247,9 +250,10 @@ async def test_prediction_wire_retains_mask_objects_and_rejects_cross_task_recei
     result = (await main._run_predict(request))[0].model_dump(mode="json")
     assert result["task"] == "owned" and result["result"] == items
     assert result["meta"]["mask_objects"] == metadata["mask_objects"]
-    assert result["meta"]["trained_model"] == ctx.frozen_model_ref.model_dump(
-        mode="json"
-    )
+    assert result["meta"]["trained_model"] == {
+        key: ref[key] for key in ("model_version_id", "sha256", "classes_digest")
+    }
+    assert result["meta"]["inference_runtime"] == ref["inference_runtime"]
     monkeypatch.setattr(
         main._managed_models, "receipt", lambda _: {**ref, "task": "detection"}
     )

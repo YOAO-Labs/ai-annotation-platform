@@ -1,23 +1,30 @@
 """Controlled source artifacts, immutable bindings, releases and frozen jobs."""
 
+import asyncio
 import copy
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from sqlalchemy import select
+from fastapi import HTTPException
+from sqlalchemy import delete, select, text
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.api.v1.trained_models import register_model
 from app.db.models.async_job import AsyncJob
 from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.prediction import PredictionMeta
+from app.db.models.project import Project
 from app.db.models.trained_model import ModelDeployment, TrainedModelVersion
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingAttempt, TrainingRun
+from app.db.models.user import User
+from app.schemas.trained_model import TrainedModelCreate
 from app.services import trained_models as service
 from app.services.ml_client import MLBackendClient, PredictionResult
 from app.services.prediction import PredictionService, to_internal_shape
-from tests.conftest import create_registry_with_pool
+from tests.conftest import _create_user, create_registry_with_pool
 from tests.factory import create_membership, create_project, create_task
 
 
@@ -124,6 +131,19 @@ async def register(client, token, project, run, attempt, **extra):
     )
     assert response.status_code == 201, response.text
     return response.json(), body
+
+
+async def next_successful_attempt(db, run, previous):
+    attempt = TrainingAttempt(
+        run_id=run.id,
+        ordinal=previous.ordinal + 1,
+        status="succeeded",
+        artifacts=copy.deepcopy(previous.artifacts),
+    )
+    db.add(attempt)
+    await db.flush()
+    run.current_attempt_id = attempt.id
+    return attempt
 
 
 async def test_libre_registration_retains_native_gaps_and_immutable_runtime_qualification(
@@ -308,6 +328,124 @@ async def test_registration_is_immutable_idempotent_and_guards_source_storage(
     delete_objects.assert_not_called()
 
 
+@pytest.mark.parametrize("archived", [False, True])
+async def test_registration_rejects_duplicate_attempt_and_reports_existing_models(
+    db_session, super_admin, httpx_client, controlled_artifacts, archived
+):
+    owner, token = super_admin
+    project, run, attempt = await seed_source(db_session, owner)
+    data, body = await register(httpx_client, token, project, run, attempt)
+    if archived:
+        archived_response = await httpx_client.post(
+            f"/api/v1/projects/{project.id}/trained-models/{data['id']}/decisions",
+            headers=headers(token),
+            json={
+                "request_id": str(uuid.uuid4()),
+                "disposition": "archived",
+                "note": "Keep the source protected after archival",
+            },
+        )
+        assert archived_response.status_code == 201
+    response = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/trained-models",
+        headers=headers(token),
+        json={**body, "request_id": str(uuid.uuid4()), "name": "Duplicate"},
+    )
+    assert response.status_code == 409
+    assert "已回流到项目模型" in response.json()["detail"]
+    detail = await httpx_client.get(
+        f"/api/v1/projects/{project.id}/training-runs/{run.id}",
+        headers=headers(token),
+    )
+    assert detail.status_code == 200
+    assert detail.json()["registered_models"] == [
+        {"id": data["id"], "attempt_id": str(attempt.id), "name": data["name"]}
+    ]
+    later = await next_successful_attempt(db_session, run, attempt)
+    second, _ = await register(httpx_client, token, project, run, later)
+    assert second["id"] != data["id"]
+    assert second["attempt_id"] == str(later.id)
+
+
+@pytest.mark.parametrize("same_request", [False, True])
+async def test_concurrent_registration_creates_one_model(
+    test_engine, controlled_artifacts, same_request
+):
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    project_id = user_id = None
+    try:
+        async with maker() as db:
+            assert (await db.scalar(text("SELECT current_database()"))).endswith(
+                "_test"
+            )
+            owner, _ = await _create_user(
+                db,
+                "super_admin",
+                f"registration-{uuid.uuid4().hex}@test.local",
+                "Owner",
+            )
+            project, run, attempt = await seed_source(db, owner)
+            project_id, user_id = project.id, owner.id
+            body = TrainedModelCreate(
+                request_id=uuid.uuid4(),
+                name="Candidate",
+                run_id=run.id,
+                attempt_id=attempt.id,
+                bindings=["car", "person"],
+            )
+            await db.commit()
+
+        async def submit(request):
+            async with maker() as db:
+                return await register_model(
+                    request,
+                    await db.get(Project, project_id),
+                    await db.get(User, user_id),
+                    db,
+                )
+
+        second = (
+            body
+            if same_request
+            else body.model_copy(update={"request_id": uuid.uuid4()})
+        )
+        results = await asyncio.gather(
+            submit(body), submit(second), return_exceptions=True
+        )
+        if same_request:
+            assert all(isinstance(result, TrainedModelVersion) for result in results), (
+                results
+            )
+            assert results[0].id == results[1].id
+        else:
+            assert (
+                sum(isinstance(result, TrainedModelVersion) for result in results) == 1
+            )
+            rejected = next(
+                result for result in results if isinstance(result, HTTPException)
+            )
+            assert rejected.status_code == 409 and "已回流" in rejected.detail
+        async with maker() as db:
+            models = (
+                await db.scalars(
+                    select(TrainedModelVersion).where(
+                        TrainedModelVersion.project_id == project_id
+                    )
+                )
+            ).all()
+            assert len(models) == 1
+    finally:
+        if project_id:
+            async with maker() as db:
+                for model in (TrainedModelVersion, TrainingRun, TrainingDatasetVersion):
+                    await db.execute(
+                        delete(model).where(model.project_id == project_id)
+                    )
+                await db.execute(delete(Project).where(Project.id == project_id))
+                await db.execute(delete(User).where(User.id == user_id))
+                await db.commit()
+
+
 async def test_registration_rejects_foreign_failed_and_unmapped_sources(
     db_session,
     super_admin,
@@ -357,12 +495,13 @@ async def test_release_generation_idempotency_and_verified_rollback(
     owner, token = super_admin
     project, run, attempt = await seed_source(db_session, owner)
     first, _ = await register(httpx_client, token, project, run, attempt)
+    later = await next_successful_attempt(db_session, run, attempt)
     second, _ = await register(
         httpx_client,
         token,
         project,
         run,
-        attempt,
+        later,
         name="Second",
         bindings=["person", "car"],
     )
@@ -457,9 +596,8 @@ async def test_pending_job_replay_keeps_original_release_after_new_publication(
     owner, token = super_admin
     project, run, attempt = await seed_source(db_session, owner)
     first, _ = await register(httpx_client, token, project, run, attempt)
-    second, _ = await register(
-        httpx_client, token, project, run, attempt, name="Second"
-    )
+    later = await next_successful_attempt(db_session, run, attempt)
+    second, _ = await register(httpx_client, token, project, run, later, name="Second")
     v1 = await db_session.get(TrainedModelVersion, uuid.UUID(first["id"]))
     v2 = await db_session.get(TrainedModelVersion, uuid.UUID(second["id"]))
     backend, d1 = await ready_deployment(db_session, project, v1)
@@ -612,11 +750,13 @@ def prediction_result(ref, **extra):
     )
 
 
+@pytest.mark.parametrize("inference_version", [None, "8.4.183"])
 async def test_mapping_canonicalization_and_provenance_survive_acceptance_aliases(
     db_session,
     super_admin,
     httpx_client,
     controlled_artifacts,
+    inference_version,
 ):
     from app.services.annotation import AnnotationService
 
@@ -628,6 +768,15 @@ async def test_mapping_canonicalization_and_provenance_survive_acceptance_aliase
     data, _ = await register(httpx_client, token, project, run, attempt)
     version = await db_session.get(TrainedModelVersion, uuid.UUID(data["id"]))
     _, deployment = await ready_deployment(db_session, project, version)
+    if inference_version:
+        from training_contract.inference_runtime import inference_runtime
+
+        deployment.receipt = {
+            **deployment.receipt,
+            "inference_runtime": inference_runtime(
+                service.expected_receipt(version), inference_version
+            ),
+        }
     ref = service.frozen_reference(version, deployment)
     result = prediction_result(
         ref,
@@ -635,18 +784,28 @@ async def test_mapping_canonicalization_and_provenance_survive_acceptance_aliase
         class_name="person",
         tool_unit_id="polygon",
     )
+    if inference_version:
+        result.meta["inference_runtime"] = ref["inference_runtime"]
     service.validate_and_map_results([result], ref)
     normalized = to_internal_shape(result.result[0])
     assert normalized["class_name"] == "car" and normalized["tool_unit_id"] == "bbox"
     assert normalized["geometry"]["x"] == pytest.approx(0.001)
     task = await create_task(db_session, project_id=project.id)
     prediction = await PredictionService(db_session).create_from_ml_result(
-        task.id, project.id, deployment.registry_id, result.result, model_provenance=ref
+        task.id,
+        project.id,
+        deployment.registry_id,
+        result.result,
+        model_provenance=ref,
+        token_meta=result.meta,
     )
     meta = await db_session.scalar(
         select(PredictionMeta).where(PredictionMeta.prediction_id == prediction.id)
     )
     assert meta.extra["trained_model"] == ref
+    if inference_version:
+        assert meta.extra["trained_model"]["framework_version"] == "8.4.177"
+        assert meta.extra["inference_runtime"]["version"] == "8.4.183"
     accepted = await AnnotationService(db_session).accept_prediction(
         prediction.id, owner.id
     )
@@ -746,3 +905,50 @@ async def test_frozen_model_revalidates_current_project_bindings(
     project.tool_bindings = {"bbox": {"classes": [{"name": "different"}]}}
     with pytest.raises(HTTPException):
         await service.validate_frozen_reference(db_session, project.id, ref)
+
+
+async def test_ready_deployment_runtime_upgrade_requires_new_trial_and_preserves_old_ref(
+    db_session, super_admin, httpx_client, controlled_artifacts, monkeypatch
+):
+    from training_contract.inference_runtime import inference_runtime
+
+    owner, token = super_admin
+    project, run, attempt = await seed_source(db_session, owner)
+    first, _ = await register(httpx_client, token, project, run, attempt)
+    version = await db_session.get(TrainedModelVersion, uuid.UUID(first["id"]))
+    backend, deployment = await ready_deployment(db_session, project, version)
+    old_ref = service.frozen_reference(version, deployment)
+    receipt = {
+        **service.expected_receipt(version),
+        "inference_runtime": inference_runtime(
+            service.expected_receipt(version), "8.4.183"
+        ),
+    }
+    monkeypatch.setattr(
+        MLBackendClient, "trained_model_receipt", AsyncMock(return_value=receipt)
+    )
+    install = AsyncMock(
+        return_value=(
+            receipt,
+            {"result": [], "inference_runtime": receipt["inference_runtime"]},
+        )
+    )
+    monkeypatch.setattr(service, "install_and_trial", install)
+    response = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/trained-models/{version.id}/deploy",
+        headers=headers(token),
+        json={"registry_id": str(backend.id)},
+    )
+    assert response.status_code == 200 and response.json()["status"] == "ready"
+    install.assert_awaited_once()
+    assert old_ref == service.frozen_reference(
+        version, deployment, include_runtime=False
+    )
+    assert (
+        await service.validate_frozen_reference(db_session, project.id, old_ref)
+        == backend.id
+    )
+    current = service.frozen_reference(version, deployment)
+    assert current["framework_version"] == "8.4.177"
+    assert current["inference_runtime"]["version"] == "8.4.183"
+    assert current["reference_digest"] != old_ref["reference_digest"]

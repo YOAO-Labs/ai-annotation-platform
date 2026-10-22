@@ -253,7 +253,10 @@ async def deploy_model(
                 status_code=503, detail="暂时无法复查推理实例，请稍后重试"
             ) from exc
         else:
-            return deployment
+            if receipt.get("inference_runtime") == (deployment.receipt or {}).get(
+                "inference_runtime"
+            ):
+                return deployment
     check_id = uuid.uuid4()
     deployment.check_id = check_id
     deployment.status = "checking"

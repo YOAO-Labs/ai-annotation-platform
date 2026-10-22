@@ -115,8 +115,18 @@ async def test_each_stage_is_frozen_and_idempotent_replay_keeps_original_release
         for stage in original["stages"]
     )
     assert original["stages"][1]["class_filter"] == [1]
+    from app.db.models.training_run import TrainingAttempt
+
+    next_attempt = TrainingAttempt(
+        run_id=run.id,
+        ordinal=2,
+        status="succeeded",
+        artifacts=copy.deepcopy(attempt.artifacts),
+    )
+    db_session.add(next_attempt)
+    await db_session.flush()
     second, _ = await register(
-        httpx_client, token, project, run, attempt, name="new release"
+        httpx_client, token, project, run, next_attempt, name="new release"
     )
     version2 = await db_session.get(TrainedModelVersion, uuid.UUID(second["id"]))
     deployment2 = ModelDeployment(

@@ -30,6 +30,7 @@ from app.schemas.sample_evaluation import (
 from app.services import (
     async_job as jobs,
     sample_evaluation_engine as engine,
+    trained_models,
 )
 from app.services.async_job_notify import notify_job_terminal
 from app.services.managed_inference import (
@@ -463,6 +464,7 @@ def successful_evidence(run, attempt, row, result):
     spec = validate_spec(run)
     selected_engine = engine_for(spec)
     frozen = spec["samples"][row.ordinal]
+    trained_models.validate_result_runtime(result.meta, spec["model_ref"])
     inference = (result.meta or {}).get("sample_evaluation")
     verify_inference(spec, row, inference)
     identity = {

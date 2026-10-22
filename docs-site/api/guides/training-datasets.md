@@ -3,7 +3,7 @@ title: 在线学习与模型训练 API
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-22
 ---
 
 # 在线学习与模型训练 API
@@ -381,7 +381,9 @@ last_reviewed: 2026-10-21
 
 模型列表的 `q`（最多 120 字符）按名称进行不区分大小写的字面子串搜索，`%`、`_` 和反斜线不会作为通配符。`framework` 可选 `ultralytics` 或 `libreyolo`；`created_from`、`created_to` 接受 `YYYY-MM-DD`，按 UTC 日期包含起止整天，反向范围返回 `422`。所有筛选与 `archive` 共同作用于总数和分页，按创建时间、ID 倒序稳定排序。
 
-注册包含 UUID `request_id`、`name`、`run_id`、`attempt_id` 和与原生类别顺序一致的完整 `bindings`。相同标识和请求返回原模型，内容冲突返回 `409`。支持本平台已验证的 Ultralytics 图片检测产物及独立通过原生 CPU 资格检查的 LibreYOLO YOLO9 检测产物。
+注册包含 UUID `request_id`、`name`、`run_id`、`attempt_id` 和与原生类别顺序一致的完整 `bindings`。相同标识和请求返回原模型，内容冲突返回 `409`。同项目同一次执行只能注册一个模型，使用新请求标识重复注册也返回 `409`；归档不解除限制，另一条成功执行可以独立注册。支持本平台已验证的 Ultralytics 图片检测产物及独立通过原生 CPU 资格检查的 LibreYOLO YOLO9 检测产物。
+
+实验详情 `GET /training-runs/{run_id}` 的顶层 `registered_models` 返回该实验已回流模型的 `id`、`attempt_id` 和 `name`，包括已归档模型；没有回流时为空数组。客户端按所选执行匹配回流状态，服务端在注册事务中再次检查。模型引用的实验继续拒绝删除。
 
 发布包含 UUID `request_id`、`expected_generation`、`model_version_id`、`deployment_id` 和 `sample_confirmed=true`。回退增加 `rollback_from_id`，且模型与部署必须匹配该历史记录。清除时模型和部署均为 null。并发选择变动返回 `409`，应刷新。即使使用新的 `request_id`，目标模型版本与部署均未变化时也返回 `409`，不会追加历史或增加 generation；已停用时再次清除同样拒绝。切换到同一模型的其他已就绪部署仍是有效变更。丢失响应后的原请求重试返回同一发布。发布不会自动发生。
 
@@ -437,3 +439,11 @@ LibreYOLO 注册仅接受已核验的 YOLO9 t/s/m/c 原生检测最佳权重，�
 模型发布 POST body 和发布历史 GET query 的 `task` 默认 `detect`；分割显式传 `segment`。检测动态引用仍为 `project-release`，分割使用 `project-release:segment`，请求入队时解析并冻结。模型目录同时返回 `current_releases`，旧 `current_release` 保留检测默认语义。试用实例可通过 `GET /projects/{project_id}/trained-models/{version_id}/deployments/{deployment_id}/mask-content/{shape_index}` 读取；版本、部署、项目关系与当前管理权限全部核验。
 
 自动策略 PUT body 的 `task` 与 GET／disable／check／triggers／DELETE query 同样默认检测。分割必须提供完整配置、同任务父版本及已合格基础模型，任务间修订和失败基线互不影响；项目级串行限制继续生效。
+
+### 受控模型的训练和推理身份
+
+`TrainedModelOut.framework_version` 与部署 `receipt.framework_version` 表示原始训练版本，保持不可变。新推理服务的安装／查询响应增加独立 `inference_runtime`，包含 `revision`、`framework`、`training_version`、`version`（实际推理版本）、`task`、`compatibility` 和 `qualification`（原生库版本及源码校验值）；部署 `trial` 同时保存该身份。
+
+新冻结的 `model_ref` 和 backend 的 `frozen_model_ref` 携带这份 `inference_runtime`，参与引用及逐样本请求摘要。预测响应 `meta.trained_model` 仍为版本 ID、权重 SHA 和类别摘要三项，`meta.inference_runtime` 单独记录并与请求核对，预标来源保留两种版本。旧引用没有该字段时维持原摘要，只允许按原训练版本推理，不会自动改用新版环境。
+
+共享样本评估接受已登记的 profile 修订 1 和 2，并核对各自运行时版本。未知修订返回 `502 evaluation_protocol_unqualified`；部署已记录的推理版本与实际 profile 不同返回 `409 deployment_runtime_changed`，需重新加载试用。重新提交就绪部署时，若实际推理身份变化会重新试用，成功后才更新部署身份。

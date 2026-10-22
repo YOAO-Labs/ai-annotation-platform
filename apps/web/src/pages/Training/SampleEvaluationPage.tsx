@@ -672,6 +672,7 @@ function EvaluationContent({
                   </dd>
                   <dt>推理环境</dt>
                   <dd>
+                    训练版本 {String(run.spec.model_ref.framework_version ?? "未知")} · 推理版本
                     Ultralytics {run.spec.profile.ultralytics_version} ·{" "}
                     {run.spec.profile.effective_device}
                   </dd>

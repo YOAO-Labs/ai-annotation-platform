@@ -56,8 +56,9 @@ def test_mask_ambiguity_uses_pixels_and_keeps_random_control_score_independent()
     ]
 
 
+@pytest.mark.parametrize("runtime_version", ["8.4.177", "8.4.183"])
 async def test_mask_round_revalidates_pixel_evidence_and_accepts_only_human_tasks(
-    db_session, super_admin, monkeypatch
+    db_session, super_admin, monkeypatch, runtime_version
 ):
     owner, _ = super_admin
     world = await seed(db_session, owner, monkeypatch)
@@ -75,8 +76,22 @@ async def test_mask_round_revalidates_pixel_evidence_and_accepts_only_human_task
         "model_return": segmentation_identity("yolo11n-seg"),
     }
     world.deployment.receipt = trained_models.expected_receipt(world.model)
+    if runtime_version == "8.4.183":
+        from training_contract.inference_runtime import inference_runtime
+
+        world.deployment.receipt = {
+            **world.deployment.receipt,
+            "inference_runtime": inference_runtime(
+                world.deployment.receipt, runtime_version
+            ),
+        }
     world.ref = trained_models.frozen_reference(world.model, world.deployment)
-    world.profile = {**world.profile, "implementation": "aap-ultralytics-instance-mask"}
+    world.profile = {
+        **world.profile,
+        "implementation": "aap-ultralytics-instance-mask",
+        "ultralytics_version": runtime_version,
+        "revision": 2 if runtime_version == "8.4.183" else 1,
+    }
     world.profile["profile_digest"] = content_digest(
         {k: v for k, v in world.profile.items() if k != "profile_digest"}
     )
@@ -98,6 +113,11 @@ async def test_mask_round_revalidates_pixel_evidence_and_accepts_only_human_task
         result = prediction(round, row)
         raw = wire(rle(0, 192, size=(12, 16)))
         result.result, result.meta = raw["result"], {**result.meta, **raw["meta"]}
+        if runtime_version == "8.4.183":
+            result.meta["inference_runtime"] = world.ref["inference_runtime"]
+            result.meta["segmentation"]["runtime_qualification"] = world.ref[
+                "inference_runtime"
+            ]["qualification"]
         row.evidence = service.successful_evidence(round, attempt, row, result)
         row.status, row.produced_attempt_id = "succeeded", attempt.id
     await db_session.flush()

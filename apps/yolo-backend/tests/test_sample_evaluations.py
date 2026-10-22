@@ -593,11 +593,14 @@ async def test_transport_cancellation_keeps_native_lock_until_exit_then_seal_blo
         lambda _: {
             **req.context.frozen_model_ref.model_dump(mode="json"),
             "framework": "ultralytics",
+            "framework_version": "8.4.183",
+            "model_family": "yolo11",
+            "model_size": "n",
             "task": "detection",
         },
     )
     task = asyncio.create_task(main._run_sample_evaluation(req, operation=None))
-    assert await asyncio.wait_for(asyncio.to_thread(started.wait), timeout=3)
+    assert await asyncio.wait_for(asyncio.to_thread(started.wait, 3), timeout=3)
     task.cancel()
     await asyncio.sleep(0)
     try:
@@ -647,11 +650,14 @@ async def test_cold_native_loader_keeps_request_lock_after_borrower_leaves(
         lambda _: {
             **req.context.frozen_model_ref.model_dump(mode="json"),
             "framework": "ultralytics",
+            "framework_version": "8.4.183",
+            "model_family": "yolo11",
+            "model_size": "n",
             "task": "detection",
         },
     )
     task = asyncio.create_task(main._run_sample_evaluation(req, operation=None))
-    assert await asyncio.wait_for(asyncio.to_thread(started.wait), timeout=3)
+    assert await asyncio.wait_for(asyncio.to_thread(started.wait, 3), timeout=3)
     if interruption == "cancel":
         task.cancel()
     await asyncio.sleep(0.06)
@@ -714,3 +720,43 @@ except HTTPException as exc:
         with store.execution(body):
             pytest.fail("A tombstone from the other process must block late work")
     assert late.value.status_code == 410
+
+
+@pytest.mark.asyncio
+async def test_old_weights_require_explicit_runtime_pin_and_emit_actual_version(
+    tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    import main
+    from training_contract.inference_runtime import inference_runtime
+
+    req, _body, _profile = qualified_batch(EvaluationRequestStore(tmp_path))
+    req.context.sample_evaluation = None
+    receipt = {
+        **req.context.frozen_model_ref.model_dump(mode="json", exclude_none=True),
+        "framework": "ultralytics",
+        "framework_version": "8.4.177",
+        "task": "detection",
+    }
+    monkeypatch.setattr(main._managed_models, "receipt", lambda _: receipt)
+    predictor = SimpleNamespace(predict_one=AsyncMock(return_value=([], False, 0, 1)))
+    monkeypatch.setattr(main, "_predictor", predictor)
+    monkeypatch.setattr(main, "_model_pool", object())
+    with pytest.raises(HTTPException) as error:
+        await main._run_predict(req)
+    assert error.value.status_code == 409
+    predictor.predict_one.assert_not_awaited()
+    actual = inference_runtime(receipt, "8.4.183")
+    req.context.frozen_model_ref.inference_runtime = actual
+    results = await main._run_predict(req)
+    assert results[0].meta["inference_runtime"] == actual
+    assert set(results[0].meta["trained_model"]) == {
+        "model_version_id",
+        "sha256",
+        "classes_digest",
+    }
+    req.context.frozen_model_ref.inference_runtime = {**actual, "version": "8.4.184"}
+    with pytest.raises(HTTPException) as error:
+        await main._run_predict(req)
+    assert error.value.status_code == 409

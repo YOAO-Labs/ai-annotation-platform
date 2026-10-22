@@ -97,7 +97,7 @@ def _read_fixture(path: Path) -> dict:
         raise ValueError("Controlled fixture fields differ from the contract")
     _fixture_identity(value)
     ref = ManagedModelRef.model_validate(value["frozen_model_ref"])
-    if ref.model_dump(mode="json") != value["frozen_model_ref"]:
+    if ref.model_dump(mode="json", exclude_none=True) != value["frozen_model_ref"]:
         raise ValueError("Controlled fixture requires canonical model reference")
     classes = value["classes"]
     if (
@@ -171,7 +171,9 @@ class ControlledSegmentationFixture:
 
     @property
     def reference(self):
-        return self.fixture["frozen_model_ref"]
+        ref = self.fixture["frozen_model_ref"]
+        runtime = (self.receipt or {}).get("inference_runtime")
+        return {**ref, "inference_runtime": runtime} if runtime is not None else ref
 
     @property
     def task(self):
@@ -218,7 +220,7 @@ class ControlledSegmentationFixture:
 
     async def install(self, client):
         expected = {
-            **self.reference,
+            **{k: v for k, v in self.reference.items() if k != "inference_runtime"},
             "classes": self.fixture["classes"],
             "framework": "ultralytics",
             "framework_version": self.fixture.get("framework_version", "8.4.177"),
@@ -234,7 +236,18 @@ class ControlledSegmentationFixture:
                 }
             ).model_dump(mode="json", exclude_none=True)
             installed = await client.post("/managed-models", json=body)
-            if installed.status_code != 200 or installed.json() != expected:
+            received = installed.json()
+            if "inference_runtime" in received:
+                from training_contract.inference_runtime import (
+                    validate_inference_runtime,
+                )
+
+                validate_inference_runtime(expected, received["inference_runtime"])
+                pinned = self.reference.get("inference_runtime")
+                if pinned is not None and pinned != received["inference_runtime"]:
+                    raise AssertionError("Controlled frozen inference runtime differs")
+                expected["inference_runtime"] = received["inference_runtime"]
+            if installed.status_code != 200 or received != expected:
                 raise AssertionError("Controlled checkpoint installation failed")
             # Reinstallation must use the real immutable-receipt conflict guard.
             conflicting = copy.deepcopy(body)
@@ -279,7 +292,12 @@ class ControlledSegmentationFixture:
             item.get("task") != f"controlled-{self.task}"
             or item.get("model_version")
             != f"trained:{self.reference['model_version_id']}"
-            or meta.get("trained_model") != self.reference
+            or meta.get("trained_model")
+            != {k: v for k, v in self.reference.items() if k != "inference_runtime"}
+            or (
+                "inference_runtime" in self.reference
+                and meta.get("inference_runtime") != self.reference["inference_runtime"]
+            )
         ):
             raise AssertionError("Controlled native response identity differs")
         if self.task == "segment":
@@ -308,12 +326,15 @@ class ControlledSegmentationFixture:
         )
 
     def _inspect_masks(self, item, meta):
+        runtime = self.receipt.get("inference_runtime", {}).get(
+            "qualification", self.receipt["runtime_qualification"]
+        )
         if meta.get("segmentation") != {
             "output_contract": self.receipt["output_contract"],
             "dimensions": self.dimensions,
-            "mask_processing": self.receipt["runtime_qualification"]["mask_processing"],
-            "decoder": self.receipt["runtime_qualification"]["decoder"],
-            "runtime_qualification": self.receipt["runtime_qualification"],
+            "mask_processing": runtime["mask_processing"],
+            "decoder": runtime["decoder"],
+            "runtime_qualification": runtime,
         }:
             raise AssertionError("Controlled native mask response identity differs")
         objects, instances = meta.get("mask_objects"), item.get("result")
@@ -453,6 +474,11 @@ class ControlledSegmentationFixture:
             "task": self.task,
             "base_model": self.fixture.get("base_model", "yolo11n-seg"),
             "framework_version": self.fixture.get("framework_version", "8.4.177"),
+            **(
+                {"inference_runtime": self.receipt["inference_runtime"]}
+                if "inference_runtime" in self.receipt
+                else {}
+            ),
             "receipt_digest": digest(self.receipt),
             **(
                 {"output_contract": self.receipt["output_contract"]}
@@ -460,7 +486,9 @@ class ControlledSegmentationFixture:
                 else {}
             ),
             "runtime_qualification_digest": digest(
-                self.receipt["runtime_qualification"]
+                self.receipt.get("inference_runtime", {}).get(
+                    "qualification", self.receipt.get("runtime_qualification")
+                )
             ),
             "image_sha256": artifacts[1]["sha256"],
             "fixture_sha256": artifacts[2]["sha256"],

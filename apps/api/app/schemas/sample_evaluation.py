@@ -141,7 +141,7 @@ class EvaluationProfile(StrictModel):
     implementation: Literal[
         "aap-ultralytics-detection", "aap-ultralytics-instance-mask"
     ]
-    revision: Literal[1]
+    revision: Literal[1, 2]
     ultralytics_version: str = Field(min_length=1, max_length=50)
     torch_version: str = Field(min_length=1, max_length=80)
     pillow_version: str = Field(min_length=1, max_length=50)

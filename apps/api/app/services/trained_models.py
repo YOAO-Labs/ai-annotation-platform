@@ -6,6 +6,7 @@ from aap_protocol_v2.backend_auth import managed_provider
 
 from aap_task_contract import normalize_task, normalize_task_fields
 from training_contract.dataset import config_task
+from training_contract.inference_runtime import validate_inference_runtime
 
 import asyncio
 import math
@@ -113,6 +114,22 @@ async def register(db, project, user, body):
     attempt = await db.get(TrainingAttempt, body.attempt_id)
     if not run or not attempt or attempt.run_id != run.id:
         raise HTTPException(status_code=404, detail="来源训练实验或执行尝试不存在")
+    existing = await db.scalar(
+        select(TrainedModelVersion).where(
+            TrainedModelVersion.project_id == project.id,
+            TrainedModelVersion.attempt_id == attempt.id,
+        )
+    )
+    if existing:
+        if existing.request_id == body.request_id:
+            if existing.request_digest != request_digest:
+                raise HTTPException(
+                    status_code=409, detail="注册请求标识已用于其他内容"
+                )
+            return existing
+        raise HTTPException(
+            status_code=409, detail="该执行已回流到项目模型，请使用已添加的模型"
+        )
     if attempt.status != "succeeded":
         raise HTTPException(status_code=409, detail="只能注册成功训练的权重")
     eligibility = registration_eligibility(run.config)
@@ -273,6 +290,38 @@ def check_receipt(version, receipt):
             status_code=409, detail="推理实例的模型、权重或类别身份不匹配"
         )
 
+    if "inference_runtime" in receipt:
+        try:
+            validate_inference_runtime(expected, receipt["inference_runtime"])
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=409, detail="推理实例的训练与推理版本组合尚未通过资格检查"
+            ) from exc
+
+
+def validate_result_runtime(meta, ref):
+    if "inference_runtime" not in ref and "inference_runtime" in (meta or {}):
+        actual = validate_inference_runtime(ref, meta["inference_runtime"])
+        if actual["version"] != ref.get("framework_version"):
+            raise ValueError("Legacy frozen reference cannot change inference runtime")
+    if "inference_runtime" in ref:
+        expected = validate_inference_runtime(ref, ref["inference_runtime"])
+        if (meta or {}).get("inference_runtime") != expected:
+            raise ValueError("Backend returned a different inference runtime")
+
+
+def inference_version(ref):
+    if "inference_runtime" in ref:
+        return validate_inference_runtime(ref, ref["inference_runtime"])["version"]
+    return ref.get("framework_version")
+
+
+def wire_reference(ref):
+    keys = ["model_version_id", "sha256", "classes_digest"]
+    if "inference_runtime" in ref:
+        keys.append("inference_runtime")
+    return {key: ref[key] for key in keys}
+
 
 async def enabled_backend(db, project_id, registry_id):
     backend = await db.get(MLBackendRegistry, registry_id)
@@ -351,7 +400,9 @@ async def install_and_trial(db, project, version, deployment):
     sample = next((s for s in dataset.manifest["samples"] if s["split"] == "val"), None)
     if not sample:
         raise HTTPException(status_code=409, detail="缺少固定验证样本")
-    ref = frozen_reference(version, deployment)
+    ref = frozen_reference(
+        version, deployment, runtime=receipt.get("inference_runtime")
+    )
     results = await client.predict(
         [
             {
@@ -381,6 +432,11 @@ async def install_and_trial(db, project, version, deployment):
         "score": results[0].score,
         "sample_scope": "one_fixed_validation_image",
         **(
+            {"inference_runtime": receipt["inference_runtime"]}
+            if "inference_runtime" in receipt
+            else {}
+        ),
+        **(
             {"segmentation": results[0].meta["segmentation"]}
             if model_task(version) == "segment"
             else {}
@@ -388,7 +444,9 @@ async def install_and_trial(db, project, version, deployment):
     }
 
 
-def frozen_reference(version, deployment, release=None):
+def frozen_reference(
+    version, deployment, release=None, *, include_runtime=True, runtime=None
+):
     ref = {
         **expected_receipt(version),
         "project_id": str(version.project_id),
@@ -400,6 +458,9 @@ def frozen_reference(version, deployment, release=None):
         "release_id": str(release.id) if release else None,
         "release_generation": release.generation if release else None,
     }
+    runtime = runtime or (deployment.receipt or {}).get("inference_runtime")
+    if include_runtime and runtime is not None:
+        ref["inference_runtime"] = validate_inference_runtime(ref, runtime)
     return {**ref, "reference_digest": content_digest(ref)}
 
 
@@ -409,9 +470,7 @@ def wire_context(ref, params=None):
         "model_id": f"trained:{ref['model_version_id']}",
         "model_variants": {},
         "params": params or {},
-        "frozen_model_ref": {
-            k: ref[k] for k in ("model_version_id", "sha256", "classes_digest")
-        },
+        "frozen_model_ref": wire_reference(ref),
     }
 
 
@@ -501,6 +560,8 @@ def assert_image_scope(
 
 
 def validate_and_map_results(results, ref):
+    for result in results:
+        validate_result_runtime(result.meta, ref)
     if normalize_task(ref.get("task", "detection")) == "segment":
         from app.services.controlled_segmentation import validate_results
 
@@ -663,7 +724,12 @@ async def validate_frozen_reference(db, project_id, ref):
         raise ValueError(
             "Controlled release belongs to a different project, task or model"
         )
-    if frozen_reference(version, deployment, release) != ref:
+    if (
+        frozen_reference(
+            version, deployment, release, include_runtime="inference_runtime" in ref
+        )
+        != ref
+    ):
         raise ValueError("Controlled model reference changed")
     await enabled_backend(db, project_id, deployment.registry_id)
     return deployment.registry_id

@@ -231,10 +231,18 @@ class ModelReturnEligibility(BaseModel):
     qualification: dict[str, JsonValue] | None
 
 
+class TrainingRegisteredModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    attempt_id: uuid.UUID
+    name: str
+
+
 class TrainingRunDetail(BaseModel):
     run: TrainingRunOut
     attempts: list[TrainingAttemptOut]
     registration_eligibility: ModelReturnEligibility | None = None
+    registered_models: list[TrainingRegisteredModel] = Field(default_factory=list)
 
 
 class TrainingEvaluationDescriptor(BaseModel):

@@ -169,9 +169,13 @@ def runtime_identity():
                 "predictor.py",
                 "schemas.py",
                 "main.py",
+                "managed_models.py",
             )
         }
     )
+    for name in ("inference_runtime", "model_return", "models", "native_architecture"):
+        module = importlib.import_module(f"training_contract.{name}")
+        paths[f"training_contract/{name}.py"] = Path(module.__file__)
     try:
         sources = {
             name: hashlib.sha256(path.read_bytes()).hexdigest()

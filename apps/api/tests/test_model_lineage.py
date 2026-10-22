@@ -291,19 +291,36 @@ async def test_keyset_pagination_ties_inserts_cursor_binding_and_deep_parent(
     )
     assert len(second["items"]) == 3 and second["next_cursor"] is None
     assert not ({i["id"] for i in first["items"]} & {i["id"] for i in second["items"]})
+    for limit, expected_count, has_more in (
+        (1, 1, True),
+        (21, 21, True),
+        (100, 24, False),
+    ):
+        page = await get(
+            httpx_client,
+            token,
+            project,
+            "dataset",
+            parent.id,
+            relation="child_datasets",
+            limit=limit,
+        )
+        assert len(page["items"]) == expected_count
+        assert bool(page["next_cursor"]) is has_more
     for params in (
         {"relation": "runs", "cursor": first["next_cursor"]},
         {"cursor": first["next_cursor"]},
         {"relation": "bad"},
         {"relation": "child_datasets", "cursor": "%%%"},
-        {"limit": 21},
+        {"limit": 0},
+        {"limit": 101},
     ):
         r = await httpx_client.get(
             url(project, "dataset", parent.id),
             headers={"Authorization": f"Bearer {token}"},
             params=params,
         )
-        assert r.status_code == 422
+        assert r.status_code == 422, params
     current = parent
     for index in range(45):
         child = TrainingDatasetVersion(
@@ -503,6 +520,22 @@ async def test_append_decisions_idempotency_pagination_archive_and_current_relea
         )
     ).json()
     assert [i["sequence"] for i in older["items"]] == [3, 2, 1]
+    for limit, expected_count, next_before in (
+        (1, 1, 23),
+        (21, 21, 3),
+        (100, 23, None),
+    ):
+        page = await httpx_client.get(
+            f"{base}/{model.id}/decisions", headers=headers, params={"limit": limit}
+        )
+        assert page.status_code == 200, page.text
+        assert len(page.json()["items"]) == expected_count
+        assert page.json()["next_before"] == next_before
+    for limit in (0, 101):
+        rejected = await httpx_client.get(
+            f"{base}/{model.id}/decisions", headers=headers, params={"limit": limit}
+        )
+        assert rejected.status_code == 422, limit
     assert (await httpx_client.get(base, headers=headers)).json()["total"] == 1
     bad = await httpx_client.post(
         f"{base}/{model.id}/decisions",

@@ -26,6 +26,7 @@ from training_contract.model_return import (
     libre_identity,
     ultralytics_identity,
 )
+from training_contract.inference_runtime import inference_runtime
 from training_contract.models import model_spec
 from training_contract.native_architecture import (
     validate_architecture_yaml,
@@ -42,12 +43,28 @@ def digest(value):
     ).hexdigest()
 
 
+def runtime_receipt(receipt):
+    """Decorate a response without changing the immutable on-disk training receipt."""
+    framework = importlib.import_module(receipt["framework"])
+    try:
+        runtime = inference_runtime(receipt, framework.__version__)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409, detail="Unqualified training/inference runtime combination"
+        ) from exc
+    return {
+        **receipt,
+        "inference_runtime": runtime,
+    }
+
+
 class ManagedModelRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     model_version_id: uuid.UUID
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     classes_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    inference_runtime: dict | None = None
 
 
 class InstallRequest(ManagedModelRef):
@@ -66,6 +83,10 @@ class InstallRequest(ManagedModelRef):
 
     @model_validator(mode="after")
     def validate_identity(self):
+        if self.inference_runtime is not None:
+            raise ValueError(
+                "Inference identity is not part of the immutable training artifact"
+            )
         url = urlsplit(self.download_url)
         if (
             url.scheme not in {"http", "https"}
@@ -347,8 +368,8 @@ class ManagedModelStore:
         import ultralytics
         from ultralytics import YOLO
 
-        if ultralytics.__version__ != expected["framework_version"]:
-            raise ValueError("Unverified training/inference framework combination")
+        runtime = inference_runtime(expected, ultralytics.__version__)
+        qualified_native = ultralytics.__version__ == "8.4.183"
         model = YOLO(str(path))
         model.to("cpu")
         segmentation = expected["task"] == "segmentation"
@@ -365,11 +386,14 @@ class ManagedModelStore:
             raise ValueError(
                 "Checkpoint native classes differ from the registered order"
             )
-        if segmentation or expected["framework_version"] == "8.4.183":
+        if segmentation or qualified_native:
             from ultralytics.nn.modules import head as native_heads
             from ultralytics.nn.tasks import yaml_model_load
 
-            base_model = f"{expected.get('model_family')}{expected.get('model_size')}{'-seg' if segmentation else ''}"
+            family, scale = expected.get("model_family"), expected.get("model_size")
+            if expected["framework_version"] == "8.4.177" and not segmentation:
+                family, scale = "yolo11", model.model.yaml.get("scale")
+            base_model = f"{family}{scale}{'-seg' if segmentation else ''}"
             spec = model_spec("ultralytics", base_model)
             architecture = model.model.yaml
             head = model.model.model[-1]
@@ -394,20 +418,23 @@ class ManagedModelStore:
                     "Unqualified native model family, scale, head or inference branch"
                 )
             if not segmentation:
-                validate_detection_receipt(expected)
-                verify_native_runtime(expected)
+                if expected["framework_version"] == "8.4.183":
+                    validate_detection_receipt(expected)
+                verify_native_runtime(
+                    {"runtime_qualification": runtime["qualification"]}
+                )
         if segmentation:
             from managed_segmentation import verify_runtime
 
             validate_segmentation_receipt(expected)
-            verify_runtime(expected["framework_version"])
+            verify_runtime(ultralytics.__version__)
             if (
                 not names
                 or len(set(names)) != len(names)
                 or any(not isinstance(name, str) or not name for name in names)
             ):
                 raise ValueError("Unqualified segmentation architecture or classes")
-        if segmentation or expected["framework_version"] == "8.4.183":
+        if segmentation or qualified_native:
             import torch
 
             tensors = list(model.model.state_dict().values())

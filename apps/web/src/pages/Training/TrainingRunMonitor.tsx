@@ -22,7 +22,7 @@ import { TrainingLoading } from "./TrainingFeedback";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Button as NavigationButton } from "@/components/shadcn/ui/button";
-import type { ModelReturnEligibility } from "@/api/generated/types.gen";
+import type { ModelReturnEligibility, TrainingRegisteredModel } from "@/api/generated/types.gen";
 import { CopyValueButton } from "@/components/ui/CopyValueButton";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/shadcn/ui/tabs";
@@ -67,6 +67,7 @@ export function TrainingRunMonitor({
   recovery,
   recoveryError,
   registrationEligibility,
+  registeredModels = [],
   scope,
   visible,
   assertOwner,
@@ -83,6 +84,7 @@ export function TrainingRunMonitor({
   recovery?: TrainingRecovery;
   recoveryError?: string;
   registrationEligibility?: ModelReturnEligibility | null;
+  registeredModels?: TrainingRegisteredModel[];
   scope: string;
   visible: boolean;
   assertOwner: AssertTrainingOwner;
@@ -114,6 +116,7 @@ export function TrainingRunMonitor({
   );
   const boxMapKey = segmentation ? scores.find((key) => key === "metrics/mAP50-95(B)") : undefined;
   const attempt = attempts.find((item) => item.id === selectedAttemptId);
+  const registeredModel = registeredModels.find((model) => model.attempt_id === selectedAttemptId);
   const currentAttempt = attempts.find((item) => item.id === run.current_attempt_id);
   const canResume =
     ["failed", "cancelled"].includes(run.status) &&
@@ -180,27 +183,37 @@ export function TrainingRunMonitor({
             <div className="min-w-0 text-xs">
               <p className="font-medium">将训练结果回流到项目</p>
               <p className="mt-1 text-muted-foreground">
-                {registrationEligibility?.qualified
-                  ? segmentation
-                    ? "绑定 region 项目类别后，可加载试用并人工发布实例分割模型。预测采用逐实例掩码；栅格掩码训练仍须通过数据资格预检。"
-                    : "绑定项目类别后，模型会出现在「模型与发布」，供后续试用和发布。"
-                  : (registrationEligibility?.reason ?? "尚未确认回流资格，请刷新后重试。")}
-                {!registrationEligibility?.qualified && " 仍可在「产物与记录」下载权重。"}
+                {registeredModel
+                  ? `本次执行已添加为项目模型“${registeredModel.name}”，可在「模型与发布」查看和操作。`
+                  : registrationEligibility?.qualified
+                    ? segmentation
+                      ? "绑定 region 项目类别后，可加载试用并人工发布实例分割模型。预测采用逐实例掩码；栅格掩码训练仍须通过数据资格预检。"
+                      : "绑定项目类别后，模型会出现在「模型与发布」，供后续试用和发布。"
+                    : (registrationEligibility?.reason ?? "尚未确认回流资格，请刷新后重试。")}
+                {!registeredModel &&
+                  !registrationEligibility?.qualified &&
+                  " 仍可在「产物与记录」下载权重。"}
               </p>
             </div>
-            {registrationEligibility?.qualified && (
-              <NavigationButton asChild size="sm">
-                <Link
-                  to={`/projects/${run.project_id}/learning?${new URLSearchParams({
-                    tab: "models",
-                    model_task: task,
-                    register_run: run.id,
-                    register_attempt: attempt.id,
-                  })}`}
-                >
-                  回流到项目模型
-                </Link>
-              </NavigationButton>
+            {registeredModel ? (
+              <Button size="sm" disabled>
+                已回流到项目模型
+              </Button>
+            ) : (
+              registrationEligibility?.qualified && (
+                <NavigationButton asChild size="sm">
+                  <Link
+                    to={`/projects/${run.project_id}/learning?${new URLSearchParams({
+                      tab: "models",
+                      model_task: task,
+                      register_run: run.id,
+                      register_attempt: attempt.id,
+                    })}`}
+                  >
+                    回流到项目模型
+                  </Link>
+                </NavigationButton>
+              )
             )}
           </div>
         )}
@@ -614,16 +627,6 @@ export function TrainingRunMonitor({
                 </div>
               </section>
             ))}
-            {!activeTrainingStates.has(run.status) && (
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={pending}
-                onClick={() => onAction({ kind: "delete", run })}
-              >
-                删除实验
-              </Button>
-            )}
           </TabsContent>
           <TabsContent value="config">
             <div className="mb-4 flex flex-wrap items-center gap-2">

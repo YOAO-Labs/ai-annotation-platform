@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-20
+last_reviewed: 2026-10-22
 ---
 
 # 预标注流水线（Prediction Pipeline）
@@ -48,6 +48,8 @@ AI 预标注流水线以 `async_jobs(kind=batch_predict)` 作为用户可见任�
 `prediction_execution_snapshots` 保存不可变的规范阶段配置、摘要及 schema 版本。`async_jobs.execution_snapshot_id` 和 `failed_predictions.execution_snapshot_id` 都引用该记录，失败记录不会因为原始作业过期而丢失管线。后台清理只删除无任何作业或失败引用的过期快照，已放弃但可恢复的失败也保留引用。
 
 每个受控阶段冻结确切版本、部署、registry、权重／类别／项目绑定摘要及发布代次。检测别名 `project-release`、分割别名 `project-release:segment` 只在新提交时解析；相同幂等键在查到原作业后复用原快照。内置阶段冻结已声明的具体规格和参数默认值；已有权重核验时，`builtin_model_ref` 在实际借出的模型上检查权重、类别和加载器身份。未核验的旧声明仅保证配置冻结，不宣称物理权重已验证。
+
+受控引用保留原训练 `framework_version`，并在重新加载试用后独立冻结实际 `inference_runtime`，后者参与引用及评估请求摘要。Backend 的结果必须匹配冻结的推理身份；根预测元数据单独保存该身份，阶段执行记录通过各自引用保留它。旧引用不新增字段或重算摘要，只允许原训练版本推理，不能因容器升级静默更换环境。软件身份与目标 GPU 的生命周期资格分别核验，见[受控模型协议](../reference/ml-backend-protocol#固定样本试用与发布)。
 
 初跑与失败重试共用 `_run_task_pipeline`。重试只重跑失败任务的完整原始阶段树，沿用各阶段队列设备和受控部署；不重新解析当前发布。下游失败记录 `partial`、阶段错误和策略允许的候选，完整重试成功后将旧部分候选标为已被替代，保留其来源和人工采纳结果。无快照的历史失败维持旧单阶段重试。
 

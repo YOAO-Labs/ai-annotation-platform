@@ -136,3 +136,24 @@ def test_reject_misaligned_or_unqualified_masks(fault):
         item["geometry"] = {"type": "polygon", "points": [[0, 0], [1, 0], [1, 1]]}
     with pytest.raises(ValueError):
         trained_models.validate_and_map_results([result], ref)
+
+
+@pytest.mark.parametrize("trained", ["8.4.177", "8.4.183"])
+def test_segmentation_metadata_uses_pinned_inference_not_training_runtime(trained):
+    from training_contract.inference_runtime import inference_runtime
+    from app.services.controlled_segmentation import runtime_for_reference
+
+    result, ref, _pixels = example()
+    ref.update(framework="ultralytics", framework_version=trained)
+    ref["inference_runtime"] = inference_runtime(ref, "8.4.183")
+    actual = ref["inference_runtime"]["qualification"]
+    result.meta["inference_runtime"] = ref["inference_runtime"]
+    result.meta["segmentation"].update(
+        runtime_qualification=actual,
+        decoder=actual["decoder"],
+        mask_processing=actual["mask_processing"],
+    )
+    assert runtime_for_reference(ref, "8.4.183") == actual
+    trained_models.validate_and_map_results([result], ref)
+    with pytest.raises(ValueError):
+        runtime_for_reference(ref, "8.4.177")

@@ -31,6 +31,7 @@ export function ProjectModelList({
   onPageSize,
   params,
   onRegister,
+  onSetDefault,
   task,
   taskFilter,
   defaultPreannotation,
@@ -52,9 +53,10 @@ export function ProjectModelList({
   onPageSize: (size: number) => void;
   params: URLSearchParams;
   onRegister: () => void;
-  task: ModelTask;
+  onSetDefault: (modelId: string, trigger: HTMLButtonElement) => void;
+  task: ModelTask | "all";
   taskFilter: ReactNode;
-  defaultPreannotation: {
+  defaultPreannotation?: {
     modelId: string | null | undefined;
     loading: boolean;
     pending: boolean;
@@ -62,8 +64,10 @@ export function ProjectModelList({
   };
   children?: ReactNode;
 }) {
+  const taskFiltered = !!filters.task && task !== "all";
   const filtered =
     archive !== "exclude" ||
+    taskFiltered ||
     Object.entries(filters).some(([key, value]) => key !== "task" && !!value);
   const modelParams = new URLSearchParams(params);
   modelParams.set("model_task", task);
@@ -74,10 +78,10 @@ export function ProjectModelList({
     >
       <TrainingListControls
         kind="模型"
-        filters={filters}
+        filters={{ ...filters, task: "" }}
         onChange={onChange}
         onReset={onReset}
-        hasExtraFilters={archive !== "exclude"}
+        hasExtraFilters={archive !== "exclude" || taskFiltered}
       >
         {taskFilter}
         <select
@@ -91,7 +95,7 @@ export function ProjectModelList({
           <option value="only">仅已归档模型</option>
         </select>
       </TrainingListControls>
-      {defaultPreannotation.loading && (
+      {defaultPreannotation?.loading && (
         <p role="status" className="px-3 pb-3 text-xs text-muted-foreground">
           正在读取默认预标设置…
         </p>
@@ -114,7 +118,6 @@ export function ProjectModelList({
                   "类别",
                   task === "segment" ? "掩码 mAP50-95" : "mAP50-95",
                   "创建时间",
-                  "操作",
                 ].map((title) => (
                   <th key={title} scope="col" className="px-4 py-3 font-medium">
                     {title}
@@ -127,9 +130,10 @@ export function ProjectModelList({
                 const modelTask = trainingTaskOf({ task: model.task ?? model.provenance.task });
                 const baseModel = model.provenance.base_model;
                 const modelSpec = typeof baseModel === "string" ? baseModel : record(baseModel).id;
-                const isDefault = defaultPreannotation.loading
-                  ? !!model.is_current_release
-                  : model.id === defaultPreannotation.modelId;
+                const isDefault =
+                  !defaultPreannotation || defaultPreannotation.loading
+                    ? !!model.is_current_release
+                    : model.id === defaultPreannotation.modelId;
                 const metrics = modelMetrics(model);
                 const score =
                   modelTask === "segment"
@@ -153,12 +157,33 @@ export function ProjectModelList({
                       {modelTask === "segment" ? "实例分割" : "目标检测"}
                     </td>
                     <td className="px-4 py-3">
-                      <span className="flex gap-1">
+                      <span className="flex flex-wrap items-center gap-2">
                         {isDefault && <Badge variant="success">默认预标</Badge>}
                         {model.archived ? (
                           <Badge>已归档</Badge>
                         ) : (
                           !isDefault && <Badge>已注册</Badge>
+                        )}
+                        {isDefault && defaultPreannotation && (
+                          <Button
+                            size="xs"
+                            variant="ghost"
+                            className="text-muted-foreground hover:text-foreground"
+                            disabled={defaultPreannotation.pending}
+                            onClick={() => defaultPreannotation.onDisable(model.id)}
+                          >
+                            停用默认预标
+                          </Button>
+                        )}
+                        {!isDefault && (
+                          <Button
+                            size="xs"
+                            variant="ghost"
+                            className="text-muted-foreground hover:text-foreground"
+                            onClick={(event) => onSetDefault(model.id, event.currentTarget)}
+                          >
+                            设为默认预标
+                          </Button>
                         )}
                       </span>
                     </td>
@@ -172,27 +197,6 @@ export function ProjectModelList({
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
                       {new Date(model.created_at).toLocaleString("zh-CN", { hour12: false })}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <Link
-                          className="text-primary hover:underline"
-                          to={trainingRecordPath(projectId, "models", model.id, modelParams)}
-                        >
-                          详情与操作
-                        </Link>
-                        {isDefault && (
-                          <Button
-                            size="xs"
-                            variant="ghost"
-                            className="text-muted-foreground hover:text-foreground"
-                            disabled={defaultPreannotation.pending}
-                            onClick={() => defaultPreannotation.onDisable(model.id)}
-                          >
-                            停用默认预标
-                          </Button>
-                        )}
-                      </div>
                     </td>
                   </tr>
                 );

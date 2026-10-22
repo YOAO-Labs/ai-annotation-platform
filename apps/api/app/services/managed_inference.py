@@ -6,6 +6,7 @@ import base64
 import uuid
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 from training_contract.models import model_spec
 
 from app.db.models.ml_backend_registry import MLBackendRegistry
@@ -57,9 +58,10 @@ async def qualification(db, project, model_id, deployment_id):
     framework_version = ref.get("framework_version")
     if framework_version not in {"8.4.177", "8.4.183"}:
         raise reject("runtime_unqualified", "模型缺少已核验的冻结训练器版本")
+    runtime_version = trained_models.inference_version(ref)
     profile_params = {}
     selected_model = None
-    if framework_version != "8.4.177":
+    if runtime_version != "8.4.177":
         try:
             base_model = ref["provenance"]["base_model"]["id"]
             selected_model = model_spec("ultralytics", base_model)
@@ -69,17 +71,30 @@ async def qualification(db, project, model_id, deployment_id):
             raise reject(
                 "runtime_unqualified", "模型缺少已核验的家族及规格身份"
             ) from exc
-        profile_params["params"] = {"base_model": base_model}
+        if framework_version != "8.4.177":
+            profile_params["params"] = {"base_model": base_model}
     profile = await MLBackendClient(backend).managed_evaluation_request(
         "segment/profile" if segment else "profile", **profile_params
     )
-    checked = EvaluationProfile.model_validate(profile).model_dump(
-        mode="json", by_alias=True
-    )
+    try:
+        checked = EvaluationProfile.model_validate(profile).model_dump(
+            mode="json", by_alias=True
+        )
+    except ValidationError as exc:
+        raise reject(
+            "evaluation_protocol_unqualified",
+            "推理实例返回了不支持的评估协议，请检查推理服务版本",
+            502,
+        ) from exc
+    if checked["ultralytics_version"] != runtime_version:
+        raise reject(
+            "deployment_runtime_changed",
+            "推理环境已变化，请在模型详情重新加载并试用，再创建评估",
+        )
     if (
         checked["profile_digest"]
         != content_digest({k: v for k, v in checked.items() if k != "profile_digest"})
-        or checked["ultralytics_version"] != framework_version
+        or checked["revision"] != {"8.4.177": 1, "8.4.183": 2}.get(runtime_version)
         or (
             selected_model is not None
             and selected_model.end2end
@@ -101,10 +116,7 @@ def request_identity(spec, row, preprocessing):
         "issued_at": spec["issued_at"],
         "expires_at": spec["expires_at"],
     }
-    wire_ref = {
-        k: spec["model_ref"][k]
-        for k in ("model_version_id", "sha256", "classes_digest")
-    }
+    wire_ref = trained_models.wire_reference(spec["model_ref"])
     request["binding_digest"] = content_digest(
         {
             "task_id": str(spec["samples"][row.ordinal]["task_id"]),
@@ -144,7 +156,8 @@ def verify_inference(spec, row, inference):
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError("Frozen inference model identity is unavailable") from exc
         if (
-            ref.get("framework_version") != spec["profile"]["ultralytics_version"]
+            trained_models.inference_version(ref)
+            != spec["profile"]["ultralytics_version"]
             or native.task != ("segment" if segmentation_spec(spec) else "detect")
             or (native.end2end and expected["options"].get("nms") is not False)
         ):

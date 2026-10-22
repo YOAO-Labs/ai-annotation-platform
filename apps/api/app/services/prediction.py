@@ -521,6 +521,11 @@ class PredictionService:
                 **(pipeline_extra or {}),
                 **({"trained_model": model_provenance} if model_provenance else {}),
                 **(
+                    {"inference_runtime": meta_data["inference_runtime"]}
+                    if model_provenance and "inference_runtime" in meta_data
+                    else {}
+                ),
+                **(
                     {"segmentation": meta_data["segmentation"]}
                     if "segmentation" in meta_data
                     else {}

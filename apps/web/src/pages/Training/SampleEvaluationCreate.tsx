@@ -349,7 +349,8 @@ function CreateContent({ projectId, scope }: { projectId: string; scope: string 
                     部署已通过资格核对
                   </p>
                   <p className="mt-1">
-                    Ultralytics {qualification.data.profile.ultralytics_version} ·{" "}
+                    训练版本 {String(qualification.data.model_ref.framework_version ?? "未知")} ·
+                    推理版本 Ultralytics {qualification.data.profile.ultralytics_version} ·{" "}
                     {qualification.data.profile.effective_device} · 640 像素 · 每图最多 100 个预测
                   </p>
                 </div>

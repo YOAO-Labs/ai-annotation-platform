@@ -184,6 +184,176 @@ afterEach(() => {
 });
 
 describe("ProjectModelsPanel", () => {
+  it.each(["detect", "segment"])(
+    "sets a %s model as default from the all-types list after reviewing its sample",
+    async (task) => {
+      const candidate = { ...model, task };
+      vi.mocked(trainedModelsApi.list).mockResolvedValue({ total: 1, items: [candidate] });
+      vi.mocked(trainedModelsApi.get).mockResolvedValue({
+        model: candidate,
+        deployments: [{ ...deployment, trial: { ...deployment.trial, sample_url: "/sample.png" } }],
+      });
+      vi.mocked(trainedModelsApi.publish).mockImplementation(async (_project, body) => {
+        const published = { ...body, id: "release-8", generation: 8, snapshot: {} };
+        vi.mocked(trainedModelsApi.list).mockResolvedValue({
+          total: 1,
+          items: [{ ...candidate, is_current_release: true }],
+        });
+        vi.mocked(trainedModelsApi.releases).mockResolvedValue({
+          ...releases,
+          generation: 8,
+          current_release_id: published.id,
+          current: published,
+        } as never);
+        return published as never;
+      });
+      const user = userEvent.setup();
+      mount("/projects/project-1/learning?tab=models&model_task=all&model_page=2");
+      await user.click(await screen.findByRole("button", { name: "设为默认预标" }));
+      const dialog = screen.getByRole("dialog", { name: "设置默认预标模型" });
+      const publish = await within(dialog).findByRole("button", { name: "设为默认预标模型" });
+      expect(within(dialog).queryByLabelText("对比另一候选")).not.toBeInTheDocument();
+      expect(publish).toBeDisabled();
+      if (task === "segment") {
+        fireEvent.load(within(dialog).getByAltText("冻结样本与逐实例掩码"));
+        await waitFor(() => expect(within(dialog).getByRole("checkbox")).toBeEnabled());
+      }
+      await user.click(within(dialog).getByRole("checkbox"));
+      await user.click(publish);
+      await waitFor(() =>
+        expect(trainedModelsApi.publish).toHaveBeenCalledWith(
+          "project-1",
+          expect.objectContaining({
+            task,
+            expected_generation: 7,
+            model_version_id: model.id,
+            deployment_id: deployment.id,
+            sample_confirmed: true,
+          }),
+        ),
+      );
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(screen.getByText("默认预标")).toBeInTheDocument();
+      expect(screen.getByLabelText("模型与发布任务")).toHaveValue("all");
+      expect(screen.getByTestId("location")).toHaveTextContent("model_page=2");
+      expect(screen.getByTestId("location").textContent).not.toContain("/models/");
+    },
+  );
+
+  it("keeps the list shortcut from publishing a model without a ready deployment", async () => {
+    vi.mocked(trainedModelsApi.get).mockResolvedValue({ model, deployments: [] });
+    const user = userEvent.setup();
+    mount();
+    const shortcut = await screen.findByRole("button", { name: "设为默认预标" });
+    await user.click(shortcut);
+    const dialog = screen.getByRole("dialog", { name: "设置默认预标模型" });
+    await within(dialog).findByRole("button", { name: "加载模型并试用" });
+    expect(
+      within(dialog).queryByRole("button", { name: "设为默认预标模型" }),
+    ).not.toBeInTheDocument();
+    expect(trainedModelsApi.publish).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: "关闭" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(shortcut).toHaveFocus();
+  });
+
+  it("ignores a late publication confirmation after closing and reopening the list dialog", async () => {
+    let resolve!: (value: boolean) => void;
+    vi.mocked(confirmDialog).mockImplementationOnce(
+      () =>
+        new Promise((yes) => {
+          resolve = yes;
+        }),
+    );
+    const user = userEvent.setup();
+    mount();
+    const shortcut = await screen.findByRole("button", { name: "设为默认预标" });
+    await user.click(shortcut);
+    const dialog = screen.getByRole("dialog", { name: "设置默认预标模型" });
+    await user.click(await within(dialog).findByRole("checkbox"));
+    await user.click(within(dialog).getByRole("button", { name: "设为默认预标模型" }));
+    await waitFor(() => expect(confirmDialog).toHaveBeenCalled());
+    await user.click(within(dialog).getByRole("button", { name: "关闭" }));
+    await user.click(shortcut);
+    await act(async () => resolve(true));
+    expect(trainedModelsApi.publish).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "设置默认预标模型" })).toBeInTheDocument();
+  });
+
+  it("lists all model types with their own defaults, resets pagination and preserves the filter through details", async () => {
+    const segment = {
+      ...model,
+      id: "segment-model",
+      name: "分割候选",
+      task: "segment",
+      is_current_release: true,
+      evaluation: { ...model.evaluation, summary: { "metrics/mAP50-95(M)": 0.6 } },
+    };
+    const mixed = [{ ...model, task: "detect", is_current_release: true }, segment];
+    vi.mocked(trainedModelsApi.list).mockImplementation(
+      async (_project, _offset, _options, _archive, filters) => ({
+        total: 100,
+        items: mixed.filter((item) => !filters?.task || item.task === filters.task),
+      }),
+    );
+    vi.mocked(trainedModelsApi.get).mockResolvedValue({ model: segment, deployments: [] });
+    const user = userEvent.setup();
+    mount("/projects/project-1/learning?tab=models&model_task=all&model_page=2");
+    const list = screen.getByRole("region", { name: "模型列表" });
+    expect(within(list).getByLabelText("模型与发布任务")).toHaveValue("all");
+    for (const [name, type, score] of [
+      [model.name, "目标检测", "0.4000"],
+      [segment.name, "实例分割", "0.6000"],
+    ]) {
+      const row = (await within(list).findByRole("link", { name })).closest("tr")!;
+      expect(within(row).getByText(type)).toBeInTheDocument();
+      expect(within(row).getByText(score)).toBeInTheDocument();
+      expect(within(row).getByText("默认预标")).toBeInTheDocument();
+    }
+    expect(trainedModelsApi.list).toHaveBeenLastCalledWith(
+      "project-1",
+      40,
+      expect.any(Object),
+      "exclude",
+      expect.objectContaining({ task: undefined }),
+      20,
+    );
+    expect(trainedModelsApi.releases).not.toHaveBeenCalled();
+    expect(within(list).queryByRole("button", { name: "重置筛选" })).not.toBeInTheDocument();
+    expect(within(list).queryByRole("button", { name: "停用默认预标" })).not.toBeInTheDocument();
+    expect(within(list).queryByText("默认预标切换记录")).not.toBeInTheDocument();
+    await user.selectOptions(within(list).getByLabelText("模型与发布任务"), "detect");
+    await waitFor(() =>
+      expect(screen.queryByRole("link", { name: segment.name })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("location").textContent).not.toContain("model_page");
+    await user.selectOptions(screen.getByLabelText("模型与发布任务"), "all");
+    await screen.findByRole("link", { name: segment.name });
+    expect(trainedModelsApi.list).toHaveBeenLastCalledWith(
+      "project-1",
+      0,
+      expect.any(Object),
+      "exclude",
+      expect.objectContaining({ task: undefined }),
+      20,
+    );
+    await user.click(screen.getByRole("link", { name: segment.name }));
+    await screen.findByLabelText("模型版本详情");
+    expect(trainedModelsApi.releases).toHaveBeenLastCalledWith("project-1", 0, "segment", 20);
+    await user.click(screen.getByRole("link", { name: "返回模型列表" }));
+    await screen.findByRole("link", { name: segment.name });
+    expect(screen.getByLabelText("模型与发布任务")).toHaveValue("all");
+    expect(screen.getByRole("link", { name: model.name })).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("模型与发布任务"), "segment");
+    await waitFor(() =>
+      expect(screen.queryByRole("link", { name: model.name })).not.toBeInTheDocument(),
+    );
+    await user.click(screen.getByRole("button", { name: "重置筛选" }));
+    await screen.findByRole("link", { name: model.name });
+    expect(screen.getByLabelText("模型与发布任务")).toHaveValue("all");
+    expect(screen.queryByRole("button", { name: "重置筛选" })).not.toBeInTheDocument();
+  });
+
   it.each([
     { task: "detect", spec: "yolo11n", label: "目标检测" },
     { task: "segment", spec: "yolo11n-seg", label: "实例分割" },
@@ -208,7 +378,8 @@ describe("ProjectModelsPanel", () => {
       expect(within(row).getByText(spec)).toBeInTheDocument();
       expect(within(row).getByText(label)).toBeInTheDocument();
       await waitFor(() => expect(within(row).getByText("默认预标")).toBeInTheDocument());
-      expect(within(row).getByRole("button", { name: "停用默认预标" })).toBeEnabled();
+      const status = within(row).getByText("默认预标").closest("td")!;
+      expect(within(status).getByRole("button", { name: "停用默认预标" })).toBeEnabled();
       expect(within(other).getByText(spec)).toBeInTheDocument();
       expect(within(other).getByText(label)).toBeInTheDocument();
       expect(within(other).getByText("已注册")).toBeInTheDocument();
@@ -346,6 +517,27 @@ describe("ProjectModelsPanel", () => {
       expect(screen.getByTestId("location")).toHaveTextContent("/models/model-1"),
     );
     expect(screen.getByTestId("location").textContent).not.toContain("register_");
+  });
+  it("blocks duplicate return from a saved registration URL and allows another successful execution", async () => {
+    vi.mocked(trainingRunsApi.get).mockResolvedValue({
+      registration_eligibility: { qualified: true, reason: null },
+      registered_models: [{ id: "model-1", attempt_id: "attempt-1", name: "已有模型" }],
+      run: { id: "run-1", config: { framework: "ultralytics", classes: ["car", "person"] } },
+      attempts: [
+        { id: "attempt-2", ordinal: 2, status: "succeeded" },
+        { id: "attempt-1", ordinal: 1, status: "succeeded" },
+      ],
+    } as never);
+    const user = userEvent.setup();
+    mount("/projects/project-1/learning?tab=models&register_run=run-1&register_attempt=attempt-1");
+    expect(await screen.findByText(/本次执行已回流为项目模型“已有模型”/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "从训练结果添加模型" })).toBeDisabled();
+    expect(screen.queryByLabelText("原生类别 0 · car")).not.toBeInTheDocument();
+    expect(trainedModelsApi.register).not.toHaveBeenCalled();
+    await user.selectOptions(screen.getByLabelText("成功执行尝试"), "attempt-2");
+    await user.selectOptions(screen.getByLabelText("原生类别 0 · car"), "车辆");
+    await user.selectOptions(screen.getByLabelText("原生类别 1 · person"), "行人");
+    expect(screen.getByRole("button", { name: "从训练结果添加模型" })).toBeEnabled();
   });
   it("keeps a linked registration draft when closed without leaving an auto-open URL", async () => {
     const user = userEvent.setup();
@@ -731,10 +923,11 @@ it("loads a deep-linked archived candidate independently of the list page and pr
 it("unifies row details, publication, usage records and model notes without leaving the model route", async () => {
   const user = userEvent.setup();
   mount("/projects/project-1/learning?tab=models&archive=include&model_page=2");
-  const action = await screen.findByRole("link", { name: "详情与操作" });
-  expect(action.getAttribute("href")).toBe(
-    screen.getByRole("link", { name: model.name }).getAttribute("href"),
-  );
+  const action = await screen.findByRole("link", { name: model.name });
+  const list = screen.getByRole("region", { name: "模型列表" });
+  expect(within(list).getAllByRole("columnheader")).toHaveLength(8);
+  expect(within(list).queryByRole("columnheader", { name: "操作" })).not.toBeInTheDocument();
+  expect(within(list).queryByRole("link", { name: "详情与操作" })).not.toBeInTheDocument();
   await user.click(action);
   await screen.findByRole("region", { name: "模型版本详情" });
   expect(screen.getByRole("button", { name: "加载模型并试用" })).toBeInTheDocument();
@@ -1293,25 +1486,28 @@ it("uses the segmentation release alias and does not open unqualified segmentati
   expect(screen.queryByLabelText("原生类别 0 · car")).not.toBeInTheDocument();
 });
 
-it("binds qualified segmentation runs only to region categories", async () => {
-  vi.mocked(trainingRunsApi.get).mockResolvedValue({
-    run: { id: "run-1", task: "segment", config: { classes: ["car"] } },
-    attempts: [{ id: "attempt-1", status: "succeeded", ordinal: 1 }],
-    registration_eligibility: { qualified: true, reason: null },
-  } as never);
-  const user = userEvent.setup();
-  mount("/projects/project-1/learning?tab=models&model_task=segment&register_run=run-1", [], {
-    detect: ["检测车辆"],
-    segment: ["分割车辆"],
-  });
-  const binding = await screen.findByLabelText("原生类别 0 · car");
-  expect(within(binding).queryByRole("option", { name: "检测车辆" })).not.toBeInTheDocument();
-  await user.selectOptions(binding, "分割车辆");
-  await user.click(screen.getByRole("button", { name: "从训练结果添加模型" }));
-  await waitFor(() =>
-    expect(trainedModelsApi.register).toHaveBeenCalledWith(
-      "project-1",
-      expect.objectContaining({ bindings: ["分割车辆"] }),
-    ),
-  );
-});
+it.each(["segment", "all"])(
+  "binds qualified segmentation runs only to region categories from %s",
+  async (task) => {
+    vi.mocked(trainingRunsApi.get).mockResolvedValue({
+      run: { id: "run-1", task: "segment", config: { classes: ["car"] } },
+      attempts: [{ id: "attempt-1", status: "succeeded", ordinal: 1 }],
+      registration_eligibility: { qualified: true, reason: null },
+    } as never);
+    const user = userEvent.setup();
+    mount(`/projects/project-1/learning?tab=models&model_task=${task}&register_run=run-1`, [], {
+      detect: ["检测车辆"],
+      segment: ["分割车辆"],
+    });
+    const binding = await screen.findByLabelText("原生类别 0 · car");
+    expect(within(binding).queryByRole("option", { name: "检测车辆" })).not.toBeInTheDocument();
+    await user.selectOptions(binding, "分割车辆");
+    await user.click(screen.getByRole("button", { name: "从训练结果添加模型" }));
+    await waitFor(() =>
+      expect(trainedModelsApi.register).toHaveBeenCalledWith(
+        "project-1",
+        expect.objectContaining({ bindings: ["分割车辆"] }),
+      ),
+    );
+  },
+);

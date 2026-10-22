@@ -188,14 +188,17 @@ def emit_instances(result, receipt, width, height, max_det):
                 "bbox_xyxy_pixels": xyxy[index].tolist(),
             }
         )
+    runtime = receipt.get("inference_runtime", {}).get(
+        "qualification", receipt["runtime_qualification"]
+    )
     metadata = {
         "mask_objects": objects,
         "segmentation": {
             "output_contract": SEGMENTATION_OUTPUT_CONTRACT,
             "dimensions": [height, width],
-            "mask_processing": receipt["runtime_qualification"]["mask_processing"],
-            "decoder": receipt["runtime_qualification"]["decoder"],
-            "runtime_qualification": receipt["runtime_qualification"],
+            "mask_processing": runtime["mask_processing"],
+            "decoder": runtime["decoder"],
+            "runtime_qualification": runtime,
         },
     }
     # This includes key/dictionary overhead and source identity, not only RLE bodies.

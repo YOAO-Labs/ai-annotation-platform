@@ -63,11 +63,15 @@ async def test_actual_http_install_and_immutable_receipt_guard(
 
     @app.post("/managed-models")
     async def install(body: InstallRequest):
-        return await store.install(body)
+        from managed_models import runtime_receipt
+
+        return runtime_receipt(await store.install(body))
 
     @app.get("/managed-models/{version_id}")
     async def receipt(version_id: str):
-        return store.receipt(version_id)
+        from managed_models import runtime_receipt
+
+        return runtime_receipt(store.receipt(version_id))
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app), base_url="http://validation"
@@ -75,7 +79,11 @@ async def test_actual_http_install_and_immutable_receipt_guard(
         await controlled.install(client)
     assert len(inspected) == 1
     assert inspected[0][0] == controlled.weights.read_bytes()
-    assert controlled.receipt == store.receipt(controlled.reference["model_version_id"])
+    assert {
+        k: v for k, v in controlled.receipt.items() if k != "inference_runtime"
+    } == store.receipt(controlled.reference["model_version_id"])
+    assert controlled.receipt["framework_version"] == "8.4.177"
+    assert controlled.receipt["inference_runtime"]["version"] == "8.4.183"
     assert (
         controlled.receipt["classes_digest"] == controlled.reference["classes_digest"]
     )

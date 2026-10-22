@@ -1,0 +1,167 @@
+{
+  "schema": 1,
+  "verified_at": "2026-10-22T04:03:37.912635+00:00",
+  "scope": "Qualified legacy-to-current inference compatibility; no GPU fault, lifecycle, capacity, or two-host qualification",
+  "training_version": "8.4.177",
+  "inference_version": "8.4.183",
+  "native_runtime": {
+    "torch": "2.14.1+cu132",
+    "torchvision": "0.29.1+cu132"
+  },
+  "images": {
+    "legacy_cpu_baseline": "sha256:4f1b2eb15664ad9566e36d4219a73cd1fca62a001b39c1eb73c69a575475c51e",
+    "current_development_backend": "sha256:992010c7bcc2665c914e5a9e9b3f1d8510dd9517cb894edf84d67cc810d8203c",
+    "development_workers": "sha256:93e7634e348d2874890d995ce0fdfa428699a094ef59ff306799900bdd6b8c4a"
+  },
+  "detection_cpu_comparison": {
+    "samples": 4,
+    "detections": 253,
+    "native_class_indexes_equal": true,
+    "maximum_box_or_score_difference": 0,
+    "base_model": "yolo11n",
+    "confidence": 0.0001,
+    "nms_iou": 0.7,
+    "imgsz": 640,
+    "max_det": 100,
+    "weight_sha256": "1d4b96732a33c68a2281ca2c476dbf4d7a5eddcd6271e3da0ed1cbf5b34e553e",
+    "dataset_id": "1f0f595c-9ae8-4240-b50d-ee9728fc28c6",
+    "samples_identity": [
+      {
+        "task_id": "3a62af08-6076-51ee-bac1-1816651db015",
+        "file": "3a62af08-6076-51ee-bac1-1816651db015.jpg",
+        "sha256": "6460e4a7cc80e34815aba8910a23152a16a24a416fa598138bd9231cccd413e2"
+      },
+      {
+        "task_id": "4c85269e-3661-5330-8719-2996b830cb21",
+        "file": "4c85269e-3661-5330-8719-2996b830cb21.jpg",
+        "sha256": "c87afb6dfe55db1cada52479ed939a231e030d64f5e3c3eaf7eb1544591f853a"
+      },
+      {
+        "task_id": "9b069e82-fcdc-572e-844e-ed6747285b2c",
+        "file": "9b069e82-fcdc-572e-844e-ed6747285b2c.jpg",
+        "sha256": "86b46022d382f67b0934147fe515e1c3c3f5c04db45045516214b5e3092148e3"
+      },
+      {
+        "task_id": "ee24b99d-ae90-586b-887e-b85067c51cb3",
+        "file": "ee24b99d-ae90-586b-887e-b85067c51cb3.jpg",
+        "sha256": "4c28394898302bef227834d63498a0fc54e4295f11c590c8a8ebcba51347bc03"
+      }
+    ],
+    "training_receipt_preserved": true
+  },
+  "segmentation_cpu_comparison": {
+    "samples": 4,
+    "instances": 14,
+    "same_classes": true,
+    "exact_original_pixel_masks": true,
+    "maximum_box_or_score_difference": 0,
+    "training_version": "8.4.177",
+    "inference_version": "8.4.183",
+    "weight_sha256": "541dbfc1136d63c571ad6aacf6d2554a25016a4813901ae3eb63331d5dd99636",
+    "scope": "One CPU epoch compatibility fixture with synthetic polygons; not accuracy qualification",
+    "base_model": "yolo11n-seg",
+    "confidence": 0.25,
+    "nms_iou": 0.7,
+    "retina_masks": true,
+    "fixture_initialization": "Existing pretrained YOLO11n-seg weights, then one CPU epoch under the actual legacy package; synthetic rectangle polygons over four COCO images",
+    "native_inspection_on_current_runtime": true
+  },
+  "development_gpu_evaluation": {
+    "project_id": "c1e3aad0-924d-5798-8bfa-279580f14c2b",
+    "model_version_id": "1d4777b7-074b-49df-a463-8cd3d363c01f",
+    "deployment_id": "49d18869-6022-4ce6-91f6-af325170fbfb",
+    "evaluation_id": "0d175b5d-8376-40dd-b377-3c2aa7b0f181",
+    "attempt_id": "440a57b5-fcc5-4b28-932d-aaa442792e1d",
+    "status": "succeeded",
+    "progress": {
+      "pending": 0,
+      "inflight": 0,
+      "succeeded": 4,
+      "failed": 0
+    },
+    "device": "cuda:0",
+    "gpu": "NVIDIA GeForce RTX 3090",
+    "profile_revision": 2,
+    "profile_digest": "d517aa01a164c089a4294d0fd69feff292474dee11250f6f7f21f9ae9db5c992",
+    "source_digest": "d057a9e0fbbef7ecd0b263f30bf92d72ee7f7c9e010ce9f9d39203d96ebf7918",
+    "frozen_training_version": "8.4.177",
+    "frozen_inference_runtime": {
+      "task": "detect",
+      "version": "8.4.183",
+      "revision": 1,
+      "framework": "ultralytics",
+      "compatibility": "ultralytics-yolo11-legacy-to-current",
+      "qualification": {
+        "nms": null,
+        "torch": "2.14.1+cu132",
+        "end2end": false,
+        "revision": 2,
+        "torchvision": "0.29.1+cu132",
+        "ultralytics": "8.4.183",
+        "source_sha256": {
+          "ultralytics.utils.ops": "7b15cd980abbd578a8be91661c2399b2cbdea0207f1e61b0fb74cfac659bed77"
+        }
+      },
+      "training_version": "8.4.177"
+    },
+    "confidence": 0.0001,
+    "aggregate": {
+      "tp": 0,
+      "fp": 261,
+      "fn": 17,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "samples": 4
+    },
+    "interpretation": "End-to-end compatibility and protocol evidence only. This model has zero TP on these samples; no accuracy improvement is claimed. CPU-to-GPU output equivalence was not tested.",
+    "fixed_image_trial_passed": true,
+    "default_selection_changed": false
+  },
+  "checks": {
+    "api_regression": {
+      "passed": 198
+    },
+    "api_persistence": {
+      "passed": 2,
+      "note": "Includes the existing legacy case and the new cross-version case"
+    },
+    "backend": {
+      "passed": 88,
+      "native_segmentation_enabled": true
+    },
+    "shared_training_contract": {
+      "passed": 23
+    },
+    "web_components": {
+      "passed": 76
+    },
+    "typescript_build": true,
+    "web_eslint": true,
+    "css_tokens": true,
+    "openapi_regenerated": true,
+    "git_diff_check": true,
+    "live_browser_console_errors": 0,
+    "worker_runtime_imports_verified": 8
+  },
+  "source_sha256": {
+    "apps/yolo-backend/main.py": "4ed979948b7b0748e224b68647ad3a6c1180f31af544ad134e6bdda5e42dca64",
+    "apps/yolo-backend/managed_models.py": "5607d816ffe2365aef6924bb8c597ba60201d5dcbbf032cc1454516f840d6fef",
+    "apps/yolo-backend/managed_segmentation.py": "ff8ba64442db0b7c40be82e9fe4aef304179111ac075a2298f80f8a88ece66bc",
+    "apps/yolo-backend/sample_evaluations.py": "8ed83affa5454a59bb8faa2b68f2a19cd644cbe2f110cb82b1560c1fea8ea980",
+    "apps/yolo-backend/segmentation_evaluations.py": "6aba6c964ef64a1bb6015e724228872ab365ba4f4e9c37d1546732ac04fe2f24",
+    "apps/yolo-backend/predictor.py": "978a0162ab3f188062b45380f0666cb9b79a6aa4912679038515db85b6afb0fe",
+    "apps/_shared/training_contract/training_contract/inference_runtime.py": "2102c89914492fb4a064b44f8cf7e3d04e41079a6f5a2aba7a8441408e433e91",
+    "apps/_shared/training_contract/training_contract/model_return.py": "be0d24d5cdefa30e78afb7099b5df7a8e7c4c18afdfbb9ea2948c6ad92d50b47",
+    "apps/_shared/training_contract/training_contract/models.py": "97319f18da0eb2e266836129329910a4c23d44c4b9ba86ef95f8b8e3003d73fc",
+    "apps/_shared/training_contract/training_contract/native_architecture.py": "e51cc448bf35bbcc07ceb43bd06730e79d77750a312e10913bbdefdba436ba2b"
+  },
+  "remaining_gates": [
+    "Target deployment GPU fault injection",
+    "Complete managed lifecycle matrix",
+    "Deployment capacity",
+    "Two-host deployment",
+    "All-scale legacy cross-version numerical comparisons"
+  ],
+  "cleanup": "Temporary training weights, CPU comparison containers, disposable databases and temporary logs removed after extracting this report; the final real development evaluation is retained as acceptance evidence"
+}

@@ -74,6 +74,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 import class_names
 from model_metadata import ModelMetadataStore, file_signature
 from managed_models import (
+    runtime_receipt,
     InstallRequest,
     ManagedModelStore,
     authenticate as authenticate_managed,
@@ -186,6 +187,7 @@ def _build_model(task: str, series: str, size: str):
             raise ValueError("Controlled models support qualified image tasks only")
         sha, separator, receipt_digest = size.partition(":")
         path, receipt = _managed_models.resolve(series.removeprefix("trained:"), sha)
+        receipt = runtime_receipt(receipt)
         if not separator or digest(receipt) != receipt_digest:
             raise ValueError("Controlled model pool qualification differs")
         if normalize_task(receipt["task"]) != task:
@@ -972,14 +974,16 @@ def versions() -> dict[str, Any]:
 @app.post("/managed-models")
 async def install_managed_model(body: InstallRequest, request: Request):
     authenticate_managed(request)
-    return await _managed_models.install(body)
+    return runtime_receipt(await _managed_models.install(body))
 
 
 @app.get("/managed-models/{version_id}")
 async def managed_model_receipt(version_id: str, request: Request):
     authenticate_managed(request)
     try:
-        return await asyncio.to_thread(_managed_models.receipt, version_id)
+        return runtime_receipt(
+            await asyncio.to_thread(_managed_models.receipt, version_id)
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="Invalid model version") from exc
 
@@ -1071,7 +1075,16 @@ async def _run_predict(
         controlled_identity = {
             k: receipt[k] for k in ("model_version_id", "sha256", "classes_digest")
         }
-        if controlled_identity != ctx.frozen_model_ref.model_dump(mode="json"):
+        receipt = runtime_receipt(receipt)
+        requested = ctx.frozen_model_ref.model_dump(mode="json", exclude_none=True)
+        pinned_runtime = requested.pop("inference_runtime", None)
+        if (
+            controlled_identity != requested
+            or pinned_runtime is not None
+            and pinned_runtime != receipt["inference_runtime"]
+            or pinned_runtime is None
+            and receipt["framework_version"] != receipt["inference_runtime"]["version"]
+        ):
             raise HTTPException(
                 status_code=409, detail="Controlled model identity differs"
             )
@@ -1099,6 +1112,7 @@ async def _run_predict(
             if controlled_identity:
                 meta = {
                     "trained_model": controlled_identity,
+                    "inference_runtime": ctx._managed_receipt["inference_runtime"],
                     **(
                         {"sample_evaluation": ctx._evaluation_meta}
                         if ctx.sample_evaluation
@@ -1204,7 +1218,7 @@ async def _run_sample_evaluation(req, *, operation):
         )
     expected = request_binding(
         req.tasks[0].id,
-        ctx.frozen_model_ref.model_dump(mode="json"),
+        ctx.frozen_model_ref.model_dump(mode="json", exclude_none=True),
         {"conf": ctx.params.conf, "iou": ctx.params.iou, "max_det": ctx.params.max_det},
         request,
     )
