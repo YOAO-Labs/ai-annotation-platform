@@ -458,6 +458,7 @@ name = "aap-workspace"
 version = "0.1.0"
 source = { editable = "../workspace" }
 dependencies = [
+    { name = "aap-assets-cleanup" },
     { name = "aap-audit-contract" },
     { name = "aap-inference" },
     { name = "aap-inference-contract" },
@@ -474,6 +475,7 @@ postgres = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aap-assets-cleanup", editable = "../assets-cleanup" },
     { name = "aap-assets-source", extras = ["client"], marker = "extra == 'runtime'", editable = "../assets-source" },
     { name = "aap-audit-contract", editable = "../_shared/audit_contract" },
     { name = "aap-identity", extras = ["postgres"], marker = "extra == 'runtime'", editable = "../identity" },

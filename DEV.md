@@ -925,6 +925,33 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 迁移与三处运行授权须一致，范围见
 [ADR-0176](docs/adr/0176-labeling-lifecycle-counter-deltas.md)。完整模块工件仍集中验收。
 
+### Workspace 数据集解绑的借用事务
+
+API 的 `DatasetUnlinkData` 保留原 SQLAlchemy Session、写入前 flush、缓存失效和外层
+提交；合同与回执校验已在 Workspace 包。独立调用方使用
+`DatasetUnlinkManager(DatasetUnlinkPostgresData(connection))`，连接须已有事务。
+预览也锁定当前权限，不能使用 READ ONLY。原始 JSON 与 Python UUID／tuple 输入均
+可校验；调用方继续负责提交失败后的回滚与同 operation ID 重放。
+
+先创建专用 LOGIN 并应用既有 owner 授权，再在明确数据库中运行
+`infra/docker/workspace-dataset-unlink-grants.sql`；传入 `expected_database`、
+`migration_role`、`workspace_owner`、`workspace_dataset_unlink_role`。最后一项固定为
+`workspace_dataset_unlink_client`，仅能执行预览／解绑两项函数，不授予私表或建库能力。
+验收器会在自己拥有的一次性资源内配置该角色：
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/workspace-dataset-unlink.json \
+  --test-file tests/test_workspace_dataset_unlink_native.py \
+  --test-file tests/test_dataset_unlink_bindings.py \
+  --test-file tests/test_dataset_unlink_coordinator.py \
+  --test-file tests/test_dataset_unlink_http.py
+```
+
+这只验证调用边界；未退役视频执行的删除规则与完整模块凭据／工件仍按唯一台账收口。
+不为本切片新增 DSN 或 HTTP 服务配置，见
+[ADR-0177](docs/adr/0177-workspace-caller-transaction-dataset-unlink.md)。
+
 ### Workspace 同事务成员锁
 
 最终写入围栏使用 scalar `lock_project_member_reference(uuid,uuid,boolean)`，保留

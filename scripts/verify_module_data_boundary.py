@@ -68,6 +68,7 @@ IDENTITY_CLIENT_ROLES = {
     "WORKSPACE_OWNER_TRANSFER": "workspace_owner_transfer_client",
     "WORKSPACE_PROJECT_MAINTENANCE": "workspace_project_maintenance_client",
     "WORKSPACE_PROJECT_DELETION": "workspace_project_deletion_client",
+    "WORKSPACE_DATASET_UNLINK": "workspace_dataset_unlink_client",
     "WORKSPACE_CONFIGURATION": "workspace_configuration_client",
     "WORKSPACE_TEMPLATE_QUERY": "workspace_template_query_client",
     "WORKSPACE_PROJECT_QUERY": "workspace_project_query_client",
@@ -377,6 +378,7 @@ SCHEMA_ARTIFACTS = (
     "0299_labeling_project_counter_deltas.schema.json",
 )
 TEST_FILES = (
+    "tests/test_workspace_dataset_unlink_native.py",
     "tests/test_labeling_counter_deltas_legacy.py",
     "tests/test_labeling_counter_deltas_native.py",
     "tests/test_labeling_counter_deltas_workflows_native.py",
@@ -2552,6 +2554,9 @@ def main(argv: list[str] | None = None) -> int:
         workspace_project_deletion_grants_path = (
             ROOT / "infra/docker/workspace-project-deletion-grants.sql"
         )
+        workspace_dataset_unlink_grants_path = (
+            ROOT / "infra/docker/workspace-dataset-unlink-grants.sql"
+        )
         workspace_configuration_grants_path = (
             ROOT / "infra/docker/workspace-configuration-grants.sql"
         )
@@ -2637,6 +2642,7 @@ def main(argv: list[str] | None = None) -> int:
             or not workspace_owner_transfer_grants_path.is_file()
             or not workspace_project_maintenance_grants_path.is_file()
             or not workspace_project_deletion_grants_path.is_file()
+            or not workspace_dataset_unlink_grants_path.is_file()
             or not workspace_configuration_grants_path.is_file()
             or not workspace_template_query_grants_path.is_file()
             or not workspace_project_query_grants_path.is_file()
@@ -2723,6 +2729,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         workspace_project_deletion_grant_sql = (
             workspace_project_deletion_grants_path.read_text(encoding="utf-8")
+        )
+        workspace_dataset_unlink_grant_sql = (
+            workspace_dataset_unlink_grants_path.read_text(encoding="utf-8")
         )
         workspace_configuration_grant_sql = (
             workspace_configuration_grants_path.read_text(encoding="utf-8")
@@ -3556,6 +3565,22 @@ def main(argv: list[str] | None = None) -> int:
                 "migration_role": "owner",
                 "workspace_owner": "workspace_code",
                 "workspace_project_deletion_role": "workspace_project_deletion_client",
+            },
+        )
+        phase = "install-workspace-dataset-unlink-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=workspace_dataset_unlink_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "workspace_owner": "workspace_code",
+                "workspace_dataset_unlink_role": "workspace_dataset_unlink_client",
             },
         )
         phase = "install-workspace-configuration-grants"

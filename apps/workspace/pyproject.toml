@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Portable Workspace membership, owner-transfer and configuration values/policy"
 requires-python = ">=3.11"
 dependencies = [
+    "aap-assets-cleanup",
     "aap-audit-contract",
     "aap-inference-contract",
     "aap-owner-data",

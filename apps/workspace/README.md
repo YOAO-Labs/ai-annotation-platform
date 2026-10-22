@@ -119,3 +119,23 @@ commit and replay checks. The video execution deletion prerequisite is still
 unresolved, so this does not close the complete deletion capability or Workspace.
 See [ADR-0165](../../docs/adr/0165-workspace-caller-transaction-project-deletion.md)
 and the one module ledger for current scope.
+
+Dataset unlink uses the existing unlink/preview Native capabilities through
+`DatasetUnlinkManager` and portable command/receipt values. The API retains its
+borrowed SQLAlchemy session, explicit write flush, cache invalidation and commit.
+`DatasetUnlinkPostgresData(connection)` requires an already-active asyncpg
+transaction and checks the exact two-function `workspace_dataset_unlink_client`
+credential. It never opens/closes connections or begins/commits/rolls back/retries
+transactions. Preview locks current authority, so neither operation belongs in a
+READ ONLY transaction.
+
+The package directly reuses the existing lightweight Assets CleanupBucket
+contract; installing the core package does not request its worker extras.
+Python UUID/tuple values retain the original validation behavior; raw JSON uses
+strict duplicate-key/non-finite rejection. Node conformance forwards original
+JSON text to preserve receipt integers above JavaScript's safe range.
+Function-only calls, actual API, rollback, failed commit and replay qualify this
+local calling boundary. Unretired video execution still blocks complete deletion
+safety qualification; full module credentials/artifacts/restore remain separate.
+See [ADR-0177](../../docs/adr/0177-workspace-caller-transaction-dataset-unlink.md)
+and the single module ledger.

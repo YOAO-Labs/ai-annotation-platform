@@ -293,7 +293,7 @@ actor/project/operation 身份完全一致时才重放原结果；同一 ID 换 
 可选的 UUID `Idempotency-Key` 请求头固定一次操作，成功响应回传同一值。自动重试或丢失响应后
 重试必须复用原 key；SDK 允许显式传入，Web 确认窗口在本次重试中保留它。
 Workspace 的 `aap_workspace_v1.preview_dataset_unlink(actor_id, dataset_id, project_id)`
-提供只读删除数量预览；`aap_workspace_v1.unlink_dataset(operation_id, actor_id,
+提供不删除业务数据、但会锁定当前权限的数量预览；`aap_workspace_v1.unlink_dataset(operation_id, actor_id,
 dataset_id, project_id, cleanup_bucket, audit_context)` 是有写入效果的事务协调命令。
 调用方保留同一 PostgreSQL 连接和外层事务，预览与执行都复用 Labeling 的同一素材来源选择规则。
 
@@ -328,7 +328,19 @@ workflow LOGIN 不能领取或确认 outbox，也不能读取其私有表。
 仍有其他受限来源引用。锁/序列化争用返回 `project_busy`，完整回滚后重试整个命令；同 operation ID
 对应不同 Dataset、Project、actor 或 bucket 时返回 `operation_conflict`，不能覆盖原回执。
 
-数据集解绑是 Workspace 的同库事务切片，不代表 Workspace 或各参与 owner 已能独立部署。
+便携合同和 `DatasetUnlinkManager` 位于 Workspace 包；API 的兼容导入和原调用路径
+保持。`DatasetUnlinkPostgresData(connection)` 使用 `workspace_dataset_unlink_client`
+调用同一两项 Native 函数，只借用已开启事务，不自行提交、回滚或关闭连接。预览也会
+获取权限锁，因此不能使用 READ ONLY 事务。该账号没有私表／列、序列、DDL 或 TEMP
+权限；授权脚本为 `infra/docker/workspace-dataset-unlink-grants.sql`。
+
+原始 JSON 拒绝重复键／非有限数，Python UUID／tuple 值继续支持。Node 等客户端处理
+大于安全整数范围的 audit ID 时，应保留原始 JSON 或使用精确整数解码；回执字段仍是
+整数。受限调用、失败提交、冻结重放和实际 API 证据见
+[ADR-0177](/dev/adr/0177-workspace-caller-transaction-dataset-unlink)。
+
+数据集解绑的调用边界已移植；未退役视频执行的删除安全缺口仍开放，不能据此宣布
+完整解绑安全能力、Workspace 或各参与 owner 已可独立部署。
 公开来源删除、上传与独立清理见下文；完整模块状态见[模块部署台账](/dev/concepts/module-deployment)。
 
 ## Assets 来源删除

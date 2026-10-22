@@ -5995,3 +5995,62 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Root now has no persistent backend runtime process. Aggregate and preservation
   remain .worktree/labeling-counter-deltas-qualification.json and
   .worktree/labeling-counter-deltas-preservation.json. The full goal stays active.
+
+### Workspace caller-transaction Dataset unlink qualification
+
+- Root starts at 17992f64cd97bdd1af322066d5d41c0bdae9ec99. Isolated source-only
+  workers provide c19bf038c9759ef9249e410f91e2c57ed54f8d93 and
+  5ff17ef52ad9ffc6f8730e9124fde5651c3fa93c. Root owns integration, strict role
+  grants, offline lock update, generated descriptor, Native/HTTP/Node tests and
+  all runtime execution. The pre-integration23-case baseline passes.
+- Existing unlink/preview values move unchanged to Workspace with a portable
+  manager and borrowed asyncpg data binding. API compatibility imports and
+  public adapter methods preserve exact SQL/parameters, explicit unlink flush,
+  preview without explicit flush, cache invalidation and caller commit. Frozen
+  Native0205, migrations and existing authorization/replay rules are unchanged.
+- New workspace_dataset_unlink_client has only the two existing functions, no
+  private table/column, sequence, DDL or TEMP capabilities. The existing verifier
+  guards the exact role/capability set before execution; excess privilege also
+  refuses mutation. Both functions retain their original VOLATILE authority
+  locks, including preview; READ ONLY transactions are rejected. No new service,
+  application DSN, generic dispatcher or independent commit is introduced.
+- Reusing Assets CleanupBucket requires only declaring that existing lightweight
+  core dependency. Offline API lock changes two dependency entries; no install
+  or editable-binding change occurs. Root generates the portable descriptor.
+- The first JSON-roundtrip decoder rejects Python UUID/tuple values previously
+  accepted by the model/old reply function. Two minimal failures execute the
+  immutable base reply AST before the candidate. Root mirrors the established
+  project-deletion codec: strict JSON parsing applies only to bytes/strings;
+  mappings use original model validation. The smallest corrected four cases
+  pass, then all34 package cases replay after that implementation change.
+  Frozen schemas/defaults remain exact. Original logs/JUnit/exits are retained.
+- Native fixture corrections use ORM Sessions for reused graph assertions,
+  compare deterministic UUID identities, ignore display-only preview schema
+  titles, and expect the existing FunctionRoleUnavailable exception. The
+  one-case preview/count/authority-lock fix passes before remaining acceptance.
+- Effective union:72 distinct passes, zero effective failures/errors/skips:
+  34 package contract/manager/connection,23 existing binding/coordinator/HTTP
+  replays,15 restricted Native/Node/actual-HTTP cases. Tests cover no private
+  Project access, same transaction, outer rollback, failed deferred commit,
+  retained evidence, audit-lock rollback/recovery, bad-reply rollback, fresh
+  connection replay preserving a new association, and Node audit IDs >2\*\*53.
+  The baseline/repeated cases are not added. Owned frozen SQL/upgrade/downgrade
+  qualification passes at unchanged head0299. Aggregate:
+  .worktree/workspace-dataset-unlink-qualification.json.
+- ADR-0177 and the single module ledger close this calling boundary only.
+  Unretired-video deletion safety remains unresolved; it is not bypassed by
+  this migration. Whole Workspace credentials/artifacts/restore/capacity remain
+  coherent milestones. No primary cutover, push, release, production deployment
+  or expansion of Go occurs. Read-only source audit reports no concrete
+  regressions; it is not counted as runtime evidence.
+
+- User confirms the pending video policy: both project deletion and Dataset
+  unlink must return409 while a selected task has unretired video execution;
+  callers must cancel and finish retirement before retry. This policy is now
+  decided but the guards are not yet implemented. That safety fix is the next
+  bounded deliverable before complete Workspace assembly qualification.
+
+- Final focused checks pass:358 applicable architecture cases,150 explicitly
+  inapplicable rules,20 grant/selection units, pinned Ruff/format, Node syntax,
+  explicit OpenAPI, docs build and diff. Existing docs syntax fallback and
+  large-chunk warnings remain. No business tests rerun after formatting.

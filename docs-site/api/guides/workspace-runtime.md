@@ -295,6 +295,22 @@ API／Node 验收见 [ADR-0172](/dev/adr/0172-project-set-locks-and-labeling-cou
 受限 API 撤销 Project 私表 SELECT／UPDATE 后，四条实际 HTTP 流程及 Node 调用通过，
 范围见 [ADR-0176](/dev/adr/0176-labeling-lifecycle-counter-deltas)。
 
+## 数据集解绑的调用方事务
+
+预览和解绑使用 Workspace 包的 `DatasetUnlinkManager`，默认 API 通过原 SQLAlchemy
+Session 执行既有 Native 函数。独立调用方可用
+`DatasetUnlinkPostgresData(connection)` 借用已开启的 asyncpg 事务，账号为
+`workspace_dataset_unlink_client`。它仅有 `preview_dataset_unlink` 和 `unlink_dataset`
+执行权，没有私表／列、序列、DDL 或 TEMP 权限；沿用现有最小权限验证器。
+
+绑定不打开、结束或重试事务。预览不删除业务数据，但会锁定当前权限；两项能力都
+不能使用 READ ONLY 事务。原关联代次、保留检查、原子清理／审计／回执、缓存和
+公开幂等行为保持。完整字段与作用域见[数据能力协议](./module-data#workspace-数据集解绑与清理回执)
+和 [ADR-0177](/dev/adr/0177-workspace-caller-transaction-dataset-unlink)。
+
+本地资格仅覆盖调用边界。未退役视频执行的删除安全缺口仍开放，完整 Workspace
+凭据、工件与恢复仍按模块台账集中验收。
+
 ## 项目范围、看板与列表读取
 
 `aap_workspace_v1.actor_project_memberships(uuid)` 只返回 actor 的 `project_id` 与
