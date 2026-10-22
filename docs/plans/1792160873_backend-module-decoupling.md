@@ -6518,3 +6518,16 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - Focused verifier selection units pass 2/2 with the actual Root interpreter and
   repository PYTHONPATH; documentation build passes in 16.717 seconds. The unchanged
   18 resource units retain their previous milestone result rather than rerunning.
+- Final preservation at documentation commit b35cb04c6 confirms 20 editable Root
+  bindings, unchanged clean primary HEAD 856fa79c8, four unchanged shared container
+  IDs/names/running states, 28 known owned PostgreSQL containers absent, no owned
+  module/worker/import fixture container or network, and no persistent Root runtime.
+  All four current cold image COPY manifests still match source. Receipt:
+  .worktree/workspace-import-cli-preservation.json.
+- Aggregate qualification receipt: .worktree/workspace-import-cli-qualification.json,
+  SHA256 5926aedce74dfd29dc0e24999f47afb161e33e2a4f4b2302b12fc6b6877fde1c.
+  Failed first/third attempts remain retained; effective qualification is one
+  distinct integrated case with six CLI processes, not six independent tests.
+  The full-module goal stays active; remaining scope is only tracked in the
+  rendered module-deployment ledger. No primary cutover, push, release, production
+  deployment, or expansion of the Go experiment occurred.
