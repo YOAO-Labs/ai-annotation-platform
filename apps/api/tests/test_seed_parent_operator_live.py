@@ -422,7 +422,7 @@ async def _membership_gate_activity(
             (
                 await db.execute(
                     text(
-                        "SELECT usename, application_name, client_addr::text AS client_addr, "
+                        "SELECT pid, usename, application_name, host(client_addr) AS client_addr, "
                         "state, wait_event_type, wait_event, "
                         "position('write_seed_members' in query) > 0 AS seed_writer "
                         "FROM pg_catalog.pg_stat_activity "
@@ -472,16 +472,21 @@ async def _wait_for_membership_sleep(
 
 
 async def _wait_for_membership_disconnect(
-    test_engine, *, application_name: str, client_address: str
+    test_engine, *, backend_pid: int, client_address: str
 ) -> None:
     deadline = asyncio.get_running_loop().time() + 15
     while asyncio.get_running_loop().time() < deadline:
-        activity = await _membership_gate_activity(
-            test_engine,
-            application_name=application_name,
-            client_address=client_address,
-        )
-        if activity is None:
+        async with test_engine.connect() as db:
+            present = await db.scalar(
+                text(
+                    "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity "
+                    "WHERE datname=current_database() AND pid=:pid "
+                    "AND usename='legacy_runtime' "
+                    "AND client_addr=CAST(:client_address AS inet))"
+                ),
+                {"pid": backend_pid, "client_address": client_address},
+            )
+        if not present:
             return
         await asyncio.sleep(0.05)
     pytest.fail("stopped seed-parent client still owns its PostgreSQL session")
@@ -714,6 +719,7 @@ async def test_seed_parent_helpers_run_with_operator_only_capabilities(
             record_property(
                 "seed_parent_physical_cancellation_gate",
                 {
+                    "backend_pid": gate["pid"],
                     "role": gate["usename"],
                     "application_name": gate["application_name"],
                     "client_addr": gate["client_addr"],
@@ -732,7 +738,7 @@ async def test_seed_parent_helpers_run_with_operator_only_capabilities(
             assert sleep_run.timed_out is False
             await _wait_for_membership_disconnect(
                 test_engine,
-                application_name=application_name,
+                backend_pid=gate["pid"],
                 client_address=client_address,
             )
             await _assert_pending_dataset_absent(test_engine, sleep_dataset)
