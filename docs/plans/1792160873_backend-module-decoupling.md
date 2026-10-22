@@ -5917,3 +5917,17 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   inapplicable rules), 20 grant/selection units, pinned Ruff/format, explicit
   OpenAPI snapshot check, docs build and diff. No business test rerun follows
   formatting or receipt-only documentation changes.
+
+- Integrated source/documentation commit:
+  `23c15e6973890b6fa29aa80e615deaa8a8d68955`. All 37 files match the aggregate's
+  source manifest. Normal hooks pass, including actual OpenAPI and tracked-doc
+  regeneration, with tracked generated outputs unchanged.
+- Preservation reverified: all 12 owned PostgreSQL containers are absent and
+  owned test resources destroyed; the preflight-only failure created no
+  backend. All 20 editable AAP bindings, shared symlinks, clean protected
+  primary HEAD and four running shared containers match the prior milestone.
+  Root has no persistent API/Celery/provider process. Exactly three clean
+  source worktrees are removed after verified cache archives and an incremental
+  Git bundle; original branch refs remain. Every Root correction is retained
+  as a reviewable patch alongside equivalent-source checks. This remains
+  operation-level local qualification, with the full goal active.
