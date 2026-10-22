@@ -2150,7 +2150,7 @@ Root 的旧实现 baseline 在 owned disposable state 上通过 1 个测试、�
 
 其它环境（包括 staging）仍创建 email `admin`、name `超级管理员`、bcrypt `123456`、role `super_admin`、active、`status=offline`、null `email_verified_at`，无 Audit。返回值仅 UUID。所有者和 caller 共用一条 SQL transaction；导入 rollback 会一起撤销新账号与 Assets/Workspace/Labeling 数据。Lookup 遵循 `autoflush`／`no_autoflush`，create 则即使在 `no_autoflush` 中也显式 flush caller pending work；不清除或 refresh unrelated ORM objects。
 
-Migration 0252 新增 `read_provisioning_account(text)`、`create_provisioning_account(jsonb)` 和窄 LOGIN `identity_provisioning_client`；其 LOGIN 仅有这两项 Identity 函数权限，由 `infra/docker/identity-provisioning-grants.sql` 按标准 role/owner/database 检查安装。Identity 只调用固定 Audit function，不读写 Audit 原表；`module-data-grants.sql`、LAN application role 与 local compatibility runtime 的 allowlists 仅显式增加所需函数权，LAN source 未应用到 production。没有新 HTTP endpoint、runtime DSN selector、setting 或 dependency。`AAP_MODULE_DATA_IDENTITY_PROVISIONING_URL` 仅是 verifier test override，不是 runtime config。本切片的最新验收去重后 236 项全部通过、无有效跳过，包括受限 Node client 与真实 CLI、全新 Celery worker 三次派发、八项恢复及当前权限／事务行为。旧实现记录在迁移前的 owned disposable database 捕获，1 个测试覆盖 10 个场景；原始失败尝试与定向复验保留，按最新用例结果去重。审计拒绝的原始 23514、后续事务中止、显式 rollback 及未提交账号／Audit／调用方 pending work 一起回滚均已验证。源码与非 editable 安装各通过 619 项检查、122 个包文件指纹匹配；新的独立 owner 与禁网只读 API 镜像通过，后者另核对 61 个本轮 API/native 输入和迁移头 0252。架构检查通过 316 项，132 条既有不适用规则明确延期；OpenAPI 保持字节一致，codegen 与 509-route／93-module 目录一致。之前 account-lock 231 项和 actor-context 114 项各自独立，不计入本 slice；全 Identity、十模块／七门槛及生产容量仍未完成。细节见 [ADR-0132](docs/adr/0132-identity-operational-provisioning-and-authority-reads.md)。
+Migration 0252 新增 `read_provisioning_account(text)`、`create_provisioning_account(jsonb)` 和窄 LOGIN `identity_provisioning_client`；其可信 LOGIN 当前有这两项函数及主种子的 persona 创建能力，由 `infra/docker/identity-provisioning-grants.sql` 按标准 role/owner/database 检查安装。Identity 只调用固定 Audit function，不读写 Audit 原表；`module-data-grants.sql`、LAN application role 与 local compatibility runtime 的 allowlists 仅显式增加所需函数权，LAN source 未应用到 production。没有新 HTTP endpoint、runtime DSN selector、setting 或 dependency。`AAP_MODULE_DATA_IDENTITY_PROVISIONING_URL` 仅是 verifier test override，不是 runtime config。本切片的最新验收去重后 236 项全部通过、无有效跳过，包括受限 Node client 与真实 CLI、全新 Celery worker 三次派发、八项恢复及当前权限／事务行为。旧实现记录在迁移前的 owned disposable database 捕获，1 个测试覆盖 10 个场景；原始失败尝试与定向复验保留，按最新用例结果去重。审计拒绝的原始 23514、后续事务中止、显式 rollback 及未提交账号／Audit／调用方 pending work 一起回滚均已验证。源码与非 editable 安装各通过 619 项检查、122 个包文件指纹匹配；新的独立 owner 与禁网只读 API 镜像通过，后者另核对 61 个本轮 API/native 输入和迁移头 0252。架构检查通过 316 项，132 条既有不适用规则明确延期；OpenAPI 保持字节一致，codegen 与 509-route／93-module 目录一致。之前 account-lock 231 项和 actor-context 114 项各自独立，不计入本 slice；全 Identity、十模块／七门槛及生产容量仍未完成。细节见 [ADR-0132](docs/adr/0132-identity-operational-provisioning-and-authority-reads.md)。
 
 Authority consumer reuse 则复用既有 `read_actor_facts`、account-status value 与 0251 三种同事务 lock functions，不增加新的 SQL/wire/network surface。`project_access.resolve_project_access` 的非锁定读取调用 `IdentityAccountLockData.read_actor_status`，仍按 account→Project refresh→membership 顺序并保留必要 Project ORM refresh；`task_lock.py`、`batch.py`、`async_job_access.py` 只移除 authority-only User ORM 读取。旧 401/Bearer/403/404、锁 mode/wait/exception/None 和 row order 都保持，active-only guard 不增加 role 检查，不引入新 NOWAIT。它不扩展 member/task lifecycle，也不把已经关闭的 account-lock slice 重新打开。整模块资格见“Identity 整模块私网验收”；十模块／七门槛目标仍在进行，不代表生产／primary cutover。
 
@@ -2485,11 +2485,32 @@ AAP_WORKSPACE_SEED_OPERATOR_LIVE=1 \
 ```
 
 验收器只在自己拥有的环境中给可信 `legacy_runtime` 组合 Identity／Workspace 围栏、
-既有两项 provisioning 能力和两项 seed 写入；普通 API 保持 32 项 Workspace 函数。
+既有两项 provisioning 能力和三项 seed 写入；普通 API 保持 32 项 Workspace 函数。
 实际脚本使用只读挂载的小夹具和真实 S3，不下载完整 nuScenes。目录成功、后置能力
 缺失、显式回滚、旧种子替换和漂移重跑共五次容器调用，合计一个综合案例。
 SQL 失败／回滚保留旧状态和原始字节，旧对象清理发生在调用方提交后。该验证已通过，
 精确工件和日志见 `.worktree/workspace-seed-qualification.json`；主环境未切换。
+
+### 主种子冷运行验收
+
+复用当前 API 冷工件及上节镜像身份变量：
+
+```bash
+AAP_SEED_PARENT_OPERATOR_LIVE=1 \
+  apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/seed-parent-cold.json \
+  --test-file tests/test_seed_parent_operator_live.py
+```
+
+验收器在自有资源准备后给可信运维连接组合 Identity／Workspace 围栏与精确追加能力，
+User／Project／Member 私表及列权限均被拒绝。九次冷容器调用只执行镜像中的真实
+`_ensure_seed_accounts`／`_ensure_demo_memberships`，不替换其实现，也不执行媒体子脚本。
+进程中断绑定 SQL 阻塞、唯一应用标签、容器 IP 与数据库 PID，实际退出 137 后等待该
+后端消失再核对共同回滚；人工阻塞最多十秒，不代表即时终止任意 SQL。
+
+恢复新建 25 条成员，漂移只修复原字段，无变更时调用方 pending work 不提交；桶版本
+集合保持不变。该综合案例已通过，工件、原始失败和最终收据见
+`.worktree/seed-parent-qualification.json`。这是本地小夹具资格，日常主环境未切换。
 
 ### Workspace 公共结构契约与混合负载验收
 

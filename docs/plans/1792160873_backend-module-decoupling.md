@@ -6803,3 +6803,36 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Cold test source is integrated but has not yet received runtime qualification.
   It invokes installed parent helpers only; media children and the full parent
   CLI are outside this bounded qualification. The sole ledger records closure.
+
+- The final cold parent case passes at source aa05c202e6e41681b9d27cb70669d8fdcc6863c6.
+  Nine separate ordinary-UID/read-only/1 CPU/512 MiB containers execute the real
+  installed helpers, without media-child stubs. Create/reuse, missing capability,
+  late failure, physical cancellation, 25-row recovery, no-op, role repair and
+  final replay reach their expected outcomes. The cancellation exits 137 without
+  timeout, correlates application tag, verified container IP and PostgreSQL PID,
+  then waits for that exact backend to disappear before checking rollback.
+  The ten-second SQL gate proves eventual rollback, not immediate cancellation
+  of arbitrary long statements. The isolated dataset bucket remains unchanged.
+- First through fourth cold failures were test-fixture defects: counting only
+  one Workspace schema; inspecting a created-but-not-started Docker container
+  and then racing its lifecycle cleanup; PostgreSQL inet text retaining /32;
+  and indexing SQLAlchemy tuple rows by string. Preserve all raw failures and
+  JUnit. Native behavior was not relaxed. The final case uses all Workspace
+  schemas, waits for the real SQL gate, uses host(client_addr), joins the pending
+  lifecycle before closing, checks backend PID and reads named row mappings.
+- The selected Native union has 37 distinct latest passing cases: 22 original
+  replay cases, four atomic cases, a joint-owner Node producer and ten existing
+  regressions. The previous commit-phase atomic IDs are normalized to their
+  later parametrized names; no repeated run contributes an additional case.
+  Script/policy/verifier checks separately pass 58 tests. An explicit OpenAPI
+  generation comparison matches; frozen provisioning/project-maintenance SQL
+  and schema are unchanged.
+- A matching Workspace image verifies 280 package files across 12 namespaces,
+  with no API, SQLAlchemy, Celery or Inference provider. The API artifact verifies
+  768 application, 512 installed-package and 32 script files (1,312 total).
+  Existing Inference and Assets-source COPY manifests are unchanged and reused.
+  No fresh whole-module installed-suite, restore, production or AMD64 claim.
+- All three source-only workers were integrated by patch equivalence. Exact
+  incremental Git bundles, source patches and ignored Ruff caches were archived
+  and verified before removing the clean checkouts; their branches remain.
+  Receipts: .worktree/seed-parent-{identity,workspace,cold}-worker-preservation/receipt.json.
