@@ -170,7 +170,7 @@ async def test_sql_resolver_projects_expected_http_failures_to_pure_facts(
     async def lock_rows(*_args, **_kwargs):
         raise source
 
-    monkeypatch.setattr(project_access, "lock_current_project_access", lock_rows)
+    monkeypatch.setattr(project_access, "lock_project_access_authority", lock_rows)
     resolver = project_access.SqlProjectWritePolicyResolver(object())
 
     with pytest.raises(ProjectWritePolicyFailure) as raised:

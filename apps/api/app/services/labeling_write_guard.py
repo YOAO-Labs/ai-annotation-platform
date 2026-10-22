@@ -32,7 +32,7 @@ from app.services.labeling_write_scope import (
     LabelingWriteScope,
 )
 from aap_workspace_contract.access import ProjectAccess
-from app.services.project_access import lock_current_project_access
+from app.services.project_access import lock_project_access_authority
 from app.services.task_lock import TaskLockService
 
 _MANAGER_OPERATIONS = frozenset(
@@ -351,7 +351,7 @@ async def lock_labeling_write(
     ):
         raise _conflict("labeling_write_scope_unknown")
     with db.no_autoflush:
-        actor, _project, access = await lock_current_project_access(
+        actor, access = await lock_project_access_authority(
             db, actor_id=scope.actor_id, project_id=scope.project_id
         )
         if scope.operation in _MANAGER_OPERATIONS and not access.is_manager:
@@ -500,7 +500,7 @@ async def lock_labeling_batch_write(
     ):
         raise _conflict("labeling_write_scope_unknown")
     with db.no_autoflush:
-        _actor, _project, access = await lock_current_project_access(
+        _actor, access = await lock_project_access_authority(
             db, actor_id=scope.actor_id, project_id=scope.project_id
         )
         if not access.is_manager:

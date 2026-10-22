@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from typing import NoReturn
 
@@ -21,6 +22,9 @@ from aap_workspace_contract.access import (
     membership_role_compatible as _membership_role_compatible,
     platform_role_is_manager as _platform_role_is_manager,
 )
+from aap_workspace_contract.member_values import decode_project_member_rows
+from aap_workspace_contract.project_query_values import decode_project_authority_row
+from aap_workspace_contract.wire import _reject_constant, _unique_object
 from app.db.enums import (
     PlatformRole,
 )
@@ -32,6 +36,154 @@ from app.services.task_creation_contract import (
 )
 from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 from app.services.identity_account_lock_data import IdentityAccountLockData
+
+_WORKSPACE_PROJECT_ACCESS_STEP = text(
+    "SELECT aap_workspace_v1.project_access_step("
+    "CAST(:actor_id AS uuid), CAST(:project_id AS uuid), CAST(:phase AS text))"
+)
+_WORKSPACE_PROJECT_ACCESS_STEP_SCHEMA = "aap-workspace-project-access-step/v1"
+
+
+def _decode_workspace_project_access_step(
+    payload: object,
+    *,
+    actor_id: uuid.UUID,
+    project_id: uuid.UUID,
+    phase: str,
+) -> dict[str, object]:
+    if type(payload) is str:
+        try:
+            payload = json.loads(
+                payload,
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_constant,
+            )
+        except (ValueError, TypeError, UnicodeError, RecursionError):
+            raise ValueError("Invalid Workspace Project access step reply") from None
+    if (
+        type(payload) is not dict
+        or set(payload) != {"schema", "actor_id", "project_id", "phase", "facts"}
+        or type(payload["schema"]) is not str
+        or payload["schema"] != _WORKSPACE_PROJECT_ACCESS_STEP_SCHEMA
+        or type(payload["actor_id"]) is not str
+        or payload["actor_id"] != str(actor_id)
+        or type(payload["project_id"]) is not str
+        or payload["project_id"] != str(project_id)
+        or type(payload["phase"]) is not str
+        or payload["phase"] != phase
+        or type(payload["facts"]) is not dict
+    ):
+        raise ValueError("Invalid Workspace Project access step reply")
+
+    facts = payload["facts"]
+    if phase == "lock_project_key_share":
+        if set(facts) != {"row_json"} or (
+            facts["row_json"] is not None and type(facts["row_json"]) is not str
+        ):
+            raise ValueError("Invalid Workspace Project access project facts")
+    elif phase == "lock_member_share":
+        if set(facts) != {"rows_json"} or type(facts["rows_json"]) is not str:
+            raise ValueError("Invalid Workspace Project access member facts")
+    else:
+        raise ValueError("Unexpected Workspace Project access step phase")
+    return facts
+
+
+async def _lock_project_actor(
+    db: AsyncSession, *, actor_id: uuid.UUID
+) -> IdentityActorFacts:
+    try:
+        accounts = await IdentityAccountLockData(db).lock_accounts(
+            [actor_id], mode="share", nowait=True
+        )
+    except DBAPIError as exc:
+        sqlstate = getattr(exc.orig, "sqlstate", None) or getattr(
+            exc.orig, "pgcode", None
+        )
+        if sqlstate in {"55P03", "40001", "40P01"}:
+            raise HTTPException(
+                status_code=409, detail={"reason": "account_busy"}
+            ) from exc
+        raise
+    user = accounts.get(actor_id)
+    if user is None or not user.is_active:
+        raise _invalid_account()
+    return user
+
+
+async def lock_project_access_authority(
+    db: AsyncSession, *, actor_id: uuid.UUID, project_id: uuid.UUID
+) -> tuple[IdentityActorFacts, _ProjectAccess]:
+    """Lock current Workspace authority without hydrating its Project ORM row."""
+    with db.no_autoflush:
+        user = await _lock_project_actor(db, actor_id=actor_id)
+        project_facts = _decode_workspace_project_access_step(
+            await _locked_access_row(
+                db,
+                _WORKSPACE_PROJECT_ACCESS_STEP,
+                busy_reason="project_busy",
+                parameters={
+                    "actor_id": actor_id,
+                    "project_id": project_id,
+                    "phase": "lock_project_key_share",
+                },
+            ),
+            actor_id=actor_id,
+            project_id=project_id,
+            phase="lock_project_key_share",
+        )
+        project_identity = decode_project_authority_row(
+            project_facts["row_json"], target_id=project_id
+        )
+        if project_identity is None:
+            raise HTTPException(status_code=404, detail="项目不存在")
+        current_project_id, owner_id = project_identity
+
+        try:
+            manager = project_manager_access(
+                actor_id=user.id,
+                platform_role=user.role,
+                project_id=current_project_id,
+                owner_id=owner_id,
+            )
+            if manager is not None:
+                return user, manager
+
+            member_facts = _decode_workspace_project_access_step(
+                await _locked_access_row(
+                    db,
+                    _WORKSPACE_PROJECT_ACCESS_STEP,
+                    busy_reason="membership_busy",
+                    parameters={
+                        "actor_id": actor_id,
+                        "project_id": project_id,
+                        "phase": "lock_member_share",
+                    },
+                ),
+                actor_id=actor_id,
+                project_id=project_id,
+                phase="lock_member_share",
+            )
+            members = decode_project_member_rows(
+                member_facts["rows_json"],
+                target_id=project_id,
+                user_id=actor_id,
+                max_rows=1,
+            )
+            member = members[0] if members else None
+            access = project_member_access(
+                actor_id=user.id,
+                platform_role=user.role,
+                project_id=current_project_id,
+                membership_id=member.id if member is not None else None,
+                project_role=member.role if member is not None else None,
+                membership_version=member.version if member is not None else None,
+            )
+        except ProjectAccessPolicyFailure as failure:
+            raise HTTPException(
+                status_code=failure.status_code, detail=failure.detail
+            ) from failure
+        return user, access
 
 
 async def lock_creation_project_manager(
@@ -170,9 +322,20 @@ async def _resolve_current_project_access(
         ) from failure
 
 
-async def _locked_access_row(db: AsyncSession, statement, *, busy_reason: str):
+async def _locked_access_row(
+    db: AsyncSession,
+    statement,
+    *,
+    busy_reason: str,
+    parameters: dict[str, object] | None = None,
+):
     try:
-        return (await db.execute(statement)).scalar_one_or_none()
+        result = (
+            await db.execute(statement)
+            if parameters is None
+            else await db.execute(statement, parameters)
+        )
+        return result.scalar_one_or_none()
     except DBAPIError as exc:
         sqlstate = getattr(exc.orig, "sqlstate", None) or getattr(
             exc.orig, "pgcode", None
@@ -189,22 +352,7 @@ async def lock_current_project_rows(
 ) -> tuple[IdentityActorFacts, Project]:
     """Refresh and fence account/project rows without granting project visibility."""
     with db.no_autoflush:
-        try:
-            accounts = await IdentityAccountLockData(db).lock_accounts(
-                [actor_id], mode="share", nowait=True
-            )
-        except DBAPIError as exc:
-            sqlstate = getattr(exc.orig, "sqlstate", None) or getattr(
-                exc.orig, "pgcode", None
-            )
-            if sqlstate in {"55P03", "40001", "40P01"}:
-                raise HTTPException(
-                    status_code=409, detail={"reason": "account_busy"}
-                ) from exc
-            raise
-        user = accounts.get(actor_id)
-        if user is None or not user.is_active:
-            raise _invalid_account()
+        user = await _lock_project_actor(db, actor_id=actor_id)
         project = await _locked_access_row(
             db,
             select(Project)
@@ -246,7 +394,7 @@ class SqlProjectWritePolicyResolver:
 
     async def resolve(self, request: ProjectWritePolicyRequest) -> _ProjectAccess:
         try:
-            _, _, access = await lock_current_project_access(
+            _, access = await lock_project_access_authority(
                 self._db,
                 actor_id=request.actor_id,
                 project_id=request.project_id,

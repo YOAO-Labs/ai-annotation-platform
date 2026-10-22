@@ -120,6 +120,38 @@ def decode_project_row(row_json, *, target_id=None):
     return raw_project_row(value, target_id=target_id)
 
 
+def decode_project_authority_row(
+    row_json: str | None, *, target_id: uuid.UUID
+) -> tuple[uuid.UUID, uuid.UUID | None] | None:
+    """Decode only the Project identity needed for locked access authority."""
+    if row_json is None:
+        return None
+    if type(row_json) is not str:
+        raise ProjectQueryUnavailable()
+    try:
+        value = json.loads(
+            row_json, object_pairs_hook=_unique_object, parse_constant=_reject_constant
+        )
+    except (ValueError, TypeError, UnicodeError, RecursionError):
+        raise ProjectQueryUnavailable() from None
+    if type(value) is not dict or set(value) != set(PROJECT_ROW_COLUMNS):
+        raise ProjectQueryUnavailable()
+    project_value = value["id"]
+    owner_value = value["owner_id"]
+    if type(project_value) is not str or (
+        owner_value is not None and type(owner_value) is not str
+    ):
+        raise ProjectQueryUnavailable()
+    try:
+        project_id = uuid.UUID(project_value)
+        owner_id = uuid.UUID(owner_value) if owner_value is not None else None
+    except ValueError:
+        raise ProjectQueryUnavailable() from None
+    if project_id != target_id:
+        raise ProjectQueryUnavailable()
+    return project_id, owner_id
+
+
 def decode_project_rows(rows_json):
     try:
         rows = json.loads(
