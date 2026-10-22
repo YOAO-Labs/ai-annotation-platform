@@ -2448,6 +2448,25 @@ AAP_WORKSPACE_IMPORT_CLI_LIVE=1 apps/api/.venv/bin/python \
 失败保留的 S3 字节由隔离桶销毁清理；重放可能重新上传同键对象和追加操作回执。
 这不证明真实数据集、容量或整模块完成，剩余边界继续见唯一台账。
 
+### Workspace 冷开发种子验收
+
+匹配当前源码构建 `infra/docker/Dockerfile.api`，按前节冷运维入口的镜像身份要求设置
+`AAP_WORKSPACE_MODULE_API_IMAGE` 和 `AAP_WORKSPACE_MODULE_API_IDENTITY`，再执行：
+
+```bash
+AAP_WORKSPACE_SEED_OPERATOR_LIVE=1 \
+  apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/workspace-seed-cold.json \
+  --test-file tests/test_workspace_seed_operator_live.py
+```
+
+验收器只在自己拥有的环境中给可信 `legacy_runtime` 组合 Identity／Workspace 围栏、
+既有两项 provisioning 能力和两项 seed 写入；普通 API 保持 32 项 Workspace 函数。
+实际脚本使用只读挂载的小夹具和真实 S3，不下载完整 nuScenes。目录成功、后置能力
+缺失、显式回滚、旧种子替换和漂移重跑共五次容器调用，合计一个综合案例。
+SQL 失败／回滚保留旧状态和原始字节，旧对象清理发生在调用方提交后。该验证已通过，
+精确工件和日志见 `.worktree/workspace-seed-qualification.json`；主环境未切换。
+
 ### Workspace 公共结构契约与混合负载验收
 
 保存流水线结构由 `aap-inference-contract` 提供；Workspace 镜像与核心不再安装 Inference

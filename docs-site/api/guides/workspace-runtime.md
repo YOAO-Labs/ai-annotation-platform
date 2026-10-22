@@ -229,6 +229,8 @@ baseline 与候选修订。Native setter 只写精确配置与事务时间戳，
 `infra/docker/workspace-seed-operator-grants.sql`。普通 API／worker 的配置仍只有原来的
 32 项函数和两张事实视图；不能把运维追加配置用于 HTTP／worker 账号。
 这不代表开发种子的 Assets 私表操作或其他运维脚本已完成模块提取。
+匹配冷 API 工件的实际种子入口已通过受限凭据、真实 S3、后置失败／回滚、提交后清理
+及漂移重跑验收，范围见[开发点云种子](/dev/concepts/module-deployment#workspace-开发点云种子)。
 
 ## 锁定权限与会话快照
 

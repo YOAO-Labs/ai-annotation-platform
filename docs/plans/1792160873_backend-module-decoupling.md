@@ -6739,3 +6739,26 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   retaining only the existing migration-owner membership. The owned negative case
   passes and confirms no seed write is granted on rejection. Migration-policy
   and verifier-selection units also pass 40 cases plus three subtests.
+
+- Cold acceptance passes at source b358fbc0d: one integrated case with five owned
+  one-shot containers, not five tests. The actual installed script entrypoints
+  cover directory creation, a late missing-setter failure, explicit outer
+  rollback, legacy replacement/post-commit cleanup, and drift/idempotent replay.
+  Private Project/Identity SQL is denied to the operator; the normal API keeps
+  its old 32 Workspace functions. S3 is real and confined to the owned dataset
+  bucket. Failure/rollback preserves original rows and source bytes; success
+  deletes the old current object only after caller commit and explicit cleanup.
+- The current owner image (276 files/12 namespaces) loads the added pure contract
+  with no API, ORM, Celery or Inference provider installed. The API image exactly
+  matches 767 application files, 508 installed-package files and all three real
+  seed/import/cache scripts (1,278 total). Unchanged prior owner installation,
+  restore and load evidence is reused; no new 439-case installed-suite claim.
+  Full fresh head/0189 frozen-SQL rollback/reupgrade reaches 0301, and cleanup
+  reports all owned resources destroyed with no error. Receipt and JUnit:
+  .worktree/workspace-seed-cold-first.{json,log,junit.xml,command.json}; five-call
+  summary: .worktree/workspace-seed-cold-first-summary.json.
+- Both source-only workers are integrated by patch equivalence; their exact
+  incremental Git bundles, full patches and ignored Ruff caches were archived
+  and verified before removing the clean checkouts. Original branches remain.
+  Receipts: .worktree/workspace-seed-contract-worker-preservation/receipt.json
+  and .worktree/workspace-seed-live-worker-preservation/receipt.json.
