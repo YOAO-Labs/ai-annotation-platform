@@ -5978,3 +5978,20 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   explicitly inapplicable), 20 grant/selection units, pinned Ruff/format, Node
   syntax, explicit OpenAPI, docs build and diff. Docs retain existing syntax
   fallback and large-chunk warnings. No business replay follows formatting.
+
+- Integrated source/documentation commit: `1a7219007afe8923a0f880fa50a69510ac134756`. All 22 source files
+  match the aggregate manifest; normal commit hooks pass. API snapshot hooks
+  are inapplicable to these paths; the explicit OpenAPI check passed separately.
+- Final preservation verifies the clean protected primary, four shared running
+  containers, all 20 editable bindings and shared symlink targets. Nine owned
+  PostgreSQL containers are absent; each new verifier resource cleanup passes.
+  Exactly two clean source worktrees are removed after verified incremental
+  bundle/cache archives, retaining branch refs and reviewable Root corrections.
+- The broader final runtime inventory finds two media probes from the October19
+  retry-media acceptance (PIDs94541/94573), missed by prior narrower inventories.
+  Exact command/cwd/start-time/deleted-fixture-log and original receipt prove
+  ownership. Both exit on SIGTERM; no shared service is stopped. Original failed
+  evidence is unchanged, with supplemental cleanup and inventory receipts.
+  Root now has no persistent backend runtime process. Aggregate and preservation
+  remain .worktree/labeling-counter-deltas-qualification.json and
+  .worktree/labeling-counter-deltas-preservation.json. The full goal stays active.
