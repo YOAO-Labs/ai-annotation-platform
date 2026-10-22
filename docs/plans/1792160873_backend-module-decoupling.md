@@ -5407,3 +5407,16 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   are not closed. Root has no persistent API/Celery runtime to refresh; qualifier
   processes import current source. The primary runtime, production, release and
   Go experiment are not changed.
+
+- Source/grant/fixture/documentation integration commit:
+  `7306823c252178c37b3ece7477aaaa0ac871cfd0`. The aggregate binds 15 changed
+  files to this checkpoint. Grant/selection units pass 20; architecture passes
+  355 with 149 inapplicable rules. Ruff, formatting, docs build, final diff review
+  and normal applicable commit hooks pass; public API artifacts are unchanged.
+  The owned source worktree is removed after exact branch/HEAD, clean-state and
+  both patch-equivalence checks; its Ruff cache is archived and branch retained.
+  Twenty editable bindings still point to Root, the clean primary and four shared
+  containers are preserved, and all five owned PostgreSQL containers from the
+  baseline, checks and reproducers are confirmed absent. This closes the current
+  locked read operation's selected source/Native boundary, not the full Workspace
+  module or its cold assembly and restore qualification.
