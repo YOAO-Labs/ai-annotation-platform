@@ -6129,3 +6129,21 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   explicit unchanged OpenAPI snapshot, documentation build and diff checks.
   Existing syntax-highlighter fallback and large-chunk warnings remain. No
   business cases are rerun after formatting and documentation-only changes.
+
+- Integrated source/documentation commit:
+  `b897a9a3766b4056ee6f831b6c8f850dbdbc705d`. All24 files match the
+  recorded SHA256 manifest after normal commit hooks. Explicit OpenAPI checking
+  passes with the unchanged snapshot; no hook skips were overridden.
+- Preservation verifies all20 editable bindings, protected primary HEAD/clean
+  status, both shared symlinks and four running shared containers unchanged.
+  All six owned PostgreSQL test containers are absent; every verifier cleanup
+  succeeds. No persistent Root backend process remains. Three clean source
+  worktrees are removed only after verified incremental bundle/cache archives
+  and integration comparisons; original branch refs and Root correction patches
+  remain. The aggregate records hashes of original failure and passing receipts:
+  .worktree/video-deletion-retirement-qualification.json. Preservation and worker
+  cleanup receipts use the same prefix.
+- This closes the chosen deletion/retirement gate, not historical no-proof
+  recovery or complete Workspace deployment. The active goal remains unchanged.
+  Next bounded deliverable is a reliable legacy drain/repair evidence path;
+  unrelated independent module assembly may proceed where prerequisites allow.
