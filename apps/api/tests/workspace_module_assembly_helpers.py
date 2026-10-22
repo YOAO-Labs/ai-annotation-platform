@@ -291,9 +291,13 @@ class WorkspaceModuleStack:
 
     def capture_diagnostics(self) -> str:
         records = {}
-        for service, details in self._verify_project_ownership(
-            allow_partial=True
-        ).items():
+        prepared = self._compose_env_file.is_file() and self._override_file.is_file()
+        containers = (
+            self._verify_project_ownership(allow_partial=True) if prepared else {}
+        )
+        if not prepared:
+            records["setup"] = {"compose_files_complete": False}
+        for service, details in containers.items():
             result = subprocess.run(
                 ["docker", "logs", "--tail", "120", details["Id"]],
                 env=self._compose_environment,
