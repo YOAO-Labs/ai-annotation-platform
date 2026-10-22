@@ -7152,3 +7152,20 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   unchanged; no recording was regenerated. The next concrete Identity prerequisite
   is the gated `_test_seed`/`_test_seed_filters` runtime routes that still
   create/delete users and invitations through `tests.factory`.
+- Qualification documentation commit c5fc1be9ffcd427e963f4ee99af5bf6b24a15587
+  records the bounded cold acceptance and sole remaining-work ledger. Final
+  preservation confirms twenty unchanged editable bindings, four unchanged shared
+  running containers, protected clean primary HEAD 856fa79c8, 81 known owned
+  PostgreSQL containers absent, no persistent Root/fixture runtime or network,
+  matching manifests for all four images and both verified worker archives.
+- Aggregate `.worktree/identity-recording-qualification.json` has SHA256
+  `27f19a8ffa561f865d6049f5b054644fae856a74af826412d09b84ae609c4d89`.
+  Captured values exactly match all 37 original per-case artifacts; existing
+  protocol/OpenAPI/media-review artifacts retain their earlier byte hashes.
+  Reuse the passing acceptance unless related changes invalidate it. The full
+  module goal remains active; no push, production deployment or primary cutover.
+- Next-slice audit confirms the guarded E2E router has exact namespace cleanup,
+  complete UserOut login, account creation, invitation fixtures and peek ordering.
+  Its existing physical database check lowercases the name before the suffix test;
+  preserve that established route behavior rather than copying the screenshot
+  restore CLI's case-sensitive rule into this separate consumer.
