@@ -18,7 +18,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import task_access
-from app.db.models.project import Project
+from app.services.project_access import get_workspace_project
 from app.db.models.task import Task
 from app.db.models.task_event import TaskEvent
 from app.services.identity_account_lock_data import IdentityAccountLockData
@@ -164,7 +164,7 @@ async def assert_task_event_access(
     still fails the normal policy.
     """
 
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, project_id=task.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
     # Current account + actual-project membership authority, locked for the

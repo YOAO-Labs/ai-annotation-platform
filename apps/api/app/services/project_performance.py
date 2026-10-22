@@ -244,7 +244,9 @@ async def resolve_performance_access(
     project_id: UUID,
     user: IdentityActorFacts,
 ) -> Project:
-    project = await db.get(Project, project_id)
+    from app.services.project_access import get_workspace_project
+
+    project = await get_workspace_project(db, project_id=project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
     # Project performance stays manager-only: a super administrator or an owner

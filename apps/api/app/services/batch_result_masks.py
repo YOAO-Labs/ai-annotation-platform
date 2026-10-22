@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.project import Project
+from app.services.project_access import get_workspace_project
 from app.db.models.task import Task
 from app.services.labeling_prediction_contract import ApplyPredictionResultRequest
 from app.services.raster_mask_storage import (
@@ -156,7 +157,9 @@ async def normalize_batch_prediction_masks(
             task_cache[cache_key] = task
         project = project_cache.get(request.project_id)
         if request.project_id not in project_cache:
-            project = await db.get(Project, request.project_id, populate_existing=True)
+            project = await get_workspace_project(
+                db, project_id=request.project_id, populate_existing=True
+            )
             project_cache[request.project_id] = project
         assert_raster_mask_write_enabled(project)
 

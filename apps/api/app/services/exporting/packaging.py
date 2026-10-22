@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 from app.services.exporting.contracts import export_contracts, video_source_contract
+from app.services.project_access import get_workspace_project
 
 import asyncio
 import hashlib
@@ -646,7 +647,7 @@ async def build_export_zip(
     VOC 走旧同步路径，不在此处。
     """
     svc = ExportService(db, task_ids=task_ids)
-    project = await svc.db.get(Project, project_id)
+    project = await get_workspace_project(svc.db, project_id=project_id)
 
     tmp_path = _new_zip_tempfile()
     try:

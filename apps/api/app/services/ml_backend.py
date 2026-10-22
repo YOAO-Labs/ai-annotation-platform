@@ -9,9 +9,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.gpu_backend_fence import GPUBackendFence
+from app.services.project_access import get_workspace_project
 from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
-from app.db.models.project import Project
 from app.services.gpu_arbitration.contracts import (
     GPUDispatchContextFactory,
     GPUShadowSessionFactory,
@@ -1338,7 +1338,7 @@ class MLBackendService:
 
         v0.23.3: 项目主绑定存 pool id; 经 _pool_for_registry 解析 pool 的 legacy
         instance (off mode singleton, 行为与 v0.23.2 一致)。"""
-        proj = await self.db.get(Project, project_id)
+        proj = await get_workspace_project(self.db, project_id=project_id)
         if proj is not None and proj.ml_backend_pool_id is not None:
             pool = await self.db.get(MLBackendServicePool, proj.ml_backend_pool_id)
             if pool is not None and pool.legacy_instance_id is not None:
@@ -1384,7 +1384,7 @@ class MLBackendService:
         ]
         if not supporting:
             return None
-        proj = await self.db.get(Project, project_id)
+        proj = await get_workspace_project(self.db, project_id=project_id)
         # v0.23.3: 项目主绑定存 pool id; 经 pool 的 legacy instance 解析回 registry。
         bound_id: uuid.UUID | None = None
         if proj is not None and proj.ml_backend_pool_id is not None:

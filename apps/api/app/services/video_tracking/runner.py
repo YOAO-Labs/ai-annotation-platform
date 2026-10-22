@@ -1344,9 +1344,9 @@ async def _tracker_work_authorized_and_running(
     db: AsyncSession, *, job_id, actor_id
 ) -> bool:
     """Recheck Job, cancellation, and actor in a short claim-fenced transaction."""
+    from app.services.project_access import get_workspace_project
     from fastapi import HTTPException
 
-    from app.db.models.project import Project
     from app.services.identity_account_lock_data import IdentityAccountLockData
     from app.services.project_access import resolve_project_access
 
@@ -1391,7 +1391,11 @@ async def _tracker_work_authorized_and_running(
             else None
         )
         task = await db.get(Task, task_id)
-        project = await db.get(Project, task.project_id) if task is not None else None
+        project = (
+            await get_workspace_project(db, project_id=task.project_id)
+            if task is not None
+            else None
+        )
         if actor is None or not actor.is_active or task is None or project is None:
             raise HTTPException(status_code=403, detail="revoked")
         await resolve_project_access(db, actor_id=actor.id, project=project)
@@ -3049,6 +3053,8 @@ async def _run_tracker_job_claimed(
     on_started: Callable[[AsyncSession, VideoTrackerJob], Awaitable[None]]
     | None = None,
 ) -> VideoTrackerJob | None:
+    from app.services.project_access import get_workspace_project
+
     job = await _load_job_for_update(db, job_id)
     if job is None:
         return None
@@ -3076,13 +3082,16 @@ async def _run_tracker_job_claimed(
         if actor_id is None:
             raise TrackerFailure("permission_denied")
         from fastapi import HTTPException
-        from app.db.models.project import Project
         from app.services.identity_account_lock_data import IdentityAccountLockData
         from app.services.project_access import resolve_project_access
 
         actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
         task = await db.get(Task, task_id)
-        project = await db.get(Project, task.project_id) if task is not None else None
+        project = (
+            await get_workspace_project(db, project_id=task.project_id)
+            if task is not None
+            else None
+        )
         try:
             if actor is None or not actor.is_active or project is None:
                 raise HTTPException(status_code=403, detail="revoked")

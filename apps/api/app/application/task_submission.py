@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.task_workflow_errors import TaskWorkflowError
+from app.services.project_access import get_workspace_project
 from app.application.task_workflow_locks import (
     lock_current_batch_target,
     lock_current_task_target,
@@ -17,7 +18,6 @@ from app.db.enums import BatchStatus
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.mask_qc import MaskQCRun
-from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.schemas.mask_qc import MaskQCRunRequest
@@ -81,7 +81,7 @@ async def _prepare_submission(
     mask_qc_status: str | None = None
     from app.services.mask_qc.service import MaskQCError, create_mask_qc_run
 
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, project_id=task.project_id)
     config = load_mask_qc_config(project.mask_qc_config if project else None)
     has_mask = (
         await db.execute(

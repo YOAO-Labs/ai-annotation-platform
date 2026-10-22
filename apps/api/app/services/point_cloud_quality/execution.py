@@ -13,11 +13,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
+from app.services.project_access import get_workspace_project
 from app.db.models.point_cloud_quality import (
     PointCloudQualityIssue,
     PointCloudQualityRun,
 )
-from app.db.models.project import Project
 from aap_workspace.point_quality_configuration_values import PointCloudQualityConfig
 from aap_assets_catalog.spatial_values import SensorCalibration
 from aap_assets_catalog.axis_convention import R_NORM
@@ -570,7 +570,7 @@ async def execute_run(
         )
     await db.commit()
     try:
-        project = await db.get(Project, run.project_id)
+        project = await get_workspace_project(db, project_id=run.project_id)
         if project is None:
             raise RuntimeError("point cloud quality project disappeared")
         if await current_source_digest(db, run, project) != run.source_snapshot_digest:

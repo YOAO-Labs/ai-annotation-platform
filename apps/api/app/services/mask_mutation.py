@@ -11,6 +11,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
+from app.services.project_access import get_workspace_project
 from app.db.models.annotation_operation import (
     AnnotationLineageEdge,
     AnnotationOperation,
@@ -1305,8 +1306,10 @@ class MaskMutationService:
                 preflight_task, actor.id, access=preflight_access
             )
             if payload.scope.media == "video":
-                preflight_project = await self.db.get(
-                    Project, preflight_task.project_id, populate_existing=True
+                preflight_project = await get_workspace_project(
+                    self.db,
+                    project_id=preflight_task.project_id,
+                    populate_existing=True,
                 )
                 await self._assert_segment_lease(
                     preflight_task,
@@ -1713,7 +1716,9 @@ class MaskMutationService:
                     annotation_id=str(annotation_id),
                 )
 
-        project = await self.db.get(Project, task.project_id, populate_existing=True)
+        project = await get_workspace_project(
+            self.db, project_id=task.project_id, populate_existing=True
+        )
         await self._assert_segment_lease(task, payload.scope, actor, project)
 
         frame_index = int(payload.scope.frame_index or 0)

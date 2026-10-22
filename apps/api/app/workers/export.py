@@ -467,8 +467,9 @@ async def _assert_export_task_scope(
     job_uuid: uuid.UUID,
 ) -> None:
     """Recheck export project access and any explicit task scope."""
+    from app.services.project_access import get_workspace_project
 
-    project = await db.get(Project, project_id)
+    project = await get_workspace_project(db, project_id=project_id)
     job = await db.get(AsyncJob, job_uuid)
     if project is None or job is None or job.project_id != project_id:
         raise ValueError("export scope owner or project is unavailable")

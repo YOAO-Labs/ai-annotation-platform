@@ -12,12 +12,12 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.ai_mask_accept_decision import AiMaskAcceptDecision
+from app.services.project_access import get_workspace_project
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem
 from app.db.models.ml_backend_pool import MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.prediction import INTERACTIVE_ACCEPT_PREDICTION_SOURCE
-from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.schemas.ai_mask import AiMaskAcceptRequest, AiMaskAcceptResponse
@@ -476,7 +476,7 @@ async def accept_ai_mask_candidate(
             message="task is locked by another user",
         ) from exc
 
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, project_id=task.project_id)
     if project is None:
         raise AiMaskAcceptError(
             status_code=404, reason="task_not_found", message="task was not found"

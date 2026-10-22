@@ -16,7 +16,7 @@ from aap_assets_video_inputs.evidence import VideoInputEvidence
 from aap_workspace.configuration_values import TOOL_UNIT_IDS as _SCHEMA_TOOL_UNIT_IDS
 
 from app.db.enums import UserRole
-from app.db.models.project import Project
+from app.services.project_access import get_workspace_project
 from app.db.models.prediction import Prediction, PredictionMeta, FailedPrediction
 from app.db.models.task import Task
 from app.services.annotation_propagation import _new_track_id
@@ -132,7 +132,7 @@ async def assert_can_manage_failed_prediction(
             )
         if actor.is_active and actor.role == UserRole.SUPER_ADMIN.value:
             return
-    project = await db.get(Project, fp.project_id)
+    project = await get_workspace_project(db, project_id=fp.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     access = await resolve_project_access(db, actor_id=actor.id, project=project)

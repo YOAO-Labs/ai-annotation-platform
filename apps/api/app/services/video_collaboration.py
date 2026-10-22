@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.services.project_access import get_workspace_project
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem, VideoSegment
 from app.db.models.project import Project
@@ -88,7 +89,7 @@ async def segment_work_bounds_for_task(
     project: Project | None = None,
     video_metadata: VideoMetadata | None = None,
 ) -> tuple[int, int]:
-    project = project or await db.get(Project, task.project_id)
+    project = project or await get_workspace_project(db, project_id=task.project_id)
     config = collaboration_config(project)
     if not config.enabled:
         return segment.start_frame, segment.end_frame
@@ -288,7 +289,7 @@ async def assert_video_annotation_write_scope(
     segment_id: uuid.UUID | None,
     geometry: dict | None,
 ) -> VideoSegment | None:
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, project_id=task.project_id)
     enabled = collaboration_enabled(project)
     if not enabled:
         if segment_id is not None:
@@ -363,7 +364,7 @@ async def assert_video_annotation_write_scope(
 async def heartbeat_task_lock_for_legacy_video(
     db: AsyncSession, task: Task, user_id: uuid.UUID
 ) -> None:
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, project_id=task.project_id)
     if collaboration_enabled(project):
         return
     from app.services.task_lock import TaskLockService
@@ -374,7 +375,7 @@ async def heartbeat_task_lock_for_legacy_video(
 async def assert_task_lock_for_legacy_video(
     db: AsyncSession, task: Task, user_id: uuid.UUID
 ) -> None:
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, project_id=task.project_id)
     if collaboration_enabled(project):
         return
     from app.services.task_lock import TaskLockService

@@ -16,6 +16,7 @@ from sqlalchemy import select
 from training_contract.model_return import registration_eligibility
 
 from app.db.models.ml_backend_registry import MLBackendRegistry
+from app.services.project_access import get_workspace_project
 from app.db.models.trained_model import (
     ModelDeployment,
     ModelRelease,
@@ -563,10 +564,9 @@ class _SqlFreezeModelReferencePort:
             raise _reference_http_error("model_receipt_invalid", exc) from exc
 
     async def validate(self, request: ValidateFrozenModelReferenceRequest) -> uuid.UUID:
-        from app.db.models.project import Project
 
         project_id, ref = request.project_id, request.reference
-        project = await self.db.get(Project, project_id)
+        project = await get_workspace_project(self.db, project_id=project_id)
         try:
             assert_image_scope(project)
         except HTTPException as exc:

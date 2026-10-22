@@ -23,6 +23,7 @@ from aap_assets_mask_content.contract import (
 )
 
 from app.db.models.dataset import DatasetItem
+from app.services.project_access import get_workspace_project
 from app.db.models.project import Project
 from app.db.models.raster_mask_upload import RasterMaskUpload
 from app.db.models.task import Task
@@ -209,7 +210,9 @@ async def _validate_mask_payload_for_task(
     db: AsyncSession, task: Task, geometries: list[dict[str, Any]]
 ) -> None:
     if any(geometry.get("type") == "raster_mask" for geometry in geometries):
-        project = await db.get(Project, task.project_id, populate_existing=True)
+        project = await get_workspace_project(
+            db, project_id=task.project_id, populate_existing=True
+        )
         assert_raster_mask_write_enabled(project)
 
     for geometry in geometries:

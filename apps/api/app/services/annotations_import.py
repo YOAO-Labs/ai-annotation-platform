@@ -19,7 +19,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
-from app.db.models.project import Project
+from app.services.project_access import get_workspace_project
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.schemas.aap_json import (
@@ -284,7 +284,7 @@ async def import_aap_json_annotations(
     dry_run_camera_members: set[tuple[uuid.UUID, str, str]] = set()
 
     # 预先查好 project，以便 class_name 软校验（避免逐条 db.get）
-    project = await db.get(Project, project_id)
+    project = await get_workspace_project(db, project_id=project_id)
     project_tool_bindings: dict[str, Any] = (
         project.tool_bindings or {} if project else {}
     )

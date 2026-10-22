@@ -206,14 +206,14 @@ async def _cancel_requested(db, job_id):
 
 
 async def _actor_available(db, execution):
-    from app.db.models.project import Project
+    from app.services.project_access import get_workspace_project
     from app.services.identity_account_lock_data import IdentityAccountLockData
     from app.services.project_access import is_privileged_for_project
 
     actor_id = uuid.UUID(str(execution.scope["actor_id"]))
     actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
-    project = await db.get(
-        Project, execution.scope["project_id"], populate_existing=True
+    project = await get_workspace_project(
+        db, project_id=execution.scope["project_id"], populate_existing=True
     )
     return (
         actor is not None

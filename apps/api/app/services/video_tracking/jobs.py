@@ -14,9 +14,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.services.project_access import get_workspace_project
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import VideoSegment
-from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.db.models.video_tracker_job import (
@@ -156,7 +156,7 @@ async def _load_annotation(
 async def _is_privileged(
     db: AsyncSession, task: Task, user: User | IdentityActorFacts
 ) -> bool:
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, project_id=task.project_id)
     return bool(project and is_privileged_for_project(user, project))
 
 
@@ -180,7 +180,11 @@ async def _assert_segment_lock(
 ) -> uuid.UUID:
     await ensure_segments(db, ctx)
     now = _now()
-    project = await db.get(Project, ctx.project_id) if ctx.project_id else None
+    project = (
+        await get_workspace_project(db, project_id=ctx.project_id)
+        if ctx.project_id
+        else None
+    )
     collaboration = collaboration_config(project)
 
     if collaboration.enabled and payload.segment_id is None:
@@ -899,7 +903,7 @@ async def create_video_mask_correction_job(
         )
 
     privileged = await _is_privileged(db, task, user)
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, project_id=task.project_id)
     grid_step = derive_step(
         ctx.metadata.fps,
         (project.video_sampling or {}) if project else {},
@@ -1024,7 +1028,7 @@ async def _validate_sourceless_target(
             status_code=422,
             detail="Sourceless tracking requires target_class_name and target_tool_unit_id",
         )
-    project = await db.get(Project, project_id)
+    project = await get_workspace_project(db, project_id=project_id)
     binding = (project.tool_bindings or {}).get(tool_unit_id) if project else None
     classes = binding.get("classes") if isinstance(binding, dict) else None
     allowed = {
@@ -1127,7 +1131,7 @@ async def create_tracker_job(
             payload.target_tool_unit_id,
         )
     privileged = await _is_privileged(db, task, user)
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, project_id=task.project_id)
     grid_step = derive_step(
         ctx.metadata.fps,
         (project.video_sampling or {}) if project else {},

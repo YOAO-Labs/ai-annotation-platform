@@ -12,6 +12,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
+from app.services.project_access import get_workspace_project
 from app.db.models.annotation_conversion_plan import AnnotationConversionPlan
 from app.db.models.annotation_operation import (
     AnnotationLineageEdge,
@@ -894,7 +895,7 @@ class AnnotationConversionService:
                 message="conversion scope does not match task media",
             )
         sources = await self._load_sources(task.id, payload.annotation_ids, lock=False)
-        project = await self.db.get(Project, task.project_id)
+        project = await get_workspace_project(self.db, project_id=task.project_id)
         if media == "image" and payload.target == "mask":
             assert_raster_mask_write_enabled(project)
         if media == "video":
@@ -1206,7 +1207,7 @@ class AnnotationConversionService:
 
         source_records = plan.plan_json.get("sources") or []
         source_ids = [uuid.UUID(item["id"]) for item in source_records]
-        project = await self.db.get(Project, task.project_id)
+        project = await get_workspace_project(self.db, project_id=task.project_id)
         frame_indexes = sorted(
             {
                 int(frame_index)

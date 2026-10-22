@@ -17,6 +17,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
+from app.services.project_access import get_workspace_project
 from app.db.models.annotation_operation import AnnotationOperation
 from app.db.models.scene_track import SceneTrack
 from app.db.models.prediction import (
@@ -240,11 +241,10 @@ class AnnotationService:
             return
         if class_name == "__unknown":
             return
-        from app.db.models.project import Project
         from aap_workspace.configuration_policy import lookup_classes_for_tool_unit
         from fastapi import HTTPException
 
-        project = await self.db.get(Project, project_id)
+        project = await get_workspace_project(self.db, project_id=project_id)
         if project is None:
             return
         allowed = lookup_classes_for_tool_unit(
@@ -713,13 +713,12 @@ class AnnotationService:
                     ai_key_model[f"{prefix}{k}"] = model_ref
 
         # v0.9.7 fix · prediction.result 是 LabelStudio 标准, 转内部 schema 后入 annotation
-        from app.db.models.project import Project
 
         # B-11 · DINO 写入的 class_name 是项目类别的英文 alias; 采纳时反查
         # 对应 tool_unit 的 classes 把 alias 映射回原类别名 (中文 / 业务名).
         # v0.10.17 · 强隔离: 只查 prediction.tool_unit_id 对应 unit 的 classes,
         # 不再跨 unit 走派生 classes_config (不同 unit 同名类可有不同 alias).
-        project = await self.db.get(Project, prediction.project_id)
+        project = await get_workspace_project(self.db, project_id=prediction.project_id)
         prediction_unit = getattr(prediction, "tool_unit_id", None) or "bbox"
         alias_to_name: dict[str, str] = {}
         # v0.18.0 · select/multiselect 属性的合法取值集合, 采纳时软校验 (不阻断, 仅 warning).

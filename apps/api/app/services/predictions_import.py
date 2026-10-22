@@ -32,8 +32,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.dataset import DatasetItem
+from app.services.project_access import get_workspace_project
 from app.db.models.prediction import Prediction, PredictionMeta
-from app.db.models.project import Project
 from app.schemas.aap_json import (
     AAPImportErrorEntry,
     AAPImportResult,
@@ -392,7 +392,7 @@ async def import_aap_json(
     result = AAPImportResult(dry_run=dry_run)
     svc: ApplyPredictionResultPort = PredictionService(db)
     stored_mask_keys: set[str] = set()
-    project = await db.get(Project, project_id)
+    project = await get_workspace_project(db, project_id=project_id)
 
     purged_tasks = purged_tasks if purged_tasks is not None else set()
 
@@ -819,7 +819,7 @@ async def import_coco(
 
     result = AAPImportResult(dry_run=dry_run)
     svc: ApplyPredictionResultPort = PredictionService(db)
-    project = await db.get(Project, project_id)
+    project = await get_workspace_project(db, project_id=project_id)
     purged_tasks = purged_tasks if purged_tasks is not None else set()
     stored_rle_references: dict[str, dict[str, Any]] = {}
 
@@ -1024,7 +1024,7 @@ async def import_yolo(
     except (zipfile.BadZipFile, OSError) as exc:
         raise ValueError(f"YOLO zip 文件无法解析: {exc}") from exc
 
-    project = await db.get(Project, project_id)
+    project = await get_workspace_project(db, project_id=project_id)
     project_classes = derive_classes_list(project.tool_bindings if project else None)
     class_names = _read_yolo_class_names(zf) or project_classes
     if not class_names:

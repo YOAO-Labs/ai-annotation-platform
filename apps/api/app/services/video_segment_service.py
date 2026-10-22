@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.services.project_access import get_workspace_project
 from app.db.models.dataset import VideoSegment
 from app.db.models.task import Task
 from app.db.models.user import User
@@ -157,9 +158,12 @@ def segment_out(
 async def _segment_out_for_context(
     db: AsyncSession, ctx: VideoContext, row: VideoSegment
 ) -> VideoSegmentOut:
-    from app.db.models.project import Project
 
-    project = await db.get(Project, ctx.project_id) if ctx.project_id else None
+    project = (
+        await get_workspace_project(db, project_id=ctx.project_id)
+        if ctx.project_id
+        else None
+    )
     config = collaboration_config(project)
     return segment_out(
         row,
@@ -171,9 +175,12 @@ async def _segment_out_for_context(
 
 async def list_segments(db: AsyncSession, ctx: VideoContext) -> VideoSegmentsResponse:
     rows = await ensure_segments(db, ctx)
-    from app.db.models.project import Project
 
-    project = await db.get(Project, ctx.project_id) if ctx.project_id else None
+    project = (
+        await get_workspace_project(db, project_id=ctx.project_id)
+        if ctx.project_id
+        else None
+    )
     config = collaboration_config(project)
     await db.commit()
     return VideoSegmentsResponse(

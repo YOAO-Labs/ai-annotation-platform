@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
-from app.db.models.project import Project
+from app.services.project_access import get_workspace_project
 from app.db.models.task import Task
 from app.db.models.video_tracker_job import (
     VideoTrackerJob,
@@ -85,7 +85,11 @@ async def _run_video_tracker_job(job_id: str, celery_task_id: str | None) -> Non
                 task = await db.get(Task, job.task_id)
                 project_id = task.project_id if task else None
                 try:
-                    project = await db.get(Project, project_id) if project_id else None
+                    project = (
+                        await get_workspace_project(db, project_id=project_id)
+                        if project_id
+                        else None
+                    )
                     aj = await async_job_svc.ensure_video_tracker_summary(
                         db,
                         tracker_job_id=job.id,

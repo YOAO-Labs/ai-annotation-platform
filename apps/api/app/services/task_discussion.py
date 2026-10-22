@@ -394,6 +394,8 @@ async def list_task_discussion(
     cursor: str | None = None,
 ) -> TaskDiscussionPage:
     """Read one correctly ordered page from both authoritative comment sources."""
+    from app.services.project_access import get_workspace_project
+
     user = await _read_request_actor(db, actor_id)
 
     source_selects = _identifier_selects(
@@ -500,10 +502,9 @@ async def list_task_discussion(
 
     # Resolve the current project access once so comment actions use the
     # project role rather than the account's legacy global role.
-    from app.db.models.project import Project
     from app.services.project_access import resolve_project_access
 
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, project_id=task.project_id)
     access = await resolve_project_access(db, actor_id=user.id, project=project)
 
     items: list[TaskDiscussionItem] = []

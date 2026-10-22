@@ -6,8 +6,8 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import PlatformRole, ProjectRole
+from app.services.project_access import get_workspace_project
 from app.db.models.async_job import AsyncJob, AsyncJobKind
-from app.db.models.project import Project
 from app.services import task_access
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from aap_workspace_contract.access import ProjectCapability
@@ -39,7 +39,9 @@ async def _can_access_job(
         if actor.role == PlatformRole.SUPER_ADMIN.value:
             return True
         return job.user_id == actor.id
-    project = await db.get(Project, project_id, populate_existing=True)
+    project = await get_workspace_project(
+        db, project_id=project_id, populate_existing=True
+    )
     if project is None:
         return False
     if actor.role == PlatformRole.SUPER_ADMIN.value:

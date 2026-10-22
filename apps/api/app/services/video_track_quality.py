@@ -12,9 +12,9 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
+from app.services.project_access import get_workspace_project
 from app.db.models.async_job import AsyncJob, AsyncJobKind
 from app.db.models.dataset import VideoSegment
-from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.video_chapter import VideoChapter
 from app.db.models.video_track_quality import (
@@ -93,7 +93,7 @@ async def _boundary(
         raise VideoTrackQualityError(404, "video_segment_not_found")
     if right.segment_index != left.segment_index + 1:
         raise VideoTrackQualityError(422, "video_segments_not_adjacent")
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, project_id=task.project_id)
     config = collaboration_config(project)
     if not config.enabled:
         raise VideoTrackQualityError(409, "video_collaboration_disabled")

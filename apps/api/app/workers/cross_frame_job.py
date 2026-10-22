@@ -33,11 +33,11 @@ async def _resolve_task_access(
     db: AsyncSession, task: Task, actor: IdentityActorFacts, *, lock: bool = False
 ):
     """Resolve current project access for a task's actual project, fail closed."""
+    from app.services.project_access import get_workspace_project
 
-    from app.db.models.project import Project
     from app.services.project_access import resolve_project_access
 
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, project_id=task.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="task_missing")
     try:

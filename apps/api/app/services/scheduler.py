@@ -6,6 +6,7 @@ from sqlalchemy import select, func, or_, and_, false
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import ProjectRole
+from app.services.project_access import get_workspace_project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
@@ -439,7 +440,7 @@ async def get_next_task(
             return task
 
     # 2. Get project config
-    project = await db.get(Project, project_id)
+    project = await get_workspace_project(db, project_id=project_id)
     if not project:
         return None
 

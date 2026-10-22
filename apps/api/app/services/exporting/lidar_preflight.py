@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
-from app.db.models.project import Project
+from app.services.project_access import get_workspace_project
 from app.db.models.scene_track import SceneTrack
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
@@ -397,7 +397,7 @@ async def preflight_lidar_export(
         )
 
     if needs_multicamera_coco:
-        project = await db.get(Project, project_id)
+        project = await get_workspace_project(db, project_id=project_id)
         known_classes = set(
             derive_classes_list(project.tool_bindings) if project is not None else []
         )

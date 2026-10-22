@@ -6,6 +6,7 @@ from app.application.preannotation_contract import (
     FramePreannotationDispatcher,
     VideoFrameTaskPlan,
 )
+from app.services.project_access import get_workspace_project
 from app.services import prediction_context, prediction_progress
 import asyncio
 import logging
@@ -30,12 +31,13 @@ _WRITE_ATTEMPTS = 3
 
 async def _preannotation_actor_revoked(db, actor_id, project_uuid) -> bool:
     """Read current initiating-account and project authority without holding ML locks."""
-    from app.db.models.project import Project
     from app.services.identity_account_lock_data import IdentityAccountLockData
     from app.services.project_access import is_privileged_for_project
 
     actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
-    project = await db.get(Project, project_uuid, populate_existing=True)
+    project = await get_workspace_project(
+        db, project_id=project_uuid, populate_existing=True
+    )
     return (
         actor is None
         or not actor.is_active
@@ -311,8 +313,6 @@ async def _prepare_accepted_input_manifest(
     )
     if all(value is None for value in fields):
         if _bulk_image_manifest_candidate(request):
-            from app.db.models.project import Project
-
             try:
                 project_id = uuid.UUID(request.project_id)
                 job_id = (
@@ -327,7 +327,9 @@ async def _prepare_accepted_input_manifest(
                 raise ValueError("legacy bulk Job identity is malformed") from exc
             already_claimed = False
             async with SessionLocal() as db:
-                project = await db.get(Project, project_id, populate_existing=True)
+                project = await get_workspace_project(
+                    db, project_id=project_id, populate_existing=True
+                )
                 if project is not None and project.data_type == "image":
                     job = (
                         await db.get(AsyncJob, job_id, populate_existing=True)
@@ -1618,7 +1620,6 @@ async def _execute_preannotation(
     from app.db.enums import WORKBENCH_AI_EDITABLE_TASK_STATUSES
     from app.db.models.async_job import AsyncJob, AsyncJobStatus
     from app.db.models.ml_backend_registry import MLBackendRegistry as MLBackend
-    from app.db.models.project import Project
     from app.db.models.task import Task
     from app.db.models.task_batch import TaskBatch
     from app.services.identity_account_lock_data import IdentityAccountLockData
@@ -1676,7 +1677,7 @@ async def _execute_preannotation(
 
         # Build /predict context (flat text vs structured v2).
         # DINO thresholds come from project overrides.
-        project = await db.get(Project, uuid.UUID(project_id))
+        project = await get_workspace_project(db, project_id=uuid.UUID(project_id))
         if project is not None:
             project_name = project.name
         project_uuid = uuid.UUID(project_id)

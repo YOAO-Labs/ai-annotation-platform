@@ -9,8 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJob
+from app.services.project_access import get_workspace_project
 from app.db.models.mask_format_import import MaskFormatImport
-from app.db.models.project import Project
 from app.schemas.mask_format import MaskFormatPlan
 from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
@@ -162,7 +162,7 @@ async def run_mask_format_import(
                         else:
                             skipped += 1
                         continue
-                    project = await db.get(Project, project_id)
+                    project = await get_workspace_project(db, project_id=project_id)
                     if project is None or requested_by_id is None:
                         raise RuntimeError("format import project or actor missing")
                     try:

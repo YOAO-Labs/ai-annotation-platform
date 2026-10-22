@@ -11,6 +11,7 @@ from sqlalchemy import Integer, case, select, func, update, delete, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import BatchStatus, WORKBENCH_AI_EDITABLE_TASK_STATUSES
+from app.services.project_access import get_workspace_project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock
@@ -498,7 +499,7 @@ class BatchService:
         # scene 模式项目分包只能按 scene:同一 scene 的连续帧必须落同一批次,random/顺序
         # 切分会把连续帧拆散给不同标注员。前端已只暴露 by_scene 入口,这里再加一道后端门
         # 防御直发 API 的越权策略。
-        project = await self.db.get(Project, project_id)
+        project = await get_workspace_project(self.db, project_id=project_id)
         if project and project.scene_mode and data.strategy != "by_scene":
             raise HTTPException(
                 status_code=422,
@@ -1120,8 +1121,8 @@ class BatchService:
                     ) from exc
                 raise
         for scope_project_id in project_ids:
-            project = await self.db.get(
-                Project, scope_project_id, populate_existing=True
+            project = await get_workspace_project(
+                self.db, project_id=scope_project_id, populate_existing=True
             )
             if project is None:
                 raise HTTPException(status_code=404, detail="Batch not found")

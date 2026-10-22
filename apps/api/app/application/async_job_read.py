@@ -8,6 +8,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.async_job_contracts import AsyncJobOperationFailure
+from app.services.project_access import get_workspace_project
 from app.db.enums import PlatformRole, ProjectRole
 from app.db.models.async_job import AsyncJob
 from app.db.models.project import Project
@@ -99,11 +100,11 @@ async def _to_async_job_out(
     project_scope_id = job.project_id or job.retained_project_id
     if project_scope_id is not None:
         if project_cache is None:
-            project = await db.get(Project, project_scope_id)
+            project = await get_workspace_project(db, project_id=project_scope_id)
         else:
             if project_scope_id not in project_cache:
-                project_cache[project_scope_id] = await db.get(
-                    Project, project_scope_id
+                project_cache[project_scope_id] = await get_workspace_project(
+                    db, project_id=project_scope_id
                 )
             project = project_cache[project_scope_id]
 

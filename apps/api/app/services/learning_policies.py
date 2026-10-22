@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete as sql_delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.learning_policy import LearningPolicy, LearningTrigger
+from app.services.project_access import get_workspace_project
 from app.db.models.project import Project
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingAttempt, TrainingRun
@@ -168,7 +169,9 @@ async def eligible(db, policy, *, training_authority: TrainingAuthorityPort):
         api_key_id=policy.authorization.get("api_key_id"),
         required_scopes=runs.SCOPES,
     )
-    project = await db.get(Project, policy.project_id, populate_existing=True)
+    project = await get_workspace_project(
+        db, project_id=policy.project_id, populate_existing=True
+    )
     if project.status != "in_progress":
         raise TrainingDatasetError(
             "project_inactive", "项目已停用，自动训练停止", status_code=403

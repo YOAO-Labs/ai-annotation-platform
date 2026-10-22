@@ -9,6 +9,7 @@ from app.services.exporting.contracts import (
     TOOL_TASKS,
     target_contract,
 )
+from app.services.project_access import get_workspace_project
 
 import io
 import json
@@ -324,7 +325,7 @@ class ExportService:
         *,
         video_scope: VideoExportScope | None = None,
     ):
-        project = await self.db.get(Project, project_id)
+        project = await get_workspace_project(self.db, project_id=project_id)
         if not project:
             return None, [], []
 
@@ -469,7 +470,7 @@ class ExportService:
         annotation 已做 export 副本 + class 过滤（与 `_load_data` 语义一致）；几何/格式维度的
         分组留给打包层（YOLO bbox vs 视频 track/bbox）。
         """
-        project = await self.db.get(Project, project_id)
+        project = await get_workspace_project(self.db, project_id=project_id)
         if project is None:
             return
         class_names = set(derive_classes_list(project.tool_bindings))

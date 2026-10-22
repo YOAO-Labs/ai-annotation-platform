@@ -25,6 +25,7 @@ from aap_assets_media.contract import (
 )
 
 from app.config import settings
+from app.services.project_access import get_workspace_project
 from app.observability.metrics import (
     VIDEO_CHUNK_REQUESTS_TOTAL,
     VIDEO_FRAME_CACHE_TOTAL,
@@ -580,11 +581,14 @@ async def manifest_v2(
             raise media_http_error(exc) from None
 
     from app.services.video_segment_service import ensure_segments, segment_out
-    from app.db.models.project import Project
     from app.services.video_collaboration import collaboration_config
 
     segment_rows = await ensure_segments(db, ctx)
-    project = await db.get(Project, ctx.project_id) if ctx.project_id else None
+    project = (
+        await get_workspace_project(db, project_id=ctx.project_id)
+        if ctx.project_id
+        else None
+    )
     collaboration = collaboration_config(project)
     await db.commit()
     base = base_url.rstrip("/")
