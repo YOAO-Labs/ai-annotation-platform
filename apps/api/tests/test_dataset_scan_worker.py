@@ -117,7 +117,7 @@ async def test_real_worker_scans_only_metadata_and_rejects_duplicate_delivery(
             else:
                 raise AssertionError("Owned inventory worker did not register")
             result = await asyncio.to_thread(
-                _probe_worker, location_id, 1, actor_id, node, None
+                _probe_worker, location_id, 1, actor_id, node, None, None, None
             )
             assert result["ok"], result["code"]
             async with maker() as db:

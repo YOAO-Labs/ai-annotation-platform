@@ -130,6 +130,15 @@ def require_filesystem(location):
         raise HTTPException(409, "Storage location disabled")
 
 
+def require_reference_backend(location):
+    if location.kind not in {"filesystem", "s3"} or (
+        location.kind == "s3" and location.connection_id is None
+    ):
+        raise HTTPException(409, detail={"code": "reference_backend_not_supported"})
+    if not location.enabled:
+        raise HTTPException(409, "Storage location disabled")
+
+
 async def to_out(db, location, actor):
     connection = (
         await db.get(StorageConnection, location.connection_id)
@@ -211,7 +220,15 @@ async def create_filesystem(db, payload):
 
 async def update_filesystem(db, location, payload):
     if location.kind != "filesystem":
-        raise HTTPException(409, "Manage connector locations through their connection")
+        if location.connection_id is None:
+            raise HTTPException(409, "Platform storage bindings are immutable")
+        if any(
+            getattr(payload, key) is not None
+            for key in ("name", "scope", "use_user_ids")
+        ):
+            raise HTTPException(
+                409, "Manage connector identity and scope through its connection"
+            )
     if location.config_revision != payload.expected_revision:
         raise HTTPException(409, "Storage configuration revision changed")
     if payload.use_user_ids is not None:
@@ -240,6 +257,8 @@ async def node_anchor(db, location, node_id):
 
 
 async def browse(db, location, *, path, limit, cursor):
+    if location.kind == "s3":
+        return await browse_s3(db, location, path, cursor)
     require_filesystem(location)
     path = fs.relative_path(path)
     path_digest = hashlib.sha256(path.encode()).hexdigest()
@@ -302,7 +321,14 @@ async def browse(db, location, *, path, limit, cursor):
 
 
 async def perform_probe(db, location, node_id, sample_file):
-    require_filesystem(location)
+    require_reference_backend(location)
+    if location.kind == "s3":
+        from app.services.reference_storage import configuration
+
+        access = await configuration(db, location)
+        return await asyncio.wait_for(
+            asyncio.to_thread(access.probe, sample_file), timeout=3
+        )
     anchor = await node_anchor(db, location, node_id)
     try:
         result = await asyncio.wait_for(
@@ -315,6 +341,57 @@ async def perform_probe(db, location, node_id, sample_file):
         result = {"ok": False, "code": "node_timeout", "capabilities": {}}
     result["anchor"] = anchor or result.get("anchor")
     return result
+
+
+async def browse_s3(db, location, path, cursor):
+    from app.services.reference_storage import configuration
+
+    require_reference_backend(location)
+    access = await configuration(db, location)
+    token = None
+    if cursor:
+        try:
+            data = jwt.decode(
+                cursor,
+                settings.secret_key,
+                algorithms=["HS256"],
+                audience="s3-directory",
+            )
+            if (
+                data["location"] != str(location.id)
+                or data["revision"] != location.config_revision
+                or data["path"] != path
+            ):
+                raise ValueError()
+            token = data["token"]
+        except (JWTError, ValueError, KeyError, TypeError):
+            raise HTTPException(409, "Directory cursor is invalid or stale") from None
+    page = await run_in_threadpool(access.list_page, path, token, directories=True)
+    next_cursor = (
+        jwt.encode(
+            {
+                "aud": "s3-directory",
+                "exp": datetime.now(timezone.utc) + timedelta(minutes=15),
+                "location": str(location.id),
+                "revision": location.config_revision,
+                "path": path,
+                "token": page["next_cursor"],
+            },
+            settings.secret_key,
+            algorithm="HS256",
+        )
+        if page["next_cursor"]
+        else None
+    )
+    from app.services.sources.s3_reference import directory_prefix
+
+    return {
+        "entries": [
+            {"name": name, "relative_path": directory_prefix("", path) + name}
+            for name in page["directories"]
+        ],
+        "next_cursor": next_cursor,
+    }
 
 
 async def store_probe(db, location, node_id, result, observed_at):
@@ -376,7 +453,7 @@ def probe_out(probe, location):
 
 
 async def require_scan_node(db, location, node_id):
-    require_filesystem(location)
+    require_reference_backend(location)
     if not node_id.startswith("worker:"):
         raise HTTPException(409, "Scanning requires a verified worker node")
     probe = await db.get(StorageLocationProbe, (location.id, node_id))

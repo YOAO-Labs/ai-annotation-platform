@@ -85,16 +85,21 @@ async def execute_scan(run_id, task_id, node_id):
                         return
                     if work.get("transition"):
                         continue
-                    manifest = await asyncio.wait_for(
-                        asyncio.to_thread(
-                            fs.scan_directory,
-                            work["config"],
-                            work["path"],
-                            expected_anchor=work["anchor"],
-                            expected_identity=work["identity"],
-                        ),
-                        timeout=5,
-                    )
+                    if work.get("kind") == "s3":
+                        manifest = await asyncio.to_thread(
+                            work["access"].list_page, work["path"], work["cursor"]
+                        )
+                    else:
+                        manifest = await asyncio.wait_for(
+                            asyncio.to_thread(
+                                fs.scan_directory,
+                                work["config"],
+                                work["path"],
+                                expected_anchor=work["anchor"],
+                                expected_identity=work["identity"],
+                            ),
+                            timeout=5,
+                        )
                     await svc.apply_directory(
                         db, run_id, task_id, fence, work, manifest
                     )

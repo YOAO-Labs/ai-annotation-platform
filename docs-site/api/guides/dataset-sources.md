@@ -102,3 +102,13 @@ Run 的 `completed` 和 `complete=true` 只表示约定范围枚举与复核完�
 ```
 
 `action` 支持 pause、enable、unregister；修订或影响改变返回409 `source_impact_changed`，需刷新预览。停用/注销在同事务取消活动 Run/Job 并撤销租约，保留已提交样本、任务、标注和回执。停用可以恢复，注销不可恢复。引用停止新读与后续标注；已经核验并持有共享来源锁的标注事务先完成，生命周期操作再返回。托管复制原件独立于来源。全部操作都不修改外部文件；PATCH 的 enabled 实际变化返回409 `lifecycle_impact_required`，须走影响确认端点。
+
+## 外部 S3 来源
+
+相同接口接受有 connection_id 的外部 s3 位置，复用连接器的 owner/global 权限与加密凭据；平台固定 S3 位置不能用作外部来源。relative_path 是相对 base_prefix 的精确目录前缀，按需附加末尾斜线，不裁剪其他字符。扫描条目的 relative_path 与内部完整 bucket/key 分离；后续读取使用完整定位和不可变 SHA，不通过旧复制导入的路径规范化。
+
+S3 每页最多200条，每次扫描最多50000条原始观测、1000页。页内容和下一 ContinuationToken 在同一租约事务保存；取消恢复接着读取下一页，缺失或循环游标返回 s3_invalid_cursor 且 complete=false。多页 LIST 不承诺全局原子快照，不依据不完整扫描判 missing。非递归与 include/exclude 规则按来源内精确键匹配。
+
+首次核验将 LIST 观测与 HEAD 对照，随后以原始 ETag 条件 GET，固定可用 VersionId，核验200完整响应、长度、返回身份和实读 SHA。LIST 与 HTTP 日期统一 UTC 秒精度，时间不是内容证明。每次实际读取验证错误 IfMatch 被拒绝；条件被忽略返回 s3_conditions_not_supported，不能由仅可列举的根探测绕过。无不可变版本时不回退最新字节；有固定版本时不因最新版本改变而改写旧身份。来源整体故障停止尝试并保留未处理候选，单对象不可读独立记录。
+
+凭据不进入 Run 快照、页检查点或作业参数。配置/密钥修订、账号/API Key、白名单及来源状态在 I/O 前后复查；连接配置被引用后不能重定向。SFTP 持续引用尚未开放。

@@ -20,6 +20,7 @@ from app.services import content_snapshot as snapshots
 from app.services import dataset_scans as scans
 from app.services import filesystem_storage as fs
 from app.services import storage_location as locations
+from app.services import reference_storage
 from app.services.dataset_assets import LEGACY_LOCATION_ID, validate_legacy_bindings
 from app.services.storage import storage_service
 
@@ -122,29 +123,36 @@ async def scan_snapshot(
         run.snapshot.get("scan_host_id") is not None
         and run.snapshot["scan_host_id"] == fs.host_identity()
     )
-    if receipt is None and not same_host:
+    if receipt is None and not same_host and location.kind == "filesystem":
         raise snapshots.ContentError("initial_verification_node_mismatch")
     expected_source = source.root_identity if same_host else None
     observed = receipt["observation"] if receipt else entry.observed
-    expected = {
-        key: observed[key]
-        for key in ("size", "mtime_ns", "ctime_ns", "identity")
-        if same_host or key != "identity"
-    }
+    expected = (
+        {
+            key: observed[key]
+            for key in ("size", "mtime_ns", "ctime_ns", "identity")
+            if same_host or key != "identity"
+        }
+        if location.kind == "filesystem"
+        else dict(observed)
+    )
     if refresh_unverified and receipt is None:
         expected = None  # Explicit repair retry; a verified identity never moves.
     if receipt and (receipt["node_id"] == node or same_host):
         expected = receipt["observation"]
-        expected_source = expected["source_identity"]
+        expected_source = expected.get("source_identity")
+    if location.kind == "s3":
+        expected = None if refresh_unverified and receipt is None else dict(observed)
+        expected_source = None
     config, base, path = (
-        dict(location.config),
+        await reference_storage.configuration(db, location),
         source.config["relative_path"],
         entry.relative_path,
     )
     revision = (source.config_revision, location.config_revision)
     await db.commit()  # No database locks span filesystem I/O.
     snapshot = await snapshots.capture(
-        lambda: fs.content_file(
+        lambda: reference_storage.content_file(
             config,
             base,
             path,

@@ -126,8 +126,16 @@ async def validate_context(db, location, source, *, snapshot=None):
         or await db.get(Dataset, source.dataset_id, populate_existing=True) is None
     ):
         raise fs.FilesystemStorageError("source_unavailable")
-    if location is None or not location.enabled or location.kind != "filesystem":
+    if (
+        location is None
+        or not location.enabled
+        or location.kind not in {"filesystem", "s3"}
+    ):
         raise fs.FilesystemStorageError("location_unavailable")
+    if location.kind == "s3":
+        from app.services.reference_storage import configuration
+
+        await configuration(db, location)
     if snapshot and (
         snapshot["source_revision"] != source.config_revision
         or snapshot["location_revision"] != location.config_revision
@@ -145,10 +153,15 @@ async def create_source(db, payload, actor, *, api_key_id=None):
     location = await locations.get_visible(db, payload.location_id, actor)
     if await key_authority(db, actor, api_key_id, "datasets:write") != proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
-    locations.require_filesystem(location)
+    locations.require_reference_backend(location)
     if await db.get(Dataset, payload.dataset_id) is None:
         raise HTTPException(404, "Dataset not found")
-    fs.relative_path(payload.relative_path)
+    if location.kind == "filesystem":
+        fs.relative_path(payload.relative_path)
+    else:
+        from app.services.sources.s3_reference import directory_prefix
+
+        directory_prefix("", payload.relative_path)
     if any(
         not pattern or len(pattern) > 1000 or "\x00" in pattern
         for pattern in [*payload.include_globs, *payload.exclude_globs]
@@ -470,6 +483,10 @@ async def fenced_context(db, run_id, task_id, fence):
 
 async def next_directory(db, run_id, task_id, fence):
     location, source, run, job = await fenced_context(db, run_id, task_id, fence)
+    if location.kind == "s3":
+        from app.services.s3_dataset_scan import next_page
+
+        return await next_page(db, location, source, run, job)
     base = select(DatasetScanEntry).where(
         DatasetScanEntry.run_id == run.id, DatasetScanEntry.kind == "directory"
     )
@@ -518,6 +535,10 @@ async def next_directory(db, run_id, task_id, fence):
 
 async def apply_directory(db, run_id, task_id, fence, work, manifest):
     _, source, run, job = await fenced_context(db, run_id, task_id, fence)
+    if work.get("kind") == "s3":
+        from app.services.s3_dataset_scan import apply_page
+
+        return await apply_page(db, source, run, job, work, manifest)
     entry = await db.get(
         DatasetScanEntry, (run.id, work["path_digest"]), populate_existing=True
     )

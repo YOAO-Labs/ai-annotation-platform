@@ -43,7 +43,7 @@ last_reviewed: 2026-10-23
 
 `restricted` 默认仅超管可用；`use_user_ids` 可授权活跃项目管理员，`global` 允许所有平台管理员使用。授权只允许项目管理员管理自己创建的数据集，不授予其他数据集管理权；普通员工沿用任务读取权限。浏览及探测在 I/O 前后复查账号、位置授权和最初 API Key，撤权后不交付目录结果或发布探测证据。位置只读；绝对路径、父级跳转、符号链接和跨子挂载被拒绝。根目录和位置基目录在每个节点固定身份，替换后返回 `root_identity_changed`，不能通过重试静默重新绑定。
 
-PATCH 允许 `name / enabled / scope / use_user_ids`，不允许改根或基目录。每次更新递增 `config_revision`；旧 `expected_revision` 返回409。S3/SFTP 位置需通过原连接器端点更新，配置或密钥变化使位置修订递增；已被内容或用途引用的连接配置不能改向其他目标，也不能删除。
+PATCH 允许 `name / enabled / cache_policy / scope / use_user_ids`，不允许改根或基目录。每次更新递增 `config_revision`；旧 `expected_revision` 返回409。外部 S3/SFTP 位置的 enabled/cache_policy 可由超管经此接口修改；名称、使用范围、定位和密钥需通过原连接器端点更新。平台固定位置不可修改。配置或密钥变化使位置修订递增；已被内容或用途引用的连接配置不能改向其他目标，也不能删除。
 
 ## 目录分页
 
@@ -64,3 +64,9 @@ PATCH 允许 `name / enabled / scope / use_user_ids`，不允许改根或基目�
 API本地探测等待窗口3秒，远端等待窗口5秒。超时后台结果不会自行更新有效证据；操作系统阻塞的文件系统调用无法由线程取消，等待窗口不表示底层 I/O 已终止。首次探测某节点信任其部署根映射；跨节点 dev/inode 不比较，能力通过也不代表字节一致或原地预览已验收。
 
 目录位置的 `cache_policy` 为 none/preview，默认 preview；它是来源预览缓存的上限，none 优先于来源请求。修改上限更新位置修订，使旧扫描/登记不能继续发布。已有派生不隐式删除，预览读取实时检查上限；外部原图与已独立托管的副本不受缓存选择影响。
+
+## S3 浏览与探测
+
+有连接器关联的 s3 位置支持相同 directories/probe 接口。path 与 sample_file 为精确前缀/对象键相对 base_prefix 的字符串，不使用文件系统路径规范化。目录页只返回 CommonPrefixes，JWT 游标固定位置、修订和前缀，查询 cursor 最多12288字符。读前读后均复查当前授权。
+
+根探测只证明 list；sample_file 的成功探测才返回 read/conditional_read=verified。每次实际内容读取仍重新验证条件生效。range/write/delete/presign 均为 unsupported。目标受连接器主机白名单限制；严格客户端关闭代理，发送目标限定为配置 endpoint，不跟随跨目标重定向。DNS 解析仍存在 SDK 内再次解析的既有边界，不等同于 IP 固定。

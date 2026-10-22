@@ -311,3 +311,29 @@ managed_copy必须真实从受控目录的安全快照复制到平台托管位�
 - 文档：README、CHANGELOG Unreleased、用户导入说明、来源/位置API、存储架构、ADR0097与SDK覆盖清单已同步。无需新环境变量、镜像重建或版本分配。
 - 清理：关闭本轮浏览器并停止host进程，销毁owned dev/test数据库、Redis和桶；清理本轮临时原图、凭据、截图、日志、JUnit及文档构建产物，保留工作树身份。未改共享配置与宿主机业务目录。
 - 边界与后续：提交结果未知、清理失败或进程崩溃可能留下对象，当前按数据库和精确键人工核对，不声称已具备自动GC。外部S3/SFTP持续引用尚未完成，后续继续E03-B；周期同步、完整原图缓存、Agent和训练冻结仍属相应Epic。本计划不归档，完整E03继续active。
+
+## 下一实施定案：E03-B 严格 S3 持续引用
+
+基线 `7df597884`。先在已有连接器位置中开放S3持续引用，后续单独完成满足服务器隔离条件的SFTP。最小方案为复用Source/ScanEntry/Registration/Reference/Task与快照读取，新增严格S3后端；不直接复用旧复制导入的路径规范化与无条件GET。无新增运行服务、环境变量、凭据表或平行资产模型。API/worker读取已有加密连接凭据，秘密仅在I/O线程内解密，不能写入扫描快照、游标、Celery参数或响应。
+
+精确bucket/key来自LIST，保留中文、空格、反斜杠、连续斜线及点段；连接base_prefix与来源前缀按原始字符串形成目录边界，绝不把S3 key当本地路径。显式LIST EncodingType=url后严格解码一次；分页token不解码。首次HEAD匹配扫描观测，再条件GET与完整SHA；回执固定可用VersionId，否则固定ETag条件，后续读取始终复核响应与SHA，删除/412/变化拒绝，不回退最新对象。ETag仅为条件令牌。使用SDK内建条件读取、版本参数和连接/读取超时；每次实际请求限制到配置endpoint，保留主机白名单前后复核。DNS在SDK内再次解析的既有风险明确记录，不宣称IP固定。
+
+S3根目录的既有ScanEntry.observed保存有界分页检查点，页结果与下一token在同一lease事务提交；取消恢复保留已提交页。截断缺token、重复token、页数/条目超预算均失败且不标完整。S3多页LIST不承诺全局快照，不套用本机inode或全目录二次摘要；逐项严格核验承担内容一致性。filesystem扫描和读取保持原实现。连接更新仍按Connection→Location，读取只锁Location/Source并以MVCC读取连接，不引入反向阻塞锁。
+
+链路为“目录UI → Source/Scan/Registration → 严格S3后端 → 外部S3”；登记后的Item/Task继续走“鉴权快照 → Workbench/标注门禁”。涉及存储位置/浏览探测、扫描服务/worker、内容和引用服务、登记可达性、UI及文档，超过8文件。位置启停和缓存上限允许超管维护，连接定位配置在被引用后禁止重定向。
+
+验证覆盖精确key不别名、前缀相邻key排除、分页取消恢复/坏token、HEAD/GET间变更、固定版本/412/条件被忽略、同ETag异字节SHA拒绝、权限/Key/凭据轮换与旧worker屏障；回归filesystem和旧复制导入。使用owned MinIO来源桶和真实worker、浏览器完成扫描→预检→登记→项目关联→读图→标注→源变化拒绝，核对源对象不变与平台原图写入0字节。回退关闭新建S3来源而保留既有元数据及明确不可用状态，不把引用键交旧resolver。
+
+依据：[AWS GetObject 条件与版本合同](https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html)、[AWS ListObjectsV2 分页与编码合同](https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html)，并核对本工作树本地botocore解码行为。最脆弱前提是兼容服务确实遵守条件读取；样本探测验证错误IfMatch被拒绝，实际读取再检查响应观测和完整SHA，不能满足时不授予严格读取资格。
+
+## Outcome：E03-B 严格 S3 持续引用
+
+- 基线 `7df597884` 后实现外部 S3 连接器位置的精确前缀浏览、逐页持久扫描、预检/登记、独立预览、严格 Item/Task 原图读取和标注门禁。页结果与 token 同租约提交；旧 filesystem 与复制导入调用者继续使用原实现。无迁移、依赖、运行服务或版本调整，未重建后端镜像。
+- 严格身份：LIST 显式 url 编码后只解码一次，区分空格、字面加号及百分号；兼容真实 MinIO 的加号空格编码。保留原始 bucket/key、可用 VersionId 或 ETag 条件及完整 SHA。LIST/HEAD 时间统一 UTC 秒；每次实读验证错误 IfMatch 被拒绝。限制实际发送 endpoint、禁用代理，当前白名单复查不等同 DNS IP 固定。
+- 真实浏览器与 worker：owned dev API8100/Web3100 扫描6个中文、空格、前导空格、反斜杠、加号和百分号键，预检6通过/0异常，确认后6已登记；相邻前缀未接入。缓存解码256×160，关联项目生成6任务；Workbench显示640×400，鼠标绘制矩形并确认类别后保存1条标注。替换未版本化来源后读图与新标注均409 source_changed，旧标注保留。仅恢复字节不会恢复旧 LastModified，仍按严格观测拒绝，不宣称来源自动修复。
+- 真实版本服务：另一来源登记1个启用版本控制的对象；新增版本后旧样本仍200且SHA与固定版本一致。验收夹具删除固定版本后409 path_unavailable，不回退最新对象；独立缓存仍200/256×160。两个来源均注销成功，最终数据库仍保留1条标注；注销未改外部文件。
+- 物理核对：7条不可变映射、0条托管原图位置；原图桶2个零字节目录占位对象、0图片字节。7个预览账本与实际对象一致，共1098字节（第一来源6个/942字节）。原未版本化来源桶7对象（含排除的相邻前缀）最终名称及逐对象SHA与基线一致。MinIO拒绝连续斜线/点段PUT，此类键仅有协议回归覆盖，不作为真实服务通过项。
+- 本地验证：主要API回归115通过，资产/并发专项36通过，最终S3专项18通过，另加来源整体故障worker回归1通过；这些套件存在重叠。整体故障停止尝试且保留剩余候选，恢复后可继续。SDK4通过；Ruff、TypeScript、ESLint、CSS token、OpenAPI一致性、文档构建及diff检查通过。浏览器无未捕获异常；未运行远端CI。
+- 正式文档：`README.md`、`docs-site/user-guide/datasets/import-images.md`、`docs-site/api/guides/{dataset-sources,storage-locations,verified-content}.md`、`docs-site/dev/concepts/storage-connections.md`、`docs/adr/0098-strict-external-s3-references.md`与CHANGELOG Unreleased同步。发布安排未定。
+- 清理：关闭本次浏览器并删除临时认证档案；停止API/Web和两类worker，销毁owned dev/test数据库、Redis、桶和本地目录；移除临时密钥、凭据、截图、日志与文档构建中间物。
+- 下一切片：SFTP持续引用必须具备部署侧服务器隔离与主机身份资格，不能将普通路径open或前后lstat当作原子nofollow。随后对E03故事与验收矩阵做整体核对。本计划保持根目录且完整E03继续active；周期同步、Agent、完整原图缓存和训练冻结仍由对应Epic承担。

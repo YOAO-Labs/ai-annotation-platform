@@ -83,6 +83,12 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
   });
   const activeSource = sourceId || sources.data?.items[0]?.id;
   const source = sources.data?.items.find((s) => s.id === activeSource);
+  const samplePath = (path: string) => {
+    const base = source!.relative_path;
+    return locations.data?.items.find((l) => l.id === source!.location_id)?.kind === "s3"
+      ? base + (base && !base.endsWith("/") ? "/" : "") + path
+      : [base, path].filter(Boolean).join("/");
+  };
   const scans = useQuery({
     queryKey: ["dataset-scans", owner, activeSource],
     queryFn: ({ signal }) => api.scans(activeSource!, signal),
@@ -127,7 +133,7 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
       aria-label="服务器目录接入"
       className="mb-4 rounded-lg border border-border bg-card p-3 text-xs"
     >
-      <h4 className="mb-1 text-sm font-semibold">服务器目录 · 登记与复制</h4>
+      <h4 className="mb-1 text-sm font-semibold">服务器目录与 S3 · 登记与复制</h4>
       <p className="mb-3 text-muted-foreground">
         选择原图保留在来源或复制到平台，预览缓存单独设置和计量。先扫描、预检，再确认登记；已提交结果保留。本机文件夹通过上传接入。
       </p>
@@ -145,16 +151,19 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
           >
             <option value="">选择已登记位置</option>
             {locations.data?.items
-              .filter((l) => l.kind === "filesystem" && l.enabled)
+              .filter(
+                (l) =>
+                  (l.kind === "filesystem" || (l.kind === "s3" && !!l.connection_id)) && l.enabled,
+              )
               .map((l) => (
                 <option key={l.id} value={l.id}>
-                  {l.name}
+                  {l.name}（{l.kind === "s3" ? "S3" : "服务器目录"}）
                 </option>
               ))}
           </select>
         </label>
         <label className="grid gap-1">
-          位置下相对目录
+          位置下相对目录 / S3 前缀
           <input
             className={field}
             value={directory}
@@ -243,7 +252,7 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
               const created = await api.create({
                 dataset_id: datasetId,
                 location_id: locationId,
-                name: directory.split("/").pop()?.slice(0, 100) || "目录根",
+                name: directory.split("/").filter(Boolean).pop()?.slice(0, 100) || "目录根",
                 relative_path: directory,
                 node_id: node,
                 recursive,
@@ -272,6 +281,13 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
           配置存储位置
         </a>
       </div>
+      {locations.data?.items.find((l) => l.id === locationId)?.kind === "s3" && (
+        <p className="mt-2 text-muted-foreground">
+          S3
+          前缀按原始字符匹配，保留空格、连续斜线和点段。版本或条件读取固定原件；每次使用仍核验完整摘要。SFTP
+          持续引用尚未开放。
+        </p>
+      )}
       {browsePath !== null && (
         <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md bg-muted p-2">
           <span>目录：{browsePath || "根目录"}</span>
@@ -407,9 +423,7 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
                         disabled={busy || !source?.enabled || !!source.unregistered_at}
                         onClick={() =>
                           void act(async (current) => {
-                            const sample = [source!.relative_path, entry.relative_path]
-                              .filter(Boolean)
-                              .join("/");
+                            const sample = samplePath(entry.relative_path);
                             const probe = await api.probe(source!.location_id, "api", sample);
                             if (!current()) return;
                             if (!probe.ok) throw new Error(`API 原图不可读：${probe.code}`);
@@ -445,9 +459,7 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
                           disabled={busy}
                           onClick={() =>
                             void act(async (current) => {
-                              const sample = [source.relative_path, entry.relative_path]
-                                .filter(Boolean)
-                                .join("/");
+                              const sample = samplePath(entry.relative_path);
                               const probe = await api.probe(source.location_id, "api", sample);
                               if (!current()) return;
                               if (!probe.ok) throw new Error(`API 原图不可读：${probe.code}`);

@@ -19,6 +19,7 @@ from app.services import async_job as jobs
 from app.services import dataset_scans as scans
 from app.services import storage_location as locations
 from app.services import filesystem_storage as fs
+from app.services import reference_storage
 from app.services.async_job_notify import notify_job_terminal
 from app.services.dataset_content import key_authority
 
@@ -462,20 +463,32 @@ async def probe_candidates(db, location, source, scan_id, node):
             db,
             location,
             node,
-            "/".join(p for p in [source.config["relative_path"], path] if p),
+            reference_storage.sample_path(
+                location, source.config["relative_path"], path
+            ),
         )
+        if location.kind == "s3" and probe["code"] == "s3_conditions_not_supported":
+            return probe
         if probe["ok"]:
             return probe
     return root
 
 
 def check_source_directory(config, path, anchor):
+    from app.services.sources.s3_reference import S3Access
+
+    if isinstance(config, S3Access):
+        config.list_page(path)
+        return
     with fs.location_directory(config, path, expected_anchor=anchor):
         return
 
 
 async def ensure_source_available(db, location, source, node):
-    config, relative = dict(location.config), source.config["relative_path"]
+    config, relative = (
+        await reference_storage.configuration(db, location),
+        source.config["relative_path"],
+    )
     anchor = await locations.node_anchor(db, location, node)
     await db.commit()
     try:

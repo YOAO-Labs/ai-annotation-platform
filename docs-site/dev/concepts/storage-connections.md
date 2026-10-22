@@ -204,3 +204,11 @@ Dataset.created_by 是目录数据集的最小管理边界：活跃超管管理�
 浏览、探测、内容核验、批量登记及扫描在 I/O 前后重读账号和具体来源权限；尝试固定初始 Key 证明，排队和执行期间的轮换、撤销、过期或 scope 收回阻止后续写入。位置启停与可见性分离，停用位置的历史原因仍可查询。位置授权用于管理，任务内容读取继续沿用分派/成员权限；撤回管理员使用权不撤销员工既有任务，停用来源/位置才会阻止其业务读图。
 
 目录策略与生命周期的进一步取舍见 [ADR0097](/dev/adr/0097-directory-ownership-previews-and-lifecycle)。请求取消不会停止同步 S3/PIL 线程，因此目录写入等待线程结束后才关闭快照、删除本次唯一对象；已发布缓存的退休删除在提交后执行。清理失败、进程崩溃或提交结果未知需按精确键人工核对，当前不提供自动回收器。
+
+## 外部 S3 持续引用
+
+严格引用使用 sources/s3_reference.py，旧 sources/s3.py 继续服务复制导入。reference_storage.py 解析现有连接器位置和加密凭据；S3Access 只在线程内解密、建立客户端，不进入 Celery 消息或持久快照。Source/ScanEntry/Registration/Reference 与 opaque Item/Task 身份复用已有模型，不新增平行资产表。S3 扫描在根 ScanEntry.observed.checkpoint 中逐页提交游标与结果，使用现有代次和租约；不套用 filesystem 的 inode 或整树二次目录摘要。
+
+LIST 显式 url 编码后严格解码一次，ContinuationToken 原样保存；完整 key 不裁剪、不折叠。HEAD/GET 使用原始 ETag 和固定版本，检查完整响应及 SHA；每次读都会验证错误条件被拒绝。读写权限及连接修订在 I/O 前后复查。既有 Connection→Location 更新锁序保留，读方在 Location 锁内只以 MVCC 读取 Connection，不等待反向 Connection 锁。
+
+SDK 内建超时、条件和版本参数负责协议访问；before-send 限定配置 endpoint，关闭代理避免中间层路径规范化。主机白名单不能消除 SDK 再次 DNS 解析的风险。SFTP 的普通路径 open 不能原子保证不跟随链接，需在后续切片具备服务端隔离资格后再开放持续引用。

@@ -195,6 +195,13 @@ async def execute_registration(run_id, task_id, node_id):
                             "safe_open_unsupported",
                             "directory_identity_changed",
                             "registration_interrupted",
+                            "content_source_unavailable",
+                            "connector_host_denied",
+                            "connection_unavailable",
+                            "s3_redirect_denied",
+                            "s3_conditions_not_supported",
+                            "s3_invalid_response",
+                            "s3_invalid_observation",
                         }:
                             raise
                         if code in svc.PATH_ERRORS:

@@ -154,7 +154,7 @@ async def directories(
     request: Request,
     path: str = Query("", max_length=1000),
     limit: int = Query(100, ge=1, le=200),
-    cursor: str | None = Query(None, max_length=4096),
+    cursor: str | None = Query(None, max_length=12288),
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(manager),
 ):
@@ -239,8 +239,8 @@ async def probe(
     key_proof = await key_authority(db, actor, key_id, "datasets:write")
     actor = await require_manager(db, actor.id)
     location = await svc.get_visible(db, location_id, actor)
-    svc.require_filesystem(location)
-    if payload.sample_file is not None:
+    svc.require_reference_backend(location)
+    if payload.sample_file is not None and location.kind == "filesystem":
         try:
             from app.services.filesystem_storage import relative_path
 

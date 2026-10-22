@@ -326,17 +326,17 @@ async def test_source_cas_and_active_edit_guard(db_session, world):
         await svc.update_source(
             db_session,
             world[-1].id,
-            DatasetSourceUpdate(expected_revision=1, enabled=False),
+            DatasetSourceUpdate(expected_revision=1, name="Renamed"),
             world[1],
         )
     await svc.cancel_job(db_session, job.id, world[1])
     source = await svc.update_source(
         db_session,
         world[-1].id,
-        DatasetSourceUpdate(expected_revision=1, enabled=False),
+        DatasetSourceUpdate(expected_revision=1, name="Renamed"),
         world[1],
     )
-    assert source.config_revision == 2 and not source.enabled
+    assert source.config_revision == 2 and source.name == "Renamed"
     with pytest.raises(HTTPException):
         await svc.update_source(
             db_session,

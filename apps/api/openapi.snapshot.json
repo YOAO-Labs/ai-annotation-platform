@@ -83714,7 +83714,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "maxLength": 4096,
+                  "maxLength": 12288,
                   "type": "string"
                 },
                 {

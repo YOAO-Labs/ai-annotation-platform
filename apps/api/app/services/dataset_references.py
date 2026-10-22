@@ -1,7 +1,6 @@
 """Register immutable business references and read without committing caller state."""
 
 import uuid
-from pathlib import PurePosixPath
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -20,6 +19,7 @@ from app.db.models.project import Project
 from app.services import content_snapshot as snapshots
 from app.services import dataset_scans as scans
 from app.services import filesystem_storage as fs
+from app.services import reference_storage
 from app.services import storage_location as locations
 from app.services.reference_keys import reference_key
 
@@ -91,14 +91,15 @@ async def register_entry(
     if before_apply is not None:
         await before_apply(db)
     receipt = entry.verified_content
+    config = await reference_storage.configuration(db, location)
     final = await snapshots.capture(
-        lambda: fs.content_file(
-            dict(location.config),
+        lambda: reference_storage.content_file(
+            config,
             source.config["relative_path"],
             entry.relative_path,
             expected_anchor=anchor,
             expected=observation,
-            expected_source_identity=observation["source_identity"],
+            expected_source_identity=observation.get("source_identity"),
         ),
         receipt["sha256"],
     )
@@ -145,6 +146,7 @@ async def register_entry(
         preview = await previews.generate(
             db, location, source, mapping, final, uploaded, retired
         )
+        await scans.validate_context(db, location, source, snapshot=run.snapshot)
         await scans.require_actor(db, actor.id, source)
         if await key_authority(db, actor, api_key_id, "datasets:write") != key_proof:
             raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
@@ -209,7 +211,13 @@ async def apply_copy(db, source, entry, dataset, snapshot, binding, uploaded):
             existing = None
         if existing:
             return {"item_id": existing.id, "created": False, "sha256": snapshot.sha256}
-    name = await service._unique_file_name(dataset.id, entry.relative_path)
+    logical_path = entry.relative_path
+    if entry.observed.get("kind") == "s3":
+        extension = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}[
+            snapshot.media_type
+        ]
+        logical_path = f"s3-{entry.path_digest}{extension}"
+    name = await service._unique_file_name(dataset.id, logical_path)
     key = managed_dataset_key(dataset.id, name)
     uploaded.append((binding.bucket, key))
     snapshot.file.seek(0)
@@ -270,7 +278,7 @@ async def apply_reference(db, source, run, entry, dataset, actor):
     item = DatasetItem(
         id=item_id,
         dataset_id=dataset.id,
-        file_name=PurePosixPath(entry.relative_path).name,
+        file_name=entry.relative_path.rsplit("/", 1)[-1][:500],
         file_path=reference_key(item_id, receipt["sha256"]),
         file_type="image",
         file_size=receipt["size_bytes"],
@@ -358,7 +366,11 @@ async def reference_context(db, item_id, actor, *, task_id=None):
     ):
         raise snapshots.ContentError("source_unavailable")
     location = await db.get(StorageLocation, source.location_id, populate_existing=True)
-    if location is None or not location.enabled or location.kind != "filesystem":
+    if (
+        location is None
+        or not location.enabled
+        or location.kind not in {"filesystem", "s3"}
+    ):
         raise snapshots.ContentError("location_unavailable")
     if (
         run is None
@@ -389,7 +401,7 @@ async def reference_context(db, item_id, actor, *, task_id=None):
     same_host = run.snapshot.get("scan_host_id") == fs.host_identity()
     expected = (
         receipt["observation"]
-        if receipt["node_id"] == node
+        if receipt["node_id"] == node or location.kind == "s3"
         else {k: receipt["observation"][k] for k in ("size", "mtime_ns", "ctime_ns")}
     )
     expected_source = (
@@ -400,7 +412,7 @@ async def reference_context(db, item_id, actor, *, task_id=None):
         else None
     )
     return dict(
-        config=dict(location.config),
+        config=await reference_storage.configuration(db, location),
         base=source.config["relative_path"],
         path=entry.relative_path,
         anchor=anchor,
@@ -431,7 +443,7 @@ async def reference_snapshot(
     if expected_sha256 is not None and expected_sha256 != context["sha256"]:
         raise snapshots.ContentError("content_mismatch")
     snapshot = await snapshots.capture(
-        lambda: fs.content_file(
+        lambda: reference_storage.content_file(
             context["config"],
             context["base"],
             context["path"],
