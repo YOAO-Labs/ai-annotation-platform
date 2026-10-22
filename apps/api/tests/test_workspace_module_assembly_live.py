@@ -39,6 +39,7 @@ from tests.project_guide_asset_owner_helpers import (
     _cleanup_objects,
 )
 from tests.workspace_module_assembly_helpers import WorkspaceModuleStack
+from tests.workspace_module_quality_helpers import qualify_point_quality_promotion
 
 
 pytestmark = [
@@ -936,6 +937,17 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                 # worker helper that reads through the fixed Native function.
                 for service in _WORKSPACE_STOP_ORDER:
                     await stack.stop_service(service)
+
+                record_property(
+                    "workspace_module_quality_promotion",
+                    await qualify_point_quality_promotion(
+                        test_engine,
+                        maker,
+                        client,
+                        actor=actors["owner"],
+                        headers=headers["owner"],
+                    ),
+                )
                 consumer_engine = create_async_engine(
                     _role_url(
                         "AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL",

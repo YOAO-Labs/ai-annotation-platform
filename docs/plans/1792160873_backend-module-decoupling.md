@@ -6381,3 +6381,10 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   restored authentication proof now uses the actual Workspace project/detail
   and access routes plus invalid-token401, retaining only the existing Auth and
   Briefs credentials. Original response and clean teardown remain recorded.
+- Isolated source helper492f908e6 adds the missing cold point-quality maintenance
+  scenario. Root integrates it and calls the real public API while all six HTTP
+  Workspace owners are stopped, using the ordinary Native consumer closure.
+  The pending run covers an exact-evaluation Audit failure rollback, successful
+  three-state commit and stale baseline409. No new owner selector or grants are
+  introduced. The build manifest now discovers all tracked COPY inputs so new
+  test helpers participate in the matching API image identity.
