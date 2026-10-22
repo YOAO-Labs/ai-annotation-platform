@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -36,6 +37,7 @@ POSTGRES_IMAGE = "postgres:16-alpine"
 INFERENCE_REGISTRY_INGRESS_ROLE = "inference_registry_ingress_client"
 INFERENCE_ROUTING_ROLE = "inference_routing_client"
 VIDEO_EXECUTION_ROLE = "video_execution_client"
+IDENTITY_API_CONSUMER_ROLE = "identity_api_consumer"
 IDENTITY_CLIENT_ROLES = {
     "AUTH": "identity_auth_client",
     "COMMAND": "identity_command_client",
@@ -1746,6 +1748,7 @@ def _create_runtime_role(
     container_name: str,
     container_identity: str,
     password: str,
+    identity_api_consumer_password: str,
     owner_password: str,
 ) -> None:
     _psql(
@@ -1759,6 +1762,10 @@ def _create_runtime_role(
             "CREATE ROLE legacy_runtime LOGIN "
             f"PASSWORD '{password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            f"CREATE ROLE {IDENTITY_API_CONSUMER_ROLE} LOGIN "
+            f"PASSWORD '{identity_api_consumer_password}' "
+            "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT "
+            "NOREPLICATION NOBYPASSRLS;\n"
         ),
     )
 
@@ -2379,6 +2386,7 @@ def main(argv: list[str] | None = None) -> int:
         },
         "database": None,
         "roles": list(MODULE_ROLES),
+        "identity_api_consumer": None,
         "test_files": list(test_files),
         "junit_xml": str(junit),
         "test_exit_code": None,
@@ -2534,6 +2542,10 @@ def main(argv: list[str] | None = None) -> int:
         identity_recovery_grants_path = (
             ROOT / "infra/docker/identity-recovery-grants.sql"
         )
+        lan_production_grants_path = ROOT / "infra/docker/lan-production-grants.sql"
+        identity_consumer_grants_path = (
+            ROOT / "infra/docker/identity-consumer-grants.sql"
+        )
         artifacts = tuple(
             ROOT / "apps/api/alembic/sql" / name for name in SQL_ARTIFACTS
         )
@@ -2583,6 +2595,8 @@ def main(argv: list[str] | None = None) -> int:
             or not video_execution_grants_path.is_file()
             or not identity_account_grants_path.is_file()
             or not identity_recovery_grants_path.is_file()
+            or not lan_production_grants_path.is_file()
+            or not identity_consumer_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
             or any(not path.is_file() for path in schema_paths)
         ):
@@ -2700,6 +2714,12 @@ def main(argv: list[str] | None = None) -> int:
         identity_recovery_grant_sql = identity_recovery_grants_path.read_text(
             encoding="utf-8"
         )
+        lan_production_grant_sql = lan_production_grants_path.read_text(
+            encoding="utf-8"
+        )
+        identity_consumer_grant_sql = identity_consumer_grants_path.read_text(
+            encoding="utf-8"
+        )
 
         from sqlalchemy.engine import URL
 
@@ -2712,6 +2732,7 @@ def main(argv: list[str] | None = None) -> int:
             raise RuntimeError("module-data acceptance requires development settings")
         owner_password = f"owner-{secrets.token_hex(16)}"
         runtime_password = f"runtime-{secrets.token_hex(16)}"
+        identity_api_consumer_password = secrets.token_hex(24)
         append_password = f"append-{secrets.token_hex(16)}"
         cleanup_password = f"cleanup-{secrets.token_hex(16)}"
         catalog_password = f"catalog-{secrets.token_hex(16)}"
@@ -2781,6 +2802,7 @@ def main(argv: list[str] | None = None) -> int:
             container_name,
             container_identity,
             runtime_password,
+            identity_api_consumer_password,
             owner_password,
         )
 
@@ -3741,6 +3763,127 @@ def main(argv: list[str] | None = None) -> int:
                 "assets_owner": "assets_code",
                 "asset_image_worker_role": "asset_image_worker_client",
             },
+        )
+        phase = "install-identity-api-consumer-broad-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=lan_production_grant_sql,
+            variables={
+                "expected_database": database,
+                "application_role": IDENTITY_API_CONSUMER_ROLE,
+                "migration_role": "owner",
+                "asset_cleanup_role": "asset_cleanup_client",
+            },
+        )
+        phase = "install-identity-api-consumer-fence-last"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_consumer_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "consumer_role": IDENTITY_API_CONSUMER_ROLE,
+            },
+        )
+        phase = "verify-identity-api-consumer-acl"
+        identity_consumer_acl = json.loads(
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=f"""
+SELECT pg_catalog.jsonb_build_object(
+    'views', pg_catalog.jsonb_build_object(
+        'account_profiles', pg_catalog.has_table_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}',
+            'aap_identity_v1.account_profiles', 'SELECT'),
+        'invitation_audit_targets', pg_catalog.has_table_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}',
+            'aap_identity_v1.invitation_audit_targets', 'SELECT')),
+    'functions', pg_catalog.jsonb_build_object(
+        'read_actor_facts', pg_catalog.has_function_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}',
+            'aap_identity_v1.read_actor_facts(uuid)', 'EXECUTE'),
+        'lock_accounts_share', pg_catalog.has_function_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}',
+            'aap_identity_v1.lock_accounts_share(uuid[],boolean)', 'EXECUTE'),
+        'lock_accounts_update', pg_catalog.has_function_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}',
+            'aap_identity_v1.lock_accounts_update(uuid[],boolean)', 'EXECUTE'),
+        'lock_accounts_key_share', pg_catalog.has_function_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}',
+            'aap_identity_v1.lock_accounts_key_share(uuid[],boolean)', 'EXECUTE'),
+        'check_accepted_api_key', pg_catalog.has_function_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}',
+            'aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])', 'EXECUTE'))
+)::text;
+""",
+            ).strip()
+        )
+        if identity_consumer_acl["views"] != {
+            "account_profiles": True,
+            "invitation_audit_targets": True,
+        } or identity_consumer_acl["functions"] != {
+            "read_actor_facts": True,
+            "lock_accounts_share": True,
+            "lock_accounts_update": True,
+            "lock_accounts_key_share": True,
+            "check_accepted_api_key": True,
+        }:
+            raise RuntimeError(
+                "Identity API consumer is missing an approved read capability"
+            )
+        evidence["identity_api_consumer"] = {
+            "role": IDENTITY_API_CONSUMER_ROLE,
+            "grant_order": [
+                {
+                    "path": "infra/docker/lan-production-grants.sql",
+                    "sha256": hashlib.sha256(
+                        lan_production_grants_path.read_bytes()
+                    ).hexdigest(),
+                },
+                {
+                    "path": "infra/docker/identity-consumer-grants.sql",
+                    "sha256": hashlib.sha256(
+                        identity_consumer_grants_path.read_bytes()
+                    ).hexdigest(),
+                },
+            ],
+            "effective_access": identity_consumer_acl,
+        }
+        resource_environment.update(
+            {
+                "AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL": URL.create(
+                    "postgresql+asyncpg",
+                    username=IDENTITY_API_CONSUMER_ROLE,
+                    password=identity_api_consumer_password,
+                    host="127.0.0.1",
+                    port=port,
+                    database=database,
+                ).render_as_string(hide_password=False),
+                "AAP_MODULE_DATA_IDENTITY_API_CONSUMER_CONTAINER_URL": URL.create(
+                    "postgresql+asyncpg",
+                    username=IDENTITY_API_CONSUMER_ROLE,
+                    password=identity_api_consumer_password,
+                    host="host.docker.internal",
+                    port=port,
+                    database=database,
+                ).render_as_string(hide_password=False),
+            }
         )
         phase = "create-scoped-storage-identity"
         for bucket in {
