@@ -5466,3 +5466,17 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   and diff checks pass. No public API schema/export input changed. Normal
   applicable commit hooks and final preservation receipts are recorded with
   the source/evidence checkpoint below.
+
+- Source/grant/fixture/documentation checkpoint:
+  `199785602523223d9fc54baa218147e86910f15a`. The aggregate binds all 16 changed
+  files to that source commit. Normal applicable commit hooks pass; API snapshot
+  and registry generation hooks naturally skip because no export inputs changed.
+  Final current-source docs build and diff checks pass. Both owned source worktrees
+  are removed after clean-state, exact branch/HEAD, patch and scoped-tree equivalence
+  checks; Ruff caches are archived and branches retained. Twenty editable bindings
+  still point to Root, the clean primary and all four shared containers are preserved,
+  and all three owned PostgreSQL containers are confirmed absent. Root has no
+  persistent API/Celery/Workspace provider process requiring refresh. A read-only
+  process inventory initially encountered non-UTF-8 process arguments; decoding
+  with replacement passes without rerunning application acceptance. The retained
+  receipt distinguishes that probe from the 180 passing application cases.
