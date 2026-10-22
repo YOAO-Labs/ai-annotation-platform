@@ -6366,3 +6366,12 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   invalid registry as designed. The seed now follows the existing Native
   dependency test's registry/pool/active-member shape; no production behavior or
   credentials change. The original500 and clean teardown remain recorded.
+- Fifth assembly passes backend probing, real Guide object operations, receipt
+  replay after restart, selected-owner outages/no-fallback, all-owners-stopped
+  Native access/maintenance/unlink/delete, and the started legacy video's409.
+  The nonempty snapshot restores its receipts and restricted consumer ACLs.
+  Actual restored-stack startup then reaches an existing0444 secret file and
+  cannot rewrite its clone DSN. A minimal actual-helper/filesystem reproducer
+  confirms PermissionError. Reusing Identity's unchanged-value/read-only-secret
+  rewrite pattern passes changed/unchanged writes, final0444 mode and symlink
+  rejection. Runtime restore must still complete before claiming qualification.

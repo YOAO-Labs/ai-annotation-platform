@@ -1091,6 +1091,11 @@ secrets:
         path = self._secret_directory / name
         if path.is_symlink():
             raise RuntimeError("Workspace secret path must not be a symlink")
+        if path.exists():
+            if path.read_text(encoding="utf-8") == value:
+                path.chmod(0o444)
+                return path
+            path.chmod(0o600)
         path.write_text(value, encoding="utf-8")
         path.chmod(0o444)
         return path
