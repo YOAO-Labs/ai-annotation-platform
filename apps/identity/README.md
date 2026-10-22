@@ -4,12 +4,13 @@ This package contains the JWT/API-key verifier, API-key management, core session
 and self-account command owners, the user-directory read owner, administrator
 password-reset, account-deletion and offboarding owners, group catalog/assignment
 owner, and invitation/mail-v2 owners and their closed contracts. It has one
-private HTTP process plus separate private worker entrypoints. Invitation/MailV2,
-directory and administrator
-password reset have completed local qualification; platform-role qualification
-is in progress.
+private HTTP process plus separate private worker entrypoints. The complete
+module has passed local functional qualification with the existing Compose
+private network, a separately installed API consumer, and all configured
+capabilities. See [module deployment](../../docs-site/dev/concepts/module-deployment.md#identity-整模块独立装配)
+for the exact evidence and remaining deployment boundaries.
 The runtime has no application, SQLAlchemy, Celery or object-store dependency.
-Admission uses four PostgreSQL capabilities, key management uses two, and
+Admission uses five PostgreSQL functions, key management uses two, and
 sessions use three plus a scoped Redis login-counter identity. Each configured
 capability has a separate database login. Self-account commands use three functions
 and presence maintenance uses one separate operator function. Registration,
@@ -24,9 +25,10 @@ two-function Identity capability and preserves its inactive-target no-op, task
 handoff and partial Audit actor redaction; it does not retire credentials.
 Offboarding preview and commit use a separate three-function Identity
 capability.
-Dashboard analytics, other-user
-hydration and remaining multi-owner lifecycle remain in the API, so this is not
-yet a complete Identity service.
+The API retains public HTTP aggregation and cross-domain analytics. Account
+commands use the selected Identity owner; profile consumers use typed reads or
+the two public transactional relations. Other domains retain their own business
+writes and compose explicit same-transaction capabilities when required.
 
 ## Run
 
@@ -69,6 +71,29 @@ The monolithic application's Identity function allowlist is included in
 `infra/docker/lan-production-grants.sql`; this grant-source change has not been
 applied to production. A dedicated deployment uses the separate capability
 LOGINS described below.
+
+## Local complete-module qualification
+
+The existing Compose assembly runs one HTTP owner with all 17 configured
+capabilities, two mail workers and a notification publisher, alongside a cold API
+image. PostgreSQL and Redis use the owned Compose private network. The API's
+Identity access is restricted to two public relations and five transactional
+functions, with no private table or credential-command access. Its edge secret
+differs from the stable owner signing secret.
+
+The noneditable installed package passes 658 checks. File probes match 129 package
+files in the installation and both images, plus 1,294 API/Native/metadata inputs.
+Full migration validation passes all five phases. The complete real-consumer
+case passes twice, including REST/Socket credentials, lifecycle writes, Node
+replay, worker restarts, and full database restore with pending mail and
+notifications. Existing operation-specific qualifications are retained separately.
+The runbook entry is [Identity 整模块私网验收](../../DEV.md#identity-整模块私网验收).
+
+This qualifies local ARM64 functionality on that private-network topology. Earlier
+host-forwarded database experiments had intermittent 503 responses whose root
+cause remains unconfirmed; private-network passes do not establish a fix for
+that path. Primary runtime cutover, production/AMD64/remote-CI qualification and
+a complete alternate-language provider remain outside this evidence.
 
 ## Credential cutoff
 
@@ -509,10 +534,10 @@ the runtime-specific `IDENTITY_*_FILE` names. The runtime does not read the API
 [ADR-0119](../../docs/adr/0119-independent-identity-recovery-and-mail.md) for
 the exact file mapping and lifecycle rules.
 
-This implementation is a local architecture slice. It does not complete the
-Identity module, authorize a primary cutover or production deployment, or supply
-an alternate-language provider. Group assignment and remaining lifecycle
-ownership remain open.
+Recovery and mail have their own operation-level qualification. Complete-module
+assembly and its local-only limits are recorded above; this evidence does not
+authorize a primary cutover or production deployment, or supply an
+alternate-language provider.
 
 `aap_identity.briefs_client.BriefsClient` provides the strict, batched Briefs client
 for other owners. Empty requests do not initialize a provider; selected HTTP errors
@@ -543,8 +568,8 @@ existing `read_actor_facts` or caller-transaction account locks. Existing lack o
 an active check in existence-only paths is preserved; project/task authorization
 still runs at its original boundary. Focused source/Native acceptance is recorded
 in [ADR-0161](../../docs/adr/0161-identity-current-authority-consumers.md).
-Complete-module installation/container/restore qualification is batched at the
-Identity milestone; this is not full Identity closure.
+Complete-module installation/container/restore evidence is recorded above and
+in the module-deployment ledger; the focused authority checks remain separate.
 
 ## Transactional read relations
 

@@ -3966,7 +3966,10 @@ SELECT pg_catalog.jsonb_build_object(
                 "prefix": "raster-masks/sha256/",
                 "content_and_cleanup_identities_created": True,
             }
-        if "tests/test_video_consumers_containers.py" in selected_test_paths:
+        if selected_test_paths & {
+            "tests/test_video_consumers_containers.py",
+            "tests/test_identity_module_assembly_live.py",
+        }:
             api_bootstrap_storage = _cleanup_storage_scope(backend)
             api_bootstrap_storage["buckets"] = resources["buckets"]
             api_bootstrap_storage["policy"] = "aap-api-bootstrap-" + secrets.token_hex(

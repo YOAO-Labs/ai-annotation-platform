@@ -16,6 +16,8 @@ import httpx
 from sqlalchemy.engine import URL, make_url
 
 from tests.test_identity_admission_live import ROOT, _dsn
+from tests.test_asset_storage_cleanup_runtime import _verify_postgres
+from tests.test_identity_sessions_live import _verify_redis
 
 
 _IDENTITY_DATABASES = {
@@ -33,7 +35,10 @@ _IDENTITY_DATABASES = {
         "IDENTITY_RUNTIME_PRESENCE_DATABASE_URL_FILE",
         "identity_presence_database_url",
     ),
-    "GROUP": ("IDENTITY_RUNTIME_GROUP_DATABASE_URL_FILE", "identity_group_database_url"),
+    "GROUP": (
+        "IDENTITY_RUNTIME_GROUP_DATABASE_URL_FILE",
+        "identity_group_database_url",
+    ),
     "DIRECTORY": (
         "IDENTITY_RUNTIME_DIRECTORY_DATABASE_URL_FILE",
         "identity_directory_database_url",
@@ -161,6 +166,17 @@ class IdentityModuleStack:
         self._api_secret = api_secret
         self._control = control
         self._mail_key = mail_key
+        _verify_postgres(test_engine.url)
+        _verify_redis()
+        self._postgres_name = self._required_environment(
+            "AAP_MODULE_DATA_PG_CONTAINER_NAME"
+        )
+        self._postgres_container = self._required_environment(
+            "AAP_MODULE_DATA_PG_CONTAINER_ID"
+        )
+        self._redis_name = self._required_environment(
+            "AAP_MODULE_DATA_REDIS_CONTAINER_NAME"
+        )
         self._login_redis_url = self._docker_url(login_redis_url)
         self._publisher_redis_url = self._docker_url(publisher_redis_url)
         self._smtp_port = int(smtp_port)
@@ -176,7 +192,9 @@ class IdentityModuleStack:
         self.project_name = f"aap-identity-assembly-{uuid.uuid4().hex[:12]}"
         self._compose_environment = self._docker_environment()
         self._database_urls: dict[str, URL] = {
-            kind: make_url(_dsn(kind, test_engine)).set(host="host.docker.internal")
+            kind: make_url(_dsn(kind, test_engine)).set(
+                host=self._postgres_name, port=5432
+            )
             for kind in _DATABASES
         }
         self._database_name = str(test_engine.url.database or "")
@@ -202,6 +220,9 @@ class IdentityModuleStack:
             or self._api_database_url.password != api_host_url.password
         ):
             raise RuntimeError("Verifier API consumer database identity did not match")
+        self._api_database_url = self._api_database_url.set(
+            host=self._postgres_name, port=5432
+        )
         self._service_ids: dict[str, str] = {}
         self._inspection_evidence: dict[str, dict] = {}
         self._api_origin = ""
@@ -225,6 +246,52 @@ class IdentityModuleStack:
     def inspection_evidence(self) -> dict[str, dict]:
         return json.loads(json.dumps(self._inspection_evidence))
 
+    def redact(self, value: str) -> str:
+        values = [self._secret, self._api_secret, self._control, self._mail_key]
+        for url in [self._api_database_url, *self._database_urls.values()]:
+            values.extend(
+                [url.render_as_string(hide_password=False), url.password or ""]
+            )
+        values.extend(
+            [
+                self._login_redis_url,
+                self._publisher_redis_url,
+                os.environ.get("AAP_MODULE_DATA_API_BOOTSTRAP_S3_SECRET_KEY", ""),
+            ]
+        )
+        for secret in sorted(set(values), key=len, reverse=True):
+            if secret:
+                value = value.replace(secret, "<redacted>")
+        value = re.sub(
+            r"[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}",
+            "<redacted-jwt>",
+            value,
+        )
+        return re.sub(r"ak_[A-Za-z0-9_-]+", "<redacted-key>", value)
+
+    def capture_diagnostics(self) -> str:
+        records = {}
+        containers = self._verify_project_ownership()
+        for service, details in containers.items():
+            result = subprocess.run(
+                ["docker", "logs", "--tail", "100", details["Id"]],
+                env=self._compose_environment,
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+            records[service] = {
+                "state": details.get("State"),
+                "logs": self.redact(result.stdout + result.stderr),
+            }
+        path = (
+            ROOT / ".worktree" / f"identity-module-diagnostics-{self.project_name}.json"
+        )
+        path.touch(mode=0o600, exist_ok=True)
+        path.write_text(json.dumps(records, indent=2) + "\n")
+        return str(path)
+
     async def start(self, database_name: str | None = None) -> None:
         if database_name is not None:
             self._database_name = self._validate_database_name(database_name)
@@ -233,17 +300,74 @@ class IdentityModuleStack:
             )
         self._prepare_files()
         self._verify_project_ownership()
+        self._compose("create", timeout=180)
+        self._connect_dependencies()
         self._compose("up", "--detach", timeout=180)
         self._refresh_origins()
         await self._wait_ready()
         self._refresh_inspection_evidence()
 
     async def stop(self) -> None:
-        self._prepare_files()
+        if not self._compose_env_file.is_file() or not self._override_file.is_file():
+            return
         containers = self._verify_project_ownership()
+        if containers:
+            self._compose("stop", timeout=90)
+        self._disconnect_dependencies()
         if containers:
             self._compose("down", timeout=90)
         self._service_ids = {}
+
+    def _dependency_network(self):
+        name = self.project_name + "_default"
+        ids = self._docker(
+            ["network", "ls", "--filter", f"name=^{name}$", "--quiet"],
+            operation="owned network lookup",
+        )
+        if not ids:
+            return None
+        if len(ids.splitlines()) != 1:
+            raise RuntimeError("Owned Compose network identity is ambiguous")
+        record = json.loads(
+            self._docker(
+                ["network", "inspect", ids], operation="owned network inspection"
+            )
+        )[0]
+        if (
+            record["Name"] != name
+            or record.get("Labels", {}).get("com.docker.compose.project")
+            != self.project_name
+        ):
+            raise RuntimeError("Network is not owned by this Compose project")
+        return name
+
+    def _connect_dependencies(self):
+        _verify_postgres(self.test_engine.url)
+        _verify_redis()
+        network = self._dependency_network()
+        if network is None:
+            raise RuntimeError("Compose did not create its owned network")
+        for container in (self._postgres_container, self._redis_name):
+            details = self._inspect(container)
+            if network not in details["NetworkSettings"]["Networks"]:
+                self._docker(
+                    ["network", "connect", network, container],
+                    operation="owned dependency attachment",
+                )
+
+    def _disconnect_dependencies(self):
+        network = self._dependency_network()
+        if network is None:
+            return
+        _verify_postgres(self.test_engine.url)
+        _verify_redis()
+        for container in (self._postgres_container, self._redis_name):
+            details = self._inspect(container)
+            if network in details["NetworkSettings"]["Networks"]:
+                self._docker(
+                    ["network", "disconnect", network, container],
+                    operation="owned dependency detachment",
+                )
 
     async def restart(self, service: str) -> None:
         self._validate_service(service)
@@ -333,9 +457,7 @@ class IdentityModuleStack:
             "IDENTITY_MAIL_SMTP_FROM": "noreply@example.test",
         }
         for kind, (environment_name, secret_name) in _DATABASES.items():
-            compose_values[environment_name] = str(
-                self._secret_directory / secret_name
-            )
+            compose_values[environment_name] = str(self._secret_directory / secret_name)
         for env_name, secret_name in (
             ("IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE", "identity_recovery_mail_key"),
             ("IDENTITY_RUNTIME_LOGIN_REDIS_URL_FILE", "identity_login_redis_url"),
@@ -354,7 +476,8 @@ class IdentityModuleStack:
         database_url = self._api_database_url.render_as_string(hide_password=False)
         redis_url = self._docker_url(self._required_environment("REDIS_URL"))
         celery_url = self._docker_url(
-            os.environ.get("CELERY_BROKER_URL") or self._required_environment("REDIS_URL")
+            os.environ.get("CELERY_BROKER_URL")
+            or self._required_environment("REDIS_URL")
         )
         values = {
             "SECRET_KEY": self._api_secret,
@@ -374,8 +497,12 @@ class IdentityModuleStack:
             "MINIO_ENDPOINT": self._docker_endpoint(
                 self._required_environment("MINIO_ENDPOINT")
             ),
-            "MINIO_ACCESS_KEY": self._required_environment("MINIO_ACCESS_KEY"),
-            "MINIO_SECRET_KEY": self._required_environment("MINIO_SECRET_KEY"),
+            "MINIO_ACCESS_KEY": self._required_environment(
+                "AAP_MODULE_DATA_API_BOOTSTRAP_S3_ACCESS_KEY"
+            ),
+            "MINIO_SECRET_KEY": self._required_environment(
+                "AAP_MODULE_DATA_API_BOOTSTRAP_S3_SECRET_KEY"
+            ),
         }
         for env_name, default in (
             ("MINIO_BUCKET", "annotations"),
@@ -393,7 +520,9 @@ class IdentityModuleStack:
             values[env_name] = os.environ.get(env_name, default)
         public_url = os.environ.get("MINIO_PUBLIC_URL", "")
         values["MINIO_PUBLIC_URL"] = (
-            self._docker_http_url(public_url) if public_url.startswith("http") else public_url
+            self._docker_http_url(public_url)
+            if public_url.startswith("http")
+            else public_url
         )
         for name in _API_BINDING_NAMES + _API_DATABASE_FILE_NAMES:
             values[name] = ""
@@ -479,7 +608,9 @@ class IdentityModuleStack:
             log.write(message + "\n")
         self._log_file.chmod(0o600)
 
-    def _docker(self, arguments: list[str], *, operation: str, timeout: int = 90) -> str:
+    def _docker(
+        self, arguments: list[str], *, operation: str, timeout: int = 90
+    ) -> str:
         try:
             result = subprocess.run(
                 ["docker", *arguments],
@@ -491,10 +622,14 @@ class IdentityModuleStack:
             )
         except subprocess.TimeoutExpired:
             self._write_log(f"{operation}: timed out")
-            raise RuntimeError(f"Owned Identity {operation} timed out; see {self._log_file}") from None
+            raise RuntimeError(
+                f"Owned Identity {operation} timed out; see {self._log_file}"
+            ) from None
         if result.returncode != 0:
             self._write_log(f"{operation}: Docker exited {result.returncode}")
-            raise RuntimeError(f"Owned Identity {operation} failed; see {self._log_file}")
+            raise RuntimeError(
+                f"Owned Identity {operation} failed; see {self._log_file}"
+            )
         return result.stdout.strip()
 
     def _compose_arguments(self) -> list[str]:
@@ -528,7 +663,9 @@ class IdentityModuleStack:
         try:
             records = json.loads(output)
         except json.JSONDecodeError:
-            raise RuntimeError("Docker returned an invalid owned container record") from None
+            raise RuntimeError(
+                "Docker returned an invalid owned container record"
+            ) from None
         if not isinstance(records, list) or len(records) != 1:
             raise RuntimeError("Owned container identity was not unique")
         return records[0]
@@ -540,13 +677,16 @@ class IdentityModuleStack:
         try:
             records = json.loads(output)
         except json.JSONDecodeError:
-            raise RuntimeError("Docker returned an invalid owned image record") from None
+            raise RuntimeError(
+                "Docker returned an invalid owned image record"
+            ) from None
         if not isinstance(records, list) or len(records) != 1:
             raise RuntimeError("Owned image identity was not unique")
         labels = (records[0].get("Config") or {}).get("Labels") or {}
-        if labels.get("org.aap.acceptance") != "identity-admission" or labels.get(
-            "org.aap.acceptance-id"
-        ) != identity:
+        if (
+            labels.get("org.aap.acceptance") != "identity-admission"
+            or labels.get("org.aap.acceptance-id") != identity
+        ):
             raise RuntimeError("Runtime image labels do not match this verifier")
 
     def _verify_project_ownership(self) -> dict[str, dict]:
@@ -598,7 +738,9 @@ class IdentityModuleStack:
                     pass
                 await asyncio.sleep(0.2)
         self._write_log(f"{operation}: readiness timed out")
-        raise RuntimeError(f"Owned Identity {operation} did not become ready; see {self._log_file}")
+        raise RuntimeError(
+            f"Owned Identity {operation} did not become ready; see {self._log_file}"
+        )
 
     def _mail_ready_probe(self, service: str) -> bool:
         try:
@@ -630,7 +772,9 @@ class IdentityModuleStack:
                 return
             await asyncio.sleep(0.2)
         self._write_log(f"{service}: readiness timed out")
-        raise RuntimeError(f"Owned Identity {service} did not become ready; see {self._log_file}")
+        raise RuntimeError(
+            f"Owned Identity {service} did not become ready; see {self._log_file}"
+        )
 
     async def _wait_publisher_running(self, timeout: float = 30) -> None:
         deadline = time.monotonic() + timeout
@@ -675,15 +819,15 @@ class IdentityModuleStack:
             state = details.get("State") or {}
             mounts = details.get("Mounts") or []
             environment = config.get("Env") or []
-            env_values = dict(
-                item.split("=", 1) for item in environment if "=" in item
-            )
+            env_values = dict(item.split("=", 1) for item in environment if "=" in item)
             secret_targets = {
                 mount.get("Destination")
                 for mount in mounts
                 if str(mount.get("Destination", "")).startswith("/run/secrets/")
             }
-            self._assert_service_runtime(service, config, host, state, mounts, env_values)
+            self._assert_service_runtime(
+                service, config, host, state, mounts, env_values
+            )
             evidence[service] = {
                 "image_id": details.get("Image"),
                 "user": config.get("User"),
@@ -707,7 +851,13 @@ class IdentityModuleStack:
         self._inspection_evidence = evidence
 
     def _assert_service_runtime(
-        self, service: str, config: dict, host: dict, state: dict, mounts: list, env: dict
+        self,
+        service: str,
+        config: dict,
+        host: dict,
+        state: dict,
+        mounts: list,
+        env: dict,
     ) -> None:
         if config.get("User") != "10003:10003":
             raise RuntimeError(f"{service} does not run as UID/GID 10003")
@@ -725,7 +875,9 @@ class IdentityModuleStack:
             or host.get("NanoCpus") != 1_000_000_000
             or host.get("PidsLimit") != 64
         ):
-            raise RuntimeError(f"{service} resource limits differ from the acceptance budget")
+            raise RuntimeError(
+                f"{service} resource limits differ from the acceptance budget"
+            )
         if state.get("OOMKilled") is True:
             raise RuntimeError(f"{service} was OOM-killed")
 
@@ -774,9 +926,7 @@ class IdentityModuleStack:
             },
             "identity-api": set(),
         }.get(service)
-        if expected is None or targets != {
-            f"/run/secrets/{name}" for name in expected
-        }:
+        if expected is None or targets != {f"/run/secrets/{name}" for name in expected}:
             raise RuntimeError(f"{service} secret mounts cross service boundaries")
         for mount in mounts:
             source = mount.get("Source")
@@ -790,12 +940,20 @@ class IdentityModuleStack:
                 or any(value == self._secret for value in env.values())
             ):
                 raise RuntimeError("API runtime environment contains the owner signer")
-            if env.get("SECRET_KEY") != self._api_secret or env.get(
-                "IDENTITY_TOKEN"
-            ) != self._control:
-                raise RuntimeError("API runtime does not have its explicit edge credentials")
-            if any(env.get(name, "") for name in _API_BINDING_NAMES + _API_DATABASE_FILE_NAMES):
-                raise RuntimeError("API runtime contains a direct Identity database binding")
+            if (
+                env.get("SECRET_KEY") != self._api_secret
+                or env.get("IDENTITY_TOKEN") != self._control
+            ):
+                raise RuntimeError(
+                    "API runtime does not have its explicit edge credentials"
+                )
+            if any(
+                env.get(name, "")
+                for name in _API_BINDING_NAMES + _API_DATABASE_FILE_NAMES
+            ):
+                raise RuntimeError(
+                    "API runtime contains a direct Identity database binding"
+                )
 
     def _validate_service(self, service: str) -> None:
         if service not in _SERVICES:
@@ -809,7 +967,9 @@ class IdentityModuleStack:
             or re.fullmatch(r"[A-Za-z0-9_]+", database_name) is None
             or not database_name.endswith("_test")
         ):
-            raise ValueError("Restored database must be a safe disposable _test identifier")
+            raise ValueError(
+                "Restored database must be a safe disposable _test identifier"
+            )
         return database_name
 
     @staticmethod
@@ -831,13 +991,12 @@ class IdentityModuleStack:
         )
         return {name: os.environ[name] for name in names if os.environ.get(name)}
 
-    @staticmethod
-    def _docker_url(value: str) -> str:
+    def _docker_url(self, value: str) -> str:
         try:
             url = make_url(value)
             if not url.host:
                 raise ValueError
-            return url.set(host="host.docker.internal").render_as_string(
+            return url.set(host=self._redis_name, port=6379).render_as_string(
                 hide_password=False
             )
         except (TypeError, ValueError):
@@ -849,14 +1008,21 @@ class IdentityModuleStack:
         if not parsed.hostname or parsed.username or parsed.password:
             raise ValueError("Verifier supplied an invalid object storage endpoint")
         port = parsed.port
-        return f"host.docker.internal:{port}" if port is not None else "host.docker.internal"
+        return (
+            f"host.docker.internal:{port}"
+            if port is not None
+            else "host.docker.internal"
+        )
 
     @classmethod
     def _docker_http_url(cls, value: str) -> str:
         parsed = urlsplit(value)
-        if not parsed.scheme or not parsed.hostname or parsed.username or parsed.password:
+        if (
+            not parsed.scheme
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+        ):
             raise ValueError("Verifier supplied an invalid public object storage URL")
-        endpoint = cls._docker_endpoint(
-            f"{parsed.scheme}://{parsed.netloc}"
-        )
+        endpoint = cls._docker_endpoint(f"{parsed.scheme}://{parsed.netloc}")
         return f"{parsed.scheme}://{endpoint}{parsed.path}"

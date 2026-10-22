@@ -1443,7 +1443,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 
 会话计数的 Redis 身份只需 `~login_failed:*`、`+get +incrby +expire +del +ping +select +client|setinfo +client|setname`，清除其他命令和频道权限。客户端的 `incr()` 实际发送 `INCRBY key 1`。API 边缘与提供方使用同一计数实例／命名空间；提供方拥有增量、清零及阈值复查，API 保留通用限流和 Turnstile 验证。Redis 不可用时维持现有计数 fail-open。直启配置 `IDENTITY_EXPIRE_MINUTES=1440`、`IDENTITY_EMAIL_VERIFICATION_REQUIRED=false`、`IDENTITY_LOGIN_CAPTCHA_THRESHOLD=5`、`IDENTITY_LOGIN_FAILED_WINDOW_SECONDS=3600`；Compose 使用相应的 `IDENTITY_RUNTIME_*`。这些值须与 API 的签发时长、有效邮箱验证策略、阈值和窗口一致，生产模式下有效邮箱策略可能为 true。Web 登录页收到 HTTP 400、`detail: "captcha_required"` 后展示验证，不从失败次数推算阈值；`X-Login-Failed-Count` 仅用于提示。挑战后的失败会清除已用证明并重建组件；登录成功清除本地挑战。
 
-这次认证切换要求旧 JWT 重新登录，API key 保留原 SQL 状态。先停止全部旧 API／WebSocket／签发与刷新进程，再受控迁移并启动新验证器；不能新旧认证滚动并行或回到接受旧 JWT 的代码。已有用户或撤销记录时，迁移拒绝降级；保留数据向前恢复。独立安装包、只读容器、真实 API／WebSocket 和 Node 准入客户端已通过一次性本地联调，备份还原后保留原生权限和撤销状态。当前日常环境尚未切换这一能力，完整凭据命令与多 owner 生命周期仍待完成。详见 [ADR-0115](docs/adr/0115-identity-admission-and-durable-revocation.md)。
+这次认证切换要求旧 JWT 重新登录，API key 保留原 SQL 状态。先停止全部旧 API／WebSocket／签发与刷新进程，再受控迁移并启动新验证器；不能新旧认证滚动并行或回到接受旧 JWT 的代码。已有用户或撤销记录时，迁移拒绝降级；保留数据向前恢复。独立安装包、只读容器、真实 API／WebSocket 和 Node 准入客户端已通过一次性本地联调，备份还原后保留原生权限和撤销状态。当前日常环境尚未切换；整模块的本地私网资格及部署边界见下文“Identity 整模块私网验收”。详见 [ADR-0115](docs/adr/0115-identity-admission-and-durable-revocation.md)。
 
 复验使用 `scripts/verify_module_data_boundary.py` 创建的独立 PostgreSQL、Redis 和测试桶。先用 `uv sync --project apps/identity --locked --extra runtime --no-editable --reinstall-package aap-identity` 安装当前源码的独立包，再构建 `apps/identity/Dockerfile`。镜像须带 `org.aap.acceptance=identity-admission` 和唯一的 `org.aap.acceptance-id` 标签。设置 `AAP_IDENTITY_RUNTIME_PYTHON` 为该虚拟环境 Python 的绝对路径，`AAP_IDENTITY_RUNTIME_IMAGE` 为镜像名或摘要，`AAP_IDENTITY_RUNTIME_IDENTITY` 为对应标签值，然后运行：
 
@@ -1460,7 +1460,44 @@ AAP_IDENTITY_LIVE_ACCEPTANCE=1 AAP_IDENTITY_KEYS_LIVE_ACCEPTANCE=1 AAP_IDENTITY_
 
 key 命令验收另覆盖无身份表权限的真实 API 调用层、Node 五项操作、丢响应后重启重放、有效期／省略字段／Unicode、撤销与缺失能力拒绝，以及备份恢复后的回执和 secret 变更冲突。公开请求保留原有单次 POST 行为；重放始终要求当前有效凭据，用 key 轮换自身后须换有效凭据重放。算法与轮换边界见 [ADR-0116](docs/adr/0116-independent-identity-key-commands.md) 和[私有运行协议](docs-site/api/guides/identity-runtime.md)。
 
-会话验收检查四项命令的无身份表 API 转发、受限 Redis、精确 64 位声明、登录计数／审计／验证码、重启重放，以及登录实际签发的 JWT 在 REST 和 socket 中使用。回执冻结原始声明，重放仍要求当前认证，不重新登出或推进代次；返回历史 token 不代表它当前有效。公开开放注册和其余账号签发继续沿用既有 recovery/API owners；完整 Identity 与日常切换继续推进，见 [ADR-0117](docs/adr/0117-independent-identity-session-commands.md)。
+会话验收检查四项命令的无身份表 API 转发、受限 Redis、精确 64 位声明、登录计数／审计／验证码、重启重放，以及登录实际签发的 JWT 在 REST 和 socket 中使用。回执冻结原始声明，重放仍要求当前认证，不重新登出或推进代次；返回历史 token 不代表它当前有效。公开开放注册与账号签发使用既有 Recovery owner；整模块私网验收见下文，日常环境尚未切换，见 [ADR-0117](docs/adr/0117-independent-identity-session-commands.md)。
+
+### Identity 整模块私网验收
+
+整模块入口复用 `docker-compose.identity.yml`，由验收器启动一个配置全部能力的 HTTP owner、
+MailV1、MailV2、Notifications publisher 和单独的 API 冷镜像。PostgreSQL／Redis 只连接
+该次验收拥有的 Compose 私网；测试结束先停服务、断开独占依赖，再删除自己的容器／网络。
+数据库 clone 使用独占名称、所有权标记和连接检查后删除，不强制终止未知连接。
+
+先按上文准备当前源码的非 editable Identity 安装和镜像，再构建当前 API 镜像。
+两个镜像都设置 `org.aap.acceptance=identity-admission`，各自使用不同的唯一
+`org.aap.acceptance-id`。除上文的 `AAP_IDENTITY_RUNTIME_*` 外，显式设置
+`AAP_IDENTITY_API_RUNTIME_IMAGE` 与匹配标签的 `AAP_IDENTITY_API_RUNTIME_IDENTITY`。
+不要把 API 镜像标签值设为 owner 镜像的标签值。
+
+以下案例每次单独选择，使用新的验收数据库；不与会写入共享夹具的其他案例拼接：
+
+```bash
+AAP_IDENTITY_LIVE_ACCEPTANCE=1 apps/api/.venv/bin/python \
+  scripts/verify_module_data_boundary.py --output .worktree/identity-module-private-network.json \
+  --test-file tests/test_identity_module_assembly_live.py::test_complete_compose_remote_api_workers_restart_and_restore
+
+AAP_IDENTITY_LIVE_ACCEPTANCE=1 apps/api/.venv/bin/python \
+  scripts/verify_module_data_boundary.py --output .worktree/identity-module-migration.json \
+  --test-file tests/test_identity_module_assembly_live.py::test_complete_identity_migration_roundtrip
+```
+
+验收器保留原有 seed profile，另建无继承／成员关系的 `identity_api_consumer`；先应用兼容
+应用授权，最后应用 `identity-consumer-grants.sql`。API 的 Identity 权限只有两项公开关系
+和五项事务函数，不能读密码／key hash／私有回执或写 User。API 的签名密钥与 owner 不同，
+也没有 Identity 命令 DSN、owner 私钥或邮件 key。API 启动仅获得隔离桶的元数据／生命周期
+权限；UserBrief 使用不需要读取对象内容的点云任务夹具。
+
+当前私网装配连续两轮通过真实 API／Socket、Node 重放、邮件、通知和完整备份恢复；
+非 editable 安装包 658 项、包／镜像指纹及完整五阶段迁移均通过。旧宿主机数据库端口转发
+实验的间歇性 503 根因仍未确认，不能将私网通过视为修复。固定预算和有限并发样本、
+精确证据及尚未覆盖的环境见[模块台账](docs-site/dev/concepts/module-deployment.md#identity-整模块独立装配)。
+日常运行环境没有切换。
 
 ### 独立自助账户命令
 
@@ -1586,7 +1623,7 @@ Public list 的 project-admin active-employee picker 与 query/stats/export 的 
 
 API 配置可选 `IDENTITY_BRIEFS_DATABASE_URL`／`IDENTITY_BRIEFS_DATABASE_URL_FILE`（二选一）。留空沿用 caller Session；若已有 `IDENTITY_URL`，它优先并走 private HTTP。独立 Identity runtime 使用同一 DSN pair，留空时 briefs capability disabled；Compose host selector 是 `IDENTITY_RUNTIME_BRIEFS_DATABASE_URL_FILE`，缺省挂 `/dev/null`。Migration 0249 计划创建 `aap_identity_briefs_v1`，`identity_briefs_client` 仅获 `briefs_policy()` 与 `execute_briefs_command(jsonb)` 两个函数权限。Workspace 暴露只返回所给项目／用户 ID 的 `(user_id, role)` 只读 capability；Identity 不拿 ProjectMember 原表权限。原生源函数用稳定 `SECURITY DEFINER` 并封闭 search path，禁止 public execute/foreign-schema/DDL/TEMP grants。
 
-Embedded SQLAlchemy adapter 必须留在调用方同一事务并且从不 commit/rollback；只有 `db.autoflush` 为 true 且不在 `no_autoflush` 块中时，text SQL 前才 flush。专用 asyncpg binding 拥有只读事务并总是关闭连接。两种绑定都不能在选定远程/DSN 出错时回退到 API ORM。Root 已在专用 0248 DB 上通过并清理旧 helper baseline，六用户夹具覆盖 global/project 与 1,201 IDs；legacy query calls 为 empty=0、global=1、project=2、large=1。这只固定兼容行为，不代表新 owner/remote runtime 性能结论。最终 owner union 为 64 个 distinct cases（59 DB/process、5 pure/static），零跳过；source/installed suites 各 549 项通过、114 个安装文件 hash 匹配，API assembly 625 项通过并明确延期 132 条规则，Node 21 与 SDK 43 项通过。Migration 0249 restore、受限 owner/cold API images、caller/API bindings 与 Compose selector checks 通过；精确 hashes、case 分类、清理和冷镜像时长边界见 [ADR-0129](docs/adr/0129-identity-batched-user-brief-reads.md)。这只限定 UserBrief slice；其他用户水合、完整 Identity、生产容量、十模块／七门槛、另一语言 provider 与 primary cutover 仍未完成。
+Embedded SQLAlchemy adapter 必须留在调用方同一事务并且从不 commit/rollback；只有 `db.autoflush` 为 true 且不在 `no_autoflush` 块中时，text SQL 前才 flush。专用 asyncpg binding 拥有只读事务并总是关闭连接。两种绑定都不能在选定远程/DSN 出错时回退到 API ORM。Root 已在专用 0248 DB 上通过并清理旧 helper baseline，六用户夹具覆盖 global/project 与 1,201 IDs；legacy query calls 为 empty=0、global=1、project=2、large=1。这只固定兼容行为，不代表新 owner/remote runtime 性能结论。最终 owner union 为 64 个 distinct cases（59 DB/process、5 pure/static），零跳过；source/installed suites 各 549 项通过、114 个安装文件 hash 匹配，API assembly 625 项通过并明确延期 132 条规则，Node 21 与 SDK 43 项通过。Migration 0249 restore、受限 owner/cold API images、caller/API bindings 与 Compose selector checks 通过；精确 hashes、case 分类、清理和冷镜像时长边界见 [ADR-0129](docs/adr/0129-identity-batched-user-brief-reads.md)。这些数字只限定 UserBrief slice；整模块当前资格见“Identity 整模块私网验收”。生产容量、十模块／七门槛、另一语言完整 provider 与 primary cutover 仍未完成。
 
 ### Projects 成员列表的 UserBrief 消费
 
@@ -1636,7 +1673,7 @@ Preview 返回既有 12-field impact model，按所有状态展示成员项目�
 
 DELETE 设置账号 inactive/offline 与原有 deleted metadata，但**不退休凭据**：不推进 generation、不改 API-key revoked_at、reset-link used_at 或 JWT/JTI。已接受的 self-deactivation request/schedule/reason 也保持不变。Typed Audit helper 先清除 target 历史行的 `actor_email` 与 `actor_role` 并捕获数量，再 INSERT 固定 `USER_DELETE` 事件；仅数量非零时在新 Audit detail 中嵌入 `redacted_audit_rows`，不扩大 `detail_json` 的 UPDATE 权限。原有五个 transfer detail 字段保留；既有行的 `actor_id`、detail、IP 和 target 信息不变。这只是部分历史 actor 脱敏，不是完整个人数据擦除。业务状态、任务转交、Audit 与冻结 receipt 同事务提交，重放不重复副作用。
 
-私有 endpoint 为 `POST /v1/identity/deletions/execute`，协议 `aap-identity-deletions/v1`、operation `delete_account`；migration 0247 的 `identity_deletion_client` 仅有 `deletion_policy()` 与 `execute_deletion_command(jsonb)` 两项函数能力。API/runtime 可选 `IDENTITY_DELETION_DATABASE_URL(_FILE)`，Compose host selector 为 `IDENTITY_RUNTIME_DELETION_DATABASE_URL_FILE`；空 selector 只关闭此能力并使私有路由返回 503，显式 DSN 必须通过 readiness 且不回退。Root 的最终最新用例并集通过 72 个 selected acceptance cases（71 DB/process、1 static artifact），零跳过；restore 与 dedicated-API 的最新通过结果覆盖早期夹具失败，重跑不重复计数。Migration 0247 downgrade/restore、grant 和资源清理均通过且无 cleanup errors。Source 与 installed package 各通过 502 项，104 个 installed 文件 hash 精确匹配；API assembly 576 项通过并明确延期 129 条规则，Node 21、SDK 35 项通过。OpenAPI 仅 DELETE description 有变化，public paths/schemas/fields 不变；codegen/catalog/schema 通过，环境文档为 459 个变量、48 个 sections。受限 Identity owner 与 API cold images 均通过。有限 host sample 是 12 targets/c4，34 attempts、22 busy retries、861.920 ms、p50 458.037 ms、p95 856.836 ms，含 Node/HTTP host overhead，不是容器 CPU 时延、生产容量或 SLO。回放确认后 12 receipts 与 12 Audit rows 不变，受理后新增的 work/locks/Audit/credentials 不受影响。精确镜像 hash、route counts 与 helper 行为见 [ADR-0127](docs/adr/0127-independent-identity-deletion-commands.md)；其他 Identity lifecycle、完整 Identity 与十模块／七门槛目标仍未完成。
+私有 endpoint 为 `POST /v1/identity/deletions/execute`，协议 `aap-identity-deletions/v1`、operation `delete_account`；migration 0247 的 `identity_deletion_client` 仅有 `deletion_policy()` 与 `execute_deletion_command(jsonb)` 两项函数能力。API/runtime 可选 `IDENTITY_DELETION_DATABASE_URL(_FILE)`，Compose host selector 为 `IDENTITY_RUNTIME_DELETION_DATABASE_URL_FILE`；空 selector 只关闭此能力并使私有路由返回 503，显式 DSN 必须通过 readiness 且不回退。Root 的最终最新用例并集通过 72 个 selected acceptance cases（71 DB/process、1 static artifact），零跳过；restore 与 dedicated-API 的最新通过结果覆盖早期夹具失败，重跑不重复计数。Migration 0247 downgrade/restore、grant 和资源清理均通过且无 cleanup errors。Source 与 installed package 各通过 502 项，104 个 installed 文件 hash 精确匹配；API assembly 576 项通过并明确延期 129 条规则，Node 21、SDK 35 项通过。OpenAPI 仅 DELETE description 有变化，public paths/schemas/fields 不变；codegen/catalog/schema 通过，环境文档为 459 个变量、48 个 sections。受限 Identity owner 与 API cold images 均通过。有限 host sample 是 12 targets/c4，34 attempts、22 busy retries、861.920 ms、p50 458.037 ms、p95 856.836 ms，含 Node/HTTP host overhead，不是容器 CPU 时延、生产容量或 SLO。回放确认后 12 receipts 与 12 Audit rows 不变，受理后新增的 work/locks/Audit/credentials 不受影响。精确镜像 hash、route counts 与 helper 行为见 [ADR-0127](docs/adr/0127-independent-identity-deletion-commands.md)；整模块资格见“Identity 整模块私网验收”；十模块／七门槛目标仍未完成。
 
 ### Identity 管理员离职预览与提交（已通过限定本地资格）
 
@@ -1674,7 +1711,7 @@ API wrappers 按自己的契约保留冲突语义：单账号 guard 映射 `acco
 
 帧 worker 每帧重新获取锁内 actor facts 和当前 project/member/task 权威，不缓存跨帧 actor，也不以 `db.refresh(User)` 代替锁后事实。busy 仍沿用 `permission_changed` 结果，不新增重试；删除账号仍走 `propagate_failed`，停用仍走 `permission_changed`。权限变化保留原阶段映射，包括 `source_task_locked`、`target_task_locked`，不统一改写原因。未锁定的 Workspace 查询和 bootstrap／import User 写入不在这次迁移范围。
 
-Root 的旧实现 baseline 在 owned disposable state 上通过 1 个测试、覆盖 15 个场景；`identity-write-fences-legacy.json` 与 `identity-write-fences-legacy-samples.json` 是旧行为记录，不应对新实现重跑，也不叠加到新资格数量。本切片的最新验收去重后 231 项全部通过、无有效跳过，覆盖三种真实锁模式、等待后当前行、SQLSTATE／rollback 差异、Node 受限调用、两种转移／角色变更顺序、八项恢复及新 Celery 进程的三次派发。源码与非 editable 安装各通过 595 项；119 个包文件指纹一致，新的 owner 容器及 API 冷加载容器也验证了这些文件，API 另核对 150 个应用／native 文件。架构检查通过 316 项，132 条既有不适用规则保持 deferred；OpenAPI、codegen 和 509-route／93-module 目录一致。完整 Identity、十模块／七门槛、生产容量与 primary cutover 仍未完成。精确合同见 [ADR-0131](docs/adr/0131-identity-transactional-account-locks.md)。
+Root 的旧实现 baseline 在 owned disposable state 上通过 1 个测试、覆盖 15 个场景；`identity-write-fences-legacy.json` 与 `identity-write-fences-legacy-samples.json` 是旧行为记录，不应对新实现重跑，也不叠加到新资格数量。本切片的最新验收去重后 231 项全部通过、无有效跳过，覆盖三种真实锁模式、等待后当前行、SQLSTATE／rollback 差异、Node 受限调用、两种转移／角色变更顺序、八项恢复及新 Celery 进程的三次派发。源码与非 editable 安装各通过 595 项；119 个包文件指纹一致，新的 owner 容器及 API 冷加载容器也验证了这些文件，API 另核对 150 个应用／native 文件。架构检查通过 316 项，132 条既有不适用规则保持 deferred；OpenAPI、codegen 和 509-route／93-module 目录一致。整模块资格见“Identity 整模块私网验收”；十模块／七门槛、生产容量与 primary cutover 仍未完成。精确合同见 [ADR-0131](docs/adr/0131-identity-transactional-account-locks.md)。
 
 ## Identity 运维账号 provisioning
 
@@ -1692,7 +1729,7 @@ Root 的旧实现 baseline 在 owned disposable state 上通过 1 个测试、�
 
 Migration 0252 新增 `read_provisioning_account(text)`、`create_provisioning_account(jsonb)` 和窄 LOGIN `identity_provisioning_client`；其 LOGIN 仅有这两项 Identity 函数权限，由 `infra/docker/identity-provisioning-grants.sql` 按标准 role/owner/database 检查安装。Identity 只调用固定 Audit function，不读写 Audit 原表；`module-data-grants.sql`、LAN application role 与 local compatibility runtime 的 allowlists 仅显式增加所需函数权，LAN source 未应用到 production。没有新 HTTP endpoint、runtime DSN selector、setting 或 dependency。`AAP_MODULE_DATA_IDENTITY_PROVISIONING_URL` 仅是 verifier test override，不是 runtime config。本切片的最新验收去重后 236 项全部通过、无有效跳过，包括受限 Node client 与真实 CLI、全新 Celery worker 三次派发、八项恢复及当前权限／事务行为。旧实现记录在迁移前的 owned disposable database 捕获，1 个测试覆盖 10 个场景；原始失败尝试与定向复验保留，按最新用例结果去重。审计拒绝的原始 23514、后续事务中止、显式 rollback 及未提交账号／Audit／调用方 pending work 一起回滚均已验证。源码与非 editable 安装各通过 619 项检查、122 个包文件指纹匹配；新的独立 owner 与禁网只读 API 镜像通过，后者另核对 61 个本轮 API/native 输入和迁移头 0252。架构检查通过 316 项，132 条既有不适用规则明确延期；OpenAPI 保持字节一致，codegen 与 509-route／93-module 目录一致。之前 account-lock 231 项和 actor-context 114 项各自独立，不计入本 slice；全 Identity、十模块／七门槛及生产容量仍未完成。细节见 [ADR-0132](docs/adr/0132-identity-operational-provisioning-and-authority-reads.md)。
 
-Authority consumer reuse 则复用既有 `read_actor_facts`、account-status value 与 0251 三种同事务 lock functions，不增加新的 SQL/wire/network surface。`project_access.resolve_project_access` 的非锁定读取调用 `IdentityAccountLockData.read_actor_status`，仍按 account→Project refresh→membership 顺序并保留必要 Project ORM refresh；`task_lock.py`、`batch.py`、`async_job_access.py` 只移除 authority-only User ORM 读取。旧 401/Bearer/403/404、锁 mode/wait/exception/None 和 row order 都保持，active-only guard 不增加 role 检查，不引入新 NOWAIT。它不扩展 member/task lifecycle，也不把已经关闭的 account-lock slice 重新打开。完整 Identity 与十模块／七门槛目标仍为进行中，不代表生产／primary cutover。
+Authority consumer reuse 则复用既有 `read_actor_facts`、account-status value 与 0251 三种同事务 lock functions，不增加新的 SQL/wire/network surface。`project_access.resolve_project_access` 的非锁定读取调用 `IdentityAccountLockData.read_actor_status`，仍按 account→Project refresh→membership 顺序并保留必要 Project ORM refresh；`task_lock.py`、`batch.py`、`async_job_access.py` 只移除 authority-only User ORM 读取。旧 401/Bearer/403/404、锁 mode/wait/exception/None 和 row order 都保持，active-only guard 不增加 role 检查，不引入新 NOWAIT。它不扩展 member/task lifecycle，也不把已经关闭的 account-lock slice 重新打开。整模块资格见“Identity 整模块私网验收”；十模块／七门槛目标仍在进行，不代表生产／primary cutover。
 
 ## 普通批量结果检查点
 
@@ -1927,4 +1964,4 @@ backend 的 epoch／incarnation 都需重新核验，完成后由普通 claim �
 数据库时间判断。Native 锁错误与事务失败状态原样保留，适配器不提交或回滚。
 普通 AUTH、key-management 与建题 LOGIN 不获得这项能力。源码及定向验收见
 [ADR-0161](docs/adr/0161-identity-current-authority-consumers.md)，完整 Identity 的冷安装、
-容器和恢复验收在模块一致里程碑集中进行，不能用这里的定向结果替代。
+容器和恢复证据见上文“Identity 整模块私网验收”，与这里的定向结果独立保留。

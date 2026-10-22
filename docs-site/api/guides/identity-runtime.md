@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-22
 ---
 
 # Identity 私有运行协议
@@ -10,6 +10,8 @@ last_reviewed: 2026-10-21
 协议对象只接受声明的 wire 字段名：版本字段为 `schema`。内部 Python 字段名 `protocol` 无论单独使用还是与 `schema` 同时提交都被拒绝；opaque 偏好值中的同名键不受影响。
 
 Identity 运行时提供认证准入、API key、核心会话、自助账户、全局分组目录与指派、完整邀请生命周期、四项用户目录读取、自助注销、注销到期处理、账号恢复和在线扫描命令；平台角色预览／变更、管理员暂停／恢复与 UserBrief 批量 reads 均通过各自限定的本地资格。公开用户接口仍是 `/api/v1/auth/`、`/api/v1/me/api-keys` 与 `/api/v1/users`。私有接口要求独立控制 Bearer；需要用户身份的操作将凭据放在 JSON 的 `token` 中，不能代替控制凭据。注册/邀请证明凭据另置于 `payload`，与调用者身份 token 分开。账号恢复使用匿名请求或单次挑战证明，邮件与注销通知分别由独立执行进程投递。
+
+整模块现已通过本地 Compose 私网功能验收：独立安装／冷镜像、全部配置能力、受限远程 API、不同签名密钥、邮件／通知 worker、真实消费者及完整数据库恢复。旧宿主机数据库转发实验的间歇性 503 根因仍未确认；日常主环境尚未切换。精确证据、网络边界和其他模块剩余工作见[模块台账](/dev/concepts/module-deployment#identity-整模块独立装配)。本页各操作的案例数只证明各自合同，不能相加作为整模块覆盖率。
 
 | 接口                                             | 用途                                           |
 | ------------------------------------------------ | ---------------------------------------------- |
@@ -69,7 +71,7 @@ Import 只查精确 email `admin`。已有任意 row 都原样复用，包括 in
 
 Migration 0252 只增加只读 `read_provisioning_account(text)` 和 mutable `create_provisioning_account(jsonb)` 两个 Identity 函数，并新增仅有这两项 function grants 的 `identity_provisioning_client`。Audit 由固定 `aap_audit_v1.record_identity_bootstrap_admin(uuid,text,text)` capability 写入，Identity 没有 Audit table 权限。Native SQL constraint／duplicate 错误原样抛出；相同 email 并发创建仍以 `23505` 中止事务，无 conflict-ignore、重试或 adapter rollback。读路径遵循 `autoflush/no_autoflush`；create 即使在 `no_autoflush` 下也显式 flush caller pending work。没有新 runtime DSN、setting 或独立服务；verifier-only `AAP_MODULE_DATA_IDENTITY_PROVISIONING_URL` 不是应用配置。
 
-Project authority 的非锁定 actor/status 查询与任务、批次等已拥有者复用现有 `read_actor_facts` 和事务内 account-lock functions，不新增 SQL/http 协议，不改变锁序、mode、等待行为或 401/Bearer/403/404 映射；仍需要 Project ORM refresh 的调用方继续 refresh，active-only guard 不新增 role check。Provisioning 与 authority consumers 已通过限定本地资格：236 个去重选定案例全部通过、无有效跳过，包括受限 Node client、实际 CLI、新 Celery worker、八项恢复及事务／锁语义。源码与非 editable 安装各通过 619 项检查，122 个包文件在独立 owner 及禁网只读 API 镜像中一致。此前 account locks 的 231-case 验收独立，不计入本切片；全 Identity 和完整多模块目标仍未完成。精确默认、Audit 与权限边界见 [ADR-0132](/dev/adr/0132-identity-operational-provisioning-and-authority-reads)。
+Project authority 的非锁定 actor/status 查询与任务、批次等已拥有者复用现有 `read_actor_facts` 和事务内 account-lock functions，不新增 SQL/http 协议，不改变锁序、mode、等待行为或 401/Bearer/403/404 映射；仍需要 Project ORM refresh 的调用方继续 refresh，active-only guard 不新增 role check。Provisioning 与 authority consumers 已通过限定本地资格：236 个去重选定案例全部通过、无有效跳过，包括受限 Node client、实际 CLI、新 Celery worker、八项恢复及事务／锁语义。源码与非 editable 安装各通过 619 项检查，122 个包文件在独立 owner 及禁网只读 API 镜像中一致。此前 account locks 的 231-case 验收独立，不计入本切片；整模块资格与完整多模块目标见[模块台账](/dev/concepts/module-deployment)。精确默认、Audit 与权限边界见 [ADR-0132](/dev/adr/0132-identity-operational-provisioning-and-authority-reads)。
 
 ## API key 请求
 
@@ -293,7 +295,7 @@ Wire success 的 data 是 `{project_id: UUID|null,users:[UserBrief,...]}`：全�
 
 Native schema `aap-identity-briefs-native/v1` 使用同操作与 payload，只返回 `id/name/email/role/avatar_ref` 五个 source 字段；Identity Python owner 计算 initial 并在嵌入式或远程路径都验证 owner envelope、scope、ID 子集与输出形状。Migration 0249 计划提供 `aap_identity_briefs_v1` 下的 `briefs_policy()` 与 `execute_briefs_command(jsonb)`，dedicated LOGIN `identity_briefs_client` 只获这两项函数权限。Workspace 仅暴露 `identity_brief_project_roles(project_id,user_ids)`，不授权读取 ProjectMember 原表。
 
-API 可选 `IDENTITY_BRIEFS_DATABASE_URL(_FILE)`；两项互斥，留空时沿用现有 caller Session。已有 `IDENTITY_URL` 优先并调用 private HTTP。独立 runtime 的 DSN 也可留空，此时 briefs capability disabled；Compose host selector 为 `IDENTITY_RUNTIME_BRIEFS_DATABASE_URL_FILE`。嵌入式 SQLAlchemy adapter 永不提交或回滚调用方事务；text SQL 前只有 `autoflush=true` 且不在 `no_autoflush` 时才 flush。专用 asyncpg 绑定则拥有只读 transaction 并在每次调用后关闭连接。Root 的最新 union 通过 64 个 distinct selected cases（59 DB/process、5 pure/static），零跳过；source/installed suites 各 549 项、114 个 package hash 精确匹配，API assembly 625 项通过并延期 132 条规则，Node 21 与 SDK 43 项通过。14 个 live/restore cases 均通过，覆盖安装 owner、普通 JWT caller、task/project role projection、404 no-PII、远程 DSN 无回退与 owner restore。Migration 0249/frozen SQL/grants 及资源清理通过；Identity owner 和禁网、只读冷 API images 均已通过，Compose disabled/enabled selectors 的 configuration-only checks 通过且没有启动 deployment。冷 API image 的 41.875 秒是 build 加 offline verification，不是启动时延。准确的镜像 hashes、schema hashes、latest-case union 和 sample caveats 见 [ADR-0129](/dev/adr/0129-identity-batched-user-brief-reads)。这只限定内部 UserBrief slice；完整 Identity、生产容量、十模块／七门槛、另一语言 provider 与 primary cutover 仍未完成。
+API 可选 `IDENTITY_BRIEFS_DATABASE_URL(_FILE)`；两项互斥，留空时沿用现有 caller Session。已有 `IDENTITY_URL` 优先并调用 private HTTP。独立 runtime 的 DSN 也可留空，此时 briefs capability disabled；Compose host selector 为 `IDENTITY_RUNTIME_BRIEFS_DATABASE_URL_FILE`。嵌入式 SQLAlchemy adapter 永不提交或回滚调用方事务；text SQL 前只有 `autoflush=true` 且不在 `no_autoflush` 时才 flush。专用 asyncpg 绑定则拥有只读 transaction 并在每次调用后关闭连接。Root 的最新 union 通过 64 个 distinct selected cases（59 DB/process、5 pure/static），零跳过；source/installed suites 各 549 项、114 个 package hash 精确匹配，API assembly 625 项通过并延期 132 条规则，Node 21 与 SDK 43 项通过。14 个 live/restore cases 均通过，覆盖安装 owner、普通 JWT caller、task/project role projection、404 no-PII、远程 DSN 无回退与 owner restore。Migration 0249/frozen SQL/grants 及资源清理通过；Identity owner 和禁网、只读冷 API images 均已通过，Compose disabled/enabled selectors 的 configuration-only checks 通过且没有启动 deployment。冷 API image 的 41.875 秒是 build 加 offline verification，不是启动时延。准确的镜像 hashes、schema hashes、latest-case union 和 sample caveats 见 [ADR-0129](/dev/adr/0129-identity-batched-user-brief-reads)。这些数字只限定内部 UserBrief slice；整模块当前资格见[模块台账](/dev/concepts/module-deployment#identity-整模块独立装配)。生产容量、十模块／七门槛、另一语言完整 provider 与 primary cutover 仍未完成。
 
 Projects 成员列表是该 UserBrief owner 的一个已验证消费者：`projects.list_members` 先由 Workspace 完成当前成员授权和行选择，再将全部用户 ID 一次交给全局 `resolve_briefs`。输出仍使用原十字段 DTO；UserBrief 的全局 `role` 填入必填四值 `platform_role`，membership 的 `role` 仍表示项目职责，不采用项目角色 overlay，也不输出 `avatar_initial`。空列表不会调用资料 owner；缺失用户在列表中省略，以保持旧 inner join 行为。若 `_member_out` 收到缺失目标，或历史全局角色不属于四值枚举，既有 `ValidationError` 保持不变。此调用只增加一次批量读取，没有逐用户 RPC；远程组合不保证 Workspace 与 Identity 共用数据库快照。21 个选定消费者案例（18 DB/process、3 pure/static）和 SDK 序列化 44 项通过，详情见 [ADR-0129](/dev/adr/0129-identity-batched-user-brief-reads#project-member-list-consumer)。
 
@@ -537,7 +539,7 @@ commit／rollback，函数不改事务范围；等待后以 `clock_timestamp()` 
 
 独立 HTTP Identity 保管自己的签发／派生 secret；API edge 的 `SECRET_KEY` 可以不同，
 RPC 使用独立的 `IDENTITY_TOKEN`。API 的远程响应解码不重新派生 Identity 输出。
-这项源码边界的不同密钥真实验收仍待模块里程碑补齐。已有 Identity secret 影响 JWT、
+不同密钥已通过整模块真实 REST／Socket 和恢复验收。已有 Identity secret 影响 JWT、
 派生凭据和持久回执，不能为此改动已有部署或静默恢复旧结果。
 
 ## 集合与展示的同事务读取关系

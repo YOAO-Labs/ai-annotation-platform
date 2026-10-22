@@ -284,6 +284,10 @@ async def test_restored_invitation_receipts_jwt_and_durable_mail_lease(
                 dsn("INVITATION"), dsn("AUTH"), signing_secret=changed_secret
             ).execute(changed_request)
 
+        async with restored.connect() as db:
+            before_downgrade = await db.scalar(
+                text("SELECT version_num FROM public.alembic_version")
+            )
         refused = _alembic(owner_url, "downgrade", "0241")
         assert refused.returncode != 0
         assert (
@@ -293,7 +297,7 @@ async def test_restored_invitation_receipts_jwt_and_durable_mail_lease(
         async with restored.begin() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "0276"
+                == before_downgrade
             )
             await db.execute(
                 text("DELETE FROM public.identity_invitation_operation_receipts")

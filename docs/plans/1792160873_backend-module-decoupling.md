@@ -5159,3 +5159,54 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Docs build passes. Three owned source worktrees are removed after exact
   branch/HEAD/clean-state and derived-artifact checks, with branches retained.
   Root editable bindings, primary checkout and four shared containers remain.
+
+### Identity complete-module private-network qualification (2026-10-22)
+
+- Reused the existing Identity Compose services: one HTTP owner with all 17
+  configured capability bindings, MailV1, MailV2 and notification publisher,
+  plus a separately built cold API image. Owned PostgreSQL/Redis attach only
+  to the verified task Compose network and detach before teardown. No new
+  production deployment mode or runtime source change was introduced here.
+- The verifier retains the compatible seed profile and provisions a separate
+  identity_api_consumer LOGIN. Existing application grants run before the
+  authoritative consumer-grants script. Readback verifies exactly two public
+  SELECT relations and five transactional functions; actual credential/private
+  receipt reads and User writes fail. API edge and owner signing secrets differ;
+  API receives no Identity command DSN, owner signing secret or mail key. Workers
+  retain their separate database/Redis/secret scopes.
+- Cold noneditable installation passes 658 owner-package checks. Installed and
+  owner/API images match 129 package files; API runtime probes additionally
+  match 1,294 application/Native/metadata inputs. Full head 0287 migration passes
+  all five fresh/upgrade/downgrade/re-upgrade/snapshot-restore phases. The prior
+  source 658 and operation-specific 113-case qualification remain separate and
+  are not added to these counts.
+- The complete actual-consumer case passes twice consecutively on the private
+  network, each recording 66 public requests plus private RPC/Node/Socket calls.
+  It covers distinct-signature sessions/registration, key management, settings,
+  groups/invitations, directory/Briefs, administrator lifecycle/offboarding,
+  due-deactivation, owner outage, immutable replay, actual V1/V2 mail, notification
+  backlog/restart and full pg_dump/restore. Restored JWT/revocation/receipts,
+  pending mail/notifications, consumer ACL and migration head are checked. Two
+  runs of one case count once. Stable signing/control/mail keys are retained.
+- Every process uses UID 10003, readonly root, capability drop, no-new-privileges,
+  one CPU and finite budgets: 256 MiB owner/workers and 512 MiB API. Each run samples
+  16 mixed reads at concurrency 4; observed p95 is 0.134/0.135 seconds. These are
+  finite local ARM64 observations, not production capacity or an SLA.
+- Acceptance defects were isolated before retrying: reuse the existing scoped
+  API bootstrap S3 identity; use a direct point-cloud Briefs fixture without
+  object reads; enqueue pending restore mail through the existing private
+  command because the public endpoint waits for delivery. Invitation restore
+  now compares the pre-downgrade head instead of a stale literal. That host-only
+  test correction does not invalidate runtime image inputs. Temporary diagnostic
+  entrypoints and private failure bundles were removed from the final fixture.
+- Earlier host-forwarded database experiments intermittently returned 503 during
+  invitation creation, restored actor-context and offboarding. Minimal clones,
+  mail cycles, connection probes and temporary tracing did not reproduce the
+  root cause. Private-network passes do not establish a fix for the old topology;
+  those failed reports remain retained with this limitation explicitly open.
+- Aggregate evidence: .worktree/identity-module-qualification.json. The only
+  remaining-work ledger is docs-site/dev/concepts/module-deployment.md. This
+  closes local complete-Identity functionality for the intended private-network
+  profile. Primary cutover, production/AMD64/remote-CI qualification and a complete
+  alternate-language provider are not claimed; Go remains experimental. Other
+  modules keep their existing blockers; Workspace is the next bounded module.
