@@ -2385,7 +2385,7 @@ AAP_WORKSPACE_MODULE_ASSEMBLY_LIVE=1 apps/api/.venv/bin/python \
 
 API 的容器就绪检查覆盖 DB／Redis／MinIO；该组合未启动 Celery，总 `/health` 仍可返回
 503。组合案例已通过故障拒绝、重启重放、事务共同回滚和真实恢复后的 API／owner 检查。
-实际 Celery 的后续独占案例使用同一个 API 冷镜像，当前仍待执行：
+实际 Celery 的独占案例使用同一个 API 冷镜像，已通过真实投递、持久化结果与重启检查：
 
 ```bash
 AAP_WORKSPACE_WORKER_ASSEMBLY_LIVE=1 apps/api/.venv/bin/python \

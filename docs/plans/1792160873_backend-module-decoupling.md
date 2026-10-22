@@ -6420,3 +6420,26 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   fixture then calls values() on its tuple of active/reserved replies. Root
   fixes the flattening expression; the actual task and its original diagnostics
   remain recorded, but terminal-row/restart acceptance is not yet claimed.
+- Third real-worker case passes on clean sourceb54a782ef. The cold prefork process
+  uses the restricted API LOGIN observed at its owned container address; both
+  broker retries complete around a physical restart on the same container/image.
+  Prediction and partition-bound PredictionMeta preserve the model version,
+  inference time and token cost; FailedPrediction is removed and AsyncJob metadata
+  and terminal summary match. Both live inspect rounds answer, ready queue and
+  Redis unacked hash are zero, and a fresh result object reads the first persisted
+  result after restart. One integrated case passes with no effective skips.
+  Receipt:.worktree/workspace-worker-assembly-third.json, sibling JUnit/log.
+  Migrations through0300 and cleanup pass with no errors. The worker is ordinary
+  UID/read-only,1CPU/512MiB/pids64; no source mount or owner/admin DB credentials.
+  Public admission/dispatcher, pool routing, source-object retrieval and real ML
+  remain outside this deterministic legacy retry qualification.
+- Final rendered documentation build passes. Grant/resource and module-data
+  selection units have20 effective passes: an initial runner omits scripts from
+  PYTHONPATH and cannot import the resource module; its2 selection cases already
+  pass, then only the18 resource cases replay successfully with the intended
+  import path. Original runner error is retained separately from application
+  acceptance. Ruff/format/diff checks and normal applicable commit hooks pass.
+  Both new source worktrees are removed after clean HEAD/branch, exact integrated
+  patch and verified incremental bundle/cache archive checks; their unmerged
+  source branches remain. The sole ledger records assembled/worker evidence and
+  still leaves cold operator paths, legacy retirement repair and capacity open.
