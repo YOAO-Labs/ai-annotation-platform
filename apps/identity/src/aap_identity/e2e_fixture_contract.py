@@ -301,6 +301,33 @@ def e2e_fixture_schema() -> dict[str, Any]:
                             "count; the caller owns the transaction."
                         ),
                     },
+                    {
+                        "name": "delete_organization_members",
+                        "signature": (
+                            "aap_identity_fixture_v1.delete_organization_members(uuid[])"
+                        ),
+                        "arguments": [
+                            {
+                                "name": "p_user_ids",
+                                "postgres_type": "uuid[]",
+                                "json_schema": {
+                                    "type": "array",
+                                    "items": {"type": "string", "format": "uuid"},
+                                },
+                            }
+                        ],
+                        "result_postgres_type": "integer",
+                        "result_json_schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                        },
+                        "volatility": "VOLATILE",
+                        "transaction_semantics": (
+                            "Delete only organization_members rows whose user_id is in "
+                            "the exact supplied UUID array. Return the matched row "
+                            "count; the caller owns the transaction and cleanup order."
+                        ),
+                    },
                 ],
                 "authorization_boundary": (
                     "These fixed fixture capabilities check only that the actual "

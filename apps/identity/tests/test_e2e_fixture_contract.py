@@ -104,7 +104,7 @@ def test_schema_snapshots_match_the_owner_descriptor():
         assert json.loads(snapshot.read_text(encoding="utf-8")) == schema
 
 
-def test_descriptor_names_only_the_six_fixed_fixture_capabilities():
+def test_descriptor_names_only_the_seven_fixed_fixture_capabilities():
     schema = e2e_fixture_schema()
     capabilities = schema["x-native-capabilities"]
     functions = capabilities["functions"]
@@ -116,9 +116,11 @@ def test_descriptor_names_only_the_six_fixed_fixture_capabilities():
         "aap_identity_fixture_v1.delete_accounts(boolean, text[])",
         "aap_identity_fixture_v1.delete_reset_tokens(uuid[])",
         "aap_identity_fixture_v1.delete_invitations(uuid[])",
+        "aap_identity_fixture_v1.delete_organization_members(uuid[])",
     ]
     assert [function["result_postgres_type"] for function in functions] == [
         "uuid",
+        "integer",
         "integer",
         "integer",
         "integer",
@@ -133,6 +135,9 @@ def test_descriptor_names_only_the_six_fixed_fixture_capabilities():
         "type": "array",
         "items": {"$ref": "#/$defs/FixtureInvitation"},
     }
+    assert functions[6]["arguments"][0]["name"] == "p_user_ids"
+    assert functions[6]["arguments"][0]["postgres_type"] == "uuid[]"
+    assert functions[6]["result_postgres_type"] == "integer"
 
     relations = schema["x-postgresql-relations"]
     assert list(relations) == ["aap_identity_fixture_v1.account_profiles"]

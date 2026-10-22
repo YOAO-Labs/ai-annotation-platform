@@ -336,3 +336,36 @@ $function$;
 REVOKE ALL ON FUNCTION
     aap_identity_fixture_v1.delete_invitations(uuid[])
     FROM PUBLIC;
+-- aap-statement-break
+CREATE FUNCTION aap_identity_fixture_v1.delete_organization_members(
+    p_user_ids uuid[]
+)
+RETURNS integer
+LANGUAGE plpgsql
+VOLATILE
+PARALLEL UNSAFE
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+SET TimeZone TO 'UTC'
+SET DateStyle TO 'ISO, YMD'
+AS $function$
+DECLARE
+    v_row_count integer;
+BEGIN
+    IF pg_catalog.right(pg_catalog.lower(pg_catalog.current_database()), 5) <> '_test'
+       AND pg_catalog.right(pg_catalog.lower(pg_catalog.current_database()), 4) <> '_e2e' THEN
+        RAISE EXCEPTION USING
+            ERRCODE = '42501',
+            MESSAGE = 'E2E fixture functions require a test database';
+    END IF;
+
+    DELETE FROM public.organization_members
+    WHERE user_id = ANY (p_user_ids);
+    GET DIAGNOSTICS v_row_count = ROW_COUNT;
+    RETURN v_row_count;
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION
+    aap_identity_fixture_v1.delete_organization_members(uuid[])
+    FROM PUBLIC;
