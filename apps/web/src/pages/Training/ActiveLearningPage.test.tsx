@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { activeLearningApi } from "@/api/activeLearning";
 import { useAuthStore } from "@/stores/authStore";
 import { ActiveLearningPage } from "./ActiveLearningPage";
+import * as activeLearningScope from "./useActiveLearning";
 vi.mock("@/api/activeLearning", () => ({ activeLearningApi: { list: vi.fn() } }));
 const clients: QueryClient[] = [];
 function mount(query = "") {
@@ -27,6 +28,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   clients.splice(0).forEach((client) => client.clear());
+  vi.restoreAllMocks();
 });
 it("shows actionable empty state and correct model return route", async () => {
   vi.mocked(activeLearningApi.list).mockResolvedValue({ total: 0, items: [] });
@@ -50,7 +52,8 @@ it("does not render a response for another project", async () => {
   await screen.findByText(/轮次列表所属项目或身份不符/);
   expect(screen.queryByText("foreign round")).not.toBeInTheDocument();
 });
-it("resets round pagination by task and ignores a late response from the prior filter", async () => {
+it("resets round pagination within the same owner and ignores a late response from the prior filter", async () => {
+  vi.spyOn(activeLearningScope, "useActiveLearningScope").mockReturnValue("round-list-owner");
   let resolve: ((value: never) => void) | undefined;
   vi.mocked(activeLearningApi.list).mockImplementation(async (_project, offset, _options, task) => {
     if (offset === 20)

@@ -111,9 +111,10 @@ function RoundList({
         <select
           className={trainingInputClass}
           value={task ?? ""}
-          onChange={(event) =>
-            onTask((event.target.value || undefined) as SelectionTask | undefined)
-          }
+          onChange={(event) => {
+            setPage(0);
+            onTask((event.target.value || undefined) as SelectionTask | undefined);
+          }}
         >
           <option value="">全部任务</option>
           <option value="detect">图片目标检测</option>
