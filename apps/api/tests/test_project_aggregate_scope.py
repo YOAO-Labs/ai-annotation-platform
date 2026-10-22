@@ -8,6 +8,9 @@ role, and a non-administrative owner must not receive the management arm.
 from __future__ import annotations
 
 import uuid
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -61,8 +64,8 @@ def test_non_manager_scope_is_membership_only(platform_role):
     clause = task_project_scope(_user(platform_role), project_roles=(ANNOTATOR_ROLE,))
     sql = _sql(clause)
     assert clause is not None
-    assert "project_members" in sql
-    assert "project_members.role" in sql
+    assert "aap_workspace_v1.actor_project_memberships" in sql
+    assert "workspace_member_facts.role" in sql
     assert "projects.owner_id" not in sql
     # Strict membership contract: active account, known platform role, pairing.
     assert "account_profiles.is_active" in sql
@@ -89,8 +92,8 @@ def test_project_admin_scope_includes_owned_and_membership_projects():
         _user("project_admin"), Project.id, project_roles=(REVIEWER_ROLE,)
     )
     sql = _sql(clause)
-    assert "project_members" in sql
-    assert "projects.owner_id" in sql
+    assert "aap_workspace_v1.actor_project_memberships" in sql
+    assert "workspace_owned_project_facts.owner_id" in sql
 
 
 def test_project_scope_binds_requested_column():
@@ -111,8 +114,8 @@ def test_role_filters_are_explicit():
             _user("employee"), Task.project_id, project_roles=(REVIEWER_ROLE,)
         )
     )
-    assert "project_members.role IN ('annotator')" in annotator_sql
-    assert "project_members.role IN ('reviewer')" in reviewer_sql
+    assert "workspace_member_facts.role IN ('annotator')" in annotator_sql
+    assert "workspace_member_facts.role IN ('reviewer')" in reviewer_sql
     assert annotator_sql != reviewer_sql
     # The project role is a membership value; the account role is only checked
     # against the current known platform-role set, never as an alias.
@@ -122,8 +125,12 @@ def test_role_filters_are_explicit():
 
 def test_membership_helpers_filter_by_role():
     user = _user("employee")
-    assert "project_members" in _sql(membership_project_ids(user))
-    assert "project_members.role" in _sql(membership_project_ids(user, ANNOTATOR_ROLE))
+    assert "aap_workspace_v1.actor_project_memberships" in _sql(
+        membership_project_ids(user)
+    )
+    assert "workspace_member_facts.role" in _sql(
+        membership_project_ids(user, ANNOTATOR_ROLE)
+    )
     assert "project_members.role" in _sql(member_user_ids(uuid.uuid4(), REVIEWER_ROLE))
 
 
@@ -139,9 +146,9 @@ def test_async_job_query_gates_export_results():
     )
     sql = _sql(stmt)
     assert "async_jobs.kind" in sql
-    assert "project_members" in sql
+    assert "aap_workspace_v1.actor_project_memberships" in sql
     # Both the ownership scope and the export-capability scope are present.
-    assert sql.count("project_members") >= 2
+    assert sql.count("aap_workspace_v1.actor_project_memberships") >= 2
 
 
 def test_membership_helpers_require_known_active_account():
@@ -161,3 +168,34 @@ def test_platform_role_is_manager():
     assert not platform_role_is_manager("annotator")
     assert not platform_role_is_manager("viewer")
     assert not platform_role_is_manager(None)
+
+
+def test_workspace_relation_client_does_not_require_provider_runtime():
+    script = """
+import importlib.abc
+import sys
+from types import SimpleNamespace
+import uuid
+
+class RejectProvider(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == 'aap_workspace' or fullname.startswith('aap_workspace.'):
+            raise ImportError('client must not load the Workspace provider runtime')
+
+sys.meta_path.insert(0, RejectProvider())
+from app.services.workspace_read_relations import actor_project_memberships, project_search_scope, project_search_member_ids
+from sqlalchemy import select
+actor = SimpleNamespace(id=uuid.uuid4(), role='employee')
+for relation in (actor_project_memberships(actor.id), project_search_scope(actor), project_search_member_ids(actor)):
+    assert 'aap_workspace' in str(select(relation))
+print('ok')
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).parents[1],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "ok"

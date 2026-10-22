@@ -5744,3 +5744,50 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   clean committed source worktrees are retained for review; they have no runtime.
   Final remaining work stays solely in module-deployment.md. The active overall
   goal is not complete; next is the actor-visible Project scope query slice.
+
+## Workspace actor scope and list reads checkpoint
+
+- Reuse the existing Project search relation for owner/candidate metadata and
+  publish actor_project_memberships(uuid) for raw Project ID/role facts. The old
+  helper needs only actor ID, including an existing ID-only caller; introducing
+  a role requirement or fake role would change its contract. The strict NULL
+  actor yields zero rows; no time fields, locks or transaction ownership exist.
+- Membership retains Identity active/known roles/viewer pairing plus requested
+  role filtering in the same caller SQL. Owner and super-admin branches retain
+  their original snapshot/None semantics. Async-job existence is final-result
+  equivalent together with its membership/owner/export predicates, not alone.
+- Reviewer/annotator dashboards, aggregate helpers, async-job lists and actor
+  notification reads migrate. Claims, collaborative video, owner overrides,
+  actual-resource-over-payload scope, retained/global/deleted jobs, count/page
+  and statement ordering remain. Arbitrary notification recipient pairs stay
+  unchanged. The sole remaining-work ledger remains module-deployment.md.
+- Source commits: 9bfeff3669be29a3ceceb72539ec53201d535fa1,
+  2ae41177a05176161eeaa987945fe64c32bb4a00,
+  e531cd3255d7e91af37f3f18e2ff2b1139ec4b7f and
+  fc7964008bc132b3923db6f881eadb20cd19ccb0. All workers used isolated worktrees
+  based on a6ddf032 and ran source-only static checks. Root owns integration,
+  owner/app/runtime grants, verifier, fixtures, Native/HTTP/Node checks and docs.
+- Root freezes 126 old scenarios with autoflush on/off; both owner and API
+  bindings replay against the same unchanged values. Implementation defects
+  caught and fixed: missing application search-function EXECUTE, new unwanted
+  role dependency, and standalone Core Select losing ORM autoflush. Narrow ORM
+  column aliases restore flush behavior without loading full member/date rows.
+- Read factories move into a provider-independent client module, preserving all
+  three function AST bodies and the old query-data import path. A subprocess
+  denies aap_workspace provider imports while exercising the client factories.
+  No new service, DSN, selector, broad private-table grant or global hook exists.
+- The initial restricted HTTP harness used embedded authentication/profile
+  commands under the API role and returned 503. Existing AUTH and Briefs owner
+  credentials resolve the harness; the API keeps private User/Project/Member
+  SELECT denied. Read-only/same-transaction/unlocked reads, committed membership
+  revocation, Node and actual HTTP flows are covered. Original failed receipts
+  remain, and only failed/changed/binding cases are repeated.
+- Effective union: 415 distinct passing cases, zero failures/errors/skips;
+  exact category/overlap and execution ordering are in
+  .worktree/workspace-actor-scope-qualification.json. Legacy capture executions
+  are not added to this union. New ORM alias behavior justifies the later
+  two-binding replay; AST-only client-factory movement does not repeat it.
+- Whole Workspace credentials, cold artifacts, restore and capacity remain
+  batched. Source integration does not cut over the primary runtime. Go remains
+  experimental; no push, release or production action occurs. ADR-0173 records
+  the precise boundary and the sole ledger identifies the next coherent scope.

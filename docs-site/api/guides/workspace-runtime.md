@@ -288,6 +288,23 @@ READ ONLY、Node、异常回复回滚和实际后台 relay 已通过限定本地
 API／Node 验收见 [ADR-0172](/dev/adr/0172-project-set-locks-and-labeling-counters)。
 这仍是操作级调用边界，完整模块凭据与运行工件尚未集中验收。
 
+## 项目范围、看板与列表读取
+
+`aap_workspace_v1.actor_project_memberships(uuid)` 只返回 actor 的 `project_id` 与
+`member_role` 原始事实，NULL actor 返回空集。它不读取日期，不授权或锁行；调用方
+仍与 Identity 资料关系联接，过滤活跃账号、已知平台／项目角色、viewer 配对和所需
+职责。原超级管理员全局范围及 manager owner 分支保持，角色不会互相代替。
+
+审核／标注看板、异步作业列表与通知读取在原 SQL 中组合这些事实和既有项目搜索
+范围，保留 count、分页、claim、导出职责、retained project 与伪造 payload 的处理。
+读取工厂不依赖提供方运行时；ORM 列别名仅保持原 Select 的 autoflush，并不把事实
+转换为可写实体或额外加载时间字段。API 在项目、成员和用户私表 SELECT 被拒绝时
+可完成这些选定读取，认证与姓名资料仍走各自 Identity owner。
+
+范围见 [ADR-0173](/dev/adr/0173-workspace-actor-scope-relations)。通知任意接收人对、
+成员目录与相关成员存在性查询，以及其余 Project 集合／标量仍待单独迁移；完整模块
+凭据、冷工件与恢复继续按[唯一台账](/dev/concepts/module-deployment#剩余工作台账)集中验收。
+
 ## 最终写入与批量分派的成员锁
 
 单成员围栏使用只返回 user_id／null 的 owner SHARE 能力，保留等待／NOWAIT、原

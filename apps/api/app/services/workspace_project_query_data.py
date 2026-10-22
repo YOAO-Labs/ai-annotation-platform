@@ -2,9 +2,14 @@
 
 from contextlib import asynccontextmanager
 
-from sqlalchemy import Text, column, func, text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
+
+from app.services.workspace_read_relations import (
+    actor_project_memberships as actor_project_memberships,
+    project_search_scope as project_search_scope,
+    project_search_member_ids as project_search_member_ids,
+)
 
 from aap_workspace_contract.project_query_contract import (
     ProjectQueryUnavailable,
@@ -65,29 +70,3 @@ class WorkspaceProjectQueryData:
         arguments = project_query_step_arguments(request, action, parameters, filters)
         with self.db.no_autoflush:
             return await self.db.scalar(_STEP, dict(zip(_ARGUMENT_NAMES, arguments)))
-
-
-def project_search_scope(actor):
-    return (
-        func.aap_workspace_project_query_v1.project_search_scope(
-            actor.id, getattr(actor.role, "value", actor.role)
-        )
-        .table_valued(
-            column("project_id", UUID(as_uuid=True)),
-            column("project_name", Text),
-            column("owner_id", UUID(as_uuid=True)),
-            column("video_collaboration", JSONB),
-            column("member_role", Text),
-        )
-        .alias("workspace_project_scope")
-    )
-
-
-def project_search_member_ids(actor):
-    return (
-        func.aap_workspace_project_query_v1.project_search_member_ids(
-            actor.id, getattr(actor.role, "value", actor.role)
-        )
-        .table_valued(column("user_id", UUID(as_uuid=True)))
-        .alias("workspace_project_members")
-    )

@@ -17,6 +17,7 @@ from app.services.identity_contracts import IdentityActorFacts, IdentityActorSta
 from app.schemas.async_job import AsyncJobListResponse, AsyncJobOut
 from app.services import async_job_access
 from app.services.project_aggregates import project_scope_clause
+from app.services.workspace_read_relations import project_search_scope
 
 
 def _build_async_job_query(
@@ -29,9 +30,10 @@ def _build_async_job_query(
 ):
     """Build the one scoped async-job relation used by page and count queries."""
     project_scope_id = func.coalesce(AsyncJob.project_id, AsyncJob.retained_project_id)
+    workspace_projects = project_search_scope(current_user)
     project_exists = (
-        select(Project.id)
-        .where(Project.id == project_scope_id)
+        select(workspace_projects.c.project_id)
+        .where(workspace_projects.c.project_id == project_scope_id)
         .correlate(AsyncJob)
         .exists()
     )

@@ -8,7 +8,6 @@ from app.deps import (
     get_db,
     require_roles,
 )
-from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.dataset import DatasetItem
@@ -31,6 +30,7 @@ from app.services.project_aggregates import (
     project_scope_clause,
     task_project_scope,
 )
+from app.services.workspace_read_relations import project_search_scope
 from app.services.user_brief import resolve_briefs_with_project_role
 from app.services.video_poster_references import video_poster_urls
 from app.services.dashboard_stats import (
@@ -445,9 +445,17 @@ async def my_batches(
     super_admin 看到所有同状态批次（便于演示 / 调试）；其他角色按 annotator_id 过滤（v0.7.2 单值）。"""
     visible_statuses = ["active", "annotating", "rejected", "reviewing"]
 
+    visible_projects = project_search_scope(current_user)
     q = (
-        select(TaskBatch, Project.name, Project.id)
-        .join(Project, TaskBatch.project_id == Project.id)
+        select(
+            TaskBatch,
+            visible_projects.c.project_name,
+            visible_projects.c.project_id,
+        )
+        .join(
+            visible_projects,
+            visible_projects.c.project_id == TaskBatch.project_id,
+        )
         .where(TaskBatch.status.in_(visible_statuses))
     )
     if current_user.role != UserRole.SUPER_ADMIN:
@@ -460,7 +468,9 @@ async def my_batches(
         )
         if batch_scope is not None:
             q = q.where(batch_scope)
-    q = q.order_by(Project.name, TaskBatch.created_at.desc()).limit(100)
+    q = q.order_by(visible_projects.c.project_name, TaskBatch.created_at.desc()).limit(
+        100
+    )
 
     rows = (await db.execute(q)).all()
 

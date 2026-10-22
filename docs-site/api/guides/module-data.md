@@ -105,6 +105,18 @@ HINT；客户端按 phase 恢复原有冲突原因，不向外暴露数据库异
 [Workspace 运行指南](./workspace-runtime#排序项目集合锁与计数投影)及
 [ADR-0172](/dev/adr/0172-project-set-locks-and-labeling-counters)。
 
+## actor 项目成员事实
+
+`aap_workspace_v1.actor_project_memberships(uuid)` 是 STABLE、STRICT 的只读关系，
+返回项目 UUID 与原始职责文本；NULL 输入返回空集。既有未知角色也作为事实保留，
+当前账号、职责和 viewer 配对校验继续由调用方在同一条 SQL 中完成。它没有锁、
+日期解码或提交点。既有 `project_search_scope` 继续承载候选项目和元数据。
+
+调用方使用相同连接组合范围、分页和计数；独立调用查询时也保留原 autoflush。
+专用 owner、应用及 worktree grant 清单同步更新，PUBLIC 无新函数执行权。合同与
+限定验收见 [Workspace 运行指南](./workspace-runtime#项目范围看板与列表读取)和
+[ADR-0173](/dev/adr/0173-workspace-actor-scope-relations)。
+
 ## 同事务的主后端绑定清理
 
 `aap_workspace_v1.clear_primary_backend_bindings(pool_id)` 只清空指向给定服务池的

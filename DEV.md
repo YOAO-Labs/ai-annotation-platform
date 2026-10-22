@@ -840,6 +840,32 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 [ADR-0172](docs/adr/0172-project-set-locks-and-labeling-counters.md)。完整 Workspace
 凭据、冷工件与恢复继续按唯一台账集中验收；这些源码改动没有切换日常运行环境。
 
+### Workspace 项目范围与列表读取
+
+聚合范围保持一条 SQL 内过滤，随后再排序、分页和计数。成员范围使用
+`actor_project_memberships(uuid)` 的项目／职责事实，与 Identity `account_profiles`
+联接后应用原活跃账号、已知角色及 viewer 配对规则；它只需要 actor ID。所有者与
+看板元数据复用 `project_search_scope`，不把候选范围当授权结果。超级管理员全局
+分支及原 owner 分支的调用方状态判断保持不变。
+
+读取工厂位于 `workspace_read_relations.py`，不导入 Workspace 提供方运行时；原
+`workspace_project_query_data` 导入路径保留兼容导出。窄 ORM 列别名保持独立执行
+Select 时的 autoflush，未读取完整成员行或时间字段。更新迁移和三处运行授权清单：
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/workspace-actor-scope.json \
+  --test-file tests/test_workspace_actor_scope_legacy.py \
+  --test-file tests/test_workspace_actor_scope_native.py \
+  --test-file tests/test_project_aggregate_scope.py
+```
+
+126 个旧场景已冻结，每个含 autoflush 开关观测，不设置 `AAP_ACTOR_SCOPE_CAPTURE`
+重写。受限 HTTP 验收使用既有 Identity AUTH 和 Briefs owner 连接，不向 API 角色
+放开认证或资料命令。角色范围、列表、Node 和事务边界见
+[ADR-0173](docs/adr/0173-workspace-actor-scope-relations.md)。其他成员集合和完整模块
+装配仍见唯一台账；本地 API／Celery 主环境未切换。
+
 ### Workspace 同事务成员锁
 
 最终写入围栏使用 scalar `lock_project_member_reference(uuid,uuid,boolean)`，保留

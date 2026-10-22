@@ -43,7 +43,12 @@ from app.services.identity_contracts import IdentityActorStatus
 from app.services.identity_read_relations import account_profiles
 from app.services.async_job_access import GLOBAL_ASYNC_JOB_KINDS
 from aap_workspace_contract.access import platform_role_is_manager
-from app.services.project_aggregates import valid_membership_conditions
+from app.services.project_aggregates import (
+    membership_project_ids,
+    owned_project_ids,
+    valid_membership_conditions,
+)
+from app.services.workspace_read_relations import project_search_scope
 
 
 log = logging.getLogger(__name__)
@@ -103,12 +108,13 @@ def _job_exists_expr():
     )
 
 
-def _job_project_exists_expr():
+def _job_project_exists_expr(user: IdentityActorStatus):
+    workspace_projects = project_search_scope(user)
     return (
         select(AsyncJob.id)
         .join(
-            Project,
-            Project.id
+            workspace_projects,
+            workspace_projects.c.project_id
             == func.coalesce(AsyncJob.project_id, AsyncJob.retained_project_id),
         )
         .where(AsyncJob.id == Notification.target_id)
@@ -175,18 +181,13 @@ def _requires_export_capability_expr():
 
 
 def _member_project_text_select(user: IdentityActorStatus, *project_roles: str):
-    stmt = (
-        select(func.cast(ProjectMember.project_id, String))
-        .join(account_profiles, account_profiles.c.id == ProjectMember.user_id)
-        .where(ProjectMember.user_id == user.id, *valid_membership_conditions())
-    )
-    if project_roles:
-        stmt = stmt.where(ProjectMember.role.in_(list(project_roles)))
-    return stmt
+    memberships = membership_project_ids(user, *project_roles).subquery()
+    return select(func.cast(memberships.c.project_id, String))
 
 
 def _owned_project_text_select(user: IdentityActorStatus):
-    return select(func.cast(Project.id, String)).where(Project.owner_id == user.id)
+    owned_projects = owned_project_ids(user).subquery()
+    return select(func.cast(owned_projects.c.project_id, String))
 
 
 def _accessible_project_clause(user: IdentityActorStatus, project_text):
@@ -607,7 +608,8 @@ class NotificationService:
                 _job_kind_expr().in_(GLOBAL_ASYNC_JOB_KINDS),
             )
             valid_project_scope = and_(
-                _job_project_text_expr().is_not(None), _job_project_exists_expr()
+                _job_project_text_expr().is_not(None),
+                _job_project_exists_expr(user),
             )
             return [
                 or_(
