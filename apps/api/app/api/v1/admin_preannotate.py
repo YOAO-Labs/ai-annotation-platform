@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.db.enums import BatchStatus, UserRole
 from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
@@ -34,6 +35,7 @@ from app.application.bulk_clear_preannotate import (
 from app.services.audit import audit_origin_from_request
 from app.services.batch_permissions import bulk_preannotation_eligible_condition
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.workspace_read_relations import project_facts, project_rows
 
 router = APIRouter()
 
@@ -71,9 +73,10 @@ async def list_preannotate_queue(
     # 1. 拉所有 pre_annotated 批次 (limit 前)
     stmt = select(TaskBatch).where(TaskBatch.status == BatchStatus.PRE_ANNOTATED)
     if admin.role != UserRole.SUPER_ADMIN:
+        owner_facts = project_facts()
         stmt = stmt.where(
             TaskBatch.project_id.in_(
-                select(Project.id).where(Project.owner_id == admin.id)
+                select(owner_facts.c.id).where(owner_facts.c.owner_id == admin.id)
             )
         )
     bres = await db.execute(stmt.order_by(TaskBatch.updated_at.desc()).limit(limit))
@@ -85,7 +88,8 @@ async def list_preannotate_queue(
     project_ids = list({b.project_id for b in batches})
 
     # 2. project 信息
-    pres = await db.execute(select(Project).where(Project.id.in_(project_ids)))
+    projects = aliased(Project, project_rows(), adapt_on_names=True)
+    pres = await db.execute(select(projects).where(projects.id.in_(project_ids)))
     projects_by_id = {p.id: p for p in pres.scalars().all()}
 
     # 3. 每 batch 的 task count
@@ -240,16 +244,17 @@ async def list_preannotate_project_summary(
     v0.10.38 · 撤回 v0.10.36 的 data_type="image" 过滤: 模态分流改到前端 ProjectDetailPanel
     (image 走文本批量预标, video 走引导卡片+job 历史), summary 返回 data_type 供前端路由.
     """
-    stmt = select(Project).where(
+    project_rows_alias = aliased(Project, project_rows(), adapt_on_names=True)
+    stmt = select(project_rows_alias).where(
         select(ProjectMLBackendPool.id)
         .where(
-            ProjectMLBackendPool.project_id == Project.id,
+            ProjectMLBackendPool.project_id == project_rows_alias.id,
             ProjectMLBackendPool.enabled.is_(True),
         )
         .exists(),
     )
     if admin.role != UserRole.SUPER_ADMIN:
-        stmt = stmt.where(Project.owner_id == admin.id)
+        stmt = stmt.where(project_rows_alias.owner_id == admin.id)
     pres = await db.execute(stmt)
     projects = list(pres.scalars().all())
     if not projects:

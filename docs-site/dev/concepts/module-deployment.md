@@ -27,15 +27,16 @@ last_reviewed: 2026-10-22
 | Identity：准入、API key、会话、自助账户、恢复及邮件 | 已有各自 owner 与版本化合同；注册策略统一到实际 owner                                     | 已迁移公开入口与邮件消费者，远程 API 不持有 owner 签名密钥                       | [整模块装配](#identity-整模块独立装配)通过冷安装、真实 REST／Socket、邮件和完整恢复                                                               | 私网装配的本地功能资格已闭合；日常签名与运行环境未切换，其他网络拓扑和生产容量未获资格                                                           |
 | Identity：分组、邀请、目录、管理员生命周期          | 已实现分组／邀请、目录、UserBrief、重置密码、角色、暂停／恢复、删除、离职 owner           | 公开入口及内部资料读取使用 owner 或最小公开关系                                  | [整模块装配](#identity-整模块独立装配)覆盖真实 API、Node 重放、账号撤销、职责交接和恢复；操作级证据继续保留                                       | 本地私网功能资格已闭合；未验收另一语言的完整提供方                                                                                               |
 | Identity：账号事实、锁、provisioning、完整装配      | 同事务事实锁、accepted-key 最终围栏、provisioning 及完整运行包已实现                      | 账号权威与集合／展示读取已迁移；验收 API 的 Identity 权限仅为两视图及五函数      | [整模块装配](#identity-整模块独立装配)：658 项安装包检查、匹配冷镜像、完整迁移及两轮私网恢复通过                                                  | 主 API 仍保留兼容装配。旧宿主机转发实验曾出现间歇性 503，根因未确认；私网通过不视为修复该路径                                                    |
-| Workspace：项目、成员、配置及访问                   | 成员、交接、配置／模板、查询及相邻项目写入已实现                                          | nuScenes／点云质量晋升和对应公开入口已迁移，其他选定消费者已迁移                 | [相邻写入](#workspace-相邻项目写入)通过 65 项定向检查；既有运行资格见 [Workspace 协议](/api/guides/workspace-runtime)                             | **下一项独立工作**：其余 Project 集合、标量和独立 owner 范围子查询；整模块凭据与装配待集中验收                                                   |
+| Workspace：项目、成员、配置及访问                   | 成员、交接、配置／模板、查询及相邻项目写入已实现                                          | nuScenes／点云质量晋升和对应公开入口已迁移，其他选定消费者已迁移                 | [相邻写入](#workspace-相邻项目写入)通过 65 项定向检查；既有运行资格见 [Workspace 协议](/api/guides/workspace-runtime)                             | **下一项独立工作**：Labeling 三处 Project 计数原子写入；解绑可移植绑定、视频删除安全规则和完整 Workspace 凭据／工件继续收口                      |
 | Workspace：当前权限 SHARE／KEY SHARE                | 复用 0270，完整 Project／成员锁定快照与会话同步已实现                                     | 原元组接口、权限端口及实际写入消费者集中切换；保持缓存与 pending work 行为       | [锁定读取](#workspace-锁定权限读取)通过 163 项去重定向检查，包含真实受限 API LOGIN、Node 及三路径时间字段兼容                                     | 本操作的限定源码／Native 调用边界已闭合；完整 Workspace 凭据与冷工件待集中验收，其余操作在本台账跟踪                                             |
 | Workspace：当前权限无锁读取                         | 初始 Project 无锁阶段、现有 Query facts 和完整快照同步已实现                              | by-id 与直接 helper 已迁移；保持 autoflush、错误顺序与公开 GET 第二轮检查        | [无锁读取](#workspace-无锁权限读取)通过 180 项去重定向检查，含真实受限 API LOGIN、READ ONLY、Node 及缓存基线复验                                  | 当前源码／Native 边界已实现；完整 Workspace 凭据与冷工件仍待集中验收                                                                             |
 | Workspace：Project 独占快照                         | actor-free Native 锁与严格完整行合同已实现                                                | 孤儿标注清理与点云晋升已迁移，分别保留 NOWAIT／等待和原缓存／autoflush           | [独占快照](#workspace-独占-project-快照)通过 245 项去重定向检查，含真实受限 API、Node、九项旧缓存基线复验及隔离级别                               | 本操作限定源码／Native 边界已闭合；完整 Workspace 凭据、冷工件与恢复仍待集中验收                                                                 |
 | Workspace：Task／Training 单项目快照                | 复用无锁事实、缓存兼容 getter 及 scalar 引用围栏                                          | 八处 Task／Training 读取已迁移，训练前置 Project 锁也由 owner 执行               | [业务快照](#workspace-task-training-snapshots)通过 329 项去重定向检查，含 56 项旧行为基线后的同案复验、真实受限 API 和 Node                       | 本组选定消费者已收口；其余普通 getter 见下一行，集合／写入及完整装配仍在台账跟踪                                                                 |
-| Workspace：其余普通单项目业务快照                   | 无 actor 完整行能力及共享 get 会话绑定已实现                                              | 86 处只读 getter／52 文件已迁移，十处强制刷新保留                                | [业务读取](#workspace-business-project-reads)通过 957 项去重定向检查，含双绑定 golden、受限 API、Node 与实际消费者                                | 原始普通 getter 仅留测试 seed；Project／成员集合查询及完整装配待验收                                                                             |
-| Workspace：批次项目集合锁及 Labeling 计数投影       | 排序 NOWAIT 集合锁与定向计数补丁能力已实现                                                | 批次决策及两处重算已迁移，保留原查询、flush／缓存／时间戳及外层事务              | [锁与计数](#workspace-project-persistence)通过 243 项去重检查，含 32 项旧行为复验、受限 API、Node、回滚与实际消费者                               | 本组选定操作的源码／Native 边界已闭合；其他集合查询和完整模块凭据／冷工件／恢复待集中验收                                                        |
-| Workspace：actor 项目范围与看板／列表读取           | ID-only 成员事实与既有搜索范围组合已实现，Identity／角色规则保持                          | 共享聚合 helper、审核／标注看板、作业列表和通知读取已接入                        | [范围读取](#workspace-actor-scope)通过 415 项不同定向检查，含两绑定 golden、受限 HTTP／PG／Node 和实际消费者                                      | 本组选定读取边界已闭合；单独 owner 子查询和 Project 批量投影仍待收口                                                                             |
-| Workspace：非锁定成员集合／名册及相关谓词           | 九列原生成员事实视图、便携合同和 ORM 别名已实现                                           | 任意接收人通知、提及、名册、管理／个人绩效和批次相关判断已迁移                   | [成员事实](#workspace-member-facts)通过 130 项不同案例，含旧行为基线、受限 API／HTTP／Node 与实际消费者                                           | 本组选定成员读取边界已闭合；相关 Project SQL 仍待迁移，默认宽凭据、冷工件、恢复和容量待整模块验收                                                |
+| Workspace：其余普通单项目业务快照                   | 无 actor 完整行能力及共享 get 会话绑定已实现                                              | 86 处只读 getter／52 文件已迁移，十处强制刷新保留                                | [业务读取](#workspace-business-project-reads)通过 957 项去重定向检查，含双绑定 golden、受限 API、Node 与实际消费者                                | 原始普通 getter 仅留测试 seed；只读集合见后续事实关系，写入及完整装配待验收                                                                      |
+| Workspace：批次项目集合锁及 Labeling 计数投影       | 排序 NOWAIT 集合锁与定向计数补丁能力已实现                                                | 批次决策及两处重算已迁移，保留原查询、flush／缓存／时间戳及外层事务              | [锁与计数](#workspace-project-persistence)通过 243 项去重检查，含 32 项旧行为复验、受限 API、Node、回滚与实际消费者                               | 这组锁与两处重算已闭合；另有三处生命周期／审核计数 DML 仍待 Labeling owner，完整凭据／冷工件／恢复待集中验收                                     |
+| Workspace：actor 项目范围与看板／列表读取           | ID-only 成员事实与既有搜索范围组合已实现，Identity／角色规则保持                          | 共享聚合 helper、审核／标注看板、作业列表和通知读取已接入                        | [范围读取](#workspace-actor-scope)通过 415 项不同定向检查，含两绑定 golden、受限 HTTP／PG／Node 和实际消费者                                      | 本组选定读取边界已闭合；Project 集合见下方事实关系，完整模块装配仍待验收                                                                         |
+| Workspace：非锁定成员集合／名册及相关谓词           | 九列原生成员事实视图、便携合同和 ORM 别名已实现                                           | 任意接收人通知、提及、名册、管理／个人绩效和批次相关判断已迁移                   | [成员事实](#workspace-member-facts)通过 130 项不同案例，含旧行为基线、受限 API／HTTP／Node 与实际消费者                                           | 本组选定成员读取边界已闭合；Project 读取见下方事实关系，默认宽凭据、冷工件、恢复和容量待整模块验收                                               |
+| Workspace：Project 集合、投影及 owner 子查询        | 38 列 Workspace 原生事实与既有 Labeling 计数视图组合已实现                                | 管理／训练／审核列表、通知／提及、导出、回填、点云过期和 Labeling 流式读取已迁移 | [项目事实](#workspace-project-facts)通过 125 项不同案例，含旧行为、受限 API／Node 与实际消费者                                                    | 当前只读调用边界已迁移；三处计数 DML、默认宽凭据及完整模块装配仍待收口                                                                           |
 | Workspace：最终写入／批量分派成员锁                 | 两项固定成员引用／完整集合能力已实现                                                      | 最终写入围栏与批量分派已接入，保留原锁序及缓存行为                               | [成员锁](#workspace-member-locks)通过 224 项去重定向检查                                                                                          | 本操作边界已闭合；完整模块装配仍待收口                                                                                                           |
 | Workspace：项目删除                                 | 原子 Native 协调器及 Workspace 可移植命令／连接式客户端已实现                             | API 已通过同一请求事务调用 owner；不新增独立提交点                               | [项目删除](#workspace-项目删除事务切片)的调用边界通过 76 项源码／受限 PG／Node／实际 API 定向检查                                                 | **安全阻塞待决**：未退役视频执行可因删除失去 canonical Job，并留下运行态摘要／输入 pin；删除规则待确认，尚未修复，整项能力不记为闭合             |
 | Workspace：数据集解绑                               | 已有同事务预览／协调器、关联代次围栏及回执                                                | 仍由 API 的数据适配器调用                                                        | [解绑切片](#workspace-数据集解绑事务切片)保留既有资格                                                                                             | 可移植包／调用绑定及完整装配待收口；源审计发现与项目删除同类的未退役视频执行残留，完整安全资格待修复                                             |
@@ -216,6 +217,28 @@ READ ONLY、已提交变更、批次 UPDATE 和外层回滚通过。schema 标�
 本轮撤掉测试 API LOGIN 的成员私表 SELECT；含 Project 查询的操作仍保留 Project
 权限。默认应用宽角色仍属兼容装配，整模块凭据、冷工件、恢复和容量尚未获得资格；
 主环境未切换。其余工作只在顶部台账继续跟踪。
+
+## Workspace Project 集合与投影 {#workspace-project-facts}
+
+Workspace 以固定 38 列原生视图公开项目字段，完整 ORM 对象在同一 SQL 内按主键
+联接既有 Labeling 六列计数关系，得到原 43 列。部分 ID／owner／元数据读取只访问
+Workspace 事实，不做完整 JSON 或日期解码。五个计数列的 NOT NULL 由迁移和实际
+数据库共同验证，既有计数视图的 COALESCE 对受支持数据保持原值；没有新增计数视图。
+完整对象增加数据库内的主键联接，连接数、语句数及提交边界保持。
+
+所有已找到的应用级 Project 只读 SQL 已迁移，保留权限谓词、外联接、相关计数、
+分页、延迟列和流式选项。新增 42 项旧行为基线覆盖缓存、autoflush、日期与超级
+管理员的全局总数；Core-only count 推迟 flush 导致 total 与列表不一致的缺陷已
+复现并通过 ORM 别名修复。两个 real 阈值列按真实 PostgreSQL 类型声明。
+
+125 个不同适用案例通过，无有效失败或跳过：42 项旧行为复验、15 项 Native／HTTP／
+Node、4 项相关合同／客户端检查和 64 项实际消费者。
+
+受限 API LOGIN 撤销 User／Project／Member 私表 SELECT 后，选定 SQL、真实 HTTP
+和 Node 客户端通过；READ ONLY、原生 JSONB／非有限数、同事务与无锁也已验证。
+完整分类和失败／最小复验见 `.worktree/workspace-project-facts-qualification.json`
+及 [ADR-0175](/dev/adr/0175-workspace-project-fact-relations)。三处计数 DML 不属于读取
+迁移，默认应用宽角色、冷工件、恢复与容量仍未获完整模块资格；主环境未切换。
 
 ## Workspace 同事务成员锁 {#workspace-member-locks}
 

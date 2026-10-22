@@ -51,6 +51,7 @@ from app.services.project_aggregates import (
 )
 from app.services.workspace_read_relations import (
     project_member_facts,
+    project_facts,
     project_search_scope,
 )
 
@@ -418,26 +419,28 @@ class NotificationService:
         )
         reviewer_pairs = {(pid, uid) for pid, uid in reviewer_rows.all()}
 
+        owner_project = aliased(Project, project_facts(), adapt_on_names=True)
         owner_rows = await self.db.execute(
-            select(Project.id, Project.owner_id)
-            .join(account_profiles, account_profiles.c.id == Project.owner_id)
+            select(owner_project.id, owner_project.owner_id)
+            .join(account_profiles, account_profiles.c.id == owner_project.owner_id)
             .where(
-                tuple_(Project.id, Project.owner_id).in_(pairs),
+                tuple_(owner_project.id, owner_project.owner_id).in_(pairs),
                 account_profiles.c.is_active.is_(True),
                 account_profiles.c.role.in_(list(MANAGER_PLATFORM_ROLES)),
             )
         )
         owner_pairs = {(pid, uid) for pid, uid in owner_rows.all()}
 
+        super_project = aliased(Project, project_facts(), adapt_on_names=True)
         super_rows = await self.db.execute(
-            select(Project.id, account_profiles.c.id)
-            .select_from(Project)
+            select(super_project.id, account_profiles.c.id)
+            .select_from(super_project)
             .join(
                 account_profiles,
                 account_profiles.c.id.in_({uid for _pid, uid in pairs}),
             )
             .where(
-                tuple_(Project.id, account_profiles.c.id).in_(pairs),
+                tuple_(super_project.id, account_profiles.c.id).in_(pairs),
                 account_profiles.c.is_active.is_(True),
                 account_profiles.c.role == PlatformRole.SUPER_ADMIN.value,
             )

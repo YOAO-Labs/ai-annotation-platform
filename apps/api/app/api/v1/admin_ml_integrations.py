@@ -25,6 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import AnyHttpUrl, BaseModel, Field, TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.application.ml_registry_deletion import (
     delete_registry as delete_registry_command,
@@ -109,6 +110,7 @@ from app.services.ml_backend import (
 from app.services.ml_client import MLBackendClient
 from app.services.storage import storage_service
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.workspace_read_relations import project_rows
 
 router = APIRouter()
 
@@ -181,9 +183,10 @@ async def get_overview(
     # v0.19.0 ADR-0044 · backend 全局化; 「按项目分组」改为按项目「已启用」关联分组
     # (project_ml_backend_pool join pool member join registry)。total/connected
     # 统计全局注册表去重后的真值。v0.23.3 ADR-0050 · 项目启用经服务池层。
+    projects = aliased(Project, project_rows(), adapt_on_names=True)
     res = await db.execute(
-        select(Project, MLBackendRegistry)
-        .join(ProjectMLBackendPool, ProjectMLBackendPool.project_id == Project.id)
+        select(projects, MLBackendRegistry)
+        .join(ProjectMLBackendPool, ProjectMLBackendPool.project_id == projects.id)
         .join(
             MLBackendPoolMember,
             MLBackendPoolMember.pool_id == ProjectMLBackendPool.pool_id,
@@ -193,7 +196,7 @@ async def get_overview(
             MLBackendRegistry.id == MLBackendPoolMember.registry_id,
         )
         .where(ProjectMLBackendPool.enabled.is_(True))
-        .order_by(Project.name, MLBackendRegistry.created_at.desc())
+        .order_by(projects.name, MLBackendRegistry.created_at.desc())
     )
     grouped: dict[str, ProjectMLBackendsGroup] = {}
     for proj, b in res.all():
@@ -208,8 +211,11 @@ async def get_overview(
             )
         )
 
+    ai_projects = aliased(Project, project_rows(), adapt_on_names=True)
     ai_projects_res = await db.execute(
-        select(Project).where(Project.ai_enabled.is_(True)).order_by(Project.name)
+        select(ai_projects)
+        .where(ai_projects.ai_enabled.is_(True))
+        .order_by(ai_projects.name)
     )
     for proj in ai_projects_res.scalars().all():
         pid_str = str(proj.id)

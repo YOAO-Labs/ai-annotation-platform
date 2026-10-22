@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import String, and_, cast, func, or_, outerjoin, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.deps import get_db, require_roles
 from app.db.enums import UserRole
@@ -35,6 +36,7 @@ from app.services.identity_read_relations import (
     account_profiles,
     invitation_audit_targets,
 )
+from app.services.workspace_read_relations import project_facts
 
 router = APIRouter()
 
@@ -192,13 +194,14 @@ def _row_to_out(row) -> AuditLogOut:
 
 
 def _managed_audit_scope(actor: IdentityActorFacts, *, project_id: UUID | None = None):
+    project = aliased(Project, project_facts(), adapt_on_names=True)
     conditions = (
-        [] if actor.role == UserRole.SUPER_ADMIN else [Project.owner_id == actor.id]
+        [] if actor.role == UserRole.SUPER_ADMIN else [project.owner_id == actor.id]
     )
     if project_id is not None:
-        conditions.append(Project.id == project_id)
-    project_ids = select(Project.id).where(*conditions)
-    projects = select(cast(Project.id, String)).where(*conditions)
+        conditions.append(project.id == project_id)
+    project_ids = select(project.id).where(*conditions)
+    projects = select(cast(project.id, String)).where(*conditions)
     tasks = select(cast(Task.id, String)).where(Task.project_id.in_(project_ids))
     batches = select(cast(TaskBatch.id, String)).where(
         TaskBatch.project_id.in_(project_ids)

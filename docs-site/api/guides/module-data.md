@@ -130,6 +130,17 @@ Workspace 拥有 `aap_workspace_v1.project_member_facts` 安全屏障视图，�
 [运行指南](./workspace-runtime#非锁定成员集合与名册)和
 [ADR-0174](/dev/adr/0174-workspace-nonlocking-member-facts)。
 
+## Project 原生事实与计数依赖
+
+Workspace 的 `project_facts` 公开 38 个原生字段，固定列顺序及精确类型由共享关系
+描述声明；box/text 阈值保留实际的 PostgreSQL real 类型。完整读取以主键组合既有
+Labeling `project_catalog_counters`，计数所有权和原 43 列行布局保持。两方都只授权
+客户端 SELECT，PUBLIC 不获权限，不新增连接或提交点。
+
+该关系支持原 SQL 内的联接、外联接、分组、相关谓词和分页，不预取全量行再在应用
+过滤。原授权和各调用的 autoflush／缓存语义继续由调用方持有。接口与资格边界见
+[Workspace 运行指南](./workspace-runtime#项目集合投影与元数据)。
+
 ## 同事务的主后端绑定清理
 
 `aap_workspace_v1.clear_primary_backend_bindings(pool_id)` 只清空指向给定服务池的

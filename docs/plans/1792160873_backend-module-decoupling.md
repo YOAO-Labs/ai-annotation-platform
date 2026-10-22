@@ -5865,3 +5865,55 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   titles are Root's documented source correction. The Docker absence checker
   is corrected to match the lowercase error plus exit code and empty JSON;
   the five containers were already absent. No deployment state is changed.
+
+### Workspace Project set and projection facts qualification
+
+- Root starts at 22fba052f23a83d7c7acdd10ae8c044e8a20d825. Source-only workers
+  provide 2e8cc321834854f130200a323a6f30f4948f64fb,
+  a4ee4de5acc97f47fe19fccc3aa9c001497373f7,
+  e9374c685cd237540be943a0a3efa47b6cb8396e,
+  7b04699556d01e751752fe1ca1b8de36cd28d80f and
+  c4f4a97e2e31816d6da273f9c2b02fdaabbc92f5 in three isolated worktrees.
+  Root owns integration, grants, exact types, regression capture and acceptance.
+- Revision 0298 adds only a native 38-column Workspace Project view. A source
+  and actual-database audit proves all five Labeling counter columns NOT NULL,
+  so Root removes the proposed duplicate raw counter view and reuses existing
+  project_catalog_counters; COALESCE is inert under the supported constraints.
+  Complete ORM rows join the two owner relations in the same statement and
+  canonical 43-column order; partial reads avoid counter joins and full JSON
+  or date decoding. A new Project DTO is unnecessary and is not introduced.
+- All remaining application readonly Project set/scalar/join/owner-scope reads
+  migrate. Permission predicates, outer joins, correlations, ordering/pages,
+  cache/dirty/expired/deferred state and the single streamed labeling query
+  remain. Three lifecycle/review Project counter UPDATE methods remain DML and
+  are the next independent work, not included in this read closure.
+- Forty baseline cases are captured before integration. Independent audit finds
+  an untested super-admin Core-only COUNT losing ORM autoflush. Two additional
+  cases execute exact immutable base function AST without route decorators;
+  the candidate returns total=1 with two page rows. An ORM alias at the original
+  count statement restores flush, and its smallest failed case passes before
+  the final replay. Golden values are never overwritten or counted twice.
+- Root corrects empty-defs preflight metadata, Native mirror descriptions and
+  two threshold types (actual PostgreSQL real), parameterizes a JSON fixture,
+  extends provider rejection to the Labeling relation and changes a Node view
+  ACL probe to an updatable key column. All original failure logs, command
+  exits and JUnit (when tests started) are retained; minimal repros precede the
+  remaining unrun or implementation-changed acceptance.
+- Effective business union: 125 distinct passes, zero effective failures/errors/
+  skips: 42 old-behavior replays, 15 Native/real HTTP/Node cases, four related
+  contracts/client checks and 64 existing consumers. Mocked export notification
+  cases emit existing AsyncMock RuntimeWarnings; warning-path production ASTs
+  match the base, actual restricted notification checks pass and logs remain.
+- No new DSN, service, connection or commit point exists. Full Project reads
+  add one in-database primary-key join. Actual API LOGIN loses User/Project/
+  Member private SELECT; the default broad compatibility application role is
+  explicitly deferred. Full Workspace credentials/cold artifacts/restore/
+  capacity are still batched. No primary cutover, push, release, production
+  deployment or Go expansion occurs. ADR-0175 and the sole module ledger keep
+  source integration, operation-level qualification and full-module status
+  separate. Aggregate: .worktree/workspace-project-facts-qualification.json.
+
+- Focused final checks pass: 358 applicable architecture cases (150 explicitly
+  inapplicable rules), 20 grant/selection units, pinned Ruff/format, explicit
+  OpenAPI snapshot check, docs build and diff. No business test rerun follows
+  formatting or receipt-only documentation changes.

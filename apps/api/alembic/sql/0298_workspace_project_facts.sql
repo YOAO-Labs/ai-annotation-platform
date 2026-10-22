@@ -1,0 +1,45 @@
+CREATE VIEW aap_workspace_v1.project_facts
+WITH (security_barrier = true)
+AS
+SELECT
+    project.id,
+    project.organization_id,
+    project.display_id,
+    project.name,
+    project.type_label,
+    project.type_key,
+    project.data_type,
+    project.owner_id,
+    project.status,
+    project.ai_enabled,
+    project.ml_backend_pool_id,
+    project.default_variants,
+    project.preannotate_pipeline,
+    project.label_config,
+    project.tool_bindings,
+    project.sampling,
+    project.maximum_annotations,
+    project.show_overlap_first,
+    project.iou_dedup_threshold,
+    project.box_threshold,
+    project.text_threshold,
+    project.ai_interactive_enabled,
+    project.raster_mask_native_editing_enabled,
+    project.mask_qc_config,
+    project.point_cloud_quality_config,
+    project.rendering_config,
+    project.annotation_guide,
+    project.guide_assets,
+    project.model_version,
+    project.task_lock_ttl_seconds,
+    project.video_sampling,
+    project.video_collaboration,
+    project.scene_mode,
+    project.prefer_same_scene_continuation,
+    project.scene_continuation_window_min,
+    project.due_date,
+    project.created_at,
+    project.updated_at
+FROM public.projects AS project;
+-- aap-statement-break
+REVOKE ALL ON aap_workspace_v1.project_facts FROM PUBLIC;

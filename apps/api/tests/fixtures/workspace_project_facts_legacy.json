@@ -1,0 +1,1023 @@
+{
+  "cases": {
+    "date:created_at:delivery": {
+      "error": null,
+      "result": [0]
+    },
+    "date:created_at:export_fingerprint": {
+      "error": null,
+      "result": [true, 0]
+    },
+    "date:created_at:export_naming": {
+      "error": null,
+      "result": ["image", null, true]
+    },
+    "date:created_at:ids": {
+      "error": null,
+      "result": true
+    },
+    "date:created_at:mentions": {
+      "error": null,
+      "result": null
+    },
+    "date:created_at:training": {
+      "error": "OverflowError",
+      "result": null
+    },
+    "date:due_date:delivery": {
+      "error": null,
+      "result": [0]
+    },
+    "date:due_date:export_fingerprint": {
+      "error": null,
+      "result": [true, 0]
+    },
+    "date:due_date:export_naming": {
+      "error": null,
+      "result": ["image", null, true]
+    },
+    "date:due_date:ids": {
+      "error": null,
+      "result": true
+    },
+    "date:due_date:mentions": {
+      "error": null,
+      "result": null
+    },
+    "date:due_date:training": {
+      "error": "ValueError",
+      "result": null
+    },
+    "date:updated_at:delivery": {
+      "error": null,
+      "result": [0]
+    },
+    "date:updated_at:export_fingerprint": {
+      "error": "OverflowError",
+      "result": null
+    },
+    "date:updated_at:export_naming": {
+      "error": null,
+      "result": ["image", null, true]
+    },
+    "date:updated_at:ids": {
+      "error": null,
+      "result": true
+    },
+    "date:updated_at:mentions": {
+      "error": null,
+      "result": null
+    },
+    "date:updated_at:training": {
+      "error": "OverflowError",
+      "result": null
+    },
+    "ids:False": {
+      "matches": true,
+      "pending_task": true
+    },
+    "ids:True": {
+      "matches": true,
+      "pending_task": false
+    },
+    "training:clean:False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "total_tasks": 7,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true
+            }
+          }
+        }
+      },
+      "items": [
+        {
+          "active_run_count": 0,
+          "can_prepare_dataset": true,
+          "name": "initial",
+          "ready_dataset_count": 0,
+          "status": "in_progress"
+        }
+      ],
+      "loaded": [],
+      "pending_task": true,
+      "same_identity": true,
+      "total": 1,
+      "trace": ["project_read", "project_read"]
+    },
+    "training:clean:True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "total_tasks": 7,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true
+            }
+          }
+        }
+      },
+      "items": [
+        {
+          "active_run_count": 0,
+          "can_prepare_dataset": true,
+          "name": "initial",
+          "ready_dataset_count": 0,
+          "status": "in_progress"
+        }
+      ],
+      "loaded": [],
+      "pending_task": false,
+      "same_identity": true,
+      "total": 1,
+      "trace": ["task_insert", "project_read", "project_read"]
+    },
+    "training:deleted_database:False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "total_tasks": 7,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true
+            }
+          }
+        }
+      },
+      "items": [],
+      "loaded": [],
+      "pending_task": true,
+      "same_identity": true,
+      "total": 0,
+      "trace": ["project_read", "project_read"]
+    },
+    "training:deleted_database:True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "total_tasks": 7,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true
+            }
+          }
+        }
+      },
+      "items": [],
+      "loaded": [],
+      "pending_task": false,
+      "same_identity": true,
+      "total": 0,
+      "trace": ["task_insert", "project_read", "project_read"]
+    },
+    "training:dirty_counter:False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": true,
+        "persistent": true,
+        "total_tasks": 23,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true
+            }
+          }
+        }
+      },
+      "items": [
+        {
+          "active_run_count": 0,
+          "can_prepare_dataset": true,
+          "name": "initial",
+          "ready_dataset_count": 0,
+          "status": "in_progress"
+        }
+      ],
+      "loaded": [],
+      "pending_task": true,
+      "same_identity": true,
+      "total": 1,
+      "trace": ["project_read", "project_read"]
+    },
+    "training:dirty_counter:True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "total_tasks": 23,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true
+            }
+          }
+        }
+      },
+      "items": [
+        {
+          "active_run_count": 0,
+          "can_prepare_dataset": true,
+          "name": "initial",
+          "ready_dataset_count": 0,
+          "status": "in_progress"
+        }
+      ],
+      "loaded": [],
+      "pending_task": false,
+      "same_identity": true,
+      "total": 1,
+      "trace": ["project_update", "task_insert", "project_read", "project_read"]
+    },
+    "training:dirty_name:False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": true,
+        "persistent": true,
+        "total_tasks": 7,
+        "unloaded": [],
+        "values": {
+          "name": "pending local",
+          "status": "in_progress",
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true
+            }
+          }
+        }
+      },
+      "items": [
+        {
+          "active_run_count": 0,
+          "can_prepare_dataset": true,
+          "name": "pending local",
+          "ready_dataset_count": 0,
+          "status": "in_progress"
+        }
+      ],
+      "loaded": [],
+      "pending_task": true,
+      "same_identity": true,
+      "total": 1,
+      "trace": ["project_read", "project_read"]
+    },
+    "training:dirty_name:True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "total_tasks": 7,
+        "unloaded": [],
+        "values": {
+          "name": "pending local",
+          "status": "in_progress",
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true
+            }
+          }
+        }
+      },
+      "items": [
+        {
+          "active_run_count": 0,
+          "can_prepare_dataset": true,
+          "name": "pending local",
+          "ready_dataset_count": 0,
+          "status": "in_progress"
+        }
+      ],
+      "loaded": [],
+      "pending_task": false,
+      "same_identity": true,
+      "total": 1,
+      "trace": ["project_update", "task_insert", "project_read", "project_read"]
+    },
+    "training:expired:False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "total_tasks": 7,
+        "unloaded": ["annotation_guide", "guide_assets"],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true
+            }
+          }
+        }
+      },
+      "items": [
+        {
+          "active_run_count": 0,
+          "can_prepare_dataset": true,
+          "name": "initial",
+          "ready_dataset_count": 0,
+          "status": "in_progress"
+        }
+      ],
+      "loaded": [],
+      "pending_task": true,
+      "same_identity": true,
+      "total": 1,
+      "trace": ["project_read", "project_read"]
+    },
+    "training:expired:True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "total_tasks": 7,
+        "unloaded": ["annotation_guide", "guide_assets"],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true
+            }
+          }
+        }
+      },
+      "items": [
+        {
+          "active_run_count": 0,
+          "can_prepare_dataset": true,
+          "name": "initial",
+          "ready_dataset_count": 0,
+          "status": "in_progress"
+        }
+      ],
+      "loaded": [],
+      "pending_task": false,
+      "same_identity": true,
+      "total": 1,
+      "trace": ["task_insert", "project_read", "project_read"]
+    },
+    "training:expired_dirty:False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": true,
+        "persistent": true,
+        "total_tasks": 7,
+        "unloaded": ["annotation_guide", "guide_assets"],
+        "values": {
+          "name": "pending local",
+          "status": "in_progress",
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true
+            }
+          }
+        }
+      },
+      "items": [
+        {
+          "active_run_count": 0,
+          "can_prepare_dataset": true,
+          "name": "pending local",
+          "ready_dataset_count": 0,
+          "status": "in_progress"
+        }
+      ],
+      "loaded": [],
+      "pending_task": true,
+      "same_identity": true,
+      "total": 1,
+      "trace": ["project_read", "project_read"]
+    },
+    "training:expired_dirty:True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "total_tasks": 7,
+        "unloaded": [],
+        "values": {
+          "name": "pending local",
+          "status": "in_progress",
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true
+            }
+          }
+        }
+      },
+      "items": [
+        {
+          "active_run_count": 0,
+          "can_prepare_dataset": true,
+          "name": "pending local",
+          "ready_dataset_count": 0,
+          "status": "in_progress"
+        }
+      ],
+      "loaded": [],
+      "pending_task": false,
+      "same_identity": true,
+      "total": 1,
+      "trace": ["project_read", "project_update", "task_insert", "project_read", "project_read"]
+    },
+    "training:miss:False": {
+      "cached": null,
+      "items": [
+        {
+          "active_run_count": 0,
+          "can_prepare_dataset": true,
+          "name": "initial",
+          "ready_dataset_count": 0,
+          "status": "in_progress"
+        }
+      ],
+      "loaded": [
+        {
+          "deleted": false,
+          "detached": false,
+          "expired": false,
+          "modified": false,
+          "persistent": true,
+          "total_tasks": 7,
+          "unloaded": ["annotation_guide", "guide_assets"],
+          "values": {
+            "name": "initial",
+            "status": "in_progress",
+            "tool_bindings": {
+              "bbox": {
+                "attribute_schema": {
+                  "fields": []
+                },
+                "classes": [
+                  {
+                    "name": "car",
+                    "order": 0
+                  },
+                  {
+                    "name": "person",
+                    "order": 1
+                  }
+                ],
+                "enabled": true
+              }
+            }
+          }
+        }
+      ],
+      "pending_task": true,
+      "same_identity": false,
+      "total": 1,
+      "trace": ["project_read", "project_read"]
+    },
+    "training:miss:True": {
+      "cached": null,
+      "items": [
+        {
+          "active_run_count": 0,
+          "can_prepare_dataset": true,
+          "name": "initial",
+          "ready_dataset_count": 0,
+          "status": "in_progress"
+        }
+      ],
+      "loaded": [
+        {
+          "deleted": false,
+          "detached": false,
+          "expired": false,
+          "modified": false,
+          "persistent": true,
+          "total_tasks": 7,
+          "unloaded": ["annotation_guide", "guide_assets"],
+          "values": {
+            "name": "initial",
+            "status": "in_progress",
+            "tool_bindings": {
+              "bbox": {
+                "attribute_schema": {
+                  "fields": []
+                },
+                "classes": [
+                  {
+                    "name": "car",
+                    "order": 0
+                  },
+                  {
+                    "name": "person",
+                    "order": 1
+                  }
+                ],
+                "enabled": true
+              }
+            }
+          }
+        }
+      ],
+      "pending_task": false,
+      "same_identity": false,
+      "total": 1,
+      "trace": ["task_insert", "project_read", "project_read"]
+    },
+    "training:partial:False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "total_tasks": 7,
+        "unloaded": ["annotation_guide"],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true
+            }
+          }
+        }
+      },
+      "items": [
+        {
+          "active_run_count": 0,
+          "can_prepare_dataset": true,
+          "name": "initial",
+          "ready_dataset_count": 0,
+          "status": "in_progress"
+        }
+      ],
+      "loaded": [],
+      "pending_task": true,
+      "same_identity": true,
+      "total": 1,
+      "trace": ["project_read", "project_read"]
+    },
+    "training:partial:True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "total_tasks": 7,
+        "unloaded": ["annotation_guide"],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true
+            }
+          }
+        }
+      },
+      "items": [
+        {
+          "active_run_count": 0,
+          "can_prepare_dataset": true,
+          "name": "initial",
+          "ready_dataset_count": 0,
+          "status": "in_progress"
+        }
+      ],
+      "loaded": [],
+      "pending_task": false,
+      "same_identity": true,
+      "total": 1,
+      "trace": ["task_insert", "project_read", "project_read"]
+    },
+    "training:stale:False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "total_tasks": 7,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true
+            }
+          }
+        }
+      },
+      "items": [
+        {
+          "active_run_count": 0,
+          "can_prepare_dataset": true,
+          "name": "initial",
+          "ready_dataset_count": 0,
+          "status": "in_progress"
+        }
+      ],
+      "loaded": [],
+      "pending_task": true,
+      "same_identity": true,
+      "total": 1,
+      "trace": ["project_read", "project_read"]
+    },
+    "training:stale:True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "total_tasks": 7,
+        "unloaded": [],
+        "values": {
+          "name": "initial",
+          "status": "in_progress",
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true
+            }
+          }
+        }
+      },
+      "items": [
+        {
+          "active_run_count": 0,
+          "can_prepare_dataset": true,
+          "name": "initial",
+          "ready_dataset_count": 0,
+          "status": "in_progress"
+        }
+      ],
+      "loaded": [],
+      "pending_task": false,
+      "same_identity": true,
+      "total": 1,
+      "trace": ["task_insert", "project_read", "project_read"]
+    },
+    "training:stale_partial:False": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "total_tasks": 31,
+        "unloaded": ["annotation_guide"],
+        "values": {
+          "name": "committed",
+          "status": "in_progress",
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true
+            }
+          }
+        }
+      },
+      "items": [
+        {
+          "active_run_count": 0,
+          "can_prepare_dataset": true,
+          "name": "committed",
+          "ready_dataset_count": 0,
+          "status": "in_progress"
+        }
+      ],
+      "loaded": [],
+      "pending_task": true,
+      "same_identity": true,
+      "total": 1,
+      "trace": ["project_read", "project_read"]
+    },
+    "training:stale_partial:True": {
+      "cached": {
+        "deleted": false,
+        "detached": false,
+        "expired": false,
+        "modified": false,
+        "persistent": true,
+        "total_tasks": 31,
+        "unloaded": ["annotation_guide"],
+        "values": {
+          "name": "committed",
+          "status": "in_progress",
+          "tool_bindings": {
+            "bbox": {
+              "attribute_schema": {
+                "fields": []
+              },
+              "classes": [
+                {
+                  "name": "car",
+                  "order": 0
+                },
+                {
+                  "name": "person",
+                  "order": 1
+                }
+              ],
+              "enabled": true
+            }
+          }
+        }
+      },
+      "items": [
+        {
+          "active_run_count": 0,
+          "can_prepare_dataset": true,
+          "name": "committed",
+          "ready_dataset_count": 0,
+          "status": "in_progress"
+        }
+      ],
+      "loaded": [],
+      "pending_task": false,
+      "same_identity": true,
+      "total": 1,
+      "trace": ["task_insert", "project_read", "project_read"]
+    },
+    "training:super_admin:False": {
+      "names": ["E2E Project"],
+      "pending_project": true,
+      "total": 1
+    },
+    "training:super_admin:True": {
+      "names": ["E2E Project", "pending-catalog"],
+      "pending_project": false,
+      "total": 2
+    }
+  },
+  "source_commit": "22fba052f23a83d7c7acdd10ae8c044e8a20d825"
+}

@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.orm import aliased
 
 from app.config import settings
 from app.db.models.annotation import Annotation
@@ -49,6 +50,7 @@ from app.services.notification import NotificationService
 from app.services.data_management.task_filters import visible_tasks_stmt
 from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.labeling_scene import read_spatial_item_facts
+from app.services.workspace_read_relations import project_facts
 from aap_assets_catalog.spatial_contract import (
     ReadPosesRequest,
     SpatialItem,
@@ -209,8 +211,9 @@ async def _scope_fingerprint(
             )
         )
     row = (await db.execute(q)).one()
+    project = aliased(Project, project_facts(), adapt_on_names=True)
     project_updated_at = (
-        await db.execute(select(Project.updated_at).where(Project.id == project_id))
+        await db.execute(select(project.updated_at).where(project.id == project_id))
     ).scalar_one_or_none()
     timestamps = [ts for ts in (row[0], project_updated_at) if ts is not None]
     return (max(timestamps) if timestamps else None), int(row[1] or 0)
@@ -423,10 +426,11 @@ async def _scope_naming(
     media 由 project.data_type 决定（image/video）；dataset_name = 唯一数据集名
     （file_path 首段，跨多数据集时 None）；用于桶前缀与友好下载名。
     """
+    project = aliased(Project, project_facts(), adapt_on_names=True)
     row = (
         await db.execute(
-            select(Project.data_type, Project.display_id).where(
-                Project.id == project_id
+            select(project.data_type, project.display_id).where(
+                project.id == project_id
             )
         )
     ).first()

@@ -14,7 +14,7 @@ from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.services.identity_read_relations import account_profiles
-from app.services.workspace_read_relations import project_member_facts
+from app.services.workspace_read_relations import project_facts, project_member_facts
 
 
 class AnnotationCommentService:
@@ -66,13 +66,14 @@ class AnnotationCommentService:
             )
         ).all()
         found = {row[0] for row in rows}
+        project = aliased(Project, project_facts(), adapt_on_names=True)
         manager_rows = (
             await self.db.execute(
                 select(account_profiles.c.id)
                 .select_from(account_profiles)
-                .join(Project, Project.owner_id == account_profiles.c.id)
+                .join(project, project.owner_id == account_profiles.c.id)
                 .where(
-                    Project.id == project_id,
+                    project.id == project_id,
                     account_profiles.c.id.in_(user_ids),
                     account_profiles.c.role.in_(sorted(MANAGER_PLATFORM_ROLES)),
                 )

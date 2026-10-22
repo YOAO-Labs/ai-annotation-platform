@@ -863,7 +863,7 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 126 个旧场景已冻结，每个含 autoflush 开关观测，不设置 `AAP_ACTOR_SCOPE_CAPTURE`
 重写。受限 HTTP 验收使用既有 Identity AUTH 和 Briefs owner 连接，不向 API 角色
 放开认证或资料命令。角色范围、列表、Node 和事务边界见
-[ADR-0173](docs/adr/0173-workspace-actor-scope-relations.md)。其他成员集合和完整模块
+[ADR-0173](docs/adr/0173-workspace-actor-scope-relations.md)。其他集合见后文事实关系，完整模块
 装配仍见唯一台账；本地 API／Celery 主环境未切换。
 
 ### Workspace 非锁定成员事实
@@ -885,6 +885,24 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 撤掉成员私表 SELECT，但包含原始 Project 查询的场景仍保留其权限。默认应用宽角色、
 Workspace 完整凭据和冷工件不因本轮通过而获得资格，见
 [ADR-0174](docs/adr/0174-workspace-nonlocking-member-facts.md)及唯一台账。
+
+### Workspace Project 原生集合读取
+
+部分项目读取使用 `project_facts()`；完整 ORM 行使用 `project_rows()`，在同一条
+SQL 中组合 Workspace 字段和既有 Labeling 计数。两项事实关系的 SELECT 已加入应用
+和 worktree 授权，不增加 DSN 或服务。三个在线计数 UPDATE 仍待独立写入能力迁移。
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/workspace-project-facts.json \
+  --test-file tests/test_workspace_project_facts_legacy.py \
+  --test-file tests/test_workspace_project_facts_native.py \
+  --test-file tests/test_workspace_project_facts_consumers_native.py
+```
+
+验收使用独立测试资源，撤掉 API 的 User／Project／Member 私表 SELECT，实际 HTTP
+认证及资料读取使用既有 Identity owner。旧基线只重放，完整 Workspace 凭据和冷工件
+仍集中验收，见 [ADR-0175](docs/adr/0175-workspace-project-fact-relations.md)。
 
 ### Workspace 同事务成员锁
 

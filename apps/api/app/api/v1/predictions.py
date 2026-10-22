@@ -22,6 +22,7 @@ from fastapi import (
 from pydantic import BaseModel
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.deps import (
     get_current_user,
@@ -53,6 +54,7 @@ from app.services.prediction import (
     assert_can_manage_failed_prediction,
 )
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.workspace_read_relations import project_facts, project_rows
 
 
 router = APIRouter()
@@ -110,17 +112,21 @@ async def list_failed_predictions(
     )
 
     count_q = select(func.count()).select_from(FailedPrediction)
+    project_row = aliased(Project, project_rows(), adapt_on_names=True)
     rows_q = (
-        select(FailedPrediction, Task, Project, MLBackend)
+        select(FailedPrediction, Task, project_row, MLBackend)
         .outerjoin(Task, Task.id == FailedPrediction.task_id)
-        .outerjoin(Project, Project.id == FailedPrediction.project_id)
+        .outerjoin(project_row, project_row.id == FailedPrediction.project_id)
         .outerjoin(MLBackend, MLBackend.id == FailedPrediction.ml_backend_id)
         .order_by(desc(FailedPrediction.created_at))
     )
     if actor.role == UserRole.PROJECT_ADMIN.value:
         # A platform project administrator's global list covers only their own
         # projects; an explicit other-owner project cannot be enumerated here.
-        owned_project_ids = select(Project.id).where(Project.owner_id == actor.id)
+        owner_facts = project_facts()
+        owned_project_ids = select(owner_facts.c.id).where(
+            owner_facts.c.owner_id == actor.id
+        )
         count_q = count_q.where(FailedPrediction.project_id.in_(owned_project_ids))
         rows_q = rows_q.where(FailedPrediction.project_id.in_(owned_project_ids))
     if base_filter is not None:

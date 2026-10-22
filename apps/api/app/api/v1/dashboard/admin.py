@@ -48,7 +48,11 @@ from app.services.identity_read_relations import (
     read_account_profile,
     read_account_profiles,
 )
-from app.services.workspace_read_relations import project_member_facts
+from app.services.workspace_read_relations import (
+    project_facts,
+    project_member_facts,
+    project_rows,
+)
 
 router = APIRouter()
 
@@ -73,7 +77,8 @@ async def admin_dashboard(
     for role, _ in users:
         role_distribution[role] = role_distribution.get(role, 0) + 1
 
-    projects_result = await db.execute(select(Project))
+    project_rows_alias = aliased(Project, project_rows(), adapt_on_names=True)
+    projects_result = await db.execute(select(project_rows_alias))
     projects = projects_result.scalars().all()
     total_projects = len(projects)
     projects_in_progress = sum(1 for p in projects if p.status == "in_progress")
@@ -710,21 +715,25 @@ async def admin_person_detail(
         trend_quality.append(q)
 
     # 项目分布
+    project_facts_alias = project_facts()
     proj_rows = (
         await db.execute(
             select(
                 Annotation.project_id,
-                Project.name,
+                project_facts_alias.c.name,
                 func.count().label("n"),
             )
-            .join(Project, Annotation.project_id == Project.id)
+            .join(
+                project_facts_alias,
+                Annotation.project_id == project_facts_alias.c.id,
+            )
             .where(
                 Annotation.user_id == uid,
                 Annotation.is_active.is_(True),
                 Annotation.created_at >= start,
                 *ann_proj,
             )
-            .group_by(Annotation.project_id, Project.name)
+            .group_by(Annotation.project_id, project_facts_alias.c.name)
             .order_by(func.count().desc())
         )
     ).all()

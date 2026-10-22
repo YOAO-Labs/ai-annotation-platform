@@ -302,7 +302,7 @@ API／Node 验收见 [ADR-0172](/dev/adr/0172-project-set-locks-and-labeling-cou
 可完成这些选定读取，认证与姓名资料仍走各自 Identity owner。
 
 范围见 [ADR-0173](/dev/adr/0173-workspace-actor-scope-relations)。非锁定成员集合使用下述
-成员事实关系；其余 Project 集合／标量仍待单独迁移。完整模块
+成员事实关系；Project 集合／标量见下文原生项目事实。完整模块
 凭据、冷工件与恢复继续按[唯一台账](/dev/concepts/module-deployment#剩余工作台账)集中验收。
 
 ## 非锁定成员集合与名册
@@ -319,9 +319,26 @@ API／Node 验收见 [ADR-0172](/dev/adr/0172-project-set-locks-and-labeling-cou
 未读取的日期。没有新增连接、锁或提交点。
 
 受限 API LOGIN 在成员私表 SELECT 被撤销后完成选定 SQL 与真实 HTTP 读取，Node
-直接读取同一关系。通知、提及和管理看板内独立的 Project 查询仍属后续范围。默认
+直接读取同一关系。通知、提及和管理看板的 Project 字段也通过下文原生项目事实读取。默认
 应用宽角色也仍是兼容装配，不能把本轮定向撤权试验视为默认凭据已收紧。边界见
 [ADR-0174](/dev/adr/0174-workspace-nonlocking-member-facts)。
+
+## 项目集合、投影与元数据
+
+`aap_workspace_v1.project_facts` 以原生 PostgreSQL 类型公开 Workspace 拥有的 38 个
+Project 字段。完整对象通过一次主键联接组合既有
+`aap_labeling_v1.project_catalog_counters` 的五项计数，保留原 43 列 ORM 映射。
+计数列均有 NOT NULL 约束，因此既有关系中的默认值不改变受支持数据；JSONB 自身的
+null 与非对象值仍原样返回。合同复用 `PROJECT_ROW_COLUMNS`，不增加第二个 Project DTO。
+
+管理总览、预标与视频列表、失败预测外联接、训练的相关计数／分页、审计范围、通知
+与提及、导出元数据、回填和点云过期读取已接入。部分读取只选择需要的列；完整对象
+保留缓存、脏字段及过期字段，训练列表保留原延迟列。总数语句也使用 ORM 别名，保持
+超级管理员无范围谓词时的 autoflush。流式 Labeling 查询保留单语句、原刷新及分块参数。
+
+应用只新增两项公开关系的 SELECT；默认宽角色仍属兼容装配。三处 Labeling 计数
+原子写入和完整模块资格继续按台账推进。边界与定向验收见
+[ADR-0175](/dev/adr/0175-workspace-project-fact-relations)。
 
 ## 最终写入与批量分派的成员锁
 

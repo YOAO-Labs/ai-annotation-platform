@@ -181,15 +181,16 @@ import uuid
 
 class RejectProvider(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname == 'aap_workspace' or fullname.startswith('aap_workspace.'):
-            raise ImportError('client must not load the Workspace provider runtime')
+        if fullname in {'aap_workspace', 'aap_labeling'} or fullname.startswith(('aap_workspace.', 'aap_labeling.')):
+            raise ImportError('client must not load an owner provider runtime')
 
 sys.meta_path.insert(0, RejectProvider())
-from app.services.workspace_read_relations import actor_project_memberships, project_search_scope, project_search_member_ids, project_member_facts
+from app.services.workspace_read_relations import actor_project_memberships, project_search_scope, project_search_member_ids, project_member_facts, project_facts, project_counter_facts, project_rows
 from sqlalchemy import select
 actor = SimpleNamespace(id=uuid.uuid4(), role='employee')
-for relation in (actor_project_memberships(actor.id), project_search_scope(actor), project_search_member_ids(actor), project_member_facts()):
-    assert 'aap_workspace' in str(select(relation))
+for relation in (actor_project_memberships(actor.id), project_search_scope(actor), project_search_member_ids(actor), project_member_facts(), project_facts(), project_counter_facts(), project_rows()):
+    sql = str(select(relation))
+    assert 'aap_workspace' in sql or 'aap_labeling_v1.project_catalog_counters' in sql
 print('ok')
 """
     result = subprocess.run(

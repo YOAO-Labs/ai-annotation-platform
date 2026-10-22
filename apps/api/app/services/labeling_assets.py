@@ -6,6 +6,7 @@ from typing import cast as typing_cast
 
 from sqlalchemy import String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem
@@ -22,6 +23,7 @@ from app.services.dataset_task_facts import (
     freeze_source_json,
 )
 from app.services.labeling_scene import read_spatial_item_facts
+from app.services.workspace_read_relations import project_facts
 
 
 class SqlAlchemyProjectTaskSourceReader(ProjectTaskSourceReader):
@@ -70,16 +72,17 @@ class SqlAlchemyProjectTaskSourceReader(ProjectTaskSourceReader):
             .correlate(Task)
             .scalar_subquery()
         )
+        project = aliased(Project, project_facts(), adapt_on_names=True)
         stmt = (
             select(
                 Task,
                 DatasetItem.id,
                 DatasetItem.width,
                 DatasetItem.height,
-                Project.tool_bindings,
+                project.tool_bindings,
                 annotation_json,
             )
-            .join(Project, Project.id == Task.project_id)
+            .join(project, project.id == Task.project_id)
             .outerjoin(DatasetItem, DatasetItem.id == Task.dataset_item_id)
             .where(Task.project_id == project_id)
             .order_by(Task.id)

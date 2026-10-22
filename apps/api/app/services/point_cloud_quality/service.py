@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob, AsyncJobKind
@@ -41,6 +42,7 @@ from aap_assets_catalog.spatial_contract import (
     normalize_calibration_record,
 )
 from app.services.assets_spatial import AssetsSpatialGateway, AssetsSpatialGatewayError
+from app.services.workspace_read_relations import project_rows
 
 
 MAX_QUALITY_TASKS = 5_000
@@ -621,10 +623,13 @@ async def refresh_issue_staleness_bulk(
     if not issues:
         return {}
     project_ids = {issue.project_id for issue in issues}
+    project_rows_alias = aliased(Project, project_rows(), adapt_on_names=True)
     projects = {
         row.id: row
         for row in (
-            await db.execute(select(Project).where(Project.id.in_(project_ids)))
+            await db.execute(
+                select(project_rows_alias).where(project_rows_alias.id.in_(project_ids))
+            )
         ).scalars()
     }
     run_ids = {

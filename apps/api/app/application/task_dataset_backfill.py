@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from sqlalchemy import func, select, tuple_
-from sqlalchemy.orm import defer
+from sqlalchemy.orm import aliased, defer
 
 from app.db.models.project import Project
 from app.db.models.project_task_dataset import (
@@ -16,14 +16,16 @@ from app.services.project_task_dataset import (
     lock_project,
     recognized_task_expression,
 )
+from app.services.workspace_read_relations import project_facts
 
 
 async def list_project_ids(db, *, project_id=None, after=None):
-    statement = select(Project.id).order_by(Project.id).limit(100)
+    project = aliased(Project, project_facts(), adapt_on_names=True)
+    statement = select(project.id).order_by(project.id).limit(100)
     if project_id is not None:
-        statement = statement.where(Project.id == project_id)
+        statement = statement.where(project.id == project_id)
     elif after is not None:
-        statement = statement.where(Project.id > after)
+        statement = statement.where(project.id > after)
     return list(await db.scalars(statement))
 
 

@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.services import task_access
 from app.db.enums import UserRole
@@ -49,6 +50,7 @@ from app.services.video_tracking.jobs import (
 )
 from app.observability.metrics import observe_mask_ai_phase, record_mask_ai_operation
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.workspace_read_relations import project_facts, project_rows
 
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
 
@@ -304,9 +306,12 @@ async def list_video_tracker_jobs(
     if current_admin.role == UserRole.PROJECT_ADMIN:
         # 项目管理员的全局列表与计数只能覆盖自己拥有的项目；显式传入他人项目 id
         # 也只会得到空交集，不能借列表或 counts 枚举跨项目任务。
+        owner_facts = project_facts()
         base_conds.append(
             Task.project_id.in_(
-                select(Project.id).where(Project.owner_id == current_admin.id)
+                select(owner_facts.c.id).where(
+                    owner_facts.c.owner_id == current_admin.id
+                )
             )
         )
         needs_task_join = True
@@ -360,7 +365,8 @@ async def list_video_tracker_jobs(
         return VideoTrackerJobsResponse(items=[], next_cursor=None, counts=counts)
 
     project_ids = list({pid for _, pid in rows})
-    pres = await db.execute(select(Project).where(Project.id.in_(project_ids)))
+    projects = aliased(Project, project_rows(), adapt_on_names=True)
+    pres = await db.execute(select(projects).where(projects.id.in_(project_ids)))
     projects_by_id = {p.id: p for p in pres.scalars().all()}
 
     items: list[VideoTrackerJobListItem] = []
