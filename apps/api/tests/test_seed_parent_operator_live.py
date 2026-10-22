@@ -415,7 +415,7 @@ async def _drop_member_trigger(test_engine, names: tuple[str, str]) -> None:
 
 
 async def _membership_gate_activity(
-    test_engine, *, application_name: str, client_address: str
+    test_engine, *, application_name: str, client_address: str | None = None
 ) -> dict | None:
     async with test_engine.connect() as db:
         row = (
@@ -428,7 +428,8 @@ async def _membership_gate_activity(
                         "FROM pg_catalog.pg_stat_activity "
                         "WHERE datname=current_database() AND usename='legacy_runtime' "
                         "AND application_name=:application_name "
-                        "AND client_addr=CAST(:client_address AS inet)"
+                        "AND (CAST(:client_address AS inet) IS NULL "
+                        "OR client_addr=CAST(:client_address AS inet))"
                     ),
                     {
                         "application_name": application_name,
@@ -446,20 +447,10 @@ async def _wait_for_membership_sleep(
     test_engine, cli: WorkspaceImportCli, run_task: asyncio.Task, application_name: str
 ) -> tuple[str, dict]:
     deadline = asyncio.get_running_loop().time() + 20
-    while cli.container_id is None and not run_task.done():
-        if asyncio.get_running_loop().time() >= deadline:
-            pytest.fail("seed membership one-shot did not create its owned container")
-        await asyncio.sleep(0.02)
-    if run_task.done():
-        pytest.fail(
-            f"seed membership one-shot exited before the SQL gate: {run_task.result()}"
-        )
-    client_address = await asyncio.to_thread(cli.running_database_client_address)
     while asyncio.get_running_loop().time() < deadline:
         activity = await _membership_gate_activity(
             test_engine,
             application_name=application_name,
-            client_address=client_address,
         )
         if (
             activity is not None
@@ -467,6 +458,10 @@ async def _wait_for_membership_sleep(
             and activity["wait_event"] == "PgSleep"
             and activity["seed_writer"] is True
         ):
+            client_address = await asyncio.to_thread(
+                cli.running_database_client_address
+            )
+            assert activity["client_addr"] == client_address
             return client_address, activity
         if run_task.done():
             pytest.fail(
@@ -492,18 +487,9 @@ async def _wait_for_membership_disconnect(
     pytest.fail("stopped seed-parent client still owns its PostgreSQL session")
 
 
-async def _stop_pending_cli_task(cli: WorkspaceImportCli, task: asyncio.Task) -> None:
-    if task.done():
-        return
-    deadline = asyncio.get_running_loop().time() + 15
-    while cli.container_id is None and not task.done():
-        if asyncio.get_running_loop().time() >= deadline:
-            pytest.fail("owned seed-parent CLI container was not created")
-        await asyncio.sleep(0.02)
-    if task.done():
-        return
-    stopped = await asyncio.to_thread(cli.stop_current_container)
-    assert stopped is True
+async def _finish_pending_cli_task(task: asyncio.Task) -> None:
+    # The SQL gate lasts at most ten seconds. Join its lifecycle before close(),
+    # including failures before Docker starts, so two threads never remove it.
     await asyncio.wait_for(asyncio.shield(task), timeout=35)
 
 
@@ -752,7 +738,7 @@ async def test_seed_parent_helpers_run_with_operator_only_capabilities(
             await _assert_pending_dataset_absent(test_engine, sleep_dataset)
             assert await _membership_rows(test_engine) == []
         finally:
-            await _stop_pending_cli_task(cli, sleep_task)
+            await _finish_pending_cli_task(sleep_task)
             if sleep_trigger is not None:
                 await _drop_member_trigger(test_engine, sleep_trigger)
                 sleep_trigger = None
@@ -930,7 +916,7 @@ async def test_seed_parent_helpers_run_with_operator_only_capabilities(
     finally:
         try:
             if sleep_task is not None and cli is not None:
-                await _stop_pending_cli_task(cli, sleep_task)
+                await _finish_pending_cli_task(sleep_task)
         finally:
             try:
                 if sleep_trigger is not None:
