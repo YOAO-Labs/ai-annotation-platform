@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import contextmanager
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, contextmanager
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 import re
@@ -228,7 +230,8 @@ async def _seed_backend(test_engine, backend_id, backend_url):
         )
 
 
-async def _restore_with_acl_and_assert_proofs(
+@asynccontextmanager
+async def _restored_database_with_acl_and_proofs(
     test_engine,
     tmp_path,
     *,
@@ -238,7 +241,7 @@ async def _restore_with_acl_and_assert_proofs(
     unlink_operation_id,
     legacy_video_project_id,
     legacy_video_job_id,
-) -> None:
+) -> AsyncIterator[str]:
     clone = f"aap_workspace_module_restore_{uuid.uuid4().hex[:10]}_test"
     ownership = f"workspace-module-restore:{uuid.uuid4()}"
     assert len(clone) <= 63 and re.fullmatch(r"[a-zA-Z0-9_]+", clone)
@@ -373,6 +376,32 @@ async def _restore_with_acl_and_assert_proofs(
             )
             with pytest.raises(DBAPIError):
                 await db.execute(text("SELECT id FROM public.projects LIMIT 1"))
+        yield clone
+        async with restored.connect() as db:
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT count(*) FROM public.project_deletion_operations "
+                        "WHERE project_id=:id"
+                    ),
+                    {"id": legacy_video_project_id},
+                )
+                == 0
+            )
+            assert (
+                await db.scalar(
+                    text("SELECT count(*) FROM public.video_tracker_jobs WHERE id=:id"),
+                    {"id": legacy_video_job_id},
+                )
+                == 1
+            )
+            assert (
+                await db.scalar(
+                    text("SELECT count(*) FROM public.projects WHERE id=:id"),
+                    {"id": legacy_video_project_id},
+                )
+                == 1
+            )
     finally:
         if restricted is not None:
             await restricted.dispose()
@@ -1064,7 +1093,7 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
 
                 record_property("workspace_module_services", stack.inspection_evidence)
                 await stack.stop()
-                await _restore_with_acl_and_assert_proofs(
+                async with _restored_database_with_acl_and_proofs(
                     test_engine,
                     tmp_path,
                     project_id=project_id,
@@ -1073,8 +1102,70 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                     unlink_operation_id=unlink_operation_id,
                     legacy_video_project_id=legacy_video["project_id"],
                     legacy_video_job_id=legacy_video["job_id"],
-                )
-    except AssertionError:
+                ) as clone:
+                    try:
+                        await stack.switch_database(clone)
+                        async with httpx.AsyncClient(
+                            base_url=stack.api_origin, trust_env=False, timeout=45
+                        ) as restored_client:
+                            restored_me = await restored_client.get(
+                                "/api/v1/auth/me", headers=headers["successor"]
+                            )
+                            assert restored_me.status_code == 200, restored_me.text
+                            restored_project = await restored_client.get(
+                                f"/api/v1/projects/{project_id}",
+                                headers=headers["successor"],
+                            )
+                            assert restored_project.status_code == 200, (
+                                restored_project.text
+                            )
+                            assert restored_project.json()["owner_id"] == str(
+                                actors["successor"].id
+                            )
+                            assert "Automobile" in restored_project.json()["classes"]
+                            restored_receipt = await restored_client.post(
+                                stack.service_origin("workspace-configuration")
+                                + "/v1/workspace/configuration/execute",
+                                headers={"Authorization": f"Bearer {control_token}"},
+                                json=command_body,
+                            )
+                            assert restored_receipt.status_code == 200, (
+                                restored_receipt.text
+                            )
+                            assert restored_receipt.json() == first_reply
+                            blocked_delete = await restored_client.delete(
+                                f"/api/v1/projects/{legacy_video['project_id']}",
+                                headers={
+                                    "Authorization": legacy_response.request.headers[
+                                        "Authorization"
+                                    ]
+                                },
+                            )
+                            assert blocked_delete.status_code == 409, (
+                                blocked_delete.text
+                            )
+                            assert blocked_delete.json()["detail"]["code"] == (
+                                "video_execution_not_retired"
+                            )
+                        record_property(
+                            "workspace_module_restored_services",
+                            stack.inspection_evidence,
+                        )
+                        record_property(
+                            "workspace_module_backup_sha256",
+                            hashlib.sha256(
+                                (tmp_path / "workspace-module.dump").read_bytes()
+                            ).hexdigest(),
+                        )
+                    except Exception:
+                        record_property(
+                            "workspace_module_restored_diagnostics",
+                            stack.capture_diagnostics(),
+                        )
+                        raise
+                    finally:
+                        await stack.stop()
+    except Exception:
         if stack is not None:
             record_property("workspace_module_diagnostics", stack.capture_diagnostics())
         raise

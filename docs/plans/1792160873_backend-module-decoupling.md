@@ -6326,3 +6326,21 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   surviving-project read proof from deleted-project receipt proof on restore,
   and derive a Video Job project through Task rather than a nonexistent column.
   This support is not yet runtime qualification or whole-module closure.
+
+- The combined cold API, Inference and Assets Source images build successfully.
+  The API artifact probe matches1,270 application/package files across34 installed
+  namespaces. A source review fixes service identity refresh after Compose creates
+  the containers, before readiness indexes their IDs.
+- First private assembly run reaches all eight owner/dependency health probes but
+  the API exits during startup. Its fixture incorrectly includes a URL scheme in
+  MINIO_ENDPOINT; the actual StorageService then constructs a double-scheme URL.
+  A network-disabled cold-image reproducer proves both the broken endpoint and
+  the corrected authority-only setting. Full migrations through0300 pass and
+  the failed run removes all owned resources with no cleanup errors. Original
+  logs/JUnit and the endpoint reproducer are retained in.worktree.
+- The restore acceptance now keeps the marked clone alive while restarting the
+  actual owner/API stack against it. All six Workspace, Identity Auth/Briefs,
+  Inference Probe and API DSNs are retargeted together. The pending runtime run
+  must prove authenticated reads, saved-command replay, and the legacy started
+  video409 with intact Project/Job and no deletion receipt. This closes a test
+  coverage gap; it does not yet claim a passing assembled restore.

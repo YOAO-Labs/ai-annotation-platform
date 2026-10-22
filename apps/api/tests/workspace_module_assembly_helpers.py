@@ -278,6 +278,14 @@ class WorkspaceModuleStack:
         await self._wait_service_ready(service)
         self._refresh_inspection_evidence()
 
+    async def switch_database(self, database_name: str) -> None:
+        self._validate_database_name(database_name)
+        await self.stop()
+        self._database_name = database_name
+        self._api_database_url = self._api_database_url.set(database=database_name)
+        self._api_host_url = self._api_host_url.set(database=database_name)
+        await self.start()
+
     def capture_diagnostics(self) -> str:
         records = {}
         for service, details in self._verify_project_ownership(
@@ -317,22 +325,30 @@ class WorkspaceModuleStack:
         for key, (_, _, secret_name) in _WORKSPACE_ROLES.items():
             paths[key] = self._write_secret(
                 secret_name,
-                self._database_urls[key].render_as_string(hide_password=False),
+                self._database_urls[key]
+                .set(database=self._database_name)
+                .render_as_string(hide_password=False),
             )
         paths["briefs"] = self._write_secret(
             "identity_briefs_database_url",
-            self._briefs_dsn.render_as_string(hide_password=False),
+            self._briefs_dsn.set(database=self._database_name).render_as_string(
+                hide_password=False
+            ),
         )
         paths["identity_auth"] = self._write_secret(
             "identity_auth_database_url",
-            self._identity_auth_dsn.render_as_string(hide_password=False),
+            self._identity_auth_dsn.set(database=self._database_name).render_as_string(
+                hide_password=False
+            ),
         )
         paths["control"] = self._write_secret(
             "membership_control_token", self._control_token
         )
         paths["inference_dsn"] = self._write_secret(
             "inference_backend_probe_database_url",
-            self._inference_dsn.render_as_string(hide_password=False),
+            self._inference_dsn.set(database=self._database_name).render_as_string(
+                hide_password=False
+            ),
         )
         paths["inference_token"] = self._write_secret(
             "inference_backend_probe_control_token", self._inference_token
@@ -429,9 +445,9 @@ class WorkspaceModuleStack:
             "IDENTITY_BRIEFS_DATABASE_URL": "",
             "IDENTITY_BRIEFS_DATABASE_URL_FILE": "/run/secrets/identity_briefs_database_url",
             "IDENTITY_TIMEOUT_SECONDS": "10",
-            "MINIO_ENDPOINT": self._docker_http_endpoint(
-                self._required("MINIO_ENDPOINT")
-            ),
+            "MINIO_ENDPOINT": urlsplit(
+                self._docker_http_endpoint(self._required("MINIO_ENDPOINT"))
+            ).netloc,
             "MINIO_ACCESS_KEY": minio_access,
             "MINIO_SECRET_KEY": minio_secret,
             "MINIO_USE_SSL": self._required_or("MINIO_USE_SSL", "false"),
@@ -878,6 +894,9 @@ secrets:
         deadline = time.monotonic() + timeout
         async with httpx.AsyncClient(trust_env=False, timeout=2) as client:
             while time.monotonic() < deadline:
+                state = self._inspect(self._service_ids[operation]).get("State") or {}
+                if state.get("Status") == "exited" or state.get("OOMKilled"):
+                    break
                 try:
                     response = await client.get(url)
                     if response.status_code == 200:
