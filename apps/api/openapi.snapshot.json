@@ -12247,6 +12247,10 @@
             "title": "Kind",
             "type": "string"
           },
+          "path_digest": {
+            "title": "Path Digest",
+            "type": "string"
+          },
           "relative_path": {
             "title": "Relative Path",
             "type": "string"
@@ -12265,9 +12269,22 @@
           "state": {
             "title": "State",
             "type": "string"
+          },
+          "verified_content": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified Content"
           }
         },
         "required": [
+          "path_digest",
           "relative_path",
           "kind",
           "state",
@@ -40402,6 +40419,48 @@
         "title": "SystemSettingsUpdate",
         "type": "object"
       },
+      "TaskContentIdentity": {
+        "properties": {
+          "asset_id": {
+            "format": "uuid",
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "original_availability": {
+            "const": "unchecked",
+            "title": "Original Availability",
+            "type": "string"
+          },
+          "preview_availability": {
+            "const": "unknown",
+            "title": "Preview Availability",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "verification_state": {
+            "const": "verified",
+            "title": "Verification State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id",
+          "sha256",
+          "size_bytes",
+          "verification_state",
+          "original_availability",
+          "preview_availability"
+        ],
+        "title": "TaskContentIdentity",
+        "type": "object"
+      },
       "TaskDatasetCapabilities": {
         "properties": {
           "create_version": {
@@ -48540,6 +48599,39 @@
           }
         },
         "title": "VariantCatalog",
+        "type": "object"
+      },
+      "VerifiedScanContent": {
+        "properties": {
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sha256",
+          "size_bytes",
+          "media_type",
+          "width",
+          "height"
+        ],
+        "title": "VerifiedScanContent",
         "type": "object"
       },
       "VerifyEmailRequest": {
@@ -59926,6 +60018,143 @@
         ]
       }
     },
+    "/api/v1/dataset-scans/{run_id}/entries/{path_digest}/content": {
+      "get": {
+        "operationId": "read_scan_content_api_v1_dataset_scans__run_id__entries__path_digest__content_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "path_digest",
+            "required": true,
+            "schema": {
+              "title": "Path Digest",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sha256",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Sha256",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Verified full image snapshot"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read Scan Content",
+        "tags": [
+          "dataset-sources"
+        ]
+      }
+    },
+    "/api/v1/dataset-scans/{run_id}/entries/{path_digest}/verify": {
+      "post": {
+        "operationId": "verify_scan_content_api_v1_dataset_scans__run_id__entries__path_digest__verify_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "path_digest",
+            "required": true,
+            "schema": {
+              "title": "Path Digest",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerifiedScanContent"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Verify Scan Content",
+        "tags": [
+          "dataset-sources"
+        ]
+      }
+    },
     "/api/v1/dataset-scans/{run_id}/resume": {
       "post": {
         "operationId": "resume_scan_api_v1_dataset_scans__run_id__resume_post",
@@ -61949,6 +62178,125 @@
           }
         ],
         "summary": "Backfill Project Thumbnails",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/files/tasks/{task_id}/content": {
+      "get": {
+        "operationId": "get_verified_task_content_api_v1_files_tasks__task_id__content_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sha256",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Sha256",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Verified full image snapshot"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Verified Task Content",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/files/tasks/{task_id}/content-identity": {
+      "get": {
+        "operationId": "get_task_content_identity_api_v1_files_tasks__task_id__content_identity_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskContentIdentity"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Task Content Identity",
         "tags": [
           "files"
         ]

@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import platform
+from pathlib import Path
 import stat
 import time
 
@@ -89,6 +90,15 @@ def _identity(fd):
     return [info.st_dev, info.st_ino]
 
 
+def host_identity():
+    try:
+        return hashlib.sha256(
+            Path("/proc/sys/kernel/random/boot_id").read_bytes()
+        ).hexdigest()
+    except OSError:
+        return None
+
+
 @contextmanager
 def location_directory(config, path="", *, expected_anchor=None):
     path = relative_path(path)
@@ -125,6 +135,69 @@ def location_directory(config, path="", *, expected_anchor=None):
 def capture_anchor(config):
     with location_directory(config) as (_, anchor):
         return anchor
+
+
+def file_observation(info):
+    return {
+        "identity": [info.st_dev, info.st_ino],
+        "size": info.st_size,
+        "mode": info.st_mode,
+        "mtime_ns": info.st_mtime_ns,
+        "ctime_ns": info.st_ctime_ns,
+    }
+
+
+@contextmanager
+def content_file(
+    config,
+    source_path,
+    path,
+    *,
+    expected_anchor,
+    expected=None,
+    expected_source_identity=None,
+):
+    """Keep the safe source directory and opened file pinned throughout copying."""
+    path = relative_path(path)
+    if not path:
+        raise FilesystemStorageError("invalid_relative_path")
+    with location_directory(config, source_path, expected_anchor=expected_anchor) as (
+        parent,
+        _,
+    ):
+        source_identity = _identity(parent)
+        if (
+            expected_source_identity is not None
+            and source_identity != expected_source_identity
+        ):
+            raise FilesystemStorageError("directory_identity_changed")
+        fd = _open_beneath(parent, path, directory=False)
+        try:
+            before = os.fstat(fd)
+            if not stat.S_ISREG(before.st_mode):
+                raise FilesystemStorageError("not_a_regular_file")
+            fingerprint = file_observation(before)
+            observation = {**fingerprint, "source_identity": source_identity}
+            if expected and any(observation.get(k) != v for k, v in expected.items()):
+                raise FilesystemStorageError("source_changed")
+            with os.fdopen(fd, "rb", closefd=False) as body:
+                yield body, observation
+            if file_observation(os.fstat(fd)) != fingerprint:
+                raise FilesystemStorageError("source_changed")
+            current = _open_beneath(parent, path, directory=False)
+            try:
+                if file_observation(os.fstat(current)) != fingerprint:
+                    raise FilesystemStorageError("source_changed")
+            finally:
+                os.close(current)
+            # Detect replacement of the source directory itself after opening.
+            with location_directory(
+                config, source_path, expected_anchor=expected_anchor
+            ) as (again, _):
+                if _identity(again) != _identity(parent):
+                    raise FilesystemStorageError("source_changed")
+        finally:
+            os.close(fd)
 
 
 def scan_directory(config, path, *, expected_anchor, expected_identity=None):
@@ -246,6 +319,7 @@ def probe_directory(config, sample_file=None, *, expected_anchor=None):
             "code": "ok",
             "capabilities": capabilities,
             "anchor": anchor,
+            "host_id": host_identity(),
         }
     except FilesystemStorageError as exc:
         return {

@@ -66,11 +66,21 @@ class DatasetScanList(BaseModel):
 
 
 class DatasetScanEntryOut(BaseModel):
+    path_digest: str
     relative_path: str
     kind: str
     state: str
     size_bytes: int | None
     content_verified: bool = False
+    verified_content: dict | None = None
+
+
+class VerifiedScanContent(BaseModel):
+    sha256: str
+    size_bytes: int
+    media_type: str
+    width: int
+    height: int
 
 
 class DatasetScanEntryList(BaseModel):

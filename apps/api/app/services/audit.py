@@ -41,6 +41,7 @@ class AuditAction(str, Enum):
     DATASET_SOURCE_UPDATE = "dataset_source.update"
     DATASET_SCAN_START = "dataset_scan.start"
     DATASET_SCAN_RESUME = "dataset_scan.resume"
+    DATASET_CONTENT_VERIFY = "dataset_content.verify"
     STORAGE_LOCATION_CREATE = "storage_location.create"
     STORAGE_LOCATION_UPDATE = "storage_location.update"
     STORAGE_LOCATION_PROBE = "storage_location.probe"

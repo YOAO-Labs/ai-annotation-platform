@@ -143,3 +143,5 @@
 - [0092](archive/0092-controlled-storage-registry.md) — 存储位置在受控部署根内动态注册并按节点验证
 
 - [0093](archive/0093-resumable-directory-inventory.md) — 目录观测按完整目录提交并以执行代次恢复
+
+- [0094](archive/0094-verified-request-content-snapshots.md) — 可变原图通过有界请求快照核验后交付

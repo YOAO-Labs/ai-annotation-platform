@@ -1,36 +1,65 @@
 # EPIC-05：统一文件访问、预览与缓存
 
-> 状态：research-draft；未排期，未批准实施，未分配发布版本。
+> 状态：E05-A 读取基座已完成本地验收；E03 消费者接入与 E05-B 仍待实施；不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
-> 实施前须通过 [backlog promotion gate](README.md#promotion-gate)。[草案总览](1792661016_dataset-storage-roadmap.md)、[架构契约](1792661016_dataset-storage-architecture.md)和[交付验收](1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
+> 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 | 项目          | 内容                                                     |
 | ------------- | -------------------------------------------------------- |
-| 状态          | 研究草案，待晋升复核与产品/技术评审                      |
+| 状态          | 读取基座已完成，保留消费者接入与缓存治理的后续合同       |
 | 日期          | 2026-10-22（Asia/Shanghai）                              |
 | 优先级 / 阶段 | P0：M1 文件访问与预览；P1：M2 缓存治理；P2：M3 就近读取  |
 | 负责角色      | 后端、媒体服务、前端、运维与测试                         |
 | 最小依赖      | E01 Asset/位置契约；E02 可达性；E11 授权切片             |
 | 下游          | E03 原地目录标注、E06 多站点、E08 样本浏览、E10 训练读取 |
 
+## 本轮实施定案：E05-A 读取基座
+
+基线 `013a0ac0d`，工作树干净；dev 已停止，使用本 checkout 的隔离 test 模式。不改共享环境或业务挂载，不构建镜像。0197 以独立字段和数据库不可变触发器保存内容回执。E03 尚未创建任何原地业务样本。
+
+最小方案是直接按路径返回文件，但可变文件在核验后仍可能被覆盖。本轮复用 `openat2`、节点探测、现有项目/任务授权和 Python TemporaryFile：先完整读入有界临时快照、核对 SHA-256，再发送该快照；同一快照 owner 支持固定托管 S3 位置。无需新服务、凭据、依赖或配置项。
+
+- 扫描条目 POST verify / GET content 仅限当前超管，要求 completed Run、匹配来源/位置修订、普通匹配文件和 API 当前 read 探测。内容核验结果独立存入 Entry.verified_content，不改原观测、不创建 Item/Asset/Task、不裁决 missing。只接受单帧 JPEG/PNG/WebP，限制像素和字节；历史摘要不改写。
+- API 只读取本节点已验证挂载，使用其 anchor；worker 的 list 证据不代表 API 可读。首次核验要求与实际扫描同内核主机，并检查固定来源根/文件 identity；首次摘要只证明本次捕获字节。跨主机或未知首次证据、API 未挂载时明确不可用；已登记 SHA-256 可跨节点验证同内容，不经 Redis 传文件，也不自动代理到 worker。
+- 严格托管读取使用 `/files/tasks/{task_id}/content?sha256=...`，当前任务可见性 + 当前 verified Asset + 固定 legacy StorageLocation / replica 的完整内容身份。只选择原件，不拿 thumbnail 回退。旧 file-url 保留签名合同，但补任务可见性；新严格入口不签可覆盖 key；content-identity 返回受权摘要和 unchecked 原图状态。
+- 固定单文件64MiB、32M像素、读循环10秒，每进程最多4个快照（含响应期），每请求最多等15秒；不持久缓存。I/O 在数据库锁外；完成后重读权限、API Key 状态/身份/scope、配置和绑定再交付。超时/取消设置停止标记，实际读线程最终关闭资源并释放名额；阻塞内核 I/O 不能被线程 deadline 强制终止。响应正常/断连/异常均 finally 关闭快照。
+- 内容 GET 必须带期望 SHA-256，不接受客户端提供任意 locator；返回 no-store、nosniff、摘要与精确长度。Range 本轮明确拒绝，交 E05-B。
+- 本轮为独立管理员核验与严格任务读取 API。现有工作台 URL、标注提交内容上下文、原地样本登记及 UI 激活属于 E03 联合验收，尚未启用；不宣称完整 E05 或 E03 已交付。
+
+范围超过8文件：filesystem_storage、快照 owner、读取 service、dataset_sources/files API及schema、Entry模型/0197迁移、专项与兼容测试、OpenAPI/SDK清单/API导航、正式API/用户/开发/运维文档、ADR0094、CHANGELOG及计划导航。具体新增 owner 为 `services/content_snapshot.py`、`services/dataset_content.py`，相关原有文件就地复用。
+
+```text
+超管扫描条目 / 当前任务访问者
+             |
+      当前授权 + 固定内容/位置
+             |
+   openat2目录 / 固定托管S3
+             |
+  有界 TemporaryFile -> SHA-256 / 图片核验
+             |
+   重读权限/修订 -> 快照响应 -> finally清理
+```
+
+验证：隔离 DB/临时目录/owned S3 对象；核验/重放/修改/替换/损坏/撤权、未挂载/过期/错误节点、越界/链接/FIFO、大小/像素/时间/并发预算、取消/响应异常资源回收、任务绑定和无权限请求无 I/O、真实 S3 覆盖拒绝。回归 E04、位置/旧存储/任务可见性；0197可逆与有数据降级拒绝、全迁移验证、SDK快照与文档检查。清理本轮资源并提交。回退关闭新增入口，保留历史摘要和账本；不删除源文件或把新相对路径交旧 S3 resolver。
+
 ## 本项目基线与改造落点
 
 下列为固定提交的静态证据，尚非运行/浏览器验收结果。
 
-| 当前 owner / 代码锚点                                               | 已有能力、缺口与复用约束                                                                                                                                   |
-| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [storage.py](../../../apps/api/app/services/storage.py)             | 复用 generate_download_url/\_public_url/rewrite_host_for_ml_backend/resolve_task_url；现有签后重写需连同 nginx/Host 合同验证后替换，不能直接删除兼容分支。 |
-| [dataset.py](../../../apps/api/app/services/dataset.py)             | list_items 固定 datasets 签名；media、导出、ML、训练也有全局桶假设，调用方清单不能只含列表。                                                               |
-| [image_pyramid.py](../../../apps/api/app/services/image_pyramid.py) | 复用金字塔 generation 和派生 owner；videos/ 短期缓存与 thumbnails/playback 的持久引用分开，不能按桶统一淘汰。                                              |
-| [nginx.conf](../../../infra/docker/nginx.conf)                      | /minio/ 代理路径和 Host 是部署合同，浏览器/API/worker/ML 分别验证。                                                                                        |
+| 当前 owner / 代码锚点                                            | 已有能力、缺口与复用约束                                                                                                                                   |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [storage.py](../../apps/api/app/services/storage.py)             | 复用 generate_download_url/\_public_url/rewrite_host_for_ml_backend/resolve_task_url；现有签后重写需连同 nginx/Host 合同验证后替换，不能直接删除兼容分支。 |
+| [dataset.py](../../apps/api/app/services/dataset.py)             | list_items 固定 datasets 签名；media、导出、ML、训练也有全局桶假设，调用方清单不能只含列表。                                                               |
+| [image_pyramid.py](../../apps/api/app/services/image_pyramid.py) | 复用金字塔 generation 和派生 owner；videos/ 短期缓存与 thumbnails/playback 的持久引用分开，不能按桶统一淘汰。                                              |
+| [nginx.conf](../../infra/docker/nginx.conf)                      | /minio/ 代理路径和 Host 是部署合同，浏览器/API/worker/ML 分别验证。                                                                                        |
 
-候选修改入口：[storage.py](../../../apps/api/app/services/storage.py)、[dataset.py](../../../apps/api/app/services/dataset.py)、[media.py](../../../apps/api/app/workers/media.py)、[image_pyramid.py](../../../apps/api/app/services/image_pyramid.py)、[training_dataset.py](../../../apps/api/app/workers/training_dataset.py)、[nginx.conf](../../../infra/docker/nginx.conf)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
+候选修改入口：[storage.py](../../apps/api/app/services/storage.py)、[dataset.py](../../apps/api/app/services/dataset.py)、[media.py](../../apps/api/app/workers/media.py)、[image_pyramid.py](../../apps/api/app/services/image_pyramid.py)、[training_dataset.py](../../apps/api/app/workers/training_dataset.py)、[nginx.conf](../../infra/docker/nginx.conf)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
 
 ## 1. 要解决的问题
 
 数据集原图可以不在统一对象桶，但浏览器、标注工具、导出 worker 和训练 worker 仍需要一致的访问方式。后端必须负责定位、授权、内容身份校验和访问失败解释，不能要求前端理解服务器磁盘路径。
 
-现有 StorageService 已有签名 URL、内部/外部地址处理及任务 URL 解析。应把这些入口逐步迁移到统一解析契约，保留现有媒体派生资产生命周期约束。[代码依据：StorageService](../../../apps/api/app/services/storage.py)
+现有 StorageService 已有签名 URL、内部/外部地址处理及任务 URL 解析。应把这些入口逐步迁移到统一解析契约，保留现有媒体派生资产生命周期约束。[代码依据：StorageService](../../apps/api/app/services/storage.py)
 
 ## 2. 产品原则
 
@@ -179,8 +208,20 @@ M1 严格方案：对需要与标注绑定的可变原图，读取到受限临�
 
 前置合同不等于等待前置 Epic 全量完成。每个切片合并后系统仍须可用；含新来源的回退保留兼容读取和授权，不能把其相对路径交给旧 S3 拼接逻辑。预计多数切片涉及超过 8 个文件，实施时明确大范围边界与准确清单。
 
-已有回归入口：[test_storage_public_url.py](../../../apps/api/tests/test_storage_public_url.py)、[test_storage_event_loop.py](../../../apps/api/tests/test_storage_event_loop.py)、[test_image_pyramid.py](../../../apps/api/tests/test_image_pyramid.py)、[test_training_dataset_bridge.py](../../../apps/api/tests/test_training_dataset_bridge.py)、[test_media_frame_seeking.py](../../../apps/api/tests/test_media_frame_seeking.py)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
+已有回归入口：[test_storage_public_url.py](../../apps/api/tests/test_storage_public_url.py)、[test_storage_event_loop.py](../../apps/api/tests/test_storage_event_loop.py)、[test_image_pyramid.py](../../apps/api/tests/test_image_pyramid.py)、[test_training_dataset_bridge.py](../../apps/api/tests/test_training_dataset_bridge.py)、[test_media_frame_seeking.py](../../apps/api/tests/test_media_frame_seeking.py)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
 
-实现时同步：[storage-buckets.md](../../../docs-site/dev/reference/storage-buckets.md)、[index.md](../../../docs-site/user-guide/datasets/index.md)、[network-security.md](../../../docs-site/ops/deploy/network-security.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
+实现时同步：[storage-buckets.md](../../docs-site/dev/reference/storage-buckets.md)、[index.md](../../docs-site/user-guide/datasets/index.md)、[network-security.md](../../docs-site/ops/deploy/network-security.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
 
-完成实施后按[计划规范](../README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+
+## Outcome
+
+- Landed changes: E05-A read foundation, included in the commit containing this outcome. Scan entries gain immutable content receipts through migration 0197; inventory observations remain separate. Administrator verification and strict managed-image task reads share bounded temporary snapshots, SHA-256 and image validation, current authorization and post-I/O rechecks. Existing task file URLs now enforce canonical task visibility. No release milestone assigned.
+- Filesystem evidence: scan claim records the actual executing kernel host; initial verification requires that host and the pinned source/file identities. API reads require their own current node read proof and anchor. Established digests can be checked on another qualified API node; old or unknown initial host evidence requires a fresh probe and scan. Source-directory replacement, mutable S3 overwrite and API Key revocation/rotation/expiry/scope loss fail closed.
+- Resource bounds: 64 MiB and 32 million pixels per image; four admitted snapshots per API process, retained through response completion. Reads have a ten-second cooperative deadline and fifteen-second request wait; responses have a thirty-second deadline. Cancellation, late completion and response failures close owned files and release admission. A blocked kernel read cannot be forcibly interrupted; its admission remains held until the reader exits.
+- User documentation: `docs-site/user-guide/datasets/index.md`. API documentation: `docs-site/api/guides/verified-content.md`, `docs-site/api/guides/dataset-sources.md`, OpenAPI snapshot, route inventory and SDK coverage manifest. No SDK method or version change.
+- Developer documentation: `docs-site/dev/concepts/storage-connections.md`, `docs-site/dev/concepts/audit-and-notifications.md`, `DEV.md` and `README.md`. Operations documentation: `docs-site/ops/deploy/docker-compose.md`. ADR: `docs/adr/archive/0094-verified-request-content-snapshots.md`. CHANGELOG: Unreleased entry added.
+- Verification: final focused snapshot, scan/API, managed S3, real direct-worker and populated-migration suite: 36 passed. Existing E04, filesystem, storage-location, asset and task-visibility compatibility cases: 71 passed. SDK OpenAPI contracts: 4 passed. Python lint/format, OpenAPI export/code generation, documentation build, ADR/frontmatter/navigation and rendered-document link checks passed. No live browser or remote CI acceptance is claimed.
+- Migration: full fresh, reversible prefix/suffix, legacy-forward and dump/restore validation passed through 0197. An empty receipt column permits downgrade; populated receipts reject it. Validation databases were removed with no owned leftovers.
+- Cleanup: task-owned worker, S3 objects, temporary fixtures and logs were removed; isolated test database, Redis and buckets were destroyed, and generated documentation/test outputs were removed. No backend image build, business mount change or shared development runtime refresh.
+- Remaining work: E03-A with E08-A/E09-A must register in-place business samples, expose the user flow, integrate authenticated browser image reads and bind annotation submissions to exact content. Workbench, ML, export and training consumers have not migrated. E05-B persistent cache, preview derivation, quota management and Range remain pending. The API foundation does not complete E03 or the full E05; this plan remains active because these contracts still constrain later slices.

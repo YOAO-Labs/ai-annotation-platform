@@ -9,6 +9,15 @@ from app.schemas.user import UserBrief
 from app.schemas.image_pyramid import ImagePyramidSummary
 
 
+class TaskContentIdentity(BaseModel):
+    asset_id: UUID
+    sha256: str
+    size_bytes: int
+    verification_state: Literal["verified"]
+    original_availability: Literal["unchecked"]
+    preview_availability: Literal["unknown"]
+
+
 class VideoMetadata(BaseModel):
     duration_ms: int | None = None
     fps: float | None = None

@@ -472,3 +472,5 @@ WS 握手时会校验 JWT，然后订阅：
 存储位置注册、更新和节点探测记录 `storage_location.create / update / probe` 审计；只记录种类、修订、启停与脱敏结果码，不记录绝对根、凭据或内部目录指纹。
 
 目录来源登记/更新和扫描启动/恢复记录 `dataset_source.create / update` 与 `dataset_scan.start / resume`。`dataset_scan` 的终态复用 job 通知，摘要只带ID、计数和完整性，不含目录路径、根身份或原始异常；扫描取消及失联由同一领域 owner 保留不完整状态。
+
+目录条目首次成功内容核验记录 `dataset_content.verify`，目标仅为 run/路径摘要，不记录根指纹、绝对路径或原图字节。重复同内容核验不改写历史回执。

@@ -7,7 +7,7 @@ last_reviewed: 2026-10-22
 
 # 目录来源与观测扫描
 
-这些接口提供只读目录清单和可恢复扫描，均仅限当前超级管理员。来源的 `mode` 固定为 `inventory`：扫描不创建 DatasetItem、Asset 或标注任务，不读取原图字节，不生成内容摘要，也不把历史文件判为 missing。数据集页面继续使用上传或连接器复制导入；原地引用向导尚未接入。
+这些接口提供只读目录清单和可恢复扫描，均仅限当前超级管理员。来源的 `mode` 固定为 `inventory`：扫描不创建 DatasetItem、Asset 或标注任务，不读取原图字节，扫描本身不生成内容摘要，也不把历史文件判为 missing。数据集页面继续使用上传或连接器复制导入；原地引用向导尚未接入。
 
 先用[存储位置 API](./storage-locations)登记受控根内位置，成功探测指定 worker 的 list 能力，再创建来源。所有路径均以 `/api/v1` 为前缀。
 
@@ -45,7 +45,7 @@ Run 固定来源/位置修订、执行节点、根身份和预算。每个目录
 
 单目录最多5000原始条目，循环预算2秒；单次运行最多50000条观测、5000目录。相对路径最多1000字符、32层，支持中文和空格。过滤项也占预算；目录过大、路径不可读、节点不可用、超时及取消都保留已提交清单并保持 `complete=false`。单次 worker 尝试软限240秒、硬限300秒，内核阻塞调用仍取决于运行平台。
 
-Run 的 `completed` 和 `complete=true` 只表示约定范围枚举与复核完成，不是全树某一时刻的原子快照，不证明内容一致。文件大小、inode 和时间只是观测，`content_verified` 恒为 false。任何结果均不自动改变历史样本或 missing 状态。
+Run 的 `completed` 和 `complete=true` 只表示约定范围枚举与复核完成，不是全树某一时刻的原子快照，不证明内容一致。文件大小、inode 和时间只是观测；未单独核验时 `content_verified=false`。通过[内容核验接口](./verified-content)成功核验后，条目保存独立 verified_content 并返回 true，不表示原图持续在线。任何结果均不自动改变历史样本或 missing 状态。
 
 取消复用 `POST /async-jobs/{async_job_id}/cancel`，已提交观测保留。失去60秒租约后可调用 resume 创建新 job/task_id；仍有有效租约时返回409。旧消息、旧 worker 和旧失败信号不能写入新尝试。发布失败返回的 Run 标记 `failed / dispatch_unavailable`，可显式恢复；API在提交后、发布前中断所留的 pending 同样可恢复。
 

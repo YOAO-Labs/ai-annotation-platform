@@ -2,14 +2,14 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import UserRole
 from app.db.models.dataset_source import DatasetSource, DatasetScanRun, DatasetScanEntry
 from app.db.models.user import User
-from app.deps import get_db, require_roles
+from app.deps import get_db, require_roles, require_scopes
 from app.schemas.dataset_source import (
     DatasetSourceCreate,
     DatasetSourceUpdate,
@@ -18,10 +18,12 @@ from app.schemas.dataset_source import (
     DatasetScanOut,
     DatasetScanList,
     DatasetScanEntryList,
+    VerifiedScanContent,
 )
 from app.services import dataset_scans as svc
 from app.services.audit import AuditAction, AuditService
 from app.services.filesystem_storage import FilesystemStorageError
+from app.services.content_snapshot import IMAGE_RESPONSES
 
 router = APIRouter()
 super_admin = require_roles(UserRole.SUPER_ADMIN)
@@ -179,11 +181,25 @@ async def list_entries(
     return {
         "items": [
             {
+                "path_digest": row.path_digest,
                 "relative_path": row.relative_path,
                 "kind": row.kind,
                 "state": row.state,
                 "size_bytes": row.observed.get("size"),
-                "content_verified": False,
+                "content_verified": row.verified_content is not None,
+                "verified_content": {
+                    k: row.verified_content[k]
+                    for k in (
+                        "sha256",
+                        "size_bytes",
+                        "media_type",
+                        "width",
+                        "height",
+                        "verified_at",
+                    )
+                }
+                if row.verified_content
+                else None,
             }
             for row in rows
         ],
@@ -210,3 +226,67 @@ async def resume_scan(
 
     await dispatch(db, run.id)
     return run
+
+
+@router.post(
+    "/dataset-scans/{run_id}/entries/{path_digest}/verify",
+    response_model=VerifiedScanContent,
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
+async def verify_scan_content(
+    run_id: uuid.UUID,
+    path_digest: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services.dataset_content import scan_snapshot, content_http_error
+
+    try:
+        snapshot = await scan_snapshot(
+            db,
+            run_id,
+            path_digest,
+            actor,
+            verify=True,
+            api_key_id=getattr(request.state, "api_key_id", None),
+        )
+    except Exception as exc:
+        raise content_http_error(exc) from None
+    try:
+        return snapshot.public()
+    finally:
+        snapshot.close()
+
+
+@router.get(
+    "/dataset-scans/{run_id}/entries/{path_digest}/content",
+    response_class=Response,
+    responses=IMAGE_RESPONSES,
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
+async def read_scan_content(
+    run_id: uuid.UUID,
+    path_digest: str,
+    request: Request,
+    sha256: str = Query(pattern=r"^[0-9a-f]{64}$"),
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services.dataset_content import scan_snapshot, content_http_error
+    from app.services.content_snapshot import SnapshotResponse
+
+    if request.headers.get("range") is not None:
+        raise HTTPException(416, "Range is not supported for verified snapshots")
+    try:
+        snapshot = await scan_snapshot(
+            db,
+            run_id,
+            path_digest,
+            actor,
+            expected_sha256=sha256,
+            api_key_id=getattr(request.state, "api_key_id", None),
+        )
+    except Exception as exc:
+        raise content_http_error(exc) from None
+    return SnapshotResponse(snapshot)

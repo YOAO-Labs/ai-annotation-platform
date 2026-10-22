@@ -275,6 +275,8 @@
 | GET | `/dataset-scans/{run_id}` |
 | GET | `/dataset-scans/{run_id}/entries` |
 | POST | `/dataset-scans/{run_id}/resume` |
+| POST | `/dataset-scans/{run_id}/entries/{path_digest}/verify` |
+| GET | `/dataset-scans/{run_id}/entries/{path_digest}/content` |
 
 ## `datasets.py`
 
@@ -306,6 +308,8 @@
 | POST | `/upload-init` |
 | POST | `/upload-complete/{task_id}` |
 | GET | `/tasks/{task_id}/file-url` |
+| GET | `/tasks/{task_id}/content` |
+| GET | `/tasks/{task_id}/content-identity` |
 | POST | `/projects/{project_id}/backfill-thumbnails` |
 
 ## `groups.py`
@@ -942,4 +946,4 @@
 
 ---
 
-_共 86 模块 / 535 路由_
+_共 86 模块 / 539 路由_

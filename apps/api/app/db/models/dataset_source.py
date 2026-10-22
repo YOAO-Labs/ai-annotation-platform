@@ -100,6 +100,7 @@ class DatasetScanEntry(Base):
     kind: Mapped[str] = mapped_column(String(20))
     state: Mapped[str] = mapped_column(String(20))
     observed: Mapped[dict] = mapped_column(JSONB)
+    verified_content: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     directory_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
     validated_generation: Mapped[int] = mapped_column(default=0, server_default="0")
 

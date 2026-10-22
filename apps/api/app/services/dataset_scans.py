@@ -15,7 +15,7 @@ from app.db.enums import UserRole
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset
 from app.db.models.dataset_source import DatasetSource, DatasetScanEntry, DatasetScanRun
-from app.db.models.dataset_asset import StorageLocation
+from app.db.models.dataset_asset import StorageLocation, StorageLocationProbe
 from app.db.models.user import User
 from app.services import async_job as jobs
 from app.services import filesystem_storage as fs
@@ -214,12 +214,16 @@ async def start_scan(db, source_id, actor):
     anchor = await locations.node_anchor(db, location, node)
     if anchor is None:
         raise HTTPException(409, "Worker root identity is not verified")
+    probe = await db.get(
+        StorageLocationProbe, (location.id, node), populate_existing=True
+    )
     run = DatasetScanRun(
         source_id=source.id,
         snapshot={
             "source_revision": source.config_revision,
             "location_revision": location.config_revision,
             "anchor": anchor,
+            "scan_host_id": probe.result.get("host_id"),
             "config": dict(source.config),
             "budget": dict(BUDGET),
         },
@@ -351,6 +355,7 @@ async def claim(db, run_id, task_id, node_id):
         )
         return None
     source.generation += 1
+    run.snapshot = {**run.snapshot, "scan_host_id": fs.host_identity()}
     run.generation = source.generation
     run.lease_token = uuid.uuid4()
     run.lease_expires_at = await now(db) + timedelta(seconds=LEASE_SECONDS)

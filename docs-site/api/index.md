@@ -67,6 +67,7 @@ last_reviewed: 2026-07-12
 - [导出](./guides/export) — 导出标注结果
 - [存储连接器](./guides/storage-connections) — S3 / OSS / SFTP 连接器
 - [目录来源与观测扫描](./guides/dataset-sources) — 只读清单、断点恢复与执行代次保护
+- [内容核验与严格读取](./guides/verified-content) — 内容摘要、请求内快照与当前任务授权
 - [受控存储位置](./guides/storage-locations) — 已挂载目录动态登记、授权浏览与节点探测
 - [路由索引（自动生成）](./guides/_routes.generated) — 全部路由清单
 
