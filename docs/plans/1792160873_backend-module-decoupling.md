@@ -5526,3 +5526,16 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   bulk joins and ordered atomic locks. The separate unretired-video deletion/
   unlink policy remains pending; Assets auxiliary 409 does not decide it. No
   primary runtime cutover, push, release, production or Go expansion occurs.
+
+- Source/grant/fixture/documentation checkpoint:
+  `d49f502278777d8993b5b194a920e467cebbe750`. The aggregate binds 24 files
+  to this source commit. Grant/selection units pass 20; architecture passes
+  355 with 149 inapplicable rules. Ruff, format, docs build, final diff review
+  and normal applicable commit hooks pass. Public API export inputs are unchanged;
+  generation hooks naturally skip. Both clean owned source worktrees are removed
+  after exact branch/HEAD, patch and scoped-tree equivalence checks; caches are
+  archived and branches retained. All nine owned PostgreSQL containers are absent,
+  twenty editable bindings still point to Root, and the clean primary and four
+  shared containers are preserved. No persistent Root API/Celery/Workspace provider
+  needs refresh; acceptance processes imported current source. This closes the two
+  exclusive snapshot consumers, not complete Workspace assembly or the full goal.
