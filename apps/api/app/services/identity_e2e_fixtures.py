@@ -31,7 +31,7 @@ class IdentityE2EFixtures:
                 column(field, User.__table__.c[field].type)
                 for field in ACCOUNT_PROFILE_FIELDS
             ),
-            schema="aap_identity_v1",
+            schema="aap_identity_fixture_v1",
         )
         self.profile = aliased(User, profile_view, adapt_on_names=True)
 

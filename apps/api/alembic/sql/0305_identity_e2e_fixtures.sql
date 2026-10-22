@@ -61,18 +61,10 @@ BEGIN
 
     INSERT INTO public.users (
         id, email, name, password_hash, credential_generation, role,
-        group_name, group_id, status, is_active, disabled_kind, disabled_at,
-        disabled_by, disabled_reason, email_verified_at, last_login_at,
-        last_seen_at, password_admin_reset_at, deactivation_requested_at,
-        deactivation_reason, deactivation_scheduled_at, weekly_target_default,
-        avatar_ref, preferences
+        status, is_active, preferences
     ) VALUES (
         p_id, p_email, p_name, p_password_hash, 0, p_role,
-        NULL, NULL, 'offline', true, NULL, NULL,
-        NULL, NULL, NULL, NULL,
-        NULL, NULL, NULL,
-        NULL, NULL, NULL,
-        NULL, '{}'::jsonb
+        'offline', true, '{}'::jsonb
     )
     RETURNING id INTO v_account_id;
     RETURN v_account_id;

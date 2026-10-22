@@ -57,6 +57,7 @@ RUN uv venv /opt/venv \
   && uv pip install --python /opt/venv/bin/python --no-deps /assets-source \
   && rm /tmp/requirements.txt
 COPY apps/api/ .
+COPY docs-site/public/home/sam-tools/smart-point.webm /app/fixture-media/smart-point.webm
 RUN chmod +x /app/scripts/entrypoint.sh
 EXPOSE 8000
 ENTRYPOINT ["/app/scripts/entrypoint.sh"]

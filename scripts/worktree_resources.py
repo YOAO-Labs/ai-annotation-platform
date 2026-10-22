@@ -565,6 +565,21 @@ class LocalResources:
                 identity_capabilities += (
                     "aap_identity_v1.replace_fixture_preferences(uuid,jsonb)",
                 )
+            fixture_grants = ()
+            if self.resources["database"].lower().endswith(("_test", "_e2e")):
+                identity_capabilities += (
+                    "aap_identity_fixture_v1.create_account(uuid,text,text,text,text)",
+                    "aap_identity_fixture_v1.mark_manual_inactive(uuid,timestamptz,uuid)",
+                    "aap_identity_fixture_v1.create_invitations(jsonb)",
+                    "aap_identity_fixture_v1.delete_accounts(boolean,text[])",
+                    "aap_identity_fixture_v1.delete_reset_tokens(uuid[])",
+                    "aap_identity_fixture_v1.delete_invitations(uuid[])",
+                    "aap_identity_fixture_v1.delete_organization_members(uuid[])",
+                )
+                fixture_grants = (
+                    f"GRANT USAGE ON SCHEMA aap_identity_fixture_v1 TO {role}",
+                    f"GRANT SELECT ON aap_identity_fixture_v1.account_profiles TO {role}",
+                )
             identity_function_grant = ", ".join(identity_capabilities)
             image_media_function_grant = ", ".join(IMAGE_MEDIA_RUNTIME_CAPABILITIES)
             image_accepted_function_grant = ", ".join(
@@ -577,6 +592,7 @@ class LocalResources:
                 for sql in (
                     f"GRANT CONNECT ON DATABASE {database} TO {role}",
                     f"GRANT USAGE ON SCHEMA public TO {role}",
+                    *fixture_grants,
                     f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {role}",
                     f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}",
                     f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_membership_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_inference_pipelines_v1, aap_inference_backend_probe_v1, aap_inference_health_observation_v1, aap_inference_health_data_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, aap_assets_v1, aap_labeling_v1, aap_labeling_class_query_v1, aap_jobs_v1, aap_learning_v1, aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_briefs_v1, aap_notifications_v1, aap_settings_v1 TO {role}",

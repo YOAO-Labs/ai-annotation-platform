@@ -174,12 +174,12 @@ async def _identity_function_count(db, role: str) -> int:
     )
 
 
-async def _assert_identity_profile(test_engine) -> None:
+async def _assert_identity_profile(test_engine, *, create_allowed: bool = True) -> None:
     _verify_postgres(test_engine.url)
     assert _USER_OUT_FIELDS == set(_USER_OUT_COLUMN_ORDER)
     async with test_engine.connect() as db:
         for role, fixture_count in (
-            ("legacy_runtime", 7),
+            ("legacy_runtime", 7 if create_allowed else 6),
             ("identity_api_consumer", 0),
         ):
             expected_schemas = {"aap_identity_v1"}
@@ -209,7 +209,10 @@ async def _assert_identity_profile(test_engine) -> None:
                         "CAST(:signature AS regprocedure),'EXECUTE')"
                     ),
                     {"role": role, "signature": signature},
-                ) is (role == "legacy_runtime")
+                ) is (
+                    role == "legacy_runtime"
+                    and (create_allowed or signature != _FIXTURE_FUNCTIONS[0])
+                )
 
         columns = await db.scalar(
             text(
@@ -681,7 +684,7 @@ async def test_installed_e2e_routes_use_fenced_identity_fixture_capabilities(
                     )
                 )
                 capability_revoked = True
-            await _assert_identity_profile(test_engine)
+            await _assert_identity_profile(test_engine, create_allowed=False)
             denied, denied_result = await _run_probe(
                 cli,
                 _probe_command("denied", denied_ns),

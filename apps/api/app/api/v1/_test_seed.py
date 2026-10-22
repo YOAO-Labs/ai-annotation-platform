@@ -416,7 +416,7 @@ async def _cleanup_e2e_fixtures(
     fixture_user_rows = (
         await db.execute(
             text(
-                f"SELECT id FROM aap_identity_v1.account_profiles WHERE {user_selector}"
+                f"SELECT id FROM aap_identity_fixture_v1.account_profiles WHERE {user_selector}"
             ),
             user_params,
         )
@@ -639,6 +639,11 @@ async def _cleanup_e2e_fixtures(
                     "SELECT aap_identity_fixture_v1.delete_invitations(:uids)",
                     {"uids": fixture_user_ids},
                 )
+            elif tbl == "organization_members":
+                await _try_delete(
+                    "SELECT aap_identity_fixture_v1.delete_organization_members(:uids)",
+                    {"uids": fixture_user_ids},
+                )
             else:
                 await _try_delete(
                     f"DELETE FROM {tbl} WHERE {col} = ANY(:uids)",
@@ -702,7 +707,7 @@ async def _cleanup_e2e_fixtures(
     if owned is None:
         residual_query = (
             "SELECT "
-            "(SELECT count(*) FROM aap_identity_v1.account_profiles "
+            "(SELECT count(*) FROM aap_identity_fixture_v1.account_profiles "
             " WHERE email LIKE '%@e2e.test') AS users, "
             "(SELECT count(*) FROM projects "
             " WHERE name = 'E2E Demo Project' "
@@ -714,7 +719,7 @@ async def _cleanup_e2e_fixtures(
     else:
         residual_query = (
             "SELECT "
-            "(SELECT count(*) FROM aap_identity_v1.account_profiles "
+            "(SELECT count(*) FROM aap_identity_fixture_v1.account_profiles "
             " WHERE email = ANY(:owned_emails)) AS users, "
             "(SELECT count(*) FROM projects WHERE name = ANY(:owned_project_names)) AS projects, "
             "(SELECT count(*) FROM ml_backend_registry "

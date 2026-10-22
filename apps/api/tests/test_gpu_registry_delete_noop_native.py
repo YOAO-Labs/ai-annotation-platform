@@ -111,8 +111,10 @@ async def test_registry_delete_skips_only_missing_fence_rows(test_engine) -> Non
             managed_id,
         )
 
-        await connection.execute('SET LOCAL ROLE "legacy_runtime"')
-        assert await connection.fetchval("SELECT current_user") == "legacy_runtime"
+        await connection.execute('SET LOCAL ROLE "identity_api_consumer"')
+        assert (
+            await connection.fetchval("SELECT current_user") == "identity_api_consumer"
+        )
         privileges = await connection.fetchrow(
             """
             SELECT has_table_privilege(current_user,

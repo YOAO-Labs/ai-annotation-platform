@@ -55,6 +55,25 @@ Migration 0251 在 `aap_identity_v1` 提供三项安全函数：`lock_accounts_s
 
 跨帧 worker 每个待写帧都重新锁定并核对当前账号及项目／成员／任务权限，不使用跨帧快照或 `db.refresh(User)` 替代。忙碌仍映射到既有 `permission_changed`，无新重试；账号删除、停用、基础设施失败与阶段拒绝的分类也保持旧区分。非锁定 Workspace authority 查询与 bootstrap/import 写入由下文的 provisioning 切片接管。最新本地 qualification 去重后 231 项全部通过，包括受限 Node 调用、转移／角色变更竞态、恢复与新 Celery 进程。源码及非 editable 安装各通过 595 项，119 个包文件与独立 owner／API 容器指纹一致。旧行为 baseline 的一个测试覆盖 15 个场景，不能叠加到新资格数量。细节见 [ADR-0131](/dev/adr/0131-identity-transactional-account-locks)。
 
+## 门控 E2E 夹具
+
+`aap-identity-e2e-fixtures/v1` 是可信测试运维的固定 PostgreSQL 契约，独立于普通
+API 的五函数／两视图配置。`aap_identity_fixture_v1.account_profiles` 只提供原
+`UserOut` 的 21 个资料字段；不返回密码哈希、凭据代际、注销原因或周目标默认值。
+关系使用 security barrier，并仅在实际数据库名转小写后以 `_test`／`_e2e` 结尾时
+返回行。登录仍可返回停用账号，精确邮箱、缓存资料及 peek 优先级保持。
+
+七项固定能力分别为 `create_account`、`mark_manual_inactive`、`create_invitations`、
+`delete_accounts`、`delete_reset_tokens`、`delete_invitations` 与
+`delete_organization_members`。它们保留原工厂默认值、历史角色、邀请状态和清理谓词，
+不提供任意 SQL、表名或动态谓词。每项写入都检查实际数据库后缀，调用方持有事务；
+原始约束错误和行锁等待保持。SQL 层不新增账号授权、审计、回执、重试或提交。
+
+路由挂载及每请求的环境／开关／数据库守卫保持。可信 operator 在普通 Identity 围栏
+后通过 `identity-e2e-fixture-grants.sql` 追加这些能力，仍无 Identity 私表及列权限；
+普通 API 不能追加此配置。其他领域的可信测试写入及对象权限需分别提供。配置与
+实际资格见 `DEV.md` 和[模块台账](/dev/concepts/module-deployment#identity-门控-e2e-夹具)。
+
 ## 截图夹具的账号与偏好
 
 恢复／拒绝夹具按精确 email 从公开 `account_profiles` 关系读取 UUID，不增加角色或

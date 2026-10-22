@@ -147,6 +147,22 @@ GRANT EXECUTE ON FUNCTION aap_identity_v1.replace_fixture_preferences(uuid,jsonb
     TO :"application_role";
 \endif
 
+SELECT right(lower(current_database()),5)='_test' OR right(lower(current_database()),4)='_e2e'
+    AS identity_e2e_fixture_database \gset
+\if :identity_e2e_fixture_database
+GRANT USAGE ON SCHEMA aap_identity_fixture_v1 TO :"application_role";
+GRANT SELECT ON aap_identity_fixture_v1.account_profiles TO :"application_role";
+GRANT EXECUTE ON FUNCTION
+    aap_identity_fixture_v1.create_account(uuid,text,text,text,text),
+    aap_identity_fixture_v1.mark_manual_inactive(uuid,timestamptz,uuid),
+    aap_identity_fixture_v1.create_invitations(jsonb),
+    aap_identity_fixture_v1.delete_accounts(boolean,text[]),
+    aap_identity_fixture_v1.delete_reset_tokens(uuid[]),
+    aap_identity_fixture_v1.delete_invitations(uuid[]),
+    aap_identity_fixture_v1.delete_organization_members(uuid[])
+    TO :"application_role";
+\endif
+
 GRANT SELECT ON aap_identity_v1.account_profiles,
     aap_identity_v1.invitation_audit_targets TO :"application_role";
 GRANT SELECT ON aap_workspace_v1.project_member_facts TO :"application_role";

@@ -271,6 +271,8 @@ SQL_ARTIFACTS = (
     "0302_workspace_seed_members.sql",
     "0303_identity_scale_seed_actors.sql",
     "0304_identity_fixture_preferences.sql",
+    "0305_identity_e2e_fixtures.sql",
+    "0306_gpu_registry_delete_noop.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -388,8 +390,13 @@ SCHEMA_ARTIFACTS = (
     "0302_workspace_seed_members.schema.json",
     "0303_identity_scale_seed_actors.schema.json",
     "0304_identity_fixture_preferences.schema.json",
+    "0305_identity_e2e_fixtures.schema.json",
 )
 TEST_FILES = (
+    "tests/test_gpu_registry_delete_noop_native.py",
+    "tests/test_identity_e2e_replay.py",
+    "tests/test_identity_e2e_native.py",
+    "tests/test_identity_e2e_live.py",
     "tests/test_identity_fixture_preferences_native.py",
     "tests/test_identity_recording_native.py",
     "tests/test_identity_recording_live.py",
@@ -1278,7 +1285,9 @@ def _destroy_cleanup_storage_scope(scope: dict) -> None:
     docker("exec", scope["container"], "rm", "-rf", "--", scope["config"])
 
 
-def _create_api_bootstrap_storage_scope(scope: dict) -> None:
+def _create_api_bootstrap_storage_scope(
+    scope: dict, *, e2e_fixtures: bool = False
+) -> None:
     """Allow legacy API startup metadata checks on only this run's ten buckets."""
     buckets = scope["buckets"]
     policy = {
@@ -1313,6 +1322,28 @@ def _create_api_bootstrap_storage_scope(scope: dict) -> None:
             },
         ],
     }
+    if e2e_fixtures:
+        policy["Statement"].append(
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:GetObject",
+                    "s3:PutObject",
+                    "s3:DeleteObject",
+                    "s3:AbortMultipartUpload",
+                ],
+                "Resource": [
+                    f"arn:aws:s3:::{buckets['MINIO_DATASETS_BUCKET']}/{prefix}"
+                    for prefix in (
+                        "e2e/owned/*/image/*",
+                        "e2e/owned/*/filtering/*",
+                        "e2e/owned/*/project-roles/*",
+                        "e2e/lidar/*",
+                    )
+                ]
+                + [f"arn:aws:s3:::{buckets['MINIO_BUCKET']}/raster-masks/sha256/*"],
+            }
+        )
     _cleanup_mc(
         scope,
         ["admin", "user", "add", "scoped", scope["access_key"], scope["secret_key"]],
@@ -2354,6 +2385,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regprocedure('aap_workspace_v1.write_seed_members(jsonb)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.create_seed_persona_account(jsonb)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.replace_fixture_preferences(uuid,jsonb)') IS NULL "
+            "AND to_regnamespace('aap_identity_fixture_v1') IS NULL "
             "AND to_regprocedure('aap_identity_v1.read_scale_seed_super_admin()') IS NULL "
             "AND to_regprocedure('aap_identity_v1.read_scale_seed_annotator(uuid[])') IS NULL "
             "AND to_regprocedure('aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)') IS NULL "
@@ -2942,8 +2974,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0304"]:
-            raise RuntimeError("module-data acceptance requires migration head 0304")
+        if heads != ["0306"]:
+            raise RuntimeError("module-data acceptance requires migration head 0306")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -4024,10 +4056,15 @@ def main(argv: list[str] | None = None) -> int:
             "tests/test_identity_recording_live.py" in selected_test_paths
             and os.environ.get("AAP_IDENTITY_RECORDING_FIXTURE_LIVE") == "1"
         )
+        identity_e2e_live = (
+            "tests/test_identity_e2e_live.py" in selected_test_paths
+            and os.environ.get("AAP_IDENTITY_E2E_FIXTURE_LIVE") == "1"
+        )
         if (
             media_seed_identity_live
             or identity_seed_selection_live
             or identity_recording_live
+            or identity_e2e_live
         ):
 
             def workspace_import_cli_fence():
@@ -4037,7 +4074,9 @@ def main(argv: list[str] | None = None) -> int:
                     ROOT
                     / "infra/docker"
                     / (
-                        "identity-recording-fixture-grants.sql"
+                        "identity-e2e-fixture-grants.sql"
+                        if identity_e2e_live
+                        else "identity-recording-fixture-grants.sql"
                         if identity_recording_live
                         else "identity-scale-seed-grants.sql"
                         if identity_seed_selection_live
@@ -4061,7 +4100,9 @@ def main(argv: list[str] | None = None) -> int:
                         },
                     )
                 evidence[
-                    "identity_recording_fixture_operator"
+                    "identity_e2e_fixture_operator"
+                    if identity_e2e_live
+                    else "identity_recording_fixture_operator"
                     if identity_recording_live
                     else "identity_seed_selection_operator"
                     if identity_seed_selection_live
@@ -4391,13 +4432,16 @@ SELECT pg_catalog.jsonb_build_object(
             "tests/test_identity_module_assembly_live.py",
             "tests/test_workspace_module_assembly_live.py",
             "tests/test_workspace_capacity_live.py",
+            "tests/test_identity_e2e_live.py",
         }:
             api_bootstrap_storage = _cleanup_storage_scope(backend)
             api_bootstrap_storage["buckets"] = resources["buckets"]
             api_bootstrap_storage["policy"] = "aap-api-bootstrap-" + secrets.token_hex(
                 8
             )
-            _create_api_bootstrap_storage_scope(api_bootstrap_storage)
+            _create_api_bootstrap_storage_scope(
+                api_bootstrap_storage, e2e_fixtures=identity_e2e_live
+            )
             api_storage = _restricted_s3_client(backend, api_bootstrap_storage)
             probe_bucket = resources["buckets"]["MINIO_DATASETS_BUCKET"]
             probe_key = f"api-bootstrap-probe/{uuid4()}"

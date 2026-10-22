@@ -750,6 +750,56 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 事务和四项失败后再次提交检查。主脚本的媒体子入口仍单独跟踪，完整状态见
 [唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
 
+### 门控 E2E 路由的 Identity 边界
+
+`__test/seed` 仍只在非 production 且显式开启 `E2E_SEED_ENABLED` 时挂载；每个请求
+再核对实际数据库名，按原规则转小写后检查 `_test`／`_e2e` 后缀。普通 API 账号不
+获得测试写入能力。迁移到当前 head 后，可信测试运维 LOGIN 先应用普通围栏，再追加
+固定的七函数与完整资料关系：
+
+```bash
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v identity_owner=identity_code -v consumer_role=e2e_operator \
+  -f infra/docker/identity-consumer-grants.sql
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v identity_owner=identity_code -v consumer_role=e2e_operator \
+  -f infra/docker/identity-e2e-fixture-grants.sql
+```
+
+两个角色必须已存在：Identity owner 为非 LOGIN，operator 为无管理／继承权限的 LOGIN。
+追加配置拒绝普通 `identity_api_consumer` 及仍有 Identity 私表／列权限的角色。其他领域
+继续使用各自可信测试运维权限；这些入口不是一般账号管理 API。资料关系保留登录
+`UserOut` 的 21 字段，原 Session 缓存、精确邮箱及 peek 排序保持。写入和清理在调用方
+事务内执行，含组织成员和密码重置 token 依赖；没有独立提交、自动重试或新增审计。
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/identity-e2e-native.json \
+  --test-file tests/test_identity_e2e_replay.py \
+  --test-file tests/test_identity_e2e_native.py \
+  --test-file tests/test_gpu_registry_delete_noop_native.py
+```
+
+27 项不同定向检查及 64 项既有路由／隔离回归通过。源码检查 393 项通过、150 项既有
+架构规则跳过；工具检查 58 项及 OpenAPI 核对通过。原始基线与失败收据保留，不相加
+作为整模块覆盖率。API 镜像固定携带原 `smart-point.webm`，源码环境继续使用文档目录
+内同一文件。GPU 清理前置修复只跳过不存在围栏的空 DELETE；围栏存在时仍执行原权限
+与 GC 证明守卫。
+
+按 Workspace 组合私网验收表设置四项冷镜像及身份变量后，可验证安装后的原始 HTTP：
+
+```bash
+AAP_IDENTITY_E2E_FIXTURE_LIVE=1 \
+  apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/identity-e2e-cold.json \
+  --test-file tests/test_identity_e2e_live.py
+```
+
+此显式测试使用验收器创建的独占桶 IAM 身份，只追加固定 E2E 对象前缀与 mask 内容
+前缀；其他 API bootstrap 验收的默认元数据策略保持（对象读写仍拒绝）。冷运行资格按
+[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)记录，日常主环境
+不因本地验收切换。
+
 ### 截图夹具的 Identity 边界
 
 作业恢复／拒绝夹具读取精确 email 对应的账号 ID，不新增角色或启用过滤；已有项目、

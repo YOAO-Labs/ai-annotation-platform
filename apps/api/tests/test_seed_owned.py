@@ -907,6 +907,7 @@ async def test_owned_cleanup_propagates_controlled_abort_and_skips_rest(
     # silently continue (or be reported as success) on a broken transaction.
     assert not any("DELETE FROM projects" in sql for sql in executed)
     assert not any("DELETE FROM users" in sql for sql in executed)
+    assert not any("aap_identity_fixture_v1.delete_accounts" in sql for sql in executed)
 
     # Release the aborted test transaction and the injected execute override, then
     # the namespace is still intact and cleanable by a fresh (uninjected) cleanup.

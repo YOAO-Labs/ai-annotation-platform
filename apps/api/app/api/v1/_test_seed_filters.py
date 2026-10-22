@@ -1676,10 +1676,12 @@ async def build_filtering_seed(
         Body=image_svg,
         ContentType="image/svg+xml",
     )
-    video_source = (
-        Path(__file__).resolve().parents[5]
-        / "docs-site/public/home/sam-tools/smart-point.webm"
-    )
+    api_root = Path(__file__).resolve().parents[3]
+    video_source = api_root / "fixture-media/smart-point.webm"
+    if not video_source.is_file():
+        video_source = (
+            api_root.parent.parent / "docs-site/public/home/sam-tools/smart-point.webm"
+        )
     video_key = f"{ids.storage_prefix}video.webm"
     storage_service.client.put_object(
         Bucket=storage_service.datasets_bucket,

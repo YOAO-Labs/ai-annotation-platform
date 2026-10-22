@@ -7169,3 +7169,57 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Its existing physical database check lowercases the name before the suffix test;
   preserve that established route behavior rather than copying the screenshot
   restore CLI's case-sensitive rule into this separate consumer.
+
+### Guarded E2E Identity fixture boundary
+
+- Preserve the full module goal; the preceding screenshot milestone was verified
+  progress. This slice covers every Identity operation in the actual gated E2E
+  runtime routes, including organization membership deletion discovered during
+  restricted execution. Other domains retain their existing trusted fixture scope.
+- Starting at f7fb219abe41788a7356910aedfc973b1b241f59, all 64 existing route/owned
+  cases passed. Six frozen actual behavior captures cover full UserOut, missing
+  email, real cached email/role/preferences drift, peek precedence and exact/shared
+  cleanup including password-reset tokens and invitations. The first custom fixture
+  used an invalid non-hex token hash and stopped before consumer execution; its
+  receipt and driver remain. Corrected single-case and remaining captures passed.
+- Source owner commits b9eb2546386bab6e2271f90863da5109c654af77 and
+  764692cab1a7e32a223e783bc542e5f0b851eb5d integrate as fae65434e and 4845fad2f.
+  Consumer 26c10d0c77f60e7f1d7d10d9005f91eb2202749c integrates as 818be2d9f;
+  cold source 8dd168a5e1c45781ae457dc96183cb09bf62fb5d integrates as 4cab172c6.
+- Root corrected the consumer's initial seven-column view reference to the new
+  21-field fixture relation, retained exact cached ORM values, and limited INSERT
+  to the actual factory-assigned columns so existing Identity column privileges
+  suffice. Seven Native writes preserve caller transactions, normal row waiting,
+  raw errors, inactive accounts, legacy roles and fixed cleanup predicates. The
+  actual database guard lowercases the name as the old E2E route did; this is
+  intentionally different from screenshot preference restore's case-sensitive rule.
+- Restricted execution exposed a real prerequisite: the old invoker registry
+  trigger issues a fence DELETE even with zero rows, while ordinary runtime ACLs
+  correctly deny tombstone deletion. Source c33a2bc136cf8201e6667ba01dff14ff84e31f85
+  integrates as e491563bf; migration 0306 wraps only that DELETE in an existence
+  check and preserves the membership predicate, invoker mode and exact 0278 search
+  path. Real existing fences remain blocked with 42501; managed GPU history with
+  nonzero runtime epoch remains 23514. No proof, journal or retirement is fabricated.
+- Root isolated fixture defects from implementation: original shared-savepoint
+  scenarios cannot supply uncommitted setup to a separate LOGIN; the Native harness
+  now uses committed metadata and per-request restricted sessions. Its three
+  spatial capabilities exactly match existing worktree operator grants. Product
+  cleanup still proves keeper data survives, then the test owner removes only
+  newly created row IDs to prevent later duplicate-key fixture failures.
+- Qualification so far: 27 distinct selected cases (including one GPU prerequisite),
+  all 64 existing route/owned cases, 393 source checks with 150 existing architecture
+  deferrals, 58 tooling checks and unchanged OpenAPI. Failing receipts are retained;
+  passing cases are reused and de-duplicated rather than counted repeatedly.
+- Filtering's checkout-relative video path was not installable. Root packages the
+  exact existing smart-point.webm in the API image and retains the source checkout
+  fallback. The Docker context permits only that one document media file. Original
+  media bytes/provenance/review records stay unchanged; no browser recording or
+  model inference is claimed.
+- The cold test uses original installed API routes over real Uvicorn/TCP, not SQL
+  mocks or disabled lifespan. A verifier-only extension of the existing bootstrap
+  IAM profile permits four E2E dataset prefixes and the mask content prefix in this
+  run's exclusive owned buckets. Other assemblies keep the default metadata-only
+  object policy. No shared administrator credential enters the API container.
+- Cold installation/actual HTTP cancellation recovery and final artifact/cleanup
+  audit remain pending. Do not infer whole Identity, primary runtime cutover,
+  remote CI, production capacity or Go-provider qualification from this source slice.
