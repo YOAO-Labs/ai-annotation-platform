@@ -235,6 +235,7 @@ REVOKE ALL ON FUNCTION
     aap_inference_v1.enable_workspace_project_backend(uuid, uuid)
     FROM :"application_role";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
+    aap_workspace_v1.lock_project_reference_nowait(uuid),
     aap_workspace_v1.lock_project_manager(uuid, uuid),
     aap_workspace_v1.project_access_step(uuid, uuid, text),
     aap_workspace_v1.lock_project_row(uuid, boolean),

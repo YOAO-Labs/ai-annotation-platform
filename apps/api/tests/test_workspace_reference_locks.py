@@ -80,6 +80,7 @@ async def test_missing_project_reference_keeps_actor_facts(monkeypatch):
     session = _Session(reference=None)
 
     async def lock_accounts(_self, account_ids, *, mode, nowait):
+        session.events.append(("actor", account_ids, mode, nowait))
         return {actor_id: actor}
 
     monkeypatch.setattr(
@@ -102,6 +103,7 @@ async def test_missing_actor_still_takes_project_reference_lock(monkeypatch):
     session = _Session(reference=project_id)
 
     async def lock_accounts(_self, account_ids, *, mode, nowait):
+        session.events.append(("actor", account_ids, mode, nowait))
         assert account_ids == []
         return {}
 

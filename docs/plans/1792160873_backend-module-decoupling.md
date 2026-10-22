@@ -5539,3 +5539,40 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   shared containers are preserved. No persistent Root API/Celery/Workspace provider
   needs refresh; acceptance processes imported current source. This closes the two
   exclusive snapshot consumers, not complete Workspace assembly or the full goal.
+
+## Task and Training Project snapshots checkpoint
+
+- Eight selected Project gets now use existing read_project_row facts with real
+  actor UUIDs. Ordinary identity hits (including partial expiry) skip SQL/flush;
+  refresh, full expiry, dirty-PK preflush and deleted-identity state preserve the
+  installed Session.get behavior. Forty real pre-change cases at a6ebe369b are
+  frozen without overwriting capture; all replay successfully after migration.
+- Training reference fences are a genuine prerequisite: the old scalar private
+  Project.id lock moves to the existing blocking owner function and one fixed
+  NOWAIT companion. No actor, role or JSON protocol is invented. Null/missing/
+  inactive actor semantics, null/missing Project and invalid Project dates preserve
+  sixteen old-source baseline cases. SQLSTATE mapping and caller transaction
+  remain; the new scalar is UUID/target checked and accepts asyncpg UUID subclasses.
+- Native/guard source c143ec3cc is integrated as a35ec81b6; getter/consumer source
+  3d210b8c8 as feb3df90b. Root owns strict driver-type correction, owner/grants,
+  verifier, actual golden/LOGIN/Node/ACL/rollback checks and documentation. No
+  new role, DSN, service, provider selector or autonomous transaction is added.
+- Effective union: 329 distinct selected cases, zero failures/errors/skips.
+  Includes 40 getter replays, 16 reference cases, 2 restricted reference LOGIN
+  cases, 2 actual Task/Training consumers, 16 focused adapter cases, 2 ACL/rollback
+  cases and 251 selected business/Node regressions. Old 56 baseline executions
+  are excluded. A first adapter batch had 3 fixture failures (missing mock actor
+  events and FK cleanup order); only those were rechecked and the remaining
+  case continued. Valid passing evidence is retained, not rerun for counts.
+- READ ONLY Task access and Training authority succeed with private User/Project/
+  Member reads denied; original backend/transaction and authority locks remain.
+  Node directly calls both reference modes and existing snapshot Native phases.
+  Caller prior writes roll back on scope corruption, ACLs remain exact, and
+  frozen artifact/0189-to-head-0291 roundtrip qualification passes in owned PG.
+- Full cold install, image, fresh migration and restore stay batched at a coherent
+  complete-Workspace milestone; source HTTP temporal comparison is not new cold
+  artifact acceptance. ADR-0169 and the local project-get aggregate retain this
+  evidence. Only module-deployment.md maintains remaining work: other/actorless
+  business snapshots, membership locks/set reads and complete module assembly.
+  Unretired-video project deletion/unlink policy is still separately pending.
+  Primary runtime, production, push/release and the Go experiment are unchanged.

@@ -773,6 +773,28 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 带 Audit 的夹具留到已验证自有数据库销毁，保持审计不可变约束。基线、失败最小复验和
 限定本地证据见 [ADR-0168](docs/adr/0168-workspace-exclusive-project-snapshots.md)。
 
+### Task／Training 的 Workspace 项目快照
+
+`get_workspace_project` 通过已有无锁事实阶段读取完整 Project；普通缓存命中不查询、
+不 flush，刷新模式、完全过期、删除状态及原 pending work 行为保留。Task access、
+最终阶段写检查和选定 Training authority／study／claim 使用实际请求或保存的 actor ID。
+
+Project 引用围栏仍按账号 SHARE → Project KEY SHARE 获取：等待模式复用原函数，
+NOWAIT 用 `lock_project_reference_nowait(uuid)`。两者只返回 UUID／null，不物化
+Project 配置；当前迁移、owner 授权和应用清单须一致。原调用方继续持有整个事务。
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/workspace-project-get.json \
+  --test-file tests/test_workspace_project_get_native.py \
+  --test-file tests/test_workspace_project_reference_native.py \
+  --test-file tests/test_workspace_project_get.py \
+  --test-file tests/test_workspace_reference_locks.py
+```
+
+冻结 getter 样本是一次性基线，不设置捕获变量重写。实际受限 LOGIN、Node、缓存、
+回滚及权限资格见 [ADR-0169](docs/adr/0169-workspace-task-training-project-snapshots.md)。
+
 ### Workspace 调用方事务内的项目删除
 
 `aap-project-delete/v1` 的可移植命令和回执位于 `aap-workspace`。API 继续使用原请求

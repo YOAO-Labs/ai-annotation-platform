@@ -246,6 +246,18 @@ Native `lock_project_row(uuid,boolean)` 不承接权限策略；只返回严格�
 [ADR-0168](/dev/adr/0168-workspace-exclusive-project-snapshots)。完整模块装配仍见
 [唯一台账](/dev/concepts/module-deployment#剩余工作台账)。
 
+## Task／Training 业务快照
+
+选定 Task access、最终阶段写检查和 Training authority／study／claim 通过现有无锁
+Project 事实读取配置。调用方的缓存命中、autoflush、强制刷新与过期删除处理保留；
+实际 actor 来自请求或保存的 creator_id，owner 事实不代替业务权限判断。
+
+训练的前置引用锁仍先持有账号 SHARE，再持有 Project KEY SHARE。原等待函数和
+新增 NOWAIT companion 只返回 UUID／null，不额外解码配置日期，不新开连接或提交。
+应用授权、实际受限 API 和 Node 证据见
+[ADR-0169](/dev/adr/0169-workspace-task-training-project-snapshots)。其余消费者和
+完整模块资格仍按[唯一台账](/dev/concepts/module-deployment#剩余工作台账)推进。
+
 ## 项目删除的调用方事务
 
 项目删除使用已有 `aap-project-delete/v1` 和

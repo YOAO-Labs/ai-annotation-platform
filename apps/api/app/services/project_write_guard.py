@@ -134,7 +134,7 @@ async def lock_actor_project_authority(
             {"project_id": project_id},
         )
         if reference is not None and (
-            type(reference) is not uuid.UUID or reference != project_id
+            not isinstance(reference, uuid.UUID) or reference != project_id
         ):
             raise HTTPException(
                 status_code=503,

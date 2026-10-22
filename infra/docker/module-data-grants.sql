@@ -1680,6 +1680,8 @@ GRANT USAGE, CREATE ON SCHEMA aap_workspace_membership_v1
 GRANT USAGE, CREATE ON SCHEMA aap_workspace_owner_transfer_v1
     TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.lock_project_reference(uuid) OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1.lock_project_reference_nowait(uuid)
+    OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1._project_read_failure(text)
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.read_project_visibility(uuid, uuid)

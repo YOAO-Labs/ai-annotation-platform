@@ -598,6 +598,7 @@ class LocalResources:
                     "aap_workspace_membership_v1.prepare_membership_command(jsonb), "
                     "aap_workspace_membership_v1.apply_membership_command(jsonb), "
                     f"aap_workspace_v1.lock_project_reference(uuid), "
+                    "aap_workspace_v1.lock_project_reference_nowait(uuid), "
                     "aap_workspace_v1.lock_project_manager(uuid, uuid), "
                     "aap_workspace_v1.project_access_step(uuid, uuid, text), "
                     "aap_workspace_v1.lock_project_row(uuid, boolean), "
