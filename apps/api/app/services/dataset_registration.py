@@ -476,9 +476,13 @@ async def probe_candidates(db, location, source, scan_id, node):
 
 def check_source_directory(config, path, anchor):
     from app.services.sources.s3_reference import S3Access
+    from app.services.sources.sftp_reference import SftpAccess
 
     if isinstance(config, S3Access):
         config.list_page(path)
+        return
+    if isinstance(config, SftpAccess):
+        config.scan_directory(path, expected_anchor=anchor)
         return
     with fs.location_directory(config, path, expected_anchor=anchor):
         return

@@ -141,11 +141,13 @@ last_reviewed: 2026-09-10
 
 #### SFTP 前置条件（务必先读）
 
-平台**不会盲信任意主机指纹**——SFTP 连接（无论「测试连接」还是真正导入）都用 `RejectPolicy` + 系统 **known_hosts**：
+连接器的“测试连接”和复制导入使用 `RejectPolicy` + 系统 **known_hosts**：
 
 - 平台在 worker / API 进程内调 `load_system_host_keys()` 加载**服务端机器**的系统 known_hosts，并对未知主机一律 `RejectPolicy()`（直接拒绝，**不**自动接受、**不** TOFU）。
 - **因此：目标 SFTP 主机的 host key 必须先出现在平台服务端的 known_hosts 里**，否则连接在握手阶段就被拒（报「Server ... not found in known_hosts」之类）。需要运维在部署平台的机器（API + Celery worker 容器/主机）上预先 `ssh-keyscan <host> >> ~/.ssh/known_hosts`，或挂载已含目标指纹的 known_hosts 文件。
 - 连接测试与实际导入共享 RSA / Ed25519 / ECDSA 私钥解析和主机指纹校验。测试成功可确认连接器配置与目录读取能力；正式使用前仍建议跑一次小范围导入，验证文件范围与权限。
+
+[SFTP 原地引用](./import-images#sftp-原地引用)使用独立的部署资格与固定主机公钥，不读取系统 known_hosts。运维须先核验整个账号命名空间的只读 jail，并配置 `STORAGE_SFTP_ROOTS`；连接 Base path 为 `/`。原地扫描的指定节点探测与连接器“测试连接”是不同检查，复制导入测试成功不代表取得持续引用资格。
 
 ## 测试连通性
 

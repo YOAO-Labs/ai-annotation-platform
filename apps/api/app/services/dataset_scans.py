@@ -18,6 +18,7 @@ from app.db.models.dataset_asset import StorageLocation, StorageLocationProbe
 from app.services import async_job as jobs
 from app.services import filesystem_storage as fs
 from app.services import storage_location as locations
+from app.services import reference_storage
 from app.services import dataset_source_access as access
 from app.services.async_job_notify import notify_job_terminal
 
@@ -129,13 +130,17 @@ async def validate_context(db, location, source, *, snapshot=None):
     if (
         location is None
         or not location.enabled
-        or location.kind not in {"filesystem", "s3"}
+        or location.kind not in {"filesystem", "s3", "sftp"}
     ):
         raise fs.FilesystemStorageError("location_unavailable")
-    if location.kind == "s3":
-        from app.services.reference_storage import configuration
-
-        await configuration(db, location)
+    if location.kind in {"s3", "sftp"}:
+        configured = await reference_storage.configuration(db, location)
+        if (
+            snapshot
+            and "anchor" in snapshot
+            and configured.anchor != snapshot["anchor"]
+        ):
+            raise fs.FilesystemStorageError("configuration_changed")
     if snapshot and (
         snapshot["source_revision"] != source.config_revision
         or snapshot["location_revision"] != location.config_revision
@@ -156,8 +161,10 @@ async def create_source(db, payload, actor, *, api_key_id=None):
     locations.require_reference_backend(location)
     if await db.get(Dataset, payload.dataset_id) is None:
         raise HTTPException(404, "Dataset not found")
-    if location.kind == "filesystem":
+    if location.kind in {"filesystem", "sftp"}:
         fs.relative_path(payload.relative_path)
+        if location.kind == "sftp":
+            await reference_storage.configuration(db, location)
     else:
         from app.services.sources.s3_reference import directory_prefix
 
@@ -526,7 +533,8 @@ async def next_directory(db, run_id, task_id, fence):
         "relative_path": entry.relative_path,
         "phase": run.phase,
         "path": path,
-        "config": dict(location.config),
+        "kind": location.kind,
+        "config": await reference_storage.configuration(db, location),
         "anchor": run.snapshot["anchor"],
         "identity": entry.observed.get("identity")
         or (source.root_identity if not entry.relative_path else None),

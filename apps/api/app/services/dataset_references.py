@@ -369,7 +369,7 @@ async def reference_context(db, item_id, actor, *, task_id=None):
     if (
         location is None
         or not location.enabled
-        or location.kind not in {"filesystem", "s3"}
+        or location.kind not in {"filesystem", "s3", "sftp"}
     ):
         raise snapshots.ContentError("location_unavailable")
     if (
@@ -401,7 +401,7 @@ async def reference_context(db, item_id, actor, *, task_id=None):
     same_host = run.snapshot.get("scan_host_id") == fs.host_identity()
     expected = (
         receipt["observation"]
-        if receipt["node_id"] == node or location.kind == "s3"
+        if receipt["node_id"] == node or location.kind in {"s3", "sftp"}
         else {k: receipt["observation"][k] for k in ("size", "mtime_ns", "ctime_ns")}
     )
     expected_source = (
@@ -411,8 +411,13 @@ async def reference_context(db, item_id, actor, *, task_id=None):
         if same_host
         else None
     )
+    configured = await reference_storage.configuration(db, location)
+    if location.kind in {"s3", "sftp"} and (
+        configured.anchor != run.snapshot["anchor"] or anchor != configured.anchor
+    ):
+        raise snapshots.ContentError("content_binding_changed")
     return dict(
-        config=await reference_storage.configuration(db, location),
+        config=configured,
         base=source.config["relative_path"],
         path=entry.relative_path,
         anchor=anchor,

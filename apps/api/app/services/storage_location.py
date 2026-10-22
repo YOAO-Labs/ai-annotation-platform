@@ -131,8 +131,8 @@ def require_filesystem(location):
 
 
 def require_reference_backend(location):
-    if location.kind not in {"filesystem", "s3"} or (
-        location.kind == "s3" and location.connection_id is None
+    if location.kind not in {"filesystem", "s3", "sftp"} or (
+        location.kind in {"s3", "sftp"} and location.connection_id is None
     ):
         raise HTTPException(409, detail={"code": "reference_backend_not_supported"})
     if not location.enabled:
@@ -146,6 +146,17 @@ async def to_out(db, location, actor):
         else None
     )
     config = location.config or {}
+    reference = location.kind == "filesystem" or (
+        location.kind == "s3" and connection is not None
+    )
+    if location.kind == "sftp" and connection is not None:
+        from app.services.sources.sftp_reference import qualified_root
+
+        try:
+            qualified_root(connection.config)
+            reference = True
+        except fs.FilesystemStorageError:
+            pass
     return {
         "id": location.id,
         "name": connection.name if connection else location.name,
@@ -167,6 +178,7 @@ async def to_out(db, location, actor):
         if actor.role == UserRole.SUPER_ADMIN
         else [],
         "declared_capabilities": {
+            "reference": reference,
             "list": True,
             "read": True,
             "range": location.kind == "filesystem",
@@ -259,7 +271,7 @@ async def node_anchor(db, location, node_id):
 async def browse(db, location, *, path, limit, cursor):
     if location.kind == "s3":
         return await browse_s3(db, location, path, cursor)
-    require_filesystem(location)
+    require_reference_backend(location)
     path = fs.relative_path(path)
     path_digest = hashlib.sha256(path.encode()).hexdigest()
     node = api_node_id()
@@ -284,9 +296,17 @@ async def browse(db, location, *, path, limit, cursor):
                 raise ValueError()
         except (JWTError, ValueError, KeyError, TypeError):
             raise HTTPException(409, "Directory cursor is invalid or stale") from None
+    if location.kind == "sftp":
+        from app.services.reference_storage import configuration
+
+        access = await configuration(db, location)
+        browse_directory = access.browse_directory
+    else:
+        from functools import partial
+
+        browse_directory = partial(fs.browse_directory, location.config)
     names, more, snapshot = await run_in_threadpool(
-        fs.browse_directory,
-        location.config,
+        browse_directory,
         path,
         expected_anchor=anchor,
         limit=limit,
@@ -322,7 +342,7 @@ async def browse(db, location, *, path, limit, cursor):
 
 async def perform_probe(db, location, node_id, sample_file):
     require_reference_backend(location)
-    if location.kind == "s3":
+    if location.kind in {"s3", "sftp"}:
         from app.services.reference_storage import configuration
 
         access = await configuration(db, location)

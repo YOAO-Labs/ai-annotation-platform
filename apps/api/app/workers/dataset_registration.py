@@ -202,6 +202,9 @@ async def execute_registration(run_id, task_id, node_id):
                             "s3_conditions_not_supported",
                             "s3_invalid_response",
                             "s3_invalid_observation",
+                            "sftp_root_not_qualified",
+                            "sftp_host_key_mismatch",
+                            "sftp_invalid_attributes",
                         }:
                             raise
                         if code in svc.PATH_ERRORS:

@@ -133,7 +133,7 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
       aria-label="服务器目录接入"
       className="mb-4 rounded-lg border border-border bg-card p-3 text-xs"
     >
-      <h4 className="mb-1 text-sm font-semibold">服务器目录与 S3 · 登记与复制</h4>
+      <h4 className="mb-1 text-sm font-semibold">服务器目录与远端来源 · 登记与复制</h4>
       <p className="mb-3 text-muted-foreground">
         选择原图保留在来源或复制到平台，预览缓存单独设置和计量。先扫描、预检，再确认登记；已提交结果保留。本机文件夹通过上传接入。
       </p>
@@ -151,13 +151,10 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
           >
             <option value="">选择已登记位置</option>
             {locations.data?.items
-              .filter(
-                (l) =>
-                  (l.kind === "filesystem" || (l.kind === "s3" && !!l.connection_id)) && l.enabled,
-              )
+              .filter((l) => l.declared_capabilities.reference && l.enabled)
               .map((l) => (
                 <option key={l.id} value={l.id}>
-                  {l.name}（{l.kind === "s3" ? "S3" : "服务器目录"}）
+                  {l.name}（{l.kind === "filesystem" ? "服务器目录" : l.kind.toUpperCase()}）
                 </option>
               ))}
           </select>
@@ -284,8 +281,12 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
       {locations.data?.items.find((l) => l.id === locationId)?.kind === "s3" && (
         <p className="mt-2 text-muted-foreground">
           S3
-          前缀按原始字符匹配，保留空格、连续斜线和点段。版本或条件读取固定原件；每次使用仍核验完整摘要。SFTP
-          持续引用尚未开放。
+          前缀按原始字符匹配，保留空格、连续斜线和点段。版本或条件读取固定原件；每次使用仍核验完整摘要。
+        </p>
+      )}
+      {locations.data?.items.find((l) => l.id === locationId)?.kind === "sftp" && (
+        <p className="mt-2 text-muted-foreground">
+          此位置由运维配置为只读隔离根。填写根内相对目录；不跟随发现的符号链接，每次读取仍核验完整摘要。
         </p>
       )}
       {browsePath !== null && (

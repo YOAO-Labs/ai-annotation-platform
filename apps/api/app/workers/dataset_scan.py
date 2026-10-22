@@ -90,10 +90,16 @@ async def execute_scan(run_id, task_id, node_id):
                             work["access"].list_page, work["path"], work["cursor"]
                         )
                     else:
+                        scan_directory = (
+                            work["config"].scan_directory
+                            if work.get("kind") == "sftp"
+                            else lambda *args, **kwargs: fs.scan_directory(
+                                work["config"], *args, **kwargs
+                            )
+                        )
                         manifest = await asyncio.wait_for(
                             asyncio.to_thread(
-                                fs.scan_directory,
-                                work["config"],
+                                scan_directory,
                                 work["path"],
                                 expected_anchor=work["anchor"],
                                 expected_identity=work["identity"],

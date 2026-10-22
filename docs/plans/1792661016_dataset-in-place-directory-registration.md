@@ -337,3 +337,31 @@ S3根目录的既有ScanEntry.observed保存有界分页检查点，页结果与
 - 正式文档：`README.md`、`docs-site/user-guide/datasets/import-images.md`、`docs-site/api/guides/{dataset-sources,storage-locations,verified-content}.md`、`docs-site/dev/concepts/storage-connections.md`、`docs/adr/0098-strict-external-s3-references.md`与CHANGELOG Unreleased同步。发布安排未定。
 - 清理：关闭本次浏览器并删除临时认证档案；停止API/Web和两类worker，销毁owned dev/test数据库、Redis、桶和本地目录；移除临时密钥、凭据、截图、日志与文档构建中间物。
 - 下一切片：SFTP持续引用必须具备部署侧服务器隔离与主机身份资格，不能将普通路径open或前后lstat当作原子nofollow。随后对E03故事与验收矩阵做整体核对。本计划保持根目录且完整E03继续active；周期同步、Agent、完整原图缓存和训练冻结仍由对应Epic承担。
+
+## 下一实施定案：E03-B 受部署隔离约束的 SFTP 持续引用
+
+基线 `36c4ae794`。复用 Source/ScanEntry/Registration/Reference、快照与任务门禁；新增严格 SFTP 后端，保留旧复制导入调用者。最小边界采用部署者维护的 `STORAGE_SFTP_ROOTS`（默认空）映射：根句柄→host/port/username/完整主机公钥。连接必须精确匹配且 base_path 为 `/`，整个账号可读命名空间即获授权 Location 范围；Source 子目录仅作筛选。部署者先实际配置 OpenSSH ChrootDirectory、强制 internal-sftp -R、禁用 shell/转发并核对隔离，再登记资格。普通 SFTP 协议不能证明远端 chroot 或账号只读；资格是部署信任边界，UI、探测和文件摘要都不能自报或推断它。
+
+Paramiko 使用只含该部署公钥的独立 HostKeys 与 RejectPolicy，在认证前核对主机身份；不加载或修改用户 known_hosts，不使用 AutoAddPolicy。沿用加密凭据与主机白名单，连接/认证/通道设短超时，原地路径不规范化、不跟随探测到的链接。lstat链、文件句柄stat、读取前后观测与完整SHA用于一致性；原子根边界由服务器jail提供，不能把这些前后检查声称为原子nofollow。主机/账号/资格hash形成锚点，不虚构SFTP inode、不可变版本或条件GET能力。
+
+目录扫描复用已有有界逐目录清单、租约、取消恢复与末次目录清单复核，每目录最多5000项、总量仍遵守现有预算；SFTP无持久跨连接目录游标，不新增伪分页token。目录浏览对有界完整清单排序分页并固定清单摘要，变更则重选。首次图片回执固定完整远端相对路径、观测和SHA；后续整图读取固定同一身份，来源离线或变化失败且保留旧业务数据。管理授权、Key与位置修订沿用I/O前后复查，预览/托管复制沿用独立策略。
+
+资格调整或撤回须先禁用相应Location以递增修订并阻止旧worker发布，再协调API与worker部署；仅改某进程环境不等于集群撤权。旧锚点不自动重绑；重新提供不同服务器或安全根应新建连接和位置。UI只显示具备部署资格的SFTP引用位置，仍把未获资格连接留在原复制入口；资格仅表明准入配置，当前可达与读能力由节点探测证明。
+
+链路为 `UI -> Source/Scan/Registration -> SftpAccess -> qualified readonly jail`，任务仍经鉴权快照进入Workbench和标注。涉及config/Compose与环境文档、后端/扫描/登记、位置能力声明、UI与正式文档，超过8文件；无新应用服务、依赖、数据库迁移或版本调整。新增一个部署环境配置，因普通SFTP open缺少原子nofollow而不可省略；不构建后端镜像。
+
+验收包含未获资格拒绝、host/账号/base不匹配、认证前主机密钥不匹配、路径跳转/绝对路径/符号链接/特殊文件拒绝、观测变化与相同观测异字节、取消恢复及旧lease、撤权/旧节点、源离线与缓存分离。使用任务专属真实OpenSSH只读chroot、隔离dev/test、实际worker和浏览器完成扫描→登记→Workbench画框→重扫→注销，并核对源树和平台写入；不修改共享SSH配置、账号或主栈。回退禁用新资格并保留旧引用元数据和明确不可用状态。周期同步、Agent和远端冻结不在本切片。
+
+依据：[OpenSSH ChrootDirectory/ForceCommand](https://man.openbsd.org/sshd_config.5)、[SFTP只读模式](https://man.openbsd.org/sftp-server.8)、[Paramiko认证前主机密钥校验](https://docs.paramiko.org/en/stable/api/client.html)、[SFTP文件句柄与目录迭代](https://docs.paramiko.org/en/stable/api/sftp.html)。最脆弱前提是部署者声明的jail确实成立；若不成立，客户端检查无法补足边界，必须拒绝配置资格，而不是降级使用普通open。
+
+## Outcome — E03-B 只读 SFTP 持续引用
+
+- 基线 `36c4ae794` 后新增部署资格 `STORAGE_SFTP_ROOTS` 与严格 SftpAccess；复用扫描、登记、内容身份、独立预览和 Task 门禁。整个账号命名空间须为实际核验的只读 jail，base_path 必须为 `/`；来源子目录仅用于筛选。无新依赖、服务、迁移或版本，未重建后端镜像。
+- 身份与撤权：独立固定主机公钥在认证前核验，白名单解析后固定 socket 地址；完整 SHA 及路径/句柄前后观测负责内容一致性，不宣称原子 nofollow、inode 或条件 GET。历史扫描锚点阻止新节点重绑旧引用；资格变更先禁用位置并提交修订，再协调所有 API/worker。坏私钥和错误口令返回明确连接错误。
+- 真实服务：任务专属 OpenSSH 配置 ChrootDirectory、internal-sftp -R、禁用转发与终端。实际拒绝3条 jail 外/越界链接读取、写入/删除/改名、终端/转发；错误主机公钥在认证前拒绝。未修改宿主机账号或共享 SSH 配置。
+- 真实浏览器与 worker：隔离 API8101/Web3101，目录浏览选择 `data/collection`，扫描4文件、3链接排除、1子目录；预检及确认得到3可用/1损坏，原图新增0字节，预览470字节。鉴权缓存解码256×160，关联创建3任务，Workbench显示640×400并鼠标画框保存1条标注。同大小、同 mtime 改字节后读图/新标注均409 content_mismatch，旧标注保留；恢复字节及观测后200。服务离线时读写409 content_source_unavailable、独立预览200；重扫再次登记仍3 Item/3 Task，3路径识别已登记，未重复。最终浏览器注销来源成功，旧标注保留，无未捕获浏览器异常。
+- 物理核对：来源4普通文件、3链接和1目录的名称、结构、链接目标、文件 SHA 与基线一致。3条引用映射、0托管原图位置、3任务及1条标注保留；datasets桶1个0字节占位，media-cache桶3个预览共470字节，逐对象SHA/大小与账本一致。
+- 本地验证：相关后端162项通过；补充坏私钥/错误口令后 SFTP17项通过（与前组重叠）；SDK合同4项通过。Ruff、TypeScript、ESLint、CSS token、OpenAPI一致性、ADR编号和文档构建通过，diff检查通过。CSS仅有训练比较页既有2处z-index建议。最终刷新API与相关worker，API和指定worker样本read探测均verified。未运行远端CI或生产资格验收。
+- 文档：README/DEV、CHANGELOG Unreleased、数据集首页/导入/连接器、来源/位置/严格内容API、存储架构、部署指南、环境变量参考及ADR0099同步。
+- 清理：关闭浏览器并删除临时认证档案；停止本轮API/Web/worker，销毁owned dev/test数据库、Redis和桶；移除专属SFTP容器与临时凭据、原图、日志、截图、JUnit及文档构建输出。共享配置、宿主机业务数据和镜像保持原状。
+- 完整E03范围已具备收尾条件；下一提交逐条记录故事/验收矩阵并归档本计划。周期同步、Agent、训练冻结和完整原图缓存归其他Epic；自动GC及十万图片性能资格不在当前交付中宣称完成。

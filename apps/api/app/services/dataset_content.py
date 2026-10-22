@@ -141,7 +141,7 @@ async def scan_snapshot(
     if receipt and (receipt["node_id"] == node or same_host):
         expected = receipt["observation"]
         expected_source = expected.get("source_identity")
-    if location.kind == "s3":
+    if location.kind in {"s3", "sftp"}:
         expected = None if refresh_unverified and receipt is None else dict(observed)
         expected_source = None
     config, base, path = (

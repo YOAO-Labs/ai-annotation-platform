@@ -836,3 +836,31 @@ services:
 需要在实际 API 实例挂载受控只读根，并为每个 API 节点完成带 sample_file 的 read 探测。只有扫描 worker 挂载时，目录观测仍可执行，API 严格读取会返回不可用；平台不会凭数据库注册获得未挂载目录。根内新增目录/动态登记不需重建容器；变更 volumes 通常重建相关容器，均无需因此重建镜像。
 
 严格图片读取使用请求内临时文件，每个 API 进程最多4份、每份64MiB，临时字节上限256MiB并另有图片解码内存。给系统临时目录预留空间，多进程按进程数累加；不将临时目录放进只读业务源。异常或断连清理快照，源原图保持只读。完整合同见[内容核验与严格读取](/api/guides/verified-content)。
+
+## 只读 SFTP 引用
+
+持续引用只接受部署者实际核验的专用只读 jail。整个账号可读命名空间都是平台位置的授权范围；平台来源的子目录只是筛选，不能拿 base_path 或前后 lstat 当作服务器隔离。普通协议探测无法证明 jail。先在测试目录验证以下部署，再给业务位置声明资格。
+
+以 OpenSSH 专用账号 `aap-reader` 为例，在服务端创建 `/srv/aap-jail`；该目录及所有上级目录须由 root 拥有、不可被其他用户写入。把允许公开的数据只读挂载到 `/srv/aap-jail/data`，账号须能遍历目录和读取文件。使用独立的、经过审阅的 sshd 配置或 Match 段，按实际环境维护认证公钥：
+
+```text
+Match User aap-reader
+    ChrootDirectory /srv/aap-jail
+    ForceCommand internal-sftp -R -d /
+    DisableForwarding yes
+    PermitTTY no
+    PermitUserRC no
+    PasswordAuthentication no
+```
+
+确认配置生效，实际验证 jail 外文件及越界链接不可读，创建、写入、删除、改名、终端和转发均被拒绝。不要复用 root 或日常部署账号。通过可信渠道核验服务器完整公钥，再在所有参与的 API/worker 配置 `STORAGE_SFTP_ROOTS`；示例中的公钥内容须替换为真实值：
+
+```dotenv
+STORAGE_SFTP_ROOTS={"company-sftp":{"host":"sftp.example.internal","port":22,"username":"aap-reader","host_key":"ssh-ed25519 <实际公钥的base64内容>"}}
+```
+
+配置只包含公开主机身份，不包含密码或私钥；客户端凭据仍在平台连接器加密保存。默认 `{}` 不授予任何 SFTP 引用资格。目标须另行加入连接器主机白名单。连接器必须精确匹配 host/port/username，Base path 填 `/`；来源选择 `data/...` 等相对目录。严格客户端只信任上述公钥，在认证前校验；此链路不读取 known_hosts。连接器的“测试连接”和复制导入仍使用前述系统 known_hosts，不能用它们的成功结果替代引用节点探测。
+
+生产 API/worker 从 `.env.production` 加载配置，开发宿主 API 读取根 `.env`，通用 Compose worker 显式透传。其他定向扫描节点须独立配置。环境变更重启宿主进程或重建受影响容器，无需因此重建镜像。分别验证 API 和实际 Celery hostname 的 list/read；资格存在只表示准入，不能保证当前可达。浏览/扫描每目录最多5000项；原图读取仍有完整摘要和临时快照预算。
+
+已有资格需要轮换或撤回时：先在平台禁用对应位置并确认修订已提交，使旧扫描和登记失效；再协调全部 API/worker 更新或移除配置、刷新进程，并检查节点探测结果。只改一个节点的环境不等于集群撤权。更换服务器、公钥或隔离根时新建连接与位置，历史引用不自动重绑；恢复旧来源前须重新核验原资格与内容。原图离线不删除索引和标注，独立预览也不能用于继续原图标注。

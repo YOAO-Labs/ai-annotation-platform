@@ -70,3 +70,11 @@ API本地探测等待窗口3秒，远端等待窗口5秒。超时后台结果不
 有连接器关联的 s3 位置支持相同 directories/probe 接口。path 与 sample_file 为精确前缀/对象键相对 base_prefix 的字符串，不使用文件系统路径规范化。目录页只返回 CommonPrefixes，JWT 游标固定位置、修订和前缀，查询 cursor 最多12288字符。读前读后均复查当前授权。
 
 根探测只证明 list；sample_file 的成功探测才返回 read/conditional_read=verified。每次实际内容读取仍重新验证条件生效。range/write/delete/presign 均为 unsupported。目标受连接器主机白名单限制；严格客户端关闭代理，发送目标限定为配置 endpoint，不跟随跨目标重定向。DNS 解析仍存在 SDK 内再次解析的既有边界，不等同于 IP 固定。
+
+## SFTP 浏览与探测
+
+具备部署资格的 sftp 位置也支持 directories/probe。`declared_capabilities.reference` 表示当前 API 节点的引用准入配置：filesystem 和外部 S3 可用，SFTP 须匹配 `STORAGE_SFTP_ROOTS`；这不代表节点已通过实时可达性探测。平台固定 S3 位置不作为外部来源。
+
+SFTP 连接 base_path 须为 `/`，整个账号命名空间为位置授权范围。path/sample_file 只接受其下严格相对路径，拒绝绝对路径、父级跳转及探测到的符号链接。浏览对最多5000项的完整目录清单排序分页；游标固定清单摘要，目录变化须重选。探测仅验证 list 和显式样本 read；range/write/delete/presign/conditional_read 均为 unsupported。
+
+客户端仅信任部署指定的完整主机公钥，使用白名单校验后固定的 socket 地址连接。服务器只读 jail 由部署者实际核验，不能从探测成功推断。API 与指定 worker 必须具有相同资格；错误公钥、未获资格、目录不可读或超时均不能发布成功证据。
