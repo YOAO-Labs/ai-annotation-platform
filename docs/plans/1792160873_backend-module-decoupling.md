@@ -7294,3 +7294,23 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - Cold installed API qualification is pending. Its existing COPY includes API test
   inputs, so rebuild only the API image for the changed fixtures; the other three
   image input manifests are unchanged. Reuse unrelated qualified evidence.
+
+- Implementation ae2401897a8723f913704afa463e1344fa710102 passed normal hooks.
+  The initial hook invocation only formatted two Markdown files; the successful
+  retry is retained separately. Twenty focused tooling checks passed.
+- API image aap-api:workspace-module-0900776093ec has immutable image ID
+  sha256:e6b65861bb5be072e106d1fe6109bd76fe553cf1ff3e833a7073177ec2149a58,
+  identity 0900776093ec02ee7ab3dd68 and source ae2401897. Only its three API test
+  COPY inputs changed; the other three qualified image manifests remain unchanged.
+  The offline probe matched 769 API and 520 package files across 34 packages.
+- Both actual installed API cold cases passed on the first attempt, one per grant
+  profile, with full Uvicorn lifespan/TCP, unset Identity selectors, disabled E2E
+  routes and the distinct legacy_runtime LOGIN. Each real API container is nonroot,
+  read-only, one CPU and 512 MiB. Fourteen Native and two cold cases are distinct;
+  repeat observations are not counted twice. Full migration and frozen SQL rollback
+  passed at head0306; owned resources and storage principals were removed.
+- The remaining single-owner compatibility branch cannot provide a storage ACL
+  fence and remains explicitly unqualified. Credential separation for that branch
+  is the next bounded Identity delivery. The protected primary and production stay
+  unchanged; old host-forwarded intermittent 503 remains unconfirmed. Keep the
+  complete goal active and use the sole module-deployment ledger for remaining work.
