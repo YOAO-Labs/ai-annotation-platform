@@ -776,8 +776,10 @@ AAP_MEDIA_SEED_IDENTITY_LIVE=1 \
 ```
 
 该案例只接受验收器自有环境。冷凭据禁止 User 私表／列，保留大图图谱的旧 Project／
-Dataset 运维权限，不冒充其他领域的最小凭据；实际状态见
-[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
+Dataset 运维权限，不冒充其他领域的最小凭据。77 项定向检查和十八次冷容器调用已通过，
+包含 137 退出后的实际后端释放、共同回滚和同邮箱恢复；十秒 SQL 阻塞不代表即时取消
+任意查询。收据见 `.worktree/media-seed-identity-qualification.json`；其他运维入口见
+[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)，日常主环境未切换。
 
 ### Workspace 锁定权限与会话快照
 

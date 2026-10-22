@@ -6880,3 +6880,27 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   sole ledger: import_images, created_at-ordered seed_scale selection, legacy
   role audit compatibility, recording recovery/reject tools and test/e2e-only
   preference restoration. Do not infer whole Identity closure from this slice.
+
+- Implementation 147b65b7756e3268f62c748aa2f0bf9ccb569e8d passes first cold
+  qualification: one integrated case, eighteen real container calls. All three
+  account factories, existing-account reuse, missing capability, late User
+  insert failure, physical cancellation, same-email recovery/reuse, screenshot
+  profile/catalog validation and large-image owner graph create/repeat/missing
+  behavior reach their expected outcomes. The explicit nonzero exits are
+  expected refusals; cancellation exits 137, externally stopped and not timed
+  out. The actual SQL, application tag, verified container IP and PostgreSQL PID
+  are correlated before stopping; the exact backend disappears before rollback
+  assertions. The ten-second gate proves eventual, not instantaneous, rollback.
+- The cold role has only five ordinary Identity functions plus fixed lookup and
+  persona create, no User table/column permissions, while other domains retain
+  trusted operator grants. The isolated bucket's version collection remains
+  empty. All owned runtime/storage resources are destroyed without cleanup error.
+  Receipt: .worktree/media-seed-identity-cold-first.{json,log,junit.xml,command.json};
+  eighteen-call summary: .worktree/media-seed-identity-cold-first-summary.json.
+- Matching API artifact verifies 768 app files, 512 installed package files and
+  32 actual scripts, 1,312 total. Unchanged owner/Inference/Assets-source COPY
+  manifests and prior acceptance are reused. New source/architecture checks pass
+  377 cases with 150 existing inapplicable rules skipped; tools/policy checks pass
+  58 tests. OpenAPI generation comparison passes. The source-only cold worker's
+  exact bundle, patch and ignored Ruff cache were verified and archived before
+  removing its clean checkout; its original branch remains.
