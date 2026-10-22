@@ -5420,3 +5420,49 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   baseline, checks and reproducers are confirmed absent. This closes the current
   locked read operation's selected source/Native boundary, not the full Workspace
   module or its cold assembly and restore qualification.
+
+## Workspace unlocked authority snapshots checkpoint
+
+- Initial by-id Project reads now use one new no-lock `read_project_row` phase
+  on the existing access-step capability. Migration 0289 adds a real read mode
+  to the existing full Project serializer; frozen 0268/0270 artifacts stay intact
+  and downgrade restores their exact prior definitions. No actor lookup, policy
+  decision, row/advisory lock, role, service, DSN or protocol is added for this phase.
+- After actual Identity status, both helpers reuse borrowed ProjectQueryData with
+  the truthful actor role, get_row and manager-deferred access_member_rows. Full
+  Project43/Member9 snapshots merge into the original Session identities. The
+  original autoflush/no_autoflush and initial Project-before-actor error order
+  remain; public GET access keeps its separate second complete authority round.
+  The unused private-member SELECT fallback is removed. Existing application
+  grants now include the existing query schema/policy/step; narrow clients do not grow.
+- Source-only commits 37e6be5ef and 3c4a72109 are integrated as 1fcbdae00 and
+  fa80895f4. Root owns grants, verifier wiring, real LOGIN/Node/transaction/cache
+  checks and documentation. Two actual old-source autoflush/cache baselines pass
+  at source 53e18c637; the same two cases pass after integration and baseline
+  executions are excluded from qualification counts.
+- Effective union: 180 distinct selected cases, zero failures/errors/skips, from
+  24 critical cases and 156 consumer cases. Eleven new actual database cases
+  cover denied private reads, READ ONLY, absent authority row locks, caller
+  backend/transaction identity, cache/autoflush, phase freshness and error order,
+  malformed scope rollback and a direct Node peer. Nine original locked Native
+  cases continue passing. Frozen public GET phases, temporal borrowed/DSN/HTTP,
+  permissions, labeling scope, frame persistence, pipeline, feedback and training
+  consumers pass. All selected batches pass on their first run.
+- SQL artifact installation/rollback and the 0189-to-0289 roundtrip pass in owned
+  disposable resources; this is not fresh/full migration or whole-module cold
+  artifact qualification. HTTP uses a separate current-source Workspace process,
+  not a newly installed artifact. ADR-0167 and the local aggregate
+  `.worktree/workspace-access-unlocked-qualification.json` record this boundary.
+- The only remaining-work ledger is module-deployment.md. Next bounded work is
+  exclusive configuration locks and other remaining Project consumers, followed
+  by coherent whole-Workspace credentials/artifact/restore acceptance. Project
+  deletion and dataset unlink still have the separately pending unretired-video
+  safety policy; the accepted Assets auxiliary-reference 409 policy does not
+  decide that separate question. Primary runtime, production, release and Go
+  experiment remain unchanged.
+
+- Final source review finds no blocking issue. Grant/selection units pass 20;
+  architecture passes 355 with 149 inapplicable rules. Ruff, format, docs build
+  and diff checks pass. No public API schema/export input changed. Normal
+  applicable commit hooks and final preservation receipts are recorded with
+  the source/evidence checkpoint below.

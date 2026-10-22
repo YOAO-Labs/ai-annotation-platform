@@ -253,6 +253,7 @@ SQL_ARTIFACTS = (
     "0286_identity_read_relations.sql",
     "0287_identity_registration_status.sql",
     "0288_workspace_project_maintenance.sql",
+    "0289_workspace_access_read.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -353,8 +354,10 @@ SCHEMA_ARTIFACTS = (
     "0286_identity_read_relations.schema.json",
     "0287_identity_registration_status.schema.json",
     "0288_workspace_project_maintenance.schema.json",
+    "0289_workspace_access_read.schema.json",
 )
 TEST_FILES = (
+    "tests/test_workspace_project_access_unlocked_native.py",
     "tests/test_workspace_project_deletion_native.py",
     "tests/test_workspace_project_maintenance_native.py",
     "tests/test_identity_registration_status_native.py",
@@ -2852,8 +2855,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0288"]:
-            raise RuntimeError("module-data acceptance requires migration head 0288")
+        if heads != ["0289"]:
+            raise RuntimeError("module-data acceptance requires migration head 0289")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(

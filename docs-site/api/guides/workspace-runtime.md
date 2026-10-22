@@ -209,12 +209,28 @@ API 写入权限入口保留原元组接口，通过现有
 完整 Project／成员数据通过既有编解码恢复到原 Session，保留对象身份、配置／状态
 刷新及无 autoflush 行为；不在锁后再次读取 Project，不新开连接。调用方仍提交或回滚
 整个业务。应用授权脚本和本地 runtime allowlist 包含已有 Native 函数，无新 DSN、
-服务或客户端账号；非锁定查询继续保持原路径。
+服务或客户端账号；无锁读取见下一节。
 
 真实 API LOGIN 在撤销私表 SELECT 后仍可读取权限并保持锁；Node 直接消费同一组
 能力。共享编解码与实际标注／训练等定向结果见
 [ADR-0166](/dev/adr/0166-workspace-locked-authority-snapshots)。完整模块凭据与冷工件
 仍待集中验收，本项局部资格不替代完整独立部署。
+
+## 无锁权限与调用方快照
+
+当前权限 helper 使用同一请求 Session 读取 owner facts：by-id 先用
+`project_access_step` 的 `read_project_row` 获取完整 Project，再检查当前账号，随后
+复用 Project Query 的 `get_row` 和非 manager 的 `access_member_rows`。初始缺失先
+返回 404；直接 resolve 仍先查账号。Query 请求只使用真实 admitted actor role。
+
+完整 Project／成员编解码与缓存刷新保持原对象身份，保留原 autoflush 和外层
+`no_autoflush`，不增加行锁或独立连接。调用方继续持有整个事务；锁定写入入口及公开
+GET access 的第二轮权威检查保持。应用授权清单补齐既有 Project Query schema、
+policy 和 step，不新增角色或服务。
+
+真实受限 API LOGIN、READ ONLY、Node、时序和缓存验收见
+[ADR-0167](/dev/adr/0167-workspace-unlocked-authority-snapshots)。本项局部资格仍不
+替代完整 Workspace 装配与恢复验收。
 
 ## 项目删除的调用方事务
 

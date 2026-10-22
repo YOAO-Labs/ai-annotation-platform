@@ -219,6 +219,14 @@ GRANT EXECUTE ON FUNCTION
     aap_workspace_owner_transfer_v1.owner_transfer_policy(),
     aap_workspace_owner_transfer_v1.transfer_project_owner(jsonb)
     TO :"application_role";
+GRANT USAGE ON SCHEMA aap_workspace_project_query_v1 TO :"application_role";
+GRANT EXECUTE ON FUNCTION
+    aap_workspace_project_query_v1.project_query_policy(),
+    aap_workspace_project_query_v1.project_query_step(
+        jsonb, text, jsonb, text, text, text[], text[], uuid, text,
+        timestamptz, timestamptz, bigint, integer
+    )
+    TO :"application_role";
 -- These cross-owner dependencies are called only by Workspace SECURITY DEFINER code.
 REVOKE ALL ON FUNCTION
     aap_identity_v1.workspace_configuration_org_scope(uuid, uuid),

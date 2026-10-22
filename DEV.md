@@ -726,6 +726,30 @@ Workspace 提供方解释器；源码检查可使用本工作树 API 解释器�
 证据见 [ADR-0166](docs/adr/0166-workspace-locked-authority-snapshots.md)。完整模块装配
 资格仍按唯一台账集中收口，日常主环境未切换。
 
+### Workspace 无锁权限与调用方快照
+
+`resolve_project_access_by_id` 保留初始 Project → 当前 Identity → 刷新 Project →
+非 manager 成员的顺序；直接 resolve 仍先检查 Identity。初始 Project 使用既有
+`project_access_step` 新增的 `read_project_row` 阶段，之后复用 Project Query 的
+`get_row`／`access_member_rows`，请求角色来自实际 Identity facts。
+
+所有步骤借用原 Session，不创建或结束 SQL 事务，不加行锁，保留原 autoflush 与
+外层 `no_autoflush`。完整快照刷新原 ORM 对象与字段历史；公开 GET access 的第二轮
+权威读取及写入路径原锁不变。应用授权清单须包含既有 Project Query schema、policy
+及 step；`lan-production-grants.sql` 和本地 `grant_runtime` 均已列出。
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/workspace-access-unlocked.json \
+  --test-file tests/test_workspace_project_access_unlocked_native.py \
+  --test-file tests/test_project_access_unlocked_query.py \
+  --test-file tests/test_workspace_project_access_read_phases.py
+```
+
+验收器只使用自有临时测试资源，覆盖受限真实 LOGIN、READ ONLY、锁缺失、缓存、
+自动 flush、时序与外层回滚。边界见
+[ADR-0167](docs/adr/0167-workspace-unlocked-authority-snapshots.md)。
+
 ### Workspace 调用方事务内的项目删除
 
 `aap-project-delete/v1` 的可移植命令和回执位于 `aap-workspace`。API 继续使用原请求

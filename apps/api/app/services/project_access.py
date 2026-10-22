@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 import json
 import uuid
 from typing import NoReturn
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import make_transient_to_detached
@@ -351,7 +352,7 @@ async def _resolve_current_project_access(
     user: IdentityActorFacts | IdentityActorStatus,
     project: Project,
     lock_membership: bool,
-    member_reader=None,
+    member_reader: Callable[[], Awaitable[ProjectMember | None]] | None = None,
 ) -> _ProjectAccess:
     try:
         manager = project_manager_access(
@@ -381,19 +382,9 @@ async def _resolve_current_project_access(
             member = members[0] if members else None
             if member is not None:
                 await _merge_project_snapshot(db, ProjectMember, asdict(member))
-        elif member_reader is not None:
-            member = await member_reader()
         else:
-            member = (
-                await db.execute(
-                    select(ProjectMember)
-                    .where(
-                        ProjectMember.project_id == project.id,
-                        ProjectMember.user_id == user.id,
-                    )
-                    .execution_options(populate_existing=True)
-                )
-            ).scalar_one_or_none()
+            assert member_reader is not None
+            member = await member_reader()
         return project_member_access(
             actor_id=user.id,
             platform_role=user.role,
