@@ -486,6 +486,10 @@ class BucketUpgradeTests(unittest.TestCase):
             async def exec_driver_sql(self, sql):
                 statements.append(sql)
 
+            async def execute(self, sql, parameters):
+                assert parameters == {"role": "app", "database": "aap_test"}
+                statements.append(str(sql))
+
         class Preparer:
             @staticmethod
             def quote_identifier(value):

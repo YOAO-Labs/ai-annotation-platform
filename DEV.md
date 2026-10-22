@@ -317,6 +317,12 @@ pnpm dev:api
 `uv sync --extra test` 安装，不要在本地手工拼装依赖列表。迁移完成后启动脚本会清空
 owner 连接，运行进程不保留 DDL 凭据。
 
+工作区在迁移和应用账号分离时，通过既有 `grant_runtime` 保留内嵌 Identity 能力并
+撤销私表及列权限，补齐目录与管理员生命周期绑定。应用账号不得持有角色成员资格；
+遗留 PUBLIC／所有权访问导致授权整笔回滚。运行和迁移共用同一账号的兼容配置不安装
+这道围栏，不算模块存储隔离；不要将 owner 账号用于受限运行验收。具体范围见
+[Identity 内嵌运行权限](docs-site/api/guides/identity-runtime.md#内嵌运行角色的私表权限)。
+
 新增本地 editable 包或同步 Python 依赖后，要重启 Uvicorn 的父进程。源码热重载的
 子进程会继承旧父进程的 `sys.path`，因此新解释器已经能导入的包仍可能在常驻 API
 中报 `ModuleNotFoundError`。先按锁文件同步当前 checkout 的环境，再重启实际拥有

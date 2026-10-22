@@ -3,8 +3,8 @@
 -- psql -v expected_database=annotation_production -v application_role=anno_prod_app
 --       -v migration_role=anno_prod_owner -v asset_cleanup_role=asset_cleanup_client
 --       -f lan-production-grants.sql
--- application_role retains broad legacy table access; module-data-grants.sql
--- defines the isolated workflow and Assets cleanup LOGIN boundaries.
+-- application_role composes embedded owners through their published capabilities.
+-- Identity private storage is denied; other legacy table access remains.
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('aap.expected_database', :'expected_database', true);
@@ -605,4 +605,59 @@ BEGIN
         RAISE EXCEPTION 'The Assets cleanup role can execute outside its eight cleanup functions';
     END IF;
 END $$;
+-- Preserve embedded command capabilities while denying direct Identity storage.
+DO $identity_private_acl$
+DECLARE
+    v_runtime name := current_setting('aap.application_role');
+    v_relation record;
+    v_columns text;
+BEGIN
+    IF current_database() <> current_setting('aap.expected_database')
+       OR v_runtime=current_user
+       OR pg_catalog.pg_has_role(v_runtime,current_user,'MEMBER')
+       OR EXISTS (
+           SELECT 1 FROM pg_catalog.pg_auth_members
+           WHERE member=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=v_runtime)
+       )
+       OR NOT EXISTS (
+           SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=v_runtime AND rolcanlogin
+             AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)
+       ) THEN
+        RAISE EXCEPTION 'Invalid embedded Identity runtime ownership';
+    END IF;
+    FOR v_relation IN
+        SELECT c.oid,n.nspname,c.relname
+        FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE c.relkind IN ('r','p','v','m','f') AND (
+            (n.nspname='public' AND (
+                c.relname IN ('users','api_keys','groups','organizations',
+                    'organization_members','user_invitations',
+                    'password_reset_tokens','email_verification_tokens')
+                OR pg_catalog.left(c.relname,9)='identity_'
+            )) OR (
+                n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$'
+                AND c.relkind <> 'v'
+            )
+        )
+    LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %I.%I FROM %I',
+            v_relation.nspname,v_relation.relname,v_runtime);
+        SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attname),',' ORDER BY attnum)
+        INTO v_columns FROM pg_catalog.pg_attribute
+        WHERE attrelid=v_relation.oid AND attnum>0 AND NOT attisdropped;
+        IF v_columns IS NOT NULL THEN
+            EXECUTE pg_catalog.format('REVOKE ALL (%s) ON TABLE %I.%I FROM %I',
+                v_columns,v_relation.nspname,v_relation.relname,v_runtime);
+        END IF;
+        IF pg_catalog.has_table_privilege(v_runtime,v_relation.oid,
+                'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+           OR pg_catalog.has_any_column_privilege(v_runtime,v_relation.oid,
+                'SELECT,INSERT,UPDATE,REFERENCES') THEN
+            RAISE EXCEPTION 'Embedded runtime retains private Identity access: %.%',
+                v_relation.nspname,v_relation.relname;
+        END IF;
+    END LOOP;
+END;
+$identity_private_acl$;
 COMMIT;

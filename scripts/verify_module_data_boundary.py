@@ -4433,6 +4433,7 @@ SELECT pg_catalog.jsonb_build_object(
             "tests/test_workspace_module_assembly_live.py",
             "tests/test_workspace_capacity_live.py",
             "tests/test_identity_e2e_live.py",
+            "tests/test_identity_embedded_acl_live.py",
         }:
             api_bootstrap_storage = _cleanup_storage_scope(backend)
             api_bootstrap_storage["buckets"] = resources["buckets"]

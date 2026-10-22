@@ -256,7 +256,7 @@ async def test_consumer_grants_reject_wrong_ownership_before_changing_acl(
     )
     async with test_engine.connect() as observer:
         before = (await observer.execute(query)).one()
-        assert all(before)
+        assert before == (False, False, True)
         with pytest.raises(AssertionError):
             _grants(
                 test_engine,

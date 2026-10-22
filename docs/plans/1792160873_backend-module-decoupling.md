@@ -7264,3 +7264,33 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   active. Next is existing default-runtime Identity private-table permission and
   binding qualification in isolated local development; production and primary
   cutover remain outside this delivery.
+
+### Embedded Identity private-storage ACL closure
+
+- Continue from clean Root c8f92da1c9aa72fce9ef2887f7376e7df279f354. The next
+  bounded delivery preserves existing embedded Native bindings and closes private
+  table/column access for distinct application LOGINs in both existing worktree
+  and LAN grant entrypoints. No new runtime role or deployment mode is introduced.
+- A read-only source audit confirmed no remaining production API private Identity
+  ORM/table operations. It found six missing worktree schemas and thirteen typed
+  functions compared with the LAN profile; restore those existing capabilities.
+- The first worktree private-ACL and full HTTP scenario passed. The next run exposed
+  a real NOINHERIT gap: membership still permits SET ROLE even without effective
+  inherited table privileges. Both grant transactions now reject application role
+  memberships. Retain the failing receipt; do not infer isolation from NOINHERIT.
+- Two negative-fixture assumptions were corrected: verifier default privileges grant
+  newly created probe tables, so revoke that direct ACL before testing rollback;
+  LAN's existing Assets guard can reject PUBLIC user access before the new Identity
+  guard. Either owned transaction must fail closed without widening shared ACLs.
+- Final Native qualification passed fourteen cases across both grant profiles:
+  direct/table-column denial, repeated grants, PUBLIC/membership refusal and atomic
+  rollback, borrowed fixture transaction rollback, actual embedded HTTP login and
+  account commands plus directory/admin-password/platform-role/suspension/deletion/
+  offboarding/logout, and four existing ordinary-consumer ownership failures.
+- Single-owner development compatibility remains explicitly outside storage-fence
+  qualification. It returns without modifying owner ACLs; do not silently label it
+  isolated or switch the protected primary. Default ACLs are not rewritten, so
+  repeat deployment grants after migrations/new relations/wide-grant refreshes.
+- Cold installed API qualification is pending. Its existing COPY includes API test
+  inputs, so rebuild only the API image for the changed fixtures; the other three
+  image input manifests are unchanged. Reuse unrelated qualified evidence.

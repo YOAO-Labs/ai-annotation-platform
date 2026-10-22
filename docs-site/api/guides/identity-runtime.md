@@ -680,6 +680,26 @@ psql "$MIGRATION_DATABASE_URL" \
 consumer 清单，新 Identity 关系也需复核。当前脚本和定向证据不代表主 API 已切换
 到这份凭据。设计与验证见 [ADR-0162](/dev/adr/0162-identity-read-relations-and-consumer-grants)。
 
+## 内嵌运行角色的私表权限
+
+Identity URL 和专用数据库选择器留空时，API 沿用既有 caller Session 调用 Identity
+固定 Native 能力。`lan-production-grants.sql` 和工作区 `grant_runtime` 在各自授权
+事务内撤销应用角色对 Identity 私表的全部表级及列级权限：八项账号、凭据、组织和
+邀请表、`public.identity_*` 关系，以及 Identity 协议 schema 内的底层存储。
+固定公开视图与已有命令能力继续保留；不将内嵌角色缩减为远程消费者的五函数清单。
+工作区授权同时补齐目录、管理员重置密码、平台角色、暂停／恢复、删除及离职的能力。
+
+授权要求普通 LOGIN 与迁移操作者分离，应用角色不能持有任何角色成员资格；
+`NOINHERIT` 仍允许 `SET ROLE`，不足以构成隔离。撤权后再次检查有效表／列权限，
+PUBLIC 授权、所有权或其他遗留权限仍可绕过时，整笔授权回滚，需先由迁移操作者
+解除冲突后重试。脚本不擅自删除共享 PUBLIC 授权或角色关系。每次迁移、创建新关系
+或刷新宽授权后重新执行相应授权入口；数据库默认权限本身不在本项中改写。
+
+工作区仍兼容运行与迁移共用同一账号的配置，该路径不会安装权限围栏，也不具备
+模块存储隔离资格。迁移 owner 凭据不能作为受限应用角色使用；主开发环境和生产
+配置的切换必须单独验收。独立部署仍在完整 owner 授权之后最后应用前述 consumer
+清单；可信录制及门控 E2E 操作继续使用各自固定能力和数据库守卫。
+
 ## 注册策略的 owner 读取
 
 `POST /v1/identity/recovery/registration-status` 使用既有控制 Bearer、并发槽与超时，

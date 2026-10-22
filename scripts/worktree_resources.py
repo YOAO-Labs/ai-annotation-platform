@@ -78,6 +78,19 @@ IDENTITY_RUNTIME_CAPABILITIES = (
     "aap_identity_sessions_v1.session_policy()",
     "aap_identity_sessions_v1.read_login_candidate(text)",
     "aap_identity_sessions_v1.execute_session_command(jsonb)",
+    "aap_identity_directory_v1.directory_policy()",
+    "aap_identity_directory_v1.execute_directory_command(jsonb)",
+    "aap_identity_admin_passwords_v1.admin_password_policy()",
+    "aap_identity_admin_passwords_v1.execute_admin_password_command(jsonb)",
+    "aap_identity_platform_roles_v1.platform_role_policy()",
+    "aap_identity_platform_roles_v1.execute_platform_role_command(jsonb)",
+    "aap_identity_suspensions_v1.suspension_policy()",
+    "aap_identity_suspensions_v1.execute_suspension_command(jsonb)",
+    "aap_identity_deletions_v1.deletion_policy()",
+    "aap_identity_deletions_v1.execute_deletion_command(jsonb)",
+    "aap_identity_offboarding_v1.offboarding_policy()",
+    "aap_identity_offboarding_v1.prepare_offboarding_command(jsonb)",
+    "aap_identity_offboarding_v1.apply_offboarding_command(jsonb)",
     "aap_identity_groups_v1.group_policy()",
     "aap_identity_groups_v1.execute_group_command(jsonb)",
     "aap_identity_invitations_v1.invitation_policy()",
@@ -101,6 +114,63 @@ IDENTITY_RUNTIME_CAPABILITIES = (
     "aap_identity_recovery_v1.finish_mail(jsonb)",
     "aap_settings_v1.mail_delivery_policy(jsonb)",
 )
+_IDENTITY_PRIVATE_RUNTIME_ACL = """
+-- Preserve embedded command capabilities while denying direct Identity storage.
+DO $identity_private_acl$
+DECLARE
+    v_runtime name := current_setting('aap.application_role');
+    v_relation record;
+    v_columns text;
+BEGIN
+    IF current_database() <> current_setting('aap.expected_database')
+       OR v_runtime=current_user
+       OR pg_catalog.pg_has_role(v_runtime,current_user,'MEMBER')
+       OR EXISTS (
+           SELECT 1 FROM pg_catalog.pg_auth_members
+           WHERE member=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=v_runtime)
+       )
+       OR NOT EXISTS (
+           SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=v_runtime AND rolcanlogin
+             AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)
+       ) THEN
+        RAISE EXCEPTION 'Invalid embedded Identity runtime ownership';
+    END IF;
+    FOR v_relation IN
+        SELECT c.oid,n.nspname,c.relname
+        FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE c.relkind IN ('r','p','v','m','f') AND (
+            (n.nspname='public' AND (
+                c.relname IN ('users','api_keys','groups','organizations',
+                    'organization_members','user_invitations',
+                    'password_reset_tokens','email_verification_tokens')
+                OR pg_catalog.left(c.relname,9)='identity_'
+            )) OR (
+                n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$'
+                AND c.relkind <> 'v'
+            )
+        )
+    LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %I.%I FROM %I',
+            v_relation.nspname,v_relation.relname,v_runtime);
+        SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attname),',' ORDER BY attnum)
+        INTO v_columns FROM pg_catalog.pg_attribute
+        WHERE attrelid=v_relation.oid AND attnum>0 AND NOT attisdropped;
+        IF v_columns IS NOT NULL THEN
+            EXECUTE pg_catalog.format('REVOKE ALL (%s) ON TABLE %I.%I FROM %I',
+                v_columns,v_relation.nspname,v_relation.relname,v_runtime);
+        END IF;
+        IF pg_catalog.has_table_privilege(v_runtime,v_relation.oid,
+                'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+           OR pg_catalog.has_any_column_privilege(v_runtime,v_relation.oid,
+                'SELECT,INSERT,UPDATE,REFERENCES') THEN
+            RAISE EXCEPTION 'Embedded runtime retains private Identity access: %.%',
+                v_relation.nspname,v_relation.relname;
+        END IF;
+    END LOOP;
+END;
+$identity_private_acl$;
+"""
 VIDEO_RUNTIME_CAPABILITIES = (
     "aap_assets_v1.capture_accepted_video_manifest(uuid,uuid,uuid,jsonb)",
     "aap_assets_v1.read_accepted_video_manifest(uuid,uuid,uuid)",
@@ -549,9 +619,10 @@ class LocalResources:
             await engine.dispose()
 
     async def grant_runtime(self) -> None:
-        """Keep the broad legacy runtime usable; module clients use owner grants."""
+        """Grant embedded capabilities and fence a distinct application role."""
         runtime = make_url(self.settings.database_url)
         if runtime.username == self.url.username:
+            # Single-owner compatibility cannot provide a runtime storage boundary.
             return
         engine = create_async_engine(self.url, poolclass=NullPool, hide_parameters=True)
         try:
@@ -595,7 +666,7 @@ class LocalResources:
                     *fixture_grants,
                     f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {role}",
                     f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}",
-                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_membership_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_inference_pipelines_v1, aap_inference_backend_probe_v1, aap_inference_health_observation_v1, aap_inference_health_data_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, aap_assets_v1, aap_labeling_v1, aap_labeling_class_query_v1, aap_jobs_v1, aap_learning_v1, aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_briefs_v1, aap_notifications_v1, aap_settings_v1 TO {role}",
+                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_membership_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_inference_pipelines_v1, aap_inference_backend_probe_v1, aap_inference_health_observation_v1, aap_inference_health_data_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, aap_assets_v1, aap_labeling_v1, aap_labeling_class_query_v1, aap_jobs_v1, aap_learning_v1, aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_briefs_v1, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_notifications_v1, aap_settings_v1 TO {role}",
                     "GRANT SELECT ON aap_assets_v1.spatial_item_references, "
                     f"aap_assets_v1.spatial_scene_references TO {role}",
                     "GRANT SELECT ON aap_identity_v1.account_profiles, "
@@ -840,6 +911,14 @@ class LocalResources:
                     f"GRANT EXECUTE ON FUNCTION {image_accepted_function_grant} TO {role}",
                 ):
                     await connection.exec_driver_sql(sql)
+                await connection.execute(
+                    text(
+                        "SELECT set_config('aap.application_role', :role, true), "
+                        "set_config('aap.expected_database', :database, true)"
+                    ),
+                    {"role": runtime.username, "database": self.resources["database"]},
+                )
+                await connection.exec_driver_sql(_IDENTITY_PRIVATE_RUNTIME_ACL)
         finally:
             await engine.dispose()
 
