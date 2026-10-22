@@ -6904,3 +6904,18 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   58 tests. OpenAPI generation comparison passes. The source-only cold worker's
   exact bundle, patch and ignored Ruff cache were verified and archived before
   removing its clean checkout; its original branch remains.
+
+- Documentation builds in 16.304 seconds. Preservation at 7575adea3 verifies
+  20 unchanged editable bindings, protected clean primary HEAD 856fa79c8, the same
+  four shared running container identities, 63 known owned PostgreSQL containers
+  absent, no fixture containers/networks or persistent Root runtime, and matching
+  COPY manifests for all four images. All normal commit hooks pass.
+  Receipt: .worktree/media-seed-identity-preservation.json.
+- Aggregate .worktree/media-seed-identity-qualification.json has SHA256
+  ccdc4fb05f54cc006f949f5b080dfdfd4bd3fa1856bf9792c6a9be28e409e303.
+  This closes the six consumers' bounded Identity operations, not the whole
+  Identity module or media/catalog workflows. The full goal remains active;
+  proceed next to import_images and created_at-ordered seed_scale actor selection,
+  then remaining historical audit and guarded recording/fixture operations from
+  the sole ledger. No primary runtime cutover, push, release, production work or
+  Go expansion occurred.
