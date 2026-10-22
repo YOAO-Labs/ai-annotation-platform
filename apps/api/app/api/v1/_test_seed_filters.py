@@ -271,29 +271,24 @@ async def _get_users(db: AsyncSession, ids: _FilterIds) -> dict[str, Any]:
     exist from ``seed/reset``); owned mode reuses the namespace's accounts and
     creates them when absent so ``seed/filtering`` can run standalone.
     """
-    from sqlalchemy import select
-
-    from app.db.models.user import User
+    from app.services.identity_e2e_fixtures import IdentityE2EFixtures
 
     emails = [ids.user_email("admin"), ids.user_email("anno"), ids.user_email("rev")]
-    rows = (
-        (await db.execute(select(User).where(User.email.in_(emails)))).scalars().all()
-    )
+    rows = await IdentityE2EFixtures(db).find_many(emails)
     users = {
         row.email.split("@", 1)[0].removesuffix(f"-{ids.namespace}"): row
         for row in rows
     }
     if set(users) != {"admin", "anno", "rev"}:
-        from tests.factory import create_user
-
         if ids.namespace is None:
             raise RuntimeError(
                 "filtering fixture requires seed/reset users; POST /seed/reset first"
             )
         roles = {"admin": "super_admin", "anno": "employee", "rev": "employee"}
+        identity = IdentityE2EFixtures(db)
         for key in {"admin", "anno", "rev"} - set(users):
-            users[key] = await create_user(
-                db, roles[key], ids.user_email(key), f"E2E {key}"
+            users[key] = await identity.create_user(
+                roles[key], ids.user_email(key), f"E2E {key}"
             )
     return users
 
@@ -1394,31 +1389,30 @@ async def _seed_lidar(
 async def _seed_operations(
     db: AsyncSession, ids: _FilterIds, users: dict[str, Any]
 ) -> FilteringOperationsManifest:
-    from tests.factory import create_user
+    from app.services.identity_e2e_fixtures import IdentityE2EFixtures
+    from aap_identity.e2e_fixture_contract import FixtureInvitation
     from app.db.models.async_job import AsyncJob
     from app.db.models.audit_log import AuditLog
     from app.db.models.bug_report import BugReport
     from app.db.models.project_template import ProjectTemplate
-    from app.db.models.user_invitation import UserInvitation
 
     admin, annotator = users["admin"], users["anno"]
-    active = await create_user(
-        db,
+    identity = IdentityE2EFixtures(db)
+    active = await identity.create_user(
         "employee",
         ids.user_email("filter-active"),
         ids.display_name("Filter Active"),
     )
-    inactive = await create_user(
-        db,
+    inactive = await identity.create_user(
         "employee",
         ids.user_email("filter-inactive"),
         ids.display_name("Filter Inactive"),
     )
-    inactive.is_active = False
-    inactive.status = "offline"
-    inactive.disabled_kind = "manual"
-    inactive.disabled_at = _now()
-    inactive.disabled_by = admin.id
+    await identity.mark_manual_inactive(
+        inactive,
+        disabled_at=_now(),
+        disabled_by=admin.id,
+    )
     project_a = await _create_project(
         db,
         owner_id=admin.id,
@@ -1495,7 +1489,8 @@ async def _seed_operations(
     await db.flush()
     now = _now()
     invitations = [
-        UserInvitation(
+        FixtureInvitation(
+            id=uuid.uuid4(),
             email=ids.invitation_email("filter-pending"),
             role="employee",
             project_role="annotator",
@@ -1505,7 +1500,8 @@ async def _seed_operations(
             expires_at=now + timedelta(days=7),
             invited_by=admin.id,
         ),
-        UserInvitation(
+        FixtureInvitation(
+            id=uuid.uuid4(),
             email=ids.invitation_email("filter-accepted"),
             role="reviewer",
             group_name="filter",
@@ -1516,7 +1512,8 @@ async def _seed_operations(
             accepted_at=now - timedelta(days=1),
             accepted_user_id=annotator.id,
         ),
-        UserInvitation(
+        FixtureInvitation(
+            id=uuid.uuid4(),
             email=ids.invitation_email("filter-expired"),
             role="annotator",
             group_name="filter",
@@ -1525,7 +1522,8 @@ async def _seed_operations(
             expires_at=now - timedelta(days=1),
             invited_by=admin.id,
         ),
-        UserInvitation(
+        FixtureInvitation(
+            id=uuid.uuid4(),
             email=ids.invitation_email("filter-revoked"),
             role="annotator",
             group_name="filter",
@@ -1536,7 +1534,6 @@ async def _seed_operations(
             revoked_at=now - timedelta(hours=1),
         ),
     ]
-    db.add_all(invitations)
     jobs = [
         AsyncJob(
             kind="batch_predict",
@@ -1592,7 +1589,7 @@ async def _seed_operations(
         ),
     ]
     db.add_all(bugs)
-    await db.flush()
+    await identity.create_invitations(invitations)
     audit_rows = [
         AuditLog(
             actor_id=admin.id,
