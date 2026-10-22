@@ -399,7 +399,7 @@ Identity 准入、API key、核心会话、自助账户、注册恢复／邮件�
 
 项目访问纯规则与行解码位于共享契约包；Workspace 新增分阶段锁定事实接口，供 Inference 在同一事务内组合原有权限围栏。它是命名流水线独立 owner 的前置能力，范围见 [项目访问事实 ADR](./docs/adr/0145-workspace-project-access-facts.md)。
 
-普通单项目业务读取已统一经过 Workspace 快照边界，支持无 actor 的后台元数据读取，保留原缓存、刷新和调用方事务；当前权限检查仍在原入口完成。集合查询、计数投影和完整模块装配继续按[唯一台账](./docs-site/dev/concepts/module-deployment.md#剩余工作台账)推进，边界见[业务快照 ADR](./docs/adr/0171-workspace-actorless-business-snapshots.md)。
+普通单项目业务读取已统一经过 Workspace 快照边界，支持无 actor 的后台元数据读取，保留原缓存、刷新和调用方事务；当前权限检查仍在原入口完成。排序项目集合锁与两处 Labeling 计数投影已通过同事务 owner 能力执行。集合查询和完整模块装配继续按[唯一台账](./docs-site/dev/concepts/module-deployment.md#剩余工作台账)推进，边界见[业务快照 ADR](./docs/adr/0171-workspace-actorless-business-snapshots.md)。
 
 命名流水线的列表、详情、创建、更新、删除和应用已接入 Inference owner，支持借用调用方事务、专用数据库连接及独立 HTTP 进程。公开接口保留原样；嵌入项目的预标注配置继续由 Workspace 持有。三路径、独立工件、受限容器、并发与恢复已通过限定本地验收，配置见 [Inference 运行指南](./docs-site/api/guides/inference-runtime.md)。
 

@@ -15,12 +15,17 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.services import task_access
 from app.services.annotation_evidence import ensure_review_round, start_review_round
+from app.services.labeling_project_counter_data import (
+    clear_project_counter_projection,
+    register_project_counter_projection,
+)
 from app.services.labeling_task_creation_contract import (
     LabelingTaskCreationPort,
     TaskAppendResult,
 )
 
 from app.services.display_id import next_display_id
+from app.services.project_access import get_workspace_project
 from app.services.task_lock import TaskLockService
 from app.services.task_creation_contract import (
     CreationChunk,
@@ -442,8 +447,10 @@ class LabelingTaskService(LabelingTaskCreationPort):
     ) -> None:
         from app.db.models.task_batch import TaskBatch
 
-        project = await self.db.get(Project, project_id)
+        register_project_counter_projection(self.db, project_id)
+        project = await get_workspace_project(self.db, project_id=project_id)
         if project:
+            register_project_counter_projection(self.db, project_id)
             row = (
                 await self.db.execute(
                     select(
@@ -458,10 +465,13 @@ class LabelingTaskService(LabelingTaskCreationPort):
                     ).where(Task.project_id == project_id)
                 )
             ).one()
+            register_project_counter_projection(self.db, project_id)
             project.total_tasks = row.total
             project.completed_tasks = row.completed
             project.review_tasks = row.review
             project.in_progress_tasks = row.in_progress
+        else:
+            clear_project_counter_projection(self.db, project_id)
 
         batches = (
             (

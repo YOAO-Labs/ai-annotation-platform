@@ -1,0 +1,1889 @@
+{
+  "cases": {
+    "batch:clean:autoflush=False": {
+      "after": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "transaction_now"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "transaction_now"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project"],
+          "new": ["Task"]
+        }
+      ],
+      "dirty_batches": [],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "values": {
+          "batch_summary": {
+            "assigned": 1,
+            "in_review": 1,
+            "total": 2
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 2
+        }
+      }
+    },
+    "batch:clean:autoflush=True": {
+      "after": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 3,
+        "updated_at": "transaction_now"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 3,
+        "updated_at": "transaction_now"
+      },
+      "before_flush": [
+        {
+          "dirty": [],
+          "new": ["Task"]
+        },
+        {
+          "dirty": ["Project"],
+          "new": []
+        },
+        {
+          "dirty": ["Project"],
+          "new": []
+        }
+      ],
+      "dirty_batches": [],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "values": {
+          "batch_summary": {
+            "assigned": 1,
+            "in_review": 1,
+            "total": 2
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 3
+        }
+      }
+    },
+    "batch:dirty_other:autoflush=False": {
+      "after": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "pending other field",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "transaction_now"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "pending other field",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "transaction_now"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project"],
+          "new": ["Task"]
+        }
+      ],
+      "dirty_batches": [],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "values": {
+          "batch_summary": {
+            "assigned": 1,
+            "in_review": 1,
+            "total": 2
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "pending other field",
+          "review_tasks": 0,
+          "total_tasks": 2
+        }
+      }
+    },
+    "batch:dirty_other:autoflush=True": {
+      "after": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "pending other field",
+        "review_tasks": 0,
+        "total_tasks": 3,
+        "updated_at": "transaction_now"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "pending other field",
+        "review_tasks": 0,
+        "total_tasks": 3,
+        "updated_at": "transaction_now"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project"],
+          "new": ["Task"]
+        },
+        {
+          "dirty": ["Project"],
+          "new": []
+        },
+        {
+          "dirty": ["Project"],
+          "new": []
+        }
+      ],
+      "dirty_batches": [],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "values": {
+          "batch_summary": {
+            "assigned": 1,
+            "in_review": 1,
+            "total": 2
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "pending other field",
+          "review_tasks": 0,
+          "total_tasks": 3
+        }
+      }
+    },
+    "batch:expired:autoflush=False": {
+      "after": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "transaction_now"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "transaction_now"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project"],
+          "new": ["Task"]
+        }
+      ],
+      "dirty_batches": [],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "values": {
+          "batch_summary": {
+            "assigned": 1,
+            "in_review": 1,
+            "total": 2
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 2
+        }
+      }
+    },
+    "batch:expired:autoflush=True": {
+      "after": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 3,
+        "updated_at": "transaction_now"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 3,
+        "updated_at": "transaction_now"
+      },
+      "before_flush": [
+        {
+          "dirty": [],
+          "new": ["Task"]
+        },
+        {
+          "dirty": ["Project"],
+          "new": []
+        },
+        {
+          "dirty": ["Project"],
+          "new": []
+        }
+      ],
+      "dirty_batches": [],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "values": {
+          "batch_summary": {
+            "assigned": 1,
+            "in_review": 1,
+            "total": 2
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 3
+        }
+      }
+    },
+    "batch:explicit_timestamp:autoflush=False": {
+      "after": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "2001-01-01T00:00:00+00:00"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "2001-01-01T00:00:00+00:00"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project"],
+          "new": ["Task"]
+        }
+      ],
+      "dirty_batches": [],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "values": {
+          "batch_summary": {
+            "assigned": 1,
+            "in_review": 1,
+            "total": 2
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 2
+        }
+      }
+    },
+    "batch:explicit_timestamp:autoflush=True": {
+      "after": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 3,
+        "updated_at": "transaction_now"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 3,
+        "updated_at": "transaction_now"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project"],
+          "new": ["Task"]
+        },
+        {
+          "dirty": ["Project"],
+          "new": []
+        },
+        {
+          "dirty": ["Project"],
+          "new": []
+        }
+      ],
+      "dirty_batches": [],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "values": {
+          "batch_summary": {
+            "assigned": 1,
+            "in_review": 1,
+            "total": 2
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 3
+        }
+      }
+    },
+    "batch:miss:autoflush=False": {
+      "after": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "transaction_now"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "transaction_now"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project"],
+          "new": ["Task"]
+        }
+      ],
+      "dirty_batches": [],
+      "pending_before": false,
+      "project": null
+    },
+    "batch:miss:autoflush=True": {
+      "after": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 3,
+        "updated_at": "transaction_now"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 3,
+        "updated_at": "transaction_now"
+      },
+      "before_flush": [
+        {
+          "dirty": [],
+          "new": ["Task"]
+        },
+        {
+          "dirty": ["Project"],
+          "new": []
+        },
+        {
+          "dirty": ["Project"],
+          "new": []
+        }
+      ],
+      "dirty_batches": [],
+      "pending_before": false,
+      "project": null
+    },
+    "batch:no_change:autoflush=False": {
+      "after": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project"],
+          "new": []
+        }
+      ],
+      "dirty_batches": [],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "values": {
+          "batch_summary": {
+            "assigned": 1,
+            "in_review": 1,
+            "total": 2
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 2
+        }
+      }
+    },
+    "batch:no_change:autoflush=True": {
+      "after": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project"],
+          "new": []
+        },
+        {
+          "dirty": ["Project"],
+          "new": []
+        }
+      ],
+      "dirty_batches": [],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "values": {
+          "batch_summary": {
+            "assigned": 1,
+            "in_review": 1,
+            "total": 2
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 2
+        }
+      }
+    },
+    "batch:stale_partial:autoflush=False": {
+      "after": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 99,
+        "in_progress_tasks": 99,
+        "name": "initial",
+        "review_tasks": 99,
+        "total_tasks": 99,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 99,
+        "in_progress_tasks": 99,
+        "name": "initial",
+        "review_tasks": 99,
+        "total_tasks": 99,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project"],
+          "new": []
+        }
+      ],
+      "dirty_batches": [],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "values": {
+          "batch_summary": {
+            "assigned": 1,
+            "in_review": 1,
+            "total": 2
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 2
+        }
+      }
+    },
+    "batch:stale_partial:autoflush=True": {
+      "after": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 99,
+        "in_progress_tasks": 99,
+        "name": "initial",
+        "review_tasks": 99,
+        "total_tasks": 2,
+        "updated_at": "transaction_now"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 99,
+        "in_progress_tasks": 99,
+        "name": "initial",
+        "review_tasks": 99,
+        "total_tasks": 2,
+        "updated_at": "transaction_now"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project"],
+          "new": []
+        },
+        {
+          "dirty": ["Project"],
+          "new": []
+        },
+        {
+          "dirty": ["Project"],
+          "new": []
+        }
+      ],
+      "dirty_batches": [],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "values": {
+          "batch_summary": {
+            "assigned": 1,
+            "in_review": 1,
+            "total": 2
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 2
+        }
+      }
+    },
+    "batch:stale_same:autoflush=False": {
+      "after": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 99,
+        "in_progress_tasks": 99,
+        "name": "initial",
+        "review_tasks": 99,
+        "total_tasks": 99,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 99,
+        "in_progress_tasks": 99,
+        "name": "initial",
+        "review_tasks": 99,
+        "total_tasks": 99,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project"],
+          "new": []
+        }
+      ],
+      "dirty_batches": [],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "values": {
+          "batch_summary": {
+            "assigned": 1,
+            "in_review": 1,
+            "total": 2
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 2
+        }
+      }
+    },
+    "batch:stale_same:autoflush=True": {
+      "after": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 99,
+        "in_progress_tasks": 99,
+        "name": "initial",
+        "review_tasks": 99,
+        "total_tasks": 99,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 99,
+        "in_progress_tasks": 99,
+        "name": "initial",
+        "review_tasks": 99,
+        "total_tasks": 99,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project"],
+          "new": []
+        },
+        {
+          "dirty": ["Project"],
+          "new": []
+        }
+      ],
+      "dirty_batches": [],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "values": {
+          "batch_summary": {
+            "assigned": 1,
+            "in_review": 1,
+            "total": 2
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 2
+        }
+      }
+    },
+    "source_less:clean:autoflush=False": {
+      "after": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "transaction_now"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 7,
+        "in_progress_tasks": 8,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 9,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project", "TaskBatch", "TaskBatch"],
+          "new": ["Task"]
+        }
+      ],
+      "dirty_batches": [
+        [1, 0, 0],
+        [1, 1, 0]
+      ],
+      "pending_before": true,
+      "project": {
+        "dirty_fields": ["completed_tasks", "in_progress_tasks", "review_tasks", "total_tasks"],
+        "modified": true,
+        "unloaded": [],
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 2
+        }
+      }
+    },
+    "source_less:clean:autoflush=True": {
+      "after": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 3,
+        "updated_at": "transaction_now"
+      },
+      "batch_rows": [
+        [2, 1, 0],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 3,
+        "updated_at": "transaction_now"
+      },
+      "before_flush": [
+        {
+          "dirty": [],
+          "new": ["Task"]
+        },
+        {
+          "dirty": ["Project"],
+          "new": []
+        },
+        {
+          "dirty": ["TaskBatch"],
+          "new": []
+        },
+        {
+          "dirty": ["TaskBatch"],
+          "new": []
+        }
+      ],
+      "dirty_batches": [[1, 0, 0]],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 3
+        }
+      }
+    },
+    "source_less:dirty_other:autoflush=False": {
+      "after": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "pending other field",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "transaction_now"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 7,
+        "in_progress_tasks": 8,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 9,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project", "TaskBatch", "TaskBatch"],
+          "new": ["Task"]
+        }
+      ],
+      "dirty_batches": [
+        [1, 0, 0],
+        [1, 1, 0]
+      ],
+      "pending_before": true,
+      "project": {
+        "dirty_fields": [
+          "completed_tasks",
+          "in_progress_tasks",
+          "name",
+          "review_tasks",
+          "total_tasks"
+        ],
+        "modified": true,
+        "unloaded": [],
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "pending other field",
+          "review_tasks": 0,
+          "total_tasks": 2
+        }
+      }
+    },
+    "source_less:dirty_other:autoflush=True": {
+      "after": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "pending other field",
+        "review_tasks": 0,
+        "total_tasks": 3,
+        "updated_at": "transaction_now"
+      },
+      "batch_rows": [
+        [1, 0, 0],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "pending other field",
+        "review_tasks": 0,
+        "total_tasks": 3,
+        "updated_at": "transaction_now"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project"],
+          "new": ["Task"]
+        },
+        {
+          "dirty": ["Project"],
+          "new": []
+        },
+        {
+          "dirty": ["TaskBatch"],
+          "new": []
+        },
+        {
+          "dirty": ["TaskBatch"],
+          "new": []
+        }
+      ],
+      "dirty_batches": [[2, 1, 0]],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "pending other field",
+          "review_tasks": 0,
+          "total_tasks": 3
+        }
+      }
+    },
+    "source_less:expired:autoflush=False": {
+      "after": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "transaction_now"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 7,
+        "in_progress_tasks": 8,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 9,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project", "TaskBatch", "TaskBatch"],
+          "new": ["Task"]
+        }
+      ],
+      "dirty_batches": [
+        [1, 0, 0],
+        [1, 1, 0]
+      ],
+      "pending_before": true,
+      "project": {
+        "dirty_fields": ["completed_tasks", "in_progress_tasks", "review_tasks", "total_tasks"],
+        "modified": true,
+        "unloaded": [],
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 2
+        }
+      }
+    },
+    "source_less:expired:autoflush=True": {
+      "after": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 3,
+        "updated_at": "transaction_now"
+      },
+      "batch_rows": [
+        [1, 0, 0],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 3,
+        "updated_at": "transaction_now"
+      },
+      "before_flush": [
+        {
+          "dirty": [],
+          "new": ["Task"]
+        },
+        {
+          "dirty": ["Project"],
+          "new": []
+        },
+        {
+          "dirty": ["TaskBatch"],
+          "new": []
+        },
+        {
+          "dirty": ["TaskBatch"],
+          "new": []
+        }
+      ],
+      "dirty_batches": [[2, 1, 0]],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 3
+        }
+      }
+    },
+    "source_less:explicit_timestamp:autoflush=False": {
+      "after": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "2001-01-01T00:00:00+00:00"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 7,
+        "in_progress_tasks": 8,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 9,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project", "TaskBatch", "TaskBatch"],
+          "new": ["Task"]
+        }
+      ],
+      "dirty_batches": [
+        [1, 0, 0],
+        [1, 1, 0]
+      ],
+      "pending_before": true,
+      "project": {
+        "dirty_fields": [
+          "completed_tasks",
+          "in_progress_tasks",
+          "review_tasks",
+          "total_tasks",
+          "updated_at"
+        ],
+        "modified": true,
+        "unloaded": [],
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 2
+        }
+      }
+    },
+    "source_less:explicit_timestamp:autoflush=True": {
+      "after": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 3,
+        "updated_at": "transaction_now"
+      },
+      "batch_rows": [
+        [1, 0, 0],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 3,
+        "updated_at": "transaction_now"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project"],
+          "new": ["Task"]
+        },
+        {
+          "dirty": ["Project"],
+          "new": []
+        },
+        {
+          "dirty": ["TaskBatch"],
+          "new": []
+        },
+        {
+          "dirty": ["TaskBatch"],
+          "new": []
+        }
+      ],
+      "dirty_batches": [[2, 1, 0]],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "values": {
+          "batch_summary": {
+            "old": 1
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 3
+        }
+      }
+    },
+    "source_less:miss:autoflush=False": {
+      "after": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "transaction_now"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 7,
+        "in_progress_tasks": 8,
+        "name": "initial",
+        "review_tasks": 6,
+        "total_tasks": 9,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project", "TaskBatch", "TaskBatch"],
+          "new": ["Task"]
+        }
+      ],
+      "dirty_batches": [
+        [1, 0, 0],
+        [1, 1, 0]
+      ],
+      "pending_before": true,
+      "project": null
+    },
+    "source_less:miss:autoflush=True": {
+      "after": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 3,
+        "updated_at": "transaction_now"
+      },
+      "batch_rows": [
+        [1, 0, 0],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "old": 1
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 3,
+        "updated_at": "transaction_now"
+      },
+      "before_flush": [
+        {
+          "dirty": [],
+          "new": ["Task"]
+        },
+        {
+          "dirty": ["Project"],
+          "new": []
+        },
+        {
+          "dirty": ["TaskBatch"],
+          "new": []
+        },
+        {
+          "dirty": ["TaskBatch"],
+          "new": []
+        }
+      ],
+      "dirty_batches": [[2, 1, 0]],
+      "pending_before": false,
+      "project": null
+    },
+    "source_less:no_change:autoflush=False": {
+      "after": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project", "TaskBatch", "TaskBatch"],
+          "new": []
+        }
+      ],
+      "dirty_batches": [
+        [1, 0, 0],
+        [1, 1, 0]
+      ],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": true,
+        "unloaded": [],
+        "values": {
+          "batch_summary": {
+            "assigned": 1,
+            "in_review": 1,
+            "total": 2
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 2
+        }
+      }
+    },
+    "source_less:no_change:autoflush=True": {
+      "after": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "batch_rows": [
+        [1, 1, 0],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 1,
+        "in_progress_tasks": 1,
+        "name": "initial",
+        "review_tasks": 0,
+        "total_tasks": 2,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project"],
+          "new": []
+        },
+        {
+          "dirty": ["TaskBatch"],
+          "new": []
+        },
+        {
+          "dirty": ["TaskBatch"],
+          "new": []
+        }
+      ],
+      "dirty_batches": [[1, 0, 0]],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "values": {
+          "batch_summary": {
+            "assigned": 1,
+            "in_review": 1,
+            "total": 2
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 2
+        }
+      }
+    },
+    "source_less:stale_partial:autoflush=False": {
+      "after": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 99,
+        "in_progress_tasks": 99,
+        "name": "initial",
+        "review_tasks": 99,
+        "total_tasks": 99,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 99,
+        "in_progress_tasks": 99,
+        "name": "initial",
+        "review_tasks": 99,
+        "total_tasks": 99,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project", "TaskBatch", "TaskBatch"],
+          "new": []
+        }
+      ],
+      "dirty_batches": [
+        [1, 0, 0],
+        [1, 1, 0]
+      ],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": true,
+        "unloaded": [],
+        "values": {
+          "batch_summary": {
+            "assigned": 1,
+            "in_review": 1,
+            "total": 2
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 2
+        }
+      }
+    },
+    "source_less:stale_partial:autoflush=True": {
+      "after": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 99,
+        "in_progress_tasks": 99,
+        "name": "initial",
+        "review_tasks": 99,
+        "total_tasks": 2,
+        "updated_at": "transaction_now"
+      },
+      "batch_rows": [
+        [1, 0, 0],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 99,
+        "in_progress_tasks": 99,
+        "name": "initial",
+        "review_tasks": 99,
+        "total_tasks": 2,
+        "updated_at": "transaction_now"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project"],
+          "new": []
+        },
+        {
+          "dirty": ["Project"],
+          "new": []
+        },
+        {
+          "dirty": ["TaskBatch"],
+          "new": []
+        },
+        {
+          "dirty": ["TaskBatch"],
+          "new": []
+        }
+      ],
+      "dirty_batches": [[1, 1, 0]],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": ["updated_at"],
+        "values": {
+          "batch_summary": {
+            "assigned": 1,
+            "in_review": 1,
+            "total": 2
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 2
+        }
+      }
+    },
+    "source_less:stale_same:autoflush=False": {
+      "after": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 99,
+        "in_progress_tasks": 99,
+        "name": "initial",
+        "review_tasks": 99,
+        "total_tasks": 99,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "batch_rows": [
+        [9, 7, 6],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 99,
+        "in_progress_tasks": 99,
+        "name": "initial",
+        "review_tasks": 99,
+        "total_tasks": 99,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project", "TaskBatch", "TaskBatch"],
+          "new": []
+        }
+      ],
+      "dirty_batches": [
+        [1, 0, 0],
+        [1, 1, 0]
+      ],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": true,
+        "unloaded": [],
+        "values": {
+          "batch_summary": {
+            "assigned": 1,
+            "in_review": 1,
+            "total": 2
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 2
+        }
+      }
+    },
+    "source_less:stale_same:autoflush=True": {
+      "after": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 99,
+        "in_progress_tasks": 99,
+        "name": "initial",
+        "review_tasks": 99,
+        "total_tasks": 99,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "batch_rows": [
+        [1, 0, 0],
+        [9, 7, 6]
+      ],
+      "before": {
+        "batch_summary": {
+          "assigned": 1,
+          "in_review": 1,
+          "total": 2
+        },
+        "completed_tasks": 99,
+        "in_progress_tasks": 99,
+        "name": "initial",
+        "review_tasks": 99,
+        "total_tasks": 99,
+        "updated_at": "2000-01-01T00:00:00+00:00"
+      },
+      "before_flush": [
+        {
+          "dirty": ["Project"],
+          "new": []
+        },
+        {
+          "dirty": ["TaskBatch"],
+          "new": []
+        },
+        {
+          "dirty": ["TaskBatch"],
+          "new": []
+        }
+      ],
+      "dirty_batches": [[1, 1, 0]],
+      "pending_before": false,
+      "project": {
+        "dirty_fields": [],
+        "modified": false,
+        "unloaded": [],
+        "values": {
+          "batch_summary": {
+            "assigned": 1,
+            "in_review": 1,
+            "total": 2
+          },
+          "completed_tasks": 1,
+          "in_progress_tasks": 1,
+          "name": "initial",
+          "review_tasks": 0,
+          "total_tasks": 2
+        }
+      }
+    }
+  },
+  "source_commit": "9e37fe5b7cd358ae199db2104c11299b77e1a872"
+}

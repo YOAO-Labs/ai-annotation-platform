@@ -5690,3 +5690,43 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   containers are preserved. No persistent Root API/Celery/Workspace provider
   needs refresh. This closes the ordinary read-only Project getter operation,
   not set/scalar reads, counter writes, complete Workspace assembly or the goal.
+
+## Workspace Project set locks and Labeling counters checkpoint
+
+- Workspace now owns the one-statement sorted Project FOR UPDATE NOWAIT set.
+  Batch decisions retain actor/project/member/batch/task order, authority checks,
+  missing-project behavior, SQLSTATE mapping and caller rollback.
+- Labeling owns changed-column counter projection writes. Two live consumers keep
+  their Task/Batch aggregates, assignments and original autoflush/flush boundaries.
+  A scoped Project mapper bridge writes through the mapper connection inside the
+  same UoW, preserves explicit/implicit updated_at, stale cache and no-op masks,
+  and leaves unrelated ORM histories alone. No global flush hook, service, DSN or
+  transaction coordinator is introduced. Mixed unrelated metadata may still use
+  an ordinary ORM UPDATE; this is not a generic ORM persistence replacement.
+- Source workers: 41f45df326250f0384cbc5af8955e10d0dc4921e and
+  1e3091dbedf7ead350a7e794357f2014f271086e, based on 9e37fe5b. Root integrates
+  both, owns grants, 32 old baselines, consumer/Native/Node acceptance and docs.
+- Effective union: 244 selected cases, 243 passed, zero failures/errors and one
+  pre-existing inapplicable permission edge skipped (its positive case passes):
+  32 frozen ORM replays, 23 restricted Native cases, 15 adapter checks and
+  173 passed actual consumer cases. Original baseline execution is not counted again.
+  Unordered legacy batch iteration is normalized only across durable + pending
+  projections and pending count; the original golden is retained unchanged.
+- Actual implementation defects fixed from minimal reproductions: abandoned
+  Session.close retained opt-in IDs, and the local legacy runtime grant omitted
+  both new functions. Remaining failures were fixtures: catalog char bytes,
+  wrong decision-call argument order, unchanged deleted target, textual JSON wire
+  field expectation, and an unbound colon in a SQLAlchemy text JSON literal.
+  Original failures and real exits remain; only failed/changed cases rerun, and
+  the exact 199 unrun cases continue after the first stopped core batch.
+- The shared physical PostgreSQL owner boundary is locally qualified for these
+  operations. Complete Workspace credentials/cold artifacts/restore remain a
+  coherent later gate. No primary API/Celery runtime uses this source checkout.
+- Read-only inventory identifies actor-visible Project scope queries as the next
+  bounded delivery. Reuse the existing project_search_scope relation within the
+  original caller SQL, preserving active Identity profile, valid role/viewer
+  pairing, owner branches, unrestricted super-admin and pre-pagination filtering.
+  Other sets, arbitrary notification recipient pairs, directory/performance,
+  correlated membership checks and actorless enumeration stay in the one ledger.
+- Aggregate: .worktree/project-owner-persistence-qualification.json; ADR-0172.
+  No push, release, production/cutover or Go expansion is authorized or performed.

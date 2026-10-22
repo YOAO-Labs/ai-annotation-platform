@@ -1683,6 +1683,8 @@ ALTER FUNCTION aap_workspace_v1.lock_project_reference(uuid) OWNER TO :"workspac
 ALTER FUNCTION aap_workspace_v1.lock_project_reference_nowait(uuid)
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.read_project_row(uuid) OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1.lock_project_references_for_update(uuid[])
+    OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.lock_project_member_reference(uuid, uuid, boolean)
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.project_member_rows(uuid, uuid[], boolean)
@@ -2991,6 +2993,11 @@ BEGIN
         RAISE EXCEPTION 'Caller is missing a public Assets source or upload capability';
     END IF;
 END $$;
+
+GRANT CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
+ALTER FUNCTION aap_labeling_v1.write_project_counter_projection(uuid, jsonb)
+    OWNER TO :"labeling_owner";
+REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
 
 -- Durable result data stays with its Jobs/Labeling owner. Cross-owner calls
 -- expose only scoped capabilities; the inference executor receives no tables.

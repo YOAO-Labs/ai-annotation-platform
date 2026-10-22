@@ -29,6 +29,10 @@ _LOCK_PROJECT_ROW = text(
     "SELECT aap_workspace_v1.lock_project_row("
     "CAST(:project_id AS uuid), CAST(:nowait AS boolean))"
 )
+_LOCK_PROJECT_REFERENCES_FOR_UPDATE = text(
+    "SELECT aap_workspace_v1.lock_project_references_for_update("
+    "CAST(:project_ids AS uuid[]))"
+)
 
 
 async def merge_project_snapshot(db: AsyncSession, model, values: dict[str, object]):
@@ -87,6 +91,37 @@ async def lock_project_row(
         if key in unloaded:
             set_committed_value(project, key, value)
     return project
+
+
+async def lock_project_references_for_update(
+    db: AsyncSession,
+    project_ids: list[uuid.UUID],
+) -> list[uuid.UUID]:
+    """Lock one sorted Project ID set in the caller's existing transaction."""
+    if db.autoflush:
+        await db.flush()
+    raw = await db.scalar(
+        _LOCK_PROJECT_REFERENCES_FOR_UPDATE,
+        {"project_ids": project_ids},
+    )
+    requested_project_ids = set(project_ids)
+    if not isinstance(raw, list) or any(
+        not isinstance(project_id, uuid.UUID) for project_id in raw
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="项目锁定服务暂不可用",
+        )
+    if (
+        raw != sorted(raw)
+        or len(raw) != len(set(raw))
+        or any(project_id not in requested_project_ids for project_id in raw)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="项目锁定服务暂不可用",
+        )
+    return raw
 
 
 async def find_import_project(db: AsyncSession, display_id: str) -> uuid.UUID | None:

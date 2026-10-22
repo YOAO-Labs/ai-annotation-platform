@@ -96,6 +96,15 @@ HINT；客户端按 phase 恢复原有冲突原因，不向外暴露数据库异
 `module-data-grants.sql` 后，只有 Inference owner 增加这项固定执行权，没有新增 LOGIN 或原表授权。
 完整合同与限制见 [ADR-0145](/dev/adr/0145-workspace-project-access-facts)。
 
+## 项目集合锁与 Labeling 计数持久化
+
+批次决策的有序 NOWAIT 项目集合锁由 Workspace 执行；Project 上的五项 Labeling
+计数投影在原调用方 UoW flush 内通过窄补丁写入。两项能力共享原连接和事务，
+不引入远程提交点。未知补丁字段及空计数补丁拒绝；丢失行和畸形回复不会留下部分
+计数写入。完整字段、运行授权与验证边界见
+[Workspace 运行指南](./workspace-runtime#排序项目集合锁与计数投影)及
+[ADR-0172](/dev/adr/0172-project-set-locks-and-labeling-counters)。
+
 ## 同事务的主后端绑定清理
 
 `aap_workspace_v1.clear_primary_backend_bindings(pool_id)` 只清空指向给定服务池的

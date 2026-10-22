@@ -269,8 +269,24 @@ Project 事实读取配置。调用方的缓存命中、autoflush、强制刷新
 READ ONLY、Node、异常回复回滚和实际后台 relay 已通过限定本地检查。完整缓存
 兼容继续使用已有行解码与会话绑定。安装当前迁移及 owner／应用授权，不新增运行
 进程或凭据。范围见
-[ADR-0171](/dev/adr/0171-workspace-actorless-business-snapshots)。集合查询、计数
-写入、排序项目锁及完整模块装配仍按唯一台账推进。
+[ADR-0171](/dev/adr/0171-workspace-actorless-business-snapshots)。其他集合查询及完整模块装配仍按唯一台账推进。
+
+## 排序项目集合锁与计数投影
+
+批次决策一次调用 `aap_workspace_v1.lock_project_references_for_update(uuid[])`，
+返回按 UUID 排序的现存项目 ID 集，锁保留在调用方事务内。重复 ID 去重，缺失 ID
+不返回；NOWAIT 的 busy SQLSTATE 仍映射为 409 并回滚原事务。
+
+两处 Labeling 重算读取现有项目快照，在原 ORM flush 内调用
+`aap_labeling_v1.write_project_counter_projection(uuid,jsonb)`。补丁仅包含实际变化
+的四项任务计数、`batch_summary`，以及可选显式 `updated_at`；未提供时间戳时写
+事务时间。回复为目标 UUID，缺失为 null；适配器对缺失或畸形回复在 UoW 内抛错，
+保留原事务回滚。原无变化缓存、未 flush 的工作及外层提交顺序保持。
+
+两项能力均为固定 search_path 的 SECURITY DEFINER，PUBLIC 无执行权；已有 owner、
+应用与本地 worktree grant 清单同步更新。没有新增连接或自主提交点。范围和受限
+API／Node 验收见 [ADR-0172](/dev/adr/0172-project-set-locks-and-labeling-counters)。
+这仍是操作级调用边界，完整模块凭据与运行工件尚未集中验收。
 
 ## 最终写入与批量分派的成员锁
 

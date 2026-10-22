@@ -19,6 +19,53 @@ from app.application import project_workspace as project_workspace_application
 _LOCK_SCHEMA = "aap-workspace-project-lock/v1"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("autoflush", [False, True])
+async def test_project_set_lock_preserves_flush_and_exact_borrowed_call(autoflush):
+    ids = sorted([uuid.uuid4(), uuid.uuid4()])
+    events = []
+
+    async def flush():
+        events.append("flush")
+
+    async def scalar(statement, parameters):
+        assert "aap_workspace_v1.lock_project_references_for_update" in str(statement)
+        assert parameters == {"project_ids": ids}
+        events.append("scalar")
+        return ids
+
+    session = SimpleNamespace(autoflush=autoflush, flush=flush, scalar=scalar)
+    assert (
+        await project_workspace.lock_project_references_for_update(session, ids) == ids
+    )
+    assert events == (["flush", "scalar"] if autoflush else ["scalar"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "reply", [None, "ids", ["uuid"], "duplicate", "unsorted", "foreign"]
+)
+async def test_project_set_lock_rejects_malformed_reply_without_transaction_control(
+    reply,
+):
+    ids = sorted([uuid.uuid4(), uuid.uuid4()])
+    replies = {
+        "duplicate": [ids[0], ids[0]],
+        "unsorted": list(reversed(ids)),
+        "foreign": [uuid.uuid4()],
+    }
+    if isinstance(reply, str) and reply in replies:
+        reply = replies[reply]
+
+    async def scalar(_statement, _parameters):
+        return reply
+
+    session = SimpleNamespace(autoflush=False, scalar=scalar)
+    with pytest.raises(HTTPException) as rejected:
+        await project_workspace.lock_project_references_for_update(session, ids)
+    assert rejected.value.status_code == 503
+
+
 def _project_row(
     project_id: uuid.UUID,
     *,

@@ -814,7 +814,31 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 已有 40 项 ORM golden 只作复验，不设置 capture 变量覆盖。两条绑定、受限 LOGIN、
 Node、空 ID 和调用方回滚见
 [ADR-0171](docs/adr/0171-workspace-actorless-business-snapshots.md)。批量查询、排序
-Project 锁和计数投影仍按模块台账收口，不能改成逐行 RPC。
+Project 集合锁与两处计数投影见下一节；其他集合查询按模块台账收口，不能改成逐行 RPC。
+
+### Workspace 项目集合锁与 Labeling 计数写入
+
+批次决策使用 `lock_project_references_for_update(uuid[])`，一次按 UUID 排序取得
+NOWAIT 排他锁；缺失项目仍由后续读取判断，锁竞争沿用 `batch_decision_busy` 409
+及外层回滚。计数重算保留原 Task／Batch 查询、autoflush 和显式 flush 时点，已登记
+的五个 Project 计数字段由 Labeling owner 的 `write_project_counter_projection`
+写入。它只写实际变化列；时间戳、旧缓存无变化和调用方事务保持。未登记的字段
+仍使用原 ORM 行为，适配器不成为通用写代理。
+
+更新迁移、owner／应用授权及 worktree 兼容运行授权后，使用独占数据库验收：
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/project-owner-persistence.json \
+  --test-file tests/test_labeling_project_counter_owner_native.py \
+  --test-file tests/test_project_owner_persistence_native.py \
+  --test-file tests/test_workspace_project_locks.py
+```
+
+32 项旧行为 golden 已冻结，不设置 `AAP_COUNTER_OWNER_CAPTURE` 重写。Session
+关闭、失败回滚后重用、受限 LOGIN、Node 和实际消费者边界见
+[ADR-0172](docs/adr/0172-project-set-locks-and-labeling-counters.md)。完整 Workspace
+凭据、冷工件与恢复继续按唯一台账集中验收；这些源码改动没有切换日常运行环境。
 
 ### Workspace 同事务成员锁
 

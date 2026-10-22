@@ -12,11 +12,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import BatchStatus, WORKBENCH_AI_EDITABLE_TASK_STATUSES
 from app.services.project_access import get_workspace_project
+from app.services.project_workspace import lock_project_references_for_update
+from app.services.labeling_project_counter_data import (
+    clear_project_counter_projection,
+    register_project_counter_projection,
+)
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock
 from app.db.models.dataset import DatasetItem
-from app.db.models.project import Project
 from app.schemas.batch import BatchCreate, BatchUpdate, BatchSplitRequest
 from app.services.display_id import next_display_id
 from app.services.progress import (
@@ -912,9 +916,12 @@ class BatchService:
         await self._sync_project_counters(batch.project_id)
 
     async def _sync_project_counters(self, project_id: uuid.UUID) -> None:
-        project = await self.db.get(Project, project_id)
+        register_project_counter_projection(self.db, project_id)
+        project = await get_workspace_project(self.db, project_id=project_id)
         if not project:
+            clear_project_counter_projection(self.db, project_id)
             return
+        register_project_counter_projection(self.db, project_id)
 
         result = await self.db.execute(
             select(
@@ -925,6 +932,7 @@ class BatchService:
             ).where(Task.project_id == project_id)
         )
         row = result.one()
+        register_project_counter_projection(self.db, project_id)
         project.total_tasks = row.total
         project.completed_tasks = row.completed
         project.review_tasks = row.review
@@ -944,6 +952,7 @@ class BatchService:
                 ).where(TaskBatch.project_id == project_id)
             )
         ).one()
+        register_project_counter_projection(self.db, project_id)
         project.batch_summary = {
             "total": int(bs_row.total),
             "assigned": int(bs_row.assigned),
@@ -1076,7 +1085,6 @@ class BatchService:
 
         from sqlalchemy.exc import DBAPIError
 
-        from app.db.models.project import Project
         from app.services.annotation_evidence import lock_tasks_for_evidence
         from aap_workspace_contract.access import ProjectCapability
         from app.services.project_access import resolve_project_access
@@ -1107,12 +1115,7 @@ class BatchService:
             # task locks.  Lock order stays account -> project -> membership ->
             # batches -> tasks, matching the lifecycle model.
             try:
-                await self.db.execute(
-                    select(Project.id)
-                    .where(Project.id.in_(project_ids))
-                    .order_by(Project.id)
-                    .with_for_update(nowait=True)
-                )
+                await lock_project_references_for_update(self.db, project_ids)
             except DBAPIError as exc:
                 if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
                     await self.db.rollback()
