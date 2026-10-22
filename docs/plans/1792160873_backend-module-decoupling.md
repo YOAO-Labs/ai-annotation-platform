@@ -3392,7 +3392,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   seven initially skipped Identity restore cases were explicitly enabled and
   passed separately, yielding nine affected restore checks with no effective
   skip. The repository migration validator passed fresh 255, real 0173-to-base-to-
-  head, suffix 255-to0174-to-head (81 downgrades), irreversible forward and backup
+  head, suffix 255-to 0174-to-head (81 downgrades), irreversible forward and backup
   restore. All four derived DBs/dumps and verifier-owned resources were removed.
 - The affected API regression group passed 118 cases. Source pure checks passed
   347; the policy/architecture suite passed 376 with 133 existing inapplicable
@@ -6397,7 +6397,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   This is one integrated acceptance case, not hundreds of individual tests.
   The16-request/concurrency4 local sample takes1.180s, observed p95.335s. All
   migrations/artifact rollback/upgrade checks through0300 and owned cleanup pass.
-  Receipt:.worktree/workspace-module-assembly-seventh.json and sibling JUnit/log.
+  Receipt: .worktree/workspace-module-assembly-seventh.json and sibling JUnit/log.
 - Source worker3f9b890854ce1a478d0fd562b7ab51ad4396d171 supplies a real Celery
   retry/start/ack/restart acceptance. Root integrates it, keeps the ordinary API
   consumer fence gated to this explicit test selection, and retains all seeded
@@ -6428,7 +6428,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   and terminal summary match. Both live inspect rounds answer, ready queue and
   Redis unacked hash are zero, and a fresh result object reads the first persisted
   result after restart. One integrated case passes with no effective skips.
-  Receipt:.worktree/workspace-worker-assembly-third.json, sibling JUnit/log.
+  Receipt: .worktree/workspace-worker-assembly-third.json, sibling JUnit/log.
   Migrations through0300 and cleanup pass with no errors. The worker is ordinary
   UID/read-only,1CPU/512MiB/pids64; no source mount or owner/admin DB credentials.
   Public admission/dispatcher, pool routing, source-object retrieval and real ML
@@ -6643,3 +6643,42 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   separate wheel-only environment proves fresh publishable dependency metadata.
   Root's normal commit hooks still run. Generated Task build output is verified
   in an archive before removal; no unknown source cache is deleted.
+- Integration source d08e82380 publishes the contract/schema/legacy corpus and
+  current metadata. Matching owner image verifies 274 files/12 namespaces, with no
+  Inference/protocol provider, API, SQLAlchemy, Celery, boto3 or torch. Matching
+  Inference image verifies 88 files/6 namespaces; the API verifies 1,273 files across
+  34 namespaces (767 app + 506 package). Exact image records/probe logs stay under
+  .worktree/workspace-pipeline-_ and workspace-module-_-image.json.
+- First actual load case fails before startup because the new selection was not
+  included in the existing restricted API bootstrap-S3 setup. Source f6e3f6ac0
+  reuses that setup and keeps setup diagnostics from masking the original error.
+  Second attempt passes actual Node/API save, 422 rollback and c1, then observes
+  the existing 409 account-busy gate: membership and transfer take account UPDATE
+  NOWAIT locks while all lanes reuse one actor set. This is expected policy,
+  not an implementation defect. Both failure logs/JUnit/cleanup remain retained.
+- Source 2addc9fe6 isolates the principal/account set per load lane and keeps a
+  separate controlled account-lock probe under traffic: public 409 with unchanged
+  membership/receipt/actor-Audit state. No hidden retries or policy relaxation.
+  Third attempt passes one integrated case, not three cases or 581 tests. The
+  three 15-second admission windows finish in 15.080/16.360/16.806 seconds, recording
+  77/224/280 successful calls (581 total), p95=318.85/452.01/698.38ms, plus the
+  explicit 409/404 revocation probes. The Node producer passes against the actual
+  no-Inference-provider Workspace image, and the invalid command changes no state.
+- Sixteen runtime snapshots keep nine exact IDs/StartedAt values stable, no OOM
+  or restart. API observed CPU max 97.63%, memory max 53.76% of 768 MiB, observed service
+  DB connections max 12; after stop service connections drain to 0. Final canonical
+  names/owners/memberships, acknowledged command receipts and retained Audit IDs
+  agree; configuration transient state/attempt tables are empty. These are local
+  sparse samples, not continuous peaks, production throughput or an SLO.
+- A fresh isolated noneditable owner environment installs from mirrored current
+  inputs using publishable metadata (--no-sources), verifies all 274 source files
+  and provider absence, and passes 402 Workspace + 35 workspace-contract + 2 Audit
+  cases (the same 439-case scope). Source and test inputs use copied topology plus
+  the two actual frozen-schema fixtures; no API package/runtime is installed.
+  Receipt: .worktree/workspace-pipeline-installed.json. Minimal wheel 26-vector
+  evidence and previous restore/worker/import qualifications are not double-counted.
+- Architecture result is 358 passed with 150 existing explicit inapplicable cases,
+  not 508 applicable successes. Both source-only worker branches remain retained
+  after verified exact patch/Git bundle/cache archive and clean checkout removal.
+  Full remaining scope stays in the sole ledger; no primary cutover, push,
+  release, production deployment or Go expansion occurred.

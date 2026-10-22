@@ -2419,3 +2419,25 @@ AAP_WORKSPACE_IMPORT_CLI_LIVE=1 apps/api/.venv/bin/python \
 当前查询结束后才发现客户端断开；十秒人工阻塞只证明最终回滚，不证明即时取消长 SQL。
 失败保留的 S3 字节由隔离桶销毁清理；重放可能重新上传同键对象和追加操作回执。
 这不证明真实数据集、容量或整模块完成，剩余边界继续见唯一台账。
+
+### Workspace 公共结构契约与混合负载验收
+
+保存流水线结构由 `aap-inference-contract` 提供；Workspace 镜像与核心不再安装 Inference
+提供方。阶段／请求 Schema 位于该包的 `preannotate.schema.json`，其跨字段规则和兼容
+规范化见包 README。旧 Inference 导入仍为共享对象的兼容别名。
+
+准备与当前源码匹配的四个镜像及身份变量，再运行：
+
+```bash
+AAP_WORKSPACE_CAPACITY_LIVE=1 apps/api/.venv/bin/python \
+  scripts/verify_module_data_boundary.py --output .worktree/workspace-capacity.json \
+  --test-file tests/test_workspace_capacity_live.py
+```
+
+这个测试开关复用九个已有服务和普通 API 的受限 SQL 配置，同时提供既有受限启动存储
+身份；不改变部署模式。并发 1／4／8 各使用十五秒准入窗口、每通道独立账号组与项目。
+记录真实延迟／吞吐、稀疏资源和连接样本，并核对实际回执、审计和最终状态；在持续
+流量中检查账号忙 409、撤权和旧预览拒绝。Node.js 通过实际 API 检查流水线规范化及
+错误回滚。正常成功流量与明确的竞争／撤权拒绝分别报告，所有原始失败日志保留。
+相同账号的管理写入仍可能按既有 NOWAIT 规则返回 409；不引入隐藏重试或放宽围栏。
+有限本机数据与未完成范围见[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
