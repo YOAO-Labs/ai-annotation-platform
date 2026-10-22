@@ -3961,87 +3961,92 @@ def main(argv: list[str] | None = None) -> int:
                     workspace_consumer_path.read_bytes()
                 ).hexdigest(),
             }
+        workspace_import_cli_fence = None
         if (
             "tests/test_workspace_import_cli_live.py" in selected_test_paths
             and os.environ.get("AAP_WORKSPACE_IMPORT_CLI_LIVE") == "1"
         ):
-            phase = "install-workspace-import-cli-identity-fence"
-            _psql(
-                container_id,
-                container_name,
-                container_identity,
-                username="owner",
-                password=owner_password,
-                database=database,
-                sql=identity_consumer_grant_sql,
-                variables={
-                    "expected_database": database,
-                    "migration_role": "owner",
-                    "identity_owner": "identity_code",
-                    "consumer_role": "legacy_runtime",
-                },
-            )
-            phase = "install-workspace-import-cli-workspace-fence"
-            workspace_import_grants = (
-                ROOT / "infra/docker/workspace-consumer-grants.sql"
-            )
-            _psql(
-                container_id,
-                container_name,
-                container_identity,
-                username="owner",
-                password=owner_password,
-                database=database,
-                sql=workspace_import_grants.read_text(),
-                variables={
-                    "expected_database": database,
-                    "migration_role": "owner",
-                    "workspace_owner": "workspace_code",
-                    "consumer_role": "legacy_runtime",
-                },
-            )
-            phase = "restore-workspace-import-cli-provisioning-capabilities"
-            # The existing CLI provisions its operator in the same transaction.
-            # The ordinary API role does not receive these trusted capabilities.
-            provisioning_grants = """
-GRANT EXECUTE ON FUNCTION
-    aap_identity_v1.read_provisioning_account(text),
-    aap_identity_v1.create_provisioning_account(jsonb)
-    TO legacy_runtime;
-"""
-            _psql(
-                container_id,
-                container_name,
-                container_identity,
-                username="owner",
-                password=owner_password,
-                database=database,
-                sql=provisioning_grants,
-            )
-            evidence["workspace_import_cli_consumer"] = {
-                "role": "legacy_runtime",
-                "identity_fence": {
-                    "path": "infra/docker/identity-consumer-grants.sql",
-                    "sha256": hashlib.sha256(
-                        identity_consumer_grant_sql.encode()
+
+            def workspace_import_cli_fence():
+                nonlocal phase
+                phase = "install-workspace-import-cli-identity-fence"
+                _psql(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    username="owner",
+                    password=owner_password,
+                    database=database,
+                    sql=identity_consumer_grant_sql,
+                    variables={
+                        "expected_database": database,
+                        "migration_role": "owner",
+                        "identity_owner": "identity_code",
+                        "consumer_role": "legacy_runtime",
+                    },
+                )
+                phase = "install-workspace-import-cli-workspace-fence"
+                workspace_import_grants = (
+                    ROOT / "infra/docker/workspace-consumer-grants.sql"
+                )
+                _psql(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    username="owner",
+                    password=owner_password,
+                    database=database,
+                    sql=workspace_import_grants.read_text(),
+                    variables={
+                        "expected_database": database,
+                        "migration_role": "owner",
+                        "workspace_owner": "workspace_code",
+                        "consumer_role": "legacy_runtime",
+                    },
+                )
+                phase = "restore-workspace-import-cli-provisioning-capabilities"
+                # The existing CLI provisions its operator in the same transaction.
+                # The ordinary API role does not receive these trusted capabilities.
+                provisioning_grants = """
+    GRANT EXECUTE ON FUNCTION
+        aap_identity_v1.read_provisioning_account(text),
+        aap_identity_v1.create_provisioning_account(jsonb)
+        TO legacy_runtime;
+    """
+                _psql(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    username="owner",
+                    password=owner_password,
+                    database=database,
+                    sql=provisioning_grants,
+                )
+                evidence["workspace_import_cli_consumer"] = {
+                    "role": "legacy_runtime",
+                    "identity_fence": {
+                        "path": "infra/docker/identity-consumer-grants.sql",
+                        "sha256": hashlib.sha256(
+                            identity_consumer_grant_sql.encode()
+                        ).hexdigest(),
+                    },
+                    "workspace_fence": {
+                        "path": str(workspace_import_grants.relative_to(ROOT)),
+                        "sha256": hashlib.sha256(
+                            workspace_import_grants.read_bytes()
+                        ).hexdigest(),
+                    },
+                    "provisioning_capabilities": [
+                        "aap_identity_v1.read_provisioning_account(text)",
+                        "aap_identity_v1.create_provisioning_account(jsonb)",
+                    ],
+                    "provisioning_grants_sha256": hashlib.sha256(
+                        provisioning_grants.encode()
                     ).hexdigest(),
-                },
-                "workspace_fence": {
-                    "path": str(workspace_import_grants.relative_to(ROOT)),
-                    "sha256": hashlib.sha256(
-                        workspace_import_grants.read_bytes()
-                    ).hexdigest(),
-                },
-                "provisioning_capabilities": [
-                    "aap_identity_v1.read_provisioning_account(text)",
-                    "aap_identity_v1.create_provisioning_account(jsonb)",
-                ],
-                "provisioning_grants_sha256": hashlib.sha256(
-                    provisioning_grants.encode()
-                ).hexdigest(),
-                "other_domains": "existing trusted operator runtime grants retained",
-                "ordinary_api_unchanged": True,
-            }
+                    "other_domains": "existing trusted operator runtime grants retained",
+                    "ordinary_api_unchanged": True,
+                }
+
         phase = "verify-identity-api-consumer-acl"
         identity_consumer_acl = json.loads(
             _psql(
@@ -4426,7 +4431,19 @@ SELECT pg_catalog.jsonb_build_object(
             container_id, container_name, container_identity, require_running=True
         )
         with patch.dict(os.environ, resource_environment, clear=False):
-            exit_code = run_processes(backend, options)
+            if workspace_import_cli_fence is None:
+                exit_code = run_processes(backend, options)
+            else:
+                prepare_owned_resources = backend.prepare
+
+                def prepare_fenced_import_resources(*, skip_migrations=False):
+                    prepare_owned_resources(skip_migrations=skip_migrations)
+                    workspace_import_cli_fence()
+
+                # The launcher reapplies compatibility grants while preparing.
+                # Fence its actual final credentials before it starts pytest.
+                with patch.object(backend, "prepare", prepare_fenced_import_resources):
+                    exit_code = run_processes(backend, options)
         evidence["test_exit_code"] = exit_code
         evidence["passed_test_count"] = _passed_test_count(junit)
         if exit_code == 0 and evidence["passed_test_count"] == 0:
