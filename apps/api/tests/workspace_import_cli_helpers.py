@@ -362,6 +362,20 @@ class WorkspaceImportCli:
                 }
             )
 
+    def running_database_client_address(self) -> str:
+        """Return the verified running CLI endpoint on its owned private network."""
+        if self.container_id is None:
+            raise RuntimeError("No nuScenes CLI container is currently running")
+        record = self._inspect(self.container_id)
+        self._verify_container(record)
+        if not (record.get("State") or {}).get("Running"):
+            raise RuntimeError("nuScenes CLI container has already exited")
+        network = record["NetworkSettings"]["Networks"][self.network_name]
+        address = network.get("IPAddress")
+        if not address:
+            raise RuntimeError("nuScenes CLI has no private database client address")
+        return address
+
     def stop_current_container(self) -> bool:
         """Stop only this helper's verified running CLI container."""
         if self.container_id is None:

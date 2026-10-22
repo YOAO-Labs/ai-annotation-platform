@@ -539,8 +539,10 @@ async def _install_task_trigger(
     trigger_name = f"workspace_import_cli_fail_{suffix}_trigger"
     function = f"public.{function_name}"
     trigger = f"public.{trigger_name}"
+    # Default PostgreSQL can finish a query before noticing a dead client.
+    # Keep this artificial pause bounded; cancellation is not SQL interruption.
     action = (
-        "PERFORM pg_sleep(120); "
+        "PERFORM pg_sleep(10); "
         if marker is None
         else f"RAISE EXCEPTION '{marker}' USING ERRCODE='P0001'; "
     )
@@ -586,7 +588,7 @@ async def _wait_for_import_pause(test_engine, pending) -> dict:
                     (
                         await db.execute(
                             text(
-                                "SELECT pid, client_addr::text AS client_addr, "
+                                "SELECT pid, host(client_addr) AS client_addr, "
                                 "wait_event_type, wait_event "
                                 "FROM pg_catalog.pg_stat_activity "
                                 "WHERE datname=current_database() "
@@ -746,6 +748,9 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
         )
         try:
             paused_session = await _wait_for_import_pause(test_engine, pending)
+            assert paused_session["client_addr"] == await asyncio.to_thread(
+                cli.running_database_client_address
+            )
             record_property("workspace_import_cancel_paused_session", paused_session)
             await _assert_empty_owned_rows(test_engine)
             keys_during_cancel = await _object_keys(owner_s3, datasets_bucket)
