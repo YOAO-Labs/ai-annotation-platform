@@ -4,7 +4,7 @@ description: 如何新增场景、更新现有截图、维护视觉回归基线
 audience: [dev]
 type: how-to
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-22
 ---
 
 # 更新文档截图
@@ -475,6 +475,10 @@ pnpm screenshots --grep "my-new-scene"
 ```
 
 ### 4. 发布完整矩阵和 manifest
+
+图片覆盖与孤儿检查同时识别 Markdown 图片、`<AutoImage>` 和文档主题 Vue / TypeScript
+组件中的静态图片导入。仅供首页使用的截图仍需保留 manifest 与生成来源；没有任何已发布
+页面或主题组件引用的图片会被孤儿检查拦截。
 
 ```bash
 cd apps/web

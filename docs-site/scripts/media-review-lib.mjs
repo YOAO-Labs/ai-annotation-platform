@@ -44,10 +44,10 @@ function resolvePublicPath(source) {
   return null;
 }
 
-export function collectPublishedMedia() {
+export function collectPublishedMedia({ scanRoot = USER_GUIDE_ROOT } = {}) {
   const records = new Map();
   const imageReferences = collectMarkdownImageReferences({
-    scanRoot: USER_GUIDE_ROOT,
+    scanRoot,
     repoRoot: REPO_ROOT,
     docsRoot: DOCS_ROOT,
   });
@@ -59,7 +59,7 @@ export function collectPublishedMedia() {
     });
   }
 
-  for (const markdownPath of walkFiles(USER_GUIDE_ROOT, (name) => name.endsWith(".md"))) {
+  for (const markdownPath of walkFiles(scanRoot, (name) => name.endsWith(".md"))) {
     const content = fs.readFileSync(markdownPath, "utf8");
     const source = repoKey(markdownPath);
     for (const tag of content.matchAll(/<(?:DocsVideo|video|source)\b[^>]*>/g)) {
