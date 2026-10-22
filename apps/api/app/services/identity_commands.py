@@ -69,6 +69,9 @@ class IdentityCommandService:
     async def lookup_seed_accounts(self, emails: set[str]) -> dict[str, uuid.UUID]:
         return await IdentityProvisioningData(self.db).lookup_seed_accounts(emails)
 
+    async def lookup_seed_account_id(self, email: str) -> uuid.UUID | None:
+        return await IdentityProvisioningData(self.db).lookup_seed_account_id(email)
+
     async def lookup_first_seed_account(self) -> tuple[uuid.UUID, str] | None:
         return await IdentityProvisioningData(self.db).lookup_first_seed_account()
 

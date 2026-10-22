@@ -7097,3 +7097,32 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Reuse this bounded acceptance unless related changes invalidate it. Remaining
   Identity operations are recording job/reject fixture lookups and guarded
   screenshot preference replacement; the full module and goal remain active.
+
+### Screenshot fixture Identity consumer boundary
+
+- Scope is the Identity operations in the original job-recovery fixture,
+  review-reject fixture and screenshot-preference restore CLI. It does not qualify
+  their other domain writes, browser recordings or real ML inference.
+- Before changing consumers, captured 37 cases from adbc84451ae6877193ca58195c6d02affbd7edfd,
+  including the actual cached-email entity behavior. Immutable snapshots retain
+  their source hashes. All 37 replay under credentials denied private User access.
+- Exact email lookup uses the existing public account relation and returns only
+  UUID. A single scalar entity lookup retains the old Session identity-map behavior;
+  rebuilding an email-keyed result map would reject a row whose cached email is old.
+- The fixed aap-identity-fixture-preferences/v1 capability replaces arbitrary JSON
+  objects for the exact supplied ID, returning integer zero or one. Same-value
+  updates count as one; NULL/missing IDs count as zero. It preserves caller-owned
+  transactions, normal row-lock waiting, inactive accounts and unknown nested keys.
+  There is no added auth, journal, retry, hidden commit or public REST endpoint.
+- Migration 0304 owns the hardened SECURITY DEFINER function. Both the physical
+  database guard and trusted grant profile require the case-sensitive \_test/\_e2e
+  suffix. Ordinary API credentials retain five functions/two views. The trusted
+  recording profile appends one EXECUTE and retains private table/column denial.
+- Five extra Native cases cover Node, borrowed rollback, a real conflicting User
+  row lock, and actual \_e2e, \_dev and \_TEST databases. The first run passed the three
+  suffix cases but had two missing-fixture setup errors. After fixture registration,
+  only those two cases were rerun and passed. All failed receipts are retained.
+- Source and installed cold qualification are in progress; do not infer completion
+  of Identity or the full recording workflow from this consumer slice. The next
+  concrete Identity prerequisite is the gated \_test_seed/\_test_seed_filters runtime
+  routes that still create/delete users and invitations through tests.factory.

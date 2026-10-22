@@ -140,6 +140,13 @@ GRANT USAGE ON SCHEMA aap_identity_v1, aap_identity_keys_v1,
     aap_identity_deletions_v1, aap_identity_offboarding_v1,
     aap_identity_briefs_v1,
     aap_settings_v1, aap_notifications_v1 TO :"application_role";
+SELECT right(current_database(),5)='_test' OR right(current_database(),4)='_e2e'
+    AS identity_fixture_database \gset
+\if :identity_fixture_database
+GRANT EXECUTE ON FUNCTION aap_identity_v1.replace_fixture_preferences(uuid,jsonb)
+    TO :"application_role";
+\endif
+
 GRANT SELECT ON aap_identity_v1.account_profiles,
     aap_identity_v1.invitation_audit_targets TO :"application_role";
 GRANT SELECT ON aap_workspace_v1.project_member_facts TO :"application_role";

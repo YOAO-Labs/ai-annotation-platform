@@ -81,6 +81,13 @@ class IdentityProvisioningData:
         ).scalars()
         return [(user.id, user.email, user.role, user.is_active) for user in users]
 
+    async def lookup_seed_account_id(self, email: str) -> uuid.UUID | None:
+        profile = aliased(User, account_profiles, adapt_on_names=True)
+        user = await self.db.scalar(
+            select(profile).options(load_only(profile.id)).where(profile.email == email)
+        )
+        return user.id if user is not None else None
+
     async def lookup_seed_accounts(self, emails):
         # One snapshot preserves the bulk lookup and loaded email/ID cache
         # behavior without reading private Identity fields.

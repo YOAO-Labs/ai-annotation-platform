@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from aap_identity.fixture_preferences_contract import (
     FIXTURE_PREFERENCES_PROTOCOL,
     fixture_preferences_schema,
@@ -86,3 +89,12 @@ def test_descriptor_names_one_exact_scalar_native_capability():
     assert function["volatility"] == "VOLATILE"
     assert "caller owns" in function["transaction_semantics"]
     assert "normal row-lock waiting" in function["transaction_semantics"]
+
+
+def test_installed_and_migration_descriptors_match_the_owner_contract():
+    root = Path(__file__).resolve().parents[3]
+    for relative in (
+        "apps/identity/src/aap_identity/fixture_preferences.schema.json",
+        "apps/api/alembic/sql/0304_identity_fixture_preferences.schema.json",
+    ):
+        assert json.loads((root / relative).read_text()) == fixture_preferences_schema()

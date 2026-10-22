@@ -44,18 +44,18 @@ async def restore(user_id: UUID, preferences_file: Path) -> None:
     engine = create_async_engine(database_url, pool_pre_ping=True)
     try:
         async with engine.begin() as connection:
-            result = await connection.execute(
+            updated = await connection.scalar(
                 text(
-                    "UPDATE users SET preferences = CAST(:preferences AS jsonb) "
-                    "WHERE id = :user_id"
+                    "SELECT aap_identity_v1.replace_fixture_preferences("
+                    ":user_id, CAST(:preferences AS jsonb))"
                 ),
                 {
                     "preferences": json.dumps(preferences, ensure_ascii=False),
                     "user_id": user_id,
                 },
             )
-            if result.rowcount != 1:
-                raise RuntimeError(f"expected one user row, updated {result.rowcount}")
+            if updated != 1:
+                raise RuntimeError(f"expected one user row, updated {updated}")
     finally:
         await engine.dispose()
 

@@ -13,6 +13,7 @@ def fixture_preferences_schema() -> dict[str, Any]:
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": FIXTURE_PREFERENCES_PROTOCOL,
+        "$defs": {},
         "title": "Fixture user-preferences replacement",
         "type": "object",
         "properties": {

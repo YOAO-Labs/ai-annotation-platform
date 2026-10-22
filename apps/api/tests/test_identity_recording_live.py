@@ -71,14 +71,13 @@ async def _function_set(db, role: str) -> set[str]:
 
 async def _assert_identity_profile(test_engine, *, preference_writer: bool = True):
     _verify_postgres(test_engine.url)
-    expected = set(_IDENTITY_CONSUMER_FUNCTIONS)
+    ordinary = {f"aap_identity_v1.{sig}" for sig in _IDENTITY_CONSUMER_FUNCTIONS}
+    expected = set(ordinary)
     if preference_writer:
         expected.add(_FIXTURE_PREFERENCE_FUNCTION)
     async with test_engine.connect() as db:
         assert await _function_set(db, "legacy_runtime") == expected
-        assert await _function_set(db, "identity_api_consumer") == (
-            _IDENTITY_CONSUMER_FUNCTIONS
-        )
+        assert await _function_set(db, "identity_api_consumer") == ordinary
         for role in ("legacy_runtime", "identity_api_consumer"):
             for view in _IDENTITY_VIEWS:
                 assert await db.scalar(
@@ -611,7 +610,7 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
                 },
                 "unrecognized_top_level": {"kept_verbatim": ["新值", 7]},
             }
-            await _write_preferences(preferences_path, rich_preferences)
+            _write_preferences(preferences_path, rich_preferences)
             preference_write = await _run_preferences_fixture(cli, ids["recorder"])
             record_property(
                 "identity_recording_preferences_replace",
@@ -632,7 +631,7 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             )
             assert await recording_snapshot(test_engine) == preference_state
 
-            await _write_preferences(preferences_path, {})
+            _write_preferences(preferences_path, {})
             empty_preferences = await _run_preferences_fixture(cli, ids["recorder"])
             record_property(
                 "identity_recording_preferences_empty_object",
@@ -642,7 +641,7 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             empty_state = await recording_snapshot(test_engine)
             _assert_preferences_only(review_state, empty_state, {})
 
-            await _write_preferences(preferences_path, INITIAL_PREFERENCES)
+            _write_preferences(preferences_path, INITIAL_PREFERENCES)
             preferences_reset = await _run_preferences_fixture(cli, ids["recorder"])
             record_property(
                 "identity_recording_preferences_reset",
@@ -659,7 +658,7 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             _assert_failed(missing_preferences_user)
             assert await recording_snapshot(test_engine) == review_state
 
-            await _write_preferences(preferences_path, rich_preferences)
+            _write_preferences(preferences_path, rich_preferences)
             async with test_engine.begin() as db:
                 await db.execute(
                     text(
@@ -700,7 +699,7 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             assert recovered_preferences.exit_code == 0
             recovered_state = await recording_snapshot(test_engine)
             _assert_preferences_only(review_state, recovered_state, rich_preferences)
-            await _write_preferences(preferences_path, INITIAL_PREFERENCES)
+            _write_preferences(preferences_path, INITIAL_PREFERENCES)
             recovered_reset = await _run_preferences_fixture(cli, ids["recorder"])
             assert not recovered_reset.timed_out and recovered_reset.exit_code == 0
             assert await recording_snapshot(test_engine) == review_state
@@ -710,7 +709,7 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
                 "recording_cancel_gate": application_name,
                 "unknown": {"unicode": "取消 🚲", "empty": []},
             }
-            await _write_preferences(preferences_path, gated_preferences)
+            _write_preferences(preferences_path, gated_preferences)
             preference_gate = await _install_preferences_gate(
                 test_engine,
                 recorder_id=ids["recorder"],
@@ -778,7 +777,7 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             assert recovered_gate_write.exit_code == 0
             gated_state = await recording_snapshot(test_engine)
             _assert_preferences_only(review_state, gated_state, gated_preferences)
-            await _write_preferences(preferences_path, INITIAL_PREFERENCES)
+            _write_preferences(preferences_path, INITIAL_PREFERENCES)
             final_reset = await _run_preferences_fixture(cli, ids["recorder"])
             assert not final_reset.timed_out and final_reset.exit_code == 0
             assert await recording_snapshot(test_engine) == review_state

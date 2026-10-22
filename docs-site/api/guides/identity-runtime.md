@@ -55,6 +55,24 @@ Migration 0251 在 `aap_identity_v1` 提供三项安全函数：`lock_accounts_s
 
 跨帧 worker 每个待写帧都重新锁定并核对当前账号及项目／成员／任务权限，不使用跨帧快照或 `db.refresh(User)` 替代。忙碌仍映射到既有 `permission_changed`，无新重试；账号删除、停用、基础设施失败与阶段拒绝的分类也保持旧区分。非锁定 Workspace authority 查询与 bootstrap/import 写入由下文的 provisioning 切片接管。最新本地 qualification 去重后 231 项全部通过，包括受限 Node 调用、转移／角色变更竞态、恢复与新 Celery 进程。源码及非 editable 安装各通过 595 项，119 个包文件与独立 owner／API 容器指纹一致。旧行为 baseline 的一个测试覆盖 15 个场景，不能叠加到新资格数量。细节见 [ADR-0131](/dev/adr/0131-identity-transactional-account-locks)。
 
+## 截图夹具的账号与偏好
+
+恢复／拒绝夹具按精确 email 从公开 `account_profiles` 关系读取 UUID，不增加角色或
+启用状态条件。单账号查询保持原 Session 的缓存行为，不用 email 映射重新查找已缓存行。
+
+`aap-identity-fixture-preferences/v1` 描述一项固定 Native 函数：
+`aap_identity_v1.replace_fixture_preferences(uuid,jsonb)` 返回整数 0 或 1。它完整替换
+指定账号的 JSON object；同值更新仍返回 1，缺失或 NULL ID 返回 0。未知嵌套键、空值及
+停用账号保持原行为，不走公开偏好接口的深合并。调用方持有事务，正常等待行锁；没有
+隐式提交、重试、审计或账号授权。SQL NULL／非 object 值返回 SQLSTATE 22023。
+
+函数在实际数据库名严格以 `_test` 或 `_e2e` 结尾时才执行，否则返回 42501；大小写不被
+规范化。普通 API 仍是两视图／五函数，不能执行此能力。可信录制 LOGIN 先应用普通
+Identity 围栏，再由 `identity-recording-fixture-grants.sql` 追加一项 EXECUTE；它仍无
+User 私表或列权限。原始脚本的生产拒绝、来源／任务守卫及偏好工具的 URL 检查保持。
+此能力不授予其他领域的夹具写入权限；命令和限定资格见仓库 `DEV.md` 及
+[模块台账](/dev/concepts/module-deployment#identity-截图夹具)。
+
 ## 历史角色审计关系
 
 `aap-identity-role-audit/v1` 是可信运维只读关系契约，独立于普通 HTTP 凭据配置。

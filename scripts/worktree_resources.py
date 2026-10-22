@@ -560,7 +560,12 @@ class LocalResources:
                 self.resources["database"]
             )
             video_function_grant = ", ".join(VIDEO_RUNTIME_CAPABILITIES)
-            identity_function_grant = ", ".join(IDENTITY_RUNTIME_CAPABILITIES)
+            identity_capabilities = IDENTITY_RUNTIME_CAPABILITIES
+            if self.resources["database"].endswith(("_test", "_e2e")):
+                identity_capabilities += (
+                    "aap_identity_v1.replace_fixture_preferences(uuid,jsonb)",
+                )
+            identity_function_grant = ", ".join(identity_capabilities)
             image_media_function_grant = ", ".join(IMAGE_MEDIA_RUNTIME_CAPABILITIES)
             image_accepted_function_grant = ", ".join(
                 IMAGE_ACCEPTED_RUNTIME_CAPABILITIES

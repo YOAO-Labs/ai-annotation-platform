@@ -750,6 +750,48 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 事务和四项失败后再次提交检查。主脚本的媒体子入口仍单独跟踪，完整状态见
 [唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
 
+### 截图夹具的 Identity 边界
+
+作业恢复／拒绝夹具读取精确 email 对应的账号 ID，不新增角色或启用过滤；已有项目、
+数据集来源及任务路径守卫保持。偏好恢复仍先校验 URL 的 `_test`／`_e2e` 后缀与 JSON
+object，再完整替换账号偏好。公开偏好接口会深合并，不能代替此恢复操作。
+
+迁移到当前 head 后，可信录制 LOGIN 先应用 `identity-consumer-grants.sql`，再显式
+追加一项固定写入能力。以下命令仅用于自己拥有的隔离数据库：
+
+```bash
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v identity_owner=identity_code -v consumer_role=recording_operator \
+  -f infra/docker/identity-recording-fixture-grants.sql
+```
+
+该 LOGIN 必须无管理／角色继承权限，且已撤销 User 私表和列权限；普通 API 角色不能
+作为录制 operator。实际数据库名也必须以 `_test` 或 `_e2e` 结尾。运行原脚本时配置
+`DATABASE_URL`，偏好恢复也接受优先级更高的 `SCREENSHOT_DATABASE_URL`。其他领域的
+夹具写入仍需要其既有可信权限，本步骤只收口 Identity 操作。
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/identity-recording-native.json \
+  --test-file tests/test_identity_recording_native.py \
+  --test-file tests/test_identity_fixture_preferences_native.py
+```
+
+修改前捕获的 37 项行为已通过受限凭据回放，另有 5 项 Node、共同回滚、真实行锁和
+实际数据库名检查。参照 Workspace 组合私网验收表设置四项镜像及身份变量后，可运行
+安装后的三项原始 CLI：
+
+```bash
+AAP_IDENTITY_RECORDING_FIXTURE_LIVE=1 \
+  apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/identity-recording-cold.json \
+  --test-file tests/test_identity_recording_live.py
+```
+
+冷工件、权限撤销／恢复和物理取消资格按
+[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)记录。这不替代实际
+浏览器录制、ML 推理或完整录制工作流验收；旧媒体资产和人工审阅来源不被重写。
+
 ### 历史角色审计的 Identity 读取
 
 `audit_project_roles.py` 通过 `aap_identity_audit_v1` 的三个固定关系读取账号角色、

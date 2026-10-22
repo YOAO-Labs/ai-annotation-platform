@@ -12,7 +12,7 @@ SET TimeZone TO 'UTC'
 SET DateStyle TO 'ISO, YMD'
 AS $function$
 DECLARE
-    v_database_name text := pg_catalog.lower(pg_catalog.current_database());
+    v_database_name text := pg_catalog.current_database();
     v_row_count integer;
 BEGIN
     IF pg_catalog.right(v_database_name, 5) <> '_test'
