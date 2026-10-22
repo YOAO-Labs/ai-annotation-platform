@@ -7230,7 +7230,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   correlated physical cancellation/recovery and normal HTTP operations, then failed
   while serializing a neighboring HTTP Response as a dict. The original receipt is
   retained. A minimal evaluation of the actual probe expression with a Response
-  reproduced the defect; correction commit 3799e37e3ea011a06c941edae708856d19d00d57
+  verified the corrected access; correction commit 3799e37e3ea011a06c941edae708856d19d00d57
   changed only that fixture result access and passed normal hooks.
 - The second full cold case passed eight actual installed-image container runs:
   real Uvicorn/TCP, the full application lifespan, original owned/login/peek/roles/
@@ -7249,3 +7249,18 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   local qualification next; do not equate the five-function/two-view module
   consumer's qualification with default-runtime closure. No primary cutover, push,
   release, production deployment, remote CI or Go expansion occurred.
+- Qualification documentation commit a3f8764a08a75a5c7896f45962f8031c29f9f92d
+  updates the sole ledger and operational commands. Documentation build passed in
+  16.816 seconds. Final preservation confirms twenty unchanged editable bindings,
+  protected clean primary HEAD856fa79c8, the same four shared running containers,
+  97 known owned PostgreSQL containers absent, no persistent Root/fixture runtime
+  or network, all four exact image input manifests and four verified worker archives.
+- Aggregate `.worktree/identity-e2e-qualification.json` has SHA256
+  `24acfc4ba8833cf8d5aa4562362ce4115e3c376d868a88eb83d40bfad2827534`.
+  It de-duplicates 27 selected boundary cases and 64 original regressions, preserves
+  every failed receipt, validates all six original captured values and earlier
+  frozen protocol/OpenAPI/media bytes, and links the eight-container cold case.
+  Reuse this acceptance unless related changes invalidate it. The full goal remains
+  active. Next is existing default-runtime Identity private-table permission and
+  binding qualification in isolated local development; production and primary
+  cutover remain outside this delivery.
