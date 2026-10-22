@@ -29,6 +29,7 @@ class Dataset(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
     data_type: Mapped[str] = mapped_column(String(30), default="image")
+    storage_scan_prefix: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     is_temporal: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false", default=False
     )

@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-22
 ---
 
 # 存储连接器（Storage Connections）
@@ -125,3 +125,26 @@ import-from-connection (202)
 - [参考 · 连接器安全](/dev/reference/connector-security)
 - [参考 · 存储桶布局](/dev/reference/storage-buckets)
 - [审计与通知](/dev/concepts/audit-and-notifications)
+
+## 内容身份与兼容回填
+
+外部连接器仍负责复制导入，StorageService 继续持有平台对象存储凭据并执行 I/O。内部 storage_locations/storage_bindings 记录默认平台位置和九用途的固定桶，不复制连接器密码，也没有变更用途绑定的公开入口。配置与固定记录不符时登记会失败；切换桶或 endpoint 前应独立完成历史对象定位、迁移与对账。
+
+每个 DatasetItem 可反向关联一份 DatasetAsset 内容修订及 DatasetAssetLocation。新上传、ZIP 与连接器复制使用独立上传 UUID 的稳定托管键，新 Item 在 metadata.storage_relative_path 保存逻辑相对路径，供 Scene、点云帧分组和导出复用；扫描保留真实键并单独分配重名后缀。托管根下 `_objects/<upload UUID>/` 为平台写入保留区，手工导入目录应放在该保留区以外，普通 UUID 场景目录完整保留。已核验内容以 SHA-256 和大小固定，数据库拒绝修改；派生图片继续由 ImagePyramidAsset/generation 管理。
+
+回填只根据实际 file_path 增加管理映射。历史 content_hash 保留为不可信 hint，不能根据长度当作 MD5/SHA-256，更不能视作 ETag。未读取的旧原件和上传占位仍为 unverified；成功报告表示映射完整，不能证明对象存在或历史内容一致。Item/Task 路径、Item.updated_at、项目关联与训练冻结 JSON 不变。
+
+在已经选择正确数据库和存储配置的 API 环境内运行：
+
+```bash
+cd apps/api
+.venv/bin/python scripts/backfill_dataset_assets.py --dataset-id <UUID> --dry-run
+.venv/bin/python scripts/backfill_dataset_assets.py --dataset-id <UUID> --apply --batch-size 100
+.venv/bin/python scripts/backfill_dataset_assets.py --dataset-id <UUID> --verify
+```
+
+全量目标用 `--all-datasets`。dry-run/verify 使用数据库 READ ONLY，并核对默认位置配置和全部九用途；缺失 bootstrap 也计入配置错误。apply 按最多 500 条的批次提交，JSONL 只含 ID/计数/错误码。中断后可原命令重跑；`--after <item UUID>` 从已报告游标后继续，最终须不带游标全量 verify，覆盖恢复期间新增的样本。
+
+退出码：0 表示该模式检查无待处理错误；1 表示配置/定位不一致或 verify 尚有待映射项；2 表示运行异常，已提交批次保留。dry-run 的 pending 数允许非零；映射工具不执行字节校验。应用回退保留 Alembic 0194；仅尚无内容身份和用途绑定的未使用 schema 可 downgrade，已使用则明确拒绝。
+
+设计决策见 [ADR 0091](/dev/adr/archive/0091-dataset-content-and-location-identity)，接口见[数据集上传与扫描](/api/guides/datasets)。

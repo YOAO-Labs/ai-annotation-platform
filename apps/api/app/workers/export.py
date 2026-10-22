@@ -468,8 +468,14 @@ async def _scope_naming(
     display_id = (row[1] if row else None) or "export"
     media = "video" if data_type == "video" else "image"
 
-    name_q = select(func.split_part(Task.file_path, "/", 1)).where(
-        Task.project_id == project_id
+    from app.db.models.dataset import Dataset
+
+    name_q = (
+        select(func.coalesce(Dataset.name, func.split_part(Task.file_path, "/", 1)))
+        .select_from(Task)
+        .outerjoin(DatasetItem, DatasetItem.id == Task.dataset_item_id)
+        .outerjoin(Dataset, Dataset.id == DatasetItem.dataset_id)
+        .where(Task.project_id == project_id)
     )
     if batch_id is not None:
         name_q = name_q.where(Task.batch_id == batch_id)

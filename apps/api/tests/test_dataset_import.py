@@ -22,6 +22,10 @@ from app.services.sources.base import SourceObject, SourcePathError
 from app.services.sources.s3 import S3CompatibleSource, validate_s3_source_path
 from app.services.sources.sftp import SftpSource, validate_sftp_source_path
 from app.workers import dataset_import
+from app.services.dataset_storage_keys import (
+    dataset_relative_path,
+    managed_dataset_prefix,
+)
 from app.services.storage import storage_service
 
 
@@ -385,8 +389,11 @@ async def test_ingest_one_streams_upload_and_skips_duplicate(
     assert first.status == "added"
     assert first.file_size == 10
     assert first.content_hash == hashlib.md5(b"same-bytes").hexdigest()
+    original = await db_session.get(DatasetItem, first.item_id)
+    assert original.file_path.startswith(managed_dataset_prefix(ds.id))
+    assert dataset_relative_path(original.file_path) == "sample.txt"
     assert (
-        fake_client.objects[(storage_service.datasets_bucket, f"{ds.name}/sample.txt")]
+        fake_client.objects[(storage_service.datasets_bucket, original.file_path)]
         == b"same-bytes"
     )
 
@@ -398,10 +405,11 @@ async def test_ingest_one_streams_upload_and_skips_duplicate(
     )
     assert second.status == "skipped"
     assert second.reason == "content_hash_exists"
-    assert (
-        storage_service.datasets_bucket,
-        f"{ds.name}/sample-1.txt",
-    ) in fake_client.deleted
+    assert len(fake_client.deleted) == 1
+    deleted_bucket, deleted_key = fake_client.deleted[0]
+    assert deleted_bucket == storage_service.datasets_bucket
+    assert deleted_key != original.file_path
+    assert dataset_relative_path(deleted_key) == "sample-1.txt"
 
     count = (
         await db_session.execute(
@@ -466,10 +474,10 @@ async def test_ingest_one_preserves_subdirectory_structure(
     ).scalar_one()
     # 子目录层级保留进 file_name 与 file_path（无多余嵌套）
     assert item.file_name == "a/img.jpg"
-    assert item.file_path == f"{ds.name}/a/img.jpg"
+    assert dataset_relative_path(item.file_path) == "a/img.jpg"
     assert (
         storage_service.datasets_bucket,
-        f"{ds.name}/a/img.jpg",
+        item.file_path,
     ) in fake_client.objects
 
 

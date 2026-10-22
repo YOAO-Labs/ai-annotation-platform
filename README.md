@@ -28,6 +28,8 @@
 
 AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台、AI 预标注、审核、导出、后台任务与可观测性放在同一条产品链路里。它不是一个只画框的 Demo，而是一个用于持续迭代标注生产系统的全栈仓库。
 
+数据集上传按稳定身份隔离原图，同名不同内容保留为独立文件；改名不移动已有原图。旧数据可按真实对象键回填内容与位置映射，参见[数据集上传与扫描](./docs-site/api/guides/datasets.md)及[兼容回填](./docs-site/dev/concepts/storage-connections.md#内容身份与兼容回填)。
+
 工作台支持按账号保存图片、视频和通用命令的自定义快捷键；类别直选使用 `1–9` 和 `0`，更多类别可搜索。使用方式见[工作台快捷键](./docs-site/user-guide/workbench/index.md#完整快捷键)，偏好读写契约见[认证与账号 API](./docs-site/api/guides/auth.md)。
 
 受控模型分别记录原始训练版本与每个部署的实际推理版本；旧权重升级推理环境后需重新加载试用，新建评估和预标任务冻结核验后的推理身份。操作见[模型回流与默认预标](./docs-site/user-guide/online-learning/models.md#训练版本与推理版本)。

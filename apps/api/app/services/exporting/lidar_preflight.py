@@ -73,9 +73,18 @@ def _rotation_is_orthonormal(matrix: list[float]) -> bool:
 
 
 def _frame_key(task: Task, item: DatasetItem | None) -> str:
+    from app.services.dataset_storage_keys import (
+        dataset_relative_path,
+        dataset_item_relative_path,
+    )
+
     path = (task.file_path or "").lstrip("/")
-    parts = path.split("/", 1)
-    relative = parts[1] if len(parts) == 2 else path
+    dataset_name = path.split("/", 1)[0] if "/" in path else ""
+    relative = (
+        dataset_item_relative_path(item, dataset_name)
+        if item is not None and item.file_path == task.file_path
+        else dataset_relative_path(path, dataset_name)
+    )
     base = relative.rsplit(".", 1)[0]
     return base or task.display_id
 

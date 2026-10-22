@@ -1,35 +1,80 @@
 # EPIC-01：领域模型与存储抽象
 
-> 状态：research-draft；未排期，未批准实施，未分配发布版本。
+> 状态：approved / implementing；E01-A 已完成并验证，E01-B 待评审；用户已于 2026-10-22 授权确定第一阶段并执行；不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
-> 实施前须通过 [backlog promotion gate](README.md#promotion-gate)。[草案总览](1792661016_dataset-storage-roadmap.md)、[架构契约](1792661016_dataset-storage-architecture.md)和[交付验收](1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
+> 已按 [backlog promotion gate](backlog/README.md#promotion-gate) 复核；实施基线为 `f98705535`。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
-| 项目          | 内容                                                                                                                    |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| 状态          | 研究草案，待晋升复核与产品/技术评审                                                                                     |
-| 日期          | 2026-10-22（Asia/Shanghai）                                                                                             |
-| 优先级 / 阶段 | P0；M0 契约，M1 兼容基础，M2 收敛旧入口                                                                                 |
-| 负责角色      | 后端负责人、数据库负责人；前端与测试参与契约评审                                                                        |
-| 前置条件      | 当前数据模型、9 类平台存储用途和访问调用方盘点                                                                          |
-| 下游          | E02、E03、E04、E05、E06、E07、E10、E11、E12                                                                             |
-| 关联文档      | [总体架构](1792661016_dataset-storage-architecture.md)、[实施与验收](1792661016_dataset-storage-delivery-acceptance.md) |
+| 项目          | 内容                                                                                                                                    |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| 状态          | E01-A 已完成；E01-B 与目录接入仍独立评审                                                                                                |
+| 日期          | 2026-10-22（Asia/Shanghai）                                                                                                             |
+| 优先级 / 阶段 | P0；M0 契约，M1 兼容基础，M2 收敛旧入口                                                                                                 |
+| 负责角色      | 后端负责人、数据库负责人；前端与测试参与契约评审                                                                                        |
+| 前置条件      | 当前数据模型、9 类平台存储用途和访问调用方盘点                                                                                          |
+| 下游          | E02、E03、E04、E05、E06、E07、E10、E11、E12                                                                                             |
+| 关联文档      | [总体架构](backlog/1792661016_dataset-storage-architecture.md)、[实施与验收](backlog/1792661016_dataset-storage-delivery-acceptance.md) |
+
+## 第一阶段实施定案：E01-A
+
+### 结果与决策
+
+最小方案是继续按名称写对象，只补一张映射表；它无法消除同名上传覆盖旧任务原图的风险。本阶段采用唯一托管键、独立内容/位置映射和分批回填，复用唯一的 StorageService I/O owner。不引入新服务、依赖、环境变量或公开路由。
+
+- 新上传、ZIP 和连接器复制使用 `__aap_managed_datasets__/<dataset UUID>/_objects/<upload UUID>/<原相对路径>`。每次写入独立分配 UUID，禁止覆盖其他 Item；分配逻辑文件名时持有 Dataset 行锁，重名在扩展名前追加序号，保留相对目录。
+- 迁移新增四表：storage_locations、storage_bindings、dataset_assets、dataset_asset_locations。Asset 通过唯一 dataset_item_id 绑定原样本；采用反向外键，回填完全不更新 DatasetItem，避免 updated_at 导致导出快照漂移。每个样本独立内容身份，不跨数据集合并。
+- 默认平台位置只引用既有运行配置，不复制凭据。运行时首次登记/回填创建九用途固定绑定；配置与已登记绑定不符时拒绝重新解释历史位置。本阶段没有切换绑定的 API。
+- 回填只复制实际 file_path 和旧 hash hint；历史摘要没有 provenance，一律 unverified。新字节流同时计算兼容 MD5 和可信 SHA-256；扫描的 ETag 单列保存，不参与内容去重。上传完成按有界分块读取对象核验实际字节，不能把 ETag 当 MD5。
+- Dataset 新增 storage_scan_prefix：升级时固定当时已配置的名称前缀，新建数据集固定 UUID 前缀。扫描同时覆盖新托管根与已固定旧根；改名不改扫描根。升级前已改名且未登记的旧根不猜测，须在后续来源配置显式接入。
+- 新 Item 在 metadata.storage_relative_path 保存逻辑路径，Scene、点云帧分组和导出统一消费；扫描重名只改逻辑路径，不改真实键。旧样本沿用兼容解析，不回填 metadata；原 Item/Task 路径、Scene/frame、项目关系、历史冻结 JSON 和金字塔 generation 均不改。已核验 Asset 摘要在数据库中不可改写。
+
+最脆弱的假设是旧 file_path 指向的内容仍存在。回填不读取字节，只声明已映射、未核验；即使原件离线、缺失或变化，也不会声称恢复了历史内容。
+
+### 准确实施范围
+
+这是一项超过 8 个文件的兼容改造，按以下 owner 划定范围：
+
+- 模型与迁移：`apps/api/app/db/models/dataset.py`、`dataset_asset.py`、`__init__.py`，`apps/api/alembic/versions/0194_dataset_asset_identity.py`（当前唯一 head 为 0193）。
+- 身份与写入：`apps/api/app/services/dataset_storage_keys.py`、`dataset_assets.py`、`dataset.py`、`apps/api/app/api/v1/datasets.py`。
+- 路径语义消费者：`apps/api/app/services/scene_inference.py`、`pointcloud_import.py`、`exporting/packaging.py`、`exporting/lidar_preflight.py`、`apps/api/app/workers/export.py`。
+- 回填命令：`apps/api/scripts/backfill_dataset_assets.py`，提供明确 dataset/all 目标、dry-run/apply/verify、有界 keyset、批次游标、逐批提交和只读校验；重跑从头扫描并跳过完整映射，游标可缩小续跑范围，不宣称持久任务调度。
+- 验证：新增 `apps/api/tests/test_dataset_assets.py`、`test_dataset_asset_backfill.py`、`test_migration_0194_dataset_asset_identity.py`；同步 `test_dataset_import.py`、`test_datasets_upload_zip.py`、`test_export_packaging.py` 的键断言；新增 `test_export_lidar.py` 的真实导出别名回归，复用 Scene、关联、金字塔与训练桥接回归。
+- 正式文档：`docs/adr/archive/0091-dataset-content-and-location-identity.md`、`docs-site/dev/concepts/storage-connections.md`、`docs-site/dev/reference/storage-buckets.md`、`docs-site/user-guide/datasets/import-images.md`、`docs-site/api/guides/datasets.md`、`README.md`、`CHANGELOG.md`，以及本系列草案导航与引用。API schema 不变，核对 OpenAPI 快照无需改动，不生成虚假 SDK 能力。
+
+```text
+上传/ZIP/连接器 -> 唯一托管键 -> 现有 StorageService -> datasets 桶
+       |                              |
+       +-> DatasetItem -> Asset + AssetLocation -> 固定平台位置/九用途
+扫描/回填 ----------^ (真实旧键保留；未读字节不标核验)
+Scene/导出 -> 逻辑相对路径助手；标注/训练/预览继续读现有实际键
+```
+
+### 验收和回退
+
+1. 在本 checkout 的 worktree test 模式验证 Alembic 0193→0194；新增表约束和已核验摘要不可变生效，旧 writer 可继续写无映射样本。
+2. 覆盖历史改名、占位上传、未知/32字符 ETag、同名不同内容、同名不同数据集、零字节、子目录及重复清理。新物理键唯一；重复内容仅按已核验同数据集原件判断；旧 hash 作为候选实际读字节一致后懒核验，不能盲信。
+3. 回填 dry-run/verify 使用 PostgreSQL READ ONLY；apply 小批提交。验证重跑、中断续跑、错误回滚、真实定位一致、Item updated_at/任务/Scene/项目关系/冻结输入不变。报告只输出 ID/计数/错误码，不含对象路径或凭据。
+4. 执行 `pnpm dev:worktree -- exec --mode test -- sh -c 'cd apps/api && .venv/bin/python -m pytest -q tests/test_dataset_assets.py tests/test_dataset_asset_backfill.py tests/test_migration_0194_dataset_asset_identity.py tests/test_dataset_import.py tests/test_datasets_upload_zip.py tests/test_export_packaging.py tests/test_scene_inference.py tests/test_dataset_link.py tests/test_image_pyramid.py tests/test_training_dataset_bridge.py'`。精确剩余边界记录在 Outcome。
+5. 运行变更 Python 的 Ruff、文档构建、Markdown 链接与 `git diff --check`；删除本轮临时日志/报告/pytest缓存和拥有的 test/dev 资源。当前 checkout 无运行中的 API/Celery；不重启其他 checkout 的共享服务。
+6. 回退应用时保留 0194 和新增元数据，停止新写入，旧 file_path 仍直接可读；不做破坏性降级，不重算历史键。自动目录接入、全部消费者切新 resolver、外部源覆写保护、九用途历史对象迁移属于 E02/E05/E01-B，不能按本阶段宣称已验收。没有公开界面变更，不运行无关 GPU/浏览器验收。
+
+本次 E01-AC01/02/04/06 验证对应子范围，AC03/05/07/08/09 的跨来源读取、能力与绑定切换仍由后继切片完成。下文保留完整 Epic 目标，未执行项不是本阶段已完成项。
 
 ## 本项目基线与改造落点
 
 下列为固定提交的静态证据，尚非运行/浏览器验收结果。
 
-| 当前 owner / 代码锚点                                                              | 已有能力、缺口与复用约束                                                                                          |
-| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| [dataset.py](../../../apps/api/app/db/models/dataset.py)                           | Dataset/Item/Scene/ProjectDataset 已有；Asset/Location/Source 是新增关系。保留 item、task、Scene 和项目关联身份。 |
-| [dataset.py](../../../apps/api/app/services/dataset.py)                            | ingest_one 以名称写新键，scan_and_import 按当前名称扫描；改名不搬旧对象，回填必须使用真实 file_path。             |
-| [image_pyramid.py](../../../apps/api/app/db/models/image_pyramid.py)               | 已有派生资产 generation、源指纹、SHA-256 和构建租约，DerivedArtifact 复用该 owner。                               |
-| [project_task_dataset.py](../../../apps/api/app/db/models/project_task_dataset.py) | 项目规范任务流及 membership 已交付；位置/来源信息不得重算管理序号或历史冻结摘要。                                 |
+| 当前 owner / 代码锚点                                                           | 已有能力、缺口与复用约束                                                                                          |
+| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| [dataset.py](../../apps/api/app/db/models/dataset.py)                           | Dataset/Item/Scene/ProjectDataset 已有；Asset/Location/Source 是新增关系。保留 item、task、Scene 和项目关联身份。 |
+| [dataset.py](../../apps/api/app/services/dataset.py)                            | ingest_one 以名称写新键，scan_and_import 按当前名称扫描；改名不搬旧对象，回填必须使用真实 file_path。             |
+| [image_pyramid.py](../../apps/api/app/db/models/image_pyramid.py)               | 已有派生资产 generation、源指纹、SHA-256 和构建租约，DerivedArtifact 复用该 owner。                               |
+| [project_task_dataset.py](../../apps/api/app/db/models/project_task_dataset.py) | 项目规范任务流及 membership 已交付；位置/来源信息不得重算管理序号或历史冻结摘要。                                 |
 
-候选修改入口：[dataset.py](../../../apps/api/app/db/models/dataset.py)、[dataset.py](../../../apps/api/app/services/dataset.py)、[storage.py](../../../apps/api/app/services/storage.py)、[datasets.py](../../../apps/api/app/api/v1/datasets.py)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
+候选修改入口：[dataset.py](../../apps/api/app/db/models/dataset.py)、[dataset.py](../../apps/api/app/services/dataset.py)、[storage.py](../../apps/api/app/services/storage.py)、[datasets.py](../../apps/api/app/api/v1/datasets.py)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
 
 ## 1. 要解决的问题
 
-当前数据集样本主要以文件路径描述原图，访问过程依赖全局 datasets 桶。外部来源通过导入流复制到该桶后才能进入现有主链路。数据集名称同时参与物理对象键的构造，名称变化与既有对象路径之间存在耦合。[代码依据：数据集服务](../../../apps/api/app/services/dataset.py)、[样本模型](../../../apps/api/app/db/models/dataset.py)
+当前数据集样本主要以文件路径描述原图，访问过程依赖全局 datasets 桶。外部来源通过导入流复制到该桶后才能进入现有主链路。数据集名称同时参与物理对象键的构造，名称变化与既有对象路径之间存在耦合。[代码依据：数据集服务](../../apps/api/app/services/dataset.py)、[样本模型](../../apps/api/app/db/models/dataset.py)
 
 本 Epic 建立一个可渐进迁移的基础：数据集、样本、某一版原图内容、原图所在位置具有不同身份。以后新增 NAS、外部 S3 或远端机器时，标注与训练业务不需要知道底层品牌和绝对路径。
 
@@ -93,7 +138,7 @@ AssetLocation 的“副本”必须与所绑定 Asset 的完整内容字节一�
 
 首批显式覆盖 `annotations`、`datasets`、`bug-reports`、`media-cache`、`audit-archive`、`import`、`export`、`avatars`、`training` 九类用途。迁移初期全部可指向现有部署，不要求拆成九个服务。
 
-现有全局存储服务已集中声明这些用途，是兼容改造入口。[代码依据：StorageService](../../../apps/api/app/services/storage.py)
+现有全局存储服务已集中声明这些用途，是兼容改造入口。[代码依据：StorageService](../../apps/api/app/services/storage.py)
 
 ## 5. 服务契约草案
 
@@ -196,8 +241,19 @@ AssetLocation 的“副本”必须与所绑定 Asset 的完整内容字节一�
 
 前置合同不等于等待前置 Epic 全量完成。每个切片合并后系统仍须可用；含新来源的回退保留兼容读取和授权，不能把其相对路径交给旧 S3 拼接逻辑。预计多数切片涉及超过 8 个文件，实施时明确大范围边界与准确清单。
 
-已有回归入口：[test_dataset_import.py](../../../apps/api/tests/test_dataset_import.py)、[test_datasets_upload_zip.py](../../../apps/api/tests/test_datasets_upload_zip.py)、[test_image_pyramid.py](../../../apps/api/tests/test_image_pyramid.py)、[test_training_dataset_bridge.py](../../../apps/api/tests/test_training_dataset_bridge.py)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
+已有回归入口：[test_dataset_import.py](../../apps/api/tests/test_dataset_import.py)、[test_datasets_upload_zip.py](../../apps/api/tests/test_datasets_upload_zip.py)、[test_image_pyramid.py](../../apps/api/tests/test_image_pyramid.py)、[test_training_dataset_bridge.py](../../apps/api/tests/test_training_dataset_bridge.py)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
 
-实现时同步：[storage-connections.md](../../../docs-site/dev/concepts/storage-connections.md)、[storage-buckets.md](../../../docs-site/dev/reference/storage-buckets.md)、[index.md](../../../docs-site/user-guide/datasets/index.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
+实现时同步：[storage-connections.md](../../docs-site/dev/concepts/storage-connections.md)、[storage-buckets.md](../../docs-site/dev/reference/storage-buckets.md)、[index.md](../../docs-site/user-guide/datasets/index.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
 
-完成实施后按[计划规范](../README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+
+## Outcome
+
+- E01-A 已完成：Alembic 0194 增加兼容身份四表和固定扫描根；三种写入入口使用唯一托管键与 SHA-256，历史真实键及不可信 hash 保留。新样本单独保存逻辑路径，Scene、点云分帧、导出标签和媒体清单均消费它，扫描重名不覆盖下载文件。
+- 回填工具提供显式目标、数据库只读预览/校验、批次提交、游标续跑及幂等恢复；首次绑定与旧 Item 的锁顺序统一。历史回填不改 Item.updated_at、业务关系或冻结输入。短读候选不建立去重结论，S3 条件读取失败返回 409。
+- 实现提交：本 Outcome 所在提交（见 Git 历史）；发布里程碑尚未确定，不分配版本。
+- 正式用户文档：`docs-site/user-guide/datasets/import-images.md`；开发与运维：`docs-site/dev/concepts/storage-connections.md`、`docs-site/dev/reference/storage-buckets.md`；接口：`docs-site/api/guides/datasets.md`；决策：`docs/adr/archive/0091-dataset-content-and-location-identity.md`。README 导航和 CHANGELOG Unreleased 已更新。
+- 本地验证：14 个相关测试文件 243 passed；另 3 个导出测试文件 49 passed（包含实际点云 ZIP 的重名逻辑路径回归）。后者与前者有重叠，不合并计数。7 条通知 AsyncMock 警告来自既有 worker 测试；新增双帧导出用例另暴露 2 条重复目录 ZIP 警告，仅为空目录条目，媒体清单路径互不重复。
+- 迁移验证：全新升级、可逆前缀往返、0174 屏障后的可逆后缀往返、向前升级及环境恢复均通过，无遗留临时数据库；已使用身份/绑定的降级被明确拒绝。OpenAPI 快照一致，Python Ruff、文档构建和文档结构检查通过。
+- 清理：本轮拥有的 dev/test 数据库、Redis 和存储桶在验证后销毁；pytest 临时文件、编译缓存及文档构建产物清理。未启动本 checkout 的 API/Celery，也未重启或迁移其他 checkout 的开发/生产环境。
+- 剩余范围：E01-B 的 resolver/能力契约与全部消费者收敛，以及 E02/E03 的受控位置和目录原地接入，均未实施。历史回填只证明定位映射完整；不证明旧原件在线或内容未变化。本计划继续留在根目录约束后继工作，不归档整个 E01。

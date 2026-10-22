@@ -189,21 +189,24 @@ def clean_export_targets(targets: list[str], data_type: str | None = None) -> li
 PRESIGN_EXPIRES_SECONDS = 7 * 24 * 3600
 
 
-def relative_path_from_file_path(file_path: str, dataset_name: str) -> str:
-    """剥掉 `{dataset_name}/` 前缀，得到数据集内相对路径（posix `/`）。
+def relative_path_from_file_path(
+    file_path: str, dataset_name: str, item: DatasetItem | None = None
+) -> str:
+    """优先样本逻辑路径；旧样本剥 `{dataset_name}/` 前缀（posix `/`）。
 
     `file_path` = 完整 MinIO key（如 `mydataset/animals/cat/001.jpg`），叶子名不足以唯一
     定位（同名跨目录会覆盖），故必须用相对路径镜像目录。
 
     前缀匹配（首段 == dataset_name）才剥；不匹配则原样返回（保守，避免误删层级）。
     """
-    path = (file_path or "").lstrip("/")
-    if not dataset_name:
-        return path
-    prefix = f"{dataset_name}/"
-    if path.startswith(prefix):
-        return path[len(prefix) :]
-    return path
+    from app.services.dataset_storage_keys import (
+        dataset_relative_path,
+        dataset_item_relative_path,
+    )
+
+    if item is not None and item.file_path == file_path:
+        return dataset_item_relative_path(item, dataset_name)
+    return dataset_relative_path(file_path, dataset_name)
 
 
 _FETCH_IMAGES_TEMPLATE = '''#!/usr/bin/env python3
@@ -436,7 +439,7 @@ def _dataset_name_for_task(task: Task, item: DatasetItem | None) -> str:
 def _label_rel(task: Task, item: DatasetItem | None) -> str:
     """label 相对路径（去 dataset 前缀，去扩展名）。"""
     dataset_name = _dataset_name_for_task(task, item)
-    rel = relative_path_from_file_path(task.file_path, dataset_name)
+    rel = relative_path_from_file_path(task.file_path, dataset_name, item)
     base, _ext = splitext(rel)
     return base
 
@@ -816,7 +819,7 @@ async def build_export_zip(
                         )
                         dataset_name = _dataset_name_for_task(t, item)
                         img_rel = relative_path_from_file_path(
-                            t.file_path, dataset_name
+                            t.file_path, dataset_name, item
                         )
                         presigned = storage_service.generate_download_url(
                             t.file_path,
@@ -942,6 +945,15 @@ def _build_video_yolo_data_yaml(classes_list: list[str]) -> str:
 def _lidar_frame_key(task: Task, item: DatasetItem | None) -> str:
     rel = _label_rel(task, item)
     return rel or task.display_id
+
+
+def _lidar_media_path(item: DatasetItem) -> str:
+    """Persisted aliases retain directories; old manifests keep their layout."""
+    if (item.metadata_ or {}).get("storage_relative_path"):
+        from app.services.dataset_storage_keys import dataset_item_relative_path
+
+        return dataset_item_relative_path(item)
+    return os.path.basename(item.file_path)
 
 
 def _calibration_for_item(item: DatasetItem | None) -> SensorCalibration | None:
@@ -1327,7 +1339,7 @@ async def _build_lidar_export_zip(
                             "frame": frame_key,
                             "width": item.width,
                             "height": item.height,
-                            "rel_path": f"{cam}/{os.path.basename(item.file_path)}",
+                            "rel_path": f"{cam}/{_lidar_media_path(item)}",
                             "dataset_id": str(item.dataset_id),
                             "presigned_url": storage_service.generate_download_url(
                                 item.file_path,
@@ -1358,7 +1370,7 @@ async def _build_lidar_export_zip(
                     pointcloud_manifest.append(
                         {
                             "frame": frame_key,
-                            "rel_path": os.path.basename(primary_item.file_path),
+                            "rel_path": _lidar_media_path(primary_item),
                             "dataset_id": str(primary_item.dataset_id),
                             "presigned_url": storage_service.generate_download_url(
                                 primary_item.file_path,
@@ -2368,7 +2380,7 @@ async def _build_video_export_zip(
                     project, t, item, vmeta, video_scope
                 )
                 video_rel = relative_path_from_file_path(
-                    video_source["source_key"], dataset_name
+                    video_source["source_key"], dataset_name, item
                 )
                 presigned = storage_service.generate_download_url(
                     video_source["source_key"],

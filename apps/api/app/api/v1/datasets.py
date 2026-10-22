@@ -18,6 +18,7 @@ from app.deps import (
 )
 from app.db.enums import UserRole
 from app.db.models.project import Project
+from app.db.models.dataset import Dataset
 from app.db.models.user import User
 from app.services.project_access import resolve_project_access_by_id
 from app.schemas.dataset import (
@@ -318,14 +319,23 @@ async def upload_init(
         raise HTTPException(status_code=404, detail="Dataset not found")
 
     ensure_dataset_storage_name_is_writable(ds.name)
-    storage_key = f"{ds.name}/{data.file_name}"
+    from app.services.dataset_storage_keys import managed_dataset_key
+
+    try:
+        relative_name = await svc._unique_file_name(dataset_id, data.file_name)
+        storage_key = managed_dataset_key(dataset_id, relative_name)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail="Invalid dataset relative path"
+        ) from exc
     file_type = _infer_file_type(data.content_type)
 
     item = await svc.add_item(
         dataset_id=dataset_id,
-        file_name=data.file_name,
+        file_name=relative_name,
         file_path=storage_key,
         file_type=file_type,
+        logical_path=relative_name,
     )
     await db.commit()
 
@@ -349,6 +359,7 @@ async def upload_complete(
     from app.db.models.dataset import DatasetItem
 
     svc = DatasetService(db)
+    await db.get(Dataset, dataset_id, with_for_update={"key_share": True})
     item = await db.get(DatasetItem, item_id)
     if not item or item.dataset_id != dataset_id:
         raise HTTPException(status_code=404, detail="Item not found")
@@ -362,32 +373,63 @@ async def upload_complete(
         await db.commit()
         raise HTTPException(status_code=400, detail="File not found in storage")
 
-    content_length = meta.get("ContentLength")
-    if content_length:
-        item.file_size = content_length
+    from app.services.dataset_assets import (
+        find_verified_content,
+        hash_stored_object,
+        register_item_asset,
+        MAX_DIRECT_UPLOAD_BYTES,
+    )
+    from app.services.dataset_storage_keys import managed_dataset_prefix
 
-    # ETag（MinIO 单 PUT = md5）用于去重
-    etag = (meta.get("ETag") or "").strip('"')
-    if len(etag) == 32:
-        existing = await svc.find_by_hash(dataset_id, etag)
-        if existing and existing.id != item_id:
-            # 删除刚上传的对象与占位记录，返回 409 告知前端
-            try:
+    from starlette.concurrency import run_in_threadpool
+    from botocore.exceptions import ClientError
+
+    if (meta.get("ContentLength") or 0) > MAX_DIRECT_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Direct upload exceeds 5 GiB")
+    try:
+        content_hash, sha256, size, etag = await run_in_threadpool(
+            hash_stored_object, item.file_path, meta
+        )
+        await register_item_asset(db, item, sha256=sha256, size_bytes=size, etag=etag)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409, detail="Dataset content or storage identity changed"
+        ) from exc
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") in {
+            "PreconditionFailed",
+            "412",
+            "NoSuchKey",
+            "NoSuchVersion",
+            "404",
+        }:
+            raise HTTPException(
+                status_code=409, detail="Dataset content or storage identity changed"
+            ) from exc
+        raise
+    existing = await find_verified_content(
+        db, dataset_id, sha256, exclude_item_id=item_id, legacy_md5=content_hash
+    )
+    if existing:
+        # 删除刚上传的对象与占位记录，返回 409 告知前端
+        try:
+            if item.file_path.startswith(managed_dataset_prefix(dataset_id)):
                 storage_service.delete_object(
                     item.file_path, bucket=storage_service.datasets_bucket
                 )
-            except Exception:
-                pass
-            await svc.delete_item(item_id)
-            await db.commit()
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "msg": "文件已存在（内容重复）",
-                    "duplicate_of": str(existing.id),
-                },
-            )
-        item.content_hash = etag
+        except Exception:
+            pass
+        await svc.delete_item(item_id)
+        await db.commit()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "msg": "文件已存在（内容重复）",
+                "duplicate_of": str(existing.id),
+            },
+        )
+    item.content_hash = content_hash
+    item.file_size = size
 
     if item.file_type == "image" and (item.width is None or item.height is None):
         dims = storage_service.read_image_dimensions(
@@ -544,14 +586,24 @@ async def upload_zip(
     from sqlalchemy import select as sa_select
     from app.db.models.dataset import DatasetItem
 
-    # 收集已有 hash，用于内容去重（仅按 content_hash 去重，保留子目录同名文件）
+    from app.db.models.dataset_asset import DatasetAsset
+    from app.services.dataset_storage_keys import managed_dataset_key
+
+    # Only verified byte digests establish duplicates; legacy hashes may be ETags.
     hash_rows = await db.execute(
-        sa_select(DatasetItem.content_hash).where(
-            DatasetItem.dataset_id == dataset_id, DatasetItem.content_hash.isnot(None)
+        sa_select(DatasetAsset.checksum_value)
+        .join(DatasetItem, DatasetItem.id == DatasetAsset.dataset_item_id)
+        .where(
+            DatasetItem.dataset_id == dataset_id,
+            DatasetAsset.verification_state == "verified",
         )
     )
     existing_hashes: set[str] = {r[0] for r in hash_rows.all()}
     ensure_dataset_storage_name_is_writable(ds.name)
+    existing_names = await svc._existing_file_names(dataset_id)
+    from app.services.dataset_assets import ensure_legacy_bindings
+
+    binding = await ensure_legacy_bindings(db)
 
     for info in infos:
         name = info.source_name
@@ -578,15 +630,22 @@ async def upload_zip(
             continue
 
         content_hash = hashlib.md5(data).hexdigest()
-        if content_hash in existing_hashes:
+        sha256 = hashlib.sha256(data).hexdigest()
+        from app.services.dataset_assets import find_verified_content
+
+        if sha256 in existing_hashes or await find_verified_content(
+            db, dataset_id, sha256, legacy_md5=content_hash
+        ):
             deduped += 1
             continue
-        existing_hashes.add(content_hash)
 
         basename = PurePosixPath(safe_relpath).name
         content_type = mimetypes.guess_type(basename)[0] or "application/octet-stream"
         file_type = _infer_file_type(content_type)
-        storage_key = f"{ds.name}/{safe_relpath}"
+        logical_path = await svc._unique_file_name(
+            dataset_id, safe_relpath, existing_names=existing_names
+        )
+        storage_key = managed_dataset_key(dataset_id, logical_path)
 
         try:
             storage_service.client.put_object(
@@ -609,14 +668,19 @@ async def upload_zip(
 
         item = await svc.add_item(
             dataset_id=dataset_id,
-            file_name=basename,
+            file_name=PurePosixPath(logical_path).name,
             file_path=storage_key,
             file_type=file_type,
             file_size=len(data),
             content_hash=content_hash,
             width=width,
             height=height,
+            sha256=sha256,
+            storage_binding=binding,
+            logical_path=logical_path,
         )
+        existing_names.add(logical_path)
+        existing_hashes.add(sha256)
         added += 1
         new_item_ids.append(item.id)
         if file_type == "image":

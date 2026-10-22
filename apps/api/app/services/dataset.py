@@ -19,6 +19,15 @@ from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.services import async_job as async_job_svc
 from app.services.display_id import next_display_id
+from app.services.dataset_assets import find_verified_content, register_item_asset
+from app.services.dataset_storage_keys import (
+    MANAGED_DATASET_PREFIX,
+    managed_dataset_key,
+    managed_dataset_prefix,
+    normalize_dataset_relative_path,
+    dataset_relative_path,
+    dataset_item_relative_path,
+)
 from app.services.project_kind import (
     dataset_has_scenes,
     dataset_kind,
@@ -40,7 +49,7 @@ log = logging.getLogger(__name__)
 
 def ensure_dataset_storage_name_is_writable(name: str) -> None:
     first_part = name.strip("/").split("/", 1)[0]
-    if first_part.startswith(TRUSTED_NUSCENES_PREFIX):
+    if first_part.startswith((TRUSTED_NUSCENES_PREFIX, MANAGED_DATASET_PREFIX)):
         raise HTTPException(
             status_code=422,
             detail="Dataset name uses a reserved storage namespace",
@@ -314,6 +323,7 @@ class DatasetService:
             "name": name,
             "description": description,
             "data_type": data_type,
+            "storage_scan_prefix": managed_dataset_prefix(ds_id),
             "is_temporal": is_temporal,
             "created_by": user_id,
         }
@@ -324,7 +334,10 @@ class DatasetService:
         self.db.add(ds)
         await self.db.flush()
         storage_service.ensure_bucket(storage_service.datasets_bucket)
-        storage_service.create_folder(name, bucket=storage_service.datasets_bucket)
+        storage_service.create_folder(
+            managed_dataset_prefix(ds_id).rstrip("/"),
+            bucket=storage_service.datasets_bucket,
+        )
         return ds
 
     async def update(
@@ -340,6 +353,8 @@ class DatasetService:
             return None
         if name is not None:
             ensure_dataset_storage_name_is_writable(name)
+            if ds.storage_scan_prefix is None:
+                ds.storage_scan_prefix = f"{ds.name}/"
             ds.name = name
         if description is not None:
             ds.description = description
@@ -466,7 +481,12 @@ class DatasetService:
         content_hash: str | None = None,
         width: int | None = None,
         height: int | None = None,
+        sha256: str | None = None,
+        object_etag: str | None = None,
+        storage_binding=None,
+        logical_path: str | None = None,
     ) -> DatasetItem:
+        ds = await self.db.get(Dataset, dataset_id, with_for_update={"key_share": True})
         item = DatasetItem(
             dataset_id=dataset_id,
             file_name=file_name,
@@ -476,19 +496,41 @@ class DatasetService:
             content_hash=content_hash,
             width=width,
             height=height,
+            metadata_=(
+                {"storage_relative_path": normalize_dataset_relative_path(logical_path)}
+                if logical_path is not None
+                else {}
+            ),
         )
         self.db.add(item)
 
-        ds = await self.db.get(Dataset, dataset_id)
         if ds:
             ds.file_count = (ds.file_count or 0) + 1
 
         await self.db.flush()
+        await register_item_asset(
+            self.db,
+            item,
+            sha256=sha256,
+            size_bytes=file_size,
+            etag=object_etag,
+            binding=storage_binding,
+        )
         return item
 
     async def delete_item(
         self, item_id: uuid.UUID, *, dataset_id: uuid.UUID | None = None
     ) -> bool:
+        candidate = await self.db.get(DatasetItem, item_id)
+        if not candidate or (
+            dataset_id is not None and candidate.dataset_id != dataset_id
+        ):
+            return False
+        # Writers acquire the dataset before its items. NO KEY UPDATE also
+        # remains compatible with existing FK references from other writers.
+        await self.db.get(
+            Dataset, candidate.dataset_id, with_for_update={"key_share": True}
+        )
         item = await self.db.scalar(
             select(DatasetItem).where(DatasetItem.id == item_id).with_for_update()
         )
@@ -531,7 +573,7 @@ class DatasetService:
         *,
         size: int | None = None,
         storage_key: str | None = None,
-        content_hash_hint: str | None = None,
+        object_etag: str | None = None,
         dest_relpath: str | None = None,
     ) -> IngestOutcome:
         """Ingest one source object into a dataset.
@@ -574,7 +616,8 @@ class DatasetService:
                     reason="file_path_exists",
                     item_id=duplicate_path.id,
                 )
-            content_hash = content_hash_hint if _is_md5(content_hash_hint) else None
+            content_hash = None
+            sha256 = None
             file_size = size
             head_bytes = b""
         else:
@@ -582,19 +625,23 @@ class DatasetService:
                 return IngestOutcome(
                     status="error", relpath=relpath, error="stream missing"
                 )
-            storage_key = f"{ds.name}/{final_name}"
+            storage_key = managed_dataset_key(dataset_id, final_name)
             content_type = (
                 mimetypes.guess_type(final_name)[0] or "application/octet-stream"
             )
-            content_hash, file_size, head_bytes = self._upload_stream_to_dataset_bucket(
-                storage_key,
-                stream,
-                content_type=content_type,
+            content_hash, sha256, file_size, head_bytes = (
+                self._upload_stream_to_dataset_bucket(
+                    storage_key,
+                    stream,
+                    content_type=content_type,
+                )
             )
             uploaded_storage = True
 
-        if content_hash:
-            existing = await self.find_by_hash(dataset_id, content_hash)
+        if sha256:
+            existing = await find_verified_content(
+                self.db, dataset_id, sha256, legacy_md5=content_hash
+            )
             if existing is not None:
                 if uploaded_storage:
                     try:
@@ -638,6 +685,9 @@ class DatasetService:
             content_hash=content_hash,
             width=width,
             height=height,
+            sha256=sha256,
+            object_etag=object_etag,
+            logical_path=final_name,
         )
         linked_tasks = await self.create_tasks_for_items(dataset_id, [item.id])
         return IngestOutcome(
@@ -680,11 +730,47 @@ class DatasetService:
         )
         return result.scalar_one_or_none()
 
-    async def _unique_file_name(self, dataset_id: uuid.UUID, file_name: str) -> str:
-        existing_rows = await self.db.execute(
-            select(DatasetItem.file_name).where(DatasetItem.dataset_id == dataset_id)
+    async def _existing_file_names(self, dataset_id: uuid.UUID) -> set[str]:
+        ds = await self.db.get(
+            Dataset,
+            dataset_id,
+            with_for_update={"key_share": True},
+            populate_existing=True,
         )
-        existing = {row[0] for row in existing_rows.all() if row[0]}
+        existing_rows = await self.db.execute(
+            select(DatasetItem).where(DatasetItem.dataset_id == dataset_id)
+        )
+        existing = set()
+        for item in existing_rows.scalars():
+            name, path = item.file_name, item.file_path
+            existing.add(name)
+            if (item.metadata_ or {}).get("storage_relative_path"):
+                existing.add(dataset_item_relative_path(item, ds.name if ds else ""))
+                continue
+            if (
+                ds
+                and ds.storage_scan_prefix
+                and path.startswith(ds.storage_scan_prefix)
+                and not path.startswith(managed_dataset_prefix(dataset_id))
+            ):
+                existing.add(path[len(ds.storage_scan_prefix) :])
+            else:
+                existing.add(dataset_relative_path(path, ds.name if ds else ""))
+        return existing
+
+    async def _unique_file_name(
+        self,
+        dataset_id: uuid.UUID,
+        file_name: str,
+        *,
+        existing_names: set[str] | None = None,
+    ) -> str:
+        file_name = normalize_dataset_relative_path(file_name)
+        existing = (
+            existing_names
+            if existing_names is not None
+            else await self._existing_file_names(dataset_id)
+        )
         if file_name not in existing:
             return file_name
         stem, ext = os.path.splitext(file_name)
@@ -699,10 +785,11 @@ class DatasetService:
         stream: BinaryIO,
         *,
         content_type: str,
-    ) -> tuple[str, int, bytes]:
+    ) -> tuple[str, str, int, bytes]:
         client = storage_service.client
         bucket = storage_service.datasets_bucket
         md5 = hashlib.md5()
+        sha256 = hashlib.sha256()
         head = bytearray()
         total = 0
         part_number = 1
@@ -726,6 +813,7 @@ class DatasetService:
                     chunk = bytes(chunk)
                 total += len(chunk)
                 md5.update(chunk)
+                sha256.update(chunk)
                 if len(head) < _IMAGE_HEAD_BYTES:
                     remaining = _IMAGE_HEAD_BYTES - len(head)
                     head.extend(chunk[:remaining])
@@ -771,7 +859,7 @@ class DatasetService:
                     pass
             raise
 
-        return md5.hexdigest(), total, bytes(head)
+        return md5.hexdigest(), sha256.hexdigest(), total, bytes(head)
 
     # ── Scan & import from bucket ─────────────────────────────────────────
 
@@ -781,28 +869,33 @@ class DatasetService:
             return []
         ensure_dataset_storage_name_is_writable(ds.name)
 
-        prefix = f"{ds.name}/"
-        objects = storage_service.list_objects(
-            prefix, bucket=storage_service.datasets_bucket
-        )
         outcomes: list[IngestOutcome] = []
-        for obj in objects:
-            key: str = obj["key"]
-            if key.endswith("/"):
-                continue
-            etag = obj.get("etag") or ""
-            # 保留数据集前缀下的子目录层级作为 file_name（如 a/img.jpg）
-            rel_under_ds = key[len(prefix) :] if key.startswith(prefix) else key
-            outcomes.append(
-                await self.ingest_one(
-                    dataset_id,
-                    key,
-                    size=obj.get("size"),
-                    storage_key=key,
-                    content_hash_hint=etag if _is_md5(etag) else None,
-                    dest_relpath=rel_under_ds,
-                )
+        prefixes = dict.fromkeys(
+            [ds.storage_scan_prefix or f"{ds.name}/", managed_dataset_prefix(ds.id)]
+        )
+        for prefix in prefixes:
+            objects = storage_service.list_objects(
+                prefix, bucket=storage_service.datasets_bucket
             )
+            for obj in objects:
+                key: str = obj["key"]
+                if key.endswith("/") or not key.startswith(prefix):
+                    continue
+                rel_under_ds = (
+                    dataset_relative_path(key)
+                    if key.startswith(managed_dataset_prefix(ds.id))
+                    else key[len(prefix) :]
+                )
+                outcomes.append(
+                    await self.ingest_one(
+                        dataset_id,
+                        key,
+                        size=obj.get("size"),
+                        storage_key=key,
+                        object_etag=obj.get("etag"),
+                        dest_relpath=rel_under_ds,
+                    )
+                )
         return outcomes
 
     # ── Project linking ─────────────────────────────────────────────────────
@@ -1164,10 +1257,6 @@ def _safe_relpath(relpath: str) -> str:
     if not parts or any(p == ".." for p in parts):
         return _safe_basename(relpath)
     return "/".join(parts)
-
-
-def _is_md5(value: str | None) -> bool:
-    return bool(value and len(value) == 32)
 
 
 def _infer_file_type_from_ext(ext: str) -> str:

@@ -18,6 +18,10 @@ import pytest
 from sqlalchemy import select
 
 from app.db.models.dataset import Dataset, DatasetItem, Scene
+from app.services.dataset_storage_keys import (
+    dataset_relative_path,
+    managed_dataset_prefix,
+)
 from app.services.storage import TRUSTED_NUSCENES_PREFIX, storage_service
 
 pytestmark = pytest.mark.asyncio
@@ -150,7 +154,6 @@ async def test_upload_zip_preserves_subdirectories(
         httpx_client, token, f"pc-d1-{uuid.uuid4().hex[:6]}", "point_cloud"
     )
     ds_id = ds["id"]
-    ds_name = ds["name"]
 
     zip_bytes = _make_zip(
         {
@@ -179,14 +182,18 @@ async def test_upload_zip_preserves_subdirectories(
         .scalars()
         .all()
     )
-    file_paths = {item.file_path for item in rows}
-    assert f"{ds_name}/lidar/000970.pcd" in file_paths
-    assert f"{ds_name}/camera/front/000970.jpg" in file_paths
-    assert f"{ds_name}/calib/camera/front.json" in file_paths
+    file_paths = {dataset_relative_path(item.file_path) for item in rows}
+    assert all(
+        item.file_path.startswith(managed_dataset_prefix(uuid.UUID(ds["id"])))
+        for item in rows
+    )
+    assert "lidar/000970.pcd" in file_paths
+    assert "camera/front/000970.jpg" in file_paths
+    assert "calib/camera/front.json" in file_paths
 
     # 旧拍平行为（basename only）不应存在
-    assert f"{ds_name}/000970.pcd" not in file_paths
-    assert f"{ds_name}/000970.jpg" not in file_paths
+    assert "000970.pcd" not in file_paths
+    assert "000970.jpg" not in file_paths
 
 
 async def test_upload_zip_zipslip_rejected(
@@ -203,7 +210,6 @@ async def test_upload_zip_zipslip_rejected(
         httpx_client, token, f"pc-slip-{uuid.uuid4().hex[:6]}", "point_cloud"
     )
     ds_id = ds["id"]
-    ds_name = ds["name"]
 
     zip_bytes = _make_zip(
         {
@@ -234,7 +240,7 @@ async def test_upload_zip_zipslip_rejected(
         .all()
     )
     assert len(rows) == 1
-    assert rows[0].file_path == f"{ds_name}/lidar/a.pcd"
+    assert dataset_relative_path(rows[0].file_path) == "lidar/a.pcd"
 
 
 async def test_upload_zip_cross_dir_same_name_dedup_by_hash(
@@ -253,7 +259,6 @@ async def test_upload_zip_cross_dir_same_name_dedup_by_hash(
         httpx_client, token, f"dedup-a-{uuid.uuid4().hex[:6]}", "image"
     )
     ds_a_id = ds_a["id"]
-    ds_a_name = ds_a["name"]
 
     zip_bytes_a = _make_zip(
         {
@@ -280,9 +285,9 @@ async def test_upload_zip_cross_dir_same_name_dedup_by_hash(
         .scalars()
         .all()
     )
-    paths_a = {r.file_path for r in rows_a}
-    assert f"{ds_a_name}/camera/front/000970.jpg" in paths_a
-    assert f"{ds_a_name}/camera/left/000970.jpg" in paths_a
+    paths_a = {dataset_relative_path(r.file_path) for r in rows_a}
+    assert "camera/front/000970.jpg" in paths_a
+    assert "camera/left/000970.jpg" in paths_a
 
     # ── 情况 B：内容完全相同，只入 1 条 ──
     ds_b = await _create_dataset(

@@ -26,13 +26,13 @@ Promotion requires a fresh decision based on the actual repository, not a few no
 
 ## 数据集与存储升级草案集
 
-[总览与推荐顺序](1792661016_dataset-storage-roadmap.md)将整套外部材料转为本项目 17 份研究草案：5 份总纲与 12 个 Epic，保留需求、故事和验收编号，补入代码落点、复用边界、独立切片、晋升条件及回退方法。当前只完成规划转入，未授权实施、未排期、未分配发布版本。
+[总览与推荐顺序](1792661016_dataset-storage-roadmap.md)将整套外部材料转为本项目 17 份研究草案：5 份总纲与 12 个 Epic，保留需求、故事和验收编号，补入代码落点、复用边界、独立切片、晋升条件及回退方法。E01-A 已转为根目录实施计划并完成本地验收；E01-B 仍待评审。其余草案仍未授权实施、未排期，不分配发布版本。
 
 共同约束：[架构与决策](1792661016_dataset-storage-architecture.md) · [信息架构](1792661016_dataset-storage-information-architecture.md) · [交付与 33 项跨 Epic 验收](1792661016_dataset-storage-delivery-acceptance.md) · [基线、来源映射与参考](1792661016_dataset-storage-baseline.md)。
 
 | 草案                                                                          | 独立结果                             | 依赖或触发条件               |
 | ----------------------------------------------------------------------------- | ------------------------------------ | ---------------------------- |
-| [E01 领域与存储抽象](1792661016_dataset-storage-domain-abstraction.md)        | 稳定样本/内容/位置、兼容历史真实键   | 先行兼容；不搬原件           |
+| [E01 领域与存储抽象](../1792661016_dataset-storage-domain-abstraction.md)     | 稳定样本/内容/位置、兼容历史真实键   | 先行兼容；不搬原件           |
 | [E02 位置、连接与用途](1792661016_dataset-storage-locations-connections.md)   | 只读根、节点能力、九用途映射         | E01；授权矩阵与真实挂载      |
 | [E03 已有目录原地注册](1792661016_dataset-in-place-directory-registration.md) | 不先复制原图即可浏览、关联和标注     | E02、E04-A、E05-A；最小权限  |
 | [E04 增量同步与任务](1792661016_dataset-incremental-sync-jobs.md)             | 幂等扫描、游标、变化裁决、单项重试   | 扫描基座先行；定时后置       |

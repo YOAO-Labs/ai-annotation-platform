@@ -3,7 +3,7 @@ title: MinIO 存储桶布局
 audience: [dev, ops]
 type: reference
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-22
 ---
 
 # MinIO 存储桶布局
@@ -15,7 +15,7 @@ last_reviewed: 2026-10-19
 | 桶名            | 环境变量                     | 存储数据类型                                       | Key 前缀约定                                                                                                                                                                                                                         | Lifecycle 过期策略                                        | 备份建议                                                                                                                        |
 | --------------- | ---------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | `annotations`   | `MINIO_BUCKET`               | 标注任务源文件、评论附件、标注引导手册资产         | `{project_id}/{task_id}/...`、`comment-attachments/{aid}/...`、`projects/{pid}/guide/...`                                                                                                                                            | 评论附件 90 天                                            | **备份**                                                                                                                        |
-| `datasets`      | `MINIO_DATASETS_BUCKET`      | 数据集源文件（原始图像/视频/点云/传感器标定）      | `{dataset_name}/{file_name}`                                                                                                                                                                                                         | 永久                                                      | **备份**                                                                                                                        |
+| `datasets`      | `MINIO_DATASETS_BUCKET`      | 数据集源文件（原始图像/视频/点云/传感器标定）      | `__aap_managed_datasets__/{dataset_id}/_objects/{upload_id}/{relative_path}`；历史真实键保留                                                                                                                                         | 永久                                                      | **备份**                                                                                                                        |
 | `bug-reports`   | `MINIO_BUG_REPORTS_BUCKET`   | 快捷 Bug 反馈截图附件                              | `bug-report-attachments/{user_id}/{uuid}-{name}`                                                                                                                                                                                     | 整桶 180 天                                               | 不备份                                                                                                                          |
 | `media-cache`   | `MINIO_MEDIA_CACHE_BUCKET`   | **派生媒体缓存**：缩略图、视频抽帧、分片、转码代理 | `thumbnails/{item_id}.webp`、`videos/{item_id}/frames/{idx}_{w}.{fmt}`、`videos/{item_id}/chunks/{id}.mp4`、`playback/{item_id}.mp4`、`pyramids/{item_id}/...`                                                                       | **仅 `videos/` 30 天**；`playback/`、`thumbnails/` 不过期 | **不备份**（`videos/` 帧与分片按需重生；`playback/` 与 `thumbnails/` 入库时一次性生成，若丢失需重跑 `generate_video_metadata`） |
 | `audit-archive` | `MINIO_AUDIT_ARCHIVE_BUCKET` | 审计日志冷分区归档                                 | `{YYYY}/{MM}.jsonl.gz`                                                                                                                                                                                                               | **永久**（合规保留）                                      | **强备份**（建议开启 Versioning + Object Lock）                                                                                 |
@@ -61,7 +61,7 @@ mc mirror --remove-source datasets/playback/    media-cache/playback/
 mc mirror --remove-source annotations/audit-archive/  audit-archive/
 ```
 
-迁移完成后，可在 MinIO 控制台核对：`datasets` 桶根目录仅保留 `{dataset_name}/` 子目录，`annotations` 桶仅保留任务源文件、`comment-attachments/` 与 `projects/.../guide/`。
+迁移完成后，可在 MinIO 控制台核对：`datasets` 桶保留稳定托管根 `__aap_managed_datasets__/` 与历史名称目录，`annotations` 桶仅保留任务源文件、`comment-attachments/` 与 `projects/.../guide/`。
 
 ## 容量监控与日常巡检
 
@@ -70,3 +70,5 @@ mc mirror --remove-source annotations/audit-archive/  audit-archive/
 - **巡检要点**：
   - `media-cache` 体积主要受 `videos/` 前缀的 30 天 Lifecycle 约束；若出现异常增长，通常意味着大量长视频被高频随机寻帧，可结合 `video_frame_service` 缓存命中率排查。
   - `avatars` 单对象不超过约 40 KB（`256×256` WebP），总体积随注册用户数线性增长；若对象数显著多于用户数，可排查是否存在 `users.avatar_ref` 未引用的孤儿对象。
+
+数据集名称只用于展示。托管原件的新键采用不可变数据集身份和独立上传身份，同名不同内容不会覆盖旧样本。内部用途绑定固定当前实际桶名；其他八用途继续由原 owner 读取，尚未固定历史位置前不支持独立切换目标。

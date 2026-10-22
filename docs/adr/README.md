@@ -137,3 +137,5 @@
 - [0089](archive/0089-task-scoped-native-instance-learning.md) — 实例分割采用原生掩码训练与按任务隔离的在线学习
 
 - [0090](archive/0090-versioned-yolo-identities-and-content-assets.md) — YOLO 家族按冻结运行时核验，权重按内容寻址并独立准备节点
+
+- [0091](archive/0091-dataset-content-and-location-identity.md) — 数据集内容身份与固定托管位置分离，旧键兼容回填不改业务快照

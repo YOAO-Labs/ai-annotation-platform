@@ -128,6 +128,13 @@ from app.db.models.storage_connection import (
 
 from app.db.models.prediction_execution import PredictionExecutionSnapshot
 
+from app.db.models.dataset_asset import (
+    DatasetAsset,
+    DatasetAssetLocation,
+    StorageBinding,
+    StorageLocation,
+)
+
 __all__ = [
     "PredictionExecutionSnapshot",
     "TrainedModelVersion",
@@ -241,3 +248,6 @@ __all__ += ["TrainingTelemetrySample", "TrainingLogChunk"]
 __all__ += ["ModelDecision"]
 
 __all__ += ["TrainingStudy", "TrainingTrial"]
+
+
+__all__ += ["DatasetAsset", "DatasetAssetLocation", "StorageBinding", "StorageLocation"]

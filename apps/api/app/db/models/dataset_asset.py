@@ -1,0 +1,105 @@
+"""Content identities and pinned locations; credentials stay with their owners."""
+
+from datetime import datetime
+import uuid
+
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.db.base import Base
+
+
+class StorageLocation(Base):
+    __tablename__ = "storage_locations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    config_revision: Mapped[int] = mapped_column(nullable=False, server_default="1")
+    config: Mapped[dict] = mapped_column(JSONB, nullable=False)
+
+
+class StorageBinding(Base):
+    __tablename__ = "storage_bindings"
+
+    purpose: Mapped[str] = mapped_column(String(30), primary_key=True)
+    location_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("storage_locations.id"), nullable=False
+    )
+    bucket: Mapped[str] = mapped_column(String(255), nullable=False)
+    generation: Mapped[int] = mapped_column(nullable=False, server_default="1")
+
+
+class DatasetAsset(Base):
+    __tablename__ = "dataset_assets"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    dataset_item_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("dataset_items.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    media_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    checksum_algorithm: Mapped[str | None] = mapped_column(String(20))
+    checksum_value: Mapped[str | None] = mapped_column(String(64), index=True)
+    verification_state: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="unverified"
+    )
+    legacy_hash_hint: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "size_bytes IS NULL OR size_bytes >= 0", name="ck_dataset_assets_size"
+        ),
+        CheckConstraint(
+            "(verification_state = 'unverified' AND checksum_algorithm IS NULL AND checksum_value IS NULL) OR (verification_state = 'verified' AND checksum_algorithm IS NOT NULL AND checksum_value IS NOT NULL AND checksum_algorithm = 'sha256' AND checksum_value ~ '^[0-9a-f]{64}$' AND size_bytes IS NOT NULL)",
+            name="ck_dataset_assets_verification",
+        ),
+    )
+
+
+class DatasetAssetLocation(Base):
+    __tablename__ = "dataset_asset_locations"
+
+    asset_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("dataset_assets.id", ondelete="CASCADE"), primary_key=True
+    )
+    location_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("storage_locations.id"), primary_key=True
+    )
+    bucket: Mapped[str] = mapped_column(String(255), primary_key=True)
+    object_key: Mapped[str] = mapped_column(String(1000), nullable=False)
+    role: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default="managed_original"
+    )
+    reference_state: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="unverified"
+    )
+    etag: Mapped[str | None] = mapped_column(Text)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint(
+            "asset_id",
+            "location_id",
+            "bucket",
+            "object_key",
+            name="uq_dataset_asset_location_locator",
+        ),
+        CheckConstraint(
+            "reference_state IN ('unverified', 'present', 'missing', 'changed')",
+            name="ck_dataset_asset_location_state",
+        ),
+    )

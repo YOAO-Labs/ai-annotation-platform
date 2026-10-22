@@ -983,6 +983,106 @@ async def test_lidar_export_zip_writes_standard_targets(
     assert dispatched["opts"]["lidar"] == {"kitti_camera_role": "camera_front"}
 
 
+@pytest.mark.asyncio
+async def test_scanned_logical_aliases_survive_actual_lidar_export(
+    db_session, super_admin, monkeypatch
+):
+    from app.services.dataset_storage_keys import managed_dataset_key
+    from app.services.exporting.lidar_preflight import _frame_key
+
+    monkeypatch.setattr(
+        "app.services.exporting.packaging.storage_service.generate_download_url",
+        lambda key, **_kwargs: f"signed://{key}",
+    )
+    user, _ = super_admin
+    project = await create_project(
+        db_session,
+        owner_id=user.id,
+        type_key="lidar",
+        type_label="点云检测",
+        classes=["car"],
+    )
+    project.data_type = "lidar"
+    project.tool_bindings = {
+        "point_mask_3d": {
+            "enabled": True,
+            "classes": [{"name": "car", "order": 0}],
+            "attribute_schema": {"fields": []},
+        }
+    }
+    dataset = Dataset(
+        name="aliased",
+        display_id="DS-LEX-ALIAS",
+        created_by=user.id,
+        data_type="point_cloud",
+    )
+    db_session.add(dataset)
+    await db_session.flush()
+    expected_lidar, expected_camera = set(), set()
+    for index, suffix in enumerate(["", "-1"]):
+        lidar_path = f"scene_a/lidar/000001{suffix}.pcd"
+        camera_path = f"scene_a/camera/front/000001{suffix}.jpg"
+        lidar = DatasetItem(
+            dataset_id=dataset.id,
+            file_name=f"000001{suffix}.pcd",
+            file_path=managed_dataset_key(dataset.id, "scene_a/lidar/000001.pcd"),
+            file_type="point_cloud",
+            file_size=48,
+            metadata_={"point_count": 4, "storage_relative_path": lidar_path},
+        )
+        camera = DatasetItem(
+            dataset_id=dataset.id,
+            file_name=f"000001{suffix}.jpg",
+            file_path=managed_dataset_key(
+                dataset.id, "scene_a/camera/front/000001.jpg"
+            ),
+            file_type="image",
+            width=200,
+            height=120,
+            metadata_={"storage_relative_path": camera_path},
+        )
+        db_session.add_all([lidar, camera])
+        await db_session.flush()
+        task = Task(
+            project_id=project.id,
+            dataset_item_id=lidar.id,
+            display_id=f"T-LEX-ALIAS-{index}",
+            file_name=lidar.file_name,
+            file_path=lidar.file_path,
+            file_type="point_cloud",
+        )
+        db_session.add(task)
+        await db_session.flush()
+        await link_items(
+            db_session,
+            task.id,
+            [(lidar.id, "primary_lidar", None), (camera.id, "camera_front", "front")],
+        )
+        assert _frame_key(task, lidar) == lidar_path.rsplit(".", 1)[0]
+        expected_lidar.add(lidar_path)
+        expected_camera.add(f"front/{camera_path}")
+    zip_path, _, _ = await build_export_zip(
+        db_session,
+        project.id,
+        batch_id=None,
+        targets=["pointmask"],
+        include_attributes=True,
+        video_frame_mode="keyframes",
+    )
+    try:
+        with zipfile.ZipFile(zip_path) as archive:
+            clouds = json.loads(archive.read("pointclouds_manifest.json"))[
+                "pointclouds"
+            ]
+            images = json.loads(archive.read("images_manifest.json"))["images"]
+            assert len(clouds) == len(images) == 2
+            assert {row["rel_path"] for row in clouds} == expected_lidar
+            assert {row["rel_path"] for row in images} == expected_camera
+            assert all("/_objects/" in row["presigned_url"] for row in clouds + images)
+    finally:
+        os.unlink(zip_path)
+
+
 def test_clean_export_targets_filters_lidar_targets():
     assert clean_export_targets(
         ["coco-multicamera", "kitti", "pointmask", "kitti"], data_type="lidar"

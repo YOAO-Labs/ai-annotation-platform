@@ -69,6 +69,15 @@ def test_strips_dataset_prefix():
     )
 
 
+def test_managed_identity_is_not_exported_as_directory():
+    from app.services.dataset_storage_keys import managed_dataset_key
+
+    key = managed_dataset_key(uuid.uuid4(), "scene-1/camera/front/001.jpg")
+    assert (
+        relative_path_from_file_path(key, "renamed") == "scene-1/camera/front/001.jpg"
+    )
+
+
 def test_same_leaf_different_dir_stay_distinct():
     a = relative_path_from_file_path("ds/animals/cat/001.jpg", "ds")
     b = relative_path_from_file_path("ds/animals/dog/001.jpg", "ds")
