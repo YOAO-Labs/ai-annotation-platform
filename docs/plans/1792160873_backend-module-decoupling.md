@@ -5622,3 +5622,17 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   work: other business/actorless snapshots, member set filters/projections and
   coherent module assembly. Unretired-video deletion/unlink policy is pending.
   No primary cutover, push, release, production or Go expansion occurs.
+
+- Source/grant/fixture/documentation checkpoint:
+  `97d99a63e536353c9fbca8fb89ba9fc774f99349`. The aggregate binds 22 changed
+  files to this source commit. Grant/selection units pass 20; architecture passes
+  355 with 149 inapplicable rules. Ruff, format, explicit OpenAPI consistency,
+  docs build, final diff and normal applicable hooks pass. OpenAPI and tracked
+  documentation generation hooks run successfully without export changes.
+  The owned source worktree is removed after exact branch/HEAD, patch and scoped
+  tree equivalence checks; its Ruff cache is archived and branch retained.
+  All four owned PostgreSQL containers are absent. Twenty editable bindings
+  still point to Root; the clean primary and four shared containers are preserved.
+  No persistent Root API/Celery/Workspace provider needs refresh. This closes the
+  two selected live member-lock consumers, not member set queries, complete
+  Workspace assembly, primary cutover or the full goal.
