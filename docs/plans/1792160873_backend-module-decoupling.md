@@ -5110,3 +5110,10 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   owners: only Identity ownership and the actual API application/remote consumer
   SELECT grants remain. A real ACL probe covers unused owners and function-only
   clients, alongside the existing restricted API read/deny acceptance.
+
+- Source/documentation integration commit: `935aeca26af2cf31077f8c78a9208cfc068182ad`. The aggregate matches32
+  source/test/grant file fingerprints to that commit. Normal hooks, including
+  OpenAPI/routes regeneration, pass with unchanged public artifacts. Owned source
+  worktrees are removed after branch/HEAD/clean-state and derived-artifact checks;
+  branches remain. Root editable bindings, primary checkout and four shared
+  containers are preserved. Cleanup evidence is linked by the aggregate report.
