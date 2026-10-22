@@ -3,7 +3,7 @@ title: 迁移内联样式到 CSS Modules
 audience: [dev]
 type: how-to
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-22
 ---
 
 # 把页面级 inline style 迁到 CSS modules
@@ -87,5 +87,5 @@ function cn(...xs: Array<string | false | null | undefined>): string {
 
 完整对照：
 
-- 现行示例：[`AIPreAnnotatePage.tsx`](../../../apps/web/src/pages/AIPreAnnotate/AIPreAnnotatePage.tsx) + [`AIPreAnnotatePage.module.css`](../../../apps/web/src/pages/AIPreAnnotate/AIPreAnnotatePage.module.css)。
+- 现行示例：[`AIPreAnnotateJobsPage.tsx`](../../../apps/web/src/pages/AIPreAnnotate/AIPreAnnotateJobsPage.tsx) + [`AIPreAnnotateJobsPage.module.css`](../../../apps/web/src/pages/AIPreAnnotate/AIPreAnnotateJobsPage.module.css)。
 - 同目录组件继续采用同名 `.module.css`；批量修改后用前端 lint 的 inline-style guard 与 `lint:css-tokens` 确认没有重新引入内联样式或遗留令牌。
