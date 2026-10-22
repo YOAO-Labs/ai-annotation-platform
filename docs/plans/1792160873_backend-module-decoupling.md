@@ -5332,3 +5332,32 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   containers are preserved, and all eight owned PostgreSQL containers from this
   slice's checks and reproducers are confirmed absent. This closes the portable
   invocation boundary only; the video deletion safety prerequisite stays open.
+
+### Assets auxiliary source-reference policy acceptance (2026-10-22)
+
+- The user confirmed 409 while camera links, scene tracks or video execution
+  references still retain a source. Source inspection found the existing Native
+  guard already implements this policy; production guard SQL and HTTP behavior
+  remain unchanged. Added actual Item/Dataset deletion regressions using existing
+  source and execution fixtures on a verified owned test database.
+- Source-only worker commit `8cc3bbb473` was integrated as `2499666b1`. Root
+  expanded both deletion scopes and replaced identity-map assertions with actual
+  relation checks, preserving primary Task sources in a separate Dataset. The
+  effective union is 11 distinct selected cases: ten Native and one existing
+  real HTTP conflict mapping. Unretired journals retain their source after
+  canonical Task/Job cascade; normally retired journals release their pin and
+  allow deletion when no other references remain. Active and retired SceneTrack
+  rows both block deletion. Rejections preserve graph/Audit/receipt/outbox.
+- Initial execution passed nine and failed two cases at an incorrect test-only
+  expectation on the Assets auxiliary guard. The execution-journal pin belongs
+  to the Labeling guard consumed by the coordinator. Root removed that unrelated
+  assertion, then passed the two smallest reproductions including actual deletion
+  rejection. The other nine valid passes are reused; no production logic changed.
+  Original failures, real exits and cleanup are retained in
+  `.worktree/assets-auxiliary-deletion-qualification.json`.
+- Source audits also identify the same unretired-execution loss in Workspace
+  Dataset unlink. This is not repaired by Assets correctly refusing deletion;
+  the shared prerequisite remains in the single module-deployment ledger.
+  Camera-only unlink intentionally preserves Tasks whose primary belongs to
+  another Dataset, and separate camera-link/scene-history removal is not added.
+  No primary cutover, push, release, production deployment or Go expansion.

@@ -30,10 +30,6 @@ _LABELING_GUARD = text(
     "SELECT aap_labeling_v1.guard_dataset_source_deletion("
     "CAST(:dataset_id AS uuid), CAST(:item_id AS uuid))"
 )
-_AUXILIARY_GUARD = text(
-    "SELECT aap_assets_v1.guard_dataset_source_auxiliary_retention("
-    "CAST(:dataset_id AS uuid), CAST(:item_id AS uuid))"
-)
 _VIDEO_SOURCE_RETAINED = text(
     "SELECT aap_jobs_v1.video_execution_source_item_retained(CAST(:item_id AS uuid))"
 )
@@ -96,8 +92,9 @@ async def _assert_no_delete_effects(db, *, dataset_id, item_id, operation_id) ->
     )
 
 
+@pytest.mark.parametrize("delete_item", [True, False], ids=["item", "dataset"])
 async def test_secondary_camera_link_blocks_delete_with_primary_in_another_dataset(
-    test_engine, db_session
+    test_engine, db_session, delete_item: bool
 ):
     _verify_postgres(test_engine.url)
     owner, project, dataset, camera_item, _scene = await _seed_source(db_session)
@@ -142,7 +139,7 @@ async def test_secondary_camera_link_blocks_delete_with_primary_in_another_datas
         db_session,
         _deletion_fixture(owner.id, dataset.id),
         operation_id,
-        item_id=camera_item.id,
+        item_id=camera_item.id if delete_item else None,
     )
     assert reply == {
         "schema": "aap-dataset-source-delete/v1",
@@ -157,7 +154,24 @@ async def test_secondary_camera_link_blocks_delete_with_primary_in_another_datas
         )
         == 0
     )
-    assert await db_session.get(TaskDatasetItemLink, link.id) is not None
+    assert (
+        await _count(
+            db_session,
+            "SELECT count(*) FROM public.tasks WHERE id=:task AND dataset_item_id=:item",
+            task=task.id,
+            item=primary_item.id,
+        )
+        == 1
+    )
+    assert (
+        await _count(
+            db_session,
+            "SELECT count(*) FROM public.task_dataset_item_links WHERE id=:link AND dataset_item_id=:item",
+            link=link.id,
+            item=camera_item.id,
+        )
+        == 1
+    )
     await _assert_no_delete_effects(
         db_session,
         dataset_id=dataset.id,
@@ -167,8 +181,9 @@ async def test_secondary_camera_link_blocks_delete_with_primary_in_another_datas
 
 
 @pytest.mark.parametrize("retired", [False, True], ids=["active", "retired-history"])
+@pytest.mark.parametrize("delete_item", [True, False], ids=["item", "dataset"])
 async def test_scene_track_history_blocks_source_item_delete(
-    test_engine, db_session, retired: bool
+    test_engine, db_session, retired: bool, delete_item: bool
 ):
     _verify_postgres(test_engine.url)
     owner, project, dataset, item, scene = await _seed_source(
@@ -192,14 +207,22 @@ async def test_scene_track_history_blocks_source_item_delete(
         db_session,
         _deletion_fixture(owner.id, dataset.id),
         operation_id,
-        item_id=item.id,
+        item_id=item.id if delete_item else None,
     )
     assert reply == {
         "schema": "aap-dataset-source-delete/v1",
         "ok": False,
         "error": {"code": "source_in_use"},
     }
-    assert await db_session.get(SceneTrack, track.id) is not None
+    assert (
+        await _count(
+            db_session,
+            "SELECT count(*) FROM public.scene_tracks WHERE id=:track AND scene_id=:scene",
+            track=track.id,
+            scene=scene.id,
+        )
+        == 1
+    )
     await _assert_no_delete_effects(
         db_session,
         dataset_id=dataset.id,
@@ -211,8 +234,9 @@ async def test_scene_track_history_blocks_source_item_delete(
 @pytest.mark.parametrize(
     "execution_retired", [False, True], ids=["unretired-pin", "retired-history"]
 )
+@pytest.mark.parametrize("delete_item", [True, False], ids=["item", "dataset"])
 async def test_video_execution_source_pin_blocks_until_journal_retirement(
-    test_engine, db_session, execution_retired: bool
+    test_engine, db_session, execution_retired: bool, delete_item: bool
 ):
     _verify_postgres(test_engine.url)
     job, input_id, _claim = await _claimed_running_job(db_session)
@@ -267,22 +291,17 @@ async def test_video_execution_source_pin_blocks_until_journal_retirement(
     labeling = await db_session.scalar(
         _LABELING_GUARD, {"dataset_id": dataset_id, "item_id": item_id}
     )
-    auxiliary = await db_session.scalar(
-        _AUXILIARY_GUARD, {"dataset_id": dataset_id, "item_id": item_id}
-    )
     if execution_retired:
         assert labeling == _clear()
-        assert auxiliary == _clear()
     else:
         assert labeling == _blocked()
-        assert auxiliary == _blocked()
 
     operation_id = uuid.uuid4()
     reply = await _delete_source(
         db_session,
         _deletion_fixture(actor_id, dataset_id),
         operation_id,
-        item_id=item_id,
+        item_id=item_id if delete_item else None,
     )
     if execution_retired:
         assert reply["schema"] == "aap-dataset-source-delete/v1"
