@@ -10,6 +10,8 @@ import type {
   DatasetSourceOut,
   DatasetScanOut,
   RegisteredReferenceOut,
+  DatasetRegistrationOut,
+  DatasetRegistrationEntryList,
 } from "./generated/types.gen";
 
 export const datasetSourcesApi = {
@@ -31,6 +33,23 @@ export const datasetSourcesApi = {
     }),
   create: (payload: DatasetSourceCreate) =>
     apiClient.post<DatasetSourceOut>("/dataset-sources", payload),
+  registration: (scanId: string, signal?: AbortSignal) =>
+    apiClient.get<DatasetRegistrationOut | null>(`/dataset-scans/${scanId}/registration`, {
+      signal,
+    }),
+  preflight: (scanId: string) =>
+    apiClient.post<DatasetRegistrationOut>(`/dataset-scans/${scanId}/registration`),
+  confirmRegistration: (id: string) =>
+    apiClient.post<DatasetRegistrationOut>(`/dataset-registrations/${id}/confirm`),
+  resumeRegistration: (id: string) =>
+    apiClient.post<DatasetRegistrationOut>(`/dataset-registrations/${id}/resume`),
+  retryRegistrationEntry: (id: string, path: string) =>
+    apiClient.post<DatasetRegistrationOut>(`/dataset-registrations/${id}/entries/${path}/retry`),
+  registrationEntries: (id: string, offset: number, errorsOnly: boolean, signal?: AbortSignal) =>
+    apiClient.get<DatasetRegistrationEntryList>(
+      `/dataset-registrations/${id}/entries?limit=20&offset=${offset}${errorsOnly ? "&state=error" : ""}`,
+      { signal },
+    ),
   scans: (sourceId: string, signal?: AbortSignal) =>
     apiClient.get<DatasetScanList>(`/dataset-sources/${sourceId}/scans?limit=20`, { signal }),
   start: (sourceId: string) => apiClient.post<DatasetScanOut>(`/dataset-sources/${sourceId}/scans`),

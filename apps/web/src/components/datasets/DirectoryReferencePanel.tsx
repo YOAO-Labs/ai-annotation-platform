@@ -5,6 +5,7 @@ import { datasetSourcesApi as api } from "@/api/datasetSources";
 import { Button } from "@/components/ui/Button";
 import { useAuthStore } from "@/stores/authStore";
 import { useVerifiedImage, verifiedContentError } from "@/hooks/useVerifiedImage";
+import { DirectoryRegistrationProgress } from "./DirectoryRegistrationProgress";
 import { parseReference } from "@/utils/referenceContent";
 
 const field = "rounded-md border border-input bg-background px-2 py-1.5 text-xs text-foreground";
@@ -61,6 +62,8 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
   const [directory, setDirectory] = useState("");
   const [node, setNode] = useState("");
   const [recursive, setRecursive] = useState(true);
+  const [include, setInclude] = useState("*.png,*.jpg,*.jpeg,*.webp,*.PNG,*.JPG,*.JPEG,*.WEBP");
+  const [exclude, setExclude] = useState("");
   const [offset, setOffset] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -123,8 +126,7 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
     >
       <h4 className="mb-1 text-sm font-semibold">服务器目录 · 原地引用</h4>
       <p className="mb-3 text-muted-foreground">
-        仅登记图片引用，原图复制量为
-        0。先扫描，再逐条确认登记；已提交结果保留，可关闭后继续。本机文件夹仍通过上传接入。
+        原图保留在来源，复制量为0。先扫描并预检，再确认批量登记，也可逐条登记；已提交结果保留，可关闭后继续。本机文件夹仍通过上传接入。
       </p>
       <div className="flex flex-wrap items-end gap-2">
         <label className="grid gap-1">
@@ -184,6 +186,25 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
           />
           包含子目录
         </label>
+        <label className="grid gap-1">
+          图片匹配规则
+          <input
+            aria-label="图片匹配规则"
+            className={field}
+            value={include}
+            onChange={(e) => setInclude(e.target.value)}
+          />
+        </label>
+        <label className="grid gap-1">
+          排除规则
+          <input
+            aria-label="排除规则"
+            className={field}
+            value={exclude}
+            onChange={(e) => setExclude(e.target.value)}
+            placeholder="逗号分隔，例如 temp/*,*.tmp"
+          />
+        </label>
         <Button
           size="sm"
           disabled={!locationId || !node || busy}
@@ -199,16 +220,14 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
                 relative_path: directory,
                 node_id: node,
                 recursive,
-                include_globs: [
-                  "*.png",
-                  "*.jpg",
-                  "*.jpeg",
-                  "*.webp",
-                  "*.PNG",
-                  "*.JPG",
-                  "*.JPEG",
-                  "*.WEBP",
-                ],
+                include_globs: include
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+                exclude_globs: exclude
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean),
               });
               if (current()) {
                 setSourceId(created.id);
@@ -316,6 +335,14 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
           </>
         )}
       </div>
+      {run?.complete && (
+        <DirectoryRegistrationProgress
+          key={run.id}
+          scanId={run.id}
+          datasetId={datasetId}
+          owner={owner}
+        />
+      )}
       {run?.complete && (
         <div className="mt-2 overflow-x-auto">
           <table className="w-full text-left">

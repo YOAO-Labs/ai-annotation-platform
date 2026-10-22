@@ -147,3 +147,4 @@
 - [0094](archive/0094-verified-request-content-snapshots.md) — 可变原图通过有界请求快照核验后交付
 
 - [0095](0095-immutable-directory-reference-tasks.md) — 目录样本固定内容身份并在任务锁内复核写入
+- [0096](0096-durable-directory-registration.md) — 目录批量登记使用独立的两阶段持久账本

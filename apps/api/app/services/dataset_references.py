@@ -23,21 +23,36 @@ from app.services import storage_location as locations
 from app.services.reference_keys import reference_key
 
 
-async def register_entry(db, run_id, path_digest, actor, *, api_key_id=None):
+async def register_entry(
+    db,
+    run_id,
+    path_digest,
+    actor,
+    *,
+    api_key_id=None,
+    node_id=None,
+    before_apply=None,
+    on_result=None,
+):
     from app.services.dataset_content import scan_snapshot, scan_context, key_authority
-    from app.services.dataset import DatasetService
-    from app.services.audit import AuditService
     from app.services.project_kind import dataset_has_scenes
 
     key_proof = await key_authority(db, actor, api_key_id, "datasets:write")
     snapshot = await scan_snapshot(
-        db, run_id, path_digest, actor, verify=True, api_key_id=api_key_id
+        db,
+        run_id,
+        path_digest,
+        actor,
+        verify=True,
+        api_key_id=api_key_id,
+        node_id=node_id,
+        before_commit=before_apply,
     )
     observation = dict(snapshot.observation)
     snapshot.close()
     # Serialize registrations in the same Location -> Source order as scans.
     location, source, run, entry, node, anchor = await scan_context(
-        db, run_id, path_digest, actor, lock=True
+        db, run_id, path_digest, actor, lock=True, node_id=node_id
     )
     # Source deletion takes the inverse FK lock order: never wait on Dataset.
     from sqlalchemy.exc import DBAPIError
@@ -67,6 +82,8 @@ async def register_entry(db, run_id, path_digest, actor, *, api_key_id=None):
         or await dataset_has_scenes(db, dataset.id)
     ):
         raise HTTPException(409, detail={"code": "reference_requires_image_dataset"})
+    if before_apply is not None:
+        await before_apply(db)
     receipt = entry.verified_content
     final = await snapshots.capture(
         lambda: fs.content_file(
@@ -83,6 +100,22 @@ async def register_entry(db, run_id, path_digest, actor, *, api_key_id=None):
     await scans.require_actor(db, actor.id)
     if await key_authority(db, actor, api_key_id, "datasets:write") != key_proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+    if before_apply is not None:
+        await before_apply(db)
+    result = await apply_reference(db, source, run, entry, dataset, actor)
+    if on_result is not None:
+        await on_result(db, result)
+    await db.commit()
+    return result
+
+
+async def apply_reference(db, source, run, entry, dataset, actor):
+    """Apply one already locked and verified identity; the caller owns commit."""
+    from app.services.dataset import DatasetService
+    from app.services.audit import AuditService
+
+    path_digest = entry.path_digest
+    receipt = entry.verified_content
     existing = await db.scalar(
         select(DatasetReference).where(
             DatasetReference.source_id == source.id,
@@ -151,7 +184,6 @@ async def register_entry(db, run_id, path_digest, actor, *, api_key_id=None):
         detail={"source_id": str(source.id), "path_digest": path_digest},
         status_code=201,
     )
-    await db.commit()
     return {"item_id": item.id, "created": True, "sha256": receipt["sha256"]}
 
 
@@ -219,7 +251,7 @@ async def reference_context(db, item_id, actor, *, task_id=None):
     expected = (
         receipt["observation"]
         if receipt["node_id"] == node
-        else {k: entry.observed[k] for k in ("size", "mtime_ns", "ctime_ns")}
+        else {k: receipt["observation"][k] for k in ("size", "mtime_ns", "ctime_ns")}
     )
     expected_source = (
         expected.get("source_identity")

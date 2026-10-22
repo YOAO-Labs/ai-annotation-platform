@@ -2,12 +2,12 @@
 audience: [dev, super_admin]
 type: reference
 status: stable
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-23
 ---
 
 # 目录来源与观测扫描
 
-这些接口提供只读目录清单和可恢复扫描，均仅限当前超级管理员。来源的 `mode` 固定为 `inventory`：扫描不创建 DatasetItem、Asset 或标注任务，不读取原图字节，扫描本身不生成内容摘要，也不把历史文件判为 missing。数据集页面可在扫描完成后逐条核验并登记引用样本；扫描与登记是独立步骤。
+这些接口提供只读目录清单、可恢复扫描及两阶段批量登记，均仅限当前超级管理员。来源的 `mode` 固定为 `inventory`：扫描不创建 DatasetItem、Asset 或标注任务，不读取原图字节，扫描本身不生成内容摘要，也不把历史文件判为 missing。扫描完成后可运行内容预检并确认后台登记，也可逐条登记；扫描、预检和登记是独立步骤。
 
 先用[存储位置 API](./storage-locations)登记受控根内位置，成功探测指定 worker 的 list 能力，再创建来源。所有路径均以 `/api/v1` 为前缀。
 
@@ -16,7 +16,7 @@ last_reviewed: 2026-10-22
 | POST  | `/dataset-sources`                   | 为已有数据集创建只读观测来源，返回201                             |
 | GET   | `/dataset-sources`                   | 按 dataset_id 可选过滤，limit 默认100、最多200，offset 分页       |
 | GET   | `/dataset-sources/{source_id}`       | 查看来源配置，不返回绝对根或内部节点指纹                          |
-| PATCH | `/dataset-sources/{source_id}`       | expected_revision + name/enabled；活动扫描须先取消                |
+| PATCH | `/dataset-sources/{source_id}`       | expected_revision + name/enabled；活动扫描及登记须先取消          |
 | POST  | `/dataset-sources/{source_id}/scans` | 启动手动扫描，返回202；同来源已有活动运行时复用                   |
 | GET   | `/dataset-sources/{source_id}/scans` | 分页查看独立扫描历史                                              |
 | GET   | `/dataset-scans/{run_id}`            | 查看状态、阶段、完整性、累计数和当前 async_job_id                 |
@@ -33,11 +33,12 @@ last_reviewed: 2026-10-22
   "relative_path": "traffic/vehicle_detection",
   "node_id": "celery@scan-host",
   "recursive": true,
-  "include_globs": ["*.jpg", "*.png"]
+  "include_globs": ["*.jpg", "*.png"],
+  "exclude_globs": ["excluded", "temp/*"]
 }
 ```
 
-`relative_path` 相对存储位置，默认空字符串；不能使用绝对路径、父级跳转、链接或跨子挂载。`node_id` 必须是完整 Celery hostname。过滤使用区分大小写的 fnmatch，默认 `["*"]`；未匹配文件、链接和特殊类型记录为 skipped，不递归链接。源路径、节点、递归和过滤配置创建后不可重定向，需要新建来源；名称/启停用 expected_revision 防止覆盖并发修改。
+`relative_path` 相对存储位置，默认空字符串；不能使用绝对路径、父级跳转、链接或跨子挂载。`node_id` 必须是完整 Celery hostname。过滤使用区分大小写的 fnmatch，相对来源根匹配，include 默认 `["*"]`，exclude 默认 `[]`；排除的目录不递归，未匹配文件、链接和特殊类型记录为 skipped，不递归链接。源路径、节点、递归和过滤配置创建后不可重定向，需要新建来源；名称/启停用 expected_revision 防止覆盖并发修改。
 
 ## 完整性与恢复
 
@@ -50,6 +51,25 @@ Run 的 `completed` 和 `complete=true` 只表示约定范围枚举与复核完�
 取消复用 `POST /async-jobs/{async_job_id}/cancel`，已提交观测保留。失去60秒租约后可调用 resume 创建新 job/task_id；仍有有效租约时返回409。旧消息、旧 worker 和旧失败信号不能写入新尝试。发布失败返回的 Run 标记 `failed / dispatch_unavailable`，可显式恢复；API在提交后、发布前中断所留的 pending 同样可恢复。
 
 任务中心显示“已扫描数量 / 总量未知”，不展示伪造百分比。终态任务可能被30天保留策略删除，ScanRun 和观测继续保留，async_job_id 会变为 null；失败/取消运行仍可在当前配置和节点验证有效时恢复。数据集删除后来源失效，账本保留，外部原图不受影响。
+
+## 后台预检与批量登记
+
+以下写接口均要求 `datasets:write`，读接口要求 `datasets:read`。JWT 沿用当前超管角色；API Key 的初始凭据证明贯穿 I/O、排队和逐项提交，轮换、撤销或降权后旧尝试不能继续写入。
+
+| 方法 | 路径                                                                   | 行为                                                         |
+| ---- | ---------------------------------------------------------------------- | ------------------------------------------------------------ |
+| GET  | `/dataset-scans/{scan_id}/registration`                                | 查看持久登记账本，尚未开始时返回 null                        |
+| POST | `/dataset-scans/{scan_id}/registration`                                | 完整扫描创建预检账本；重复调用返回同一账本，返回202          |
+| POST | `/dataset-registrations/{registration_id}/confirm`                     | 完整预检后确认登记；重新核验 API 当前节点可读性，返回202     |
+| POST | `/dataset-registrations/{registration_id}/resume`                      | 继续取消或中断的阶段，创建新执行尝试，返回202                |
+| POST | `/dataset-registrations/{registration_id}/entries/{path_digest}/retry` | 显式重试异常条目；未核验内容允许修复后重读，已有回执保持摘要 |
+| GET  | `/dataset-registrations/{registration_id}/entries`                     | state 可选过滤；limit 默认100、最多200，offset 分页          |
+
+账本的 `phase` 为 `preflight/registering`，`status` 为 `pending/running/completed/failed/cancelled`。counts 分列索引数及字节、待核验、已核验待登记、已登记、相同路径跳过、异常、原已登记路径、预计新增及扫描排除；原图复制和预览占用独立计量。预检读取完整图片并保存不可变核验回执，但不创建业务样本。确认后每项重新读取固定摘要，在同一事务内提交 Item/Asset/Reference、关联任务与该项登记进度，外部原图不写入对象存储。
+
+单次 worker 分片最多25项或90秒，软/硬限150/180秒。60秒租约逐项续期；beat 每30秒恢复到期或待派发分片，部署须运行更新后的 beat。发布失败保持 `pending/dispatch_unavailable`；可等待自动恢复或显式 resume。旧 task ID、代次或 token 不能修改新分片。取消复用 `/async-jobs/{async_job_id}/cancel`，保留已提交部分。任务历史清理不删除登记账本。
+
+根不可达、权限或配置变化中断整个阶段；损坏或缺失的单文件记异常并继续。数据集锁繁忙和快照容量不足按暂态退避，不能把正常文件记为损坏。预检完成表示所有候选已处理，仍可包含异常；确认成功不保证最终登记数不变。若确认期间文件变化，异常项会从 ready 移出；重新读取账本后再确认。新的预检尝试在确认 I/O 期间完成时，旧确认返回409，必须刷新后重新确认。
 
 ## 逐条登记原地图片
 

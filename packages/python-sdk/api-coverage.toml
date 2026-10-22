@@ -390,3 +390,10 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 
 "POST /api/v1/dataset-scans/{run_id}/entries/{path_digest}/register" = { status = "excluded", reason = "separate-connector-epic" }
 "GET /api/v1/dataset-items/{item_id}/content" = { status = "excluded", reason = "separate-connector-epic" }
+
+"GET /api/v1/dataset-scans/{scan_id}/registration" = { status = "excluded", reason = "separate-connector-epic" }
+"POST /api/v1/dataset-scans/{scan_id}/registration" = { status = "excluded", reason = "separate-connector-epic" }
+"POST /api/v1/dataset-registrations/{registration_id}/confirm" = { status = "excluded", reason = "separate-connector-epic" }
+"POST /api/v1/dataset-registrations/{registration_id}/resume" = { status = "excluded", reason = "separate-connector-epic" }
+"POST /api/v1/dataset-registrations/{registration_id}/entries/{path_digest}/retry" = { status = "excluded", reason = "separate-connector-epic" }
+"GET /api/v1/dataset-registrations/{registration_id}/entries" = { status = "excluded", reason = "separate-connector-epic" }

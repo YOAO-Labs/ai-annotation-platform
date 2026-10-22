@@ -137,3 +137,68 @@ class DatasetReference(Base):
         ),
         UniqueConstraint("source_id", "path_digest", name="uq_reference_source_path"),
     )
+
+
+class DatasetRegistrationRun(Base):
+    """Durable preflight/registration progress, independent of job retention."""
+
+    __tablename__ = "dataset_registration_runs"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    scan_run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("dataset_scan_runs.id", ondelete="RESTRICT"), unique=True
+    )
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("dataset_sources.id", ondelete="RESTRICT"), index=True
+    )
+    async_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("async_jobs.id", ondelete="SET NULL"), unique=True
+    )
+    snapshot: Mapped[dict] = mapped_column(JSONB)
+    phase: Mapped[str] = mapped_column(String(20), default="preflight")
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    generation: Mapped[int] = mapped_column(default=0)
+    lease_token: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(String(60))
+    counts: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending','running','completed','failed','cancelled')",
+            name="ck_dataset_registration_status",
+        ),
+        CheckConstraint(
+            "phase IN ('preflight','registering')", name="ck_dataset_registration_phase"
+        ),
+        Index(
+            "uq_dataset_source_active_registration",
+            "source_id",
+            unique=True,
+            postgresql_where=text("status IN ('pending','running')"),
+        ),
+    )
+
+
+class DatasetRegistrationEntry(Base):
+    __tablename__ = "dataset_registration_entries"
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("dataset_registration_runs.id", ondelete="CASCADE"), primary_key=True
+    )
+    path_digest: Mapped[str] = mapped_column(String(64), primary_key=True)
+    state: Mapped[str] = mapped_column(String(20), default="pending")
+    item_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("dataset_items.id", ondelete="SET NULL")
+    )
+    error_code: Mapped[str | None] = mapped_column(String(60))
+    attempts: Mapped[int] = mapped_column(default=0)
+    refresh_unverified: Mapped[bool] = mapped_column(Boolean, default=False)
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('pending','ready','registered','unchanged','error')",
+            name="ck_dataset_registration_entry_state",
+        ),
+        Index("ix_dataset_registration_work", "run_id", "state", "path_digest"),
+    )

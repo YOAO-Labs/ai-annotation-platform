@@ -55,7 +55,7 @@ async def key_authority(db, actor, key_id, scope):
     return key.key_hash
 
 
-async def scan_context(db, run_id, path_digest, actor, *, lock=False):
+async def scan_context(db, run_id, path_digest, actor, *, lock=False, node_id=None):
     await scans.require_actor(db, actor.id)
     location, source, run, _ = await scans.run_context(db, run_id)
     await scans.validate_context(db, location, source, snapshot=run.snapshot)
@@ -69,15 +69,22 @@ async def scan_context(db, run_id, path_digest, actor, *, lock=False):
     entry = await db.scalar(stmt.execution_options(populate_existing=True))
     if entry is None or entry.kind != "file" or entry.state != "observed":
         raise HTTPException(404, "Observed image not found")
-    node = locations.api_node_id()
+    node = node_id or locations.api_node_id()
     probe = await db.get(
         StorageLocationProbe, (location.id, node), populate_existing=True
     )
+    proof = locations.probe_out(probe, location) if probe else None
+    if node_id is not None and probe is not None:
+        # A claimed worker uses its pinned anchor and every actual safe read.
+        # A long registration does not lose authority merely due to probe TTL.
+        proof = (
+            probe.result if probe.config_revision == location.config_revision else None
+        )
+    required_capability = "list" if node_id is not None else "read"
     if (
-        probe is None
-        or not locations.probe_out(probe, location)["ok"]
-        or locations.probe_out(probe, location)["capabilities"].get("read")
-        != "verified"
+        not proof
+        or not proof.get("ok")
+        or proof.get("capabilities", {}).get(required_capability) != "verified"
     ):
         raise snapshots.ContentError("api_read_not_verified")
     anchor = await locations.node_anchor(db, location, node)
@@ -95,9 +102,12 @@ async def scan_snapshot(
     expected_sha256=None,
     verify=False,
     api_key_id=None,
+    node_id=None,
+    before_commit=None,
+    refresh_unverified=False,
 ):
     location, source, run, entry, node, anchor = await scan_context(
-        db, run_id, path_digest, actor
+        db, run_id, path_digest, actor, node_id=node_id
     )
     receipt = entry.verified_content
     scope = "datasets:write" if verify else "datasets:read"
@@ -114,12 +124,15 @@ async def scan_snapshot(
     if receipt is None and not same_host:
         raise snapshots.ContentError("initial_verification_node_mismatch")
     expected_source = source.root_identity if same_host else None
+    observed = receipt["observation"] if receipt else entry.observed
     expected = {
-        key: entry.observed[key]
+        key: observed[key]
         for key in ("size", "mtime_ns", "ctime_ns", "identity")
         if same_host or key != "identity"
     }
-    if receipt and receipt["node_id"] == node:
+    if refresh_unverified and receipt is None:
+        expected = None  # Explicit repair retry; a verified identity never moves.
+    if receipt and (receipt["node_id"] == node or same_host):
         expected = receipt["observation"]
         expected_source = expected["source_identity"]
     config, base, path = (
@@ -148,7 +161,9 @@ async def scan_snapshot(
             current,
             current_node,
             current_anchor,
-        ) = await scan_context(db, run_id, path_digest, actor, lock=True)
+        ) = await scan_context(
+            db, run_id, path_digest, actor, lock=True, node_id=node_id
+        )
         if await key_authority(db, actor, api_key_id, scope) != key_proof:
             raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
         if (
@@ -163,6 +178,8 @@ async def scan_snapshot(
             and current.verified_content["sha256"] != snapshot.sha256
         ):
             raise snapshots.ContentError("content_mismatch")
+        if before_commit is not None:
+            await before_commit(db)
         if verify and current.verified_content is None:
             current.verified_content = {
                 **snapshot.public(),

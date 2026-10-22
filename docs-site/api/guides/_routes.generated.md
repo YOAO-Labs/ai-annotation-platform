@@ -279,6 +279,12 @@
 | GET | `/dataset-scans/{run_id}/entries/{path_digest}/content` |
 | POST | `/dataset-scans/{run_id}/entries/{path_digest}/register` |
 | GET | `/dataset-items/{item_id}/content` |
+| GET | `/dataset-scans/{scan_id}/registration` |
+| POST | `/dataset-scans/{scan_id}/registration` |
+| POST | `/dataset-registrations/{registration_id}/confirm` |
+| POST | `/dataset-registrations/{registration_id}/resume` |
+| POST | `/dataset-registrations/{registration_id}/entries/{path_digest}/retry` |
+| GET | `/dataset-registrations/{registration_id}/entries` |
 
 ## `datasets.py`
 
@@ -948,4 +954,4 @@
 
 ---
 
-_共 86 模块 / 541 路由_
+_共 86 模块 / 547 路由_

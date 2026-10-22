@@ -139,7 +139,7 @@ async def create_source(db, payload, actor):
     fs.relative_path(payload.relative_path)
     if any(
         not pattern or len(pattern) > 1000 or "\x00" in pattern
-        for pattern in payload.include_globs
+        for pattern in [*payload.include_globs, *payload.exclude_globs]
     ):
         raise HTTPException(422, "Invalid source filter")
     source = DatasetSource(
@@ -147,7 +147,13 @@ async def create_source(db, payload, actor):
         location_id=location.id,
         name=payload.name,
         config=payload.model_dump(
-            include={"relative_path", "node_id", "recursive", "include_globs"}
+            include={
+                "relative_path",
+                "node_id",
+                "recursive",
+                "include_globs",
+                "exclude_globs",
+            }
         ),
     )
     db.add(source)
@@ -165,6 +171,17 @@ async def update_source(db, source_id, payload):
         .limit(1)
     ):
         raise HTTPException(409, "Cancel the active scan before editing its source")
+    from app.db.models.dataset_source import DatasetRegistrationRun
+
+    if await db.scalar(
+        select(DatasetRegistrationRun.id).where(
+            DatasetRegistrationRun.source_id == source.id,
+            DatasetRegistrationRun.status.in_(ACTIVE),
+        )
+    ):
+        raise HTTPException(
+            409, "Cancel the active registration before editing its source"
+        )
     if payload.name is not None:
         source.name = payload.name
     if payload.enabled is not None:
@@ -453,12 +470,21 @@ async def apply_directory(db, run_id, task_id, fence, work, manifest):
         fs.relative_path(
             "/".join(part for part in [config["relative_path"], path] if part)
         )
-        selected = item["kind"] == "file" and any(
-            fnmatch.fnmatchcase(path, pattern) for pattern in config["include_globs"]
+        excluded = any(
+            fnmatch.fnmatchcase(path, pattern)
+            for pattern in config.get("exclude_globs", [])
+        )
+        selected = (
+            item["kind"] == "file"
+            and not excluded
+            and any(
+                fnmatch.fnmatchcase(path, pattern)
+                for pattern in config["include_globs"]
+            )
         )
         state = (
             "pending"
-            if item["kind"] == "directory" and config["recursive"]
+            if item["kind"] == "directory" and config["recursive"] and not excluded
             else "observed"
             if selected
             else "skipped"

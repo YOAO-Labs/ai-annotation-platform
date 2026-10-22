@@ -1,17 +1,39 @@
 # EPIC-03：已有图片目录原地注册为数据集
 
-> 状态：E03-A1 completed；用户授权继续并提交。管理员小目录闭环已完成本地验收；E03-A2/B 保留后续评审，完整 E03 尚未完成，不分配发布版本。
+> 状态：approved / implementing；用户明确授权完整推进 E03 并实际浏览器验收。E03-A1 已完成，现按完整 E03 范围补齐 A2/B；不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
-| 项目          | 内容                                                        |
-| ------------- | ----------------------------------------------------------- |
-| 状态          | E03-A1 已完成；E03-A2/B 保留后续评审                        |
-| 日期          | 2026-10-22（Asia/Shanghai）                                 |
-| 优先级 / 阶段 | P0；M1 核心交付                                             |
-| 负责角色      | 后端、前端、部署运维、测试                                  |
-| 最小依赖      | E01 内容/位置引用；E02 受控目录；E05 安全读取；E11 最小授权 |
-| 协作          | E04 扫描检查点与后续同步；E08 数据集详情；E09 来源配置入口  |
+| 项目          | 内容                                                           |
+| ------------- | -------------------------------------------------------------- |
+| 状态          | E03-A1/A2 已落地；完整 E03 的策略、授权、生命周期及 B 继续实施 |
+| 日期          | 2026-10-22（Asia/Shanghai）                                    |
+| 优先级 / 阶段 | P0；M1 核心交付                                                |
+| 负责角色      | 后端、前端、部署运维、测试                                     |
+| 最小依赖      | E01 内容/位置引用；E02 受控目录；E05 安全读取；E11 最小授权    |
+| 协作          | E04 扫描检查点与后续同步；E08 数据集详情；E09 来源配置入口     |
+
+## 完整 E03 继续实施定案
+
+用户本轮明确要求完整 E03 和实际浏览器验收，基线 `984cb64f3`、工作区干净。先前 A1 的缩小范围不再作为整个 Epic 的完成定义。主进程在当前 checkout 修改；协作代理只读核对状态机和适配器。复用本地虚拟环境、隔离 dev/test 数据库、Redis、桶和 worker，保留共享配置与业务挂载，无需重建后端镜像。
+
+完整交付按以下依赖推进，逐项取得证据后才可归档；周期同步/变化裁决、Agent、训练冻结和完整持久原图缓存分别属于 E04/E06/E10/E05 后续，不能混作 E03 未实现的替代品。
+
+| 范围     | 必须得到的结果                                                                                                            | 证明方式                                       |
+| -------- | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| A2 预检  | 递归/非递归、图片规则与排除规则；匹配/排除/体量/已登记/新增/损坏/待核验分列；API 与指定 worker 可读性明确                 | 新单元/DB/实际 worker 与浏览器                 |
+| A2 注册  | 独立持久注册账本，两阶段预检→确认；逐项事务和增量进度；取消、崩溃恢复、旧 worker fence、重复请求幂等、错误分页和单项重试  | 并发与故障回归；浏览器关闭重开、取消恢复和重试 |
+| 策略     | ownership_mode 与 cache_policy/effective_cache_policy 独立；reference 默认 preview，可选 none；既有 managed_copy 入口保留 | 策略及派生计量测试，浏览器选择                 |
+| 最小授权 | 超管配置位置可见范围，获授权数据管理员使用对应目录；标注员仅读取分配任务                                                  | 不同用户正/反向测试与浏览器                    |
+| 生命周期 | 重扫保留已注册身份，来源停用/恢复与注销不动源文件；删除按已有业务引用边界处理                                             | 源树字节/结构对比，实际浏览器注销              |
+| B 适配器 | 外部 S3/SFTP 持续引用逐个交付；精确定位、边界、读取期间变化、条件读取与能力资格不可由复制导入代替                         | 独立真实服务和浏览器验收                       |
+| 最终门   | E03-S01–S07、AC01–AC10 与相关跨 Epic 门逐条审计；当前文档/API/SDK/CHANGELOG 同步                                          | 验收矩阵及本轮 Outcome                         |
+
+A2 新增 `DatasetRegistrationRun/Entry` 和迁移0199，不复用扫描 entry.state 或 Source.generation。长操作沿用 AsyncJob，但注册账本不随任务历史清理。worker 明确使用自己的节点身份，claim 校验能力和固定锚点，后续逐项实际安全读取；探测 TTL 不使合法长任务在五分钟后自动失效。每项在当前租约/配置/账号复核后提交，取消保留已提交部分并拒绝旧 attempt 的后续落库。注册最终阶段仍重新读取固定摘要，避免预检后换图。
+
+准确首批文件范围：`db/models/dataset_source.py`、`alembic/versions/0199_dataset_registration_jobs.py`、`schemas/dataset_source.py`、`services/dataset_registration.py`、`dataset_references.py`、`dataset_content.py`、`dataset_scans.py`、`workers/dataset_registration.py`、`workers/celery_app.py`、`workers/signals.py`、`api/v1/dataset_sources.py`、`api/v1/async_jobs.py`、`services/async_job_notify.py`、`db/models/async_job.py`；前端 `api/datasetSources.ts`、`api/asyncJobs.ts`、`components/datasets/DirectoryReferencePanel.tsx`、新增注册进度组件及 `components/jobs/asyncJobPresentation.ts`；对应回归、新迁移测试、OpenAPI、SDK清单和正式文档。策略、授权和 B 各自复核现有 owner 后扩充准确范围。本轮跨模型/服务/worker/API/前端，超过8文件；沿用下方数据流，后台登记位于扫描与不可变 Item/Asset 之间。
+
+回退保留0198及已登记身份；0199 只增加可恢复的控制账本，应用回退停止新任务并保留原件兼容读取。任何来源都不得回退成旧桶 key 猜测。分层测试仍使用本计划及 runtime skill 的隔离命令；测试完成清理本轮所有中间产物。后续 Outcome 按实际证据增补，不提前标记全量完成。
 
 ## 本轮实施定案：E03-A1 管理员小目录闭环
 
@@ -235,3 +257,13 @@
 - ADR：`docs/adr/0095-immutable-directory-reference-tasks.md`；CHANGELOG：Unreleased 已补充用户影响。OpenAPI 与 SDK 路由清单已同步。
 - 环境边界：仅当前 checkout 独占修改并使用临时 dev/test 数据库、桶、Redis和来源目录；未修改共享配置或业务挂载，未重建镜像。检查完成后销毁本轮隔离环境并清理日志、临时原图、凭据和截图。
 - 下一切片：E03-A2 大目录后台批量登记、完整预检估算、取消/恢复及错误明细；启动前重新核对扫描/注册所有权和预算。E03-B 远端适配器、周期同步、持久缓存、完整 E08/E09 和训练适配另行评审。已有引用的回退继续保留0198及兼容读取，禁止把引用标识交给旧 S3 resolver。
+
+## Outcome — E03-A2 批量预检与可恢复登记
+
+- 交付：独立 DatasetRegistrationRun/Entry 与迁移0199；两阶段预检→确认、逐项事务、分片及租约、持久派发恢复、取消/继续、错误分页与单项修复重试；新增匹配/排除规则。扫描与登记账本保留各自所有权，不复用 Source.generation。回退保留历史表。
+- 边界复核：初始 Key 证明贯穿 I/O，write-only Key 可确认；确认固定预检代次；容量不足不消费正常候选；前8个文件不可读不阻断后续图片；文件错误和根目录离线分开；旧 worker/消息/失败信号不能写入新尝试。当前批量入口仍为 reference/none，不能宣称完成整个 E03。
+- 浏览器：隔离 API 8101/Web 3101，真实 Celery worker 扫描241候选、排除1目录；预检在2条核验结果后取消，关闭重开继续，240正常/1损坏；异常筛选→修复→单项重试后241通过。正式登记在1条提交后取消并恢复，观察到123已登记/118待登记，最终241已登记、0异常；结果第二页21–40/241、全局后台任务入口可用。鉴权原图640×400正常解码，关联生成241个任务，Workbench读图并保存矩形标注，API确认1条标注落库。源目录242文件摘要清单未变；原图桶与媒体缓存桶均0对象/0字节；浏览器无未捕获异常。
+- 自动验证：相关API/DB/引用/内容/扫描/迁移62项通过，新增替换/缺失/根离线3项、租约过期恢复及任务历史清理后继续2项通过；SDK契约4项通过。Ruff、TypeScript、ESLint、CSS token检查、OpenAPI导出与客户端生成、文档构建和ADR编号检查通过。CSS检查仅报告既有训练比较页2处z-index建议；这些是本地结果，不代表远端CI。
+- 文档：`README.md`、`CHANGELOG.md` Unreleased、`docs-site/user-guide/datasets/import-images.md`、`docs-site/api/guides/dataset-sources.md`、`docs-site/dev/concepts/storage-connections.md`、`docs/adr/0096-durable-directory-registration.md`；OpenAPI与SDK覆盖清单已同步。
+- 清理：检查后销毁本轮owned dev/test模式，清理临时来源、凭据、JUnit、日志及浏览器截图；不改共享配置、业务挂载或镜像。
+- 继续：最小位置/数据集授权、ownership/cache策略与派生计量、来源生命周期及外部S3/SFTP持续引用；完整E03验收矩阵仍未全部闭合，计划留根目录，不归档。

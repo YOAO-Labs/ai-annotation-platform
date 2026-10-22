@@ -17,6 +17,7 @@ class DatasetSourceCreate(BaseModel):
     include_globs: list[str] = Field(
         default_factory=lambda: ["*"], min_length=1, max_length=20
     )
+    exclude_globs: list[str] = Field(default_factory=list, max_length=20)
 
 
 class DatasetSourceUpdate(BaseModel):
@@ -38,6 +39,7 @@ class DatasetSourceOut(BaseModel):
     node_id: str
     recursive: bool
     include_globs: list[str]
+    exclude_globs: list[str] = Field(default_factory=list)
 
 
 class DatasetSourceList(BaseModel):
@@ -93,3 +95,34 @@ class RegisteredReferenceOut(BaseModel):
     item_id: uuid.UUID
     created: bool
     sha256: str
+
+
+class DatasetRegistrationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    scan_run_id: uuid.UUID
+    source_id: uuid.UUID
+    async_job_id: uuid.UUID | None
+    phase: str
+    status: str
+    generation: int
+    error_code: str | None
+    counts: dict[str, int]
+    created_at: datetime
+    completed_at: datetime | None
+
+
+class DatasetRegistrationEntryOut(BaseModel):
+    path_digest: str
+    relative_path: str
+    state: str
+    item_id: uuid.UUID | None
+    error_code: str | None
+    attempts: int
+    size_bytes: int | None
+    sha256: str | None
+
+
+class DatasetRegistrationEntryList(BaseModel):
+    items: list[DatasetRegistrationEntryOut]
+    total: int

@@ -93,6 +93,28 @@ async def drain(db, run, job, fence):
     raise AssertionError("Inventory did not terminate")
 
 
+async def test_excluded_directory_is_not_traversed_and_file_patterns_apply(
+    db_session, world
+):
+    root, _, _, _, source = world
+    (root / "excluded").mkdir()
+    (root / "excluded" / "hidden.png").write_bytes(b"hidden")
+    (root / "keep.png").write_bytes(b"keep")
+    (root / "skip.png").write_bytes(b"skip")
+    source.config = {**source.config, "exclude_globs": ["excluded", "skip.*"]}
+    run, job, fence = await begin(db_session, world)
+    await drain(db_session, run, job, fence)
+    entries = list(
+        await db_session.scalars(
+            select(DatasetScanEntry).where(DatasetScanEntry.run_id == run.id)
+        )
+    )
+    states = {entry.relative_path: entry.state for entry in entries}
+    assert "excluded/hidden.png" not in states
+    assert states["excluded"] == states["skip.png"] == "skipped"
+    assert states["keep.png"] == "observed"
+
+
 async def test_recursive_inventory_is_idempotent_and_never_creates_samples(
     db_session, world
 ):

@@ -1,6 +1,7 @@
 """Administrator inventories, verified content and explicit reference registration."""
 
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import func, select
@@ -12,6 +13,8 @@ from app.db.models.dataset_source import (
     DatasetScanRun,
     DatasetScanEntry,
     DatasetReference,
+    DatasetRegistrationRun,
+    DatasetRegistrationEntry,
 )
 from app.db.models.user import User
 from app.deps import get_db, require_roles, require_scopes
@@ -25,6 +28,8 @@ from app.schemas.dataset_source import (
     DatasetScanEntryList,
     VerifiedScanContent,
     RegisteredReferenceOut,
+    DatasetRegistrationOut,
+    DatasetRegistrationEntryList,
 )
 from app.services import dataset_scans as svc
 from app.services.audit import AuditAction, AuditService
@@ -369,3 +374,192 @@ async def reference_item_content(
     except Exception as exc:
         raise content_http_error(exc) from None
     return SnapshotResponse(snapshot)
+
+
+@router.get(
+    "/dataset-scans/{scan_id}/registration",
+    response_model=DatasetRegistrationOut | None,
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
+async def get_scan_registration(
+    scan_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(super_admin),
+):
+    return await db.scalar(
+        select(DatasetRegistrationRun).where(
+            DatasetRegistrationRun.scan_run_id == scan_id
+        )
+    )
+
+
+async def dispatch_registration(db, run, created):
+    await db.commit()
+    if created:
+        from app.workers.dataset_registration import dispatch
+
+        await dispatch(db, run.id)
+    await db.refresh(run)
+    return run
+
+
+@router.post(
+    "/dataset-scans/{scan_id}/registration",
+    response_model=DatasetRegistrationOut,
+    status_code=202,
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
+async def preflight_registration(
+    scan_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services import dataset_registration as registration
+    from app.services.dataset_content import content_http_error
+
+    try:
+        run, created = await registration.start_preflight(
+            db, scan_id, actor, api_key_id=getattr(request.state, "api_key_id", None)
+        )
+        await audit(db, actor, request, "dataset_registration.preflight", run.id)
+        return await dispatch_registration(db, run, created)
+    except Exception as exc:
+        raise content_http_error(exc) from None
+
+
+@router.post(
+    "/dataset-registrations/{registration_id}/confirm",
+    response_model=DatasetRegistrationOut,
+    status_code=202,
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
+async def confirm_registration(
+    registration_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services import dataset_registration as registration
+    from app.services.dataset_content import content_http_error
+
+    try:
+        run, created = await registration.confirm(
+            db,
+            registration_id,
+            actor,
+            api_key_id=getattr(request.state, "api_key_id", None),
+        )
+        await audit(db, actor, request, "dataset_registration.confirm", run.id)
+        return await dispatch_registration(db, run, created)
+    except Exception as exc:
+        raise content_http_error(exc) from None
+
+
+@router.post(
+    "/dataset-registrations/{registration_id}/resume",
+    response_model=DatasetRegistrationOut,
+    status_code=202,
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
+async def resume_registration(
+    registration_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services import dataset_registration as registration
+    from app.services.dataset_content import content_http_error
+
+    try:
+        run = await registration.resume(
+            db,
+            registration_id,
+            actor,
+            api_key_id=getattr(request.state, "api_key_id", None),
+        )
+        await audit(db, actor, request, "dataset_registration.resume", run.id)
+        return await dispatch_registration(db, run, True)
+    except Exception as exc:
+        raise content_http_error(exc) from None
+
+
+@router.post(
+    "/dataset-registrations/{registration_id}/entries/{path_digest}/retry",
+    response_model=DatasetRegistrationOut,
+    status_code=202,
+    dependencies=[Depends(require_scopes("datasets:write"))],
+)
+async def retry_registration_entry(
+    registration_id: uuid.UUID,
+    path_digest: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services import dataset_registration as registration
+    from app.services.dataset_content import content_http_error
+
+    try:
+        run = await registration.resume(
+            db,
+            registration_id,
+            actor,
+            api_key_id=getattr(request.state, "api_key_id", None),
+            path_digest=path_digest,
+        )
+        await audit(db, actor, request, "dataset_registration.retry_entry", run.id)
+        return await dispatch_registration(db, run, True)
+    except Exception as exc:
+        raise content_http_error(exc) from None
+
+
+@router.get(
+    "/dataset-registrations/{registration_id}/entries",
+    response_model=DatasetRegistrationEntryList,
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
+async def registration_entries(
+    registration_id: uuid.UUID,
+    state: Literal["pending", "ready", "registered", "unchanged", "error"]
+    | None = None,
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(super_admin),
+):
+    run = await db.get(DatasetRegistrationRun, registration_id)
+    if run is None:
+        raise HTTPException(404, "Registration not found")
+    entry = DatasetRegistrationEntry
+    stmt = (
+        select(entry, DatasetScanEntry)
+        .join(
+            DatasetScanEntry,
+            (DatasetScanEntry.run_id == run.scan_run_id)
+            & (DatasetScanEntry.path_digest == entry.path_digest),
+        )
+        .where(entry.run_id == run.id)
+    )
+    if state:
+        stmt = stmt.where(entry.state == state)
+    total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
+    rows = (
+        await db.execute(stmt.order_by(entry.path_digest).offset(offset).limit(limit))
+    ).all()
+    return {
+        "total": total,
+        "items": [
+            {
+                "path_digest": unit.path_digest,
+                "relative_path": observed.relative_path,
+                "state": unit.state,
+                "item_id": unit.item_id,
+                "error_code": unit.error_code,
+                "attempts": unit.attempts,
+                "size_bytes": observed.observed.get("size"),
+                "sha256": (observed.verified_content or {}).get("sha256"),
+            }
+            for unit, observed in rows
+        ],
+    }

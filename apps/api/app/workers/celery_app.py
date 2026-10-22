@@ -44,6 +44,7 @@ celery_app = Celery(
         "app.workers.dataset_import",
         "app.workers.storage_probe",
         "app.workers.dataset_scan",
+        "app.workers.dataset_registration",
         # v0.12.0 · B4 建任务异步化（大 dataset link → Celery 建 task）
         "app.workers.create_tasks",
         "app.workers.cross_frame_job",
@@ -256,6 +257,10 @@ celery_app.conf.update(
             "schedule": crontab(hour=2, minute=30),
         },
         # v0.10.16 · async_jobs 终态 retention purge：30 天后清 completed/failed/cancelled
+        "recover-dataset-registrations": {
+            "task": "app.workers.dataset_registration.recover_registrations",
+            "schedule": 30.0,
+        },
         "purge-old-async-jobs": {
             "task": "app.workers.async_jobs_cleanup.purge_old_async_jobs",
             "schedule": crontab(hour=4, minute=15),

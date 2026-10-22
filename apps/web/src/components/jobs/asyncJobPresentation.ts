@@ -9,6 +9,7 @@ export const JOB_KIND_LABEL: Record<string, string> = {
   prediction_retry: "失败预测重试",
   dataset_import: "数据集导入",
   dataset_scan: "目录观测扫描",
+  dataset_registration: "目录预检与登记",
   create_tasks: "建任务",
   export: "数据导出",
   training_dataset: "训练数据构建",
@@ -59,15 +60,22 @@ export function jobNumber(record: Record<string, unknown>, key: string): number 
 export function jobResultSummary(job: Pick<AsyncJob, "kind" | "result">): string | null {
   const result = job.result ?? {};
   const fields =
-    job.kind === "dataset_scan"
-      ? { processed_count: "已观测", file_count: "匹配文件", skipped_count: "跳过" }
-      : job.kind === "dataset_import" || job.kind === "mask_format_import"
-        ? { imported: "导入", skipped: "跳过", error_count: "错误" }
-        : job.kind === "create_tasks"
-          ? { created_tasks: "已建任务", skipped: "跳过" }
-          : job.kind === "export"
-            ? { file_count: "文件" }
-            : { success_count: "成功", failed_count: "失败", skipped_count: "跳过" };
+    job.kind === "dataset_registration"
+      ? {
+          ready_count: "已核验",
+          registered_count: "新增",
+          unchanged_count: "已存在",
+          error_count: "异常",
+        }
+      : job.kind === "dataset_scan"
+        ? { processed_count: "已观测", file_count: "匹配文件", skipped_count: "跳过" }
+        : job.kind === "dataset_import" || job.kind === "mask_format_import"
+          ? { imported: "导入", skipped: "跳过", error_count: "错误" }
+          : job.kind === "create_tasks"
+            ? { created_tasks: "已建任务", skipped: "跳过" }
+            : job.kind === "export"
+              ? { file_count: "文件" }
+              : { success_count: "成功", failed_count: "失败", skipped_count: "跳过" };
   const parts = Object.entries(fields).flatMap(([key, label]) => {
     const value = jobNumber(result, key);
     return value === null ? [] : [`${label} ${value}`];
@@ -81,6 +89,8 @@ export function jobStage(job: AsyncJob): string {
   const phase = jobString(job.result, "stage") ?? jobString(job.payload, "stage");
   const labels: Record<string, string> = {
     queued: "等待执行",
+    preflight: "核验图片与接入影响",
+    registering: "登记业务样本",
     collecting: "枚举文件",
     enumerating: "枚举文件",
     resume_validation: "复核扫描检查点",

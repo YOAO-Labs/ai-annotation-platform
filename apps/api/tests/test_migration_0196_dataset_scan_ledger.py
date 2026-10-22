@@ -16,6 +16,25 @@ async def test_empty_scan_ledger_roundtrip_and_retention_guard(db_session, monke
     spec.loader.exec_module(migration)
 
     def roundtrip(sync):
+        dependents = []
+        for filename in (
+            "0197_scan_content_verification.py",
+            "0198_dataset_references.py",
+            "0199_dataset_registration_jobs.py",
+        ):
+            dependent_spec = importlib.util.spec_from_file_location(
+                filename[:-3], Path(__file__).parents[1] / "alembic/versions" / filename
+            )
+            dependent = importlib.util.module_from_spec(dependent_spec)
+            dependent_spec.loader.exec_module(dependent)
+            monkeypatch.setattr(
+                dependent,
+                "op",
+                Operations(MigrationContext.configure(sync.connection())),
+            )
+            dependents.append(dependent)
+        for dependent in reversed(dependents):
+            dependent.downgrade()
         monkeypatch.setattr(
             migration, "op", Operations(MigrationContext.configure(sync.connection()))
         )
@@ -28,6 +47,8 @@ async def test_empty_scan_ledger_roundtrip_and_retention_guard(db_session, monke
             sync.scalar(text("SELECT to_regclass('public.dataset_scan_entries')"))
             == "dataset_scan_entries"
         )
+        for dependent in dependents:
+            dependent.upgrade()
         sync.execute(
             text(
                 "INSERT INTO storage_locations (id, name, kind, config) VALUES ('00000000-0000-0000-0000-000000000196','migration-scan-root','filesystem','{}')"

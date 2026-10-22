@@ -57,8 +57,11 @@ async def _apply_terminal(
             aj = await async_job_svc.find_by_celery_task_id(db, celery_task_id)
             if aj is None:
                 return
-            if aj.kind == "dataset_scan":
-                from app.services.dataset_scans import signal_interrupted
+            if aj.kind in {"dataset_scan", "dataset_registration"}:
+                if aj.kind == "dataset_scan":
+                    from app.services.dataset_scans import signal_interrupted
+                else:
+                    from app.services.dataset_registration import signal_interrupted
 
                 await signal_interrupted(db, aj, cancelled=cancelled)
                 await db.commit()

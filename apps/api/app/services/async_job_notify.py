@@ -30,6 +30,7 @@ TERMINAL_NOTIFY_KINDS = {
     "prediction_retry",
     "dataset_import",
     "dataset_scan",
+    "dataset_registration",
     "mask_qc",
     "mask_repair",
     "mask_repair_rollback",

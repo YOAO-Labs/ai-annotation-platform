@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,7 +22,7 @@ from app.db.models.project import Project
 from app.db.models.mask_repair_batch import MaskRepairBatch
 from app.db.models.mask_format_import import MaskFormatImport
 from app.db.models.user import User
-from app.deps import get_current_user, get_db
+from app.deps import get_current_user, get_db, assert_request_scopes
 from app.services.async_job_terminal import reconcile_domain_terminal
 from app.services.project_aggregates import project_scope_clause
 from app.schemas.async_job import (
@@ -43,6 +43,7 @@ CANCELLABLE_KINDS = {
     "audit_archive",
     "dataset_import",
     "dataset_scan",
+    "dataset_registration",
     "mask_qc",
     "mask_repair",
     "mask_format_import",
@@ -85,7 +86,7 @@ def _build_async_job_query(
             project_roles=(ProjectRole.REVIEWER.value,),
         )
         query = query.where(
-            AsyncJob.kind != "dataset_scan",
+            AsyncJob.kind.not_in(["dataset_scan", "dataset_registration"]),
             AsyncJob.user_id == current_user.id,
             or_(
                 # Genuine global non-export jobs stay visible; a global export
@@ -136,7 +137,7 @@ async def _can_access_job(db: AsyncSession, *, job: AsyncJob, user: User) -> boo
     """
     if user.role == PlatformRole.SUPER_ADMIN.value:
         return True
-    if job.kind == "dataset_scan":
+    if job.kind in {"dataset_scan", "dataset_registration"}:
         return False
     if job.project_id is None:
         # Annotation export has no legitimate global mode: a malformed/legacy
@@ -265,6 +266,7 @@ async def get_async_job(
 @router.post("/async-jobs/{job_id}/cancel")
 async def cancel_async_job(
     job_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -292,10 +294,20 @@ async def cancel_async_job(
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
 
-    if job.kind == "dataset_scan":
-        from app.services.dataset_scans import cancel_job
+    if job.kind in {"dataset_scan", "dataset_registration"}:
+        assert_request_scopes(request, "datasets:write")
+        from app.services.dataset_content import key_authority
+
+        key_id = getattr(request.state, "api_key_id", None)
+        key_proof = await key_authority(db, current_user, key_id, "datasets:write")
+        if job.kind == "dataset_scan":
+            from app.services.dataset_scans import cancel_job
+        else:
+            from app.services.dataset_registration import cancel_job
 
         await cancel_job(db, job.id, current_user)
+        if await key_authority(db, current_user, key_id, "datasets:write") != key_proof:
+            raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
         await db.commit()
         return {"status": "cancelled", "id": str(job.id)}
 
