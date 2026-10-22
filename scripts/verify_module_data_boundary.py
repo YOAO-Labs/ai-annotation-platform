@@ -342,6 +342,8 @@ SCHEMA_ARTIFACTS = (
 TEST_FILES = (
     "tests/test_labeling_video_writer_native.py",
     "tests/test_labeling_video_writer_live.py",
+    "tests/test_labeling_video_writer_containers.py",
+    "tests/test_labeling_video_writer_restore.py",
     "tests/test_video_execution_checkpoints_native.py",
     "tests/test_video_window_journal_native.py",
     "tests/test_video_execution_plan_native_validation.py",
@@ -3758,6 +3760,7 @@ def main(argv: list[str] | None = None) -> int:
         _create_image_storage_scope(image_worker_storage)
         if selected_test_paths & {
             "tests/test_labeling_video_writer_live.py",
+            "tests/test_labeling_video_writer_containers.py",
             "tests/test_mask_content_live.py",
             "tests/test_mask_content_containers.py",
             "tests/test_mask_gc_live.py",

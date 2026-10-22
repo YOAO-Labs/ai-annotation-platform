@@ -43,7 +43,9 @@ URL 与 DSN 互斥。独立进程复用 `apps/labeling` 工件，入口 `aap-lab
 
 Labeling 获得 worker 最终结果的唯一原子发布路径，且普通重试只重放稳定写入命令，不会重复推理。SQL 函数保持数据所有权在数据库事务中，不依赖跨进程共享 Session。
 
-此次边界有意保持窄。Human accept/decide/discard 以及中间 start/progress 写仍由 API ORM 持有。本地验收已覆盖六个 bbox／Mask × 借用事务／DSN／HTTP 真实消费者、独立 HTTP 进程重启、当前证明下的旧收据查询，以及进程中断后的取消前缀恢复与再次投递。原有三个进程中断恢复场景也继续通过。非 editable 安装运行同一套 60 个包用例，148 个便携包与运行时文件逐字节匹配源码，且不安装 API、ORM、Celery、对象存储 SDK 或 ML 包。备份恢复、受限镜像和本地容量仍待验证。完整 Labeling 模块、全部模块的独立部署和语言替换均未完成。不能以该切片作为生产切换或跨平台容量证明。
+此次边界有意保持窄。Human accept/decide/discard 以及中间 start/progress 写仍由 API ORM 持有。本地验收已覆盖六个 bbox／Mask × 借用事务／DSN／HTTP 真实消费者、独立 HTTP 进程重启、当前证明下的旧收据查询，以及进程中断后的取消前缀恢复与再次投递。原有三个进程中断恢复场景也继续通过。非 editable 安装运行同一套 60 个包用例，148 个便携包与运行时文件逐字节匹配源码，且不安装 API、ORM、Celery、对象存储 SDK 或 ML 包。受限 owner 镜像在 UID10006、只读、禁网、1 CPU／768 MiB 下验证了148个包文件；匹配 API 冷镜像验证480个包文件与1278个 API／native 输入，OpenAPI 不变。实际容器消费者覆盖 bbox／Mask 与重启；每种形态各16个收据读取、并发4，锁争用可重试。这是有限读取采样，不代表写入或生产容量。
+
+同实例非空 `pg_dump/pg_restore` 验证保留完整计划、窗口分块（含带符号零及科学计数法字节）、不可变收据和 helper／ACL；存在收据时拒绝降级。副本保留源权威身份并拒绝旧证明，未执行手工 realm／secret 改写。当前没有受控重新绑定 capability，因此跨环境继续未完成作业、Mask／原片对象恢复和写入容量仍未完成。完整 Labeling 模块、全部模块的独立部署和语言替换均未完成。不能以该切片作为生产切换或跨平台容量证明。
 
 ## Notes
 
@@ -51,3 +53,13 @@ Labeling 获得 worker 最终结果的唯一原子发布路径，且普通重试
 - API 集成位于 `apps/api/app/services/video_tracking/writer.py` 与 `runner.py`。
 - Native capability 与 receipt 位于迁移 `0283`；部署角色来源见 `infra/docker/labeling-video-writer-grants.sql`。
 - 开发启动、配置及权限顺序见仓库 `DEV.md`；协议调用见 `docs-site/api/guides/labeling-runtime.md` 与 `docs-site/api/guides/module-data.md`。
+
+## Terminal publication and cleanup lease
+
+Native renewal validates realm, generation, token and expiry before returning
+`job_not_active` for a terminal Job. The worker stops renewal on this definite
+reply while retaining the current proof for physical retirement within its
+remaining lease. It does not grant further business writes; Native Job and lease
+guards still reject them. Unknown renewal, replacement, realm mismatch and expiry
+continue to stop writes. Container tests shorten the renewal interval to exercise
+this path during restart and concurrent receipt reads.

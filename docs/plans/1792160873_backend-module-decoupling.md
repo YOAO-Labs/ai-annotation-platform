@@ -4829,3 +4829,38 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   no Go provider was expanded, and no GPU/AMD64/remote-CI qualification is claimed.
   Next close those gates, then extract the remaining human candidate decisions and
   intermediate writers before declaring the Labeling module complete.
+
+### Restricted video writer and restored-state checkpoint
+
+- Current Labeling owner image passes exact148-file installed-byte checks in an
+  offline, read-only, UID10006 container at1CPU/768MiB, without API/ORM/Celery/S3SDK/ML.
+  Two actual restricted-container consumers pass for bbox and Mask, including
+  readonly credential files, restart/rediscovered local endpoint, frozen windows,
+  Mask-root handoff, receipt recovery and physical scope retirement.
+- Each consumer completes16 exact receipt reads at observed concurrency4. Actual
+  NOWAIT refusals are retried with the same current proof/digest (14/9 retries in
+  the recorded bbox/Mask sample). These are bounded receipt-read samples, not
+  write-throughput, large-payload or production-capacity evidence.
+- The faster renewal test exposes and fixes a terminal cleanup race: a definite
+  Native `job_not_active` renewal reply follows current-proof/expiry validation.
+  Stop renewal without discarding that still-valid proof for physical retirement;
+  business writes remain rejected.19 execution-fence checks and the two real
+  container flows pass. Unknown renewal, replacement and expired proofs retain
+  their fail-closed behavior.
+- A fresh owned source database publishes nonempty mock-bbox canonical windows
+  and a real immutable receipt, then pg_dump/pg_restore preserves exact window
+  bytes (signed zero/scientific notation), source facts, functions, owners and
+  ACLs. Existing receipts prevent downgrade. The original remains unchanged; the
+  cloned realm correctly rejects source proofs and performs no business mutation.
+  This does not restore Mask objects or other S3 bytes.
+- The restore audit found no authorized authority rebind: initialization only
+  binds Jobs to the creating DB OID/name/cluster. A coordinated Jobs/Inference
+  restore capability must fence prior runtime/storage writers, rotate authority
+  and preserve immutable results before same-job resumption can be qualified.
+  No manual realm/secret rewrite or abandoned-job shortcut was introduced.
+- Evidence lives in `.worktree/labeling-video-writer-container-restore-qualification.json`.
+  The initial API cold image matches480 package and1278 API/native files at the
+  base commit; refresh it after the renewal fix before claiming current API-image
+  qualification. Source/image checks, retained restore data, operator rebind,
+  bounded write capacity and complete human/intermediate Labeling migration are
+  distinct gates. The ten-module/seven-gate objective remains active.

@@ -157,6 +157,10 @@ async def tracker_execution(
                         # An explicit NOWAIT refusal made no renewal mutation.
                         await asyncio.sleep(0.2)
                         continue
+                    if exc.code == "job_not_active":
+                        # Native checked this proof and lease before the Job's
+                        # terminal state; retain it for fenced physical cleanup.
+                        return
                     current.lost = True
                     return
                 except Exception:

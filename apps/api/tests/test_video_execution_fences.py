@@ -406,3 +406,53 @@ async def test_route_heartbeat_contention_does_not_end_the_tracker(monkeypatch):
         is False
     )
     assert heartbeat.await_count == 15
+
+
+async def test_terminal_renewal_keeps_valid_proof_for_cleanup_but_not_business_writes(
+    monkeypatch,
+):
+    job_id = uuid4()
+    renewed = asyncio.Event()
+    calls = []
+    claim = None
+
+    async def native_call(_db, action, request):
+        nonlocal claim
+        calls.append(action)
+        if action == "claim":
+            claim = ExecutionClaim(
+                job_id=job_id,
+                run_id=uuid4(),
+                worker_id=request.worker_id,
+                generation=1,
+                lease_token=uuid4(),
+                lease_expires_at=datetime.now(timezone.utc),
+                state="ready",
+            )
+            return {"execution": claim}
+        if action == "renew":
+            renewed.set()
+            raise VideoExecutionFailure("job_not_active")
+        if action == "guard":
+            raise VideoExecutionFailure("job_not_active")
+        assert action == "release"
+        assert request.run_id == claim.run_id
+        return {"released": True}
+
+    db = SimpleNamespace(
+        commit=AsyncMock(), rollback=AsyncMock(), no_autoflush=nullcontext()
+    )
+
+    @asynccontextmanager
+    async def sessions():
+        yield db
+
+    monkeypatch.setattr(execution, "_call", native_call)
+    monkeypatch.setattr(execution, "_RENEW_SECONDS", 0)
+    async with execution.tracker_execution(db, job_id, session_factory=sessions):
+        await asyncio.wait_for(renewed.wait(), 1)
+        await asyncio.sleep(0)
+        assert execution.execution_proof(job_id) == claim.proof()
+        with pytest.raises(execution.TrackerExecutionLost):
+            await execution.fence_tracker_write(db, job_id, "stage")
+    assert calls == ["claim", "renew", "guard", "release"]
