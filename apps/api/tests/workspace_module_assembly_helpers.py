@@ -609,7 +609,7 @@ class WorkspaceModuleStack:
     cpus: 1
     tmpfs: ["/tmp:rw,noexec,nosuid,size=32m"]
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      test: ["CMD", "python", "-c", "import urllib.request; [urllib.request.urlopen('http://127.0.0.1:8000/health/' + component, timeout=2) for component in ('db', 'redis', 'minio')]"]
       interval: 1s
       timeout: 3s
       start_period: 10s
@@ -873,7 +873,7 @@ secrets:
     async def _wait_service_ready(self, service: str, timeout: float = 90) -> None:
         origin = self._origins[service]
         path = (
-            "/health"
+            "/health/db"
             if service == "api"
             else ("/health" if service == "inference-probe" else "/ready")
         )

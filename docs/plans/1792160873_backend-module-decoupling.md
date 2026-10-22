@@ -6344,3 +6344,11 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   must prove authenticated reads, saved-command replay, and the legacy started
   video409 with intact Project/Job and no deletion receipt. This closes a test
   coverage gap; it does not yet claim a passing assembled restore.
+- Second assembly starts the API and all six owners. Actual API component probes
+  show DB/Redis/MinIO healthy; the aggregate health response remains503 because
+  this assembly does not include a Celery worker. The fixture now reuses the
+  existing Identity assembly's API database readiness route; its Docker health
+  command checks all three available dependencies. Aggregate Celery health is
+  not relaxed or replaced, and a real worker startup/task/restart remains a
+  separate missing qualification. Original failed evidence and clean teardown
+  are retained.
