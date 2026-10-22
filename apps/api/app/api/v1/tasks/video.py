@@ -47,7 +47,10 @@ from app.schemas.video_tracker_job import (
     VideoTrackerPropagateRequest,
 )
 from app.services.audit import AuditAction, AuditService
-from app.services.project_access import is_privileged_for_project
+from app.services.project_access import (
+    get_workspace_project,
+    is_privileged_for_project,
+)
 from app.services.storage import storage_service
 from app.application.point_cloud_manifest import (
     PointCloudManifestFileUnavailable,
@@ -197,12 +200,10 @@ async def get_point_cloud_manifest(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    from app.db.models.project import Project
-
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
 
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     if project is None or project.data_type != "lidar":
         raise HTTPException(status_code=409, detail="Task is not a point-cloud task")
 
@@ -355,9 +356,7 @@ async def claim_video_segment(
         file_type=task.file_type,
         dataset_item_id=task.dataset_item_id,
     )
-    from app.db.models.project import Project
-
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     privileged = bool(project and is_privileged_for_project(current_user, project))
     body = await claim_segment(db, ctx, segment_id, current_user, privileged=privileged)
     await AuditService.log(
@@ -395,9 +394,7 @@ async def heartbeat_video_segment(
         file_type=task.file_type,
         dataset_item_id=task.dataset_item_id,
     )
-    from app.db.models.project import Project
-
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     privileged = bool(project and is_privileged_for_project(current_user, project))
     body = await heartbeat_segment(
         db, ctx, segment_id, current_user, privileged=privileged
@@ -437,9 +434,7 @@ async def release_video_segment(
         file_type=task.file_type,
         dataset_item_id=task.dataset_item_id,
     )
-    from app.db.models.project import Project
-
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     privileged = bool(project and is_privileged_for_project(current_user, project))
     body = await release_segment(
         db, ctx, segment_id, current_user, privileged=privileged
@@ -461,9 +456,7 @@ async def release_video_segment(
 async def _segment_privileged(
     db: AsyncSession, task: Task, user: User | IdentityActorFacts
 ) -> bool:
-    from app.db.models.project import Project
-
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     return bool(
         project
         and (is_privileged_for_project(user, project) or task.reviewer_id == user.id)

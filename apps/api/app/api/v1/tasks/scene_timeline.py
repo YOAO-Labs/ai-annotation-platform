@@ -8,7 +8,6 @@ from app.services import task_access
 from app.api.v1.tasks._shared import (
     _load_task_or_404,
 )
-from app.db.models.project import Project
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.deps import get_current_user, get_db
 from app.schemas.scene import (
@@ -20,6 +19,7 @@ from app.services.labeling_scene import (
     get_scene_timeline_annotation_summaries,
     get_scene_timeline_window,
 )
+from app.services.project_access import get_workspace_project
 from app.services.identity_contracts import IdentityActorFacts
 
 
@@ -59,7 +59,7 @@ async def get_task_scene_timeline(
     if window is None:
         return SceneTimelineResponse()
 
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
     all_task_ids = {entry.task_id for entry in window.frame_tasks.values()}

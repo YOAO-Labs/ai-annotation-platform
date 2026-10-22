@@ -9,10 +9,10 @@ from app.services import task_access
 from app.api.v1.tasks._shared import (
     _load_task_or_404,
 )
-from app.db.models.project import Project
 from app.deps import get_current_user, get_db, require_scopes
 from app.schemas.task import TaskMaskCapabilitiesResponse
 from app.services.raster_mask_capabilities import evaluate_raster_mask_capabilities
+from app.services.project_access import get_workspace_project
 from app.services.raster_mask_storage import MAX_RLE_OBJECT_BYTES
 from app.utils.raster_mask_rle import (
     MAX_IMAGE_MASK_DIMENSION,
@@ -38,7 +38,7 @@ async def get_mask_capabilities(
     access = await task_access.resolve_task_access(db, task, current_user.id)
     await task_access.assert_task_visible(db, task, current_user.id, access=access)
 
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
 

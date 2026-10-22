@@ -47,6 +47,7 @@ from app.schemas.scene_track import (
 )
 from app.services.audit import AuditAction, AuditService
 from app.services.task_lock import TaskLockService
+from app.services.project_access import get_workspace_project
 from app.services.track_operation import (
     MAX_CANDIDATE_SCAN,
     PreparedTrackOperation,
@@ -157,7 +158,9 @@ async def get_scene_track_detail(
         ).scalars()
     )
     member_task_ids = {member.task_id for member in members}
-    project = await db.get(Project, anchor_task.project_id)
+    project = await get_workspace_project(
+        db, actor_id=None, project_id=anchor_task.project_id
+    )
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
     visible_tasks = await _task_access_map(
@@ -264,7 +267,9 @@ async def get_scene_track_diagnostics(
     anchor_task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, anchor_task, current_user.id)
     context = await resolve_scene_track_context(db, anchor_task)
-    project = await db.get(Project, anchor_task.project_id)
+    project = await get_workspace_project(
+        db, actor_id=None, project_id=anchor_task.project_id
+    )
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
     scene_task_ids = set(context.task_to_frame)
@@ -349,7 +354,9 @@ async def _assert_prepared_mutable(
     prepared: PreparedTrackOperation | PreparedSceneTrackCommand,
     access: ProjectAccess | None = None,
 ) -> None:
-    project = await db.get(Project, anchor_task.project_id)
+    project = await get_workspace_project(
+        db, actor_id=None, project_id=anchor_task.project_id
+    )
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
     task_ids = set(prepared.task_ids)
@@ -531,7 +538,9 @@ async def list_scene_track_operations(
     anchor_task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, anchor_task, current_user.id)
     context = await resolve_scene_track_context(db, anchor_task)
-    project = await db.get(Project, anchor_task.project_id)
+    project = await get_workspace_project(
+        db, actor_id=None, project_id=anchor_task.project_id
+    )
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
     rows = list(
@@ -601,7 +610,9 @@ async def revert_scene_track_command(
         )
 
     task_ids = _operation_task_ids(operation) or {anchor_task.id}
-    project = await db.get(Project, anchor_task.project_id)
+    project = await get_workspace_project(
+        db, actor_id=None, project_id=anchor_task.project_id
+    )
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
     tasks = await _task_access_map(
@@ -668,7 +679,9 @@ async def list_track_operation_candidates(
         primary_track_id=track_id,
         limit=min(MAX_CANDIDATE_SCAN, limit * 4),
     )
-    project = await db.get(Project, anchor_task.project_id)
+    project = await get_workspace_project(
+        db, actor_id=None, project_id=anchor_task.project_id
+    )
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
     all_task_ids = set(structural.primary.task_ids)

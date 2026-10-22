@@ -20,6 +20,7 @@ from app.db.models.task_batch import TaskBatch
 from app.db.models.task_event import TaskEvent
 from app.db.enums import ProjectRole, UserRole
 from app.services.project_aggregates import ANNOTATOR_ROLE, REVIEWER_ROLE
+from app.services.project_access import get_workspace_project
 from app.schemas.dashboard import (
     AdminDashboardStats,
     RegistrationDayPoint,
@@ -190,7 +191,7 @@ async def _resolve_people_scope(
             raise HTTPException(
                 status_code=403, detail="project_admin 必须指定其管理的项目范围"
             )
-        proj = await db.get(Project, pid)
+        proj = await get_workspace_project(db, actor_id=None, project_id=pid)
         if proj is None or proj.owner_id != current_user.id:
             raise HTTPException(status_code=404, detail="项目不存在")
     elif pid is not None:

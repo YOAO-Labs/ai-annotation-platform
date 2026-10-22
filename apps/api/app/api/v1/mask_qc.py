@@ -33,6 +33,7 @@ from aap_workspace_contract.access import (
 )
 from app.services.project_access import (
     assert_capability,
+    get_workspace_project,
     resolve_project_access,
 )
 from aap_workspace.mask_configuration_values import (
@@ -103,7 +104,7 @@ async def _resolve_task_review_access(
     ``lock=True`` acquires the membership ``FOR SHARE`` for a write boundary.
     """
 
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     access = await resolve_project_access(
@@ -599,7 +600,9 @@ async def _load_visible_repair_batch(
     batch = await db.get(MaskRepairBatch, repair_id)
     if batch is None:
         raise HTTPException(status_code=404, detail="Mask repair batch not found")
-    project = await db.get(Project, batch.project_id)
+    project = await get_workspace_project(
+        db, actor_id=None, project_id=batch.project_id
+    )
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     access = await resolve_project_access(

@@ -36,6 +36,7 @@ from aap_workspace_contract.access import (
 )
 from app.services.project_access import (
     assert_capability,
+    get_workspace_project,
     resolve_project_access,
 )
 from aap_workspace.point_quality_configuration_values import (
@@ -140,7 +141,9 @@ async def _assert_issue_visible(
     *,
     lock: bool = False,
 ) -> tuple[Project, ProjectAccess]:
-    project = await db.get(Project, issue.project_id)
+    project = await get_workspace_project(
+        db, actor_id=None, project_id=issue.project_id
+    )
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     access = await resolve_project_access(

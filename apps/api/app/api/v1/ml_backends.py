@@ -35,7 +35,6 @@ from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.dataset import DatasetItem
 from app.db.models.user import User
 from app.db.models.task import Task
-from app.db.models.project import Project
 from app.schemas.ml_backend import (
     MLBackendCreate,
     MLBackendUpdate,
@@ -66,6 +65,7 @@ from app.services.ml_backend import (
     MLBackendURLConflict,
 )
 from app.services import ml_client as ml_client_module
+from app.services.project_access import get_workspace_project
 from app.services.inference_limits import capability_limits_from_settings
 from app.services.ml_interaction_proxy import (
     normalize_native_mask_response,
@@ -1190,7 +1190,7 @@ async def _require_ai_interactive_enabled(
 ) -> None:
     """项目级「交互式 AI 工具」总开关的后端守卫。语义与前端 (`?? true`) 一致 = 默认开:
     仅当显式关闭 (ai_interactive_enabled is False) 才 403, None/True 放行。"""
-    project = await db.get(Project, project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=project_id)
     if project is not None and project.ai_interactive_enabled is False:
         raise HTTPException(
             status_code=403, detail="AI interactive is disabled for this project"
@@ -1456,7 +1456,7 @@ async def predict_frame(
         raise HTTPException(status_code=422, detail="受控模型当前不支持视频单帧预标注")
 
     # DINO 阈值取项目级 override (与 worker 单阶段路径一致, 见 application/preannotation_execution.py batch prediction)。
-    project = await db.get(Project, project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=project_id)
     try:
         context = build_predict_context(
             prompt=cfg.get("prompt"),

@@ -32,8 +32,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services import task_access
 from app.config import settings
 from app.db.models.annotation import Annotation
-from app.db.models.raster_mask_upload import RasterMaskUpload
 from app.db.models.project import Project
+from app.db.models.raster_mask_upload import RasterMaskUpload
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.deps import (
@@ -71,6 +71,7 @@ from app.services.raster_mask_storage import (
     validate_mask_geometry_for_task,
 )
 from app.services.video_tracks import resolve_track_at_frame
+from app.services.project_access import get_workspace_project
 from app.utils.raster_mask_rle import (
     MAX_IMAGE_MASK_DIMENSION,
     MAX_IMAGE_MASK_PIXELS,
@@ -338,7 +339,9 @@ async def upload_task_mask_content(
                 source_summary = await summary_reader.one(task.dataset_item_id)
         source_file_type = task.file_type
         if source_file_type != "video":
-            project = await db.get(Project, task.project_id)
+            project = await get_workspace_project(
+                db, actor_id=None, project_id=task.project_id
+            )
             assert_raster_mask_write_enabled(project)
         if (
             isinstance(size, list)

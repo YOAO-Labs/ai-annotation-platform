@@ -152,11 +152,13 @@ async def _revalidate_project_access(project_id: uuid.UUID, user_id: str) -> boo
     """
 
     from app.db.base import async_session
-    from app.db.models.project import Project
-    from app.services.project_access import resolve_project_access
+    from app.services.project_access import (
+        get_workspace_project,
+        resolve_project_access,
+    )
 
     async with async_session() as db:
-        project = await db.get(Project, project_id)
+        project = await get_workspace_project(db, actor_id=None, project_id=project_id)
         user = await IdentityAccountLockData(db).read_actor_status(
             uuid.UUID(str(user_id))
         )

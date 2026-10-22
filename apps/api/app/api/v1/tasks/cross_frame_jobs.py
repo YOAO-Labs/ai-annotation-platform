@@ -14,7 +14,6 @@ from app.api.v1.tasks._shared import (
     require_task_annotation_write,
 )
 from app.db.models.async_job import AsyncJob
-from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.deps import get_db, get_current_user
@@ -37,6 +36,7 @@ from app.services.labeling_scene import (
     resolve_task_scene_frames,
 )
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.project_access import get_workspace_project
 
 
 router = APIRouter()
@@ -96,7 +96,9 @@ async def _create_job(
             status_code=422, detail="backward range must end before current frame"
         )
 
-    project = await db.get(Project, source_task.project_id)
+    project = await get_workspace_project(
+        db, actor_id=None, project_id=source_task.project_id
+    )
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
     frame_task_map = await get_scene_frame_task_map(db, scene_frame.scene_id)

@@ -86,12 +86,12 @@ from app.services.labeling_write_scope import (
     task_source_binding_matches,
 )
 from app.services.secondary_inference import run_secondary_inference
-from app.db.models.project import Project
 from app.services.video_collaboration import (
     assert_video_annotation_write_scope,
     collaboration_enabled,
     heartbeat_task_lock_for_legacy_video,
 )
+from app.services.project_access import get_workspace_project
 
 
 from app.services import task_access
@@ -226,9 +226,7 @@ async def get_neighbor_annotations(
         )
 
     # v0.15.26 · 逐邻帧复核可见性,不可见的邻帧 task 不取其 annotation(下面 by_task 占位为空)。
-    from app.db.models.project import Project
-
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     visible_ids = await task_access.visible_task_ids(
         db, project, current_user.id, list(frame_by_task.keys())
     )
@@ -274,7 +272,7 @@ async def get_annotations(
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     if collaboration_enabled(project) and video_segment_id is None:
         raise HTTPException(
             status_code=422, detail={"reason": "video_segment_required"}
@@ -304,7 +302,7 @@ async def get_annotations_paged(
 
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     if collaboration_enabled(project) and video_segment_id is None:
         raise HTTPException(
             status_code=422, detail={"reason": "video_segment_required"}
