@@ -5153,3 +5153,9 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   inapplicable rules. The aggregate excludes superseded old three-function and
   unparameterized budget-version names, retaining their failed reports and
   linking the exact replacements. Whole Identity qualification remains open.
+
+- Source/documentation integration commit: `956f52fbec0f23e2c138d0961727c84c5a1ca041`. The aggregate matches34
+  source/test/grant fingerprints; normal hooks preserve public OpenAPI/routes.
+  Docs build passes. Three owned source worktrees are removed after exact
+  branch/HEAD/clean-state and derived-artifact checks, with branches retained.
+  Root editable bindings, primary checkout and four shared containers remain.
