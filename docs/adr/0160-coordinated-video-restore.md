@@ -1,6 +1,6 @@
 # 0160 — 视频执行与推理路由的受控恢复
 
-- **Status:** Proposed，限定本地消费者与故障恢复验收通过；独立镜像资格待补齐
+- **Status:** Proposed，协调恢复切片的限定本地独立运行、消费者与故障恢复验收通过
 - **Date:** 2026-10-22
 - **Deciders:** Pending maintainer review
 - **Supersedes:** None；扩展 [ADR-0158](0158-video-window-journals-and-replay.md) 与 [ADR-0159](0159-independent-labeling-video-writer.md)
@@ -49,4 +49,19 @@ HTTP 或数据库响应不明时保留持久围栏和固定控制 ID。命令重
 
 源码与独立安装包的 Inference／共享合同套件各通过 420 项；非 editable 安装的六个包、82 个源码文件逐字节匹配，不安装 API、ORM、Celery、对象存储 SDK 或 ML 包。原路由、scope 退休、执行代次、写入围栏与最终发布的 51 项受影响回归全部通过。完整迁移验证通过 fresh head、可逆段退至 base、110 步后缀回退／再升级、历史转换与备份恢复；四个派生数据库清理完成，无残留。
 
-本地证据分别保留在 `.worktree/video-restore-native-fourth.*`、`video-restore-live-fifth.*`、`video-restore-consumers-eleventh.*`、`video-restore-worker-installed-cli.*`、`video-restore-existing-regressions.*`、`video-restore-installed-inference.*` 与 `video-restore-migration-validation.json`。旧失败报告继续保留，不合并计数。独立镜像资格仍待补齐；GPU、生产环境、跨平台容量和全对象存储恢复不从 CPU 本地结果推断。
+本地证据分别保留在 `.worktree/video-restore-native-fourth.*`、`video-restore-live-fifth.*`、`video-restore-consumers-eleventh.*`、`video-restore-worker-installed-cli.*`、`video-restore-existing-regressions.*`、`video-restore-installed-inference.*` 与 `video-restore-migration-validation.json`。旧失败报告继续保留，不合并计数。GPU、生产环境、跨平台容量和全对象存储恢复不从 CPU 本地结果推断。
+
+实现提交为 `968212e4e0a8c812fa5a8d79606d38fa0a58f953`。匹配该提交的 ARM64
+Inference 镜像为 `sha256:3a02a2c399cc688c1880439f46e76f9e2f38a28cc155b9c234e2df79a09bb2f3`，API 镜像为 `sha256:0951eca34a3f514434087cf9314464dfa90346b7cefef0403e4397a8fc9f4b9c`。
+Inference 在 UID10008、禁网、只读根文件系统、1 CPU／256 MiB 下冷检通过，82 个包文件
+与源码一致且安装了离线 CLI entry point；API 在 UID10001、禁网、只读、1 CPU／512 MiB
+下验证 484 个安装包文件、1281 个应用／Native 输入、当前迁移 head 与不变的公开 OpenAPI。
+两项 proof 容器均已移除。八张恢复表的真实 ORM autogeneration 对照另通过一项，普通未映射
+控制表仍可报告删除。最终格式化的六个 Python 文件与通过验收时的 AST 相同，已重新安装并
+核对最终包指纹，复用既有行为证据。
+
+汇总证据为 `.worktree/video-restore-milestone-qualification.json`；逐例来源保留在原 JUnit，
+只提取各 cohort 中实际通过的对应场景，不把含其他失败的整份报告标记通过。镜像报告为
+`video-restore-inference-image-qualified.json` 与 `video-restore-api-image-final-artifact.json`。
+源码已集成，独立安装 CLI 已实际运行；日常主环境未切换，未推送或部署生产。
+当前完成的是此协调恢复能力，完整模块仍按唯一[剩余工作台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)推进，下一项为完整 Identity。

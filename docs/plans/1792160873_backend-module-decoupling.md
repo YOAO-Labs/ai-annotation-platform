@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: 进行中。目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。当前先完成协调视频恢复切片，再收口完整 Identity，之后才推进其他切片。唯一剩余工作台账见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)，分开记录实现、消费者迁移、独立运行资格与阻塞。文末 Outcome 保留历史证据，不作为另一份待办。共享物理 PostgreSQL 可以保留，所有者能力、事务／撤权／取消／旧写者与恢复语义必须保持。Go 保持实验；不推送、不发布、不切生产，当前视频恢复切片也不切日常主环境。
+> Status: 进行中。目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。协调视频恢复切片已完成限定本地验收，当前收口完整 Identity，之后才推进其他切片。唯一剩余工作台账见[模块部署与语言替换状态](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)，分开记录实现、消费者迁移、独立运行资格与阻塞。文末 Outcome 保留历史证据，不作为另一份待办。共享物理 PostgreSQL 可以保留，所有者能力、事务／撤权／取消／旧写者与恢复语义必须保持。Go 保持实验；不推送、不发布、不切生产，当前视频恢复切片也不切日常主环境。
 >
 > 创建日期：2026-10-16。
 >
@@ -4978,3 +4978,37 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   as a complete module before unrelated slices. Existing source/installed,
   container, restore and migration evidence is reused unless a subsequent change
   invalidates it. No percentage is used to estimate remaining time.
+
+### Coordinated restore milestone closed; Identity is next
+
+- Implementation commit: `968212e4e0a8c812fa5a8d79606d38fa0a58f953`.
+  The intended independent offline CLI path passes the actual runner/CPU backend,
+  Assets Media source-version and Labeling publication consumer. Five distinct
+  restore scenarios,51 existing consumer regressions and one real ORM
+  autogeneration guard pass; source/installed package suites each pass420.
+  Full migration and owned cleanup evidence is retained, not rerun for formatting.
+- Matching ARM64 images pass cold qualification: Inference `sha256:3a02a2c399cc688c1880439f46e76f9e2f38a28cc155b9c234e2df79a09bb2f3`
+  verifies82 installed package files at UID10008,network-none,read-only,1CPU/256MiB;
+  API `sha256:0951eca34a3f514434087cf9314464dfa90346b7cefef0403e4397a8fc9f4b9c` verifies484 installed package and1281 application/Native inputs,
+  current head and unchanged OpenAPI at UID10001,network-none,read-only,1CPU/512MiB.
+  Both proof containers were removed. The last formatting-only changes have
+  identical ASTs and refreshed installed-package hashes. Aggregate evidence is
+  `.worktree/video-restore-milestone-qualification.json`; this is a bounded local
+  restore capability, not object-storage restore, GPU capacity or module closure.
+- No primary/runtime cutover, push or production deployment occurred. The primary
+  checkout remains clean at856fa79c87ef2668d0ed74eb570df0a3e529d49f and the four
+  protected shared containers retain their original IDs and running state.
+- A read-only Identity difference audit identified the next bounded prerequisite:
+  `SqlTrainingAuthority.assert_authority` still reads User and locks ApiKey for
+  final persistence authorization. Move it behind a narrow same-transaction
+  Identity capability while preserving current account/project/key lock order,
+  expiry/revocation/scope checks and errors. Existing credential confirmation
+  requires a secret hash unavailable to these retained executions, so it cannot
+  be substituted blindly.
+- Identity module blockers are recorded only in the remaining-work ledger:
+  remaining current-authority and display User consumers; shared JWT/command
+  signing secret; registration-status/runtime Settings divergence; all-capability,
+  least-privilege independent assembly and recovery acceptance through the existing
+  deployment path. Partial capability selectors keep working; no new deployment
+  mode is required merely to make full-module acceptance fail when incomplete.
+  Complete Identity before unrelated slices. Go remains experimental.
