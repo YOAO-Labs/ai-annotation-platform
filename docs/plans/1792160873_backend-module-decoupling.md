@@ -6243,3 +6243,35 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   qualification. Legacy no-proof drain still needs machine-verifiable external
   fencing evidence; no unsafe clearance is introduced. No primary cutover, push,
   release, production deployment or expansion of the Go experiment occurs.
+
+### Complete Workspace artifact and assembly qualification prerequisites
+
+- Previous goal turn is progress: source4bd5ddca1557e83549fdbec42c6d1ecbf311c418
+  and evidence66f83e499018bfa796be71431b78af9e8293b529 close the local ordinary
+  consumer SQL credential boundary, with21 distinct effective passes and preserved
+  shared resources. The full goal stays active; Root starts clean at66f83e499.
+- Source-only assembly audit inventories the existing six Compose services and
+  API selectors, borrowed Native worker/deletion/unlink/maintenance paths and
+  lazy Identity Briefs/Inference Probe/Guide Objects dependencies. No worker URL
+  selector is needed at callsites that intentionally use Native transactions.
+  The source image healthcheck is fixed to8172 despite transfer/config running
+  on8173/8174; that remains an actual artifact prerequisite to reproduce/fix.
+  LAN-production network wiring is distinct from the intended local private
+  Compose qualification and is not claimed by it.
+- A minimal offline Workspace lock check fails at the unchanged base. A fresh
+  noneditable core+test install from that frozen lock installs successfully, then
+  actual Dataset unlink import fails with ModuleNotFoundError:aap_assets_cleanup.
+  The core pyproject already declares this dependency, but Workspace's lock
+  metadata omits its direct edge. Runtime extras had masked the missing edge.
+- Root refreshes only the existing Workspace lock: two direct dependency/metadata
+  lines, with no package-version change. API lock check passes and remains
+  unchanged. A fresh noneditable core+test environment imports Dataset unlink and
+  CleanupBucket successfully, both from that environment, without app/SQLAlchemy/
+  Celery. Original lock/core failure logs and real exits remain under
+  .worktree/workspace-module-lock-repro and workspace-module-core-repro; fixed
+  receipts use workspace-module-lock-fixed and workspace-module-core-fixed.
+- This is a verified prerequisite, not complete Workspace qualification. An
+  isolated source-only worker based at66f83e499 is implementing combined assembly
+  helpers/tests in two disjoint new files; Root owns all installs/builds/imports/
+  DB/runtime and the upcoming healthcheck repro. No primary cutover, push,
+  release, production deployment or Go expansion occurs.
