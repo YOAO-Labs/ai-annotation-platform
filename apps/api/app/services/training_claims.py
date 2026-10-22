@@ -8,9 +8,9 @@ from sqlalchemy import func, select
 from training_contract import definition
 
 from app.db.models.learning_policy import LearningPolicy, LearningTrigger
-from app.db.models.project import Project
 from app.db.models.training_study import TrainingStudy
 from app.services import training_adapters, training_initialization as initialization
+from app.services.project_access import get_workspace_project
 
 
 async def project_lock(db, project_id, *, wait=True):
@@ -61,7 +61,12 @@ async def policy_claim_allowed(db, run):
     if run.auto_trigger_id is None:
         return True
     if run.authorization.get("manual_resume"):
-        project = await db.get(Project, run.project_id, populate_existing=True)
+        project = await get_workspace_project(
+            db,
+            actor_id=run.creator_id,
+            project_id=run.project_id,
+            populate_existing=True,
+        )
         return project.status == "in_progress"
     # Claim already owns resource/run locks. Never acquire a policy lock here.
     row = (
@@ -75,7 +80,12 @@ async def policy_claim_allowed(db, run):
     if row is None:
         return False
     policy, trigger = row
-    project = await db.get(Project, run.project_id, populate_existing=True)
+    project = await get_workspace_project(
+        db,
+        actor_id=run.creator_id,
+        project_id=run.project_id,
+        populate_existing=True,
+    )
     return bool(
         policy.enabled
         and policy.revision == trigger.policy_revision
@@ -89,7 +99,12 @@ async def study_claim_allowed(db, run):
     if run.study_id is None:
         return True
     study = await db.get(TrainingStudy, run.study_id, populate_existing=True)
-    project = await db.get(Project, run.project_id, populate_existing=True)
+    project = await get_workspace_project(
+        db,
+        actor_id=run.creator_id,
+        project_id=run.project_id,
+        populate_existing=True,
+    )
     return bool(
         study
         and project.status == "in_progress"

@@ -9,9 +9,10 @@ import uuid
 from typing import NoReturn
 
 from fastapi import HTTPException, status
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
 
 from aap_workspace_contract.access import (
     ProjectAccess as _ProjectAccess,
@@ -159,6 +160,22 @@ async def _read_unlocked_project_row(
     """Read the initial by-id row without locking or consulting actor status."""
     if db.autoflush:
         await db.flush()
+    values = await _workspace_project_values(
+        db,
+        actor_id=actor_id,
+        project_id=project_id,
+    )
+    if values is None:
+        return None
+    return await _merge_project_snapshot(db, Project, values)
+
+
+async def _workspace_project_values(
+    db: AsyncSession,
+    *,
+    actor_id: uuid.UUID,
+    project_id: uuid.UUID,
+) -> dict[str, object] | None:
     payload = await db.scalar(
         _WORKSPACE_PROJECT_ACCESS_STEP,
         {
@@ -173,9 +190,123 @@ async def _read_unlocked_project_row(
         project_id=project_id,
         phase="read_project_row",
     )
-    values = materialize_project_base_row(facts["row_json"], target_id=project_id)
+    try:
+        return materialize_project_base_row(facts["row_json"], target_id=project_id)
+    except ProjectQueryUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="项目查询服务暂不可用",
+        ) from None
+
+
+def _restore_unloaded_project_fields(
+    project: Project, values: dict[str, object]
+) -> None:
+    unloaded = set(inspect(project).unloaded)
+    for key, value in values.items():
+        if key in unloaded:
+            set_committed_value(project, key, value)
+
+
+async def _load_after_expired_project_disappeared(
+    db: AsyncSession,
+    *,
+    cached: Project,
+    actor_id: uuid.UUID,
+    project_id: uuid.UUID,
+) -> Project | None:
+    # Session.get removes a fully expired identity that vanished during refresh,
+    # then performs its ordinary primary-key SELECT once more.
+    db.sync_session._remove_newly_deleted([inspect(cached)])
+    if db.autoflush:
+        await db.flush()
+    values = await _workspace_project_values(
+        db,
+        actor_id=actor_id,
+        project_id=project_id,
+    )
     if values is None:
         return None
+    return await _merge_project_snapshot(db, Project, values)
+
+
+async def get_workspace_project(
+    db: AsyncSession,
+    *,
+    actor_id: uuid.UUID,
+    project_id: uuid.UUID,
+    populate_existing: bool = False,
+) -> Project | None:
+    """Preserve Session.get semantics while reading rows through Workspace."""
+    identity_key = Project.__mapper__.identity_key_from_primary_key((project_id,))
+    cached = db.sync_session.identity_map.get(identity_key)
+    state = inspect(cached) if cached is not None else None
+
+    # Session.get returns any non-fully-expired identity directly, including an
+    # object with only some unloaded/expired columns. This path emits no SQL and
+    # must not flush unrelated pending work.
+    if not populate_existing and cached is not None and not state.expired:
+        return cached
+
+    expired_dirty_autoflush = bool(
+        db.autoflush and cached is not None and state.expired and state.modified
+    )
+    if expired_dirty_autoflush:
+        # The old ORM refresh first restored expired PK columns before its unit
+        # of work flushed. Reading once under no_autoflush avoids a private
+        # Project SELECT during flush; the second owner read preserves the
+        # refresh/read order after pending Project and Task writes complete.
+        with db.no_autoflush:
+            values = await _workspace_project_values(
+                db,
+                actor_id=actor_id,
+                project_id=project_id,
+            )
+        if values is None:
+            if populate_existing:
+                return None
+            return await _load_after_expired_project_disappeared(
+                db,
+                cached=cached,
+                actor_id=actor_id,
+                project_id=project_id,
+            )
+        _restore_unloaded_project_fields(cached, values)
+        await db.flush()
+        values = await _workspace_project_values(
+            db,
+            actor_id=actor_id,
+            project_id=project_id,
+        )
+        if values is None:
+            return None
+        if populate_existing:
+            return await _merge_project_snapshot(db, Project, values)
+        _restore_unloaded_project_fields(cached, values)
+        return cached
+
+    if db.autoflush:
+        await db.flush()
+    values = await _workspace_project_values(
+        db,
+        actor_id=actor_id,
+        project_id=project_id,
+    )
+    if values is None:
+        if not populate_existing and cached is not None and state.expired:
+            return await _load_after_expired_project_disappeared(
+                db,
+                cached=cached,
+                actor_id=actor_id,
+                project_id=project_id,
+            )
+        return None
+
+    if populate_existing:
+        return await _merge_project_snapshot(db, Project, values)
+    if cached is not None:
+        _restore_unloaded_project_fields(cached, values)
+        return cached
     return await _merge_project_snapshot(db, Project, values)
 
 

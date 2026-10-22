@@ -23,7 +23,7 @@ from app.services.identity_contracts import IdentityActorFacts
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.async_job_notify import notify_job_terminal
 from app.services.async_job_terminal import JobTerminal
-from app.services.project_access import resolve_project_access
+from app.services.project_access import get_workspace_project, resolve_project_access
 from app.services.project_write_guard import (
     lock_actor_project_authority,
     lock_project_manager,
@@ -107,7 +107,12 @@ class SqlTrainingAuthority(TrainingAuthorityPort):
                 "authority_revoked", "数据版本创建者已不存在", status_code=403
             )
         actor = await lock_actor_project_authority(self._db, actor_id, project_id)
-        project = await self._db.get(Project, project_id, populate_existing=True)
+        project = await get_workspace_project(
+            self._db,
+            actor_id=actor_id,
+            project_id=project_id,
+            populate_existing=True,
+        )
         if actor is None or project is None:
             raise TrainingDatasetError(
                 "authority_revoked", "项目或创建者已不存在", status_code=403

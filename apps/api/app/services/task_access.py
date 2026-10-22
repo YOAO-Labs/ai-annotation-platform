@@ -14,7 +14,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import ProjectRole
-from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.services.annotation_evidence import assert_review_evidence_current
@@ -22,7 +21,7 @@ from aap_workspace_contract.access import (
     ProjectAccess,
     ProjectCapability,
 )
-from app.services.project_access import resolve_project_access
+from app.services.project_access import get_workspace_project, resolve_project_access
 from app.services.scheduler import (
     annotator_can_rework_task,
     effective_task_assignee_id,
@@ -154,7 +153,9 @@ async def resolve_task_access(
 ) -> ProjectAccess:
     """Resolve the current project access for the task's actual project."""
 
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(
+        db, actor_id=actor_id, project_id=task.project_id
+    )
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return await resolve_project_access(
@@ -208,7 +209,9 @@ async def assert_task_visible(
 ) -> None:
     """Enforce project-bound batch/status and effective-assignment visibility."""
 
-    project = await db.get(Project, task.project_id)
+    project = await get_workspace_project(
+        db, actor_id=actor_id, project_id=task.project_id
+    )
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
     if access is None:
