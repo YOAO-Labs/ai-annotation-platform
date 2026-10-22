@@ -5268,3 +5268,17 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   closed. The one module-deployment ledger retains every remaining blocker,
   with project deletion provider/API binding as the next bounded deliverable.
   No primary cutover, push, production deployment, release or Go expansion.
+
+- Source/Native/documentation integration commit:
+  `8481a33f76939cf0d810f68a70925482479b8e75`. The aggregate binds 25 source,
+  test, grant and documentation fingerprints to that commit. Normal hooks pass,
+  including OpenAPI regeneration with unchanged public artifacts. Runtime grant/
+  selection units pass 20; architecture passes 355 with 149 inapplicable rules.
+  The first unit command omitted its scripts import path; corrected execution
+  passes without source changes, and the failed command receipt is retained.
+  Docs build passes. Both owned source worktrees are removed after exact HEAD,
+  branch, clean-state and patch-equivalence checks; Ruff caches are archived,
+  branches retained. Twenty Root editable bindings still point to this checkout,
+  the clean primary stays at its original commit, and four shared containers
+  remain running. Complete-Workspace independent artifact/restore qualification
+  and primary cutover are not inferred from these focused checks.
