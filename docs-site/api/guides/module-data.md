@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-22
 ---
 
 # 同库事务数据接口
@@ -502,3 +502,62 @@ canonical window 不可覆盖，checkpoint ID 绑定计划与 ordinal，后继�
 Inference 的私有 status 经过配置的嵌入、专用 DSN 或 HTTP owner；HTTP 端点为
 `POST /v1/routes/video-execution-status`，沿用路由服务鉴权并校验精确证明回显。它不属于
 公开应用 OpenAPI。完整模块与提供方资格仍分开验收，见 [ADR-0158](/dev/adr/0158-video-window-journals-and-replay)。
+
+## 视频 worker 最终写入 owner
+
+Labeling 的 `video_writer_step(text,text)` 将一次视频 worker 的 completed、
+cancelled 或 failed 终结写入绑定到当前执行证明，并与 Job 状态、候选结果、
+Mask 引用根和不可变 receipt 在同一事务内提交。公开 REST API 不变。API 可以
+默认借用其 Session，也可以使用专用 PostgreSQL DSN 或显式 HTTP owner；独立路径
+使用 READ COMMITTED，函数本身不提交。URL 与 DSN 互斥，显式配置失败不会回退
+到另一提供方。
+
+私有 HTTP 使用 `aap-labeling-video-writer/v1`，通过 bearer 控制凭据保护：
+
+| 方法 | 路径                                | 用途                                                                              |
+| ---- | ----------------------------------- | --------------------------------------------------------------------------------- |
+| POST | `/v1/labeling/video-writer/execute` | 校验并结算稳定的终结命令                                                          |
+| POST | `/v1/labeling/video-writer/status`  | 按 operation／执行证明／摘要查询回执；仅 execution proof 查询 job/run publication |
+| GET  | `/ready`                            | 检查运行策略与精确 LOGIN 权限面                                                   |
+
+命令绑定 UUID operation、job/run/worker/generation/lease、结果 outcome、可选
+已接受输入断言和最多 2000 字符错误说明。operation UUID 由 run 稳定派生；
+不确定提交只重试原命令或查询原回执。Native read_publication action 和 status
+的 publication lookup 使用封闭
+`{schema, execution}`，只按当前 proof 定位 job/run 中已存在的不可变终态回执；
+原 operation status 仍要求完整的 operation ID、execution proof 和 request digest。
+HTTP 请求上限 65 MiB，封存后的 staged JSON 上限 64 MiB；较大的内部 Native JSON
+上限用于转义后的传输，不改变结果预算。
+成功回执同时记录 operation、job/run、请求摘要、结果状态和 staged 摘要。
+
+Labeling 登录角色只允许执行 `aap_labeling_v1.video_writer_step(text,text)`。
+内部 wrapper `aap_jobs_v1.video_writer_authority(text,jsonb)` 仅授权给 Labeling
+owner，并将操作限制为 inspect、read window、固定 guard 和固定 finish；视频
+LOGIN 没有 Jobs 或 Labeling 表权限，也没有任意 Jobs RPC。安装先应用当前迁移和
+`infra/docker/module-data-grants.sql`，再应用
+`infra/docker/labeling-video-writer-grants.sql`。
+
+完成命令不信任 worker 再传的一份候选全量列表。owner 从 Jobs 账本按冻结计划
+逐窗读取 manifest 与原始 UTF-8 payload 文本，验证原始字节摘要、计划身份、
+前驱、窗口与 attempt 后组合 track 阶段结果；discovery 阶段只用于恢复依赖，不形成
+候选。非空调用方列表只能作为断言，必须与重建结果完全相同。成功必须具备全部
+冻结窗口和必要的 session close 事实。
+
+普通追踪取消将封存的 track 前缀作为候选。可选未封存尾部只允许来自当前代次
+已开始／捕获的下一 planned track window，且每帧都须位于窗口边界内；普通取消
+必须先有数据库取消标记。空列表表示只保留封存前缀。新代次取消清理先按当前 proof
+查询 job/run publication，命中就原样返回 receipt、不再暂存旧 payload；未命中才从
+窗口账本重建封存前缀且不带本地帧行。纠错取消绕过 candidate stage 授权并清空纠错
+候选。失败不需要加载窗口或重新授权
+已损坏的来源计划；若作业已取消，失败清理不覆盖其既有取消候选。各种终结仍
+受当前 tracker actor、原片来源、Task、segment 和状态检查约束。
+
+Mask 对象键会在 Labeling 事务内锁定，再通过 Assets Mask Content owner 验证
+对象字节；只在业务写入原子应用后释放临时引用根。bbox-only 作业不需要 Mask
+服务凭据。临时存储错误会保留同一操作供重试，不触发模型重算。
+
+此能力仍是 Labeling 的一个 worker-finalization 切片。Human accept/decide/discard
+与 start/progress 写仍由 API ORM 持有；普通取消崩溃恢复接入、三路径真实消费者、
+Mask 独立验证、全量备份恢复、受限镜像与容量尚未资格验证。参见
+[Labeling 运行协议](/api/guides/labeling-runtime)和
+[ADR-0159](/dev/adr/0159-independent-labeling-video-writer)。

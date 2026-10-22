@@ -684,6 +684,50 @@ Identity 的窄账号事实，不初始化 Briefs。空成员列表同样不访�
 命令、权限和范围见[内部运行协议](docs-site/api/guides/labeling-runtime.md)及
 [ADR-0142](docs/adr/0142-labeling-class-usage-query-owner.md)。
 
+### Labeling 视频 worker 最终写入 owner
+
+这是一项仍在本地验收的后端切片，不会自动切换日常服务。它把视频跟踪 worker
+成功、普通取消和失败时的最终 Job／候选结算交给 Labeling 私有 owner；公开 API
+不变。worker 候选从 Jobs 已封存的视频窗口重建，API 不会重新请求模型。API 可以
+借用 Session、配置专用数据库连接，或显式使用远程 HTTP owner；URL 与 DSN 不能同时
+设置，显式绑定失败会保留任务重试，不回退。人工 accept/decide/discard 和
+start/progress 写仍由 API ORM 持有。
+
+API 侧使用 `LABELING_VIDEO_WRITER_URL` 与
+`LABELING_VIDEO_WRITER_CONTROL_TOKEN(_FILE)` 选择 HTTP；使用
+`LABELING_VIDEO_WRITER_DATABASE_URL(_FILE)` 选择专用 DSN；两者留空时借用现有
+Session。`LABELING_VIDEO_WRITER_TIMEOUT_SECONDS` 默认 90 秒。HTTP 私有路由为
+`POST /v1/labeling/video-writer/execute` 和
+`POST /v1/labeling/video-writer/status`。status 支持两种封闭请求：原 operation、
+执行证明和摘要用于不确定提交恢复；只有 execution proof 的查询调用 Native
+read_publication action，只读查找当前 job/run 已有 publication 回执。普通取消需数据库取消标记；纠错取消跳过
+candidate stage 授权。新代次清理先复用既有 publication，未命中才重建封存前缀。
+
+独立进程使用 Labeling 包的 runtime extra 启动：
+`uv run --project apps/labeling --locked --extra runtime aap-labeling-video-writer`
+
+进程必需 `LABELING_VIDEO_WRITER_DATABASE_URL(_FILE)` 和
+`LABELING_VIDEO_WRITER_CONTROL_TOKEN(_FILE)`。默认 host 为 `127.0.0.1`、port 为
+8180、最大并发为 8，超时默认 90 秒；可通过 `LABELING_VIDEO_WRITER_HOST`、
+`PORT`、`MAX_CONCURRENCY` 和 `TIMEOUT_SECONDS` 调整。处理 Mask 候选时，还须配置
+Assets Mask Content 的 `ASSETS_MASK_CONTENT_URL` 和
+`ASSETS_MASK_CONTENT_TOKEN(_FILE)`；bbox-only 结果不访问 Mask owner。
+
+可选 `docker-compose.labeling-video-writer.yml` 只发布本机 8180，host 文件选择器是
+`LABELING_RUNTIME_VIDEO_WRITER_DATABASE_URL_FILE`、
+`LABELING_RUNTIME_VIDEO_WRITER_CONTROL_TOKEN_FILE` 和
+`LABELING_RUNTIME_VIDEO_WRITER_MASK_CONTENT_TOKEN_FILE`。三个容器凭据均以只读 secret 挂载；bbox-only 使用空 Mask token 文件。该开发
+Compose 为 1 CPU／768 MiB，
+不是生产容量结论，也不会接入默认服务。先应用当前数据库迁移和
+`infra/docker/module-data-grants.sql`，再按专用角色应用
+`infra/docker/labeling-video-writer-grants.sql`。
+
+协议、执行证明、候选重建与准确限制见
+[Labeling 运行协议](docs-site/api/guides/labeling-runtime.md)、
+[同库数据接口](docs-site/api/guides/module-data.md)和
+[ADR-0159](docs/adr/0159-independent-labeling-video-writer.md)。当前尚未通过完整
+三路径消费者、崩溃取消、Mask、备份恢复、受限镜像和容量验收；不作为生产切换依据。
+
 ### Inference 命名流水线
 
 命名流水线默认借用 API 的调用方事务。显式配置

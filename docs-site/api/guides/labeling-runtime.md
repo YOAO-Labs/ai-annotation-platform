@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-22
 ---
 
 # Labeling 类别与属性统计运行协议
@@ -61,3 +61,58 @@ Project Query 配置；部署时同步更新匹配的 Workspace／Labeling 工�
 使用 1 CPU／256 MiB；16 次请求、并发 4 的结果一致。数据库和 API 不在这个资源预算内，
 这些结果不代表生产容量。范围、冻结样本与剩余门槛见
 [ADR-0142](/dev/adr/0142-labeling-class-usage-query-owner)。
+
+## 视频 worker 的最终写入
+
+视频 worker 成功、协作取消或失败时，API runner 将最终 Job 状态、待审候选、
+Mask 根和不可变回执交给 Labeling 的私有 owner，在同一业务事务内提交。
+公开 REST 路径与响应不变。owner 重新检查当前执行代次和 lease，并继续执行
+跟踪 actor、原始来源、Task 与 segment 的现有检查；无需把数据库行或 Session
+传给远程 Labeling owner。
+
+调用可使用借用 API Session、专用 PostgreSQL DSN 或独立 HTTP 进程三种绑定。
+默认借用 Session，保留 API 的提交权；DSN 与 HTTP 显式选择独立事务或进程，
+两者不能同时配置，明确选择的提供方失败时不会回退。HTTP 私有协议为
+`aap-labeling-video-writer/v1`，只接受内部 control bearer；入口是
+`POST /v1/labeling/video-writer/execute` 和
+`POST /v1/labeling/video-writer/status`。status 支持两种封闭请求：operation ID、
+执行证明与请求摘要用于核对同一写入；仅含 execution proof 的 publication
+lookup 调用独立 Native read_publication action，用于查询当前 job/run 是否已有
+终态回执。一次命令最多 65 MiB，最终候选仍受 64 MiB 上限
+约束。原始作业输入、执行证明和回执均不对公开 API 暴露。
+
+已封存的视频窗口是完成候选的唯一来源。owner 按冻结计划逐窗读取原始
+canonical payload 字节、manifest 与 attempt，验证摘要、前驱关系和计划后才
+拼接 track 候选；discovery 数据不写入候选。普通追踪取消保留已封存前缀；
+如命令带有未封存尾部，只接受当前代次已开始／捕获的下一窗口范围。
+普通取消必须已有数据库取消标记；纠错取消绕过 candidate stage 授权并清空纠错候选。
+失败命令只结算失败，不重新读取或授权原始来源。
+
+操作 ID 按 run 固定。网络或提交确认不明确时，调用方以原 ID、同一执行证明和
+同一请求摘要查询 status 或重试，不重新运行模型。新代次取消清理先按当前 proof 查询
+job/run publication；命中时原样返回既有回执，不重新暂存旧候选。未命中才从账本恢复
+封存前缀，且不带 worker 本地帧行。Mask 引用在写入事务内锁定，
+再由 Assets Mask Content owner 校验字节；Mask 配置缺失或临时不可用时写入不完成。
+bbox-only 结果不需要 Mask Content 凭据。
+
+独立进程从相同 `apps/labeling` 工件启动，默认监听 `127.0.0.1:8180`，最大并发
+默认 8，单请求超时默认 90 秒。API 选择远程 owner 使用
+`LABELING_VIDEO_WRITER_URL`、`LABELING_VIDEO_WRITER_CONTROL_TOKEN(_FILE)`；
+专用数据库连接使用 `LABELING_VIDEO_WRITER_DATABASE_URL(_FILE)`；
+超时使用 `LABELING_VIDEO_WRITER_TIMEOUT_SECONDS`。进程自身使用相同
+`LABELING_VIDEO_WRITER_DATABASE_URL(_FILE)` 与 control token，并可设置
+`LABELING_VIDEO_WRITER_HOST`、`PORT`、`MAX_CONCURRENCY`。Mask 字节读取另用
+`ASSETS_MASK_CONTENT_URL` 与 `ASSETS_MASK_CONTENT_TOKEN(_FILE)`。
+
+数据边界由迁移、`infra/docker/module-data-grants.sql` 与
+`infra/docker/labeling-video-writer-grants.sql` 提供。受限
+`labeling_video_writer_client` LOGIN 只有一个 Labeling 函数的执行权；
+Jobs 的固定内部 capability 只授予 Labeling owner，LOGIN 不获得 Jobs 表、
+Labeling 表或任意 Jobs RPC 权限。
+
+限定本地验收已覆盖 HTTP／DSN／借用事务的 bbox 与 Mask 真实消费者、独立 HTTP
+进程重启，以及进程中断后取消时的封存候选恢复与重复投递。备份恢复、受限镜像和容量
+仍待单独验收。
+人工审核及中间 start/progress 仍由 API 持有，不能据此认定整个 Labeling
+已独立部署或可替换语言。Go 月报服务继续作为架构实验。范围和限制见
+[ADR-0159](/dev/adr/0159-independent-labeling-video-writer)。

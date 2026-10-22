@@ -1,12 +1,14 @@
 # Labeling
 
-This package owns the private contract and query manager for Project class-usage
-reads. The base package needs only Pydantic. Optional PostgreSQL and HTTP runtime
-bindings use a neutral function-only credential verifier; they do not depend on
-the platform API, Workspace, Identity, an ORM, queues, object storage or ML.
+This package currently owns the private contract and query manager for Project
+class-usage reads, plus a portable policy and runtime for video-worker finalization.
+The base package depends on Pydantic and the portable preannotation-results,
+assets-media and mask-content contracts. It does not depend on the platform API,
+SQLAlchemy, Celery, an object-storage SDK or ML implementations. PostgreSQL and
+HTTP runtime bindings are optional extras.
 
-The trusted API peer checks current Workspace management authority before calling
-the Labeling projection. This runtime does not accept public credentials or an
+For class-usage reads, the trusted API peer checks current Workspace management
+authority before calling the Labeling projection. This runtime does not accept public credentials or an
 `is_manager` flag. Independent providers use read-only READ COMMITTED transactions;
 the default API adapter borrows its caller Session without owning commit.
 
@@ -37,3 +39,51 @@ apps/labeling/tests` for the package suite. Native permissions, coordinated API
 replay, installed peers, images and restore remain separate acceptance gates.
 See [ADR-0142](../../docs/adr/0142-labeling-class-usage-query-owner.md) for their
 current status and limits.
+
+## Video worker finalization
+
+The private protocol `aap-labeling-video-writer/v1` moves worker success,
+cooperative cancellation and failure publication behind Labeling's narrow data
+owner. The portable manager validates one stable command, checks the current
+execution proof and reconstructs completed candidates from Jobs' sealed canonical
+video windows. It does not rerun inference.
+
+The API can use three bindings to the same manager and Native function:
+
+- its default borrowed SQLAlchemy Session, where the API retains commit control;
+- a dedicated function-only PostgreSQL DSN, where the provider owns a
+  READ COMMITTED transaction; or
+- the private HTTP owner, selected explicitly with a URL and control token.
+
+URL and DSN cannot both be configured. An explicitly selected provider failure
+does not silently fall back. Retries keep the same operation ID, execution proof
+and request digest; after an ambiguous response, callers can query status for that
+exact operation before deciding whether to retry. A separate Native
+read_publication action and proof-only HTTP status lookup accept only the current
+execution proof; a new-generation cancellation first reuses
+an existing immutable publication receipt and only reconstructs the sealed prefix
+when no publication exists. No retry sends the model request again.
+
+Completion requires every frozen window and required session close. Ordinary
+tracking cancellation keeps the sealed result prefix and may accept only a
+current-generation capture tail inside the next planned window, and it requires the
+database cancellation marker. Correction cancellation clears correction candidates
+and bypasses stage authorization. Failure finalization does not replace
+an already cancelled candidate payload. The owner continues to enforce current
+tracker actor, source, Task and segment checks; the task-creation accepted-rights
+rule does not grant a tracker worker new authority.
+
+The optional process entry point is `aap-labeling-video-writer`; it serves
+`POST /v1/labeling/video-writer/execute` and
+`POST /v1/labeling/video-writer/status` on port 8180 by default. It requires
+`LABELING_VIDEO_WRITER_DATABASE_URL(_FILE)` and
+`LABELING_VIDEO_WRITER_CONTROL_TOKEN(_FILE)`. Mask candidates additionally
+require the Assets Mask Content URL and token; bbox-only results do not require
+Mask credentials. The HTTP client uses the separate `LABELING_VIDEO_WRITER_URL`,
+`LABELING_VIDEO_WRITER_CONTROL_TOKEN(_FILE)` and
+`LABELING_VIDEO_WRITER_TIMEOUT_SECONDS` settings.
+
+This slice does not move human accept/decide/discard or intermediate start and
+progress writes out of the API. Local owned-resource tests cover crash-cancellation recovery, all three actual
+consumer bindings, Mask content and an HTTP process restart. Installed artifacts,
+backups, images and capacity remain separate qualification gates. See [ADR-0159](../../docs/adr/0159-independent-labeling-video-writer.md).

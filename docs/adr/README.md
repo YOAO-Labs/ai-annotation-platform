@@ -206,3 +206,4 @@
 - [0156 — Scoped Inference retirement](0156-scoped-inference-retirement.md)
 - [0157 — 视频执行代次与原子路由绑定](0157-video-execution-claims-and-route-binding.md)
 - [0158 — 视频窗口账本与会话重放](0158-video-window-journals-and-replay.md)
+- [0159 — Labeling 视频 worker 最终写入 owner](0159-independent-labeling-video-writer.md)

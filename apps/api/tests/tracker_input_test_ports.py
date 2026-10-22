@@ -126,6 +126,7 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
             self.attached = []
             self.stage_lock_impl = None
             self.declare_tracker_backend = False
+            self.journal = None
 
         async def _load(self, tracker_job_id):
             job = await db_session.get(VideoTrackerJob, tracker_job_id)
@@ -365,8 +366,11 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
             self.plan = None
             self.manifests = {}
             self.payloads = {}
+            self.payload_jsons = {}
+            self.attempts = {}
             self.closed_spans = set()
             self.reuse_ordinals = frozenset()
+            ports.journal = self
 
         async def read_plan(self):
             return None
@@ -451,10 +455,17 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
         async def begin(self, window):
             if self.plan is None or window.ordinal >= len(self.plan.windows):
                 raise AssertionError("unit journal began an unfrozen window")
-            return SimpleNamespace(
-                capture_id=uuid.uuid4(),
+            from app.services.video_tracking.execution import execution_proof
+
+            attempt = SimpleNamespace(
+                generation=execution_proof(self.tracker_job_id).generation,
+                window_ordinal=window.ordinal,
                 mode="execute",
-                checkpoint=None,
+                state="started",
+            )
+            self.attempts[window.ordinal] = attempt
+            return SimpleNamespace(
+                capture_id=uuid.uuid4(), **vars(attempt), checkpoint=None
             )
 
         async def load(self, window):
@@ -468,6 +479,9 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
                 decode_video_window_checkpoint_payload,
                 snapshot_video_window_checkpoint,
             )
+            from aap_preannotation_results.video_execution_plan import (
+                canonical_video_json,
+            )
 
             if attempt.mode != "execute" or attempt.checkpoint is not None:
                 raise AssertionError("unit journal only accepts first executions")
@@ -479,6 +493,10 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
             ) as snapshot:
                 self.manifests[window.ordinal] = snapshot.manifest
                 self.payloads[window.ordinal] = typed_payload
+                self.payload_jsons[window.ordinal] = canonical_video_json(
+                    typed_payload
+                ).decode("utf-8")
+            self.attempts[window.ordinal].state = "captured"
             return typed_payload
 
         async def close_span(self, span_digest):
@@ -507,6 +525,321 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
 
     monkeypatch.setattr(runner, "TrackerWindowJournal", InMemoryTrackerWindowJournal)
     monkeypatch.setattr(recovery, "TrackerWindowJournal", InMemoryTrackerWindowJournal)
+
+    class InMemoryVideoWriterData:
+        """Test-only Native reply port; the portable writer policy stays real."""
+
+        def __init__(self, db):
+            self.db = db
+            self.receipts = {}
+            self.acceptance = None
+            self.facts = None
+
+        @asynccontextmanager
+        async def transaction(self):
+            yield self
+
+        @staticmethod
+        def _reply(data):
+            from aap_labeling.video_writer_contract import (
+                LABELING_VIDEO_WRITER_DATA_SCHEMA,
+            )
+
+            if hasattr(data, "model_dump"):
+                data = data.model_dump(mode="json", by_alias=True)
+            return {
+                "schema": LABELING_VIDEO_WRITER_DATA_SCHEMA,
+                "ok": True,
+                "data": data,
+            }
+
+        @staticmethod
+        def _reject(code):
+            from aap_labeling.video_writer_contract import (
+                LABELING_VIDEO_WRITER_DATA_SCHEMA,
+            )
+
+            return {
+                "schema": LABELING_VIDEO_WRITER_DATA_SCHEMA,
+                "ok": False,
+                "error": {"code": code},
+            }
+
+        @staticmethod
+        def _execution_snapshot(execution):
+            import hashlib
+
+            from aap_assets_video_inputs.tracker import (
+                TrackerCorrectionMaskSnapshot,
+                TrackerExecutionSpec,
+                TrackerSourceAnnotationSnapshot,
+                json_bytes,
+            )
+
+            sources = []
+            for source in execution.source_annotations:
+                geometry = source.geometry or {}
+                frames = geometry.get("keyframes") or []
+                frame_index = geometry.get("frame_index")
+                if type(frame_index) is not int:
+                    frame_index = next(
+                        (
+                            row.get("frame_index")
+                            for row in frames
+                            if type(row.get("frame_index")) is int
+                        ),
+                        0,
+                    )
+                sources.append(
+                    TrackerSourceAnnotationSnapshot(
+                        annotation_id=source.annotation_id,
+                        version=source.version,
+                        frame_index=frame_index,
+                        geometry=geometry,
+                        geometry_digest=hashlib.sha256(
+                            json_bytes(geometry)
+                        ).hexdigest(),
+                    )
+                )
+            correction = execution.correction_mask
+            correction_snapshot = (
+                TrackerCorrectionMaskSnapshot(
+                    annotation_id=correction.annotation_id,
+                    annotation_version=correction.annotation_version,
+                    frame_index=correction.frame_index,
+                    mask=correction.mask,
+                    mask_digest=correction.mask_digest,
+                )
+                if correction is not None
+                else None
+            )
+            return TrackerExecutionSpec(
+                job_kind=execution.job_kind,
+                model_key=execution.model_key,
+                direction=execution.direction,
+                from_frame=execution.from_frame,
+                to_frame=execution.to_frame,
+                grid_step=execution.grid_step,
+                correction_frame=execution.correction_frame,
+                segment_id=execution.segment_id,
+                track_id_snapshot=execution.track_id_snapshot,
+                target_class_name=execution.target_class_name,
+                target_tool_unit_id=execution.target_tool_unit_id,
+                prompt_snapshot=execution.prompt_snapshot,
+                source_annotations=tuple(sources),
+                correction_mask=correction_snapshot,
+            )
+
+        async def _facts_for(self, arguments, acceptance):
+            from aap_labeling.video_writer_contract import (
+                VideoWriterAcceptance,
+                VideoWriterFacts,
+                VideoWriterJobFacts,
+            )
+
+            job = await self.db.get(VideoTrackerJob, arguments.execution.job_id)
+            if job is None:
+                return None
+            effective_outcome = arguments.outcome
+            if (
+                job.status == "cancelled"
+                or job.cancel_requested_at is not None
+                or arguments.outcome == "cancelled"
+            ):
+                effective_outcome = "cancelled"
+            writer_acceptance = (
+                VideoWriterAcceptance(
+                    execution=self._execution_snapshot(
+                        acceptance.input.scope.execution
+                    ),
+                    evidence=acceptance.evidence,
+                )
+                if acceptance is not None
+                else None
+            )
+            journal = ports.journal
+            return VideoWriterFacts(
+                job=VideoWriterJobFacts(
+                    job_id=job.id,
+                    task_id=job.task_id,
+                    dataset_item_id=job.dataset_item_id,
+                    annotation_id=job.annotation_id,
+                    created_by=job.created_by,
+                    job_kind=job.job_kind,
+                    from_frame=job.from_frame,
+                    to_frame=job.to_frame,
+                    direction=job.direction,
+                    status=job.status,
+                    event_channel=job.event_channel,
+                ),
+                effective_outcome=effective_outcome,
+                acceptance=writer_acceptance,
+                execution_plan=journal.plan if journal is not None else None,
+            )
+
+        async def call(self, action, arguments):
+            import json
+            from datetime import datetime, timezone
+
+            from aap_labeling.video_writer_contract import (
+                VIDEO_WRITER_FUNCTION,
+                VideoWriterReceipt,
+                VideoWriterStoredCheckpoint,
+                VideoWriterWindowAttempt,
+            )
+
+            if action == "policy":
+                return self._reply(
+                    {
+                        "functions": [VIDEO_WRITER_FUNCTION],
+                        "max_request_bytes": 68_157_440,
+                        "max_staged_bytes": 67_108_864,
+                    }
+                )
+            if action == "read_publication":
+                receipt = next(
+                    (
+                        receipt
+                        for receipt in self.receipts.values()
+                        if receipt.job_id == arguments.execution.job_id
+                        and receipt.run_id == arguments.execution.run_id
+                    ),
+                    None,
+                )
+                return self._reply({"receipt": receipt})
+            if action == "prepare":
+                receipt = self.receipts.get(str(arguments.operation_id))
+                if receipt is not None:
+                    if receipt.request_digest != arguments.request_digest:
+                        return self._reject("operation_conflict")
+                    return self._reply({"receipt": receipt, "facts": None})
+                acceptance = None
+                if arguments.outcome == "completed" or (
+                    arguments.outcome == "cancelled"
+                    and arguments.expected_input is not None
+                ):
+                    try:
+                        acceptance = await ports.lock_stage(
+                            self.db,
+                            SimpleNamespace(tracker_job_id=arguments.execution.job_id),
+                        )
+                    except Exception as exc:
+                        if getattr(exc, "code", None) == "source_busy":
+                            return self._reject("input_busy")
+                        return self._reject("input_unavailable")
+                self.acceptance = acceptance
+                self.facts = await self._facts_for(arguments, acceptance)
+                if self.facts is None:
+                    return self._reject("job_missing")
+                return self._reply({"receipt": None, "facts": self.facts})
+            if action == "read_window":
+                journal = ports.journal
+                manifest = (
+                    journal.manifests.get(arguments.window_ordinal)
+                    if journal is not None
+                    else None
+                )
+                checkpoint = (
+                    VideoWriterStoredCheckpoint(
+                        manifest=manifest,
+                        payload_json=journal.payload_jsons[arguments.window_ordinal],
+                    )
+                    if manifest is not None
+                    else None
+                )
+                recorded_attempt = (
+                    journal.attempts.get(arguments.window_ordinal)
+                    if journal is not None
+                    else None
+                )
+                attempt = (
+                    VideoWriterWindowAttempt(
+                        generation=recorded_attempt.generation,
+                        window_ordinal=recorded_attempt.window_ordinal,
+                        mode=recorded_attempt.mode,
+                        state=recorded_attempt.state,
+                    )
+                    if recorded_attempt is not None
+                    else None
+                )
+                return self._reply({"checkpoint": checkpoint, "attempt": attempt})
+            if action == "lock_masks":
+                return self._reply(
+                    {"epochs": {key: 0 for key in arguments.object_keys}}
+                )
+            if action == "apply":
+                job = await self.db.get(VideoTrackerJob, arguments.execution.job_id)
+                if job is None or self.facts is None:
+                    return self._reject("job_missing")
+                journal = ports.journal
+                plan = journal.plan if journal is not None else None
+                if self.facts.effective_outcome == "completed" and plan is not None:
+                    required_spans = {
+                        window.context_span.span_digest
+                        for window in plan.windows
+                        if window.context_span.mode == "session"
+                    }
+                    if not required_spans.issubset(journal.closed_spans):
+                        return self._reject("checkpoint_incomplete")
+                staged = (
+                    json.loads(arguments.staged_result_json)
+                    if arguments.staged_result_json is not None
+                    else None
+                )
+                if self.facts.effective_outcome == "completed":
+                    job.status = "pending_review"
+                    job.staged_result = staged
+                    job.error_message = None
+                elif self.facts.effective_outcome == "cancelled":
+                    job.status = "cancelled"
+                    if staged is not None:
+                        job.staged_result = staged
+                    if job.job_kind == "correction":
+                        job.staged_result = None
+                else:
+                    job.status = "failed"
+                    job.error_message = arguments.error_message
+                    job.staged_result = None
+                job.completed_at = job.completed_at or datetime.now(timezone.utc)
+                if journal is not None:
+                    await journal.finish(self.facts.effective_outcome)
+                else:
+                    await self.db.flush()
+                receipt = VideoWriterReceipt(
+                    operation_id=arguments.operation_id,
+                    job_id=arguments.execution.job_id,
+                    run_id=arguments.execution.run_id,
+                    request_digest=arguments.request_digest,
+                    outcome=self.facts.effective_outcome,
+                    status=job.status,
+                    completed_at=job.completed_at,
+                    staged_sha256=arguments.staged_sha256,
+                    staged_byte_size=arguments.staged_byte_size,
+                )
+                self.receipts[str(arguments.operation_id)] = receipt
+                return self._reply({"receipt": receipt})
+            if action == "status":
+                receipt = self.receipts.get(str(arguments.operation_id))
+                if (
+                    receipt is not None
+                    and receipt.request_digest != arguments.request_digest
+                ):
+                    return self._reject("operation_conflict")
+                return self._reply({"receipt": receipt})
+            raise AssertionError(f"unsupported in-memory writer action: {action}")
+
+    from app.services.video_tracking import writer
+
+    monkeypatch.setattr(writer, "SqlAlchemyVideoWriterData", InMemoryVideoWriterData)
+    monkeypatch.setattr(writer.settings, "labeling_video_writer_url", "")
+    monkeypatch.setattr(writer.settings, "labeling_video_writer_database_url", "")
+    monkeypatch.setattr(writer.settings, "labeling_video_writer_database_url_file", "")
+
+    async def _unit_mask_verifier(_staged):
+        # Unit adapters do not qualify independent Mask-content verification.
+        return None
+
+    monkeypatch.setattr(writer, "_verify_candidate_masks", _unit_mask_verifier)
 
     async def _unit_scope_retirement(_db, _job_id, **_kwargs):
         # Native retirement is covered by its owner tests, not this test port.

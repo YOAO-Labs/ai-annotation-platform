@@ -84,6 +84,7 @@ from app.services.video_tracking.execution import (
     tracker_execution,
 )
 from app.services.video_tracking.journal import TrackerWindowJournal
+from app.services.video_tracking.writer import commit_tracker_outcome
 from app.services.video_tracking.recovery import (
     recover_tracker_execution,
     retire_terminal_tracker_execution,
@@ -109,7 +110,7 @@ MAX_TRACKER_STAGED_BYTES = 64 * 1024 * 1024
 
 
 @dataclass(frozen=True)
-class _TrackerStageSubject:
+class _TrackerSourceSubject:
     id: uuid.UUID
     task_id: uuid.UUID
 
@@ -767,13 +768,6 @@ def _partition_results_by_instance(
 _SOLE_SOURCE_KEY = "__sole__"
 
 
-def _primary_instance_id(results: list[TrackerFrameResult]) -> str | None:
-    """单源延展时推断与用户种子对应的主实例 id (primary 标记 → 最小 id → None 全无 id)。
-    复用 _partition_results_by_instance 的主实例判定, 供构造单源 source_map。"""
-    primary, _ = _partition_results_by_instance(results)
-    return primary[0].instance_id if primary else None
-
-
 def _instance_seed_obj_id(instance_id: str, fallback: int) -> int:
     """把 instance_id 还原成 backend 播种用的 obj_id。PVS 的 instance_id 就是 str(obj_id),
     直接 int; 非数字 (老 backend 兜底) 按序补 fallback。"""
@@ -998,33 +992,6 @@ def _seed_source_map(
     return mapping
 
 
-def _source_map_from_tracker_input(
-    job, execution, staged_results
-) -> dict[str, uuid.UUID]:
-    """Build result lineage only from the immutable input snapshot and Job identity."""
-    source_ids = {item.annotation_id for item in execution.source_annotations}
-    mapping = _seed_source_map(job, prompt_snapshot=execution.prompt_snapshot)
-    if job.annotation_id is not None and job.annotation_id not in mapping.values():
-        if job.annotation_id not in source_ids:
-            raise TrackerJobStateConflict(
-                "accepted tracker input omitted its single source annotation",
-                reason="input_scope_mismatch",
-            )
-        primary = _primary_instance_id(staged_results) or "1"
-        if primary in mapping:
-            raise TrackerJobStateConflict(
-                "accepted prompt maps the primary instance to another source",
-                reason="input_scope_mismatch",
-            )
-        mapping[str(primary)] = job.annotation_id
-    if not set(mapping.values()).issubset(source_ids):
-        raise TrackerJobStateConflict(
-            "accepted prompt sources are not covered by the input snapshot",
-            reason="input_scope_mismatch",
-        )
-    return mapping
-
-
 def _new_discovered_track(target: _TrackTarget, output_geometry: str) -> Annotation:
     """为一个新发现的实例建一条空 video_track annotation。
 
@@ -1177,37 +1144,6 @@ def _deserialize_results(rows: list[dict]) -> list[TrackerFrameResult]:
     ]
 
 
-def _stage_tracker_results(
-    job: VideoTrackerJob,
-    results: list[TrackerFrameResult],
-    grid_step: int,
-    output_geometry: str,
-    *,
-    tracker_input_evidence: dict,
-    source_instance_map: dict[str, uuid.UUID],
-) -> None:
-    """把逐帧结果暂存进 job.staged_result (候选), **不碰 annotation**。用户接受时反序列化后
-    走 _persist_tracker_results 落库。grid_step / output_geometry 一并存, 供 accept 复用同一
-    落库逻辑 (无需在 accept 时重新推导)。"""
-    serialized = _serialize_results(results)
-    staged = {
-        "results": serialized,
-        "grid_step": grid_step,
-        "output_geometry": output_geometry,
-        "source_instance_map": {
-            str(instance_id): str(annotation_id)
-            for instance_id, annotation_id in source_instance_map.items()
-        },
-        "tracker_input_evidence": tracker_input_evidence,
-    }
-    if (
-        len(json.dumps(staged, separators=(",", ":")).encode())
-        > MAX_TRACKER_STAGED_BYTES
-    ):
-        raise ValueError("tracker_candidate_too_large: staged payload exceeds 64 MiB")
-    job.staged_result = staged
-
-
 def _read_tracker_input_evidence(staged: dict):
     raw = staged.get("tracker_input_evidence")
     try:
@@ -1228,97 +1164,6 @@ def _tracker_input_lock_request(*, actor_id, job, evidence):
         request_digest=evidence.request_digest,
         plan_digest=evidence.plan_digest,
     )
-
-
-async def _lock_tracker_input_for_stage(
-    db: AsyncSession,
-    *,
-    actor_id,
-    job,
-    status,
-    gateway,
-    source_version,
-):
-    from app.services.accepted_tracker_inputs import (
-        lock_video_tracker_input_for_stage,
-    )
-
-    if actor_id is None or status.plan_digest is None:
-        raise TrackerJobStateConflict(
-            "tracker input is not ready for result staging",
-            reason="input_not_ready",
-        )
-    request = tracker_inputs.LockTrackerVideoInputRequest(
-        actor_id=actor_id,
-        tracker_job_id=job.id,
-        task_id=job.task_id,
-        input_id=status.input_id,
-        request_digest=status.request_digest,
-        plan_digest=status.plan_digest,
-    )
-    delay = 0.05
-    while True:
-        # Read only the current cancellation marker, then close that read
-        # transaction before validating the exact versioned object outside DB
-        # locks. The native fence below remains the authority for every write.
-        try:
-            await db.commit()
-            current = (
-                await db.execute(
-                    select(
-                        VideoTrackerJob.status,
-                        VideoTrackerJob.cancel_requested_at,
-                    ).where(VideoTrackerJob.id == job.id)
-                )
-            ).first()
-            await db.commit()
-        except SQLAlchemyError:
-            await db.rollback()
-            delay = min(delay * 2, 1.0)
-            await asyncio.sleep(delay)
-            continue
-        if (
-            current is not None
-            and current[0] != VideoTrackerJobStatus.CANCELLED.value
-            and current[1] is None
-        ):
-            await _refresh_tracker_source_reference(
-                gateway,
-                status,
-                db=db,
-                job=job,
-                actor_id=actor_id,
-                task_id=job.task_id,
-                expected_source_version=source_version,
-            )
-        try:
-            acceptance = await lock_video_tracker_input_for_stage(db, request)
-            if (
-                acceptance.input.scope.tracker_job_id != status.tracker_job_id
-                or acceptance.input.scope.origin_actor_id != status.origin_actor_id
-                or acceptance.input.scope.task.task_id != status.task_id
-                or acceptance.input.scope.execution != status.execution
-                or acceptance.input.scope.request_digest != status.request_digest
-                or acceptance.input.scope.prompt_digest != status.prompt_digest
-            ):
-                raise TrackerJobStateConflict(
-                    "tracker input changed before result staging",
-                    reason="input_scope_mismatch",
-                )
-            return acceptance
-        except TrackerFailure as exc:
-            if not (exc.code.endswith("_busy") or exc.code == "storage_unavailable"):
-                raise TrackerJobStateConflict(
-                    "tracker input authority changed before staging",
-                    reason=exc.code,
-                ) from None
-            # The native function uses NOWAIT locks. Roll back the failed
-            # savepoint's outer transaction, then retry the same held result
-            # after releasing every lock; no model call or storage I/O occurs
-            # in this loop.
-            await db.rollback()
-            await asyncio.sleep(delay)
-            delay = min(delay * 2, 1.0)
 
 
 async def _lock_tracker_input_for_accept(
@@ -1558,66 +1403,6 @@ async def _tracker_work_authorized_and_running(
         raise TrackerFailure(code) from None
     await db.commit()
     return True
-
-
-async def _stage_tracker_candidates(
-    db: AsyncSession,
-    *,
-    job: VideoTrackerJob,
-    results: list[TrackerFrameResult],
-    grid_step: int,
-    output_geometry: str,
-    actor_id,
-    status,
-    gateway,
-    source_version,
-    cancelling: bool = False,
-) -> None:
-    """Fence and retain the same in-memory result before any candidate write."""
-    # Rollback expires ORM attributes. Retain primitive scope values while
-    # retrying input/claim contention, then refresh the canonical row explicitly.
-    subject = _TrackerStageSubject(job.id, job.task_id)
-    delay = 0.05
-    while True:
-        acceptance = await _lock_tracker_input_for_stage(
-            db,
-            actor_id=actor_id,
-            job=subject,
-            status=status,
-            gateway=gateway,
-            source_version=source_version,
-        )
-        # The input helper may commit/retry while validating the object.
-        # Reacquire its locks before retrying the execution fence as well.
-        try:
-            await fence_tracker_write(
-                db, subject.id, "cancel" if cancelling else "stage"
-            )
-            break
-        except TrackerExecutionBusy:
-            await db.rollback()
-            await asyncio.sleep(delay)
-            delay = min(delay * 2, 1.0)
-    if (
-        acceptance.evidence.source_version_id != source_version.version_id
-        or acceptance.evidence.source_sha256 != source_version.sha256
-        or acceptance.evidence.plan_digest != status.plan_digest
-    ):
-        raise TrackerJobStateConflict(
-            "tracker source version changed before result staging",
-            reason="source_changed",
-        )
-    await db.refresh(job)
-    source_map = _source_map_from_tracker_input(job, status.execution, results)
-    evidence = acceptance.evidence
-    _stage_tracker_results(
-        job,
-        results,
-        grid_step,
-        output_geometry,
-        tracker_input_evidence=evidence.model_dump(mode="json", by_alias=True),
-        source_instance_map=source_map,
-    )
 
 
 async def _assert_source_versions_unchanged(
@@ -3149,34 +2934,11 @@ async def _mark_failed(
 ) -> VideoTrackerJob | None:
     message = redact_text(str(message))[:2000]
     await db.rollback()
-    while True:
-        try:
-            job = await _load_job_for_update(db, job_id)
-            if job is None:
-                return None
-            await fence_tracker_write(db, job_id, "fail")
-            break
-        except TrackerExecutionBusy:
-            await db.rollback()
-            await asyncio.sleep(0.2)
-        except TrackerJobStateConflict as exc:
-            if exc.detail.get("reason") != "tracker_job_busy":
-                raise
-            await db.rollback()
-            await asyncio.sleep(0.2)
-    if job.status in {
-        VideoTrackerJobStatus.QUEUED.value,
-        VideoTrackerJobStatus.RUNNING.value,
-    }:
-        job.status = VideoTrackerJobStatus.FAILED.value
-        job.error_message = message[:2000]
-        job.staged_result = None
-        job.completed_at = _now()
-    cancelled = job.status == VideoTrackerJobStatus.CANCELLED.value
-    await TrackerWindowJournal(db, job_id).finish(
-        "cancelled" if cancelled else "failed"
-    )
-    await db.commit()
+    receipt = await commit_tracker_outcome(db, job_id, "failed", error_message=message)
+    job = await db.get(VideoTrackerJob, job_id, populate_existing=True)
+    if job is None:
+        return None
+    cancelled = receipt.outcome == "cancelled"
     event = _event(job, "job_cancelled" if cancelled else "job_failed", error=message)
     if gpu_arbiter_error is not None:
         event["gpu_arbiter_error"] = gpu_arbiter_error
@@ -3208,6 +2970,14 @@ async def run_tracker_job(
             db, job_id, session_factory=shadow_session_factory
         ) as execution:
             if not active:
+                if job is not None and job.status == "cancelled":
+                    if execution.state == "recovery_required":
+                        if not await recover_tracker_execution(db, job_id):
+                            return await db.get(VideoTrackerJob, job_id)
+                    await commit_tracker_outcome(
+                        db, job_id, "cancelled", recover_cancelled=True
+                    )
+                    await db.refresh(job)
                 await retire_terminal_tracker_execution(db, job_id)
                 return job
             if execution.state == "recovery_required":
@@ -3242,6 +3012,7 @@ async def run_tracker_job(
                     "completed",
                     "discarded",
                     "failed",
+                    "cancelled",
                 }:
                     raise
                 # The business commit may have succeeded before its reply or
@@ -3511,9 +3282,6 @@ async def _run_tracker_job_claimed(
 
         adapter = get_tracker_adapter(tracker_capability)
 
-        # 采样网格步长：只回填网格帧（见 apply_tracker_results）。
-        grid_step = execution.grid_step
-
         results: list[TrackerFrameResult] = []
         staged_bytes = 0
         total = max(
@@ -3755,13 +3523,6 @@ async def _run_tracker_job_claimed(
         active_session: TrackerSession | None = None
         active_session_span: tuple[int, int, str] | None = None
         active_session_span_digest: str | None = None
-        context_boundaries = [
-            window.from_frame if window.branch == "forward" else window.to_frame
-            for index, window in enumerate(track_windows)
-            if index
-            and window.context_span.mode == "session"
-            and window.ordinal == window.context_span.start_ordinal
-        ]
 
         def restore_checkpoint(payload):
             nonlocal last_geometry, last_geom_by_instance, mp_prev_boundary
@@ -3833,29 +3594,17 @@ async def _run_tracker_job_claimed(
         tracker_session_cleanup = close_active_session
 
         async def finalize_cancelled_tracker() -> VideoTrackerJob:
-            await db.commit()
+            await commit_tracker_outcome(
+                db,
+                tracker_job_id,
+                "cancelled",
+                frame_results=_serialize_results(results) if not is_correction else [],
+                status=tracker_input_status if not is_correction and results else None,
+                source_version=tracker_input_source_version
+                if not is_correction and results
+                else None,
+            )
             await db.refresh(job)
-            await fence_tracker_write(db, job_id, "cancel")
-            if results and not is_correction:
-                await _stage_tracker_candidates(
-                    db,
-                    job=job,
-                    results=results,
-                    grid_step=grid_step,
-                    output_geometry=output_geometry,
-                    actor_id=actor_id,
-                    status=tracker_input_status,
-                    gateway=tracker_input_gateway,
-                    source_version=tracker_input_source_version,
-                    cancelling=True,
-                )
-                await lock_raster_mask_references(db, job.staged_result)
-            elif is_correction:
-                job.staged_result = None
-            job.status = VideoTrackerJobStatus.CANCELLED.value
-            job.completed_at = job.completed_at or _now()
-            await window_journal.finish("cancelled")
-            await db.commit()
             await publisher(job.event_channel, _event(job, "job_cancelled"))
             return job
 
@@ -4215,40 +3964,28 @@ async def _run_tracker_job_claimed(
         if job.cancel_requested_at is not None:
             return await finalize_cancelled_tracker()
 
-        if is_correction and not results:
-            raise ValueError("correction_empty_result")
-
-        # v0.21.28 · 候选/接受流: 完成时**暂存**结果 (不落 annotation), 待用户接受/丢弃。
-        # PENDING_REVIEW = 追踪完、结果已暂存、committed annotations 未改。
-        await _stage_tracker_candidates(
-            db,
-            job=job,
-            results=results,
-            grid_step=grid_step,
-            output_geometry=output_geometry,
+        # Source observations precede the independent owner's locked write.
+        subject = _TrackerSourceSubject(tracker_job_id, tracker_task_id)
+        reference = await _refresh_tracker_source_reference(
+            tracker_input_gateway,
+            tracker_input_status,
+            db=db,
+            job=subject,
             actor_id=actor_id,
+            task_id=tracker_task_id,
+            expected_source_version=tracker_input_source_version,
+        )
+        if reference is None:
+            return await finalize_cancelled_tracker()
+        receipt = await commit_tracker_outcome(
+            db,
+            tracker_job_id,
+            "completed",
             status=tracker_input_status,
-            gateway=tracker_input_gateway,
             source_version=tracker_input_source_version,
         )
-        if context_boundaries and job.staged_result is not None:
-            job.staged_result["tracker_context_boundaries"] = context_boundaries
-        await lock_raster_mask_references(db, job.staged_result)
-        cancelled = (
-            job.cancel_requested_at is not None
-            or job.status == VideoTrackerJobStatus.CANCELLED.value
-        )
-        if cancelled and is_correction:
-            job.staged_result = None
-        job.status = (
-            VideoTrackerJobStatus.CANCELLED.value
-            if cancelled
-            else VideoTrackerJobStatus.PENDING_REVIEW.value
-        )
-        job.completed_at = job.completed_at or _now()
-        await window_journal.finish("cancelled" if cancelled else "completed")
-        await db.commit()
         await db.refresh(job)
+        cancelled = receipt.outcome == "cancelled"
         await publisher(
             job.event_channel,
             _event(job, "job_cancelled" if cancelled else "job_completed"),

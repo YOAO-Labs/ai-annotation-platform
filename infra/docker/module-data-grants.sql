@@ -669,8 +669,10 @@ GRANT SELECT (
     id, task_id, dataset_item_id, annotation_id, segment_id, target_class_name,
     target_tool_unit_id, created_by, status, job_kind, track_id_snapshot,
     correction_frame, model_key, direction, from_frame, to_frame, prompt,
-    staged_result, revision, cancel_requested_at, started_at, created_at, completed_at
-), UPDATE (id) ON public.video_tracker_jobs TO :"labeling_owner";
+    staged_result, revision, cancel_requested_at, started_at, created_at, completed_at,
+    event_channel, error_message, updated_at
+), UPDATE (id, status, staged_result, error_message, completed_at, updated_at)
+    ON public.video_tracker_jobs TO :"labeling_owner";
 GRANT SELECT (
     id, status, cancel_requested_at
 ), UPDATE (id) ON public.video_tracker_jobs TO :"jobs_owner";
@@ -3069,4 +3071,32 @@ GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_running_mask_roots_live(uu
 GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_checkpoint_mask_retained(text) TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_input_retained(uuid) TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_source_item_retained(uuid) TO :"labeling_owner";
+
+-- Final video publication stays inside the Labeling business transaction.
+GRANT CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
+ALTER TABLE aap_labeling_v1.video_writer_receipts OWNER TO :"labeling_owner";
+DO $video_writer_owners$
+DECLARE
+    capability regprocedure;
+BEGIN
+    FOR capability IN
+        SELECT function.oid::regprocedure
+        FROM pg_catalog.pg_proc AS function
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = function.pronamespace
+        WHERE namespace.nspname = 'aap_labeling_v1'
+          AND (function.proname = 'video_writer_step'
+               OR pg_catalog.left(function.proname,14) = '_video_writer_')
+    LOOP
+        EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I',
+            capability, current_setting('aap.labeling_owner'));
+    END LOOP;
+END
+$video_writer_owners$;
+REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
+GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.video_writer_authority(text,jsonb) OWNER TO :"jobs_owner";
+REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_writer_authority(text,jsonb)
+    TO :"labeling_owner";
 COMMIT;

@@ -30,7 +30,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
-from app.db.models.video_tracker_job import VideoTrackerJob
 from app.services.ml_backend import MLBackendService
 from app.services.video_tracking.execution import TrackerExecutionDeferred
 from app.services.video_tracking.runner import run_tracker_job
@@ -542,11 +541,14 @@ async def _attempt_tracker_run(
 
                 async def commit_then_lose_reply():
                     nonlocal lost_reply
-                    finishing = any(
-                        isinstance(row, VideoTrackerJob)
-                        and row.id == job_id
-                        and row.status == "pending_review"
-                        for row in db.identity_map.values()
+                    finishing = (
+                        await db.scalar(
+                            text(
+                                "SELECT status='pending_review' FROM public.video_tracker_jobs WHERE id=:job"
+                            ),
+                            {"job": job_id},
+                        )
+                        is True
                     )
                     await original_commit()
                     if finishing and not lost_reply:
@@ -568,15 +570,21 @@ async def _attempt_tracker_run(
 
 
 @pytest.mark.parametrize(
-    ("context_mode", "lose_completion_reply"),
+    ("context_mode", "lose_completion_reply", "cancel_after_kill"),
     [
-        pytest.param("none", False, id="none"),
-        pytest.param("session", False, id="session"),
-        pytest.param("none", True, id="none-True"),
+        pytest.param("none", False, False, id="none"),
+        pytest.param("session", False, False, id="session"),
+        pytest.param("none", True, False, id="none-True"),
+        pytest.param("none", False, True, id="cancelled-prefix"),
     ],
 )
 async def test_sigkill_replays_only_open_video_context_after_actual_scope_retirement(
-    test_engine, tmp_path, monkeypatch, context_mode, lose_completion_reply
+    test_engine,
+    tmp_path,
+    monkeypatch,
+    context_mode,
+    lose_completion_reply,
+    cancel_after_kill,
 ):
     ownership = await assert_owned_test_database(test_engine)
     routing_dsn = os.environ.get("AAP_MODULE_DATA_INFERENCE_ROUTING_URL")
@@ -790,6 +798,15 @@ async def test_sigkill_replays_only_open_video_context_after_actual_scope_retire
                 assert peer.wait(timeout=5) == -signal.SIGKILL
                 assert backend.controller.active_requests == 1
 
+                if cancel_after_kill:
+                    async with media.sessions.begin() as db:
+                        await db.execute(
+                            text(
+                                "UPDATE public.video_tracker_jobs SET status='cancelled', "
+                                "cancel_requested_at=pg_catalog.clock_timestamp() WHERE id=:job"
+                            ),
+                            {"job": job_id},
+                        )
                 await _expire_exact_claim(media.sessions, job_id, expected_generation=1)
                 with pytest.raises(
                     TrackerExecutionDeferred, match="scope_retirement_pending"
@@ -937,6 +954,59 @@ async def test_sigkill_replays_only_open_video_context_after_actual_scope_retire
                 final_claim = await _snapshot_claim(media.sessions, job_id)
                 all_scopes = await _scope_rows(media.sessions, job_id)
 
+                if cancel_after_kill:
+                    assert job_row["status"] == "cancelled"
+                    assert [
+                        row["frame_index"]
+                        for row in job_row["staged_result"]["results"]
+                    ] == [0, 1]
+                    assert frozen_after["writer_terminal"] is True
+                    assert frozen_after["writer_terminal_outcome"] == "cancelled"
+                    assert frozen_after["execution_retired"] is True
+                    assert retained_input is False
+                    assert retained_source is False
+                    assert len(windows) == 1
+                    assert windows[0]["manifest"] == first_window["manifest"]
+                    assert [
+                        (row.part_index, row.part_digest, bytes(row.part_bytes))
+                        for row in final_parts
+                    ] == first_parts
+                    assert len(all_scopes) == 1
+                    assert all(
+                        scope["closed"] is True and scope["state"] == "reconciled"
+                        for scope in all_scopes
+                    )
+                    assert backend.controller.active_requests == 0
+                    assert len(backend.model_windows) == 2
+                    async with media.sessions() as db:
+                        published = (
+                            await db.execute(
+                                text(
+                                    "SELECT operation_id,request_digest,completed_at FROM "
+                                    "aap_labeling_v1.video_writer_receipts WHERE job_id=:job"
+                                ),
+                                {"job": job_id},
+                            )
+                        ).one()
+                    # A later delivery has a new proof and no old in-memory
+                    # candidates; it inspects the original receipt unchanged.
+                    await _expire_exact_claim(
+                        media.sessions, job_id, expected_generation=3
+                    )
+                    await _attempt_tracker_run(execution_sessions, job_id)
+                    async with media.sessions() as db:
+                        replayed = (
+                            await db.execute(
+                                text(
+                                    "SELECT operation_id,request_digest,completed_at FROM "
+                                    "aap_labeling_v1.video_writer_receipts WHERE job_id=:job"
+                                ),
+                                {"job": job_id},
+                            )
+                        ).one()
+                    assert replayed == published
+                    assert len(backend.model_windows) == 2
+                    return
                 assert job_row["status"] == "pending_review"
                 candidates = job_row["staged_result"]["results"]
                 assert [row["frame_index"] for row in candidates] == list(range(6))

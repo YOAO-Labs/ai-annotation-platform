@@ -20,6 +20,47 @@ from app.services.video_tracking import execution, runner, tracker_mask_roots
 pytestmark = pytest.mark.asyncio
 
 
+def _writer_rejection_port(monkeypatch, job_id, codes):
+    from aap_preannotation_results.video_execution import ExecutionProof
+    from aap_labeling.video_writer_contract import LABELING_VIDEO_WRITER_DATA_SCHEMA
+    from app.services.video_tracking import writer
+
+    proof = ExecutionProof(
+        job_id=job_id,
+        run_id=uuid4(),
+        worker_id=uuid4(),
+        generation=1,
+        lease_token=uuid4(),
+    )
+    monkeypatch.setattr(writer, "execution_proof", lambda _job_id: proof)
+    monkeypatch.setattr(writer.settings, "labeling_video_writer_url", "")
+    monkeypatch.setattr(writer.settings, "labeling_video_writer_database_url", "")
+    monkeypatch.setattr(writer.settings, "labeling_video_writer_database_url_file", "")
+    replies = iter(codes)
+    instances = []
+
+    class RejectionData:
+        def __init__(self, _db):
+            self.calls = []
+            instances.append(self)
+
+        @asynccontextmanager
+        async def transaction(self):
+            yield self
+
+        async def call(self, action, arguments):
+            self.calls.append((action, arguments))
+            return {
+                "schema": LABELING_VIDEO_WRITER_DATA_SCHEMA,
+                "ok": False,
+                "error": {"code": next(replies)},
+            }
+
+    monkeypatch.setattr(writer, "SqlAlchemyVideoWriterData", RejectionData)
+    monkeypatch.setattr(writer.asyncio, "sleep", AsyncMock())
+    return proof, instances
+
+
 async def test_exhausted_route_contention_defers_the_video_execution():
     from app.services.ml_routing.authority import RoutingRejected
     from app.services.ml_routing.router import MLBackendRouter
@@ -36,7 +77,9 @@ async def test_exhausted_route_contention_defers_the_video_execution():
     assert result.rejection == RejectionReason.ROUTER_UNAVAILABLE
 
 
-async def test_stale_failure_cannot_fail_replacement(monkeypatch):
+async def test_stale_failure_is_rejected_before_orm_projection(monkeypatch):
+    from app.services.video_tracking import writer
+
     job_id = uuid4()
     replacement = SimpleNamespace(
         id=job_id,
@@ -45,52 +88,59 @@ async def test_stale_failure_cannot_fail_replacement(monkeypatch):
         error_message=None,
         completed_at=None,
     )
-    db = SimpleNamespace(rollback=AsyncMock(), commit=AsyncMock())
-    publisher = AsyncMock()
-    monkeypatch.setattr(
-        runner, "_load_job_for_update", AsyncMock(return_value=replacement)
+    db = SimpleNamespace(
+        rollback=AsyncMock(),
+        commit=AsyncMock(),
+        get=AsyncMock(return_value=replacement),
     )
-    monkeypatch.setattr(
-        runner,
-        "fence_tracker_write",
-        AsyncMock(side_effect=execution.TrackerExecutionLost()),
-    )
+    proof, instances = _writer_rejection_port(monkeypatch, job_id, ["lease_lost"])
     with pytest.raises(execution.TrackerExecutionLost):
-        await runner._mark_failed(db, job_id, "old worker crashed", publisher)
+        await writer.commit_tracker_outcome(
+            db, job_id, "failed", error_message="old worker crashed"
+        )
     assert replacement.status == "running"
     assert replacement.staged_result == {"replacement": True}
     assert replacement.error_message is None
-    db.commit.assert_not_awaited()
-    publisher.assert_not_awaited()
+    db.commit.assert_awaited_once()
+    db.rollback.assert_awaited_once()
+    db.get.assert_not_awaited()
+    assert [action for action, _ in instances[0].calls] == ["prepare"]
+    assert instances[0].calls[0][0] == "prepare"
+    assert instances[0].calls[0][1].execution == proof
 
 
-async def test_stale_staging_cannot_replace_candidates_after_input_validation(
-    monkeypatch,
-):
+async def test_stale_candidate_write_is_rejected_by_writer_authority(monkeypatch):
+    from app.services.video_tracking import writer
+
+    job_id = uuid4()
     job = SimpleNamespace(
-        id=uuid4(), task_id=uuid4(), staged_result={"replacement": True}
+        id=job_id, task_id=uuid4(), staged_result={"replacement": True}
     )
-    db = SimpleNamespace(refresh=AsyncMock())
-    accepted = AsyncMock(return_value=SimpleNamespace())
-    monkeypatch.setattr(runner, "_lock_tracker_input_for_stage", accepted)
-    guard = AsyncMock(side_effect=execution.TrackerExecutionLost())
-    monkeypatch.setattr(runner, "fence_tracker_write", guard)
+    db = SimpleNamespace(
+        rollback=AsyncMock(), commit=AsyncMock(), get=AsyncMock(return_value=job)
+    )
+    proof, instances = _writer_rejection_port(monkeypatch, job_id, ["lease_lost"])
     with pytest.raises(execution.TrackerExecutionLost):
-        await runner._stage_tracker_candidates(
+        await writer.commit_tracker_outcome(
             db,
-            job=job,
-            results=[],
-            grid_step=1,
-            output_geometry="bbox",
-            actor_id=uuid4(),
-            status=None,
-            gateway=None,
-            source_version=None,
+            job_id,
+            "completed",
+            status=SimpleNamespace(
+                input_id=uuid4(),
+                request_digest="a" * 64,
+                plan_digest="b" * 64,
+            ),
+            source_version=SimpleNamespace(
+                version_id="test-source-version", sha256="c" * 64
+            ),
         )
-    accepted.assert_awaited_once()
-    guard.assert_awaited_once_with(db, job.id, "stage")
-    db.refresh.assert_not_awaited()
     assert job.staged_result == {"replacement": True}
+    db.commit.assert_awaited_once()
+    db.rollback.assert_awaited_once()
+    db.get.assert_not_awaited()
+    assert [action for action, _ in instances[0].calls] == ["prepare"]
+    assert instances[0].calls[0][0] == "prepare"
+    assert instances[0].calls[0][1].execution == proof
 
 
 async def test_stale_mask_root_never_reaches_gc_registration(monkeypatch):
@@ -130,66 +180,29 @@ async def test_current_cancellation_is_observed_without_failing_the_job(monkeypa
     db.rollback.assert_awaited_once()
 
 
-async def test_stage_contention_retains_primitive_scope_after_orm_expiry(monkeypatch):
-    job_id, task_id = uuid4(), uuid4()
+async def test_writer_contention_retries_the_same_command(monkeypatch):
+    from app.services.video_tracking import writer
 
-    class Job:
-        expired = False
-        staged_result = None
-
-        @property
-        def id(self):
-            assert not self.expired, "implicit async ORM refresh after rollback"
-            return job_id
-
-        @property
-        def task_id(self):
-            assert not self.expired, "implicit async ORM refresh after rollback"
-            return task_id
-
-    job = Job()
-    evidence = SimpleNamespace(
-        source_version_id="retained",
-        source_sha256="a" * 64,
-        plan_digest="b" * 64,
-        model_dump=lambda **kw: {},
+    job_id = uuid4()
+    db = SimpleNamespace(rollback=AsyncMock(), commit=AsyncMock())
+    _proof, instances = _writer_rejection_port(
+        monkeypatch, job_id, ["input_busy", "input_busy", "lease_lost"]
     )
-    scopes = []
-
-    async def input_lock(_db, **kwargs):
-        scopes.append((kwargs["job"].id, kwargs["job"].task_id))
-        return SimpleNamespace(evidence=evidence)
-
-    async def rollback():
-        job.expired = True
-
-    async def refresh(_job):
-        job.expired = False
-
-    db = SimpleNamespace(
-        rollback=AsyncMock(side_effect=rollback), refresh=AsyncMock(side_effect=refresh)
-    )
-    guard = AsyncMock(side_effect=[execution.TrackerExecutionBusy(), None])
-    monkeypatch.setattr(runner, "_lock_tracker_input_for_stage", input_lock)
-    monkeypatch.setattr(runner, "fence_tracker_write", guard)
-    monkeypatch.setattr(runner, "_source_map_from_tracker_input", lambda *args: {})
-    monkeypatch.setattr(runner, "_stage_tracker_results", lambda *args, **kwargs: None)
     monkeypatch.setattr(runner.asyncio, "sleep", AsyncMock())
-    await runner._stage_tracker_candidates(
-        db,
-        job=job,
-        results=[],
-        grid_step=1,
-        output_geometry="bbox",
-        actor_id=uuid4(),
-        status=SimpleNamespace(plan_digest="b" * 64, execution=None),
-        gateway=None,
-        source_version=SimpleNamespace(version_id="retained", sha256="a" * 64),
-        cancelling=True,
-    )
-    assert scopes == [(job_id, task_id)] * 2
-    assert all(item.args[2] == "cancel" for item in guard.await_args_list)
-    db.rollback.assert_awaited_once()
+    with pytest.raises(execution.TrackerExecutionLost):
+        await writer.commit_tracker_outcome(
+            db,
+            job_id,
+            "failed",
+            error_message="held failure",
+        )
+    arguments = [args for action, args in instances[0].calls if action == "prepare"]
+    assert len(arguments) == 3
+    assert len({item.operation_id for item in arguments}) == 1
+    assert len({item.request_digest for item in arguments}) == 1
+    assert all(item.execution == _proof for item in arguments)
+    assert db.commit.await_count == 1
+    assert db.rollback.await_count == 3
 
 
 async def test_repeated_execution_contention_retries_held_mask_without_inference_loss(

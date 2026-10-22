@@ -807,6 +807,23 @@ last_reviewed: 2026-10-22
 | `LABELING_RUNTIME_CLASS_QUERY_DATABASE_URL_FILE` | `—` | Host paths mapped to the standalone container's read-only secret files. |
 | `LABELING_RUNTIME_CLASS_QUERY_CONTROL_TOKEN_FILE` | `—` | — |
 
+## Video finalization: empty selectors borrow the current worker transaction.
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `LABELING_VIDEO_WRITER_URL` | `—` | Select a function-only DSN or authenticated HTTP owner; never both. |
+| `LABELING_VIDEO_WRITER_DATABASE_URL` | `—` | — |
+| `LABELING_VIDEO_WRITER_DATABASE_URL_FILE` | `—` | — |
+| `LABELING_VIDEO_WRITER_CONTROL_TOKEN` | `—` | — |
+| `LABELING_VIDEO_WRITER_CONTROL_TOKEN_FILE` | `—` | — |
+| `LABELING_VIDEO_WRITER_TIMEOUT_SECONDS` | `90` | — |
+| `LABELING_VIDEO_WRITER_HOST` | `127.0.0.1` | Standalone owner uses the same DSN/control-token names and existing MaskContent URL/token settings when a candidate contains Mask references. |
+| `LABELING_VIDEO_WRITER_PORT` | `8180` | — |
+| `LABELING_VIDEO_WRITER_MAX_CONCURRENCY` | `8` | — |
+| `LABELING_RUNTIME_VIDEO_WRITER_DATABASE_URL_FILE` | `—` | — |
+| `LABELING_RUNTIME_VIDEO_WRITER_CONTROL_TOKEN_FILE` | `—` | — |
+| `LABELING_RUNTIME_VIDEO_WRITER_MASK_CONTENT_TOKEN_FILE` | `—` | — |
+
 ## Named pipelines: empty selectors borrow the API transaction; select DSN or HTTP.
 
 | 变量 | 默认值 | 说明 |

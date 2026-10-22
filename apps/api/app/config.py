@@ -313,6 +313,13 @@ class Settings(BaseSettings):
     labeling_class_query_control_token_file: str = ""
     labeling_class_query_timeout_seconds: float = Field(default=30, gt=0, le=3600)
 
+    labeling_video_writer_url: str = ""
+    labeling_video_writer_database_url: str = Field(default="", repr=False)
+    labeling_video_writer_database_url_file: str = ""
+    labeling_video_writer_control_token: str = Field(default="", repr=False)
+    labeling_video_writer_control_token_file: str = ""
+    labeling_video_writer_timeout_seconds: float = Field(default=90, gt=0, le=3600)
+
     inference_pipelines_url: str = ""
     inference_pipelines_token: str = Field(default="", repr=False)
     inference_pipelines_token_file: str = ""

@@ -69,6 +69,7 @@ IDENTITY_CLIENT_ROLES = {
     "WORKSPACE_PROJECT_QUERY": "workspace_project_query_client",
     "WORKSPACE_DIRECTORY_QUERY": "workspace_directory_query_client",
     "LABELING_CLASS_QUERY": "labeling_class_query_client",
+    "LABELING_VIDEO_WRITER": "labeling_video_writer_client",
     "INFERENCE_PIPELINES": "inference_pipelines_client",
     "INFERENCE_BACKEND_PROBE": "inference_backend_probe_client",
     "INFERENCE_HEALTH_OBSERVATION": "inference_health_observation_client",
@@ -241,6 +242,7 @@ SQL_ARTIFACTS = (
     "0280_inference_scope_retirement.sql",
     "0281_video_execution.sql",
     "0282_video_execution_checkpoints.sql",
+    "0283_labeling_video_writer.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -335,8 +337,11 @@ SCHEMA_ARTIFACTS = (
     "0280_inference_scope_retirement.schema.json",
     "0281_video_execution.schema.json",
     "0282_video_execution_checkpoints.schema.json",
+    "0283_labeling_video_writer.schema.json",
 )
 TEST_FILES = (
+    "tests/test_labeling_video_writer_native.py",
+    "tests/test_labeling_video_writer_live.py",
     "tests/test_video_execution_checkpoints_native.py",
     "tests/test_video_window_journal_native.py",
     "tests/test_video_execution_plan_native_validation.py",
@@ -2474,6 +2479,9 @@ def main(argv: list[str] | None = None) -> int:
         labeling_class_query_grants_path = (
             ROOT / "infra/docker/labeling-class-query-grants.sql"
         )
+        labeling_video_writer_grants_path = (
+            ROOT / "infra/docker/labeling-video-writer-grants.sql"
+        )
         inference_pipelines_grants_path = (
             ROOT / "infra/docker/inference-pipelines-grants.sql"
         )
@@ -2539,6 +2547,7 @@ def main(argv: list[str] | None = None) -> int:
             or not workspace_project_query_grants_path.is_file()
             or not workspace_directory_query_grants_path.is_file()
             or not labeling_class_query_grants_path.is_file()
+            or not labeling_video_writer_grants_path.is_file()
             or not inference_pipelines_grants_path.is_file()
             or not inference_backend_probe_grants_path.is_file()
             or not inference_health_observation_grants_path.is_file()
@@ -2621,6 +2630,9 @@ def main(argv: list[str] | None = None) -> int:
             workspace_directory_query_grants_path.read_text(encoding="utf-8")
         )
         labeling_class_query_grant_sql = labeling_class_query_grants_path.read_text(
+            encoding="utf-8"
+        )
+        labeling_video_writer_grant_sql = labeling_video_writer_grants_path.read_text(
             encoding="utf-8"
         )
         inference_pipelines_grant_sql = inference_pipelines_grants_path.read_text(
@@ -2767,8 +2779,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0282"]:
-            raise RuntimeError("module-data acceptance requires migration head 0282")
+        if heads != ["0283"]:
+            raise RuntimeError("module-data acceptance requires migration head 0283")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -3038,6 +3050,22 @@ def main(argv: list[str] | None = None) -> int:
                 "migration_role": "owner",
                 "jobs_owner": "jobs_code",
                 "video_execution_role": VIDEO_EXECUTION_ROLE,
+            },
+        )
+        phase = "install-labeling-video-writer-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_video_writer_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "labeling_video_writer_role": "labeling_video_writer_client",
             },
         )
         phase = "install-identity-grants"
@@ -3729,6 +3757,7 @@ def main(argv: list[str] | None = None) -> int:
         image_worker_storage["policy"] = "aap-images-worker-" + secrets.token_hex(8)
         _create_image_storage_scope(image_worker_storage)
         if selected_test_paths & {
+            "tests/test_labeling_video_writer_live.py",
             "tests/test_mask_content_live.py",
             "tests/test_mask_content_containers.py",
             "tests/test_mask_gc_live.py",

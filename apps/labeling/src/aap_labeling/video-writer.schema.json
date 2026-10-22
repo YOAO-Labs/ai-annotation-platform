@@ -1,0 +1,370 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-video-writer/v1",
+  "title": "Labeling video writer protocol",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/VideoWriterCommand"
+    },
+    {
+      "$ref": "#/$defs/VideoWriterStatusRequest"
+    },
+    {
+      "$ref": "#/$defs/VideoWriterPublicationRequest"
+    }
+  ],
+  "$defs": {
+    "ExecutionProof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["job_id", "run_id", "worker_id", "generation", "lease_token"],
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "run_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "worker_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "lease_token": {
+          "type": "string",
+          "format": "uuid",
+          "writeOnly": true
+        }
+      }
+    },
+    "ExpectedInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "input_id",
+        "request_digest",
+        "plan_digest",
+        "source_version_id",
+        "source_sha256"
+      ],
+      "properties": {
+        "input_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "request_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "plan_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "source_version_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "source_sha256": {
+          "$ref": "#/$defs/Digest"
+        }
+      }
+    },
+    "Digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "FrameResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frame_index",
+        "geometry",
+        "confidence",
+        "outside",
+        "instance_id",
+        "primary",
+        "geometry_digest",
+        "candidate_key"
+      ],
+      "properties": {
+        "frame_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "geometry": {
+          "type": "object"
+        },
+        "confidence": {
+          "type": ["number", "null"]
+        },
+        "outside": {
+          "type": "boolean"
+        },
+        "instance_id": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "primary": {
+          "type": "boolean"
+        },
+        "geometry_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "candidate_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      }
+    },
+    "VideoWriterCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "operation_id",
+        "execution",
+        "outcome",
+        "expected_input",
+        "frame_results",
+        "error_message"
+      ],
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-video-writer/v1"
+        },
+        "operation_id": {
+          "type": "string",
+          "format": "uuid",
+          "x-uuid5": {
+            "namespace": "execution.run_id",
+            "name": "aap-labeling-video-writer-finalize/v1"
+          }
+        },
+        "execution": {
+          "$ref": "#/$defs/ExecutionProof"
+        },
+        "outcome": {
+          "enum": ["completed", "cancelled", "failed"]
+        },
+        "expected_input": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExpectedInput"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "frame_results": {
+          "type": "array",
+          "maxItems": 1000000,
+          "items": {
+            "$ref": "#/$defs/FrameResult"
+          }
+        },
+        "error_message": {
+          "type": ["string", "null"],
+          "maxLength": 2000
+        }
+      }
+    },
+    "VideoWriterPublicationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "execution"],
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-video-writer/v1"
+        },
+        "execution": {
+          "$ref": "#/$defs/ExecutionProof"
+        }
+      }
+    },
+    "VideoWriterStatusRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "operation_id", "execution", "request_digest"],
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-video-writer/v1"
+        },
+        "operation_id": {
+          "type": "string",
+          "format": "uuid",
+          "x-uuid5": {
+            "namespace": "execution.run_id",
+            "name": "aap-labeling-video-writer-finalize/v1"
+          }
+        },
+        "execution": {
+          "$ref": "#/$defs/ExecutionProof"
+        },
+        "request_digest": {
+          "$ref": "#/$defs/Digest"
+        }
+      }
+    },
+    "VideoWriterReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_id",
+        "job_id",
+        "run_id",
+        "request_digest",
+        "outcome",
+        "status",
+        "completed_at",
+        "staged_sha256",
+        "staged_byte_size"
+      ],
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "job_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "run_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "request_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "outcome": {
+          "enum": ["completed", "cancelled", "failed"]
+        },
+        "status": {
+          "enum": ["pending_review", "cancelled", "failed"]
+        },
+        "completed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "staged_sha256": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "staged_byte_size": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "VideoWriterExecuteReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "receipt"],
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-video-writer/v1"
+        },
+        "receipt": {
+          "$ref": "#/$defs/VideoWriterReceipt"
+        }
+      }
+    },
+    "VideoWriterStatusReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "receipt"],
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-video-writer/v1"
+        },
+        "receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VideoWriterReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "x-budgets": {
+    "request_bytes": 68157440,
+    "staged_bytes": 67108864,
+    "native_bytes": 135266304
+  },
+  "x-http-error-codes": [
+    "account_busy",
+    "account_not_active",
+    "candidate_invalid",
+    "checkpoint_incomplete",
+    "correction_empty_result",
+    "execution_busy",
+    "finish_conflict",
+    "input_busy",
+    "input_scope_mismatch",
+    "input_unavailable",
+    "invalid_request",
+    "invalid_response",
+    "job_cancelled",
+    "job_missing",
+    "job_not_active",
+    "lease_lost",
+    "mask_content_deleting",
+    "mask_content_epoch_changed",
+    "mask_content_invalid",
+    "operation_conflict",
+    "permission_denied",
+    "plan_not_frozen",
+    "realm_mismatch",
+    "recovery_required",
+    "source_changed",
+    "source_map_invalid",
+    "source_version_conflict",
+    "staged_result_too_large",
+    "storage_unavailable",
+    "task_busy"
+  ],
+  "x-native-data-protocol": {
+    "schema": "aap-labeling-video-writer-data/v1",
+    "function": "aap_labeling_v1.video_writer_step(text,text)",
+    "actions": [
+      "policy",
+      "prepare",
+      "read_window",
+      "lock_masks",
+      "apply",
+      "status",
+      "read_publication"
+    ],
+    "max_request_bytes": 68157440,
+    "max_staged_bytes": 67108864,
+    "max_native_bytes": 135266304,
+    "receipt_fields": [
+      "operation_id",
+      "job_id",
+      "run_id",
+      "request_digest",
+      "outcome",
+      "status",
+      "completed_at",
+      "staged_sha256",
+      "staged_byte_size"
+    ]
+  }
+}

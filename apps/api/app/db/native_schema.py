@@ -76,6 +76,7 @@ NATIVE_MANAGED_RELATIONS = frozenset(
     }
     | {
         ("aap_labeling_v1", "video_execution_checkpoint_mask_sets"),
+        ("aap_labeling_v1", "video_writer_receipts"),
         ("aap_inference_routing_v1", "video_execution_scope_permits"),
     }
 )

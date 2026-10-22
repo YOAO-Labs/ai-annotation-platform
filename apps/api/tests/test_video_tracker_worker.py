@@ -1547,29 +1547,6 @@ def test_apply_tracker_results_preserves_mask_type_when_all_results_are_outside(
     ]
 
 
-def test_stage_tracker_results_rejects_oversized_payload_atomically(monkeypatch):
-    from app.services.video_tracking import runner as runner
-
-    job = _job()
-    job.staged_result = None
-    monkeypatch.setattr(runner, "MAX_TRACKER_STAGED_BYTES", 32)
-    with pytest.raises(ValueError, match="tracker_candidate_too_large"):
-        runner._stage_tracker_results(
-            job,
-            [
-                TrackerFrameResult(
-                    frame_index=0,
-                    geometry={"type": "bbox", "x": 0, "y": 0, "w": 1, "h": 1},
-                )
-            ],
-            1,
-            "bbox",
-            tracker_input_evidence={},
-            source_instance_map={},
-        )
-    assert job.staged_result is None
-
-
 async def test_accept_mask_candidate_validates_source_dimensions_before_commit(
     db_session, super_admin
 ):

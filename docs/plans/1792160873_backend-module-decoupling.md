@@ -4792,3 +4792,40 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   capacity remain separate gates. Go stays experimental; no primary/production
   cutover, push, GPU, AMD64 or replacement-language qualification is claimed.
   See ADR-0158 and the current selected-case ledger for bounded evidence.
+
+### Labeling video worker publication owner checkpoint
+
+- Native0283 and `aap-labeling-video-writer/v1` move final success, cooperative
+  cancellation and failure publication to Labeling. The canonical Job state,
+  staged candidates, Mask roots, Jobs finish fact and immutable receipt share one
+  transaction. Human accept/decide/discard and intermediate start/progress remain
+  API ORM responsibilities; the whole-module goal stays active.
+- Completed output is reconstructed from the frozen plan and exact original
+  canonical window bytes. Ordinary cancellation requires an actual cancellation
+  marker and preserves sealed track rows plus only a valid current-generation
+  next-window tail. Empty recovery commands reconstruct the saved prefix.
+  Correction cancellation clears candidates without staging authorization;
+  failure cleanup uses claim authority and preserves an already cancelled payload.
+- A separate proof-only publication lookup finds a prior generation's immutable
+  receipt before a cancelled redelivery attempts any new publication. Exact
+  operation/digest status remains strict for an uncertain same-command commit.
+  Current actor/source/Task/segment authority remains enforced when staging rows.
+- The three actual bindings share the portable policy: borrowed Session, exact
+  one-function LOGIN DSN, and private HTTP process. Six bbox/Mask consumer cases
+  pass, including HTTP restart/status, byte-preserved numeric windows and logical
+  Mask pin-to-staged-root transition. A SIGKILL cancellation/repeated-delivery
+  case passes without new inference; the three existing SIGKILL recovery cases
+  also pass. Injected downstream finish refusal rolls back the Job and receipt
+  together. Existing notifications remain best effort rather than an outbox.
+- The selected local ledger contains 164 distinct passing checks across
+  consumer regressions, Native authority, pipeline validation and real processes;
+  it is not a count of new database cases. Reports and owned-resource cleanup are
+  recorded in `.worktree/labeling-video-writer-qualification.json`. Raw earlier
+  failed attempts are retained separately. Source and independent noneditable
+  Labeling suites each pass60 tests; the latter verifies148 installed file
+  hashes and absence of API/ORM/Celery/object-storage-SDK/ML dependencies.
+- Nonempty backup/restore, current restricted owner/API images and local capacity
+  are still separate pending gates. No primary or production runtime was switched,
+  no Go provider was expanded, and no GPU/AMD64/remote-CI qualification is claimed.
+  Next close those gates, then extract the remaining human candidate decisions and
+  intermediate writers before declaring the Labeling module complete.
