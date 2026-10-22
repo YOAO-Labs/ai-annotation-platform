@@ -198,6 +198,7 @@ class ReviewRegressions(unittest.TestCase):
                 }
             )
             backend.database = AsyncMock(return_value=None)
+            backend.owned_runtime_role = AsyncMock(return_value=None)
             backend.redis_info = Mock(return_value=None)
             backend.bucket_info = Mock(return_value=None)
             backend.destroy(resources["confirmation"])

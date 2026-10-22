@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / "apps/api"))
 
 async def probe_database():
     from sqlalchemy import text
+    from sqlalchemy.engine import make_url
     from sqlalchemy.exc import DBAPIError
     from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -27,11 +28,25 @@ async def probe_database():
     owner = create_async_engine(os.environ["MIGRATION_DATABASE_URL"])
     try:
         async with runtime.connect() as connection:
-            assert await connection.scalar(text("SELECT current_user")) == "runtime"
+            expected = make_url(os.environ["DATABASE_URL"]).username
+            assert expected == make_url(os.environ["DATABASE_URL"]).database + "_app"
+            assert expected != make_url(os.environ["MIGRATION_DATABASE_URL"]).username
+            assert await connection.scalar(text("SELECT current_user")) == expected
+            assert not any(
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT rolsuper,rolinherit,rolcreatedb,rolcreaterole,rolreplication,rolbypassrls FROM pg_roles WHERE rolname=current_user"
+                        )
+                    )
+                ).one()
+            )
             assert not await connection.scalar(
                 text("SELECT has_schema_privilege(current_user, 'public', 'CREATE')")
             )
             for sql in (
+                "SELECT password_hash FROM public.users LIMIT 0",
+                "UPDATE public.users SET name=name WHERE false",
                 "CREATE TABLE forbidden_probe (id int)",
                 "REFRESH MATERIALIZED VIEW CONCURRENTLY mv_user_perf_daily",
             ):
@@ -54,11 +69,97 @@ async def probe_database():
         await owner.dispose()
 
 
+async def probe_presence_task(celery_app):
+    from datetime import timedelta
+    from sqlalchemy import text
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    owner = create_async_engine(
+        os.environ["MIGRATION_DATABASE_URL"], hide_parameters=True
+    )
+    stale, neighbor = uuid4(), uuid4()
+    try:
+        async with owner.begin() as db:
+            for user_id, age in ((stale, timedelta(hours=2)), (neighbor, timedelta())):
+                await db.execute(
+                    text(
+                        "INSERT INTO users(id,email,name,password_hash,role,is_active,status,last_seen_at) "
+                        "VALUES(:id,:email,'Presence fixture','test-only','employee',true,'online',now()-CAST(:age AS interval))"
+                    ),
+                    {
+                        "id": user_id,
+                        "email": str(user_id) + "@example.test",
+                        "age": age,
+                    },
+                )
+        async with owner.connect() as gate:
+            transaction = await gate.begin()
+            await gate.execute(
+                text("SELECT id FROM users WHERE id=:id FOR UPDATE"), {"id": stale}
+            )
+            task = celery_app.send_task("app.workers.presence.mark_inactive_offline")
+            try:
+                deadline = time.monotonic() + 30
+                observed = None
+                while time.monotonic() < deadline:
+                    async with owner.connect() as observer:
+                        observed = (
+                            (
+                                await observer.execute(
+                                    text(
+                                        "SELECT pid,usename FROM pg_stat_activity WHERE datname=current_database() "
+                                        "AND state='active' AND wait_event_type='Lock' "
+                                        "AND query LIKE 'SELECT aap_identity_accounts_v1.mark_inactive_accounts_offline%'"
+                                    )
+                                )
+                            )
+                            .mappings()
+                            .first()
+                        )
+                    if observed:
+                        break
+                    await asyncio.sleep(0.05)
+                assert (
+                    observed
+                    and observed["usename"]
+                    == make_url(os.environ["DATABASE_URL"]).username
+                )
+                print(
+                    "PASS: ordinary worker Native call observed as "
+                    + observed["usename"]
+                    + " at PostgreSQL PID "
+                    + str(observed["pid"]),
+                    flush=True,
+                )
+            finally:
+                await transaction.rollback()
+            result = await asyncio.to_thread(task.get, timeout=60)
+            assert result["affected"] >= 1
+        async with owner.connect() as db:
+            states = dict(
+                (
+                    await db.execute(
+                        text("SELECT id,status FROM users WHERE id=ANY(:ids)"),
+                        {"ids": [stale, neighbor]},
+                    )
+                ).all()
+            )
+            assert states == {stale: "offline", neighbor: "online"}
+    finally:
+        async with owner.begin() as db:
+            await db.execute(
+                text("DELETE FROM users WHERE id=ANY(:ids)"), {"ids": [stale, neighbor]}
+            )
+        await owner.dispose()
+
+
 def probe_tasks():
     from app.workers.celery_app import celery_app
 
     asyncio.run(probe_database())
     try:
+        asyncio.run(probe_presence_task(celery_app))
         for task in (
             "app.workers.cleanup.refresh_user_perf_mv",
             "app.workers.cleanup.refresh_audit_bi_mv",
@@ -87,8 +188,6 @@ def probe_tasks():
 
 def main():
     from app.config import settings
-    from sqlalchemy import text
-    from sqlalchemy.ext.asyncio import create_async_engine
     from worktree_env import load_identity, topology
     from worktree_resources import LocalResources, docker
     from worktree_runtime import run_processes, parse_arguments
@@ -113,9 +212,27 @@ def main():
                 "POSTGRES_PASSWORD=fixture",
                 "postgres:16-alpine",
             )
+            print(
+                json.dumps(
+                    {
+                        "acceptance": "worktree-identity-runtime",
+                        "postgres_container": container,
+                    }
+                ),
+                flush=True,
+            )
             deadline = time.monotonic() + 30
             while subprocess.run(
-                ["docker", "exec", container, "pg_isready", "-U", "owner"],
+                [
+                    "docker",
+                    "exec",
+                    container,
+                    "pg_isready",
+                    "-h",
+                    "127.0.0.1",
+                    "-U",
+                    "owner",
+                ],
                 capture_output=True,
             ).returncode:
                 if time.monotonic() >= deadline:
@@ -126,25 +243,12 @@ def main():
             port = info["NetworkSettings"]["Ports"]["5432/tcp"][0]["HostPort"]
             owner_url = f"postgresql+asyncpg://owner:fixture@127.0.0.1:{port}/postgres"
 
-            async def create_runtime_role():
-                engine = create_async_engine(owner_url)
-                try:
-                    async with engine.begin() as connection:
-                        await connection.execute(
-                            text(
-                                "CREATE ROLE runtime LOGIN PASSWORD 'fixture' NOSUPERUSER NOCREATEDB NOCREATEROLE"
-                            )
-                        )
-                finally:
-                    await engine.dispose()
-
-            asyncio.run(create_runtime_role())
             root = Path(temporary)
             backend = LocalResources(
                 topology(root, load_identity(root, create=True), "test"),
                 settings.model_copy(
                     update={
-                        "database_url": owner_url.replace("owner:", "runtime:"),
+                        "database_url": owner_url,
                         "migration_database_url": owner_url,
                     }
                 ),
@@ -165,6 +269,28 @@ def main():
             assert run_processes(backend, options) == 0
             assert not (root / ".worktree/test/run.json").exists()
             assert asyncio.run(backend.database())["sessions"] == 0
+            credential_path = (
+                Path(backend.resources["directory"]) / "runtime-credentials.json"
+            )
+            credentials = credential_path.read_bytes()
+            reconstructed = LocalResources(
+                backend.resources, backend.settings, code_root=ROOT
+            )
+            reconstructed.prepare(skip_migrations=True)
+            assert credentials == credential_path.read_bytes()
+            print(
+                json.dumps(
+                    {
+                        "acceptance": "worktree-identity-runtime",
+                        "runtime_role": reconstructed.runtime_url().username,
+                        "credential_file_mode": "0600",
+                        "reconstruction_preserves_credentials": True,
+                    }
+                ),
+                flush=True,
+            )
+            assert credential_path.stat().st_mode & 0o777 == 0o600
+            assert asyncio.run(reconstructed.owned_runtime_role())["sessions"] == 0
             print(
                 "PASS: both workers and the command shut down; no database sessions remain.",
                 flush=True,
@@ -173,9 +299,32 @@ def main():
             try:
                 if backend and backend.touched:
                     backend.destroy(backend.resources["confirmation"])
+                    assert not (
+                        Path(backend.resources["directory"])
+                        / "runtime-credentials.json"
+                    ).exists()
+                    assert asyncio.run(backend.owned_runtime_role()) is None
+                    print(
+                        json.dumps(
+                            {
+                                "acceptance": "worktree-identity-runtime",
+                                "database_role_and_credentials_removed": True,
+                            }
+                        ),
+                        flush=True,
+                    )
             finally:
                 if container:
                     docker("rm", "-f", "-v", container)
+                    print(
+                        json.dumps(
+                            {
+                                "acceptance": "worktree-identity-runtime",
+                                "postgres_container_removed": container,
+                            }
+                        ),
+                        flush=True,
+                    )
 
 
 if __name__ == "__main__":

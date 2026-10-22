@@ -83,6 +83,46 @@ class IdentityTests(unittest.TestCase):
 
 
 class EnvironmentTests(unittest.TestCase):
+    def test_every_identity_settings_database_selector_is_overridden(self):
+        import ast
+        from worktree_env import isolated_environment, load_identity, topology
+
+        source = Path(__file__).resolve().parents[1] / "apps/api/app/config.py"
+        settings = next(
+            node
+            for node in ast.parse(source.read_text()).body
+            if isinstance(node, ast.ClassDef) and node.name == "Settings"
+        )
+        selectors = {
+            node.target.id.upper()
+            for node in settings.body
+            if isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id.startswith(("identity_", "notification_publish_"))
+            and node.target.id.endswith(("database_url", "database_url_file"))
+        }
+        self.assertGreater(len(selectors), 30)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            resources = topology(root, load_identity(root, create=True), "test")
+            inherited = {
+                key: "shared-owner-secret"
+                for name in selectors
+                for key in (name, name.lower())
+            }
+            env = isolated_environment(
+                resources,
+                database_url="postgresql+asyncpg://runtime:fixture@localhost:5432/db",
+                migration_database_url="postgresql+asyncpg://owner:fixture@localhost:5432/db",
+                minio_endpoint="localhost:9000",
+                redis_port=6391,
+                inherited=inherited,
+            )
+            for name in selectors:
+                self.assertEqual(env.get(name), "", name)
+                self.assertNotIn(name.lower(), env)
+            self.assertNotIn("shared-owner-secret", env.values())
+
     def test_overrides_all_mutable_targets_without_changing_shared_settings(self):
         import worktree_env
 

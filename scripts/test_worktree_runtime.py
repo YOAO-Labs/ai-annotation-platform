@@ -118,6 +118,8 @@ class CommandTests(unittest.TestCase):
                 return_value={"owner": resources["owner"], "sessions": 0}
             )
             backend.revisions = AsyncMock(return_value=["a"])
+            backend.owned_runtime_role = AsyncMock(return_value=None)
+            backend.verify_runtime_login = AsyncMock(return_value=True)
             backend.redis_info.return_value = {
                 "owner": resources["owner"],
                 "running": True,

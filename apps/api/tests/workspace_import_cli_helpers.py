@@ -107,6 +107,7 @@ class WorkspaceImportCli:
         minio_use_ssl: bool,
         s3_access_key: str,
         s3_secret_key: str,
+        runtime_database_url: URL | None = None,
     ) -> None:
         self.test_engine = test_engine
         self.source_root = Path(source_root).resolve(strict=True)
@@ -155,7 +156,7 @@ class WorkspaceImportCli:
         _verify_postgres(test_engine.url)
         self.redis_owner_url = _verify_redis()
         self.database_name = database_name
-        self.database_url = self._runtime_database_url()
+        self.database_url = self._runtime_database_url(runtime_database_url)
         self.postgres_container = self._required("AAP_MODULE_DATA_PG_CONTAINER_ID")
         self.redis_container = self._required("AAP_MODULE_DATA_REDIS_CONTAINER_NAME")
         self.image = self._required("AAP_WORKSPACE_MODULE_API_IMAGE")
@@ -523,7 +524,7 @@ class WorkspaceImportCli:
         )
         database = make_url(env.get("DATABASE_URL", ""))
         if (
-            database.username != "legacy_runtime"
+            database.username != self.database_url.username
             or database.host != "workspace-import-postgres"
             or database.port != 5432
             or database.database != self.database_name
@@ -566,7 +567,7 @@ class WorkspaceImportCli:
         }
         if database_selectors != {"DATABASE_URL"}:
             raise RuntimeError(
-                "nuScenes CLI must use only its legacy_runtime database URL"
+                "nuScenes CLI must use only its scoped runtime database URL"
             )
         for prefix in _EMPTY_SELECTOR_PREFIXES:
             for suffix in _EMPTY_SELECTOR_SUFFIXES:
@@ -613,17 +614,26 @@ class WorkspaceImportCli:
             )
         return {"id": record["Id"], "source_revision": revision}
 
-    def _runtime_database_url(self) -> URL:
-        value = make_url(self._required("AAP_MODULE_DATA_LEGACY_RUNTIME_URL"))
+    def _runtime_database_url(self, runtime_database_url: URL | None = None) -> URL:
+        value = runtime_database_url or make_url(
+            self._required("AAP_MODULE_DATA_LEGACY_RUNTIME_URL")
+        )
+        expected_role = (
+            "legacy_runtime"
+            if runtime_database_url is None
+            else self.database_name + "_app"
+        )
         if (
             value.drivername != "postgresql+asyncpg"
-            or value.username != "legacy_runtime"
+            or value.username != expected_role
+            or not value.password
+            or value.query
             or value.host != self.test_engine.url.host
             or value.port != self.test_engine.url.port
             or value.database != self.test_engine.url.database
             or not str(value.database or "").endswith("_test")
         ):
-            raise RuntimeError("Legacy runtime role does not target the owned test DB")
+            raise RuntimeError("Runtime role does not target the owned test DB")
         return value.set(
             host="workspace-import-postgres",
             port=5432,

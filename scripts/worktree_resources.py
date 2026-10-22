@@ -7,6 +7,8 @@ import asyncio
 import json
 import os
 from pathlib import Path
+import re
+import stat
 import secrets
 import shutil
 import subprocess
@@ -321,7 +323,9 @@ class LocalResources:
         # Validate every source before connecting or writing. Old manifests remain
         # inspectable by doctor/stop/destroy; only an actual child process requires
         # the new dedicated input bucket, after explicit prepare has upgraded it.
-        self._environment(1, require_inputs_bucket=False)
+        self._environment(
+            1, require_inputs_bucket=False, database_url=settings.database_url
+        )
         self.url = make_url(settings.effective_migration_database_url).set(
             database=resources["database"]
         )
@@ -365,10 +369,17 @@ class LocalResources:
             ),
         )
 
-    def _environment(self, port: int, *, require_inputs_bucket: bool = True) -> dict:
+    def _environment(
+        self,
+        port: int,
+        *,
+        require_inputs_bucket: bool = True,
+        database_url: str | None = None,
+    ) -> dict:
         return isolated_environment(
             self.resources,
-            database_url=self.settings.database_url,
+            database_url=database_url
+            or self.runtime_url().render_as_string(hide_password=False),
             migration_database_url=self.settings.effective_migration_database_url,
             minio_endpoint=self.settings.minio_endpoint,
             minio_use_ssl=self.settings.minio_use_ssl,
@@ -376,6 +387,256 @@ class LocalResources:
             inherited=os.environ,
             require_inputs_bucket=require_inputs_bucket,
         )
+
+    def _runtime_credentials(self, *, required: bool = False) -> dict | None:
+        path = state_path(self.root, self.resources["mode"], "runtime-credentials.json")
+        if not path.exists():
+            if required:
+                raise WorktreeError("独立运行账号尚未准备；请先运行 init")
+            return None
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(descriptor) as stream:
+            info = os.fstat(stream.fileno())
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) != 0o600
+            ):
+                raise WorktreeError(
+                    "运行账号凭据必须属于当前用户且权限为 0600；不会读取不安全文件"
+                )
+            try:
+                document = json.load(stream)
+            except (json.JSONDecodeError, UnicodeError):
+                raise WorktreeError(
+                    "运行账号凭据损坏；拒绝重新生成或回退 owner"
+                ) from None
+        if not isinstance(document, dict):
+            raise WorktreeError("运行账号凭据格式无效；拒绝接管")
+        expected = self._runtime_credential_identity()
+        if (
+            set(document) != {*expected, "password"}
+            or any(document.get(key) != value for key, value in expected.items())
+            or not isinstance(document.get("password"), str)
+            or not re.fullmatch(r"[A-Za-z0-9_-]{43}", document["password"])
+        ):
+            raise WorktreeError("运行账号凭据与本环境或原迁移账号不一致；拒绝接管")
+        return document
+
+    def _runtime_credential_identity(self) -> dict:
+        return {
+            "schema": 1,
+            "owner": self.resources["owner"],
+            "role": self.resources["database"] + "_app",
+            "postgres": {
+                "host": self.url.host,
+                "port": self.url.port or 5432,
+                "migration_role": self.url.username,
+            },
+        }
+
+    def runtime_url(self):
+        configured = make_url(self.settings.database_url)
+        if configured.username != self.url.username:
+            return configured.set(database=self.resources["database"])
+        credentials = self._runtime_credentials(required=True)
+        return configured.set(
+            database=self.resources["database"],
+            username=credentials["role"],
+            password=credentials["password"],
+        )
+
+    async def _runtime_role_record(self, connection, operator_oid):
+        result = (
+            (
+                await connection.execute(
+                    text(
+                        "SELECT r.oid,r.rolname AS name,shobj_description(r.oid,'pg_authid') AS owner,"
+                        "r.rolcanlogin AND NOT (r.rolsuper OR r.rolinherit OR r.rolcreatedb OR "
+                        "r.rolcreaterole OR r.rolreplication OR r.rolbypassrls) AND r.rolconfig IS NULL "
+                        "AND r.rolvaliduntil IS NULL AND NOT EXISTS(SELECT 1 FROM pg_database "
+                        "WHERE datname=:database AND datdba=r.oid) AS safe,"
+                        "EXISTS(SELECT 1 FROM pg_auth_members m WHERE m.member=r.oid OR "
+                        "(m.roleid=r.oid AND (m.member<>:operator OR NOT m.admin_option "
+                        "OR m.inherit_option OR m.set_option))) AS foreign_membership,"
+                        "(SELECT count(*) FROM pg_stat_activity WHERE usesysid=r.oid) AS sessions,"
+                        "EXISTS(SELECT 1 FROM pg_shdepend d WHERE d.refclassid='pg_authid'::regclass "
+                        "AND d.refobjid=r.oid AND d.classid<>'pg_auth_members'::regclass "
+                        "AND NOT (d.dbid=COALESCE((SELECT oid FROM pg_database WHERE datname=:database),0) "
+                        "AND d.dbid<>0) AND NOT (d.dbid=0 AND d.classid='pg_database'::regclass "
+                        "AND d.objid=COALESCE((SELECT oid FROM pg_database WHERE datname=:database),0))) AS external_dependencies,"
+                        "EXISTS(SELECT 1 FROM pg_auth_members m WHERE m.roleid=r.oid "
+                        "AND m.member=:operator AND m.admin_option) AS operator_admin "
+                        "FROM pg_roles r WHERE r.rolname=:role"
+                    ),
+                    {
+                        "role": self._runtime_credential_identity()["role"],
+                        "operator": operator_oid,
+                        "database": self.resources["database"],
+                    },
+                )
+            )
+            .mappings()
+            .first()
+        )
+        return dict(result) if result else None
+
+    def _validate_runtime_role(self, observed, credentials) -> None:
+        require_owner(observed["name"], observed, self.resources["owner"])
+        if not credentials:
+            raise WorktreeError("运行账号已存在但缺少本地凭据；不会重置或接管")
+        if (
+            not observed["safe"]
+            or observed["foreign_membership"]
+            or observed["external_dependencies"]
+        ):
+            raise WorktreeError("自有运行账号权限、成员资格或外部依赖已变化；拒绝继续")
+
+    async def owned_runtime_role(self, action: str = "inspect") -> dict | None:
+        """Keep generated LOGIN creation and deletion bound to this exact mode."""
+        if action not in {"inspect", "check_create", "create", "check_drop", "drop"}:
+            raise WorktreeError("无效的运行账号操作")
+        credentials = self._runtime_credentials()
+        shared_owner = (
+            make_url(self.settings.database_url).username == self.url.username
+        )
+        if credentials is None and not shared_owner:
+            return None
+        if action in {"check_create", "create"} and not shared_owner:
+            raise WorktreeError(
+                "此环境已有自有运行账号；先用原配置销毁，再更换账号配置"
+            )
+        identity = self._runtime_credential_identity()
+        role = identity["role"]
+        engine = create_async_engine(
+            self.url.set(database="postgres"),
+            poolclass=NullPool,
+            hide_parameters=True,
+            connect_args={"timeout": 5, "command_timeout": 10},
+        )
+        try:
+            async with engine.begin() as connection:
+                await self.verify_database_server(connection)
+                if action != "inspect":
+                    await connection.execute(
+                        text("SELECT pg_advisory_xact_lock(hashtext(:role))"),
+                        {"role": role},
+                    )
+                operator = (
+                    (
+                        await connection.execute(
+                            text(
+                                "SELECT oid,rolsuper,rolcreaterole FROM pg_roles WHERE rolname=current_user"
+                            )
+                        )
+                    )
+                    .mappings()
+                    .one()
+                )
+
+                observed = await self._runtime_role_record(connection, operator["oid"])
+                if observed is not None:
+                    self._validate_runtime_role(observed, credentials)
+                if action in {"check_create", "create"} and observed is None:
+                    if not (operator["rolsuper"] or operator["rolcreaterole"]):
+                        raise WorktreeError(
+                            "同账号配置需要迁移账号具备 CREATEROLE；请由管理员预配置普通运行账号，"
+                            "并分开 DATABASE_URL 与 MIGRATION_DATABASE_URL；不会回退 owner"
+                        )
+                    if action == "check_create":
+                        return None
+                    if credentials is None:
+                        credentials = {
+                            **identity,
+                            "password": secrets.token_urlsafe(32),
+                        }
+                        atomic_json(
+                            state_path(
+                                self.root,
+                                self.resources["mode"],
+                                "runtime-credentials.json",
+                            ),
+                            credentials,
+                            exclusive=True,
+                        )
+                        credentials = self._runtime_credentials(required=True)
+                    await connection.execute(
+                        text(
+                            "SELECT set_config('aap.worktree_runtime_role',:role,true),"
+                            "set_config('aap.worktree_runtime_password',:password,true),"
+                            "set_config('aap.worktree_runtime_owner',:owner,true)"
+                        ),
+                        {
+                            "role": role,
+                            "password": credentials["password"],
+                            "owner": self.resources["owner"],
+                        },
+                    )
+                    await connection.exec_driver_sql("""DO $create_runtime$
+                    BEGIN
+                        EXECUTE format('CREATE ROLE %I LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD %L',
+                            current_setting('aap.worktree_runtime_role'),current_setting('aap.worktree_runtime_password'));
+                        EXECUTE format('COMMENT ON ROLE %I IS %L',
+                            current_setting('aap.worktree_runtime_role'),current_setting('aap.worktree_runtime_owner'));
+                    END;
+                    $create_runtime$;""")
+                    observed = await self._runtime_role_record(
+                        connection, operator["oid"]
+                    )
+                    if (
+                        not observed
+                        or not observed["safe"]
+                        or observed["foreign_membership"]
+                        or observed["external_dependencies"]
+                        or observed["owner"] != self.resources["owner"]
+                    ):
+                        raise WorktreeError(
+                            "自有运行账号创建后未能验证；保留凭据以便恢复"
+                        )
+                if action in {"check_drop", "drop"} and observed is not None:
+                    if observed["sessions"]:
+                        raise WorktreeError("运行账号仍有连接；不会强制终止未知客户端")
+                    if not operator["rolsuper"] and not (
+                        operator["rolcreaterole"] and observed["operator_admin"]
+                    ):
+                        raise WorktreeError(
+                            "迁移账号不能删除自有运行账号；保留全部资源"
+                        )
+                    if action == "drop":
+                        quoted = engine.dialect.identifier_preparer.quote_identifier(
+                            role
+                        )
+                        await connection.exec_driver_sql(f"DROP ROLE {quoted}")
+                        observed = await self._runtime_role_record(
+                            connection, operator["oid"]
+                        )
+                        if observed is not None:
+                            raise WorktreeError("运行账号删除未能验证")
+                if observed:
+                    observed.pop("oid")
+                    observed.pop("operator_admin")
+                return observed
+        finally:
+            await engine.dispose()
+
+    async def verify_runtime_login(self) -> bool:
+        runtime = self.runtime_url()
+        engine = create_async_engine(
+            runtime,
+            poolclass=NullPool,
+            hide_parameters=True,
+            connect_args={"timeout": 5, "command_timeout": 10},
+        )
+        try:
+            async with engine.connect() as connection:
+                if (
+                    await connection.scalar(text("SELECT current_user"))
+                    != runtime.username
+                ):
+                    raise WorktreeError("运行账号身份与本环境不一致")
+                return True
+        finally:
+            await engine.dispose()
 
     def environment(self) -> dict:
         observed = self.redis_info()
@@ -410,7 +671,8 @@ class LocalResources:
                                 await connection.execute(
                                     text(
                                         "SELECT shobj_description(oid, 'pg_database') AS owner, "
-                                        "(SELECT count(*) FROM pg_stat_activity WHERE datname = :name) AS sessions "
+                                        "(SELECT count(*) FROM pg_stat_activity WHERE datname = :name "
+                                        "AND backend_type IS DISTINCT FROM 'autovacuum worker') AS sessions "
                                         "FROM pg_database WHERE datname = :name"
                                     ),
                                     {"name": name},
@@ -534,6 +796,7 @@ class LocalResources:
     def inspect(self) -> dict:
         return {
             "database": asyncio.run(self.database()),
+            "runtime_role": asyncio.run(self.owned_runtime_role()),
             "redis": self.redis_info(),
             "buckets": {
                 name: self.bucket_info(name)
@@ -620,10 +883,7 @@ class LocalResources:
 
     async def grant_runtime(self) -> None:
         """Grant embedded capabilities and fence a distinct application role."""
-        runtime = make_url(self.settings.database_url)
-        if runtime.username == self.url.username:
-            # Single-owner compatibility cannot provide a runtime storage boundary.
-            return
+        runtime = self.runtime_url()
         engine = create_async_engine(self.url, poolclass=NullPool, hide_parameters=True)
         try:
             role = engine.dialect.identifier_preparer.quote_identifier(runtime.username)
@@ -918,23 +1178,37 @@ class LocalResources:
                     ),
                     {"role": runtime.username, "database": self.resources["database"]},
                 )
+                if make_url(self.settings.database_url).username == self.url.username:
+                    operator_oid = await connection.scalar(
+                        text("SELECT oid FROM pg_roles WHERE rolname=current_user")
+                    )
+                    observed = await self._runtime_role_record(connection, operator_oid)
+                    if observed is None:
+                        raise WorktreeError("自有运行账号在授权期间消失；授权已回滚")
+                    self._validate_runtime_role(
+                        observed, self._runtime_credentials(required=True)
+                    )
                 await connection.exec_driver_sql(_IDENTITY_PRIVATE_RUNTIME_ACL)
         finally:
             await engine.dispose()
 
     def prepare(self, *, skip_migrations: bool = False) -> None:
-        self.upgrade_training_bucket()
-        self.upgrade_inputs_bucket()
         revisions, heads = migration_graph(self.code_root)
         inventory = self.inspect()
         validate_inventory(self.resources, inventory)
         current = asyncio.run(self.revisions()) if inventory["database"] else []
         validate_revisions(revisions, heads, current, skip=skip_migrations)
+        asyncio.run(self.owned_runtime_role("check_create"))
+        self.upgrade_training_bucket()
+        self.upgrade_inputs_bucket()
+        inventory = self.inspect()
+        validate_inventory(self.resources, inventory)
         atomic_json(
             state_path(self.root, self.resources["mode"], "resources.json"),
             self.manifest,
         )
         self.touched = True
+        asyncio.run(self.owned_runtime_role("create"))
         asyncio.run(self.database("create"))
         for name, observed in inventory["buckets"].items():
             if observed is None:
@@ -968,6 +1242,7 @@ class LocalResources:
                 )
         validate_revisions(revisions, heads, asyncio.run(self.revisions()), skip=True)
         asyncio.run(self.grant_runtime())
+        asyncio.run(self.verify_runtime_login())
         print(
             f"[dev:worktree] {self.resources['database']} 已在 head {heads[0]}",
             file=sys.stderr,
@@ -1151,9 +1426,11 @@ class LocalResources:
             )
         inventory = self.inspect()
         validate_destruction(self.resources, inventory, confirmation)
+        asyncio.run(self.owned_runtime_role("check_drop"))
         # Validate every resource before the first destructive operation. Each backend
         # then rechecks ownership at the write boundary. Never use DROP ... FORCE.
         asyncio.run(self.database("drop"))
+        asyncio.run(self.owned_runtime_role("drop"))
         if require_owner(
             self.resources["redis_name"], self.redis_info(), self.resources["owner"]
         ):
@@ -1193,6 +1470,9 @@ class LocalResources:
             directory = state_path(self.root, self.resources["mode"], part)
             if directory.exists():
                 shutil.rmtree(directory)
+        state_path(
+            self.root, self.resources["mode"], "runtime-credentials.json"
+        ).unlink(missing_ok=True)
         state_path(self.root, self.resources["mode"], "resources.json").unlink(
             missing_ok=True
         )

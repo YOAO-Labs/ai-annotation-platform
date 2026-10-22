@@ -233,6 +233,7 @@ def diagnose(backend) -> dict:
             report["errors"].append(f"{name}: {safe_error(exc)}")
 
     check("database", lambda: asyncio.run(backend.database()))
+    check("runtime_role", lambda: asyncio.run(backend.owned_runtime_role()))
     check("redis", backend.redis_info)
     check(
         "buckets",
@@ -248,6 +249,7 @@ def diagnose(backend) -> dict:
             report["errors"].append("独立输入 bucket 尚未启用 versioning；运行 init")
     if checks.get("database"):
         check("database_revisions", lambda: asyncio.run(backend.revisions()))
+        check("runtime_login", lambda: asyncio.run(backend.verify_runtime_login()))
     else:
         report["errors"].append("独立数据库尚未创建；运行 init")
     if checks.get("buckets") is not None:

@@ -7328,3 +7328,76 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   failed acceptance receipt. No push, production deployment, primary cutover,
   remote CI or Go expansion occurred. This bounded capability is locally qualified;
   the full goal remains active, with the next delivery recorded in the sole ledger.
+
+### Worktree-owned Identity runtime LOGIN
+
+- Continue from clean Root ffce5e81f1159dbcc0add9af3d18951d4430d585. The previous
+  goal turn was progress: it qualified distinct-role embedded ACL closure. This
+  bounded continuation closes the actual worktree branch whose configured runtime
+  and migration URLs share the same owner username; do not relabel that branch as
+  isolated while still passing owner credentials to application processes.
+- Reuse LocalResources, mode identity, atomic_json and the existing grant/worker
+  lifecycle. Generate one ordinary NOINHERIT LOGIN per mode, with an exact resource
+  ownership comment and a stable random secret in a 0600 sidecar bound to the
+  migration identity and server target. Existing distinct configured roles remain.
+  Insufficient CREATEROLE fails before infrastructure writes and requires a
+  preprovisioned distinct application URL. Never fall back to owner.
+- Creation and comment share a PostgreSQL transaction; saved credentials survive
+  interruption, prepare/reconstruction/stop do not rotate them, and exact ownership,
+  attributes, both membership directions, sessions and foreign dependencies gate
+  cleanup. Only the creator's PostgreSQL ADMIN-only edge is accepted. State stays
+  until all owned cleanup succeeds. No cross-database DROP OWNED is introduced.
+- A source audit found a genuine prerequisite: newer Identity capability database
+  selectors were still inherited from shared settings. The worktree child env now
+  clears every current Identity and notification-publisher database URL/file pair;
+  a Settings-AST regression enforces the complete list without importing the app.
+- Fast worktree regressions passed 57 cases. A subsequent full preparation probe
+  exposed a real reordered-inventory defect: input-bucket upgrade created the new
+  bucket but a stale inventory attempted creation again. Refresh and validate the
+  inventory after upgrades; its smallest regression passed separately. The first
+  unit run's fixture-only incomplete backend stub is retained and corrected.
+- Two actual PostgreSQL role lifecycle probes passed (superuser and non-superuser
+  CREATEROLE migrators). The first attempt failed before module code because Unix
+  socket readiness saw the temporary init server; TCP readiness corrected it.
+- The full existing maintenance verifier now uses the same configured owner URL
+  to exercise automatic role separation. Its genuine presence task is gated by an
+  owner row lock, and pg_stat_activity confirms the generated LOGIN and exact PID
+  at the Identity Native call. The ordinary role cannot access private users or
+  perform DDL; the maintenance worker completes five existing tasks, including real
+  partition create/drop and view refresh. Both workers exit without DB sessions;
+  reconstruction preserves the 0600 secret, and final DB/role/secret cleanup passes.
+- The successful worker receipt is `.worktree/identity-runtime-role-workers-fourth.command.json`.
+  Earlier receipts remain: one syntax error in the test driver and a fixture-only
+  interval codec error before task dispatch. An actual execution of the same INSERT
+  with timedelta values verified the smallest correction before repeating workers.
+- Native negative/lifecycle cases are source-only delegated in a fresh isolated
+  worktree based on this starting HEAD; Root owns all imports, tests, DB and runtime.
+  Complete Native and matching installed API acceptance remain pending. No primary
+  cutover, push, release, production deployment or Go expansion is authorized here.
+
+- Source worker 6214f5e74 integrates as 61f84732feb8198b938737d31d8c7431248da435.
+  Its eighteen actual Native cases first passed sixteen; strict-0600 validation
+  incorrectly allowed owner execute bits, and the missing-owned-DB dependency
+  predicate let NULL suppress a foreign database grant. Fix both guards, then pass
+  precisely those two reproductions. Retain every failure and reuse passed cases.
+- Root reuses the role catalog/ownership validation inside the generated-role grant
+  transaction; a foreign incoming membership now rolls back the whole grant batch.
+  The generic distinct/LAN profile keeps its accepted migration inheritance policy.
+  The full prepare/HTTP/lifecycle case passes again with this transactional guard.
+- Reuse the existing b23a36307378f7f40cea0a2095561a614daeb5dc fix rather than
+  reimplement it: worktree and migration client counts exclude only autovacuum.
+  Its existing SQL regression injects a maintenance row and retains a real client
+  blocker. Root wraps it in the allowed verifier test directory; it passes along
+  with the new transactional membership case. The latest unique Native union is
+  twenty, not the sum of all attempts. No actual autovacuum scheduling is claimed
+  by the injected-row regression in this run.
+- Final focused tooling passes 58 worktree and 40 selection/migration-policy Python
+  cases plus eleven Node supervisor cases. The cold installed API case is ready,
+  uses only the generated per-mode LOGIN, and remains pending at this checkpoint.
+- Read-only historical forwarding audit narrows the remaining issue: API-to-owner
+  HTTP was on the Compose network; owner/API-to-PostgreSQL used host.docker.internal.
+  Unexplained 503s occurred at invitation, restored /auth/me, and offboarding.
+  /auth/me cannot be attributed to actor-context from preserved evidence; auth and
+  account RPCs need separate diagnostics. Direct SELECT route probes and traced
+  passing assemblies do not close this failure. Reproduce those actual RPC consumers
+  with sanitized phase/status/SQLSTATE evidence as the next bounded Identity item.

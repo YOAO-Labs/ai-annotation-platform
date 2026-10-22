@@ -10,12 +10,92 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/api"))
 
 
 class LiveIsolationTests(unittest.TestCase):
+    def test_autovacuum_does_not_hide_real_clients_or_block_database_drop(self):
+        from app.config import settings
+        from sqlalchemy import event
+        from sqlalchemy.ext.asyncio import create_async_engine
+        from sqlalchemy.pool import NullPool
+        from validate_migrations import database_state
+        from worktree_env import WorktreeError, load_identity, topology
+        from worktree_resources import LocalResources
+
+        with tempfile.TemporaryDirectory(
+            prefix="aap-isolation-autovacuum-"
+        ) as temporary:
+            root = Path(temporary)
+            backend = LocalResources(
+                topology(root, load_identity(root, create=True), "test"),
+                settings,
+                code_root=ROOT,
+            )
+            asyncio.run(backend.database("create"))
+
+            def engine_with_autovacuum(*args, **kwargs):
+                engine = create_async_engine(*args, **kwargs)
+
+                @event.listens_for(engine.sync_engine, "connect")
+                def add_autovacuum(connection, _record):
+                    # Inject a maintenance row without waiting for server scheduling.
+                    cursor = connection.cursor()
+                    try:
+                        cursor.execute(
+                            "CREATE TEMP VIEW pg_stat_activity AS "
+                            "SELECT datname, backend_type FROM pg_catalog.pg_stat_activity "
+                            "UNION ALL SELECT datname, 'autovacuum worker' FROM pg_database"
+                        )
+                    finally:
+                        cursor.close()
+
+                return engine
+
+            async def probe():
+                anchor = SimpleNamespace(url=backend.url)
+                self.assertEqual((await backend.database())["sessions"], 0)
+                self.assertEqual(
+                    (await database_state(anchor, backend.resources["database"]))[2], 0
+                )
+                engine = create_async_engine(backend.url, poolclass=NullPool)
+                try:
+                    async with engine.connect():
+                        self.assertEqual((await backend.database())["sessions"], 1)
+                        self.assertEqual(
+                            (
+                                await database_state(
+                                    anchor, backend.resources["database"]
+                                )
+                            )[2],
+                            1,
+                        )
+                        with self.assertRaisesRegex(WorktreeError, "数据库仍有连接"):
+                            await backend.database("drop")
+                finally:
+                    await engine.dispose()
+                await backend.database("drop")
+                self.assertIsNone(await backend.database())
+
+            try:
+                with (
+                    patch(
+                        "worktree_resources.create_async_engine",
+                        side_effect=engine_with_autovacuum,
+                    ),
+                    patch(
+                        "validate_migrations.create_async_engine",
+                        side_effect=engine_with_autovacuum,
+                    ),
+                ):
+                    asyncio.run(probe())
+            finally:
+                asyncio.run(backend.database("drop"))
+
     def test_owned_database_redis_and_buckets_are_isolated_and_rebuildable(self):
         self.assertIsNotNone(
             importlib.util.find_spec("worktree_resources"),

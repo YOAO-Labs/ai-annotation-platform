@@ -26,7 +26,10 @@ from app.main import app
 from app.schemas.user import UserOut
 from app.services.identity_gateway import IdentityGateway, get_identity_gateway
 from tests.factory import DEFAULT_PASSWORD, create_user
-from tests.test_asset_storage_cleanup_runtime import _verify_postgres
+from tests.test_asset_storage_cleanup_runtime import (
+    _verified_resource_manifest,
+    _verify_postgres,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS = str(ROOT / "scripts")
@@ -876,3 +879,62 @@ async def test_create_recovery_reuses_secret_and_rejects_usable_creator_membersh
             await _drop_role(test_engine, role)
         path.unlink(missing_ok=True)
         await _drop_role(test_engine, creator, revoke_connect=True)
+
+
+async def test_generated_runtime_grants_recheck_memberships_and_roll_back_atomically(
+    test_engine, tmp_path
+):
+    _verify_postgres(test_engine.url)
+    legacy = make_url(os.environ["AAP_MODULE_DATA_LEGACY_RUNTIME_URL"])
+    resources = _verified_resource_manifest(test_engine, legacy)
+    backend = _backend(tmp_path, test_engine, root=Path(resources["root"]))
+    path = _credentials_path(backend)
+    assert not path.exists()
+    role = backend.resources["database"] + "_app"
+    foreign = "worktree_grant_" + uuid.uuid4().hex[:12]
+    quoted = test_engine.dialect.identifier_preparer.quote_identifier(role)
+    foreign_quoted = test_engine.dialect.identifier_preparer.quote_identifier(foreign)
+    await backend.owned_runtime_role("create")
+    try:
+        async with test_engine.begin() as db:
+            await db.exec_driver_sql(f"CREATE ROLE {foreign_quoted} NOLOGIN")
+            await db.exec_driver_sql(f"GRANT {quoted} TO {foreign_quoted}")
+        with pytest.raises(WorktreeError, match="成员资格"):
+            await backend.grant_runtime()
+        async with test_engine.connect() as db:
+            assert not await db.scalar(
+                text("SELECT has_table_privilege(:role,'public.projects','SELECT')"),
+                {"role": role},
+            )
+            assert not await db.scalar(
+                text(
+                    "SELECT has_function_privilege(:role,'aap_identity_v1.authentication_policy()','EXECUTE')"
+                ),
+                {"role": role},
+            )
+    finally:
+        async with test_engine.begin() as db:
+            await db.exec_driver_sql(f"REVOKE {quoted} FROM {foreign_quoted}")
+            await db.exec_driver_sql(f"DROP ROLE {foreign_quoted}")
+            assert not await db.scalar(
+                text(
+                    "SELECT EXISTS(SELECT 1 FROM pg_shdepend WHERE dbid=(SELECT oid FROM pg_database WHERE datname=current_database()) "
+                    "AND refclassid='pg_authid'::regclass AND refobjid=(SELECT oid FROM pg_roles WHERE rolname=:role) AND deptype='o')"
+                ),
+                {"role": role},
+            )
+            await db.exec_driver_sql(f"DROP OWNED BY {quoted}")
+        await backend.owned_runtime_role("drop")
+        path.unlink(missing_ok=True)
+
+
+async def test_autovacuum_guard_keeps_real_clients_blocking_database_drop(test_engine):
+    _verify_postgres(test_engine.url)
+    from verify_worktree_isolation import LiveIsolationTests
+
+    case = LiveIsolationTests(
+        "test_autovacuum_does_not_hide_real_clients_or_block_database_drop"
+    )
+    await asyncio.to_thread(
+        case.test_autovacuum_does_not_hide_real_clients_or_block_database_drop
+    )

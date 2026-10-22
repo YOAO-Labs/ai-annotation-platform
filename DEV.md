@@ -317,10 +317,13 @@ pnpm dev:api
 `uv sync --extra test` 安装，不要在本地手工拼装依赖列表。迁移完成后启动脚本会清空
 owner 连接，运行进程不保留 DDL 凭据。
 
-工作区在迁移和应用账号分离时，通过既有 `grant_runtime` 保留内嵌 Identity 能力并
-撤销私表及列权限，补齐目录与管理员生命周期绑定。应用账号不得持有角色成员资格；
-遗留 PUBLIC／所有权访问导致授权整笔回滚。运行和迁移共用同一账号的兼容配置不安装
-这道围栏，不算模块存储隔离；不要将 owner 账号用于受限运行验收。具体范围见
+工作区基础配置若共用迁移账号，会创建本模式的普通运行 LOGIN，并把随机密码仅
+保存在 `0600` 的 `.worktree/<mode>/runtime-credentials.json`；API／普通 worker 不再
+使用 owner。迁移账号需要 `CREATEROLE`，否则先预配置分离账号，不会回退 owner；
+已有分离账号配置继续使用原账号。`grant_runtime` 保留内嵌 Identity 能力并撤销私表及
+列权限，所有 Identity 专用选择器也会清空。停止保留凭据，销毁先核对角色归属、
+连接及外部依赖；凭据和清单保留到全部清理成功。直接 `dev:api` 或普通 Compose
+不经过此工作区流程。具体范围见
 [Identity 内嵌运行权限](docs-site/api/guides/identity-runtime.md#内嵌运行角色的私表权限)。
 
 新增本地 editable 包或同步 Python 依赖后，要重启 Uvicorn 的父进程。源码热重载的

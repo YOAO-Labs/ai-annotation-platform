@@ -101,8 +101,71 @@ class BucketUpgradeTests(unittest.TestCase):
         async def database(action="inspect"):
             return {"owner": owner, "sessions": 0} if action == "inspect" else None
 
+        async def owned_runtime_role(action="inspect"):
+            return None
+
         backend.database = database
+        backend.owned_runtime_role = owned_runtime_role
         backend.redis_info = lambda: None
+
+    def test_same_owner_requires_private_mode_credentials_and_never_falls_back(self):
+        from worktree_env import WorktreeError
+
+        with self.assertRaisesRegex(WorktreeError, "运行 init"):
+            self.backend.runtime_url()
+        document = {**self.backend._runtime_credential_identity(), "password": "a" * 43}
+        path = self.path.with_name("runtime-credentials.json")
+        atomic_json(path, document)
+        url = self.backend.runtime_url()
+        self.assertEqual(url.username, self.backend.resources["database"] + "_app")
+        self.assertEqual(url.password, document["password"])
+        self.assertEqual(self.backend.settings.database_url, self.settings.database_url)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        path.chmod(0o644)
+        with self.assertRaisesRegex(WorktreeError, "0600"):
+            self.backend.runtime_url()
+        path.chmod(0o600)
+        atomic_json(path, {**document, "owner": "foreign-owner"})
+        with self.assertRaisesRegex(WorktreeError, "不一致"):
+            self.backend.runtime_url()
+
+    def test_runtime_credentials_do_not_follow_symlinks_or_replace_corrupt_state(self):
+        from worktree_env import WorktreeError
+
+        path = self.path.with_name("runtime-credentials.json")
+        outside = self.root / "outside.json"
+        outside.write_text("preserve")
+        path.symlink_to(outside)
+        with self.assertRaisesRegex(WorktreeError, "symlink|符号链接"):
+            self.backend.runtime_url()
+        self.assertEqual(outside.read_text(), "preserve")
+        path.unlink()
+        path.write_text("{")
+        path.chmod(0o600)
+        with self.assertRaisesRegex(WorktreeError, "损坏"):
+            self.backend.runtime_url()
+        self.assertEqual(path.read_text(), "{")
+
+    def test_prepare_uses_inventory_after_inputs_upgrade(self):
+        self._use_legacy_9()
+
+        async def revisions():
+            return ["owned-head"]
+
+        async def granted():
+            return True
+
+        self.backend.revisions = revisions
+        self.backend.grant_runtime = granted
+        self.backend.verify_runtime_login = granted
+        self.backend.start_redis = lambda: None
+        with patch(
+            "worktree_resources.migration_graph",
+            return_value=(["owned-head"], ["owned-head"]),
+        ):
+            self.backend.prepare(skip_migrations=True)
+        self.mock_s3.create_bucket.assert_called_once_with(Bucket=self.input_name)
+        self.assertEqual(read_state(self.path), self.target)
 
     def _use_legacy_9(self):
         atomic_json(self.path, self.legacy_9)
