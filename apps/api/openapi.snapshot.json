@@ -23873,6 +23873,532 @@
         "title": "ManagedOriginalReclamationRoots",
         "type": "object"
       },
+      "ManagedOriginalRetentionApply": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "set_retention",
+              "add_hold",
+              "release_hold"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "expected_hold_revision": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Hold Revision"
+          },
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "hold_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hold Id"
+          },
+          "hold_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "backup",
+                  "migration"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hold Kind"
+          },
+          "impact_token": {
+            "maxLength": 8192,
+            "minLength": 1,
+            "title": "Impact Token",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "reference_code": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Code"
+          },
+          "retain_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retain Until"
+          }
+        },
+        "required": [
+          "action",
+          "expected_revision",
+          "reason",
+          "impact_token"
+        ],
+        "title": "ManagedOriginalRetentionApply",
+        "type": "object"
+      },
+      "ManagedOriginalRetentionChange": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "set_retention",
+              "add_hold",
+              "release_hold"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "expected_hold_revision": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Hold Revision"
+          },
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "hold_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hold Id"
+          },
+          "hold_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "backup",
+                  "migration"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hold Kind"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "reference_code": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Code"
+          },
+          "retain_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retain Until"
+          }
+        },
+        "required": [
+          "action",
+          "expected_revision",
+          "reason"
+        ],
+        "title": "ManagedOriginalRetentionChange",
+        "type": "object"
+      },
+      "ManagedOriginalRetentionHold": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "title": "Created By",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "backup",
+              "migration"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "reference_code": {
+            "title": "Reference Code",
+            "type": "string"
+          },
+          "release_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Reason"
+          },
+          "released_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Released At"
+          },
+          "released_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Released By"
+          },
+          "retirement_id": {
+            "format": "uuid",
+            "title": "Retirement Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "retirement_id",
+          "kind",
+          "reference_code",
+          "reason",
+          "created_by",
+          "created_at",
+          "revision",
+          "released_at",
+          "released_by",
+          "release_reason"
+        ],
+        "title": "ManagedOriginalRetentionHold",
+        "type": "object"
+      },
+      "ManagedOriginalRetentionPreview": {
+        "properties": {
+          "action": {
+            "enum": [
+              "set_retention",
+              "add_hold",
+              "release_hold"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "after": {
+            "$ref": "#/components/schemas/ManagedOriginalRetentionSummary"
+          },
+          "before": {
+            "$ref": "#/components/schemas/ManagedOriginalRetentionSummary"
+          },
+          "coverage": {
+            "const": "declared_requirements_only",
+            "default": "declared_requirements_only",
+            "title": "Coverage",
+            "type": "string"
+          },
+          "execution_permission": {
+            "const": false,
+            "default": false,
+            "title": "Execution Permission",
+            "type": "boolean"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "hold_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hold Id"
+          },
+          "hold_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "backup",
+                  "migration"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hold Kind"
+          },
+          "impact_token": {
+            "title": "Impact Token",
+            "type": "string"
+          },
+          "measured_at": {
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "policy_revision": {
+            "title": "Policy Revision",
+            "type": "integer"
+          },
+          "reference_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Code"
+          },
+          "retirement_id": {
+            "format": "uuid",
+            "title": "Retirement Id",
+            "type": "string"
+          },
+          "shortens_retention": {
+            "title": "Shortens Retention",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "retirement_id",
+          "policy_revision",
+          "action",
+          "measured_at",
+          "expires_at",
+          "impact_token",
+          "before",
+          "after",
+          "shortens_retention",
+          "hold_id",
+          "hold_kind",
+          "reference_code"
+        ],
+        "title": "ManagedOriginalRetentionPreview",
+        "type": "object"
+      },
+      "ManagedOriginalRetentionState": {
+        "properties": {
+          "coverage": {
+            "const": "declared_requirements_only",
+            "default": "declared_requirements_only",
+            "title": "Coverage",
+            "type": "string"
+          },
+          "execution_permission": {
+            "const": false,
+            "default": false,
+            "title": "Execution Permission",
+            "type": "boolean"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "holds": {
+            "items": {
+              "$ref": "#/components/schemas/ManagedOriginalRetentionHold"
+            },
+            "title": "Holds",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "measured_at": {
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "policy_revision": {
+            "title": "Policy Revision",
+            "type": "integer"
+          },
+          "retirement_id": {
+            "format": "uuid",
+            "title": "Retirement Id",
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ManagedOriginalRetentionSummary"
+          },
+          "total_holds": {
+            "title": "Total Holds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "retirement_id",
+          "policy_revision",
+          "measured_at",
+          "summary",
+          "holds",
+          "total_holds",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "title": "ManagedOriginalRetentionState",
+        "type": "object"
+      },
+      "ManagedOriginalRetentionSummary": {
+        "properties": {
+          "backup_holds": {
+            "title": "Backup Holds",
+            "type": "integer"
+          },
+          "effective_retain_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Retain Until"
+          },
+          "indefinite_retention": {
+            "title": "Indefinite Retention",
+            "type": "boolean"
+          },
+          "migration_holds": {
+            "title": "Migration Holds",
+            "type": "integer"
+          },
+          "peer_assertions": {
+            "title": "Peer Assertions",
+            "type": "integer"
+          },
+          "retain_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retain Until"
+          }
+        },
+        "required": [
+          "retain_until",
+          "effective_retain_until",
+          "indefinite_retention",
+          "peer_assertions",
+          "backup_holds",
+          "migration_holds"
+        ],
+        "title": "ManagedOriginalRetentionSummary",
+        "type": "object"
+      },
       "ManagerStatus": {
         "properties": {
           "available": {
@@ -91950,6 +92476,192 @@
           }
         ],
         "summary": "Managed Original Reclamation",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/managed-original-retirements/{retirement_id}/retention": {
+      "get": {
+        "operationId": "managed_original_retention_state_api_v1_storage_managed_original_retirements__retirement_id__retention_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "retirement_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Retirement Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedOriginalRetentionState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Managed Original Retention State",
+        "tags": [
+          "storage"
+        ]
+      },
+      "post": {
+        "operationId": "managed_original_retention_apply_api_v1_storage_managed_original_retirements__retirement_id__retention_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "retirement_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Retirement Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagedOriginalRetentionApply"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedOriginalRetentionState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Managed Original Retention Apply",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/managed-original-retirements/{retirement_id}/retention-preview": {
+      "post": {
+        "operationId": "managed_original_retention_preview_api_v1_storage_managed_original_retirements__retirement_id__retention_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "retirement_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Retirement Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagedOriginalRetentionChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedOriginalRetentionPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Managed Original Retention Preview",
         "tags": [
           "storage"
         ]

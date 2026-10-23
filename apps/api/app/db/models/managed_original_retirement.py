@@ -10,6 +10,7 @@ from sqlalchemy import (
     Index,
     String,
     Text,
+    column,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -45,6 +46,11 @@ class ManagedOriginalRetirement(Base):
         ),
         Index("ix_managed_retirement_location", "location_id", "retired_at", "id"),
         Index("ix_managed_retirement_asset", "asset_id"),
+        Index(
+            "ix_managed_retirement_locator_hash",
+            func.md5(column("bucket")),
+            func.md5(column("object_key")),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
