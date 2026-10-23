@@ -678,6 +678,9 @@
 | Method | Path |
 |---|---|
 | GET | `/managed-original-reclamation` |
+| GET | `/managed-original-retirements/{retirement_id}/retention` |
+| POST | `/managed-original-retirements/{retirement_id}/retention-preview` |
+| POST | `/managed-original-retirements/{retirement_id}/retention` |
 
 ## `storage.py`
 
@@ -1028,4 +1031,4 @@
 
 ---
 
-_共 93 模块 / 591 路由_
+_共 93 模块 / 594 路由_

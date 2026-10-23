@@ -12,8 +12,9 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { ListPagination } from "@/components/ui/ListPagination";
 import { cacheBytes } from "@/utils/cachePolicy";
+import { ManagedOriginalRetentionPanel } from "./ManagedOriginalRetentionPanel";
 
-const statusLabels = { retained: "保留中", protected: "仍有引用保护", blocked: "资格待核实" };
+const statusLabels = { retained: "保留中", protected: "仍有保护要求", blocked: "资格待核实" };
 const identityLabels = {
   current: "当前配置匹配",
   unknown: "存储身份未确认",
@@ -28,6 +29,10 @@ const reasons: Record<string, string> = {
   active_learning_history: "仍有主动学习历史引用",
   indefinite_retention: "未指定保留期限，按无限期保护",
   retention_window: "尚在保留期内",
+  related_indefinite_retention: "相关记录仍为无限期保护",
+  related_retention_window: "相关记录仍在保留期内",
+  declared_backup_hold: "存在有效的已登记备份保留要求",
+  declared_migration_hold: "存在有效的已登记迁移观察要求",
   storage_identity_unknown: "无法确认保留记录的存储身份",
   storage_identity_mismatch: "保留记录与当前存储配置不一致",
   content_identity_unverified: "内容身份尚未核验",
@@ -36,8 +41,8 @@ const reasons: Record<string, string> = {
   unsupported_active_learning_snapshot: "存在无法完整解析的主动学习历史",
   legacy_task_bucket_unknown: "旧任务的物理桶归属未确认",
   exclusive_ownership_unproven: "尚未证明原件由平台独占管理",
-  backup_holds_unknown: "备份恢复点的保留要求尚未登记",
-  migration_holds_unknown: "迁移观察期的保留要求尚未登记",
+  backup_holds_unknown: "未登记备份要求的覆盖仍未知",
+  migration_holds_unknown: "未登记迁移要求的覆盖仍未知",
   object_presence_not_checked: "尚未核验现场对象及最小副本",
 };
 const sharedReasons = new Set([
@@ -145,7 +150,7 @@ function ReclamationOwner() {
               {(
                 [
                   ["记录总数", data.counts.total_assertions],
-                  ["仍有引用保护", data.counts.protected_assertions],
+                  ["仍有保护要求", data.counts.protected_assertions],
                   ["保留中", data.counts.retained_assertions],
                   ["资格待核实", data.counts.blocked_assertions],
                 ] as const
@@ -243,7 +248,14 @@ function ReclamationOwner() {
           </Button>
         }
       >
-        {selected && data && <ReclamationDetails item={selected} measuredAt={data.measured_at} />}
+        {selected && data && (
+          <ReclamationDetails
+            item={selected}
+            measuredAt={data.measured_at}
+            onChanged={() => query.refetch()}
+            onDenied={() => setSelectedId(null)}
+          />
+        )}
       </Modal>
     </div>
   );
@@ -252,9 +264,13 @@ function ReclamationOwner() {
 function ReclamationDetails({
   item,
   measuredAt,
+  onChanged,
+  onDenied,
 }: {
   item: ManagedOriginalReclamationItem;
   measuredAt: string;
+  onChanged: () => Promise<unknown>;
+  onDenied: () => void;
 }) {
   return (
     <div className="space-y-4 text-sm">
@@ -272,7 +288,16 @@ function ReclamationDetails({
             ["历史样本", item.dataset_item_id],
             ["内容身份", item.asset_id],
             ["关系移除时间", date(item.retired_at)],
-            ["保留期限", item.retain_until ? date(item.retain_until) : "无限期保护"],
+            ["本条保留期限", item.retain_until ? date(item.retain_until) : "无限期保护"],
+            [
+              "相关记录共同保护至",
+              item.indefinite_retention
+                ? "无限期保护"
+                : item.effective_retain_until
+                  ? date(item.effective_retain_until)
+                  : "期限未知",
+            ],
+            ["策略修订", String(item.policy_revision)],
           ] as const
         ).map(([label, value]) => (
           <div key={label} className="min-w-0">
@@ -281,6 +306,11 @@ function ReclamationDetails({
           </div>
         ))}
       </dl>
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        相关保留记录 {item.peer_assertions} 条 · 已登记有效备份保留 {item.declared_backup_holds} 条
+        · 迁移观察 {item.declared_migration_holds}{" "}
+        条。相关记录按同桶同键保守归组，不证明相同物理副本。
+      </p>
       <div>
         <h3 className="font-medium">当前已记录的保护关系</h3>
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
@@ -297,6 +327,11 @@ function ReclamationDetails({
           ))}
         </ul>
       </div>
+      <ManagedOriginalRetentionPanel
+        retirementId={item.id}
+        onChanged={onChanged}
+        onDenied={onDenied}
+      />
       <p className="text-xs leading-relaxed text-muted-foreground">
         观测于 {date(measuredAt)}。{scope} 当前预演不提供物理删除许可。
       </p>

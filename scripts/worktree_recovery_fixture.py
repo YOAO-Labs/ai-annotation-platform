@@ -121,6 +121,10 @@ async def seed(db, external: Path):
     from app.db.models.dataset_asset import DatasetAssetLocation
     from app.db.models.dataset_source import DatasetSourceItem, DatasetSourcePreview
     from app.db.models.original_cache import OriginalCacheEntry
+    from app.db.models.managed_original_retirement import ManagedOriginalRetirement
+    from app.db.models.managed_original_retention_hold import (
+        ManagedOriginalRetentionHold,
+    )
     from app.db.models.prediction_input import PredictionInputLease
     from app.db.models.storage_connection import StorageConnection
     from app.db.models.task import Task
@@ -288,6 +292,58 @@ async def seed(db, external: Path):
             binding=binding,
         )
         assert await DatasetService(db).delete_item(retired.id)
+        # Related assertions must preserve independent policies and complete hold
+        # history while following the same physical locator through restoration.
+        peer = DatasetItem(
+            dataset_id=world[3].id,
+            file_name="retired-managed-peer.png",
+            file_path=retired.file_path,
+            file_type="image",
+            file_size=len(green),
+            width=48,
+            height=32,
+        )
+        db.add(peer)
+        await db.flush()
+        await register_item_asset(
+            db,
+            peer,
+            sha256=hashlib.sha256(green).hexdigest(),
+            size_bytes=len(green),
+            binding=binding,
+        )
+        assert await DatasetService(db).delete_item(peer.id)
+        retired_record = await db.scalar(
+            select(ManagedOriginalRetirement).where(
+                ManagedOriginalRetirement.dataset_item_id == retired.id
+            )
+        )
+        retired_record.policy_revision = 2
+        retired_record.retain_until = datetime.now(timezone.utc) + timedelta(days=2)
+        db.add_all(
+            [
+                ManagedOriginalRetentionHold(
+                    id=uuid.uuid4(),
+                    retirement_id=retired_record.id,
+                    kind="backup",
+                    reference_code="recovery-active-backup",
+                    reason="Synthetic recovery preservation requirement",
+                    created_by=actor.id,
+                ),
+                ManagedOriginalRetentionHold(
+                    id=uuid.uuid4(),
+                    retirement_id=retired_record.id,
+                    kind="migration",
+                    reference_code="recovery-released-migration",
+                    reason="Synthetic historical migration requirement",
+                    created_by=actor.id,
+                    revision=2,
+                    released_at=datetime.now(timezone.utc),
+                    released_by=actor.id,
+                    release_reason="Synthetic migration observation completed",
+                ),
+            ]
+        )
         source_item = await db.scalar(
             select(DatasetSourceItem).where(DatasetSourceItem.source_id == world[5].id)
         )
@@ -436,6 +492,9 @@ async def verify_application(db, external: Path):
     from app.db.models.dataset_source import DatasetReference, DatasetSourcePreview
     from app.db.models.original_cache import OriginalCacheEntry
     from app.db.models.managed_original_retirement import ManagedOriginalRetirement
+    from app.db.models.managed_original_retention_hold import (
+        ManagedOriginalRetentionHold,
+    )
     from app.db.models.storage_connection import StorageConnection
     from app.db.models.training_dataset import TrainingDatasetVersion
     from app.db.models.user import User
@@ -456,7 +515,7 @@ async def verify_application(db, external: Path):
     for record in await db.scalars(select(OriginalCacheEntry)):
         original_cache.verify_stored(record)
     retirements = list(await db.scalars(select(ManagedOriginalRetirement)))
-    assert len(retirements) == 1
+    assert len(retirements) == 2
     for record in retirements:
         response = storage.client.get_object(
             Bucket=record.bucket, Key=record.object_key
@@ -468,10 +527,33 @@ async def verify_application(db, external: Path):
             body.close()
         assert len(content) == record.size_bytes
         assert hashlib.sha256(content).hexdigest() == record.sha256
-        assert record.retain_until is None
+    assert sum(record.retain_until is None for record in retirements) == 1
+    assert sorted(record.policy_revision for record in retirements) == [1, 2]
+    holds = list(await db.scalars(select(ManagedOriginalRetentionHold)))
+    assert len(holds) == 2
+    assert {hold.retirement_id for hold in holds} <= {
+        record.id for record in retirements
+    }
+    assert {hold.reference_code for hold in holds} == {
+        "recovery-active-backup",
+        "recovery-released-migration",
+    }
+    assert sorted(hold.revision for hold in holds) == [1, 2]
+    assert sum(hold.released_at is None for hold in holds) == 1
     for preview in await db.scalars(select(DatasetSourcePreview)):
         assert directory_previews.cached_bytes_match(preview)
     actor = await db.scalar(select(User).where(User.role == "super_admin"))
+    from app.services.managed_original_reclamation import preview as reclamation_preview
+
+    preview = await reclamation_preview(db, actor)
+    assert preview.counts.total_assertions == preview.counts.protected_assertions == 2
+    assert all(
+        item.indefinite_retention
+        and item.declared_backup_holds == 1
+        and item.declared_migration_holds == 0
+        and not item.policy_candidate
+        for item in preview.items
+    )
     unavailable = 0
     references = list(await db.scalars(select(DatasetReference)))
     for reference in references:
@@ -598,6 +680,11 @@ async def verify_application(db, external: Path):
         "unavailable_external_originals": unavailable,
         "same_name_replacements_rejected": replacements_rejected,
         "verified_frozen_media": media_count,
+        "managed_original_assertions": len(retirements),
+        "declared_retention_holds": len(holds),
+        "active_declared_retention_holds": sum(
+            hold.released_at is None for hold in holds
+        ),
         "queue_resume": "held-for-review",
     }
 

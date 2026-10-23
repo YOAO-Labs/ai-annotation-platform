@@ -12,11 +12,8 @@ from sqlalchemy import inspect, text
 from app.db.models.managed_original_retirement import ManagedOriginalRetirement
 
 
-def migration(sync, monkeypatch):
-    path = (
-        Path(__file__).parents[1]
-        / "alembic/versions/0216_managed_original_retirements.py"
-    )
+def migration(sync, monkeypatch, filename="0216_managed_original_retirements.py"):
+    path = Path(__file__).parents[1] / "alembic/versions" / filename
     spec = importlib.util.spec_from_file_location(path.stem, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -29,7 +26,9 @@ def migration(sync, monkeypatch):
 async def test_empty_managed_retirement_schema_roundtrip(db_session, monkeypatch):
     def verify(sync):
         module = migration(sync, monkeypatch)
+        retention = migration(sync, monkeypatch, "0217_managed_original_retention.py")
         assert module.down_revision == "0215"
+        retention.downgrade()
         module.downgrade()
         assert (
             "managed_original_retirements"
@@ -53,6 +52,7 @@ async def test_empty_managed_retirement_schema_roundtrip(db_session, monkeypatch
             unique["column_names"] == ["assertion_digest"]
             for unique in schema.get_unique_constraints("managed_original_retirements")
         )
+        retention.upgrade()
 
     await db_session.run_sync(verify)
 

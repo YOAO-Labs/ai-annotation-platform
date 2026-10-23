@@ -206,8 +206,30 @@ GET 只查询数据库，不读源文件、不 HEAD/LIST 对象、不启动扫�
 
 `counts`包含`total_assertions/protected_assertions/retained_assertions/blocked_assertions`，后三者互斥且合计为总数；另有`policy_candidate_assertions`、`unknown_size_assertions`、`known_asserted_bytes`及无法完整解析的`unknown_training_versions/unknown_active_learning_rounds`。按记录累计的大小可能重复同一物理原件，不是可释放字节。计数、逐项引用及本页来自同一SQL观测；分页之间不保证数据库保持不变。
 
-每项返回历史`id/asset_id/dataset_id/dataset_item_id`、`retired_at/retain_until/size_bytes`、`identity_state=current|unknown|mismatch`、`status=protected|retained|blocked`、`policy_candidate`、`roots`和`blockers`，不返回桶、对象键、端点或秘密。`current`只表示保存的配置证据与当前配置匹配，不代表字节存在或内容已现场核验。`retain_until=null`表示无限期保护。已知引用优先归为protected，否则未到期/无期限归为retained，其余归为blocked；候选仍受所有未知保护条件阻断。
+每项返回历史`id/asset_id/dataset_id/dataset_item_id`、`retired_at/retain_until/size_bytes`、`policy_revision`、`identity_state=current|unknown|mismatch`、`status=protected|retained|blocked`、`policy_candidate`、`roots`和`blockers`，不返回桶、对象键、端点或秘密。`current`只表示保存的配置证据与当前配置匹配，不代表字节存在或内容已现场核验。`retain_until`仅是本条期限，null表示无限期；另返回`effective_retain_until/indefinite_retention/peer_assertions`及`declared_backup_holds/declared_migration_holds`，在全量同桶同键保守相关记录上取任意无限期、最大有限期限及所有有效要求，再分页。不同端点也可能保守归组，不宣称相同副本。已知引用或有效要求优先归为protected，否则有效期限未结束/无限期归为retained，其余归为blocked；候选仍受所有未知保护条件阻断。
 
 `roots`分别表示内容位置、样本、任务、任务数据集关联、所有保留状态的训练版本、主动学习历史及无法确认物理桶的旧任务。`blockers`解释这些引用、无限期/未到保留期限、未知/变化的存储身份、未核验内容/定位、不支持的历史快照和旧任务桶、未证明独占所有权、未知备份/迁移保留与未检查现场副本。未知历史结构不能因无法展开而视为零引用。
 
-`coverage`明确旧位置不回填、未登记原件未记录、现场对象未检查、独占所有权未建立、备份/迁移保留未知，仅解析已支持的训练和主动学习记录。前后复验身份/Key与本地及持久配置，撤权拒绝返回，配置变化返回409 `configuration_changed`。本读请求不锁住后续业务变更，刷新后仍须重新核对；其他物理清理owner的合同不因此改变。
+`coverage`明确旧位置不回填、未登记原件未记录、现场对象未检查、独占所有权未建立、备份/迁移保留未知，仅解析已支持的训练和主动学习记录。`declared_requirements=registered_retirement_peers_only`只覆盖已登记要求，不将备份/迁移未知改成完整覆盖。`blockers`另含`related_indefinite_retention/related_retention_window/declared_backup_hold/declared_migration_hold`。前后复验身份/Key与本地及持久配置，撤权拒绝返回，配置变化返回409 `configuration_changed`。本读请求不锁住后续业务变更，刷新后仍须重新核对；其他物理清理owner的合同不因此改变。
+
+## 托管原件保留设置
+
+以下路径均要求当前超级管理员及API Key全权`*`，只操作已登记保留断言的元数据，不读写对象、访问外部编号或发起任务：
+
+| 方法 | 路径                                                                     | 结果                                       |
+| ---- | ------------------------------------------------------------------------ | ------------------------------------------ |
+| GET  | `/api/v1/storage/managed-original-retirements/{retirement_id}/retention` | 当前策略、共同保护摘要与有界要求历史       |
+| POST | 同路径加`-preview`                                                       | 五分钟候选确认，纯数据库读取               |
+| POST | 与GET同路径                                                              | 复验候选、修订和权威后提交设置与同事务审计 |
+
+GET接受`limit=20`（1至100）及`offset=0`（0至1000000），返回`retirement_id/policy_revision/measured_at`、`summary`、`holds/total_holds/limit/offset/has_more`。`summary`包含自身`retain_until`，相关记录的`effective_retain_until/indefinite_retention/peer_assertions`及有效`backup_holds/migration_holds`。历史包含所有相关记录，按有效优先、created_at降序和ID稳定分页；每项有`id/retirement_id/kind/reference_code/reason/created_by/created_at/revision/released_at/released_by/release_reason`，没有物理定位。
+
+预览与提交共同接收`action/expected_revision/reason`，原因去首尾空白后须1至500字符；仅允许该动作的候选字段，其他字段拒绝：
+
+- `set_retention`必须显式提供`retain_until`；null为无限期，否则必须带时区且在数据库当前时间之后，标准化为UTC。允许显式缩短本条期限，不修改peer期限或hold。
+- `add_hold`必须提供客户端生成的`hold_id` UUID、`hold_kind=backup|migration`及`reference_code`。编号匹配`[A-Za-z0-9][A-Za-z0-9._:-]{0,99}`；UUID绑定确认且数据库唯一，防止丢响应后重复同一登记。相同锚点/类别/编号不能同时存在两个有效要求。
+- `release_hold`必须提供`hold_id/expected_hold_revision`，只允许该ID的原始锚点操作。有效修订1显式解除为2，保留创建字段和历史解除原因；没有TTL，也不能重复解除或修改已解除历史。
+
+预览返回`before/after`共同保护摘要、`shortens_retention`、动作及`hold_id/hold_kind/reference_code`、观测/到期时间和`impact_token`。提交额外携带该令牌，返回当前State；每次成功动作只将目标policy_revision递增一次。令牌绑定操作者、当前Key权威、锚点/规范候选/原因/修订、平台配置和完整peer/hold指纹；确认期间截止时间已到也拒绝。错误包括401/403、404缺失或非原锚点、409冲突/锁忙/过期/重复以及422输入或过去期限；失败不留半状态。
+
+所有保留控制写入按User→Key→保守locator组事务锁→锚点→hold排序，不锁任意peer或业务对象。新业务删除仍可能并发追加默认无限期断言；摘要是提交时重查的观测，不是捕获或物理执行屏障。成功审计保存安全前后摘要、原因、修订与确认时间，不保存物理路径或令牌。所有结果固定`coverage=declared_requirements_only`、`execution_permission=false`；空要求列表、解除或策略到期不能证明独占所有权、真实恢复点、迁移或现场最小副本已获资格。

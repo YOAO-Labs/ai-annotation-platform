@@ -32,6 +32,7 @@ function result(): ManagedOriginalReclamationPreview {
       exclusive_ownership: "not_established",
       backup_holds: "unknown",
       migration_holds: "unknown",
+      declared_requirements: "registered_retirement_peers_only",
       training_snapshots: "recorded_supported_shapes",
       active_learning_roots: "recorded_members_and_source_snapshots",
     },
@@ -53,7 +54,13 @@ function result(): ManagedOriginalReclamationPreview {
         dataset_id: "33333333-3333-4333-8333-333333333333",
         dataset_item_id: "44444444-4444-4444-8444-444444444444",
         retired_at: "2026-10-24T04:00:00Z",
+        policy_revision: 1,
         retain_until: null,
+        effective_retain_until: null,
+        indefinite_retention: true,
+        peer_assertions: 1,
+        declared_backup_holds: 0,
+        declared_migration_holds: 0,
         size_bytes: 1024,
         identity_state: "current",
         status: "retained",
@@ -137,9 +144,9 @@ it("uses a centered detail modal with honest identity/retention labels and resto
   trigger.focus();
   fireEvent.click(trigger);
   const dialog = screen.getByRole("dialog", { name: "托管原件保留详情" });
-  expect(within(dialog).getByText("无限期保护")).toBeInTheDocument();
+  expect(within(dialog).getAllByText("无限期保护")).toHaveLength(2);
   expect(within(dialog).getByText(/当前配置匹配，仅为配置证据/)).toBeInTheDocument();
-  expect(within(dialog).getByText("备份恢复点的保留要求尚未登记")).toBeInTheDocument();
+  expect(within(dialog).getByText("未登记备份要求的覆盖仍未知")).toBeInTheDocument();
   expect(within(dialog).getByText(result().items[0].asset_id)).toBeInTheDocument();
   fireEvent.keyDown(document, { key: "Escape" });
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());

@@ -189,6 +189,7 @@ function StoragePageOwner() {
     for (const key of [
       "storage-buckets",
       "storage-managed-original-reclamation",
+      "managed-original-retention",
       "storage-source-locations",
       "storage-location",
       "storage-location-probes",
