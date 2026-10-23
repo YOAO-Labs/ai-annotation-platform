@@ -3,7 +3,7 @@ title: 在线学习与训练体系
 audience: [dev, ops]
 type: explanation
 status: stable
-last_reviewed: 2026-10-23
+last_reviewed: 2026-10-24
 ---
 
 # 在线学习与训练体系
@@ -122,6 +122,12 @@ last_reviewed: 2026-10-23
 组合筛选冻结复用 `dataset_workbench.item_query`，返回数据库关系并在训练的单条 PG 任务/Item/类别/标注查询内限定成员，不先把分页列表搬到客户端。`dataset_filter` 必须绑定已关联数据集；来源和 Scene 的归属/权限验证与工作台共用。新过滤选择在 snapshot.dataset_selection 中固定定义、task/item/version 成员，source 保存定义、数量和证据摘要；它与最终合格样本一起进入原预检摘要。创建重新核对，之后 Worker 只消费原 snapshot，不重跑动态视图。旧请求无过滤字段时 canonical 字节保留，历史快照和包不回填。
 
 `training_dataset_sources.py` 将引用样本接入 `dataset_references.reference_snapshot`，固定 DatasetItem、Asset、SHA-256 与字节数。来源身份使用独立的 `asset_source_contract` / `asset_reference` 嵌套 schema（均为 1）；图片/几何训练合同保持原定义。仅新含引用的 snapshot/manifest 写入这些字段，历史内容与摘要不回填。导出清单只记录业务身份和摘要，不包含挂载路径或凭据。
+
+新引用快照另保留 `source_lineage_contract={schema:1, scope:accepted-reference}`。每成员 `source_lineage` 只含安全业务ID、路径摘要、采纳修订及前驱、扫描轮次、持久采纳/扫描完成/内容验证时间，以及明确命名的来源/位置配置修订。不序列化resolver的完整context；locator、宿主锚点、路径、名称和凭据不进入此证据。不存在的历史时间保留null，不取预检当前时间，保证相同事实的摘要稳定。读取前捕获、读取后核对当前logical context；预检后事实变化使创建409。
+
+来源证据是不可变版本正文的一部分：两条打包路径均在计算source/content/validation及包摘要前复制。Native Executor验证独立合同后继续核对实际图片与标签。历史无此合同的包保持原字节，不回填；未知合同及额外字段明确拒绝。Worker重试仍以固定Asset/SHA读当前授权locator，不重新捕获来源证据，只消费原snapshot，不因正常重定位改写历史事实。
+
+分析缓存schema更新，历史比较仅读冻结snapshot/manifest。每个SHA保留关系与证据的多重集合，独立产生 `source_relation_changed/source_evidence_updated/source_unknown`，不影响原有标签/切分/重复次数及规范化语义比较。新 `source_comparison_status` 表达来源覆盖程度；旧 `status` 仍表达训练语义可确认性。样本详情新增可空 `source_lineage`；未入包记录保留原详情行为并说明未记录。运行/模型继续绑定既有原始摘要及版本关系，不增加同义血缘资源或内容摘要去重机制。
 
 API 预检逐项执行有界严格读取并及时关闭临时快照，报告引用数量及预计新增原图字节。Worker 将自身真实 Celery 节点传入 resolver，使用该节点已核验的 anchor，不能借用 API 节点的挂载证明。原图满足固定内容与尺寸后写入既有 training 版本前缀；失败/取消重试先核验已保留媒体的快照摘要、实际字节 SHA 及固定 Asset SHA。没有保留副本时才读取当前来源。
 

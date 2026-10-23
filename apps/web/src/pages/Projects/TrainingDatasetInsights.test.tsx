@@ -110,6 +110,31 @@ afterEach(() => {
 });
 
 describe("frozen training data insights", () => {
+  it("keeps source changes separate and sends the selected source filter", async () => {
+    const user = userEvent.setup();
+    vi.mocked(trainingDatasetsApi.compare).mockResolvedValue({
+      ...insightComparison,
+      source_comparison_status: "complete",
+      counts: { ...insightComparison.counts, source_relation_changed: 1 },
+    });
+    mount("&data_view=compare&data_baseline=dataset-old");
+    const sources = await screen.findByRole("region", { name: "冻结来源比较" });
+    expect(within(sources).getByText(/来源变化可以与训练语义未变化同时成立/)).toBeVisible();
+    await user.click(within(sources).getByRole("button", { name: "来源关系变化 · 1" }));
+    await waitFor(() =>
+      expect(trainingDatasetsApi.samples).toHaveBeenCalledWith(
+        "project-1",
+        "dataset-new",
+        expect.objectContaining({
+          change: "source_relation_changed",
+          baseline_id: "dataset-old",
+          offset: 0,
+        }),
+        expect.anything(),
+      ),
+    );
+    expect(screen.getByTestId("url")).toHaveTextContent("data_change=source_relation_changed");
+  });
   it("preserves a requested self baseline instead of displaying another version", async () => {
     vi.mocked(trainingDatasetsApi.list).mockResolvedValue({
       items: [insightVersion, { ...insightVersion, id: "dataset-old" }],

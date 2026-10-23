@@ -18,6 +18,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useTrainingSessionRevision } from "../Training/trainingViewOwner";
 
 import { FrozenInstanceMaskPreview } from "./FrozenInstanceMaskPreview";
+import { TrainingDatasetSourceLineage } from "./TrainingDatasetSourceLineage";
 
 const isInstanceMask = (
   label: TrainingDatasetSampleDetail["labels"][number],
@@ -205,6 +206,7 @@ function SamplePreviewContent({
       <p className="mb-4 text-xs text-muted-foreground">
         图片经冻结身份与字节校验后生成预览；实例来自训练包对应的冻结标注。预览按比例缩小。
       </p>
+      {value && <TrainingDatasetSourceLineage lineage={value.source_lineage} />}
       {mediaLoading && (
         <p role="status" className="py-8 text-center text-sm text-muted-foreground">
           正在读取并校验冻结图片…

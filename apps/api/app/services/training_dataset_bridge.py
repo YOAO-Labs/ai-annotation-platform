@@ -7,6 +7,7 @@ import json
 import math
 import tempfile
 import zipfile
+from copy import deepcopy
 from pathlib import Path
 from aap_task_contract import normalize_task
 from training_contract.dataset import (
@@ -24,6 +25,7 @@ from training_contract.dataset import (
     instance_rle_evidence,
     polygon_area,
 )
+from training_contract.lineage import validate_source_lineage
 
 
 class TrainingDatasetError(ValueError):
@@ -35,6 +37,7 @@ class TrainingDatasetError(ValueError):
 
 def contract_of(record):
     try:
+        validate_source_lineage(record)
         return data_contract(record)
     except DatasetContractError as exc:
         raise TrainingDatasetError(exc.code, str(exc)) from exc
@@ -193,14 +196,21 @@ def assign_splits(
 
 def attach_asset_sources(snapshot: dict, manifest: dict) -> None:
     """Add an explicit source contract only for newly frozen reference inputs."""
-    if "asset_source_contract" not in snapshot:
+    if not any(
+        key in snapshot for key in ("asset_source_contract", "source_lineage_contract")
+    ):
         return
-    manifest["asset_source_contract"] = snapshot["asset_source_contract"]
+    for key in ("asset_source_contract", "source_lineage_contract"):
+        if key in snapshot:
+            manifest[key] = deepcopy(snapshot[key])
     sources = {s["task_id"]: s for s in snapshot["samples"]}
     for member in manifest["samples"]:
-        reference = sources[member["task_id"]].get("asset_reference")
-        if reference:
-            member["asset_reference"] = reference
+        source = sources[member["task_id"]]
+        if source.get("asset_reference"):
+            member["asset_reference"] = deepcopy(source["asset_reference"])
+        if "source_lineage" in source:
+            member["source_lineage"] = deepcopy(source["source_lineage"])
+    validate_source_lineage(manifest)
 
 
 def build_training_package(

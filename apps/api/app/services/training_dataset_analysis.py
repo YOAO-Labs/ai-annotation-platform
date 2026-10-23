@@ -36,6 +36,7 @@ from training_contract.dataset import (
     instance_rle_evidence,
     INSTANCE_RLE_LIMITS,
 )
+from training_contract.lineage import source_lineage_evidence, validate_source_lineage
 from app.services.training_dataset_insight_adapters import (
     adapter_cache_identity,
     adapter_for_profile,
@@ -43,7 +44,7 @@ from app.services.training_dataset_insight_adapters import (
     unsupported_capabilities,
 )
 
-ANALYSIS_SCHEMA = 5
+ANALYSIS_SCHEMA = 6
 HASH = re.compile(r"^[a-f0-9]{64}$")
 CHANGES = {
     "added",
@@ -55,6 +56,9 @@ CHANGES = {
     "reintroduced",
     "unchanged",
     "unknown",
+    "source_relation_changed",
+    "source_evidence_updated",
+    "source_unknown",
 }
 
 
@@ -124,6 +128,12 @@ def derive(
     preparation_report: dict | None,
     snapshot_digest: str,
 ) -> dict:
+    validate_source_lineage(snapshot)
+    validate_source_lineage(manifest)
+    if snapshot.get("source_lineage_contract") != manifest.get(
+        "source_lineage_contract"
+    ):
+        raise TrainingDatasetError("frozen_source_mismatch", "冻结来源合同与清单不一致")
     members = manifest.get("samples", [])
     if len(members) > MAX_SAMPLES or len(snapshot.get("samples", [])) > MAX_SAMPLES:
         raise TrainingDatasetError(
@@ -147,6 +157,10 @@ def derive(
     except TrainingDatasetError as exc:
         contract, profile, adapter = None, None, None
         unavailable_reason = str(exc)
+    try:
+        snapshot_profile = contract_profile(snapshot)
+    except TrainingDatasetError:
+        snapshot_profile = None
     segmentation = bool(contract and normalize_task(contract["task"]) == SEGMENTATION)
     class_rows = [
         {
@@ -221,13 +235,17 @@ def derive(
         else:
             unknown_dimensions += 1
         source = frozen.get(task_id)
+        if member.get("source_lineage") != (source or {}).get("source_lineage"):
+            raise TrainingDatasetError(
+                "frozen_source_mismatch", "冻结来源证据与清单不一致"
+            )
         try:
             if (
                 not source
                 or "annotations" not in source
                 or snapshot.get("classes") != classes
                 or contract is None
-                or contract_profile(snapshot) != profile
+                or snapshot_profile != profile
             ):
                 raise TrainingDatasetError(
                     "frozen_labels_unavailable", "冻结标注或类别映射未保留"
@@ -310,8 +328,25 @@ def derive(
                     "unknown_split_members": 0,
                     "task_ids": [],
                     "multiplicity": 0,
+                    "source_relations": [],
+                    "source_evidence": [],
+                    "unknown_source_members": 0,
                 },
             )
+            lineage = source_lineage_evidence(manifest, member)
+            if lineage["status"] != "recorded":
+                content["unknown_source_members"] += 1
+            else:
+                evidence = lineage["evidence"]
+                content["source_relations"].append(
+                    content_digest(
+                        {
+                            key: evidence[key]
+                            for key in ("source_id", "location_id", "path_digest")
+                        }
+                    )
+                )
+                content["source_evidence"].append(content_digest(evidence))
             if (
                 content["semantic_label_digest"] != row["semantic_label_digest"]
                 or content["label_sha256"] != row["label_sha256"]
@@ -514,6 +549,12 @@ def compare(baseline: dict, target: dict) -> dict:
     changes["reintroduced"] = changes["added"] & baseline["history"].keys()
     for sha in common:
         a, b = before[sha], after[sha]
+        if a.get("unknown_source_members") != 0 or b.get("unknown_source_members") != 0:
+            changes["source_unknown"].add(sha)
+        elif sorted(a["source_relations"]) != sorted(b["source_relations"]):
+            changes["source_relation_changed"].add(sha)
+        elif sorted(a["source_evidence"]) != sorted(b["source_evidence"]):
+            changes["source_evidence_updated"].add(sha)
         if a["semantic_label_digest"] is None or b["semantic_label_digest"] is None:
             changes["unknown"].add(sha)
         elif a["semantic_label_digest"] != b["semantic_label_digest"]:
@@ -566,6 +607,11 @@ def compare(baseline: dict, target: dict) -> dict:
         else "complete",
         "counts": {key: len(value) for key, value in changes.items()},
         "count_unit": "unique_contents",
+        "source_comparison_status": "unavailable"
+        if not common
+        else "partial"
+        if changes["source_unknown"]
+        else "complete",
         "baseline_members": baseline["overview"]["counts"]["images"],
         "target_members": target["overview"]["counts"]["images"],
         "overlapping_changes": True,
@@ -635,6 +681,7 @@ async def ensure_analysis(db, project_id, version_id):
                         "format",
                         "geometry",
                         "bridge",
+                        "source_lineage_contract",
                     )
                     for part in (
                         key,

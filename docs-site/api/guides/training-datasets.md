@@ -3,7 +3,7 @@ title: 在线学习与模型训练 API
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-23
+last_reviewed: 2026-10-24
 ---
 
 # 在线学习与模型训练 API
@@ -27,6 +27,12 @@ last_reviewed: 2026-10-23
 `created_from`、`created_to` 仅接受 `YYYY-MM-DD` 日历日期，按 UTC 日界处理；起止日期均包含整天，可单独传入，起始晚于结束时返回 `422`。所有条件先于 `total` 计数和分页生效，按创建时间、版本 ID 降序稳定排列。`limit` 默认 20、最大 100，`offset` 默认 0。
 
 版本与终态实验的删除均先在同一数据库事务内移除业务记录并保存独立存储清理意图，提交后才删除对象。提交失败时原记录与文件均保留；存储故障不撤销已提交的业务删除，接口仍返回 `204`，现有 `maintain_evaluations` 周期任务重试清理。意图固定原 bucket 与 prefix，不因配置变更或项目删除丢失。`204` 表示业务删除完成，存储清理可能稍后完成；后续读取或删除同一 ID 返回 `404`。既有引用保护继续在存储 I/O 前生效。
+
+### 冻结引用来源证据
+
+新含引用版本以独立 `source_lineage_contract={schema:1, scope:accepted-reference}` 保存安全来源事实，不改变 `asset_reference.schema=1` 或几何合同。每成员 `source_lineage` 含 `source_id/location_id/path_digest/scan_run_id`、可空 `accepted_revision_id/revision_number/previous_revision_id`、可空 `accepted_at/scan_completed_at/content_verified_at`，以及正整数 `source_config_revision/location_config_revision`。时间来自已有持久记录；不返回宿主路径、连接名称、凭据或节点信息。未知合同或额外字段拒绝消费。
+
+相同持久事实保持预检摘要稳定；创建前来源事实变化须重新预检。已创建版本重试保留旧证据，来源后续修改或停用不补写历史。来源字段进入原始快照/清单/包摘要；训练语义和规范化验证比较仍按内容、标签和切分解释。旧无合同版本不回填。
 
 ### 按数据集筛选定义冻结
 
@@ -70,7 +76,11 @@ last_reviewed: 2026-10-23
 | `/{version_id}/insights/samples/{task_id}`       | 冻结归一化框；`limit=500`（最多 1,000）、`offset`                                       |
 | `/{version_id}/insights/samples/{task_id}/media` | 认证二进制读取；默认原始冻结图片，`preview=true` 返回最大边 1,600 px 的 PNG             |
 
-类别和样本页默认 25、最多 100 项，返回 `items`、过滤后 `total`、`limit` 和 `offset`。`kind` 为 `all`、`positive`、`negative`、`excluded` 或 `unavailable`；`change` 为 `all`、`added`、`removed`、`labels_changed`、`split_changed`、`multiplicity_changed`、`task_ids_changed`、`reintroduced`、`unchanged` 或 `unknown`。非 `all` 变化必须提供基线。移除项返回基线 `source_version_id` 和成员 `version_id`，预览应使用该身份。
+类别和样本页默认 25、最多 100 项，返回 `items`、过滤后 `total`、`limit` 和 `offset`。`kind` 为 `all`、`positive`、`negative`、`excluded` 或 `unavailable`；`change` 为 `all`、`added`、`removed`、`labels_changed`、`split_changed`、`multiplicity_changed`、`task_ids_changed`、`reintroduced`、`unchanged`、`unknown`、`source_relation_changed`、`source_evidence_updated` 或 `source_unknown`。非 `all` 变化必须提供基线。移除项返回基线 `source_version_id` 和成员 `version_id`，预览应使用该身份。
+
+样本详情新增可空 `source_lineage={status,reasons,evidence}`，状态为 `recorded/partial/unrecorded`；`evidence` 为上述冻结白名单或null。历史合同缺失、未记录引用来源、采纳修订/扫描/验证时间不足分别解释；未入包记录继续返回详情，来源原因 `not_in_package`。详情只读保留版本，不查询当前来源补历史。
+
+比较新增 `source_comparison_status=complete|partial|unavailable`，与既有训练语义 `status` 分离。仅共同SHA比较来源：完整关系多重集合不同列为 `source_relation_changed`，关系相同但证据不同列为 `source_evidence_updated`，任一侧部分/未记录列为 `source_unknown`。这些分类可与 `unchanged` 重叠，并参与现有分页前筛选；双方仍须属于当前授权项目。
 
 类别 `order_by=index|instances|images` 默认 `index`，频次排序在分页前完成，以类别索引稳定打破并列；可选 `split=train|val` 确定排序使用的分区频次，返回同名参数。类别索引属于各自冻结版本。样本 `content_sha256` 必须是 64 位小写十六进制，可与现有条件和分页组合；没有成员命中返回空页。使用该过滤分别读取当前／基线可找出相同内容的全部重复成员，不能以工作项 UUID 或标签行序配对。
 

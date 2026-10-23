@@ -247,6 +247,28 @@ class TrainingDatasetInstanceMask(BaseModel):
     pixel_sha256: str
 
 
+class TrainingDatasetFrozenSourceLineage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_id: uuid.UUID
+    location_id: uuid.UUID
+    path_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    scan_run_id: uuid.UUID
+    accepted_revision_id: uuid.UUID | None
+    revision_number: int | None
+    previous_revision_id: uuid.UUID | None
+    accepted_at: datetime | None
+    scan_completed_at: datetime | None
+    content_verified_at: datetime | None
+    source_config_revision: int
+    location_config_revision: int
+
+
+class TrainingDatasetSourceLineageEvidence(BaseModel):
+    status: Literal["recorded", "partial", "unrecorded"]
+    reasons: list[str]
+    evidence: TrainingDatasetFrozenSourceLineage | None
+
+
 class TrainingDatasetSampleDetail(BaseModel):
     sample: TrainingDatasetAnalyzedSampleOut
     labels: list[
@@ -257,6 +279,7 @@ class TrainingDatasetSampleDetail(BaseModel):
     total: int | None
     limit: int
     offset: int
+    source_lineage: TrainingDatasetSourceLineageEvidence | None = None
 
 
 class TrainingDatasetInsightComparison(BaseModel):
@@ -265,6 +288,9 @@ class TrainingDatasetInsightComparison(BaseModel):
     status: Literal["complete", "partial", "unavailable"]
     counts: dict[str, int]
     count_unit: Literal["unique_contents"]
+    source_comparison_status: Literal["complete", "partial", "unavailable"] = (
+        "unavailable"
+    )
     baseline_members: int
     target_members: int
     overlapping_changes: bool

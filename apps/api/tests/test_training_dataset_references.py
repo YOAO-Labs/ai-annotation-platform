@@ -182,6 +182,10 @@ async def test_reference_freeze_pins_labels_and_retains_originals_after_source_r
     assert version.status == "ready", version.error_message
     assert version.snapshot == original_snapshot
     assert version.manifest["asset_source_contract"]["schema"] == 1
+    assert version.manifest["source_lineage_contract"] == {
+        "schema": 1,
+        "scope": "accepted-reference",
+    }
     package = object_bytes(storage_service.training_bucket, version.package_key)
     assert hashlib.sha256(package).hexdigest() == version.package_sha256
     snapshot_samples = {s["task_id"]: s for s in original_snapshot["samples"]}
@@ -197,6 +201,13 @@ async def test_reference_freeze_pins_labels_and_retains_originals_after_source_r
                 sample["asset_reference"]
                 == snapshot_samples[sample["task_id"]]["asset_reference"]
             )
+            assert (
+                sample["source_lineage"]
+                == snapshot_samples[sample["task_id"]]["source_lineage"]
+            )
+            assert sample["source_lineage"]["source_id"] == str(world[5].id)
+            assert sample["source_lineage"]["accepted_revision_id"]
+            assert sample["source_lineage"]["content_verified_at"]
             if selection.get("bridge"):
                 label = json.loads(archive.read(sample["label_path"]))
                 assert label["instances"][0]["source_geometry"] == "raster_mask"
@@ -351,6 +362,127 @@ async def test_reference_preflight_cannot_report_ready_after_source_changes(
     )
     assert report.status_code == 200 and not report.json()["ready"]
     assert len(report.json()["issues"]) == 2
+
+
+@pytest.mark.parametrize("historical", [False, True])
+async def test_materialization_does_not_recapture_frozen_or_historical_lineage(
+    db_session, reference_training, httpx_client, super_admin, monkeypatch, historical
+):
+    from app.services import training_dataset_sources
+    from app.services.training_dataset_bridge import content_digest
+
+    db, (_, project, _) = db_session, reference_training
+    auth = headers(super_admin)
+    version, _ = await create_version(db, httpx_client, auth, project)
+    snapshot = copy.deepcopy(version.snapshot)
+    if historical:
+        snapshot.pop("source_lineage_contract")
+        for sample in snapshot["samples"]:
+            sample.pop("source_lineage")
+        version.snapshot = snapshot
+        version.snapshot_digest = content_digest(snapshot)
+        await db.commit()
+
+    calls = []
+
+    async def invalid_current_evidence(*args):
+        calls.append(True)
+        return {"locator": "must-never-enter-a-package"}
+
+    monkeypatch.setattr(
+        training_dataset_sources, "capture_source_lineage", invalid_current_evidence
+    )
+    report = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/training-datasets:preflight",
+        headers=auth,
+        json={},
+    )
+    assert report.status_code == 200 and not report.json()["ready"]
+    assert calls  # New freezes validate newly captured facts.
+    calls.clear()
+    await build(db, version)
+    assert version.status == "ready", version.error_message
+    assert not calls  # Existing freezes need content authority, not new provenance.
+    assert version.snapshot == snapshot
+    assert version.manifest.get("source_lineage_contract") == snapshot.get(
+        "source_lineage_contract"
+    )
+    by_task = {sample["task_id"]: sample for sample in snapshot["samples"]}
+    for member in version.manifest["samples"]:
+        assert member.get("source_lineage") == by_task[member["task_id"]].get(
+            "source_lineage"
+        )
+
+
+async def test_relocation_changes_new_lineage_but_preserves_pending_and_ready_freezes(
+    db_session, reference_training, httpx_client, super_admin
+):
+    from app.services import dataset_source_revisions as revisions
+    from tests.test_dataset_source_relocations import moved_candidate
+
+    db, (world, project, _) = db_session, reference_training
+    auth = headers(super_admin)
+    path = f"/api/v1/projects/{project.id}/training-datasets"
+    old, report = await create_version(db, httpx_client, auth, project)
+    repeated = await httpx_client.post(path + ":preflight", headers=auth, json={})
+    assert repeated.status_code == 200 and repeated.json()["digest"] == report["digest"]
+    frozen_snapshot = copy.deepcopy(old.snapshot)
+    old_evidence = {
+        sample["task_id"]: sample["source_lineage"]
+        for sample in old.snapshot["samples"]
+    }
+    world, run, _, target, payload = await moved_candidate(db, world)
+    await revisions.accept(
+        db, run.id, target["path_digest"], payload, world[2], relocate=True
+    )
+    await db.commit()
+    stale = await httpx_client.post(
+        path,
+        headers=auth,
+        json={
+            "name": "Stale provenance",
+            "request_id": str(uuid.uuid4()),
+            "preflight_digest": report["digest"],
+        },
+    )
+    assert stale.status_code == 409, stale.text
+    # Materializing an existing freeze may read the current authorized locator,
+    # but neither its retained provenance nor content identity can be rewritten.
+    await build(db, old)
+    assert old.status == "ready", old.error_message
+    assert old.snapshot == frozen_snapshot
+    assert all(
+        sample["source_lineage"] == old_evidence[sample["task_id"]]
+        for sample in old.manifest["samples"]
+    )
+    new, _ = await create_version(db, httpx_client, auth, project)
+    assert new.snapshot_digest != old.snapshot_digest
+    await build(db, new)
+    assert new.status == "ready", new.error_message
+    compare = await httpx_client.get(
+        path + f"/{new.id}/insights/compare?baseline_id={old.id}", headers=auth
+    )
+    assert compare.status_code == 200, compare.text
+    assert compare.json()["counts"]["source_relation_changed"] == 1
+    assert compare.json()["counts"]["unchanged"] == 2
+    assert compare.json()["semantic_validation_changed"] is False
+    assert compare.json()["evaluation_benchmark_changed"] is False
+    task_id = next(iter(old_evidence))
+    world[5].enabled = False
+    await db.commit()
+    detail = await httpx_client.get(
+        path + f"/{old.id}/insights/samples/{task_id}", headers=auth
+    )
+    assert detail.status_code == 200, detail.text
+    response_evidence = detail.json()["source_lineage"]["evidence"]
+    for key, value in old_evidence[task_id].items():
+        if key in {"accepted_at", "scan_completed_at", "content_verified_at"} and value:
+            assert datetime.fromisoformat(
+                response_evidence[key]
+            ) == datetime.fromisoformat(value)
+        else:
+            assert response_evidence[key] == value
+    assert old.snapshot == frozen_snapshot
 
 
 async def test_reference_retained_media_must_match_asset_even_if_metadata_is_rewritten(

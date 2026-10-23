@@ -47541,6 +47541,126 @@
         "title": "TrainingDatasetFrozenMask",
         "type": "object"
       },
+      "TrainingDatasetFrozenSourceLineage": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted At"
+          },
+          "accepted_revision_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted Revision Id"
+          },
+          "content_verified_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Verified At"
+          },
+          "location_config_revision": {
+            "title": "Location Config Revision",
+            "type": "integer"
+          },
+          "location_id": {
+            "format": "uuid",
+            "title": "Location Id",
+            "type": "string"
+          },
+          "path_digest": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Path Digest",
+            "type": "string"
+          },
+          "previous_revision_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Revision Id"
+          },
+          "revision_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision Number"
+          },
+          "scan_completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scan Completed At"
+          },
+          "scan_run_id": {
+            "format": "uuid",
+            "title": "Scan Run Id",
+            "type": "string"
+          },
+          "source_config_revision": {
+            "title": "Source Config Revision",
+            "type": "integer"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "location_id",
+          "path_digest",
+          "scan_run_id",
+          "accepted_revision_id",
+          "revision_number",
+          "previous_revision_id",
+          "accepted_at",
+          "scan_completed_at",
+          "content_verified_at",
+          "source_config_revision",
+          "location_config_revision"
+        ],
+        "title": "TrainingDatasetFrozenSourceLineage",
+        "type": "object"
+      },
       "TrainingDatasetInsightAdapter": {
         "properties": {
           "id": {
@@ -47697,6 +47817,16 @@
               }
             ],
             "title": "Semantic Validation Changed"
+          },
+          "source_comparison_status": {
+            "default": "unavailable",
+            "enum": [
+              "complete",
+              "partial",
+              "unavailable"
+            ],
+            "title": "Source Comparison Status",
+            "type": "string"
           },
           "status": {
             "enum": [
@@ -48647,6 +48777,16 @@
           "sample": {
             "$ref": "#/components/schemas/TrainingDatasetAnalyzedSampleOut"
           },
+          "source_lineage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingDatasetSourceLineageEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "total": {
             "anyOf": [
               {
@@ -48884,6 +49024,43 @@
           }
         },
         "title": "TrainingDatasetSelection",
+        "type": "object"
+      },
+      "TrainingDatasetSourceLineageEvidence": {
+        "properties": {
+          "evidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingDatasetFrozenSourceLineage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "recorded",
+              "partial",
+              "unrecorded"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "reasons",
+          "evidence"
+        ],
+        "title": "TrainingDatasetSourceLineageEvidence",
         "type": "object"
       },
       "TrainingDatasetStatisticAxisBin": {
@@ -85543,7 +85720,10 @@
                 "task_ids_changed",
                 "reintroduced",
                 "unchanged",
-                "unknown"
+                "unknown",
+                "source_relation_changed",
+                "source_evidence_updated",
+                "source_unknown"
               ],
               "title": "Change",
               "type": "string"

@@ -148,6 +148,9 @@ async def samples(
         "reintroduced",
         "unchanged",
         "unknown",
+        "source_relation_changed",
+        "source_evidence_updated",
+        "source_unknown",
     ] = "all",
 ):
     _, target, _ = await authorized_analysis(db, project, user, version_id)
@@ -224,12 +227,45 @@ async def sample_detail(
 ):
     await authorized_analysis(db, project, user, version_id)
     row = await sample_row(db, version_id, task_id)
+    manifest = await db.scalar(
+        select(TrainingDatasetVersion.manifest).where(
+            TrainingDatasetVersion.id == version_id,
+            TrainingDatasetVersion.project_id == project.id,
+        )
+    )
+    if manifest is None:
+        raise HTTPException(status_code=404, detail="数据版本已删除")
+    from training_contract.lineage import source_lineage_evidence
+
+    member = next(
+        (
+            member
+            for member in manifest.get("samples", [])
+            if member["task_id"] == str(task_id)
+        ),
+        None,
+    )
+    if member is None and row.included:
+        raise HTTPException(status_code=409, detail="冻结清单缺少该成员")
+    try:
+        lineage = (
+            source_lineage_evidence(manifest, member)
+            if member is not None
+            else {
+                "status": "unrecorded",
+                "reasons": ["not_in_package"],
+                "evidence": None,
+            }
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail="冻结来源证据不可用") from exc
     return {
         "sample": row,
         "labels": row.labels[offset : offset + limit],
         "total": row.instances,
         "limit": limit,
         "offset": offset,
+        "source_lineage": lineage,
     }
 
 

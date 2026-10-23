@@ -23,6 +23,7 @@ from training_contract.observability import (
     InputMismatchError,
     NativeConfigurationMismatch,
 )
+from training_contract.lineage import validate_source_lineage
 
 
 def adapter_for(config):
@@ -72,6 +73,7 @@ def validate_dataset(spec):
     else:
         ordered = names
     manifest = json.loads((root / "manifest.json").read_text())
+    validate_source_lineage(manifest)
     contract = data_contract(manifest)
     frozen = spec["frozen_config"]
     segmentation = normalize_task(contract["task"]) == SEGMENTATION

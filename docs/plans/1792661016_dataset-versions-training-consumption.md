@@ -1,17 +1,31 @@
 # EPIC-10：数据集版本、血缘与训练消费
 
-> 状态：E10-A、E10-B1 complete；E10-B2 血缘增强与 E10-C 缓存保留后续切片，不分配发布版本。
+> 状态：E10-A、E10-B1、E10-B2-A complete；其余血缘增强与 E10-C 缓存保留后续切片，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 | 项目          | 内容                                                                                |
 | ------------- | ----------------------------------------------------------------------------------- |
-| 状态          | E10-A/B1 已完成；E10-B2/C 待独立评审                                                |
+| 状态          | E10-A/B1/B2-A 已完成；其余 E10-B2/C 待独立评审                                      |
 | 日期          | 2026-10-22（Asia/Shanghai）                                                         |
 | 优先级 / 阶段 | P0：M1 既有冻结不退化及单目录最小冻结；P1：M2 多来源与视图版本；P2：M3 按需训练缓存 |
 | 负责角色      | 训练平台后端、数据集后端、算法使用者、测试                                          |
 | 最小依赖      | E01 内容身份、E05 验证读取、E11 最小版本权限                                        |
 | 协作          | E04 源变化；E06 训练节点可达性；E08 筛选/质量；E12 容量与恢复                       |
+
+## E10-B2-A 晋升复核与实施合同
+
+2026-10-24 基于 `7618fbc85` 复核，工作树干净。E10-A/B1、E05缓存已交付；运行/模型/版本关联已有授权血缘图与固定摘要，不重复建设。本片落实新增引用样本的冻结来源证据与已有样本比较中的来源解释；保留人工3100/8100，不重建后端或ML镜像，不分配版本。
+
+独立 `source_lineage_contract` 为 `{schema: 1, scope: accepted-reference}`，不改变几何合同或 `asset_reference.schema=1`。只为新引用版本记录每成员白名单 `source_lineage`：source/location/scan ID、path_digest、accepted revision ID/number/previous ID、持久采纳/扫描完成/内容验证时间、来源和位置配置修订。无路径、名称、凭据或节点/宿主信息；缺失旧事实用null，不以当前时间制造历史。预检与创建从同一已持久事实得到稳定摘要，事实变化后须重检；Worker重试按固定Asset/SHA读取，不能用当前来源关系替换旧证据或将历史证据与当前context全量相等作为重试门禁。
+
+两条打包路径在摘要计算前保留此合同及证据，原始snapshot/source/content/validation及ZIP摘要覆盖新证据；训练语义/分区/规范比较摘要继续只表达内容、标签和切分。历史无新合同版本原样读取、不回填、不改字节；未知或不合法新合同明确拒绝，Native Executor验证新合同后仍逐图/标签校验。没有按内容摘要合并逻辑版本的新去重owner。
+
+来源比较作为独立覆盖层：完整证据的关系多重集合变化为 `source_relation_changed`，关系一致但采纳/观测事实变化为 `source_evidence_updated`，任一方缺少或部分证据为 `source_unknown`。不将来源变化误记为标注/分区变化；可同时显示“训练语义未变化”。新增来源比较覆盖状态，保留既有语义完整性状态。重复SHA保留所有冻结成员；筛选在分页前进行且双方版本继续项目授权。仅据完整冻结证据陈述事实，不推断物理搬迁。样本详情和比较仅读snapshot/manifest，不join当前来源/位置/任务补历史。
+
+改动范围超过8文件：`services/{training_dataset_sources,training_datasets,training_dataset_bridge,training_dataset_analysis}.py`、`workers/training_dataset.py`、`schemas/training_dataset_analysis.py`、`api/v1/training_dataset_analysis.py`；共享新增lineage合同和Native Executor消费校验；Web `api/trainingDatasets.ts`、Projects下既有insights/样本预览与比较组件及必要小组件；对应冻结/打包/分析/API/Executor/Web测试。分析缓存schema提升而非新增业务表或迁移。同步OpenAPI/生成类型、SDK覆盖合同、用户版本指南、API/架构、README/CHANGELOG和本计划/实施队列。节点训练缓存、managed来源补齐、实际消费集合回执仍后置。
+
+验证：owner管理的一次性test环境，覆盖稳定预检、新证据摘要、来源变化409、同SHA关系变化但语义不变、仅证据更新、历史/混合未知、多成员/分页/双版本授权、源更新或注销不改历史、检测/polygon/RLE打包、旧golden、运行/模型摘要与Executor实际输入校验。Web覆盖来源分类及冻结成员切换/迟到回调；真实浏览器明暗/桌面/窄屏检查冻结来源证据及来源比较，检查错误/请求/溢出。刷新受影响人工Worker并验证实际签名与派发，保留业务计数；任务资源和产物清理后提交。回退保留已创建包与旧合同读取，不丢弃新字段重发创建请求。
 
 ## E10-B1 / E08-B5 晋升复核与实施合同
 
@@ -279,7 +293,7 @@ M1 必须让一个已关联项目的原地图片目录，通过统一 resolver �
 
 ## Outcome
 
-- E10-A 完成；提交 `74bd04c12`（`feat(training): freeze verified reference originals into training versions`）。E10-B1 筛选视图冻结已由下节交付；E10-B2 血缘增强、E10-C 节点缓存仍待独立推进，本计划保留在根目录。
+- E10-A 完成；提交 `74bd04c12`（`feat(training): freeze verified reference originals into training versions`）。E10-B1 筛选视图冻结和 E10-B2-A 引用来源证据已由下文交付；其余血缘增强、E10-C 节点缓存仍待独立推进，本计划保留在根目录。
 - 实现：项目级固定快照接入现有严格 resolver，固定 Item/Asset/SHA/字节；真实 Worker 节点读取证明；独立训练原图与 ZIP；失败/取消同快照重试，优先验证保留副本；预检展示预计持久复制量。新来源使用独立嵌套 schema，旧合同和摘要不回写，无迁移或依赖变更。
 - 后端证据：既有训练/桥接/分析/删除/版本流/托管冻结不变性/RLE/引用读取共 171 项通过；新增引用冻结 18 项通过。新增矩阵覆盖检测、多边形、真实栅格 RLE、实际 MinIO 外部 S3 来源、源覆盖/离线/未核验节点、固定标注、两项目隔离、失败/取消重试、伪造保留媒体、读取中账号/API Key 撤权、保留副本重试撤权。随后扩展的 3 个合同用例再次通过训练执行器 `validate_dataset`，并验证解除关联/删除活跃数据集后冻结媒体不变。
 - Web：准备版本页 53 项通过，typecheck、受影响 ESLint、CSS tokens、Python Ruff check/format、OpenAPI 一致性、SDK 合同 4 项、文档 frontmatter/navigation 及 `git diff --check` 通过。未宣称全量 Web 或远程 CI 验收。
@@ -299,3 +313,17 @@ M1 必须让一个已关联项目的原地图片目录，通过统一 resolver �
 真实浏览器在独立3200/8200与当前 checkout Worker中执行，无mock。3张已审核图片，个人视图仅ID恢复后以文件名car+png限定2张；居中选择关联项目，负责人模式只列2个匹配任务，回到已审核模式预检后创建 `ff396a7b-bd3f-4422-8614-a9c5a2363bb1`，实际到ready，训练/验证各1张。随后把个人视图改为other，旧版本仍为原2张。运行验证读取ZIP、逐图核对manifest SHA和包SHA，覆盖任务自有源图片后包、snapshot与manifest保持不变；包SHA256为 `37c6cb1ddafb16650a5321f635c15d13c0fcefba883395c7913a02f9d0c426ee`。项目选择与准备表单均检查1440×1000/390×900明暗截图，提示位于控件外，弹层内部滚动，无根横向溢出；全流程无控制台错误或失败请求。
 
 正式说明同步用户数据集/训练版本指南、训练/任务API及架构文档、README、CHANGELOG与OpenAPI/本地类型。独立e2e与test数据库、Redis、九用途桶、样本、视图、版本和Worker均按owner销毁，专用浏览器关闭，测试报告、截图、脚本和缓存清理。原3100/8100、普通/维护Worker及人工演示数据保留，不重建镜像；未推送或发布。此切片完成筛选冻结衔接，E10-B2进一步血缘/diff解释、E10-C条件触发缓存和完整验收矩阵仍须独立推进，整个Epic未完成。
+
+### E10-B2-A：冻结引用来源事实与独立来源比较
+
+2026-10-24 完成，实现与本节记录同提交，基线 `7618fbc85`。新增独立来源合同，为新引用版本保存安全 ID、路径摘要、持久采纳/扫描/验证时间及配置修订；不保存物理路径、名称、节点、凭据。两条打包路径与 Native Executor 共用严格校验，原始摘要及 ZIP 覆盖这些事实，历史合同与包字节不回填。Worker 仅读取当前授权的固定内容，不重新捕获来源证据；新建预检仍严格校验新证据。冻结与历史版本均覆盖此兼容性回归。
+
+分析缓存提升至 schema 6，在共同 SHA 的成员多重集合上单列来源关系变化、证据更新和证据不足；保持训练语义与评估基准比较不受来源字段影响。分页前应用新分类，双方项目权限仍生效。样本详情从保留 manifest 读取，不借当前来源或任务补历史；未入包样本继续返回详情并解释未记录。页面提供独立来源比较和默认折叠的冻结证据，ID/摘要显示并可复制，未知事实明确说明。
+
+本地验证：API/DB 分批去重 268 个用例通过；共享合同及 Executor 独立校验 68 项、Web 43 项、SDK 合同 4 项通过。覆盖旧 golden、新合同非法字段、稳定预检/来源变化409、同SHA重定位但语义不变、证据更新、多成员、历史/混合未知、分页及权限、源更新/注销后旧冻结、检测/polygon/RLE真实打包与保留媒体。首次回归的时区字符串比较已改为时间值比较，最终无未解决失败。Ruff、TypeScript、受影响 ESLint、CSS tokens、OpenAPI/生成类型、文档构建、frontmatter/导航/可读性及 diff 检查通过；CSS checker 的两条既有建议未扩大处理。Executor 全套 adapter 测试未运行：当前 API 虚拟环境缺少其 `psutil` 依赖；已运行独立校验和实际包 `validate_dataset`，未安装依赖或宣称完整训练资格。
+
+实际验收使用独立3111/8111、一次性数据库/Redis/九用途桶、当前checkout真实 Celery Worker；合成来源通过现有扫描/采纳服务准备。两份两图版本均由实际 Worker 到 ready，经 HTTP 下载、ZIP SHA 及 Native Executor 输入校验。同内容显式重定位后，比较为来源关系变化1、训练语义未变化2，语义验证与评估基准均未变；经 impact/proof 生命周期接口暂停来源后，两版冻结详情和媒体继续成功读取。验收脚本修正了相对下载地址入口及平台 Authorization 误传给 S3 签名请求的问题，无产品下载修改。未启动 GPU 训练或验证模型质量。
+
+真实浏览器核对比较分类→筛选→前后对照、两侧来源事实、复制、Escape 与焦点返回；1440×1000/390×844 明暗截图无横向溢出。控制台无错误或警告，观察到的 HTTP 响应无失败；导航/切换取消的请求不计作成功响应。来源详情保持居中弹层、内滚动及角色字号。用户/API/架构、README、CHANGELOG 与 OpenAPI 同步。
+
+人工3100/8100及普通/维护Worker、beat保留并刷新，doctor健康；两个队列实际派发当前训练签名并安全忽略不存在的验收版本。业务数据仍为8数据集、12样本、7项目、12任务、7标注、67异步记录；预测、输入租约与完整缓存仍为0，无活动任务。一次性模式、验收样本/包、浏览器、脚本、截图、报告及任务缓存清理后提交；不重建镜像、不推送、不发布。managed 来源补齐、实际消费集合回执、条件触发的训练节点缓存和完整故事矩阵仍后置，整个E10未完成。

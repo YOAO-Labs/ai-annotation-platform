@@ -199,7 +199,7 @@ async def materialize_sample(
 
     await assert_dataset_authority(db, version)
     actor = await db.get(User, version.creator_id, populate_existing=True)
-    content, _ = await training_reference_snapshot(
+    content, _, _ = await training_reference_snapshot(
         db,
         sample,
         actor,

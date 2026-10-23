@@ -471,11 +471,12 @@ async def freeze_selection(
         # One AsyncSession cannot serve concurrent resolver queries.
         for sample in references:
             try:
-                content, identity = await training_reference_snapshot(
-                    db, sample, actor, api_key_id=api_key_id
+                content, identity, lineage = await training_reference_snapshot(
+                    db, sample, actor, api_key_id=api_key_id, freeze_lineage=True
                 )
                 try:
                     sample["asset_reference"] = identity
+                    sample["source_lineage"] = lineage
                     sample["media"] = {
                         "sha256": content.sha256,
                         "size_bytes": content.size,
@@ -527,7 +528,11 @@ async def freeze_selection(
                     "schema": 1,
                     "reader": "verified-asset-reference-1",
                     "freeze": "training-copy",
-                }
+                },
+                "source_lineage_contract": {
+                    "schema": 1,
+                    "scope": "accepted-reference",
+                },
             }
             if references
             else {}
