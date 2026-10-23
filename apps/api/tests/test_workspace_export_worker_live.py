@@ -721,10 +721,9 @@ async def test_export_recovers_after_worker_loss(
 
         kill_record = worker.kill()
         observation["hard_loss"] = kill_record
-        await _wait_backend_gone(test_engine, backend_pid)
-        observation["postgres_locks_after_kill"] = await _postgres_lock_snapshot(
-            test_engine, backend_pid
-        )
+        observation[
+            "postgres_locks_after_kill_while_gate_held"
+        ] = await _postgres_lock_snapshot(test_engine, backend_pid)
         observation["job_after_kill_while_gate_held"] = await _job_snapshot(
             test_engine, world["job_id"]
         )
@@ -749,6 +748,12 @@ async def test_export_recovers_after_worker_loss(
         gate_tx = None
         await gate.close()
         gate = None
+        # A blocked backend may not notice its dead client until the query wakes.
+        await _wait_backend_gone(test_engine, backend_pid)
+        observation["lost_backend_gone_after_gate_release"] = True
+        observation[
+            "postgres_locks_after_gate_release"
+        ] = await _postgres_lock_snapshot(test_engine, backend_pid)
 
         worker.restart()
         await _wait_worker_ready(sender, worker)
