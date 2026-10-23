@@ -33,14 +33,14 @@ last_reviewed: 2026-10-23
 | Identity：截图夹具                                  | 两个读取复用公开账号事实；偏好完整恢复由固定 Native owner 持有                                | 三项原始 CLI 已迁移，保留缓存、范围守卫、事务及 JSON 原值                               | [截图夹具](#identity-截图夹具)：42 项定向检查、匹配冷工件及 23 次原始 CLI 容器调用通过                                                            | 本项仅收口 Identity 操作；其他领域写入及完整录制仍未收口；门控测试资格见下行，整模块遗留按账号事实／完整装配行跟踪                                                                                                                                                                                      |
 | Identity：门控 E2E 测试路由                         | 完整资料关系及七项固定能力持有账号、邀请、token 和组织成员操作                                | 原路由已迁移，保留门禁、21 字段登录、缓存、命名空间及事务                               | [门控 E2E](#identity-门控-e2e-夹具)：27 项定向检查、64 项既有回归及 8 次冷容器运行通过                                                            | 此操作组的限定本地资格已闭合；默认兼容运行角色的独立验收见下行                                                                                                                                                                                                                                          |
 | Identity：默认／内嵌运行权限                        | 既有授权入口关闭 Identity 私表及列 ACL；工作区可自动生成普通 LOGIN 并清空完整 Identity 选择器 | 默认 caller Session 绑定保留；应用角色禁止成员资格                                      | [内嵌权限](#identity-内嵌运行权限)：14 项受限 LOGIN／实际 API 与两项冷容器检查通过                                                                | 自动账号通过 20 项去重 Native、真实普通／维护 worker、完整恢复及冷 API；筛选 CLI 另通过真实 E2E 普通账号的非空拒绝、首次播种和保留修改验收，日常主环境未切换                                                                                                                                            |
-| Workspace：项目、成员、配置及访问                   | 成员、交接、配置／模板、查询及相邻项目写入已实现                                              | nuScenes／点云质量晋升和对应公开入口已迁移，其他选定消费者已迁移                        | [相邻写入](#workspace-相邻项目写入)通过 65 项定向检查；既有运行资格见 [Workspace 协议](/api/guides/workspace-runtime)                             | 媒体／截图、门控 E2E、规模种子／截图支持三组已完成限定本地验收。历史迁移审计已完成限定本地验收；cross-frame 已完成含实际数据库身份观测的限定冷验收；export 持锁进程丢失已实际复现并完成恢复修复的源码，待冷恢复验收；仍须收口 video-tracker 冷执行及旧视频排空证明，完整 Workspace 与主环境切换尚未闭合 |
+| Workspace：项目、成员、配置及访问                   | 成员、交接、配置／模板、查询及相邻项目写入已实现                                              | nuScenes／点云质量晋升和对应公开入口已迁移，其他选定消费者已迁移                        | [相邻写入](#workspace-相邻项目写入)通过 65 项定向检查；既有运行资格见 [Workspace 协议](/api/guides/workspace-runtime)                             | 媒体／截图、门控 E2E、规模种子／截图支持三组已完成限定本地验收。历史迁移审计已完成限定本地验收；cross-frame 已完成含实际数据库身份观测的限定冷验收；export 已完成普通 reviewer 冷执行与进程丢失恢复的限定本地验收；下一项收口 video-tracker 冷执行及旧视频排空证明，完整 Workspace 与主环境切换尚未闭合 |
 | Workspace：媒体种子与截图 Project／成员             | 四类媒体创建、闭合种子元数据投影及固定成员时间由 owner 持有；计数复用 Labeling                | COCO8／视频／OCR／大图、截图 reconcile／目录／后端字段已迁移，保留原 flush 与提交点     | [媒体及截图种子](#workspace-媒体及截图种子)：488 项源码检查、68 项去重 Native／消费者检查、非 editable 292／1326 文件工件及真实 S3 冷运行通过     | 本操作组的限定本地资格已闭合；六次冷命令是一个组合案例，完整录制、其他领域与整模块资格另按台账跟踪                                                                                                                                                                                                      |
 | Workspace：门控 E2E 夹具及筛选 CLI                  | 测试库限定的五项固定创建／清理能力及模板 ID 关系已实现；成员和元数据复用既有 owner            | `_test_seed`、`_test_seed_filters`、`worktree_filtering` 已迁移；保留原门禁、字段与事务 | [门控 E2E](#workspace-门控-e2e-夹具)：95 项去重消费者检查、匹配冷工件及十次真实命令通过                                                           | 本操作组的限定本地资格已闭合；十次冷命令构成一个组合案例，完整 Workspace 与主环境切换另按台账跟踪                                                                                                                                                                                                       |
 | Workspace：规模种子与截图支持读取                   | 固定项目／成员能力及来源 guard 已实现；计数复用 Labeling                                      | `seed_scale` 和两个截图支持读取已迁移，保留默认值、缓存及提交阶段                       | [规模种子](#workspace-规模种子与截图支持读取)：51 项去重检查、504 项源码检查、匹配冷工件与 34 次真实命令通过                                      | 本操作组的限定本地资格已闭合；两组冷案例独立运行，其他领域批量 DML、完整录制与整模块资格仍分别跟踪                                                                                                                                                                                                      |
 | Workspace：历史迁移角色审计                         | 三项固定审计关系及独立安装器已实现，不推进旧库 revision                                       | CLI 的项目、成员及准备列元数据已迁移，私表／列权限被撤销                                | [历史角色审计](#workspace-历史角色审计)：22 项数据库／消费者检查、513 项 Workspace 源码检查及 11 次冷 CLI 调用通过                                | 本操作组的限定本地资格已闭合；两组冷案例独立验证旧库和当前库，完整 Workspace 与主环境切换另按首行跟踪                                                                                                                                                                                                   |
-| Workspace：export worker 执行                       | 项目读取与最终签名权限锁复用既有能力；作业／缓存会话锁及失联写入围栏已实现                    | worker 项目调用已迁移；新 task ID 仅在取得作业锁后接管                                  | 实际 SIGKILL 已复现旧六小时锁遗留、新 ID 假成功及旧 ID／同范围新作业重试；22 项选定数据库／纯逻辑检查及完整迁移通过                               | 正在验证真实冷 worker 接管、原消息恢复、子进程丢失重投及撤权；未取得冷恢复资格，未切主环境                                                                                                                                                                                                              |
+| Workspace：export worker 执行                       | 项目读取与最终签名权限锁复用既有能力；作业／缓存会话锁及失联写入围栏已实现                    | worker 项目调用已迁移；新 task ID 仅在取得作业锁后接管                                  | [冷恢复](#workspace-export-recovery)：22 项选定检查和 1 项冷组合案例通过，含 7 次真实投递及完整迁移                                               | 本组已完成限定本地验收：普通 reviewer、撤权、容器硬中断后新 ID 接管／原消息恢复、子进程自动重投及真实下载；不代表所有格式、完整 Jobs、自动整主进程恢复时限或生产容量；未切主环境                                                                                                                        |
 | Workspace：cross-frame worker 执行                  | 既有项目／成员读取及最终写入锁能力保持                                                        | 实际任务已迁移，普通成员冷执行及 API 重试／取消已验证                                   | [冷 worker](#workspace-cross-frame-冷-worker)：17 项去重 Native／准入检查、21 项资源单元及一个七次派发的冷案例通过                                | 本操作组限定本地资格已闭合；完整 Workspace、主环境切换及生产容量另按首行跟踪                                                                                                                                                                                                                            |
-| Workspace：普通 API／worker SQL 凭据                | 显式消费者配置保留 32 函数和两张事实视图，撤销私表／列、回执、序列及宽默认授权                | 既有同事务调用保持；旧部署补齐配置／模板／目录及成员搜索授权                            | [凭据边界](#workspace-consumer-credentials)通过 13 项不同本地案例，含真实 HTTP、Node、worker 服务及共同回滚                                       | 组合受限凭据、冷工件、恢复及代表性 worker 已通过；冷 nuScenes 运维入口也已通过；开发种子与 cross-frame 已有独立限定资格；export／video-tracker、遗留证明及负载按首行跟踪                                                                                                                                |
+| Workspace：普通 API／worker SQL 凭据                | 显式消费者配置保留 32 函数和两张事实视图，撤销私表／列、回执、序列及宽默认授权                | 既有同事务调用保持；旧部署补齐配置／模板／目录及成员搜索授权                            | [凭据边界](#workspace-consumer-credentials)通过 13 项不同本地案例，含真实 HTTP、Node、worker 服务及共同回滚                                       | 组合受限凭据、冷工件、恢复及代表性 worker 已通过；冷 nuScenes 运维入口也已通过；开发种子与 cross-frame 已有独立限定资格；video-tracker、遗留证明及负载按首行跟踪                                                                                                                                        |
 | Workspace：当前权限 SHARE／KEY SHARE                | 复用 0270，完整 Project／成员锁定快照与会话同步已实现                                         | 原元组接口、权限端口及实际写入消费者集中切换；保持缓存与 pending work 行为              | [锁定读取](#workspace-锁定权限读取)通过 163 项去重定向检查，包含真实受限 API LOGIN、Node 及三路径时间字段兼容                                     | 本操作的源码／Native 证据继续有效；[组合运行与恢复](#workspace-组合运行与恢复验收)已通过，整模块剩余项见 Workspace 首行                                                                                                                                                                                 |
 | Workspace：当前权限无锁读取                         | 初始 Project 无锁阶段、现有 Query facts 和完整快照同步已实现                                  | by-id 与直接 helper 已迁移；保持 autoflush、错误顺序与公开 GET 第二轮检查               | [无锁读取](#workspace-无锁权限读取)通过 180 项去重定向检查，含真实受限 API LOGIN、READ ONLY、Node 及缓存基线复验                                  | 本操作的源码／Native 证据继续有效；[组合运行与恢复](#workspace-组合运行与恢复验收)已通过，整模块剩余项见 Workspace 首行                                                                                                                                                                                 |
 | Workspace：Project 独占快照                         | actor-free Native 锁与严格完整行合同已实现                                                    | 孤儿标注清理与点云晋升已迁移，分别保留 NOWAIT／等待和原缓存／autoflush                  | [独占快照](#workspace-独占-project-快照)通过 245 项去重定向检查，含真实受限 API、Node、九项旧缓存基线复验及隔离级别                               | 本操作的源码／Native 证据继续有效；[组合运行与恢复](#workspace-组合运行与恢复验收)已通过，整模块剩余项见 Workspace 首行                                                                                                                                                                                 |
@@ -468,7 +468,7 @@ Project／Identity 私表凭据被拒绝，S3 凭据仅限本次素材桶。一�
 
 581 次混合请求均成功；账号锁竞争单独返回 409，成员、回执与该操作者审计均保持。最终项目名、负责人、成员清理、已确认写入对应的不可变回执／审计和空临时状态全部核对通过。十六组观测中 API CPU 最高 97.63%，内存最高为其配额的 53.76%，服务数据库连接最高观测数为 12；九个容器 ID／启动时间保持，无 OOM 或重启，停栈后非 owner 服务连接归零。稀疏采样不代表连续峰值；以上是 macOS ARM64 的限定正确性／资源样本，包含宿主调度和 HTTP 成本，不是生产容量或 SLO。
 
-开发用 `seed_pointcloud.py` 的 Project 边界已通过上节验收；主种子自身的账号／成员边界也已迁移，媒体子脚本仍单独跟踪。其他普通生产入口已迁移到 Workspace 能力。cross-frame 已完成下文的普通成员冷 worker 验收；export 和 video tracker 的实际冷执行与恢复仍按台账跟踪。这些调用复用既有 Workspace 操作合同。历史视频无证明的排空仍缺机器可验证前置条件。完整 Workspace 与全目标继续按唯一台账推进，日常主环境未切换。
+开发用 `seed_pointcloud.py` 的 Project 边界已通过上节验收；主种子自身的账号／成员边界也已迁移，媒体子脚本仍单独跟踪。其他普通生产入口已迁移到 Workspace 能力。cross-frame 已完成下文的普通成员冷 worker 验收；export 已完成下文的限定冷恢复验收；video tracker 的实际冷执行与恢复仍按台账跟踪。这些调用复用既有 Workspace 操作合同。历史视频无证明的排空仍缺机器可验证前置条件。完整 Workspace 与全目标继续按唯一台账推进，日常主环境未切换。
 
 ## Workspace 冷运维导入验收
 
@@ -1341,3 +1341,37 @@ broker 队列。当前 API 工件核对 1,336 项代码／包／CLI 文件及四
 执行实现提交 `3692d02ea`；证据见 `.worktree/workspace-cross-frame-qualification.json`。
 原失败尝试保留，未累计为通过案例。本项关闭 cross-frame 的 Workspace 调用资格；
 完整 Labeling／Jobs、生产容量、整模块 Workspace 和日常主环境切换继续按唯一台账跟踪。
+
+## Workspace export 冷执行与恢复 {#workspace-export-recovery}
+
+此组验证普通 `employee` 的 reviewer 成员身份执行图像 AAP JSON 导出。Worker 使用
+受限 `identity_api_consumer`、自有 PostgreSQL／Redis 私网及全部十个隔离桶；项目／
+成员表和列的直接读取被拒绝，项目权限与最终签名检查继续通过既有 Workspace 能力。
+对象身份只可读取本案例的一张源图片和操作本项目的 export 前缀，无桶管理权限。
+
+先前的实际 SIGKILL 复现了 Redis 六小时锁遗留：不同 task ID 的投递虽显示 SUCCESS，
+持久作业仍停在 running；原 ID 和同范围新作业都进入 RETRY，没有产物。修复改用同一
+独占 PostgreSQL 连接上的作业／缓存会话锁，写入前核对原 backend PID；失联后永久拒绝
+该次执行写入并重试。独立执行对象键阻止旧上传覆盖恢复结果。连接丢失时不删除可能已经
+提交的对象，以免恢复执行刚好引用了它；未引用对象仍由既有 export 生命周期回收。
+
+22 项选定数据库／纯逻辑检查和 1 项冷组合案例均通过，无跳过；先前 19 项纯逻辑检查
+包含在 22 项内，不重复计数。冷案例在 1 CPU／512 MiB、普通 UID、只读根文件系统的
+不可变 API 镜像上运行，日志确认 5 个 task ID 共 7 次真实投递：排队后经 Workspace
+能力撤员而拒绝；容器 SIGKILL 后由新 ID 接管同一作业；精确恢复原始 Redis unacked
+消息并完成确认；同范围新作业复用缓存；prefork 子进程 SIGKILL 后由 Celery 自动重投
+原 ID 完成，父容器不变。有效作业各有一条通知，原消息重放不增加产物或通知；ZIP 及
+清单中的源图片均通过实际签名 URL 下载并核对内容。最终队列／unacked 均为零，
+自有资源全部清理，完整迁移升级／回退保持 head `0310`。
+
+源码修复提交为 `cde81715d`，最终冷夹具为 `d8c21999f`。API 镜像
+`sha256:edf86c782fd9453a511b67d4efbde12910461482e2e074d24cb5c5d3234215e9`
+核对 1,336 个应用／安装包／CLI 文件和 4 个运行夹具输入，另四个镜像的完整 COPY 集合
+及哈希复用既有资格。规范证据为 `.worktree/workspace-export-loss-qualification.json`，
+SHA-256 为 `eadb3df1d922370fca25f0e1bfb2b7d5de4d94ff8381e168744eb1e06af88dea`。
+执行命令见仓库 `DEV.md` 的“Workspace export 冷 worker 验收”。
+
+本机 ARM64 的图像案例不代表每种导出格式、完整 Jobs／Workspace、AMD64、远程 CI
+或生产容量资格。整容器丢失后的原消息由验收夹具按唯一投递标签显式恢复，未证明自动
+恢复耗时；实际自动重投资格仅覆盖 prefork 子进程丢失。旧 export worker 在采用新锁前
+须排空，未验证两种锁混跑。主环境和 Go 实验均未切换。

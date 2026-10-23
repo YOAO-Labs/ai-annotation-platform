@@ -2751,6 +2751,27 @@ Redis 私网，所有十个桶均显式绑定隔离资源。普通员工通过 a
 最终通过状态和证据按[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)
 记录；主环境不自动切换。
 
+### Workspace export 冷 worker 验收
+
+复用前节全部冷镜像和身份变量，核对 API 镜像的完整 COPY 输入集合及哈希后运行：
+
+```bash
+AAP_WORKSPACE_EXPORT_WORKER_LIVE=1 apps/api/.venv/bin/python \
+  scripts/verify_module_data_boundary.py --output .worktree/workspace-export-worker.json \
+  --test-file tests/test_workspace_export_worker_live.py
+```
+
+该开关只用于隔离夹具。案例用普通 employee 的 reviewer 身份执行真实 AAP JSON 导出，
+通过数据库锁卡住实际构建，再验证整容器 SIGKILL 后的新 task ID 接管、原始 unacked
+消息精确恢复、prefork 子进程丢失后的自动同 ID 重投，以及排队后撤员、缓存复用、
+产物和源图片的真实签名 URL 下载。Worker 无 Workspace 私表读取或桶管理权限。
+
+整容器恢复使用按 task ID、任务名、唯一私有队列和索引验证的原始 broker 消息，不
+修改 visibility timeout；因此此案例不证明整主进程丢失后的自动恢复耗时。PostgreSQL
+查询阻塞时可能尚未察觉客户端断开，夹具先记录状态、释放测试锁，再等待实际旧 backend
+消失。采用新的 PostgreSQL 会话锁前须排空旧 export worker；主环境不会自动切换。
+当前资格及限制见[唯一台账](docs-site/dev/concepts/module-deployment.md#workspace-export-recovery)。
+
 ### Workspace 冷运维导入验收
 
 复用上表 API 冷镜像及其身份变量，使用独占验收数据库和全部十个隔离桶：
