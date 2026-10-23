@@ -356,6 +356,24 @@ async def _dispatch_while_workspace_read_is_blocked(
     return result, ack, evidence
 
 
+def _identity_gateway_for_owned_auth(test_engine):
+    from app.config import settings
+    from app.services.identity_gateway import IdentityGateway
+
+    auth = make_url(
+        _module_role_url("AAP_MODULE_DATA_IDENTITY_AUTH_URL", "identity_auth_client")
+    )
+    assert (auth.host, auth.port, auth.database) == (
+        test_engine.url.host,
+        test_engine.url.port,
+        test_engine.url.database,
+    )
+    return IdentityGateway(
+        auth_database_url=auth.render_as_string(hide_password=False),
+        signing_secret=settings.secret_key,
+    )
+
+
 async def _remove_member_after_handover(maker, world):
     from app.services.workspace_membership import (
         add_member,
@@ -432,6 +450,14 @@ async def test_cross_frame_prerequisite_spatial_reads_use_closed_api_role(test_e
                 await AssetsSpatialGateway(db).read_frame_pose(world["scene_id"], 0)
                 is None
             )
+            from app.core.security import create_access_token
+
+            gateway = _identity_gateway_for_owned_auth(test_engine)
+            token = create_access_token(subject=str(world["actor_id"]), role="employee")
+            principal = await gateway.authenticate(token, db=db)
+            assert principal.actor_id == world["actor_id"]
+            context = await gateway.actor_context(principal, db=db)
+            assert context.id == world["actor_id"] and context.role == "employee"
     finally:
         await engine.dispose()
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
@@ -629,7 +655,6 @@ async def test_real_cross_frame_worker_uses_workspace_fence_and_retry(
         from app.core.security import create_access_token
         from app.deps import get_db
         from app.main import app as app_module
-        from app.services.identity_gateway import IdentityGateway
         from app.deps import get_identity_gateway
         from app.workers.cross_frame_job import run_cross_frame_job
         import httpx
@@ -642,7 +667,7 @@ async def test_real_cross_frame_worker_uses_workspace_fence_and_retry(
                 yield session
 
         app_module.dependency_overrides[get_db] = api_session_dependency
-        identity_gateway = IdentityGateway(signing_secret=settings.secret_key)
+        identity_gateway = _identity_gateway_for_owned_auth(test_engine)
         app_module.dependency_overrides[get_identity_gateway] = lambda: identity_gateway
         app = app_module
         async with httpx.AsyncClient(

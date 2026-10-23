@@ -7916,3 +7916,12 @@ passed with both assignments transferred and the historical annotation author
 preserved. The preview's requires_handoff flag describes unresolved blockers;
 assertions now verify concrete task scope and successful handover instead.
 Owned Celery result handles are explicitly forgotten during final cleanup.
+
+The third cold attempt additionally proved queued-member revocation and NOWAIT
+membership failure, then the retry API returned an Identity admission 503. The
+fixture had explicitly constructed a gateway without the existing dedicated
+auth datasource, causing it to borrow the fenced business session. The fixture
+now validates and uses identity_auth_client on the same owned database, while
+business requests continue through identity_api_consumer. The focused real-role
+prerequisite case passed token authentication, current actor context, Spatial
+reads and valid work handover. No Identity credential grant was widened.
