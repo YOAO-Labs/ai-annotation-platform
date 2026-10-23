@@ -20,6 +20,7 @@ from app.services import dataset_scans as scans
 from app.services import storage_location as locations
 from app.services import filesystem_storage as fs
 from app.services import reference_storage
+from app.services import dataset_source_changes as changes
 from app.services.async_job_notify import notify_job_terminal
 from app.services.dataset_content import key_authority
 
@@ -102,6 +103,8 @@ async def attempt(db, run, source, actor, *, api_key_id=None, key_proof):
         "api_key_id": str(api_key_id) if api_key_id else None,
         "key_proof": key_proof,
     }
+    if run.phase == "preflight":
+        run.comparison_complete = False
     job = await jobs.create_job(
         db,
         kind=KIND,
@@ -181,6 +184,7 @@ async def start_preflight(db, scan_id, actor, *, api_key_id=None):
             "ownership_mode": source.ownership_mode,
             "cache_policy": effective_cache_policy(source, location),
             "policy_revision": source.policy_revision,
+            "comparison_schema": 1,
         },
         generation=0,
         phase="preflight",
@@ -245,6 +249,7 @@ async def start_preflight(db, scan_id, actor, *, api_key_id=None):
         "existing_count": existing_count,
         "estimated_new_count": total - existing_count,
     }
+    await changes.initialize(db, run)
     await attempt(db, run, source, actor, api_key_id=api_key_id, key_proof=key_proof)
     return run, True
 
@@ -254,6 +259,8 @@ async def finish(db, run, job, status, code=None):
     run.lease_token = None
     run.lease_expires_at = None
     run.completed_at = await scans.now(db)
+    if run.phase == "preflight":
+        run.comparison_complete = status == "completed" and run.comparison_available
     if job is not None:
         job.status = status
         job.progress_pct = 100 if status == "completed" else job.progress_pct
@@ -388,6 +395,10 @@ async def record(
     expected = "pending" if run.phase == "preflight" else "ready"
     if entry is None or entry.state != expected:
         raise LostRegistrationLease()
+    if run.phase == "preflight" and await changes.record(
+        db, run, path_digest, state, error_code
+    ):
+        state, error_code = "error", "reference_content_changed"
     transition(
         run,
         entry,
@@ -504,7 +515,7 @@ async def ensure_source_available(db, location, source, node):
         raise fs.FilesystemStorageError("source_unavailable") from None
 
 
-async def confirm(db, run_id, actor, *, api_key_id=None):
+async def confirm(db, run_id, actor, *, api_key_id=None, scope="all_safe"):
     from app.services.dataset_content import scan_snapshot
     from app.services.content_snapshot import ContentError
 
@@ -533,6 +544,8 @@ async def confirm(db, run_id, actor, *, api_key_id=None):
         await scans.validate_context(db, location, source, snapshot=run.snapshot)
         await other_active(db, run)
         if run.phase == "registering":
+            if run.registration_scope != scope:
+                raise HTTPException(409, detail={"code": "registration_scope_changed"})
             return run, False
         if run.status != "completed":
             raise HTTPException(
@@ -540,13 +553,26 @@ async def confirm(db, run_id, actor, *, api_key_id=None):
             )
         if preflight_version is None:
             preflight_version = (run.async_job_id, run.generation)
-        sample = await db.scalar(
-            select(Entry)
-            .where(Entry.run_id == run.id, Entry.state == "ready")
-            .order_by(Entry.path_digest)
-            .limit(1)
+        if scope == "additions_only" and not run.comparison_complete:
+            raise HTTPException(409, detail={"code": "comparison_incomplete"})
+        sample_stmt = select(Entry).where(
+            Entry.run_id == run.id, Entry.state == "ready"
         )
+        if scope == "additions_only":
+            from app.db.models.dataset_source import DatasetSourceChange
+
+            sample_stmt = sample_stmt.where(
+                Entry.path_digest.in_(
+                    select(DatasetSourceChange.path_digest).where(
+                        DatasetSourceChange.run_id == run.id,
+                        DatasetSourceChange.kind == "added",
+                    )
+                )
+            )
+        sample = await db.scalar(sample_stmt.order_by(Entry.path_digest).limit(1))
         if sample is None:
+            if scope == "additions_only":
+                raise HTTPException(409, detail={"code": "no_added_images"})
             if run.counts["error_count"]:
                 raise HTTPException(409, detail={"code": "no_ready_images"})
             break
@@ -616,6 +642,9 @@ async def confirm(db, run_id, actor, *, api_key_id=None):
     if run.phase != "preflight" or run.status != "completed":
         raise HTTPException(409, "Preflight changed; refresh before confirming")
     run.phase = "registering"
+    run.snapshot = {**run.snapshot, "registration_scope": scope}
+    if scope == "additions_only":
+        await changes.skip_unchanged(db, run)
     await attempt(db, run, source, actor, api_key_id=api_key_id, key_proof=key_proof)
     return run, True
 
@@ -636,6 +665,20 @@ async def resume(db, run_id, actor, *, api_key_id=None, path_digest=None):
         entry = await db.get(Entry, (run.id, path_digest))
         if entry is None or entry.state != "error":
             raise HTTPException(409, "Only a failed entry can be retried")
+        if run.comparison_available:
+            from app.db.models.dataset_source import DatasetSourceChange
+
+            change = await db.get(DatasetSourceChange, (run.id, path_digest))
+            if change is None or change.kind == "changed":
+                raise HTTPException(
+                    409, detail={"code": "source_change_requires_rescan"}
+                )
+            if (
+                run.phase == "registering"
+                and run.registration_scope == "additions_only"
+                and change.kind != "added"
+            ):
+                raise HTTPException(409, detail={"code": "registration_scope_changed"})
         scan_entry = await db.get(DatasetScanEntry, (run.scan_run_id, path_digest))
         state = (
             "pending"

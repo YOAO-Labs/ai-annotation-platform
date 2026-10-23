@@ -123,6 +123,34 @@ class DatasetRegistrationOut(BaseModel):
     ownership_mode: str
     cache_policy: str
     source_revision: int
+    comparison_available: bool
+    comparison_complete: bool
+    registration_scope: str
+
+
+class DatasetRegistrationConfirm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    scope: Literal["all_safe", "additions_only"] = "all_safe"
+
+
+class DatasetSourceChangeOut(BaseModel):
+    path_digest: str
+    relative_path: str
+    kind: Literal["added", "unchanged", "changed", "not_seen", "excluded", "unreadable"]
+    reason: str | None
+    before_item_id: uuid.UUID | None
+    before_sha256: str | None
+    candidate_sha256: str | None
+    registration_state: str | None
+    error_code: str | None
+
+
+class DatasetSourceChangeList(BaseModel):
+    complete: bool
+    observed_at: datetime
+    counts: dict[str, int]
+    total: int
+    items: list[DatasetSourceChangeOut]
 
 
 class DatasetRegistrationEntryOut(BaseModel):

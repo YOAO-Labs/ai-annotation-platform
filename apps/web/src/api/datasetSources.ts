@@ -15,6 +15,8 @@ import type {
   RegisteredReferenceOut,
   DatasetRegistrationOut,
   DatasetRegistrationEntryList,
+  DatasetSourceChangeList,
+  DatasetRegistrationConfirm,
 } from "./generated/types.gen";
 
 export const datasetSourcesApi = {
@@ -48,8 +50,13 @@ export const datasetSourcesApi = {
     }),
   preflight: (scanId: string) =>
     apiClient.post<DatasetRegistrationOut>(`/dataset-scans/${scanId}/registration`),
-  confirmRegistration: (id: string) =>
-    apiClient.post<DatasetRegistrationOut>(`/dataset-registrations/${id}/confirm`),
+  confirmRegistration: (id: string, scope: DatasetRegistrationConfirm["scope"] = "all_safe") =>
+    apiClient.post<DatasetRegistrationOut>(`/dataset-registrations/${id}/confirm`, { scope }),
+  changes: (id: string, kind: string, offset: number, signal?: AbortSignal) =>
+    apiClient.get<DatasetSourceChangeList>(
+      `/dataset-registrations/${id}/changes?limit=20&offset=${offset}${kind ? `&kind=${kind}` : ""}`,
+      { signal },
+    ),
   resumeRegistration: (id: string) =>
     apiClient.post<DatasetRegistrationOut>(`/dataset-registrations/${id}/resume`),
   retryRegistrationEntry: (id: string, path: string) =>

@@ -12231,6 +12231,22 @@
         "title": "DatasetOut",
         "type": "object"
       },
+      "DatasetRegistrationConfirm": {
+        "additionalProperties": false,
+        "properties": {
+          "scope": {
+            "default": "all_safe",
+            "enum": [
+              "all_safe",
+              "additions_only"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "title": "DatasetRegistrationConfirm",
+        "type": "object"
+      },
       "DatasetRegistrationEntryList": {
         "properties": {
           "items": {
@@ -12369,6 +12385,14 @@
             "title": "Cache Policy",
             "type": "string"
           },
+          "comparison_available": {
+            "title": "Comparison Available",
+            "type": "boolean"
+          },
+          "comparison_complete": {
+            "title": "Comparison Complete",
+            "type": "boolean"
+          },
           "completed_at": {
             "anyOf": [
               {
@@ -12421,6 +12445,10 @@
             "title": "Phase",
             "type": "string"
           },
+          "registration_scope": {
+            "title": "Registration Scope",
+            "type": "string"
+          },
           "scan_run_id": {
             "format": "uuid",
             "title": "Scan Run Id",
@@ -12454,7 +12482,10 @@
           "completed_at",
           "ownership_mode",
           "cache_policy",
-          "source_revision"
+          "source_revision",
+          "comparison_available",
+          "comparison_complete",
+          "registration_scope"
         ],
         "title": "DatasetRegistrationOut",
         "type": "object"
@@ -12682,6 +12713,150 @@
           "completed_at"
         ],
         "title": "DatasetScanOut",
+        "type": "object"
+      },
+      "DatasetSourceChangeList": {
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetSourceChangeOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "complete",
+          "observed_at",
+          "counts",
+          "total",
+          "items"
+        ],
+        "title": "DatasetSourceChangeList",
+        "type": "object"
+      },
+      "DatasetSourceChangeOut": {
+        "properties": {
+          "before_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before Item Id"
+          },
+          "before_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before Sha256"
+          },
+          "candidate_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Sha256"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "kind": {
+            "enum": [
+              "added",
+              "unchanged",
+              "changed",
+              "not_seen",
+              "excluded",
+              "unreadable"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "path_digest": {
+            "title": "Path Digest",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "registration_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Registration State"
+          },
+          "relative_path": {
+            "title": "Relative Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path_digest",
+          "relative_path",
+          "kind",
+          "reason",
+          "before_item_id",
+          "before_sha256",
+          "candidate_sha256",
+          "registration_state",
+          "error_code"
+        ],
+        "title": "DatasetSourceChangeOut",
         "type": "object"
       },
       "DatasetSourceCreate": {
@@ -60500,6 +60675,101 @@
         ]
       }
     },
+    "/api/v1/dataset-registrations/{registration_id}/changes": {
+      "get": {
+        "operationId": "registration_changes_api_v1_dataset_registrations__registration_id__changes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registration_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registration Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "added",
+                    "unchanged",
+                    "changed",
+                    "not_seen",
+                    "excluded",
+                    "unreadable"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetSourceChangeList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Registration Changes",
+        "tags": [
+          "dataset-sources"
+        ]
+      }
+    },
     "/api/v1/dataset-registrations/{registration_id}/confirm": {
       "post": {
         "operationId": "confirm_registration_api_v1_dataset_registrations__registration_id__confirm_post",
@@ -60515,6 +60785,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/DatasetRegistrationConfirm"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
         "responses": {
           "202": {
             "content": {

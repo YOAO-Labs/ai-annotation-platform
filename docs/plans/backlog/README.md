@@ -26,7 +26,7 @@ Promotion requires a fresh decision based on the actual repository, not a few no
 
 ## 数据集与存储升级草案集
 
-[总览与推荐顺序](1792661016_dataset-storage-roadmap.md)将整套外部材料转为本项目 17 份研究草案：5 份总纲与 12 个 Epic，保留需求、故事和验收编号，补入代码落点、复用边界、独立切片、晋升条件及回退方法。E01-A、E02-A、E04-A、E05-A 与 E03-A1 已转为根目录实施计划并完成本地验收；E03-A1 支持小目录逐条登记、预览、项目关联与手工标注，完整 E03 尚未完成。下一切片为 E03-A2 后台批量登记及取消恢复，E08/E09 完整界面重整待独立评审。E01-B、E02-B、E04-B、E05-B 仍待评审，其余草案未排期，不分配发布版本。
+[总览与推荐顺序](1792661016_dataset-storage-roadmap.md)将整套外部材料转为本项目 17 份研究草案：5 份总纲与 12 个 Epic，保留需求、故事和验收编号，补入代码落点、复用边界、独立切片、晋升条件及回退方法。E01-A、E02-A、E04-A、E05-A 与完整 E03 已完成本地验收，E03 已归档。E04-B1 已完成手动增量差异与仅新增接纳；E04-B2 周期计划及变化/移动裁决仍待独立推进，E08/E09 完整界面重整待独立评审。E01-B、E02-B、E05-B 仍待评审，其余草案未排期，不分配发布版本。
 
 共同约束：[架构与决策](1792661016_dataset-storage-architecture.md) · [信息架构](1792661016_dataset-storage-information-architecture.md) · [交付与 33 项跨 Epic 验收](1792661016_dataset-storage-delivery-acceptance.md) · [基线、来源映射与参考](1792661016_dataset-storage-baseline.md)。
 

@@ -75,6 +75,18 @@ Run 的 `completed` 和 `complete=true` 只表示约定范围枚举与复核完�
 
 根不可达、权限或配置变化中断整个阶段；损坏或缺失的单文件记异常并继续。数据集锁繁忙和快照容量不足按暂态退避，不能把正常文件记为损坏。预检完成表示所有候选已处理，仍可包含异常；确认成功不保证最终登记数不变。若确认期间文件变化，异常项会从 ready 移出；重新读取账本后再确认。新的预检尝试在确认 I/O 期间完成时，旧确认返回409，必须刷新后重新确认。
 
+## 手动增量差异
+
+`GET /dataset-registrations/{registration_id}/changes` 要求上述来源管理权限与 `datasets:read`。`kind` 可选 `added/unchanged/changed/not_seen/excluded/unreadable`，`limit` 默认20、最多200，`offset` 默认0。返回 `complete`、预检开始时间 `observed_at`、六类 `counts`、筛选后 `total` 和明细 `items`。每项提供路径摘要、相对路径、类型、原因、可空 `before_item_id/before_sha256/candidate_sha256` 和当前登记状态/错误码，不返回内部根身份或绝对路径。
+
+新账本提供 `comparison_available=true`；`comparison_complete` 仅在完整预检完成后为 true。取消、中断或修复重试期间返回 `complete=false`、空计数和空列表，不发布未见候选。基线在预检开始时从已接纳的来源路径映射固定；先前仅扫描而未登记的路径仍为新增。单来源基线最多50000条，与本轮候选的并集最多100000条，超出返回409 `comparison_budget_exceeded`。
+
+核验读取完整字节后比较 SHA、资格锚点和文件观测。摘要不同、资格改变或相同摘要但观测改变均列 `changed`，登记明细记 `reference_content_changed`，不重绑旧样本。已观察但排除的旧路径列 `excluded`；本轮没有枚举到的旧路径列 `not_seen`，包括没有遍历的后代，不能据此推断删除、标记 missing 或删除业务历史。扫描完成不构成原子目录快照；S3 历史版本可读不证明当前键仍存在。
+
+确认接口可带 JSON `{"scope":"additions_only"}`：须有完整差异且存在可登记新增，否则409 `comparison_incomplete/no_added_images`。选择范围固定为 `registration_scope`；重复同范围确认幂等，改变范围返回409 `registration_scope_changed`。本轮相同项标为 unchanged，不再登记，只有新增 ready 项进入正式登记；异常变化或未见项不接纳。正式登记仍逐项复读固定摘要和复查权限，确认后的外部覆盖会记异常。差异分类与候选摘要保留为预检证据，当前执行结果见 `registration_state/error_code`。已确认仅新增后，非新增错误不得通过 retry 扩大选择范围；变化项返回409 `source_change_requires_rescan`，需要新扫描及后续裁决能力。
+
+无请求体或 `{"scope":"all_safe"}` 保留既有确认方式；新预检中已变化项仍被阻断，旧账本 `comparison_available=false` 不支持仅新增。异步任务清理不清除此差异证据。周期计划、接受变化形成新修订、移动重定位及删除裁决未开放。
+
 ## 逐条登记原地图片
 
 `POST /dataset-scans/{run_id}/entries/{path_digest}/register` 要求上述当前来源管理权限及 `datasets:write`，返回200：`{item_id, created, sha256}`。Run 必须完整，条目为匹配的已观测文件；API 当前节点须有有效 read 探测。登记会重新核验字节与图片，创建不可变 Reference、verified Asset 和 DatasetItem，复用已有项目关联创建 Task，不上传原图或创建 S3 副本。只接受普通图片数据集及普通图片项目。

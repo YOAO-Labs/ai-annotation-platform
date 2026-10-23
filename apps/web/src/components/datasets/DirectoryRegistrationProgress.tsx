@@ -5,6 +5,7 @@ import { asyncJobsApi } from "@/api/asyncJobs";
 import { Button } from "@/components/ui/Button";
 import { useSessionGuard } from "@/hooks/useSessionGuard";
 import { verifiedContentError } from "@/hooks/useVerifiedImage";
+import { DirectorySourceChanges } from "./DirectorySourceChanges";
 
 const statusLabels: Record<string, string> = {
   pending: "等待执行",
@@ -28,6 +29,7 @@ const errorLabels: Record<string, string> = {
   dataset_busy: "数据集繁忙，可重试",
   snapshot_capacity_exceeded: "读取繁忙，可重试",
   dispatch_unavailable: "等待后台重新派发，可手动继续",
+  reference_content_changed: "内容或身份观测已变化，保留旧样本；本轮不接纳此变化",
 };
 const bytes = (value: number) =>
   value < 1024
@@ -54,6 +56,8 @@ export function DirectoryRegistrationProgress({
   const [reviewed, setReviewed] = useState(false);
   const [errorsOnly, setErrorsOnly] = useState(false);
   const [offset, setOffset] = useState(0);
+  const [changeKind, setChangeKind] = useState("");
+  const [changeOffset, setChangeOffset] = useState(0);
   const registration = useQuery({
     queryKey: ["directory-registration", owner, scanId],
     queryFn: ({ signal }) => api.registration(scanId, signal),
@@ -69,10 +73,25 @@ export function DirectoryRegistrationProgress({
     enabled: !!run,
     refetchInterval: active ? 2000 : false,
   });
+  const changes = useQuery({
+    queryKey: [
+      "directory-source-changes",
+      owner,
+      run?.id,
+      run?.generation,
+      run?.comparison_complete,
+      changeKind,
+      changeOffset,
+    ],
+    queryFn: ({ signal }) => api.changes(run!.id, changeKind, changeOffset, signal),
+    enabled: !!run?.comparison_complete,
+    refetchInterval: active ? 2000 : false,
+  });
   const registeredCount = (run?.counts.registered_count ?? 0) + (run?.counts.unchanged_count ?? 0);
   useEffect(() => {
     if (!run?.id) return;
     void client.invalidateQueries({ queryKey: ["directory-registration-entries", owner, run.id] });
+    void client.invalidateQueries({ queryKey: ["directory-source-changes", owner, run.id] });
   }, [client, owner, run?.id, run?.phase, run?.status, run?.counts]);
   useEffect(() => {
     setReviewed(false);
@@ -97,6 +116,7 @@ export function DirectoryRegistrationProgress({
           client.invalidateQueries({ queryKey: ["directory-registration", owner, scanId] }),
           client.invalidateQueries({ queryKey: ["directory-registration-entries", owner] }),
           client.invalidateQueries({ queryKey: ["dataset-scan-entries", owner] }),
+          client.invalidateQueries({ queryKey: ["directory-source-changes", owner] }),
         ]);
         if (current()) setBusy(false);
       }
@@ -128,6 +148,7 @@ export function DirectoryRegistrationProgress({
             onClick={() => {
               void registration.refetch();
               void entries.refetch();
+              if (run.comparison_complete) void changes.refetch();
             }}
           >
             刷新登记进度
@@ -170,7 +191,7 @@ export function DirectoryRegistrationProgress({
               ["已索引", run.counts.indexed_count],
               ["待核验", run.counts.pending_count],
               ["已核验待登记", run.counts.ready_count],
-              ["本轮可用", registeredCount],
+              ["本轮登记与保留", registeredCount],
               ["原已登记路径", run.counts.existing_count],
               ["预计新增", run.counts.estimated_new_count],
               ["异常", run.counts.error_count],
@@ -198,6 +219,21 @@ export function DirectoryRegistrationProgress({
             观测时间 {new Date(run.created_at).toLocaleString()}
             。体量与新增数是扫描估算，正式登记会重新读取；修复重试不会改写已有内容身份。
           </p>
+          {run.comparison_available && (
+            <DirectorySourceChanges
+              complete={run.comparison_complete}
+              data={changes.data}
+              pending={changes.isFetching}
+              error={changes.error}
+              kind={changeKind}
+              offset={changeOffset}
+              onKind={(value) => {
+                setChangeKind(value);
+                setChangeOffset(0);
+              }}
+              onOffset={setChangeOffset}
+            />
+          )}
           {run.phase === "preflight" && run.status === "completed" && (
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <label className="flex items-center gap-1">
@@ -206,21 +242,35 @@ export function DirectoryRegistrationProgress({
                   checked={reviewed}
                   onChange={(e) => setReviewed(e.target.checked)}
                 />
-                已核对影响，先登记通过核验的图片
+                {run.comparison_complete
+                  ? "已核对差异，仅登记新增路径，保留旧样本和标注"
+                  : "已核对影响，先登记通过核验的图片"}
               </label>
               <Button
                 size="sm"
                 variant="primary"
-                disabled={!reviewed || busy || stale}
-                onClick={() => void act(() => api.confirmRegistration(run.id))}
+                disabled={
+                  !reviewed ||
+                  busy ||
+                  stale ||
+                  (run.comparison_complete && !changes.data?.counts.added)
+                }
+                onClick={() =>
+                  void act(() =>
+                    api.confirmRegistration(
+                      run.id,
+                      run.comparison_complete ? "additions_only" : "all_safe",
+                    ),
+                  )
+                }
               >
-                确认批量登记
+                {run.comparison_complete ? "确认仅登记新增" : "确认批量登记"}
               </Button>
             </div>
           )}
           {run.phase === "registering" && run.status === "completed" && (
             <p role="status" className="mt-2 text-status-positive">
-              本轮登记结束：可用 {registeredCount}，异常 {run.counts.error_count}
+              本轮登记结束：已登记或保留 {registeredCount}，异常 {run.counts.error_count}
               。已登记样本可关联项目并开始标注。
             </p>
           )}
@@ -260,7 +310,12 @@ export function DirectoryRegistrationProgress({
                           </span>{" "}
                           <Button
                             size="sm"
-                            disabled={busy || active || stale}
+                            disabled={
+                              busy ||
+                              active ||
+                              stale ||
+                              entry.error_code === "reference_content_changed"
+                            }
                             onClick={() =>
                               void act(() => api.retryRegistrationEntry(run.id, entry.path_digest))
                             }

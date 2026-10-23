@@ -31,6 +31,8 @@ from app.schemas.dataset_source import (
     RegisteredReferenceOut,
     DatasetRegistrationOut,
     DatasetRegistrationEntryList,
+    DatasetRegistrationConfirm,
+    DatasetSourceChangeList,
     SourceLifecycleImpact,
     SourceLifecycleChange,
 )
@@ -535,6 +537,7 @@ async def preflight_registration(
 async def confirm_registration(
     registration_id: uuid.UUID,
     request: Request,
+    payload: DatasetRegistrationConfirm | None = None,
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(manager),
 ):
@@ -547,6 +550,7 @@ async def confirm_registration(
             registration_id,
             actor,
             api_key_id=getattr(request.state, "api_key_id", None),
+            scope=payload.scope if payload else "all_safe",
         )
         await audit(db, actor, request, "dataset_registration.confirm", run.id)
         return await dispatch_registration(db, run, created)
@@ -661,3 +665,23 @@ async def registration_entries(
             for unit, observed in rows
         ],
     }
+
+
+@router.get(
+    "/dataset-registrations/{registration_id}/changes",
+    response_model=DatasetSourceChangeList,
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
+async def registration_changes(
+    registration_id: uuid.UUID,
+    kind: Literal["added", "unchanged", "changed", "not_seen", "excluded", "unreadable"]
+    | None = None,
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(manager),
+):
+    from app.services import dataset_source_changes as changes
+
+    run = await access.require_run(db, DatasetRegistrationRun, registration_id, actor)
+    return await changes.page(db, run, kind, limit, offset)

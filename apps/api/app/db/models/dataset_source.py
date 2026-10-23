@@ -174,6 +174,9 @@ class DatasetRegistrationRun(Base):
         DateTime(timezone=True), server_default=func.now()
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    comparison_complete: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
     __table_args__ = (
         CheckConstraint(
             "status IN ('pending','running','completed','failed','cancelled')",
@@ -201,6 +204,14 @@ class DatasetRegistrationRun(Base):
     @property
     def cache_policy(self):
         return self.snapshot.get("cache_policy", "none")
+
+    @property
+    def comparison_available(self):
+        return self.snapshot.get("comparison_schema") == 1
+
+    @property
+    def registration_scope(self):
+        return self.snapshot.get("registration_scope", "all_safe")
 
 
 class DatasetRegistrationEntry(Base):
@@ -295,4 +306,33 @@ class DatasetSourcePreview(Base):
             ondelete="CASCADE",
         ),
         CheckConstraint("state IN ('ready','failed')", name="ck_source_preview_state"),
+    )
+
+
+class DatasetSourceChange(Base):
+    """A preflight's frozen baseline and verified differences, beyond job history."""
+
+    __tablename__ = "dataset_source_changes"
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("dataset_registration_runs.id", ondelete="CASCADE"), primary_key=True
+    )
+    path_digest: Mapped[str] = mapped_column(String(64), primary_key=True)
+    relative_path: Mapped[str] = mapped_column(Text)
+    baseline_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("dataset_scan_runs.id", ondelete="RESTRICT")
+    )
+    # Historical IDs survive explicit business item deletion.
+    before_item_id: Mapped[uuid.UUID | None] = mapped_column()
+    before_sha256: Mapped[str | None] = mapped_column(String(64))
+    before_observation: Mapped[dict | None] = mapped_column(JSONB)
+    before_anchor: Mapped[dict | None] = mapped_column(JSONB)
+    candidate_sha256: Mapped[str | None] = mapped_column(String(64))
+    kind: Mapped[str] = mapped_column(String(20))
+    reason: Mapped[str | None] = mapped_column(String(60))
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('pending','added','unchanged','changed','not_seen','excluded','unreadable')",
+            name="ck_dataset_source_change_kind",
+        ),
+        Index("ix_dataset_source_change_page", "run_id", "kind", "path_digest"),
     )

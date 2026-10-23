@@ -151,3 +151,4 @@
 - [0097](0097-directory-ownership-previews-and-lifecycle.md) — 目录原图所有权、鉴权派生预览与来源生命周期分离
 - [0098](0098-strict-external-s3-references.md) — 外部 S3 引用保存精确定位并逐次验证条件读取
 - [0099](0099-qualified-sftp-references.md) — SFTP 持续引用以部署核验的只读 jail 和固定主机公钥为准入边界
+- [0100](0100-preflight-owned-source-differences.md) — 增量差异固定已接纳基线，接纳范围贯穿恢复

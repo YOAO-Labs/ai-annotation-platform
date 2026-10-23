@@ -1,12 +1,12 @@
 # EPIC-04：增量同步与后台任务编排
 
-> 状态：E04-A completed；E04-B 待晋升评审；用户已授权推进和提交，不分配发布版本。
+> 状态：E04-A / E04-B1 completed；E04-B2 周期计划及后续裁决待独立推进；用户已授权推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 | 项目          | 内容                                                     |
 | ------------- | -------------------------------------------------------- |
-| 状态          | E04-A 已完成本地验收；其余范围保留草案                   |
+| 状态          | E04-A、E04-B1 已完成本地验收；其余范围保留草案           |
 | 日期          | 2026-10-22（Asia/Shanghai）                              |
 | 优先级 / 阶段 | P0：M1 幂等手动扫描与变化保护；P1：M2 周期同步与裁决     |
 | 负责角色      | 后端、任务系统维护者、前端、测试                         |
@@ -226,3 +226,42 @@
 - Migration: full fresh, reversible suffix, legacy-forward and dump/restore verification passed through 0196; populated ledgers reject downgrade. Validation databases were removed with no owned leftovers.
 - Cleanup: task-owned worker and temporary fixtures were stopped/removed; isolated test database, Redis and buckets were destroyed, and generated documentation/test outputs were removed. No backend image build, real business mount or shared development runtime change.
 - Remaining work: E04-B periodic synchronization, change classification/resolution, item retries and business ingestion remain gated. Next dependency slice is E05-A content-verified reads, followed by E03-A/E08-A/E09-A dataset and storage UI integration. Completed inventory is not a consistent filesystem snapshot, verified content or authority to mark historical assets missing. This Epic remains in the active root because its remaining contracts still constrain future work.
+
+## 本轮实施定案：E04-B1 手动增量差异与仅新增接纳
+
+基线 `951b5f1b8`，工作区干净；完整E03已归档。用户授权继续下一阶段，沿用提交和实际浏览器验收要求。已复读0200模型、扫描/登记/内容/授权/生命周期和S3/SFTP适配器；本轮不重建镜像、不改共享配置或业务挂载，无新依赖、环境变量或运行服务。E04-B拆成独立可用切片：B1提供手动差异及新增接纳；后续周期计划、同路径新修订与移动裁决继续保留，不宣称整个E04完成。
+
+最小方案是每次打开列表时实时对比扫描和当前映射，但会随本轮登记改变基线且无法追溯。选择复用A2的两阶段预检、租约与worker，在预检开始的Source序列化事务中固定已接纳DatasetSourceItem基线，持久保存本轮差异；不新造任务状态机。新增迁移0201：RegistrationRun.comparison_complete和DatasetSourceChange(run_id,path_digest)，保存原路径/旧Run/旧Item/旧SHA及观测、新SHA、分类和原因。旧Run不伪造差异。每侧最多50000条，SQL批量初始化，内容逐项核验/提交；不在API进程攒整目录列表。
+
+分类只依赖完整当前扫描与实际预检：新路径核验成功为added，旧路径SHA及观测相同为unchanged，SHA不同或观测改变为changed并保留旧绑定，单文件核验失败为unreadable；完整扫描未见历史路径只记not_seen（包含未遍历路径），存在但不匹配普通文件的记excluded。not_seen不是确认丢失，尤其S3多页LIST无全局快照、父路径阻断也可能未见。预检未完成/取消/失租不发布差异列表；单项修复重试重新关闭发布门，完成后发布。旧样本已固定的观测不能被“同SHA”隐式刷新。
+
+扩展现有confirm为可选scope=all_safe|additions_only，无body保留原调用；仅新增确认固定选择，跳过已核验unchanged，将changed保留为阻断条目，不接纳新字节为旧样本。正式登记仍复用严格二次读取、Dataset锁和Source/path幂等；重投递、并发单项登记或预检后换图不能创建重复Task或覆盖旧内容。GET /dataset-registrations/{id}/changes按类别分页并返回完整计数/观测时间；实时沿用来源管理范围和API Key scopes。界面在既有预检区域显示差异与确认入口，不增加新管理页。
+
+最脆弱前提是完整枚举能证明文件不存在；设计不依赖该前提，只提供未见候选且不改变Asset可用状态。S3固定旧版本可读不代表当前key存在。取消/权限撤回/源离线沿用既有屏障；新差异表不依赖短期AsyncJob。回退关闭新差异入口，保留0201账本；有差异记录时拒绝schema降级，不改外部文件或旧业务身份。
+
+文件范围超过8个：`db/models/dataset_source.py`、`alembic/versions/0201_dataset_source_changes.py`、`services/dataset_source_changes.py`、`services/dataset_registration.py`、`schemas/dataset_source.py`、`api/v1/dataset_sources.py`、Web `api/datasetSources.ts`/`DirectoryRegistrationProgress.tsx`/新差异面板、对应回归与迁移测试、OpenAPI/SDK清单、README/CHANGELOG、用户导入指南、API来源指南、开发存储概念、ADR0100及本计划/路线进度。现有worker复用服务调用，不新建worker类型。
+
+```text
+Source + complete Scan -> A2 preflight / existing worker -> per-item SHA
+             |                      |
+             +-- frozen baseline -> SourceChange ledger -> paged UI
+                                         |
+                               confirm additions_only
+                                         v
+                             existing strict registration -> Item / Task
+```
+
+验证：本地venv和owned test/dev；分类/固定基线、同SHA观测变化、相同stat异字节、未见与链接/过滤、无基线扫描不误判、损坏修复单项重试、取消/旧lease/撤权、正式登记前换图、并发幂等、历史Job清理保留差异与迁移往返；回归FS/S3/SFTP/授权/生命周期。真实浏览器登记基线并重扫验证无新增，再修改/新增/移除/损坏夹具，重扫预检查看分类分页，仅确认新增，检查旧Item绑定和外部文件不变；旧Task与标注保护通过API/DB回归核验，不重复已完成的E03工作台验收。同步OpenAPI/客户端/SDK、Ruff/类型/ESLint/CSS token/文档构建/diff检查；测试后清理资源与产物，不推送或发布。
+
+实现依据：复用[PostgreSQL事务与行锁语义](https://www.postgresql.org/docs/current/transaction-iso.html)及[SQLAlchemy PostgreSQL ON CONFLICT](https://docs.sqlalchemy.org/en/20/dialects/postgresql.html#insert-on-conflict-upsert)。
+
+## Outcome — E04-B1
+
+- Landed changes: preflight-owned differences freeze accepted SourceItem baselines, publish only after complete preflight, retain full-content candidate hashes and six paginated categories. Confirmation can freeze additions_only; unchanged entries are retained, changed/unseen entries do not rebind or delete business objects. Retry cannot expand the accepted scope. Existing two-stage worker, fencing, authorization and strict registration remain the execution owners.
+- Compatibility and migration: 0201 adds comparison evidence and a completion flag; old ledgers keep legacy confirmation. Empty-schema roundtrip passed; populated evidence refuses destructive downgrade. AsyncJob cleanup preserves differences. API snapshot, generated web client, route index and SDK exclusion manifest are synchronized; no release version assigned.
+- Backend verification: 159 unique tests passed across the focused compatibility suite and follow-ups (FS/S3/SFTP, authorization, content, policies, registrations and migrations). Covered three unchanged rescans with stable task counts, accepted versus unaccepted baselines, same SHA/different observation, same size/mtime/different content, six categories, concurrent direct registration, cancellation/stale fence, repaired-error publication, post-confirm replacement rejection, frozen scope retries and retained annotations/tasks. The old 0196 migration test now includes the 0201 dependency. SDK OpenAPI contract: 4 passed.
+- Browser verification: isolated current-checkout API/Web and both host workers served 24 reference images. Unchanged rescan reported 0 added/24 unchanged and disabled confirmation. Mutated fixture reported added=1, unchanged=21, changed=1, not_seen=1, excluded=1, unreadable=1. Type filtering and 20+6 pagination passed. Additions-only confirmation grew the dataset from 24 to 25 with only fresh.png added; all 24 original IDs/content locators were preserved. Changed original read returned409. Source bytes/links stayed unchanged by platform operations, original copy bytes were0, and no browser exceptions were observed. Existing annotation/task preservation was verified through API/DB tests, not repeated Workbench UI acceptance.
+- Static checks: changed-file Ruff lint/format, TypeScript, ESLint, CSS token lint, OpenAPI check, docs build, ADR/frontmatter/navigation checks and git diff --check passed. CSS lint retains two existing warnings in unchanged TrainingComparisonResults.tsx. Independent read-only backend/frontend review found no remaining blockers. No remote CI or production deployment claimed.
+- Documentation: README, CHANGELOG Unreleased, user import guide, source API guide, developer storage concepts, ADR0100, route index, SDK coverage and roadmap/backlog progress updated in this commit.
+- Cleanup: isolated dev/test databases, Redis instances, buckets, temporary source/auth/browser fixtures and generated docs/test outputs removed. No backend image rebuild, shared configuration change, business mount mutation, push or release.
+- Remaining scope: this delivers B1 only. Periodic schedule/actor authority, accepting changed content as a new revision, explicit move resolution, delete decisions and ledger retention/compaction remain separate work. Not-seen is a candidate, never deletion proof; a complete scan is not an atomic snapshot or proof of current online content. Keep the E04 plan active until its remaining contracts are delivered.
