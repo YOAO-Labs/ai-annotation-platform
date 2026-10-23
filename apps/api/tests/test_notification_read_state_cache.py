@@ -28,9 +28,7 @@ def test_read_state_cache_sync_preserves_other_pending_notification_changes():
     row.payload = {"pending": True}
     read_at = datetime.now(timezone.utc)
 
-    NotificationService(session)._synchronize_read_state_identity(
-        [notification_id], {notification_id}, read_at
-    )
+    NotificationService(session)._synchronize_read_state_identity(user_id, read_at)
 
     assert row.read_at == read_at
     assert row.payload == {"pending": True}

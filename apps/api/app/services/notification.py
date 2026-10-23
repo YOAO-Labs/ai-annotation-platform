@@ -12,6 +12,7 @@ import logging
 import uuid
 from collections.abc import Iterable
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import redis.asyncio as aioredis
 from sqlalchemy import (
@@ -24,10 +25,11 @@ from sqlalchemy import (
     or_,
     select,
     tuple_,
+    update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.bulk_persistence import BulkORMUpdate, BulkUDCompileState
 from sqlalchemy.orm import aliased, make_transient_to_detached
-from sqlalchemy.orm.attributes import set_committed_value
 
 from app.config import settings
 from app.db.enums import (
@@ -717,57 +719,66 @@ class NotificationService:
 
     async def mark_read(self, user_id: uuid.UUID, notification_id: uuid.UUID) -> bool:
         """Mark one row read. The handler publishes ``reason=read`` after commit."""
-        loaded_read_at_ids = self._notification_identity_loaded_read_at_ids()
         read_at = datetime.now(timezone.utc)
         result = await NotificationReadStateManager(
             NotificationReadStatePostgresData(self.db)
         ).mark_read(user_id, notification_id, read_at)
         self._synchronize_read_state_identity(
-            result.updated_ids, loaded_read_at_ids, read_at
+            user_id, read_at, notification_id=notification_id
         )
         return result.updated
 
     async def mark_all_read(self, user_id: uuid.UUID) -> int:
         """Mark all rows read. The handler publishes ``reason=read`` after commit."""
-        loaded_read_at_ids = self._notification_identity_loaded_read_at_ids()
         read_at = datetime.now(timezone.utc)
         result = await NotificationReadStateManager(
             NotificationReadStatePostgresData(self.db)
         ).mark_all_read(user_id, read_at)
-        self._synchronize_read_state_identity(
-            result.updated_ids, loaded_read_at_ids, read_at
-        )
+        self._synchronize_read_state_identity(user_id, read_at)
         return result.updated
-
-    def _notification_identity_loaded_read_at_ids(self) -> set[uuid.UUID]:
-        ids: set[uuid.UUID] = set()
-        for row in self.db.identity_map.values():
-            if not isinstance(row, Notification):
-                continue
-            state = sa_inspect(row)
-            identity = state.identity
-            if identity is not None and "read_at" not in state.expired_attributes:
-                ids.add(identity[0])
-        return ids
 
     def _synchronize_read_state_identity(
         self,
-        updated_ids: list[uuid.UUID],
-        known_ids: set[uuid.UUID],
+        user_id: uuid.UUID,
         read_at: datetime,
+        *,
+        notification_id: uuid.UUID | None = None,
     ) -> None:
-        updated = set(updated_ids) & known_ids
-        for row in self.db.identity_map.values():
-            if not isinstance(row, Notification):
-                continue
-            state = sa_inspect(row)
-            identity = state.identity
-            if (
-                identity is not None
-                and identity[0] in updated
-                and "read_at" not in state.expired_attributes
-            ):
-                set_committed_value(row, "read_at", read_at)
+        """Mirror SQLAlchemy's evaluate synchronization after the owner UPDATE.
+
+        SQLAlchemy 2.0.49 evaluates bulk UPDATE predicates against identity-map
+        state after autoflush and applies the SET to in-memory matches, even when
+        the database matched no rows. Reusing that pinned path preserves the
+        borrowed session's no-autoflush and dirty-identity behavior.
+        """
+        criteria = []
+        if notification_id is not None:
+            criteria.append(Notification.id == notification_id)
+        criteria.extend(
+            [Notification.user_id == user_id, Notification.read_at.is_(None)]
+        )
+        statement = update(Notification).where(*criteria).values(read_at=read_at)
+        mapper = sa_inspect(Notification)
+        # shortcut: Uses pinned SQLAlchemy cache hooks; rebaseline on upgrades.
+        options = BulkUDCompileState.default_update_options + {
+            "_subject_mapper": mapper,
+            "_identity_token": None,
+        }
+        eval_condition = BulkUDCompileState._eval_condition_from_statement(
+            options, statement
+        )
+        options = options + {"_eval_condition": eval_condition}
+
+        # The SQLAlchemy post-evaluate hook only needs these fields from its
+        # Result. Compile the same UPDATE locally; this performs no SQL.
+        compiled = statement.compile()
+        result = SimpleNamespace(
+            context=SimpleNamespace(compiled_parameters=[compiled.construct_params()]),
+            prefetch_cols=lambda: compiled.prefetch,
+            postfetch_cols=lambda: compiled.postfetch,
+        )
+        session = getattr(self.db, "sync_session", self.db)
+        BulkORMUpdate._do_post_synchronize_evaluate(session, statement, result, options)
 
     async def delete_for_user(
         self, user_id: uuid.UUID, notification_id: uuid.UUID

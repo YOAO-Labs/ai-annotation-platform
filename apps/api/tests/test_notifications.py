@@ -156,6 +156,131 @@ async def test_mark_read_and_mark_all(db_session, annotator):
 
 
 @pytest.mark.asyncio
+async def test_read_state_cache_matches_legacy_evaluate_when_database_predicate_misses(
+    db_session, annotator, reviewer
+):
+    annotator_user, _ = annotator
+    reviewer_user, _ = reviewer
+    service = NotificationService(db_session)
+
+    legacy_row = await service.notify(
+        user_id=reviewer_user.id,
+        type="read-state.cache.legacy",
+        target_type="task",
+        target_id=uuid.uuid4(),
+    )
+    owner_row = await service.notify(
+        user_id=reviewer_user.id,
+        type="read-state.cache.owner",
+        target_type="task",
+        target_id=uuid.uuid4(),
+    )
+    assert legacy_row is not None and owner_row is not None
+    legacy_id = legacy_row.id
+    owner_id = owner_row.id
+
+    # SQLAlchemy's old synchronize_session="auto" evaluates the current
+    # identity-map state, even though no database row matches this user.
+    legacy_row.user_id = annotator_user.id
+    with db_session.no_autoflush:
+        old_result = await db_session.execute(
+            update(Notification)
+            .where(
+                Notification.id == legacy_id,
+                Notification.user_id == annotator_user.id,
+                Notification.read_at.is_(None),
+            )
+            .values(read_at=datetime.now(timezone.utc))
+        )
+        assert old_result.rowcount == 0
+        assert legacy_row.read_at is not None
+
+    owner_row.user_id = annotator_user.id
+    with db_session.no_autoflush:
+        assert await service.mark_read(annotator_user.id, owner_id) is False
+        assert owner_row.read_at is not None
+        legacy_db_state = (
+            await db_session.execute(
+                select(Notification.user_id, Notification.read_at).where(
+                    Notification.id == legacy_id
+                )
+            )
+        ).one()
+        owner_db_state = (
+            await db_session.execute(
+                select(Notification.user_id, Notification.read_at).where(
+                    Notification.id == owner_id
+                )
+            )
+        ).one()
+
+    assert legacy_db_state == (reviewer_user.id, None)
+    assert owner_db_state == (reviewer_user.id, None)
+
+
+@pytest.mark.asyncio
+async def test_read_state_evaluator_preserves_legacy_predicate_order_for_expired_id(
+    db_session, annotator, reviewer
+):
+    annotator_user, _ = annotator
+    reviewer_user, _ = reviewer
+    service = NotificationService(db_session)
+    legacy_row = await service.notify(
+        user_id=reviewer_user.id,
+        type="read-state.order.legacy",
+        target_type="task",
+        target_id=uuid.uuid4(),
+    )
+    owner_row = await service.notify(
+        user_id=reviewer_user.id,
+        type="read-state.order.owner",
+        target_type="task",
+        target_id=uuid.uuid4(),
+    )
+    assert legacy_row is not None and owner_row is not None
+    legacy_id = legacy_row.id
+    owner_id = owner_row.id
+    legacy_row.user_id = annotator_user.id
+    db_session.expire(legacy_row, ["id"])
+
+    with db_session.no_autoflush:
+        old_result = await db_session.execute(
+            update(Notification)
+            .where(
+                Notification.id == legacy_id,
+                Notification.user_id == annotator_user.id,
+                Notification.read_at.is_(None),
+            )
+            .values(read_at=datetime.now(timezone.utc))
+        )
+        assert old_result.rowcount == 0
+        assert legacy_row.read_at is not None
+
+    owner_row.user_id = annotator_user.id
+    db_session.expire(owner_row, ["id"])
+    with db_session.no_autoflush:
+        assert await service.mark_read(annotator_user.id, owner_id) is False
+        assert owner_row.read_at is not None
+        legacy_db_state = (
+            await db_session.execute(
+                select(Notification.user_id, Notification.read_at).where(
+                    Notification.id == legacy_id
+                )
+            )
+        ).one()
+        owner_db_state = (
+            await db_session.execute(
+                select(Notification.user_id, Notification.read_at).where(
+                    Notification.id == owner_id
+                )
+            )
+        ).one()
+
+    assert legacy_db_state == (reviewer_user.id, None)
+    assert owner_db_state == (reviewer_user.id, None)
+
+
+@pytest.mark.asyncio
 async def test_read_state_preserves_autoflush_no_autoflush_and_identity_state(
     db_session, annotator
 ):
@@ -206,11 +331,34 @@ async def test_read_state_preserves_autoflush_no_autoflush_and_identity_state(
         assert deferred.read_at is None
 
     assert third.read_at is not None
-    assert pending.read_at == third.read_at
+    # The legacy ORM evaluator writes the database row but leaves a flushed
+    # pending object untouched when read_at was absent from its state dict.
+    assert pending.read_at is None
+    with db_session.no_autoflush:
+        assert (
+            await db_session.scalar(
+                select(Notification.read_at).where(Notification.id == pending.id)
+            )
+        ) == third.read_at
     assert not db_session.is_modified(third, include_collections=False)
     assert not db_session.is_modified(pending, include_collections=False)
     assert deferred in db_session.new
     assert deferred.read_at is None
+
+    rollback_row = await service.notify(
+        user_id=user.id,
+        type="read-state.rollback",
+        target_type="task",
+        target_id=uuid.uuid4(),
+    )
+    assert rollback_row is not None
+    savepoint = await db_session.begin_nested()
+    assert await service.mark_read(user.id, rollback_row.id) is True
+    assert rollback_row.read_at is not None
+    await savepoint.rollback()
+    assert "read_at" in sa_inspect(rollback_row).expired_attributes
+    await db_session.refresh(rollback_row, attribute_names=["read_at"])
+    assert rollback_row.read_at is None
 
 
 @pytest.mark.asyncio

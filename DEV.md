@@ -500,7 +500,7 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 ### Notifications 已读事务内能力
 
-迁移 `0316` 安装 `aap_notifications_v1.read_state_command(jsonb)`；`aap-notification-read-state/v1` 覆盖单条和全部已读。API 仍传认证用户 ID 和原 caller UTC 时间，保留单条 404、全部更新数量、完整事务及提交后 `notifications.sync`。固定 owner 只更新该用户的未读行，回执含实际更新 ID；API 不回读私表，只同步调用前未过期的缓存，保留旧 ORM 对新插入和过期对象的行为。
+迁移 `0316` 安装 `aap_notifications_v1.read_state_command(jsonb)`；`aap-notification-read-state/v1` 覆盖单条和全部已读。API 仍传认证用户 ID 和原 caller UTC 时间，保留单条 404、全部更新数量、完整事务及提交后 `notifications.sync`。固定 owner 只更新该用户的未读行，回执含实际更新 ID；API 不回读私表，owner 调用后复用锁定 SQLAlchemy 的纯内存批量同步，保留新插入、脏值、过期字段及保存点回滚行为。该兼容绑定只本地编译旧语句，不执行另一条 UPDATE；升级 ORM 前须重验。
 
 先部署匹配代码与迁移，再按上节安装 module-data、preferences 和 notification-append grants。追加函数账号现在拥有三项固定能力；严格配置撤销普通 API 的通知表／列 UPDATE，owner 只可更新 `read_at`。**先更新并排空旧直接 UPDATE 消费者后才撤权**，回退也须匹配旧代码与 grants。独立测试库的 API／Node、事务回滚、旧 ORM 对照、临时类型遮蔽及完整迁移往返已通过；它不包含当前新镜像、收件箱和完整投递装配，见[已读台账](docs-site/dev/concepts/module-deployment.md#notification-read-state-owner)。
 

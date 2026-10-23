@@ -228,8 +228,7 @@ HTTP 查询端点 `GET /api/v1/audit` 面向运营与排障，严格执行基于
 `aap_notifications.read_state` 调用 `aap_notifications_v1.read_state_command(jsonb)`。
 API 仍从当前认证主体取得 `user_id`，owner 只更新该用户的未读行，并使用 API
 传入的单次 UTC `read_at` 时间戳。单条操作返回原有 boolean 结果；批量操作返回原有
-更新数量。Owner 返回受影响 ID，API 只把已加载的 `Notification.read_at` 写入 Session
-identity map，不额外查询，也不提交事务。
+更新数量。Owner 回执继续验证更新 ID；API 在返回后复用当前锁定 SQLAlchemy 的批量 evaluate 缓存规则，保留脏值、过期字段、谓词次序和保存点回滚登记。旧 ORM 语句仅在本地编译用于缓存同步，不执行第二次 UPDATE／SELECT；事务仍由调用方提交。升级 SQLAlchemy 前须重验这层兼容绑定。
 
 绑定尊重借用 `AsyncSession` 的 `autoflush`／`no_autoflush`：普通调用先执行完整原有 flush，
 显式禁止 autoflush 时不提前提交待处理对象。HTTP handler 仍在数据库提交后发布
