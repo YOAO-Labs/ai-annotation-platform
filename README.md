@@ -66,6 +66,8 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 项目负责人可通过[在线学习数据版本](./docs-site/user-guide/online-learning/data-versions.md)按检测或分割任务浏览项目派生的冻结版本，下载包含原图、类别映射和独立训练/验证划分的 Ultralytics 数据包。检测版本提供图片／类别／划分摘要、类别频次、尺寸与框分布热力图、每图目标数及版本差异，可对照前后冻结样本，或明确采用该版本新建实验；历史数据包和训练引用保持不变。接口见[训练数据版本 API](./docs-site/api/guides/training-datasets.md)。
 
+训练版本的 ZIP、保留图片与掩码使用[固定存储归属](./docs-site/user-guide/online-learning/data-versions.md#固定存储归属与历史版本)，重试、下载、评估及增强预览读取同一版本位置，删除意图也保留该归属。历史未固定版本须先显式核验保留副本；改变当前训练桶不会重解释已有版本，端点身份不符时明确拒绝。
+
 实例分割还可显式选择原生 RLE 桥接，保留画笔／SAM 修正、孔洞、断连和重叠实例。检测与分割各自维护发布及自动策略，原生掩码回流和像素评估见[实例分割链路](./docs-site/dev/concepts/instance-segmentation-learning.md)。
 
 模型市场分为模型目录与协议能力。已发布的 Ultralytics 图片检测模型可在普通预标、工作台当前题 AI 和裁剪检测管线中选择，各阶段固定模型与类别来源，失败按原管线重试。操作见[模型回流](./docs-site/user-guide/online-learning/models.md)，接口见[项目模型目录](./docs-site/api/guides/projects.md#项目可用模型目录)。
