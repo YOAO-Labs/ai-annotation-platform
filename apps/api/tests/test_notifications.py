@@ -17,7 +17,7 @@ from aap_notifications.preferences_policy import (
     default_toast_for,
 )
 from sqlalchemy import inspect as sa_inspect
-from sqlalchemy import select, text, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -764,6 +764,67 @@ async def test_delete_notification_owner_scoped(
         f"/api/v1/notifications/{other.id}", headers=_bearer(token_a)
     )
     assert forbidden.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_notification_cascades_delivery_outbox_and_keeps_target(
+    httpx_client, db_session, annotator
+):
+    user, token = annotator
+    target = await _seed_bug(db_session, user.id)
+    notification = await NotificationService(db_session).notify(
+        user_id=user.id,
+        type="user.deactivation_requested",
+        target_type="bug_report",
+        target_id=target.id,
+    )
+    assert notification is not None
+    notification_id = notification.id
+    target_id = target.id
+    await db_session.execute(
+        text(
+            "INSERT INTO public.notification_delivery_outbox "
+            "(notification_id, operation_id, recipient_id, notification_type) "
+            "VALUES (:notification_id, :operation_id, :recipient_id, "
+            "'user.deactivation_requested')"
+        ),
+        {
+            "notification_id": notification_id,
+            "operation_id": uuid.uuid4(),
+            "recipient_id": user.id,
+        },
+    )
+    await db_session.commit()
+
+    response = await httpx_client.delete(
+        f"/api/v1/notifications/{notification_id}", headers=_bearer(token)
+    )
+
+    assert response.status_code == 200
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(Notification)
+            .where(Notification.id == notification_id)
+        )
+        == 0
+    )
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT count(*) FROM public.notification_delivery_outbox "
+                "WHERE notification_id = :notification_id"
+            ),
+            {"notification_id": notification_id},
+        )
+        == 0
+    )
+    assert (
+        await db_session.scalar(
+            select(func.count()).select_from(BugReport).where(BugReport.id == target_id)
+        )
+        == 1
+    )
 
 
 @pytest.mark.asyncio

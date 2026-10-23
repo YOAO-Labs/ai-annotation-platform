@@ -120,6 +120,7 @@ NOTIFICATION_RUNTIME_CAPABILITIES = (
     "aap_notifications_v1.preference_command(jsonb)",
     "aap_notifications_v1.append_notification(jsonb)",
     "aap_notifications_v1.read_state_command(jsonb)",
+    "aap_notifications_v1.delete_command(pg_catalog.jsonb)",
 )
 AUDIT_RUNTIME_CAPABILITIES = (
     "aap_audit_v1.append_events(jsonb)",
@@ -1232,7 +1233,10 @@ class LocalResources:
                         "AS append, pg_catalog.has_function_privilege("
                         ":role, pg_catalog.to_regprocedure("
                         "'aap_notifications_v1.read_state_command(jsonb)'), 'EXECUTE') "
-                        "AS read_state, pg_catalog.has_table_privilege("
+                        "AS read_state, pg_catalog.has_function_privilege("
+                        ":role, pg_catalog.to_regprocedure("
+                        "'aap_notifications_v1.delete_command(pg_catalog.jsonb)'), 'EXECUTE') "
+                        "AS notification_delete, pg_catalog.has_table_privilege("
                         ":role, 'public.notifications', 'UPDATE') "
                         "AS notification_update, pg_catalog.has_any_column_privilege("
                         ":role, 'public.notifications', 'UPDATE') "
@@ -1251,13 +1255,14 @@ class LocalResources:
                     notification_grants["preferences"] is not True
                     or notification_grants["append"] is not True
                     or notification_grants["read_state"] is not True
+                    or notification_grants["notification_delete"] is not True
                     or notification_grants["notification_update"] is not False
                     or notification_grants["notification_column_update"] is not False
                     or notification_grants["audit_append"] is not True
                     or notification_grants["audit_query"] is not True
                 ):
                     raise WorktreeError(
-                        "Notifications read-state and Audit "
+                        "Notifications read-state/deletion and Audit "
                         "capabilities were not granted"
                     )
         finally:

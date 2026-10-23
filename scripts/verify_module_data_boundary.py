@@ -293,6 +293,7 @@ SQL_ARTIFACTS = (
     "0315_audit_append.sql",
     "0316_notifications_read_state.sql",
     "0317_audit_query.sql",
+    "0318_notifications_delete.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -422,6 +423,7 @@ SCHEMA_ARTIFACTS = (
     "0315_audit_append.schema.json",
     "0316_notifications_read_state.schema.json",
     "0317_audit_query.schema.json",
+    "0318_notifications_delete.schema.json",
 )
 TEST_FILES = (
     "tests/test_scale_seed_workspace_native.py",
@@ -609,6 +611,8 @@ TEST_FILES = (
     "tests/test_async_job_actor_freshness.py",
     "tests/test_notifications.py",
     "tests/test_notification_read_state_cache.py",
+    "tests/test_notification_delete_cache.py",
+    "tests/test_notifications_delete_baseline.py",
     "tests/test_audit_append_adapter.py",
     "tests/test_audit_append_native.py",
     "tests/test_audit_logs.py",
@@ -855,6 +859,13 @@ def _node_failure_diagnostic(
         if re.fullmatch(r"[A-Za-z0-9@._/-]+", module_name):
             diagnostic["module"] = module_name
         return diagnostic
+    error_class_match = re.search(
+        r"(?m)^(AssertionError|TypeError|RangeError|ReferenceError|SyntaxError|Error)"
+        r"(?:\s+\[[A-Z0-9_]+\])?:",
+        stderr,
+    )
+    if error_class_match:
+        diagnostic["error_class"] = error_class_match.group(1)
     sqlstate_match = re.search(r"\bcode:\s*['\"]([0-9A-Z]{5})['\"]", stderr)
     if sqlstate_match:
         diagnostic["category"] = "postgresql_error"
@@ -862,6 +873,8 @@ def _node_failure_diagnostic(
     elif "ECONNREFUSED" in stderr or "ETIMEDOUT" in stderr:
         diagnostic["category"] = "connection_error"
     elif "AssertionError" in stderr:
+        diagnostic["category"] = "assertion_failure"
+    elif "ERR_ASSERTION" in stderr:
         diagnostic["category"] = "assertion_failure"
     return diagnostic
 
@@ -1898,6 +1911,47 @@ def _psql(
     return result.stdout
 
 
+def _installed_function_body_sha256(
+    container_id: str,
+    container_name: str,
+    container_identity: str,
+    *,
+    database: str,
+    owner_password: str,
+    signature: str,
+    sql_name: str,
+) -> str:
+    source = (ROOT / "apps/api/alembic/sql" / sql_name).read_text(encoding="utf-8")
+    match = re.search(r"AS \$function\$(.*?)\$function\$;", source, re.DOTALL)
+    if match is None:
+        raise RuntimeError(f"frozen SQL has no function body: {sql_name}")
+    expected = match.group(1)
+    encoded = _psql(
+        container_id,
+        container_name,
+        container_identity,
+        username="owner",
+        password=owner_password,
+        database=database,
+        sql=(
+            "SELECT pg_catalog.encode(pg_catalog.convert_to(prosrc, 'UTF8'), 'hex') "
+            "FROM pg_catalog.pg_proc WHERE oid = "
+            f"pg_catalog.to_regprocedure('{signature}')"
+        ),
+    ).strip()
+    try:
+        actual = bytes.fromhex(encoded).decode("utf-8")
+    except (ValueError, UnicodeError):
+        raise RuntimeError(
+            f"installed function body is missing or malformed: {signature}"
+        ) from None
+    if actual != expected:
+        raise RuntimeError(
+            f"installed function body differs from frozen SQL: {signature}"
+        )
+    return hashlib.sha256(actual.encode("utf-8")).hexdigest()
+
+
 def _wait_for_postgres(container_id: str, name: str, identity: str) -> None:
     _container_details(container_id, name, identity, require_running=True)
     deadline = time.monotonic() + 30
@@ -2162,6 +2216,7 @@ def _install_and_rollback_frozen_sql(
         "SELECT aap_identity_deactivation_v1.due_policy();\n"
         "SELECT aap_identity_deactivation_v1.process_due_deactivations(NULL::jsonb);\n"
         "SELECT aap_notifications_v1.identity_delivery_policy();\n"
+        "SELECT aap_notifications_v1.delete_command(NULL::pg_catalog.jsonb);\n"
         "SELECT aap_identity_groups_v1.group_policy();\n"
         "SELECT aap_identity_groups_v1.execute_group_command(NULL::jsonb);\n"
         "SELECT aap_identity_v1.lock_active_actor(NULL::uuid);\n"
@@ -2306,6 +2361,7 @@ def _install_and_rollback_frozen_sql(
         "aap-identity-offboarding-native/v1": "invalid_request",
         "aap-identity-briefs-native/v1": "invalid_request",
         "aap-identity-actor/v1": "invalid_request",
+        "aap-notification-delete/v1": "invalid_request",
     }
     if any(
         not any(
@@ -2416,6 +2472,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_identity_deletions_v1') IS NULL "
             "AND to_regnamespace('aap_identity_offboarding_v1') IS NULL "
             "AND to_regnamespace('aap_identity_briefs_v1') IS NULL "
+            "AND to_regprocedure('aap_notifications_v1.delete_command(pg_catalog.jsonb)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.read_provisioning_account(text)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.create_provisioning_account(jsonb)') IS NULL "
             "AND to_regprocedure('aap_audit_v1.record_identity_bootstrap_admin(uuid,text,text)') IS NULL "
@@ -2635,6 +2692,14 @@ def main(argv: list[str] | None = None) -> int:
             "function_only_role_grant": False,
             "node_contract_check": False,
         },
+        "notification_delete": {
+            "node_prerequisites": "not_checked",
+            "api_function_grant": False,
+            "api_delete_revoked": False,
+            "api_function_call": False,
+            "function_only_role_grant": False,
+            "node_contract_check": False,
+        },
         "audit_append": {
             "node_prerequisites": "not_checked",
             "api_function_grant": False,
@@ -2655,6 +2720,7 @@ def main(argv: list[str] | None = None) -> int:
         "test_exit_code": None,
         "migrations": {
             "head_before_downgrade": None,
+            "installed_function_body_sha256": {},
             "downgraded_to_0189": False,
             "frozen_sql_installed_and_rolled_back": False,
             "upgraded_to_head": False,
@@ -2718,6 +2784,9 @@ def main(argv: list[str] | None = None) -> int:
         read_state_node_provider = (
             ROOT / "apps/notifications/conformance/node/read_state_provider.mjs"
         )
+        delete_node_provider = (
+            ROOT / "apps/notifications/conformance/node/delete_provider.mjs"
+        )
         audit_append_node_provider = ROOT / "apps/audit/conformance/node/provider.mjs"
         audit_query_node_provider = (
             ROOT / "apps/audit/conformance/node/query_provider.mjs"
@@ -2727,12 +2796,14 @@ def main(argv: list[str] | None = None) -> int:
             or not node_provider.is_file()
             or not append_node_provider.is_file()
             or not read_state_node_provider.is_file()
+            or not delete_node_provider.is_file()
             or not audit_append_node_provider.is_file()
             or not audit_query_node_provider.is_file()
         ):
             evidence["notification_preferences"]["node_prerequisites"] = "unavailable"
             evidence["notification_append"]["node_prerequisites"] = "unavailable"
             evidence["notification_read_state"]["node_prerequisites"] = "unavailable"
+            evidence["notification_delete"]["node_prerequisites"] = "unavailable"
             evidence["audit_append"]["node_prerequisites"] = "unavailable"
             evidence["audit_query"]["node_prerequisites"] = "unavailable"
             raise RuntimeError("Node Notifications contract peer is unavailable")
@@ -2785,6 +2856,21 @@ def main(argv: list[str] | None = None) -> int:
                 "Notifications read-state peer prerequisites failed; install its locked "
                 "dependencies using apps/notifications/conformance/node/README.md"
             )
+        phase = "preflight-node-notification-delete"
+        delete_node_check = subprocess.run(
+            [node_bin, str(delete_node_provider), "--self-check"],
+            cwd=delete_node_provider.parent,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if delete_node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, delete_node_check)
+            evidence["notification_delete"]["node_prerequisites"] = "self_check_failed"
+            raise RuntimeError(
+                "Notifications deletion peer prerequisites failed; install its locked "
+                "dependencies using apps/notifications/conformance/node/README.md"
+            )
         phase = "preflight-node-audit-append"
         audit_append_node_check = subprocess.run(
             [node_bin, str(audit_append_node_provider), "--self-check"],
@@ -2818,6 +2904,7 @@ def main(argv: list[str] | None = None) -> int:
         evidence["notification_preferences"]["node_prerequisites"] = "passed"
         evidence["notification_append"]["node_prerequisites"] = "passed"
         evidence["notification_read_state"]["node_prerequisites"] = "passed"
+        evidence["notification_delete"]["node_prerequisites"] = "passed"
         evidence["audit_append"]["node_prerequisites"] = "passed"
         evidence["audit_query"]["node_prerequisites"] = "passed"
         grants_path = ROOT / "infra/docker/module-data-grants.sql"
@@ -3246,9 +3333,36 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0317"]:
-            raise RuntimeError("module-data acceptance requires migration head 0317")
+        if heads != ["0318"]:
+            raise RuntimeError("module-data acceptance requires migration head 0318")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
+        installed_function_bodies = {
+            "aap_audit_v1.query_events(pg_catalog.jsonb)": (
+                _installed_function_body_sha256(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    database=database,
+                    owner_password=owner_password,
+                    signature="aap_audit_v1.query_events(pg_catalog.jsonb)",
+                    sql_name="0317_audit_query.sql",
+                )
+            ),
+            "aap_notifications_v1.delete_command(pg_catalog.jsonb)": (
+                _installed_function_body_sha256(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    database=database,
+                    owner_password=owner_password,
+                    signature="aap_notifications_v1.delete_command(pg_catalog.jsonb)",
+                    sql_name="0318_notifications_delete.sql",
+                )
+            ),
+        }
+        evidence["migrations"]["installed_function_body_sha256"] = (
+            installed_function_bodies
+        )
         phase = "downgrade-to-0189"
         _container_details(
             container_id, container_name, container_identity, require_running=True
@@ -3279,6 +3393,33 @@ def main(argv: list[str] | None = None) -> int:
             raise RuntimeError("disposable database did not return to migration head")
         evidence["migrations"]["upgraded_to_head"] = True
         evidence["migrations"]["head_after_upgrade"] = heads[0]
+        if {
+            "aap_audit_v1.query_events(pg_catalog.jsonb)": (
+                _installed_function_body_sha256(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    database=database,
+                    owner_password=owner_password,
+                    signature="aap_audit_v1.query_events(pg_catalog.jsonb)",
+                    sql_name="0317_audit_query.sql",
+                )
+            ),
+            "aap_notifications_v1.delete_command(pg_catalog.jsonb)": (
+                _installed_function_body_sha256(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    database=database,
+                    owner_password=owner_password,
+                    signature="aap_notifications_v1.delete_command(pg_catalog.jsonb)",
+                    sql_name="0318_notifications_delete.sql",
+                )
+            ),
+        } != installed_function_bodies:
+            raise RuntimeError(
+                "installed SQL function bodies changed after migration roundtrip"
+            )
         _container_details(
             container_id, container_name, container_identity, require_running=True
         )
@@ -3589,6 +3730,9 @@ def main(argv: list[str] | None = None) -> int:
         evidence["notification_read_state"]["api_function_grant"] = True
         evidence["notification_read_state"]["api_update_revoked"] = True
         evidence["notification_read_state"]["function_only_role_grant"] = True
+        evidence["notification_delete"]["api_function_grant"] = True
+        evidence["notification_delete"]["api_delete_revoked"] = True
+        evidence["notification_delete"]["function_only_role_grant"] = True
         phase = "install-audit-append-grants"
         apply_audit_append_grants()
         evidence["audit_append"]["api_function_grant"] = True
@@ -3748,6 +3892,48 @@ def main(argv: list[str] | None = None) -> int:
         else:
             raise RuntimeError("API LOGIN retained direct notification UPDATE access")
         evidence["notification_read_state"]["api_function_call"] = True
+        notification_delete_request = json.dumps(
+            {
+                "schema": "aap-notification-delete/v1",
+                "operation": "delete_one",
+                "user_id": notification_preference_user_id,
+                "notification_id": notification_append_id,
+            },
+            separators=(",", ":"),
+        )
+        api_delete_result = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT aap_notifications_v1.delete_command("
+                f"CAST('{notification_delete_request}' AS pg_catalog.jsonb)) "
+                "-> 'data' ->> 'deleted';"
+            ),
+        )
+        if api_delete_result.strip() != "true":
+            raise RuntimeError("API LOGIN could not call Notifications delete owner")
+        try:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="legacy_runtime",
+                password=runtime_password,
+                database=database,
+                sql=(
+                    "DELETE FROM public.notifications "
+                    f"WHERE id='{notification_append_id}'::uuid;"
+                ),
+            )
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("API LOGIN retained direct notification DELETE access")
+        evidence["notification_delete"]["api_function_call"] = True
         audit_append_request = json.dumps(
             {
                 "schema": "aap-audit-append/v1",
@@ -3944,6 +4130,24 @@ def main(argv: list[str] | None = None) -> int:
             node_diagnostic = _node_failure_diagnostic(phase, read_state_node_result)
             raise RuntimeError("Node Notifications read-state check failed")
         evidence["notification_read_state"]["node_contract_check"] = True
+        node_environment["NOTIFICATION_DELETE_DATABASE_URL"] = notification_append_url
+        node_environment["NOTIFICATION_DELETE_USER_ID"] = (
+            notification_preference_user_id
+        )
+        phase = "verify-notification-delete-node"
+        delete_node_result = subprocess.run(
+            [node_bin, str(delete_node_provider)],
+            cwd=delete_node_provider.parent,
+            env=node_environment,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if delete_node_result.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, delete_node_result)
+            raise RuntimeError("Node Notifications deletion check failed")
+        evidence["notification_delete"]["node_contract_check"] = True
 
         phase = "install-mask-gc-grants"
         _psql(

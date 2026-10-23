@@ -239,7 +239,20 @@ API 仍从当前认证主体取得 `user_id`，owner 只更新该用户的未读
 显式禁止 autoflush 时不提前提交待处理对象。HTTP handler 仍在数据库提交后发布
 `notifications.sync reason=read`；单条缺失、他人记录或已读通知仍返回 404，批量无更新时
 仍提交请求但不发布同步。列表可见性与 WebSocket 投递授权继续由原 Workspace／Jobs
-范围校验负责，dismiss 与 clear-read 仍是独立删除操作。
+范围校验负责。
+
+### 删除通知命令
+
+`DELETE /api/v1/notifications/{notification_id}` 与 `POST /api/v1/notifications/clear-read`
+经 `aap_notifications.delete` 调用 `aap_notifications_v1.delete_command(jsonb)`。API
+始终从当前认证主体取得 `user_id`；0318 安装该 capability。Owner 单条删除按 ID 和用户同时限定，清空只删除该用户
+`read_at` 非空的行，并返回原有 boolean／count。SQLAlchemy binding 借用同一 `AsyncSession`、
+遵循 `autoflush`／`no_autoflush`，不提交、不返回全量删除 ID。API 在 owner 命令后按原
+ORM DELETE evaluator 同步身份缓存，因此已有、脏、过期对象及回滚语义保持一致。
+
+单条不存在或属于其他用户仍由 HTTP handler 返回 404；清空为零时仍提交但不发布。业务事务
+提交后才发布 `notifications.sync reason=deleted`。严格权限安装后，普通 API LOGIN 只能调用
+固定删除函数，不能直接对通知表执行 DELETE；部署时先更新 API／worker 工件并排空旧进程。
 
 这样系统就同时有：
 

@@ -28,7 +28,11 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm.bulk_persistence import BulkORMUpdate, BulkUDCompileState
+from sqlalchemy.orm.bulk_persistence import (
+    BulkORMDelete,
+    BulkORMUpdate,
+    BulkUDCompileState,
+)
 from sqlalchemy.orm import aliased, make_transient_to_detached
 
 from app.config import settings
@@ -63,6 +67,8 @@ from aap_notifications.append_contract import AppendNotificationRequest
 from aap_notifications.append_postgres import NotificationAppendPostgresData
 from aap_notifications.read_state import NotificationReadStateManager
 from aap_notifications.read_state_postgres import NotificationReadStatePostgresData
+from aap_notifications.delete import NotificationDeleteManager
+from aap_notifications.delete_postgres import NotificationDeletePostgresData
 
 
 log = logging.getLogger(__name__)
@@ -784,23 +790,56 @@ class NotificationService:
         self, user_id: uuid.UUID, notification_id: uuid.UUID
     ) -> bool:
         """Delete one row. The handler publishes ``reason=deleted`` after commit."""
-        result = await self.db.execute(
-            delete(Notification).where(
-                Notification.id == notification_id,
-                Notification.user_id == user_id,
-            )
-        )
-        return (result.rowcount or 0) > 0
+        result = await NotificationDeleteManager(
+            NotificationDeletePostgresData(self.db)
+        ).delete_for_user(user_id, notification_id)
+        self._synchronize_delete_identity(user_id, notification_id=notification_id)
+        return result.deleted
 
     async def clear_read(self, user_id: uuid.UUID) -> int:
         """Delete all read rows. The handler publishes ``reason=deleted`` after commit."""
-        result = await self.db.execute(
-            delete(Notification).where(
+        result = await NotificationDeleteManager(
+            NotificationDeletePostgresData(self.db)
+        ).clear_read(user_id)
+        self._synchronize_delete_identity(user_id, clear_read=True)
+        return result.deleted
+
+    def _synchronize_delete_identity(
+        self,
+        user_id: uuid.UUID,
+        *,
+        notification_id: uuid.UUID | None = None,
+        clear_read: bool = False,
+    ) -> None:
+        """Mirror SQLAlchemy's post-evaluate DELETE identity synchronization."""
+        if clear_read:
+            criteria = [
                 Notification.user_id == user_id,
                 Notification.read_at.is_not(None),
+            ]
+        elif notification_id is not None:
+            criteria = [
+                Notification.id == notification_id,
+                Notification.user_id == user_id,
+            ]
+        else:
+            raise ValueError("delete cache synchronization needs an operation")
+
+        # This ORM statement is only the pinned identity-map evaluator input;
+        # the actual DELETE already ran through the Notifications owner.
+        statement = delete(Notification).where(*criteria)
+        mapper = sa_inspect(Notification)
+        options = BulkUDCompileState.default_update_options + {
+            "_subject_mapper": mapper,
+            "_identity_token": None,
+        }
+        options = options + {
+            "_eval_condition": BulkORMDelete._eval_condition_from_statement(
+                options, statement
             )
-        )
-        return int(result.rowcount or 0)
+        }
+        session = getattr(self.db, "sync_session", self.db)
+        BulkORMDelete._do_post_synchronize_evaluate(session, statement, None, options)
 
 
 async def _publish(*, user_id: uuid.UUID, message: dict) -> None:

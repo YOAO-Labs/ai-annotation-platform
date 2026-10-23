@@ -1,0 +1,186 @@
+{
+  "$defs": {
+    "ClearReadData": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "clear_read",
+          "title": "Operation",
+          "type": "string"
+        },
+        "deleted": {
+          "minimum": 0,
+          "title": "Deleted",
+          "type": "integer"
+        }
+      },
+      "required": ["operation", "deleted"],
+      "title": "ClearReadData",
+      "type": "object"
+    },
+    "ClearReadReply": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-notification-delete/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "data": {
+          "$ref": "#/$defs/ClearReadData"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "title": "ClearReadReply",
+      "type": "object"
+    },
+    "ClearReadRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-notification-delete/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "clear_read",
+          "title": "Operation",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "user_id"],
+      "title": "ClearReadRequest",
+      "type": "object"
+    },
+    "DeleteError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "invalid_request",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "DeleteError",
+      "type": "object"
+    },
+    "DeleteFailure": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-notification-delete/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "error": {
+          "$ref": "#/$defs/DeleteError"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "title": "DeleteFailure",
+      "type": "object"
+    },
+    "DeleteOneData": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "delete_one",
+          "title": "Operation",
+          "type": "string"
+        },
+        "deleted": {
+          "title": "Deleted",
+          "type": "boolean"
+        }
+      },
+      "required": ["operation", "deleted"],
+      "title": "DeleteOneData",
+      "type": "object"
+    },
+    "DeleteOneReply": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-notification-delete/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "data": {
+          "$ref": "#/$defs/DeleteOneData"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "title": "DeleteOneReply",
+      "type": "object"
+    },
+    "DeleteOneRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-notification-delete/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "delete_one",
+          "title": "Operation",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "notification_id": {
+          "format": "uuid",
+          "title": "Notification Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "user_id", "notification_id"],
+      "title": "DeleteOneRequest",
+      "type": "object"
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/DeleteOneRequest"
+    },
+    {
+      "$ref": "#/$defs/ClearReadRequest"
+    },
+    {
+      "$ref": "#/$defs/DeleteOneReply"
+    },
+    {
+      "$ref": "#/$defs/ClearReadReply"
+    },
+    {
+      "$ref": "#/$defs/DeleteFailure"
+    }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-notification-delete/v1",
+  "title": "AAP notification deletion protocol"
+}

@@ -23,6 +23,7 @@ from worktree_resources import (
     IMAGE_MEDIA_RUNTIME_CAPABILITIES,
     LocalResources,
     INFERENCE_ROUTING_RUNTIME_CAPABILITIES,
+    NOTIFICATION_RUNTIME_CAPABILITIES,
     VIDEO_RUNTIME_CAPABILITIES,
 )
 
@@ -437,6 +438,8 @@ class BucketUpgradeTests(unittest.TestCase):
         normalized = re.sub(r"\s+", "", ",".join(grants))
         for signature in IDENTITY_RUNTIME_CAPABILITIES:
             self.assertIn(signature, normalized)
+        for signature in NOTIFICATION_RUNTIME_CAPABILITIES:
+            self.assertIn(signature, normalized)
         for private in (
             "aap_identity_recovery_v1._actor_record(uuid)",
             "aap_identity_recovery_v1._token_record(text,uuid)",
@@ -566,6 +569,7 @@ class BucketUpgradeTests(unittest.TestCase):
                     "preferences": True,
                     "append": True,
                     "read_state": True,
+                    "notification_delete": True,
                     "notification_update": False,
                     "notification_column_update": False,
                     "audit_append": True,
@@ -603,6 +607,12 @@ class BucketUpgradeTests(unittest.TestCase):
         self.assertIn(
             "GRANT EXECUTE ON FUNCTION "
             + ", ".join(AUDIT_RUNTIME_CAPABILITIES)
+            + ' TO "app"',
+            statements,
+        )
+        self.assertIn(
+            "GRANT EXECUTE ON FUNCTION "
+            + ", ".join(NOTIFICATION_RUNTIME_CAPABILITIES)
             + ' TO "app"',
             statements,
         )
