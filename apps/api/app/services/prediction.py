@@ -490,12 +490,35 @@ class PredictionService:
         model_provenance: dict | None = None,
         reference_receipt=None,
         native_reference_receipt=None,
+        repair_reference_receipt=None,
     ) -> Prediction:
         # v0.21.1 · 检测式追踪原生 int track_id → trk_<uuid> (读路径不得再生 uuid, 见 _remap_track_ids)。
         from app.services.reference_access import reject_reference_scope
 
         reference_evidence = None
-        if native_reference_receipt is not None:
+        if repair_reference_receipt is not None:
+            from app.services.reference_mask_repair import validate_receipt
+            from app.services.content_snapshot import ContentError
+
+            if (
+                reference_receipt is not None
+                or native_reference_receipt is not None
+                or source != "mask_repair"
+                or (token_meta or {}).get("mask_objects") is not None
+                or len(result) != 1
+                or (result[0].get("geometry") or {}).get("type") != "raster_mask"
+            ):
+                raise ContentError("repair_reference_receipt_invalid")
+            reference_evidence = await validate_receipt(
+                self.db,
+                task_id,
+                None,
+                repair_reference_receipt,
+                "prediction",
+                result,
+                project_id=project_id,
+            )
+        elif native_reference_receipt is not None:
             from app.services.reference_inference import validate_native_receipt
             from app.services.content_snapshot import ContentError
 

@@ -13,6 +13,43 @@ from app.services.async_job_terminal import reconcile_mask_repair
 from app.services.mask_repair import canonical_digest
 
 
+async def authorize_repair_task(db, task, actor, *, ai=False):
+    """Read-only repair policy, shared before I/O and under final owner locks."""
+    from app.api.v1.tasks._shared import _assert_task_visible
+    from app.db.models.project import Project
+    from app.db.models.task_batch import TaskBatch
+    from app.db.models.user import User
+    from app.services.content_snapshot import ContentError
+    from app.services.project_access import resolve_project_access
+    from app.services.project_write_guard import assert_phase_write_allowed
+    from app.services.raster_mask_storage import assert_raster_mask_write_enabled
+    from app.services.task_lock import TaskLockService
+
+    actor = await db.get(User, actor.id, populate_existing=True)
+    project = await db.get(Project, task.project_id, populate_existing=True)
+    if actor is None or not actor.is_active or project is None:
+        raise ContentError("repair_actor_unavailable", 403)
+    if task.batch_id:
+        await db.get(TaskBatch, task.batch_id, populate_existing=True)
+    access = await resolve_project_access(db, user=actor, project=project)
+    if not access.has("review.write"):
+        raise ContentError("repair_authority_revoked", 403)
+    await _assert_task_visible(db, task, actor, access=access)
+    await assert_phase_write_allowed(
+        db, task, actor, action="repair mask", lock_membership=False
+    )
+    if any(
+        lock.user_id != actor.id
+        for lock in await TaskLockService(db).active_locks(task.id, cleanup=False)
+    ):
+        raise ContentError("task_lock_conflict")
+    if task.file_type == "image":
+        assert_raster_mask_write_enabled(project)
+    if ai and project.ai_interactive_enabled is False:
+        raise ContentError("ai_interactive_disabled", 403)
+    return actor
+
+
 class RepairAttemptStopped(Exception):
     """This delivery no longer owns the batch's current attempt."""
 

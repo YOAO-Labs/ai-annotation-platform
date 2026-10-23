@@ -3,7 +3,7 @@ audience: [dev]
 type: reference
 since: v0.1.0
 status: stable
-last_reviewed: 2026-10-23
+last_reviewed: 2026-10-24
 ---
 
 # 任务与标注
@@ -33,7 +33,9 @@ pending → in_progress → completed → review
 `POST /mask-qc/repairs/{repair_id}/resume` 继续失败或部分完成批次，跳过完成项；Tracker 派发应答未知时复用同一个子任务。
 `POST /mask-qc/repairs/{repair_id}/rollback` 必须提交当前 `result_digest`，支持保留期内的 `completed`、`partial` 和 `rollback_failed` 状态。
 回滚按片保存检查点，继续时使用本次发起者的当前权限，跳过已回滚片；新版本冲突不强制覆盖。返回的 `result` 保留检查点和冲突原因。
-原地引用的批量修复目前仍受限，详情见 [Mask 用户说明](../../user-guide/workbench/mask-brush.md)。
+原地引用图片支持确定性修复和 `rerun_local_sam`，引用视频/Tracker 保持限制。dry-run 固定 Item/Asset/SHA、大小、尺寸、来源修订与 SAM 模型/变体/参数；execute、resume、rollback 分别保存本次 actor/Key 证明，API Key 需 `tasks:read`、`annotations:read` 和 `annotations:write`。Worker 必须有自身的读取锚点，不回退 API 节点或预览。原图严格快照在最终短事务之外捕获；确定性修复不要求 AI 开关，SAM 需要 AI 与 native mask 写入资格。旧无引用计划证明的记录须重新预览。私有 Key 证明不出现在作业 DTO 中。
+
+SAM 候选通过既有预测 accept/reject 端点审阅。采纳额外核对已提交单元、生成时结果与元信息摘要、原标注版本/内容和当前严格原图，重复采纳返回 `409`。父作业 partial/cancelled 不影响已提交候选的审阅；驳回使用当前写权限，不要求原图在线。详情见 [Mask 用户说明](../../user-guide/workbench/mask-brush.md)。
 
 ## 拉取下一个任务
 

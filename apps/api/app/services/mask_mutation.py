@@ -640,10 +640,24 @@ class MaskMutationService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def _lock_task(self, task_id: uuid.UUID) -> Task:
+    async def _lock_task(
+        self, task_id: uuid.UUID, *, reference_receipt=None, payload=None, actor=None
+    ) -> Task:
         from app.services.reference_access import reject_reference_scope
 
-        await reject_reference_scope(self.db, task_ids=[task_id])
+        if reference_receipt is None:
+            await reject_reference_scope(self.db, task_ids=[task_id])
+        else:
+            from app.services.reference_mask_repair import validate_receipt
+
+            await validate_receipt(
+                self.db,
+                task_id,
+                actor.id,
+                reference_receipt,
+                "mutation",
+                payload.model_dump(mode="json"),
+            )
         task = (
             await self.db.execute(
                 select(Task).where(Task.id == task_id).with_for_update()
@@ -1226,9 +1240,19 @@ class MaskMutationService:
         *,
         request: Any = None,
         access: Any = None,
+        reference_repair_receipt=None,
     ) -> MaskMutationCommitResponse:
         digest = request_digest(payload)
-        task = await self._lock_task(task_id)
+        task = (
+            await self._lock_task(task_id)
+            if reference_repair_receipt is None
+            else await self._lock_task(
+                task_id,
+                reference_receipt=reference_repair_receipt,
+                payload=payload,
+                actor=actor,
+            )
+        )
 
         from app.api.v1.tasks._shared import (
             _assert_review_adjustment_evidence,

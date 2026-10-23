@@ -37,6 +37,8 @@ from app.schemas.mask_repair import (
     MaskRepairPlanSummary,
 )
 from app.services import async_job as async_job_svc
+from app.services.content_snapshot import ContentError
+from app.services.dataset_content import content_http_error
 from app.services.mask_mutation import MaskMutationService, scope_fingerprint
 from app.services.mask_qc.config import load_mask_qc_config, mask_qc_config_digest
 from app.services.mask_qc.service import effective_issue_status
@@ -499,6 +501,7 @@ async def _plan_action(
             "kind": action.kind,
             "frame_index": frame_index,
             "source_version": int(target.version or 1),
+            "source_geometry_digest": canonical_digest(target.geometry),
             "class_name": target.class_name,
             "tool_unit_id": target.tool_unit_id,
             "region_bbox": issue.region_bbox,
@@ -631,6 +634,7 @@ async def create_repair_plan(
     project: Project,
     actor: User,
     request: MaskRepairDryRunRequest,
+    http_request=None,
 ) -> MaskRepairDryRunResponse:
     public_items: list[dict[str, Any]] = []
     executable_items: list[dict[str, Any]] = []
@@ -644,6 +648,13 @@ async def create_repair_plan(
                 action=action,
                 planned_annotations=planned_annotations,
             )
+            if private is not None:
+                from app.services.reference_mask_repair import freeze_item
+
+                task = await db.get(Task, uuid.UUID(private["task_id"]))
+                await freeze_item(db, task, actor, private, http_request)
+        except ContentError as exc:
+            raise content_http_error(exc) from None
         except (KeyError, TypeError, ValueError) as exc:
             public = _skip_item(
                 action,
@@ -711,6 +722,7 @@ async def execute_repair_plan(
     actor: User,
     receipt: str,
     plan_digest: str,
+    http_request=None,
 ) -> tuple[MaskRepairBatch, bool]:
     batch = (
         await db.execute(
@@ -762,12 +774,23 @@ async def execute_repair_plan(
             reason="repair_plan_empty",
             message="repair plan contains no executable actions",
         )
+    from app.services.reference_mask_repair import capture_job_authority
+
+    try:
+        authority = await capture_job_authority(
+            db, batch, actor, http_request, initial=True
+        )
+    except ContentError as exc:
+        raise content_http_error(exc) from None
     job = await async_job_svc.create_job(
         db,
         kind=AsyncJobKind.MASK_REPAIR.value,
         project_id=project.id,
         user_id=actor.id,
-        payload={"mask_repair_batch_id": str(batch.id)},
+        payload={
+            "mask_repair_batch_id": str(batch.id),
+            **({"repair_authority": authority} if authority else {}),
+        },
     )
     job.celery_task_id = str(job.id)
     batch.async_job_id = job.id
@@ -782,6 +805,7 @@ async def request_repair_rollback(
     batch_id: uuid.UUID,
     actor: User,
     expected_result_digest: str,
+    http_request=None,
 ) -> MaskRepairBatch:
     batch = (
         await db.execute(
@@ -817,12 +841,23 @@ async def request_repair_rollback(
             reason="repair_rollback_expired",
             message="repair rollback retention has expired",
         )
+    from app.services.reference_mask_repair import capture_job_authority
+
+    try:
+        authority = await capture_job_authority(
+            db, batch, actor, http_request, rollback=True
+        )
+    except ContentError as exc:
+        raise content_http_error(exc) from None
     job = await async_job_svc.create_job(
         db,
         kind=AsyncJobKind.MASK_REPAIR_ROLLBACK.value,
         project_id=batch.project_id,
         user_id=actor.id,
-        payload={"mask_repair_batch_id": str(batch.id)},
+        payload={
+            "mask_repair_batch_id": str(batch.id),
+            **({"repair_authority": authority} if authority else {}),
+        },
     )
     job.celery_task_id = str(job.id)
     batch.rollback_async_job_id = job.id
@@ -836,6 +871,7 @@ async def resume_repair_batch(
     *,
     batch_id: uuid.UUID,
     actor: User,
+    http_request=None,
 ) -> MaskRepairBatch:
     batch = (
         await db.execute(
@@ -858,12 +894,22 @@ async def resume_repair_batch(
             message="only failed or partial repair batches can be resumed",
             status=batch.status,
         )
+    from app.services.reference_mask_repair import capture_job_authority
+
+    try:
+        authority = await capture_job_authority(db, batch, actor, http_request)
+    except ContentError as exc:
+        raise content_http_error(exc) from None
     job = await async_job_svc.create_job(
         db,
         kind=AsyncJobKind.MASK_REPAIR.value,
         project_id=batch.project_id,
         user_id=actor.id,
-        payload={"mask_repair_batch_id": str(batch.id), "resumed": True},
+        payload={
+            "mask_repair_batch_id": str(batch.id),
+            "resumed": True,
+            **({"repair_authority": authority} if authority else {}),
+        },
     )
     job.celery_task_id = str(job.id)
     batch.async_job_id = job.id

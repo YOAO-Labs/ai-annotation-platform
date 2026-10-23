@@ -658,6 +658,7 @@ async def dry_run_mask_repairs(
         project=project,
         actor=current_user,
         request=body,
+        http_request=request,
     )
     await AuditService.log(
         db,
@@ -706,6 +707,7 @@ async def execute_mask_repairs(
             actor=current_user,
             receipt=body.receipt,
             plan_digest=body.plan_digest,
+            http_request=request,
         )
     except MaskRepairError as exc:
         await db.rollback()
@@ -756,7 +758,9 @@ async def resume_mask_repairs(
         db, repair_id=repair_id, user=current_user, lock=True
     )
     try:
-        batch = await resume_repair_batch(db, batch_id=repair_id, actor=current_user)
+        batch = await resume_repair_batch(
+            db, batch_id=repair_id, actor=current_user, http_request=request
+        )
     except MaskRepairError as exc:
         await db.rollback()
         _raise_mask_repair_error(exc)
@@ -797,6 +801,7 @@ async def rollback_mask_repairs(
             batch_id=repair_id,
             actor=current_user,
             expected_result_digest=body.expected_result_digest,
+            http_request=request,
         )
     except MaskRepairError as exc:
         await db.rollback()

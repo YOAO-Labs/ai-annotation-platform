@@ -99,6 +99,7 @@ class PredictionInputs:
             "prediction_retry",
             "interactive_predict",
             "predict_test",
+            "mask_repair",
         }:
             raise ValueError("unsupported prediction input owner")
         owner_id, task_id = uuid.UUID(str(owner_id)), uuid.UUID(str(task_id))

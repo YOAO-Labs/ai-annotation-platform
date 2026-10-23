@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-23
+last_reviewed: 2026-10-24
 ---
 
 # Predictions / Async Jobs
@@ -44,6 +44,8 @@ POST /api/v1/projects/:id/preannotate
 两个失败重试端点共用准备与设备队列解析；引用重试在 API 预建独立 `prediction_retry`，固定当前 actor/Key 与 Task 版本，同时保留失败项的原模型快照及 Item/Asset/SHA/大小/尺寸。重复投递复用该 attempt；成功时新候选、旧 partial 替代、失败项删除和作业完成同事务提交，失败则保留旧候选并释放本 attempt 占用。历史引用失败缺少原模型或内容绑定时返回 `409`，需重新预标。
 
 `POST /tasks/{task_id}/predictions/{prediction_id}/accept` 始终核对候选所属任务与 URL 一致，不一致返回 `404`。引用普通几何采纳要求 `tasks:read` 和 `annotations:write`，按当前可编辑权限严格核验原图，并与候选内容溯源匹配；不要求当前 Task 版本等于历史推理版本，因此支持预标后正常分派/激活。内容证明、候选或权限变化时拒绝写入；忙冲突返回可重试 `409`。内部采纳凭证不作为请求参数。
+
+引用图片的 `mask_repair` SAM 候选经[批量修复独立资格](./tasks-and-annotations.md#mask-质检批量修复)采纳：必须匹配已提交单元、生成时结果/元信息摘要、源标注及当前原图，不放宽普通后台原生掩码门禁。重复或已驳回候选返回 `409`。`POST /tasks/{task_id}/predictions/{prediction_id}/reject` 对引用候选按当前任务编辑和 Key 权限写入驳回状态；来源离线或 native mask 开关关闭不阻止驳回。
 
 ## 查询 jobs
 

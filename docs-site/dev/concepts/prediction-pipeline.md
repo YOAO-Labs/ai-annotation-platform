@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-23
+last_reviewed: 2026-10-24
 ---
 
 # 预标注流水线（Prediction Pipeline）
@@ -350,7 +350,15 @@ worker 累加各阶段 stats（源阶段 `{detected}`、下游 `{targeted, ok, f
 
 交互候选的 HMAC receipt 和加密 logits 会话增加服务器生成的 `reference_input` 原图身份，续点同时核对内容、模型、参数和源 Mask。原生采纳在原有 atomic owner 之前重新严格核验原图及当前读取/写入权限，以独立私有 receipt 绑定 session、非嵌套事务、actor、Task、请求摘要和掩码 digest；Prediction writer 仅为这一专用 receipt 接受单个原生图片 Mask，普通后台 receipt 继续拒绝原生形态。Prediction、Annotation、贡献者、审计与 decision 仍同事务提交，精修保持源版本和 If-Match 合同。
 
-decision 内保留非授权的原图溯源，15 分钟候选 receipt 到期后仍可在既有 24 小时 decision 期限内重放相同请求；重放同样复核当前权限和严格原图，不额外写候选。私有证据不在公开响应中输出，公开客户端仍只提交原有候选凭证。批量 mask repair 和后台原生掩码尚未取得该专用资格。
+decision 内保留非授权的原图溯源，15 分钟候选 receipt 到期后仍可在既有 24 小时 decision 期限内重放相同请求；重放同样复核当前权限和严格原图，不额外写候选。私有证据不在公开响应中输出，公开客户端仍只提交原有候选凭证。批量 mask repair 使用下述独立资格；后台原生掩码预标尚未接入引用。
+
+### 引用图片的批量修复
+
+`reference_mask_repair.ReferenceRepairUnit` 按分片/候选组管理固定引用内容、当前 Job 私有 Key proof、真实 Worker 节点严格快照及临时输入。确定性修复仅需审核写入与 native gate；SAM 另需 AI 开关，并在计划中固定模型声明、变体和参数。当前协议提供声明配置身份，不虚构 checkpoint 摘要。实际路由 transport 的 setup 在发送原图 URL 前核对冻结模型；最终短事务共享锁定 pool、项目启用关联、成员和 registry，保留实际 instance/pool 溯源。
+
+Mutation 与 Prediction 分别消费绑定 session、非嵌套事务、actor/Task 及精确 payload 的内部 receipt，不全局放开引用写入。每个执行/恢复/回滚尝试取得新授权但保留原内容；回滚也严格读图。单元结束释放快照与输入账本，取消或失效时保持已有原子结果。
+
+SAM Prediction、元信息、候选 ID 及生成时结果/元信息摘要与单元完成记录同事务提交。采纳核对完整计划与单元归属、源标注版本/几何摘要、当前原图和当前写权限；最终锁序为 Task/生命周期、Batch、RLE 内容、源 Annotation。Task 的历史版本不永久限制后续合法分派，父作业终态也不撤销已提交候选。重复/已驳回候选拒绝；驳回仅需要当前编辑权限，不读取原件。
 
 ## 代码索引
 

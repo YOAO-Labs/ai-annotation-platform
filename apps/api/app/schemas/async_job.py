@@ -36,7 +36,12 @@ class AsyncJobOut(BaseModel):
             key: value
             for key, value in payload.items()
             if key
-            not in {"directory_authority", "export_authority", "prediction_authority"}
+            not in {
+                "directory_authority",
+                "export_authority",
+                "prediction_authority",
+                "repair_authority",
+            }
         }
 
 

@@ -1,6 +1,6 @@
 # EPIC-05：统一文件访问、预览与缓存
 
-> 状态：E05-A/C1/C2-A、后台引用图片预标/重试/普通几何采纳、同步交互/预测测试/原生掩码采纳及批量修复执行原子性前置已完成本地验收；继续批量修复引用资格、后台原生掩码、E05-B；不分配发布版本。
+> 状态：E05-A/C1/C2-A、后台引用图片预标/重试/普通几何采纳、同步交互/预测测试/原生掩码采纳及引用图片批量修复/候选审阅已完成本地验收；继续后台原生掩码、E05-B；不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -15,7 +15,7 @@
 
 ## 当前实施定案：E05-C2 预测输入与结果资格
 
-本轮基线 `e55c63f3a`：先交付批量修复执行原子性前置。固定 forward/rollback Job 与 Celery 消息身份，统一 fresh Job→Batch 边界，拒绝旧/重复尝试；SAM 模型 I/O 移出最终事务，候选与 item 完成记录一次提交。Tracker child 与 parent 派发意图先原子落库，后按同一 child ID 发布/恢复；取消先持久化再 revoke，最终结果、失败和终态共用尝试检查。确定性 shard 只允许该批已提交账本证明的版本前进；rollback 使用本次 Job 发起者并逐 shard 原子保存恢复版本与检查点，可在失败后继续。当前仍不开放引用修复，严格 worker 原图、Key/模型冻结和 mutation/SAM 各自 receipt 将接在该必要前置之后，完整 E05 不归档。保留人工 3100/8100 和 beat，不重建镜像。
+本轮基线 `54c2374bf`：在已完成的尝试隔离与原子提交上接入引用图片确定性修复、局部 SAM 重跑、恢复/严格回滚及候选采纳/驳回。计划固定原图与 SAM 模型声明/默认变体/参数，每个尝试保存当前 actor/Key；Worker 必须使用自身锚点严格捕获原图，不回退 API 节点或预览。Mutation/Prediction 分别使用精确 payload 的私有事务 receipt，SAM 实际路由 setup 复核模型，结果短事务锁住当前模型启用及路由归属。候选生成时保存结果/元信息摘要，采纳核对精确单元、源标注与当前原图；重复和已驳回候选拒绝，源离线仍可驳回。引用视频/Tracker、后台原生掩码及持久缓存继续独立推进，完整 E05 不归档。保留人工 3100/8100 和 beat，不重建镜像。
 
 基线 `4af982c12`，工作树干净。重新核对批量/工作台预标、模型快照、snapshot retry、ROI、候选写入及采纳守卫。C1 完成不等于 ML 消费者获得引用资格：当前模型快照不冻结原图、ROI 另读原件、取消与结果提交没有共同锁边界，失败重试还有两个入口。沿用人工环境 3100/8100；不重建后端或 ML 镜像，不改共享配置，不依赖尚未指定的远端站点。
 
@@ -358,3 +358,14 @@ M1 严格方案：对需要与标注绑定的可变原图，读取到受限临�
 - 实际浏览器加载真实修复组件，以隔离 API 夹具验证浅色/深色 × 桌面/窄屏，“继续回滚”触发正确入口并进入 rolling_back，无横向溢出或浏览器错误。组件夹具验证不冒充完整在线模型流程。OpenAPI snapshot 不变，Ruff / 格式 / ESLint / CSS tokens、196 页 frontmatter 与 198 页导航检查通过。
 - 保留人工环境 3100/8100、业务数据及 beat；空闲后刷新普通/维护 Worker，核对两个节点的新签名，并实际派发 forward / rollback 的无归属消息，均安全完成且不创建业务行。不重建后端或 ML 镜像。一次性测试模式资源与任务临时文件清理后提交。
 - 本前置没有开放原地引用批量修复，也没有新增 running 硬失联尝试的自动接管租约。下一主路径仍为入队内容/Key/模型冻结、真实 worker 严格原图及 deterministic mutation / SAM 专有 receipt；后台原生掩码、E05-B、E10 血缘与其余 Epic 保持执行中，不归档。
+
+### E05-C2-B 引用图片批量修复与候选审阅 Outcome
+
+- 引用图片确定性修复、局部 SAM 重跑、resume 和 rollback 取得独立资格。计划固定 Task/Item/Asset/SHA/大小/尺寸与来源/位置/连接修订，SAM 固定模型声明、变体和参数；execute/resume/rollback 各自捕获当前 actor/Key，但不替换原图或原模型。私有证明只保存在 Job payload，并从 AsyncJob DTO 过滤。引用视频/Tracker 继续拒绝，旧无证明计划需重新预览。
+- 每个分片/候选组由 `ReferenceRepairUnit` 管理真实 Worker 节点严格快照。无 Worker 锚点不回退 API 或预览；确定性修复在 AI 关闭时仍可执行，SAM 额外复核 AI 开关。原图 I/O 和模型 HTTP 不跨最终写锁事务，独占输入由持久账本回收。实际路由实例的 setup 在图像 URL 发送前核对冻结模型；最终短事务锁定 pool/项目启用/成员/registry，保存实际 instance/pool 身份。协议仅证明声明配置，不编造 checkpoint 哈希。
+- 专属 Mutation/Prediction receipt 绑定发行者、session、非嵌套事务、当前 actor/Task、单元及精确 payload；关闭快照后或跨会话/事务/主体/内容不可复用。最终复查当前 Job/Batch 尝试、取消、审核/编辑/Key 权限、native gate 与内容绑定。回滚同样严格读原图，已修改对象继续版本保护。
+- SAM 候选、元信息、生成时结果/元信息摘要和单元完成记录同事务保存。既有 accept API 专门核对计划/单元/候选归属、原标注版本与几何摘要、当前权限及严格原图；RLE 内容锁先于源 Annotation 行锁。父作业 partial/cancelled 不撤销已提交候选，重复/并发采纳最多新建一条标注，已驳回候选不能采纳。原生开关、内容对象、源标注或溯源变化均拒绝。
+- 引用预测 reject API 在当前 actor/Key/Task 编辑锁域内更新驳回状态，不要求原图在线或 native gate 开启。采纳与驳回的编辑 scope 忙冲突返回明确 `409`，不会抛内部异常。普通后台 raster receipt 和泛用引用 mutation 门禁保持独立。
+- 本地累计 **303 个不同 API 用例**通过，其中本轮新增 **45 个引用修复专项**；按不同 testcase 合并最终成功结果，不累加重复运行次数。覆盖独立提交事务、真实请求 Key 捕获与私有字段过滤、撤销/scope 缩减与新 Key 恢复、内容/节点/来源/native/AI/模型变化、旧尝试、回滚、receipt 隔离、实际 accept/reject、离线驳回、重复/并发采纳及真实 Celery 包装器 hostname 传递；旧修复、普通几何采纳、同步交互/原生 Mask、输入回收、管线、路由客户端和 mutation 回归通过。
+- 独立真实 HTTP/MinIO 验证：模型端下载到与固定原图完全相同的字节，SAM RLE 通过实际存储合同落库，随后经实际 API 采纳为关联 Annotation；输入对象及账本回收，任务所属 Mask 对象清理。使用协议夹具，不宣称真实 SAM 模型质量、生产性能或远程 CI 验收。无 UI 改动；OpenAPI snapshot 不变，Ruff/格式与文档 frontmatter/导航检查通过。
+- 保留人工环境 3100/8100、业务数据和 beat。确认两类 Worker 均无 active/reserved/scheduled 与 pending/running job 后刷新当前 worktree 服务，再核对注册及两队列 forward/rollback 无归属消息，测试资源按精确 owner 清理；没有重建后端或 ML 镜像。完整 E05、后台原生 Mask、原图缓存/配额及 E10 血缘仍在执行，不归档。

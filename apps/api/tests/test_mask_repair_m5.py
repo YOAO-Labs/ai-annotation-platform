@@ -32,7 +32,11 @@ def _rle(rows: list[str]) -> dict:
     return encode_coco_rle(pixels, width, height)
 
 
-async def _seed_repair_issue(db, *, owner_id: uuid.UUID, locked: bool = False):
+async def _seed_repair_issue(
+    db, *, owner_id: uuid.UUID, locked: bool = False, source=None, island=None
+):
+    source = source if source is not None else _rle([".....", ".###.", "....#"])
+    island = island if island is not None else _rle([".....", ".....", "....#"])
     suffix = uuid.uuid4().hex[:8]
     project = Project(
         display_id=f"P-RPR-{suffix}",
@@ -65,8 +69,8 @@ async def _seed_repair_issue(db, *, owner_id: uuid.UUID, locked: bool = False):
         file_name="repair.png",
         file_path="repair.png",
         file_type="image",
-        width=5,
-        height=3,
+        width=source["size"][1],
+        height=source["size"][0],
     )
     db.add(item)
     await db.flush()
@@ -91,8 +95,6 @@ async def _seed_repair_issue(db, *, owner_id: uuid.UUID, locked: bool = False):
     )
     db.add(task)
     await db.flush()
-    source = _rle([".....", ".###.", "....#"])
-    island = _rle([".....", ".....", "....#"])
     source_ref = build_rle_reference(source)
     island_ref = build_rle_reference(island)
     annotation = Annotation(

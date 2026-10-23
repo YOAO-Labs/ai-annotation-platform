@@ -38,7 +38,6 @@ from app.services.ml_interaction_proxy import (
 from app.services.ml_routing.client import RoutedMLBackendClient
 from app.services.prediction import PredictionService
 from app.services.raster_mask_storage import (
-    assert_raster_mask_write_enabled,
     build_rle_reference,
     lock_raster_mask_references,
     reserve_raster_mask_upload,
@@ -55,6 +54,13 @@ from app.services.mask_repair_execution import (
     start_attempt,
     lock_attempt,
     progress_counts,
+    authorize_repair_task,
+)
+from app.services.reference_keys import is_reference
+from app.services.reference_mask_repair import (
+    ReferenceRepairUnit,
+    unit_items,
+    validate_receipt,
 )
 
 
@@ -105,11 +111,17 @@ async def _execute_shard(
     batch: MaskRepairBatch,
     shard: dict[str, Any],
     actor: User,
+    reference_owner=None,
 ) -> dict[str, Any]:
     plan_items = list((batch.plan_json or {}).get("items") or [])
     task_id = uuid.UUID(str(shard["task_id"]))
     await _repair_task(db, task_id, actor)
-    await MaskMutationService(db)._lock_task(task_id)
+    if reference_owner is None:
+        await MaskMutationService(db)._lock_task(task_id)
+    else:
+        await validate_receipt(
+            db, task_id, actor.id, reference_owner.receipt("unit", shard), "unit", shard
+        )
     shard_items = [plan_items[int(index)] for index in shard.get("item_indexes") or []]
     output_geometries = [
         _load_plan_payload(item["payload"])
@@ -179,7 +191,20 @@ async def _execute_shard(
             }
         )
         target_id = str(item["annotation_id"])
-        response = await service.commit(task_id, payload, actor)
+        response = await service.commit(
+            task_id,
+            payload,
+            actor,
+            **(
+                {
+                    "reference_repair_receipt": reference_owner.receipt(
+                        "mutation", payload.model_dump(mode="json")
+                    )
+                }
+                if reference_owner
+                else {}
+            ),
+        )
         after_version = int(response.result_versions[target_id])
         progressed[target_id] = after_version
         issue = await db.get(MaskQCIssue, uuid.UUID(str(item["issue_id"])))
@@ -217,6 +242,7 @@ async def _prepare_sam_candidate(
     item: dict[str, Any],
     batch_id: uuid.UUID,
     dispatch_context_factory,
+    reference_owner=None,
 ) -> dict[str, Any]:
     task = await db.get(Task, uuid.UUID(str(item["task_id"])))
     annotation = await db.get(Annotation, uuid.UUID(str(item["annotation_id"])))
@@ -227,7 +253,10 @@ async def _prepare_sam_candidate(
     from app.services.reference_access import reject_reference_scope
     from app.services.reference_bindings import task_binding
 
-    await reject_reference_scope(db, task_ids=[task.id])
+    if reference_owner is None:
+        await reject_reference_scope(db, task_ids=[task.id])
+    else:
+        await reference_owner.validate()
     binding = task_binding(task)
     action = dict(item["action"])
     backend_id = uuid.UUID(str(action["backend_id"]))
@@ -237,19 +266,30 @@ async def _prepare_sam_candidate(
         task.project_id, backend_id
     ):
         raise RuntimeError("sam_backend_unavailable")
-    setup = await MLBackendClient(backend).setup()
-    bbox = item.get("region_bbox") or {}
-    context, model_id = prepare_interactive_context(
-        {
-            "type": "interactive_box",
-            "bbox": [bbox.get("x0"), bbox.get("y0"), bbox.get("x1"), bbox.get("y1")],
-            "output_geometry": "mask",
-            **({"model_id": action["model_id"]} if action.get("model_id") else {}),
-        },
-        extract_capabilities(setup),
-        task_id=str(task.id),
-        requested_backend_id=str(backend_id),
-    )
+    if reference_owner is None:
+        setup = await MLBackendClient(backend).setup()
+        bbox = item.get("region_bbox") or {}
+        context, model_id = prepare_interactive_context(
+            {
+                "type": "interactive_box",
+                "bbox": [
+                    bbox.get("x0"),
+                    bbox.get("y0"),
+                    bbox.get("x1"),
+                    bbox.get("y1"),
+                ],
+                "output_geometry": "mask",
+                **({"model_id": action["model_id"]} if action.get("model_id") else {}),
+            },
+            extract_capabilities(setup),
+            task_id=str(task.id),
+            requested_backend_id=str(backend_id),
+        )
+    else:
+        from copy import deepcopy
+
+        context = deepcopy(reference_owner.model["context"])
+        model_id = reference_owner.model["model_id"]
     dataset_item = (
         await db.get(DatasetItem, task.dataset_item_id)
         if task.dataset_item_id is not None
@@ -269,11 +309,29 @@ async def _prepare_sam_candidate(
         dispatch_context_factory=dispatch_context_factory,
     )
     await db.commit()
+
+    async def before_dispatch(transport):
+        setup = await transport.setup()
+        reference_owner.validate_capabilities(extract_capabilities(setup))
+        await reference_owner.validate()
+        await db.commit()
+
     response = await client.predict_interactive(
-        task_data={"id": str(task.id), "file_path": resolve_task_url(task)},
+        task_data={
+            "id": str(task.id),
+            "file_path": reference_owner.url
+            if reference_owner
+            else resolve_task_url(task),
+        },
         context=context,
         max_response_bytes=MAX_MASK_RESPONSE_BYTES,
+        **({"before_dispatch": before_dispatch} if reference_owner else {}),
     )
+    if reference_owner:
+        reference_owner.route = {
+            "instance_id": str(client.last_instance_id or backend_id),
+            "pool_id": str(client.pool_id) if client.pool_id else None,
+        }
     candidates, diagnostic = normalize_native_mask_response(
         response.result,
         getattr(response, "diagnostic", None),
@@ -296,18 +354,14 @@ async def _repair_task(db, task_id, actor):
     from app.services.project_write_guard import (
         lock_actor_project_authority,
         lock_actor_scope,
-        assert_phase_write_allowed,
     )
-    from app.services.project_access import resolve_project_access
-    from app.db.models.project import Project
-    from app.db.models.task_batch import TaskBatch
     from app.services.task_lock import TaskLockService
     from app.services.task_scope import lock_task_scope
-    from app.api.v1.tasks._shared import _assert_task_visible
+    from app.services.content_snapshot import ContentError
 
     task = await db.get(Task, task_id, populate_existing=True)
     if task is None:
-        raise RuntimeError("candidate_source_missing")
+        raise ContentError("candidate_source_missing")
     await lock_actor_project_authority(db, actor.id, task.project_id)
     await lock_actor_scope(db, actor.id, task.project_id)
     await TaskLockService(db)._lock_task_scope(task_id, nowait=True)
@@ -318,24 +372,7 @@ async def _repair_task(db, task_id, actor):
         .with_for_update(nowait=True)
         .execution_options(populate_existing=True)
     )
-    if task.batch_id:
-        await db.get(TaskBatch, task.batch_id, populate_existing=True)
-    project = await db.get(Project, task.project_id, populate_existing=True)
-    actor = await db.get(User, actor.id, populate_existing=True)
-    if actor is None or not actor.is_active:
-        raise RuntimeError("repair_actor_unavailable")
-    access = await resolve_project_access(db, user=actor, project=project)
-    if not access.has("review.write"):
-        raise RuntimeError("repair_authority_revoked")
-    await _assert_task_visible(db, task, actor, access=access)
-    await assert_phase_write_allowed(db, task, actor, action="repair mask")
-    if any(
-        lock.user_id != actor.id
-        for lock in await TaskLockService(db).active_locks(task_id, cleanup=False)
-    ):
-        raise RuntimeError("task_lock_conflict")
-    if task.file_type == "image":
-        assert_raster_mask_write_enabled(project)
+    await authorize_repair_task(db, task, actor)
     return task
 
 
@@ -359,7 +396,9 @@ async def _candidate_source(db, item, actor, *, lock_annotation=True):
     return task, annotation
 
 
-async def _commit_sam_candidate(db, *, item, batch_id, actor, prepared):
+async def _commit_sam_candidate(
+    db, *, item, batch_id, actor, prepared, reference_owner=None
+):
     from app.services.reference_bindings import task_binding
 
     task, _ = await _candidate_source(db, item, actor, lock_annotation=False)
@@ -396,28 +435,39 @@ async def _commit_sam_candidate(db, *, item, batch_id, actor, prepared):
     # mask writes and GC. All candidates and the parent marker share one commit.
     task, annotation = await _candidate_source(db, item, actor)
     prediction_ids: list[str] = []
+    candidate_records = {}
     for candidate_index, (candidate, geometry) in enumerate(
         zip(candidates, geometries, strict=True)
     ):
+        result = [
+            {
+                "type": "raster_mask",
+                "class_name": str(item["class_name"]),
+                "geometry": geometry,
+                "confidence": float(candidate.get("score") or 0),
+                "tool_unit_id": str(item["tool_unit_id"]),
+                "attributes": {},
+            }
+        ]
         prediction = await PredictionService(db).create_from_ml_result(
             task_id=task.id,
             project_id=task.project_id,
             ml_backend_id=prepared["backend_id"],
             ml_backend_pool_id=prepared["pool_id"],
-            result=[
-                {
-                    "type": "raster_mask",
-                    "class_name": str(item["class_name"]),
-                    "geometry": geometry,
-                    "confidence": float(candidate.get("score") or 0),
-                    "tool_unit_id": str(item["tool_unit_id"]),
-                    "attributes": {},
-                }
-            ],
+            result=result,
             score=candidate.get("score"),
             model_version=prepared["model_version"],
             inference_time_ms=prepared["inference_time_ms"],
             source="mask_repair",
+            **(
+                {
+                    "repair_reference_receipt": reference_owner.receipt(
+                        "prediction", result
+                    )
+                }
+                if reference_owner
+                else {}
+            ),
             pipeline_extra={
                 "mask_repair": {
                     "batch_id": str(batch_id),
@@ -430,11 +480,24 @@ async def _commit_sam_candidate(db, *, item, batch_id, actor, prepared):
             },
         )
         prediction_ids.append(str(prediction.id))
+        if reference_owner:
+            from app.db.models.prediction import PredictionMeta
+
+            metadata = await db.scalar(
+                select(PredictionMeta).where(
+                    PredictionMeta.prediction_id == prediction.id
+                )
+            )
+            candidate_records[str(prediction.id)] = {
+                "result_digest": canonical_digest(prediction.result),
+                "metadata_digest": canonical_digest(metadata.extra),
+            }
     return {
         "status": "completed",
         "kind": "rerun_local_sam",
         "prediction_ids": prediction_ids,
         "candidate_count": len(prediction_ids),
+        **({"candidate_records": candidate_records} if reference_owner else {}),
         "diagnostic": prepared["diagnostic"],
     }
 
@@ -595,7 +658,23 @@ async def _dispatch_tracker_handoff(factory, batch_id, job_id, key, child_id):
         await db.commit()
 
 
-async def _run_forward(factory, batch_id, celery_task_id, async_job_id=None):
+async def _reference_owner(db, factory, attempt, batch, section, unit, node_id):
+    items = unit_items(batch, section, unit)
+    if not items:
+        return None
+    task = await db.get(
+        Task, uuid.UUID(str(items[0]["task_id"])), populate_existing=True
+    )
+    if any(item.get("reference_input") for item in items) or (
+        task and is_reference(task.file_path)
+    ):
+        return ReferenceRepairUnit(db, factory, attempt, batch, items, node_id)
+    return None
+
+
+async def _run_forward(
+    factory, batch_id, celery_task_id, async_job_id=None, worker_node_id=None
+):
     dispatch_context_factory = build_gpu_dispatch_context_factory(factory)
     async with factory() as db:
         attempt = await start_attempt(db, batch_id, async_job_id, celery_task_id)
@@ -614,6 +693,7 @@ async def _run_forward(factory, batch_id, celery_task_id, async_job_id=None):
     for section, key, unit in units:
         child_id = None
         async with factory() as db:
+            reference_owner = None
             try:
                 batch, job = await lock_attempt(db, attempt)
                 existing = (_result_copy(batch).get(section) or {}).get(key) or {}
@@ -627,9 +707,27 @@ async def _run_forward(factory, batch_id, celery_task_id, async_job_id=None):
                     await db.commit()
                 else:
                     actor = await _actor(db, attempt)
+                    reference_owner = await _reference_owner(
+                        db, factory, attempt, batch, section, unit, worker_node_id
+                    )
                     if section == "shards":
+                        if reference_owner:
+                            await db.commit()
+                            await reference_owner.open()
+                            await db.rollback()
+                            batch, job = await lock_attempt(db, attempt)
+                            actor = await _actor(db, attempt)
+                            await reference_owner.final()
                         value = await _execute_shard(
-                            db, batch=batch, shard=unit, actor=actor
+                            db,
+                            batch=batch,
+                            shard=unit,
+                            actor=actor,
+                            **(
+                                {"reference_owner": reference_owner}
+                                if reference_owner
+                                else {}
+                            ),
                         )
                         batch.rollback_expires_at = (
                             datetime.now(timezone.utc) + ROLLBACK_TTL
@@ -637,21 +735,35 @@ async def _run_forward(factory, batch_id, celery_task_id, async_job_id=None):
                     elif unit["kind"] == "rerun_local_sam":
                         await _candidate_source(db, unit, actor, lock_annotation=False)
                         await db.commit()
+                        if reference_owner:
+                            await reference_owner.open()
                         prepared = await _prepare_sam_candidate(
                             db,
                             item=unit,
                             batch_id=attempt.batch_id,
                             dispatch_context_factory=dispatch_context_factory,
+                            **(
+                                {"reference_owner": reference_owner}
+                                if reference_owner
+                                else {}
+                            ),
                         )
                         await db.rollback()
                         batch, job = await lock_attempt(db, attempt)
                         actor = await _actor(db, attempt)
+                        if reference_owner:
+                            await reference_owner.final()
                         value = await _commit_sam_candidate(
                             db,
                             item=unit,
                             batch_id=attempt.batch_id,
                             actor=actor,
                             prepared=prepared,
+                            **(
+                                {"reference_owner": reference_owner}
+                                if reference_owner
+                                else {}
+                            ),
                         )
                     else:
                         await _candidate_source(db, unit, actor)
@@ -690,6 +802,12 @@ async def _run_forward(factory, batch_id, celery_task_id, async_job_id=None):
                     )
                     await _progress(db, batch, attempt)
                 await db.commit()
+            finally:
+                if reference_owner:
+                    try:
+                        await db.rollback()
+                    finally:
+                        await reference_owner.close()
         if child_id:
             await _dispatch_tracker_handoff(
                 factory, attempt.batch_id, attempt.job_id, key, child_id
@@ -723,11 +841,15 @@ async def _run_forward(factory, batch_id, celery_task_id, async_job_id=None):
         await db.commit()
 
 
-async def _run_mask_repair(batch_id, celery_task_id, async_job_id=None):
+async def _run_mask_repair(
+    batch_id, celery_task_id, async_job_id=None, worker_node_id=None
+):
     engine = create_async_engine(settings.database_url, echo=False)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     try:
-        await _run_forward(factory, batch_id, celery_task_id, async_job_id)
+        await _run_forward(
+            factory, batch_id, celery_task_id, async_job_id, worker_node_id
+        )
     finally:
         await engine.dispose()
 
@@ -766,12 +888,23 @@ async def _rollback_shard(
     plan_items: list[dict[str, Any]],
     shard_result: dict[str, Any],
     actor: User,
+    reference_owner=None,
 ) -> int:
     entries = list(shard_result.get("items") or [])
     if entries:
         task_id = uuid.UUID(str(plan_items[int(entries[0]["item_index"])]["task_id"]))
         await _repair_task(db, task_id, actor)
-        await MaskMutationService(db)._lock_task(task_id)
+        if reference_owner is None:
+            await MaskMutationService(db)._lock_task(task_id)
+        else:
+            await validate_receipt(
+                db,
+                task_id,
+                actor.id,
+                reference_owner.receipt("unit", shard_result),
+                "unit",
+                shard_result,
+            )
         await lock_raster_mask_references(
             db,
             [
@@ -795,11 +928,26 @@ async def _rollback_shard(
             for_update=False,
         )
         payload = _rollback_payload(item=item, current_members=members)
-        await service.commit(uuid.UUID(str(item["task_id"])), payload, actor)
+        await service.commit(
+            uuid.UUID(str(item["task_id"])),
+            payload,
+            actor,
+            **(
+                {
+                    "reference_repair_receipt": reference_owner.receipt(
+                        "mutation", payload.model_dump(mode="json")
+                    )
+                }
+                if reference_owner
+                else {}
+            ),
+        )
     return len(entries)
 
 
-async def _run_rollback(factory, batch_id, celery_task_id, async_job_id=None):
+async def _run_rollback(
+    factory, batch_id, celery_task_id, async_job_id=None, worker_node_id=None
+):
     async with factory() as db:
         attempt = await start_attempt(
             db, batch_id, async_job_id, celery_task_id, rollback=True
@@ -819,6 +967,7 @@ async def _run_rollback(factory, batch_id, celery_task_id, async_job_id=None):
         ]
     for shard_id, shard_result in reversed(completed_shards):
         async with factory() as db:
+            reference_owner = None
             try:
                 batch, job = await lock_attempt(db, attempt)
                 result = _result_copy(batch)
@@ -828,8 +977,30 @@ async def _run_rollback(factory, batch_id, celery_task_id, async_job_id=None):
                     await db.commit()
                     continue
                 actor = await _actor(db, attempt)
+                shard_plan = next(
+                    row
+                    for row in batch.plan_json["shards"]
+                    if str(row["id"]) == shard_id
+                )
+                reference_owner = await _reference_owner(
+                    db, factory, attempt, batch, "shards", shard_plan, worker_node_id
+                )
+                if reference_owner:
+                    await db.commit()
+                    await reference_owner.open()
+                    await db.rollback()
+                    batch, job = await lock_attempt(db, attempt)
+                    actor = await _actor(db, attempt)
+                    await reference_owner.final()
+                    result = _result_copy(batch)
+                    rollback = dict(result.get("rollback") or {})
+                    checkpoints = dict(rollback.get("shards") or {})
                 count = await _rollback_shard(
-                    db, plan_items=plan_items, shard_result=shard_result, actor=actor
+                    db,
+                    plan_items=plan_items,
+                    shard_result=shard_result,
+                    actor=actor,
+                    **({"reference_owner": reference_owner} if reference_owner else {}),
                 )
                 versions = {}
                 for entry in shard_result.get("items") or []:
@@ -880,6 +1051,12 @@ async def _run_rollback(factory, batch_id, celery_task_id, async_job_id=None):
                 await notify_job_terminal(db, job_id=attempt.job_id)
                 await db.commit()
                 return
+            finally:
+                if reference_owner:
+                    try:
+                        await db.rollback()
+                    finally:
+                        await reference_owner.close()
     async with factory() as db:
         try:
             batch, job = await lock_attempt(db, attempt)
@@ -913,11 +1090,15 @@ async def _run_rollback(factory, batch_id, celery_task_id, async_job_id=None):
         await db.commit()
 
 
-async def _rollback_mask_repair(batch_id, celery_task_id, async_job_id=None):
+async def _rollback_mask_repair(
+    batch_id, celery_task_id, async_job_id=None, worker_node_id=None
+):
     engine = create_async_engine(settings.database_url, echo=False)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     try:
-        await _run_rollback(factory, batch_id, celery_task_id, async_job_id)
+        await _run_rollback(
+            factory, batch_id, celery_task_id, async_job_id, worker_node_id
+        )
     finally:
         await engine.dispose()
 
@@ -929,6 +1110,9 @@ def run_mask_repair(self, batch_id: str, *, async_job_id: str | None = None) -> 
             batch_id,
             getattr(getattr(self, "request", None), "id", None),
             async_job_id,
+            f"worker:{self.request.hostname}"
+            if getattr(self.request, "hostname", None)
+            else None,
         )
     )
 
@@ -942,5 +1126,8 @@ def rollback_mask_repair(
             batch_id,
             getattr(getattr(self, "request", None), "id", None),
             async_job_id,
+            f"worker:{self.request.hostname}"
+            if getattr(self.request, "hostname", None)
+            else None,
         )
     )

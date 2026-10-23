@@ -29,12 +29,19 @@ from app.services.reference_bindings import (
 )
 from app.services.reference_keys import is_reference
 from app.services.storage_location import api_node_id
-from app.services.task_lock import TaskLockService
+from app.services.task_lock import TaskLockService, TaskLockConflictError
 from app.services.task_scope import lock_task_scope
 
 
 _ISSUER = object()
 _GEOMETRY = {"bbox", "rotated_bbox", "polygon", "multi_polygon", "polyline", "keypoint"}
+
+
+async def _lock_edit_scope(db, task_id):
+    try:
+        await TaskLockService(db)._lock_task_scope(task_id, nowait=True)
+    except TaskLockConflictError:
+        raise ContentError("prediction_acceptance_busy") from None
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,7 +89,7 @@ async def _candidate(db, task_id, prediction_id, *, lock=False):
     return prediction, metadata
 
 
-def _check_content(task, binding, prediction, metadata):
+async def _check_content(db, task, binding, prediction, metadata, *, final=False):
     evidence = (metadata.extra or {}).get("reference_input") if metadata else None
     if not isinstance(evidence, dict) or evidence.get("schema") != 1:
         raise ContentError("prediction_requires_reference_provenance")
@@ -95,7 +102,23 @@ def _check_content(task, binding, prediction, metadata):
         )
     ):
         raise ContentError("content_binding_changed")
-    for shape in prediction.result or []:
+    shapes = prediction.result or []
+    if prediction.source == "mask_repair":
+        if 0 in (prediction.rejected_shape_indexes or []):
+            raise ContentError("repair_candidate_rejected")
+        if (
+            len(shapes) != 1
+            or to_internal_shape(deepcopy(shapes[0])).get("geometry", {}).get("type")
+            != "raster_mask"
+        ):
+            raise ContentError("reference_prediction_geometry_not_supported")
+        from app.services.reference_mask_repair import qualify_repair_candidate
+
+        await qualify_repair_candidate(
+            db, task, binding, prediction, metadata, final=final
+        )
+        return
+    for shape in shapes:
         geometry = to_internal_shape(deepcopy(shape)).get("geometry")
         if not isinstance(geometry, dict) or geometry.get("type") not in _GEOMETRY:
             raise ContentError("reference_prediction_geometry_not_supported")
@@ -103,7 +126,8 @@ def _check_content(task, binding, prediction, metadata):
 
 async def _authorize(db, task, actor):
     from app.api.v1.tasks._shared import (
-        require_task_annotation_write,
+        _resolve_task_access,
+        assert_annotation_write_allowed,
         _assert_task_visible,
         _assert_task_editable,
     )
@@ -119,10 +143,13 @@ async def _authorize(db, task, actor):
         or task.file_type != "image"
     ):
         raise ContentError("prediction_acceptance_authority_revoked", 403)
-    access = await require_task_annotation_write(task.id, db, fresh)
+    access = await _resolve_task_access(db, task, fresh, lock_membership=False)
+    assert_annotation_write_allowed(task, access)
     await _assert_task_visible(db, task, fresh, access=access)
     _assert_task_editable(task, fresh, access=access)
-    await assert_phase_write_allowed(db, task, fresh, action="accept prediction")
+    await assert_phase_write_allowed(
+        db, task, fresh, action="accept prediction", lock_membership=False
+    )
 
 
 async def qualify_acceptance(db, task, actor, request, prediction_id):
@@ -137,9 +164,13 @@ async def qualify_acceptance(db, task, actor, request, prediction_id):
         for scope in ("tasks:read", "annotations:write")
     ]
     binding = {**task_binding(task), "reference": await reference_binding(db, task)}
-    _check_content(task, binding, prediction, metadata)
+    await _check_content(db, task, binding, prediction, metadata)
+
     fingerprint = _fingerprint(prediction, metadata)
-    context = await reference_context(db, task.dataset_item_id, actor, task_id=task.id)
+    context = await reference_context(
+        db, task.dataset_item_id, actor, task_id=task.id, task_authorizer=_authorize
+    )
+    await db.commit()
     snapshot = await reference_snapshot(
         db,
         task.dataset_item_id,
@@ -148,6 +179,7 @@ async def qualify_acceptance(db, task, actor, request, prediction_id):
         expected_sha256=binding["reference"]["sha256"],
         api_key_id=key_id,
         scope="tasks:read",
+        task_authorizer=_authorize,
     )
     try:
         ref = binding["reference"]
@@ -157,6 +189,7 @@ async def qualify_acceptance(db, task, actor, request, prediction_id):
             ref["height"],
         ):
             raise ContentError("image_size_mismatch")
+        await db.commit()
         await lock_actor_project_authority(db, actor.id, task.project_id)
         await lock_actor_scope(db, actor.id, task.project_id)
         if key_id:
@@ -165,7 +198,7 @@ async def qualify_acceptance(db, task, actor, request, prediction_id):
                 .where(ApiKey.id == key_id)
                 .with_for_update(read=True, nowait=True)
             )
-        await TaskLockService(db)._lock_task_scope(task.id)
+        await _lock_edit_scope(db, task.id)
         await lock_task_scope(db, [task.id])
         task = await db.scalar(
             select(Task)
@@ -182,13 +215,19 @@ async def qualify_acceptance(db, task, actor, request, prediction_id):
         await _authorize(db, task, actor)
         if any(
             lock.user_id != actor.id
-            for lock in await TaskLockService(db).active_locks(task.id)
+            for lock in await TaskLockService(db).active_locks(task.id, cleanup=False)
         ):
             raise ContentError("prediction_acceptance_task_locked")
         current = {**task_binding(task), "reference": await reference_binding(db, task)}
         if (
             current != binding
-            or await reference_context(db, task.dataset_item_id, actor, task_id=task.id)
+            or await reference_context(
+                db,
+                task.dataset_item_id,
+                actor,
+                task_id=task.id,
+                task_authorizer=_authorize,
+            )
             != context
             or _fingerprint(prediction, metadata) != fingerprint
         ):
@@ -198,7 +237,7 @@ async def qualify_acceptance(db, task, actor, request, prediction_id):
             for scope in ("tasks:read", "annotations:write")
         ]:
             raise ContentError("api_key_authority_revoked", 403)
-        _check_content(task, binding, prediction, metadata)
+        await _check_content(db, task, binding, prediction, metadata, final=True)
         return _AcceptanceReceipt(
             _ISSUER,
             db.sync_session,
@@ -236,4 +275,38 @@ async def validate_acceptance(db, prediction, actor_id, receipt):
         or _fingerprint(prediction, metadata) != receipt.candidate
     ):
         raise ContentError("prediction_acceptance_receipt_invalid")
-    _check_content(task, binding, prediction, metadata)
+    await _check_content(db, task, binding, prediction, metadata)
+
+
+async def qualify_rejection(db, task, actor, request, prediction_id):
+    """Reject owned candidates under current write authority without original I/O."""
+    key_id = getattr(request.state, "api_key_id", None)
+    scopes = ("tasks:read", "annotations:write")
+    proof = [await key_authority(db, actor, key_id, scope) for scope in scopes]
+    await lock_actor_project_authority(db, actor.id, task.project_id)
+    await lock_actor_scope(db, actor.id, task.project_id)
+    if key_id:
+        await db.execute(
+            select(ApiKey.id)
+            .where(ApiKey.id == key_id)
+            .with_for_update(read=True, nowait=True)
+        )
+    await _lock_edit_scope(db, task.id)
+    await lock_task_scope(db, [task.id])
+    task = await db.scalar(
+        select(Task)
+        .where(Task.id == task.id)
+        .with_for_update(nowait=True)
+        .execution_options(populate_existing=True)
+    )
+    if task is None or not is_reference(task.file_path):
+        raise ContentError("content_binding_changed")
+    await _authorize(db, task, actor)
+    if any(
+        lock.user_id != actor.id
+        for lock in await TaskLockService(db).active_locks(task.id, cleanup=False)
+    ):
+        raise ContentError("prediction_acceptance_task_locked")
+    if proof != [await key_authority(db, actor, key_id, scope) for scope in scopes]:
+        raise ContentError("api_key_authority_revoked", 403)
+    await _candidate(db, task.id, prediction_id, lock=True)

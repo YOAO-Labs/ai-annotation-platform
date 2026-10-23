@@ -134,6 +134,28 @@ async def reference_task_guard(
                 ) from None
             raise content_http_error(exc) from None
         return
+    if request.method == "POST" and re.fullmatch(
+        r"/api/v1/tasks/[^/]+/predictions/[^/]+/reject", request.url.path
+    ):
+        from app.services.prediction_acceptance import qualify_rejection
+
+        try:
+            prediction_id = uuid.UUID(str(request.path_params["prediction_id"]))
+        except (ValueError, TypeError):
+            return
+        try:
+            await qualify_rejection(db, task, actor, request, prediction_id)
+        except Exception as exc:
+            from sqlalchemy.exc import DBAPIError
+            from app.services.project_write_guard import _busy_lock_error
+
+            if isinstance(exc, DBAPIError) and _busy_lock_error(exc):
+                await db.rollback()
+                raise HTTPException(
+                    409, detail={"code": "prediction_acceptance_busy"}
+                ) from None
+            raise content_http_error(exc) from None
+        return
     from app.api.v1.tasks._shared import _assert_task_visible, _resolve_task_access
     from app.services.dataset_content import key_authority
 
