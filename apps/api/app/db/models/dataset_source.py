@@ -336,3 +336,49 @@ class DatasetSourceChange(Base):
         ),
         Index("ix_dataset_source_change_page", "run_id", "kind", "path_digest"),
     )
+
+
+class DatasetSourceSyncSchedule(Base):
+    """Durable, revocable delegation; no bearer token or API-key plaintext."""
+
+    __tablename__ = "dataset_source_sync_schedules"
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("dataset_sources.id", ondelete="RESTRICT"), primary_key=True
+    )
+    revision: Mapped[int] = mapped_column(default=1)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    interval_minutes: Mapped[int] = mapped_column(default=60)
+    actor_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT")
+    )
+    api_key_id: Mapped[uuid.UUID | None] = mapped_column()
+    key_proof: Mapped[str | None] = mapped_column(String(255))
+    snapshot: Mapped[dict] = mapped_column(JSONB, default=dict)
+    state: Mapped[str] = mapped_column(String(30), default="idle")
+    scan_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("dataset_scan_runs.id", ondelete="RESTRICT")
+    )
+    registration_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("dataset_registration_runs.id", ondelete="RESTRICT")
+    )
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_check_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(String(60))
+    dispatch_token: Mapped[uuid.UUID | None] = mapped_column()
+    dispatch_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    __table_args__ = (
+        CheckConstraint(
+            "interval_minutes BETWEEN 15 AND 10080", name="ck_source_sync_interval"
+        ),
+        CheckConstraint(
+            "state IN ('idle','scanning','preflighting','awaiting_review','registering','blocked')",
+            name="ck_source_sync_state",
+        ),
+        Index("ix_source_sync_due", "enabled", "next_check_at", "source_id"),
+    )

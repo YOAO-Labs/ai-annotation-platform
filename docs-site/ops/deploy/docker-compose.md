@@ -864,3 +864,11 @@ STORAGE_SFTP_ROOTS={"company-sftp":{"host":"sftp.example.internal","port":22,"us
 生产 API/worker 从 `.env.production` 加载配置，开发宿主 API 读取根 `.env`，通用 Compose worker 显式透传。其他定向扫描节点须独立配置。环境变更重启宿主进程或重建受影响容器，无需因此重建镜像。分别验证 API 和实际 Celery hostname 的 list/read；资格存在只表示准入，不能保证当前可达。浏览/扫描每目录最多5000项；原图读取仍有完整摘要和临时快照预算。
 
 已有资格需要轮换或撤回时：先在平台禁用对应位置并确认修订已提交，使旧扫描和登记失效；再协调全部 API/worker 更新或移除配置、刷新进程，并检查节点探测结果。只改一个节点的环境不等于集群撤权。更换服务器、公钥或隔离根时新建连接与位置，历史引用不自动重绑；恢复旧来源前须重新核验原资格与内容。原图离线不删除索引和标注，独立预览也不能用于继续原图标注。
+
+## 周期来源扫描部署
+
+应用迁移0202后，刷新 API、处理 default 队列的 worker、来源绑定的指定 worker 与现有 beat。beat 每60秒检查周期计划；它必须是当前环境唯一的调度实例。无需新增服务、环境变量或重建后端镜像；挂载 Python 源码的 worker 和 beat 仍需重启才能加载新任务。原有固定根、只读挂载及节点资格要求不变。
+
+确认 default worker 注册 `app.workers.dataset_source_sync.tick_source_syncs`，来源节点注册 `app.workers.dataset_source_sync.advance_source_sync` 并消费自己的 worker_direct 队列。实际节点会刷新自身探测，人工确认仍需 API 当前节点可读。节点离线时计划延后，不补跑历史周期。观察来源计划的最近检查/错误和既有任务中心；等待核对差异不是调度故障。
+
+工作树 `dev:worktree up --with-worker` 启动普通和 maintenance worker，不包含 beat；本地周期验收需要同一隔离环境的 beat，不应借用主 checkout 的调度器。回退应用前先暂停周期、等待或单独取消活动任务，保留计划及扫描/登记证据；存在计划记录时不得直接降级0202。

@@ -289,6 +289,9 @@
 | POST | `/dataset-registrations/{registration_id}/entries/{path_digest}/retry` |
 | GET | `/dataset-registrations/{registration_id}/entries` |
 | GET | `/dataset-registrations/{registration_id}/changes` |
+| GET | `/dataset-sources/{source_id}/sync-schedule` |
+| PUT | `/dataset-sources/{source_id}/sync-schedule` |
+| POST | `/dataset-sources/{source_id}/sync-schedule/continue` |
 
 ## `datasets.py`
 
@@ -958,4 +961,4 @@
 
 ---
 
-_共 86 模块 / 551 路由_
+_共 86 模块 / 554 路由_

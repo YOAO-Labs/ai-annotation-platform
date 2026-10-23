@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { useAuthStore } from "@/stores/authStore";
 import { useVerifiedImage, verifiedContentError } from "@/hooks/useVerifiedImage";
 import { DirectoryRegistrationProgress } from "./DirectoryRegistrationProgress";
+import { DirectorySyncSchedule } from "./DirectorySyncSchedule";
 import { DirectoryCachedPreview, DirectorySourceControls } from "./DirectorySourceControls";
 import { parseReference } from "@/utils/referenceContent";
 
@@ -387,6 +388,9 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
           source={source}
           act={act}
         />
+      )}
+      {source?.enabled && !source.unregistered_at && (
+        <DirectorySyncSchedule key={source.id} sourceId={source.id} owner={owner} />
       )}
       {run?.complete && source?.enabled && !source.unregistered_at && (
         <DirectoryRegistrationProgress

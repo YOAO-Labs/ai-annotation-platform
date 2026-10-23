@@ -152,3 +152,4 @@
 - [0098](0098-strict-external-s3-references.md) — 外部 S3 引用保存精确定位并逐次验证条件读取
 - [0099](0099-qualified-sftp-references.md) — SFTP 持续引用以部署核验的只读 jail 和固定主机公钥为准入边界
 - [0100](0100-preflight-owned-source-differences.md) — 增量差异固定已接纳基线，接纳范围贯穿恢复
+- [0101](0101-periodic-source-coordination.md) — 周期来源协调沿用领域运行和人工接纳

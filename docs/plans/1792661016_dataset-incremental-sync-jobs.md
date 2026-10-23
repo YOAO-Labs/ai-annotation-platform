@@ -1,12 +1,12 @@
 # EPIC-04：增量同步与后台任务编排
 
-> 状态：E04-A / E04-B1 completed；E04-B2 周期计划及后续裁决待独立推进；用户已授权推进和提交，不分配发布版本。
+> 状态：E04-A / E04-B1 / E04-B2 completed；后续内容修订与移动裁决待独立推进；用户已授权推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 | 项目          | 内容                                                     |
 | ------------- | -------------------------------------------------------- |
-| 状态          | E04-A、E04-B1 已完成本地验收；其余范围保留草案           |
+| 状态          | E04-A、E04-B1、E04-B2 已完成本地验收；其余范围保留草案   |
 | 日期          | 2026-10-22（Asia/Shanghai）                              |
 | 优先级 / 阶段 | P0：M1 幂等手动扫描与变化保护；P1：M2 周期同步与裁决     |
 | 负责角色      | 后端、任务系统维护者、前端、测试                         |
@@ -265,3 +265,40 @@ Source + complete Scan -> A2 preflight / existing worker -> per-item SHA
 - Documentation: README, CHANGELOG Unreleased, user import guide, source API guide, developer storage concepts, ADR0100, route index, SDK coverage and roadmap/backlog progress updated in this commit.
 - Cleanup: isolated dev/test databases, Redis instances, buckets, temporary source/auth/browser fixtures and generated docs/test outputs removed. No backend image rebuild, shared configuration change, business mount mutation, push or release.
 - Remaining scope: this delivers B1 only. Periodic schedule/actor authority, accepting changed content as a new revision, explicit move resolution, delete decisions and ledger retention/compaction remain separate work. Not-seen is a candidate, never deletion proof; a complete scan is not an atomic snapshot or proof of current online content. Keep the E04 plan active until its remaining contracts are delivered.
+
+## 本轮实施定案：E04-B2 周期扫描与预检
+
+基线 `c877234c2`，工作区干净。用户继续授权下一阶段及提交；复用现有 Celery beat、Source 锁、Scan/Registration 租约与差异，不新增依赖、服务、环境变量或镜像构建。固定间隔为15–10080分钟，默认60分钟，以UTC保存下次时间；不提供日历/cron或本地时区时间，避免引入夏令时裁决。
+
+最小方案是在beat里直接遍历并创建扫描，但不能刷新指定节点的五分钟探测，也无法恢复提交与发布之间的中断。选择新增每来源一条持久周期计划，由beat每分钟有界唤醒，计划保存当前执行账号、Key ID/初始摘要证明、配置/根锚点、修订、当前扫描/预检和下次检查点；不保存JWT或明文Key，不冒用固定超管。调度派发令牌和90秒租约拒绝重复或过时唤醒；每轮最多100个来源，按下次检查时间公平前进。
+
+周期流程仅自动扫描→预检→差异，不登记样本。实际协调任务固定路由该来源worker，真实刷新list证据，I/O后重查计划令牌、账号、位置授权、Key read/write scope、原凭据和来源/位置修订及根身份。后台预检显式使用worker入口，不把worker探测伪装成API探测；人工确认仍在真实API节点重新验证原图。计划与业务Run独立，暂停只停止后续协调/触发，当前任务继续按原权限执行；需要取消时使用原任务取消入口，不自动复活已取消任务。
+
+遇手动active Scan或Registration保持等待，不接管、不创建重叠周期。当前周期pending派发可重放，失租更换原执行尝试，Scan完成后由持久指针补建预检，不依赖内存回调。正常无变化完成后按间隔安排下一轮，不补跑错过的周期。新增/变化/未见/排除/核验失败进入待核对，暂停后续扫描；人工登记完成或显式“跳过本轮差异，继续周期”后再安排下一轮。跳过仅确认已查看，不改变差异或业务样本。权限、凭据、配置或根资格改变阻断计划，须有权用户重新启用；暂态不可达按间隔重试，有界且不把未见推成删除。
+
+新增迁移0202：SourceSyncSchedule按source_id唯一，配置CAS修订、私有授权快照、公开状态/时间/错误和历史Run指针。GET/PUT `/dataset-sources/{id}/sync-schedule`；POST `/{id}/sync-schedule/continue`带expected_revision和scan_id，防止跳过错轮。旧来源没有计划，保持手动。保留计划/Run证据，只有空计划表可降级；应用回退停止新beat任务，已有业务记录不回退。
+
+文件超过8个：Source模型/0202迁移、新调度service/worker、原Registration后台入口、Celery include/routes/beat、Source schema/API、Web API/新计划面板/DirectoryReferencePanel、调度及迁移回归、OpenAPI/SDK清单/路由索引、README/CHANGELOG、用户导入/API/开发存储与部署说明、ADR0101和本计划/路线进度。无需重整现有任务中心。
+
+```text
+UI configure -> SourceSyncSchedule <- existing beat / bounded tick
+                       |                     |
+                 revision + token ---> exact source worker
+                       |                     |
+                       +--- durable Scan -> preflight -> frozen differences
+                                               |
+                                  manual confirm or acknowledge
+```
+
+验收：重复tick/重复消息/过期令牌、提交后未派发、手动冲突、探测过期刷新及错误节点、扫描完成后补预检、失租恢复、取消不复活、暂停竞态、CAS/错轮确认、撤权/Key轮换/配置或根变化、无变化连续周期、待确认阻断、新增人工接纳、任务历史清理和迁移往返。使用本地venv和owned test/dev资源，真实Celery执行与浏览器配置/暂停/继续/差异验证；运行相关旧回归、Ruff/TS/ESLint/CSS、API/SDK与文档检查。完成清理资源及中间产物并提交，不推送或分配发布版本。
+
+最脆弱前提是某次触发只会投递一次；设计不依赖它，使用数据库短锁和持久令牌，业务Run仍通过自身task/generation/lease fencing。依据[Celery周期任务的单调度器与重叠说明](https://docs.celeryq.dev/en/main/userguide/periodic-tasks.html)，beat只唤醒，不承担业务幂等。
+
+## Outcome — E04-B2
+
+- Delivered per-source fixed-interval schedules (15–10080 minutes), revision-based updates, pause, explicit review-and-continue, and a bounded existing-beat tick routed to the exact worker. The schedule retains its current Scan/Registration pointers across publication gaps. Background work creates inventory and frozen preflight differences only; ingestion remains a human action.
+- Preserved the original actor and API-key proof around I/O and nested domain calls. Duplicate/expired wakeups are fenced. Current authority/configuration/root changes block the schedule, transient failures retain checkpoints, cancelled runs stay cancelled, and manual work is never taken over. Formal registration retains the confirming user's authority and its existing recovery owner. Completed job cleanup cannot erase the periodic run owner. Reauthorization after a paused terminal cycle is possible while completed differences retain their review gate.
+- Verification: 90 unique backend tests passed across the 88-test regression and two added reauthorization cases; the final B2 suite passed 28 tests, with the review-date correction checked separately. Coverage includes authorization/key rotation, scope/expiry, manual conflicts, publication recovery, lost leases, pause during I/O, review CAS, no-change repeated cycles, cancellation, retained job history, and migrations 0196/0202. Four SDK/OpenAPI contract tests passed. OpenAPI consistency, generated Web types, Ruff, TypeScript, changed-file ESLint, CSS token validation, documentation build, and diff checks passed locally. Remote CI was not run.
+- Live acceptance: the owned dev environment ran the current API, general/maintenance workers, and a task-owned beat using the production 60-second source-sync entry. Exact worker task registration was verified. Browser operations enabled a 15-minute plan, observed automatic scanning/preflight and two added candidates with zero business items, paused and re-enabled without losing the review gate, then explicitly skipped this round: zero items and preserved differences. Subsequent human additions-only confirmation created exactly two items, with zero copied original bytes, zero preview bytes, and zero errors. The browser reported no page errors; console entries were development/restart notices. The final screen was inspected. No primary environment, shared configuration, image, or source file was modified by acceptance.
+- Cleanup: stopped the task beat/browser and owned dev/test clients; destroyed this checkout's disposable databases, Redis instances, buckets and local mode data; removed the task auth-vault entry, temporary source images, logs, screenshots, reports and generated build/cache outputs. Retained worktree identity/lock files. The API snapshot and generated API route index are intended tracked artifacts.
+- Remaining scope: changed-content acceptance as a new revision, explicit move/delete decisions, automatic ingestion policy, calendar/timezone scheduling and ledger retention/compaction remain separate work. This closes B2, not the whole E04 Epic; keep this plan active. No release version was assigned, no image was rebuilt, and no push or release was performed.

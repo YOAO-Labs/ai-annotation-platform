@@ -35,6 +35,9 @@ from app.schemas.dataset_source import (
     DatasetSourceChangeList,
     SourceLifecycleImpact,
     SourceLifecycleChange,
+    SourceSyncScheduleOut,
+    SourceSyncScheduleUpdate,
+    SourceSyncScheduleContinue,
 )
 from app.services import dataset_scans as svc
 from app.services import dataset_source_access as access
@@ -685,3 +688,64 @@ async def registration_changes(
 
     run = await access.require_run(db, DatasetRegistrationRun, registration_id, actor)
     return await changes.page(db, run, kind, limit, offset)
+
+
+@router.get(
+    "/dataset-sources/{source_id}/sync-schedule",
+    response_model=SourceSyncScheduleOut | None,
+)
+async def get_sync_schedule(
+    source_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(manager),
+):
+    from app.db.models.dataset_source import DatasetSourceSyncSchedule
+
+    await access.require_source(db, source_id, actor)
+    return await db.get(DatasetSourceSyncSchedule, source_id)
+
+
+@router.put(
+    "/dataset-sources/{source_id}/sync-schedule", response_model=SourceSyncScheduleOut
+)
+async def configure_sync_schedule(
+    source_id: uuid.UUID,
+    payload: SourceSyncScheduleUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(manager),
+):
+    from app.services import dataset_source_sync as sync
+
+    try:
+        row = await sync.configure(
+            db, source_id, payload, actor, getattr(request.state, "api_key_id", None)
+        )
+        await audit(
+            db, actor, request, "dataset_source.sync_schedule.configure", source_id
+        )
+        await db.commit()
+        return row
+    except FilesystemStorageError as exc:
+        raise conflict(exc) from None
+
+
+@router.post(
+    "/dataset-sources/{source_id}/sync-schedule/continue",
+    response_model=SourceSyncScheduleOut,
+)
+async def continue_sync_schedule(
+    source_id: uuid.UUID,
+    payload: SourceSyncScheduleContinue,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(manager),
+):
+    from app.services import dataset_source_sync as sync
+
+    row = await sync.continue_cycle(
+        db, source_id, payload, actor, getattr(request.state, "api_key_id", None)
+    )
+    await audit(db, actor, request, "dataset_source.sync_schedule.continue", source_id)
+    await db.commit()
+    return row

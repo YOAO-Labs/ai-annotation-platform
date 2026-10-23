@@ -39957,6 +39957,179 @@
         "title": "SourceLifecycleImpact",
         "type": "object"
       },
+      "SourceSyncScheduleContinue": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "scan_id": {
+            "format": "uuid",
+            "title": "Scan Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "scan_id"
+        ],
+        "title": "SourceSyncScheduleContinue",
+        "type": "object"
+      },
+      "SourceSyncScheduleOut": {
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "interval_minutes": {
+            "title": "Interval Minutes",
+            "type": "integer"
+          },
+          "last_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Checked At"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Started At"
+          },
+          "next_run_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Run At"
+          },
+          "registration_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Registration Id"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "scan_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scan Id"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "idle",
+              "scanning",
+              "preflighting",
+              "awaiting_review",
+              "registering",
+              "blocked"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "revision",
+          "enabled",
+          "interval_minutes",
+          "actor_id",
+          "state",
+          "scan_id",
+          "registration_id",
+          "next_run_at",
+          "last_checked_at",
+          "last_started_at",
+          "last_error"
+        ],
+        "title": "SourceSyncScheduleOut",
+        "type": "object"
+      },
+      "SourceSyncScheduleUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "expected_revision": {
+            "minimum": 0.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "interval_minutes": {
+            "default": 60,
+            "maximum": 10080.0,
+            "minimum": 15.0,
+            "title": "Interval Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "enabled"
+        ],
+        "title": "SourceSyncScheduleUpdate",
+        "type": "object"
+      },
       "StorageBindingOut": {
         "properties": {
           "bucket": {
@@ -62011,6 +62184,176 @@
           }
         ],
         "summary": "Start Scan",
+        "tags": [
+          "dataset-sources"
+        ]
+      }
+    },
+    "/api/v1/dataset-sources/{source_id}/sync-schedule": {
+      "get": {
+        "operationId": "get_sync_schedule_api_v1_dataset_sources__source_id__sync_schedule_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SourceSyncScheduleOut"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Sync Schedule Api V1 Dataset Sources  Source Id  Sync Schedule Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Sync Schedule",
+        "tags": [
+          "dataset-sources"
+        ]
+      },
+      "put": {
+        "operationId": "configure_sync_schedule_api_v1_dataset_sources__source_id__sync_schedule_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceSyncScheduleUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceSyncScheduleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Configure Sync Schedule",
+        "tags": [
+          "dataset-sources"
+        ]
+      }
+    },
+    "/api/v1/dataset-sources/{source_id}/sync-schedule/continue": {
+      "post": {
+        "operationId": "continue_sync_schedule_api_v1_dataset_sources__source_id__sync_schedule_continue_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceSyncScheduleContinue"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceSyncScheduleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Continue Sync Schedule",
         "tags": [
           "dataset-sources"
         ]

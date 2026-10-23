@@ -85,7 +85,7 @@ Run 的 `completed` 和 `complete=true` 只表示约定范围枚举与复核完�
 
 确认接口可带 JSON `{"scope":"additions_only"}`：须有完整差异且存在可登记新增，否则409 `comparison_incomplete/no_added_images`。选择范围固定为 `registration_scope`；重复同范围确认幂等，改变范围返回409 `registration_scope_changed`。本轮相同项标为 unchanged，不再登记，只有新增 ready 项进入正式登记；异常变化或未见项不接纳。正式登记仍逐项复读固定摘要和复查权限，确认后的外部覆盖会记异常。差异分类与候选摘要保留为预检证据，当前执行结果见 `registration_state/error_code`。已确认仅新增后，非新增错误不得通过 retry 扩大选择范围；变化项返回409 `source_change_requires_rescan`，需要新扫描及后续裁决能力。
 
-无请求体或 `{"scope":"all_safe"}` 保留既有确认方式；新预检中已变化项仍被阻断，旧账本 `comparison_available=false` 不支持仅新增。异步任务清理不清除此差异证据。周期计划、接受变化形成新修订、移动重定位及删除裁决未开放。
+无请求体或 `{"scope":"all_safe"}` 保留既有确认方式；新预检中已变化项仍被阻断，旧账本 `comparison_available=false` 不支持仅新增。异步任务清理不清除此差异证据。接受变化形成新修订、移动重定位及删除裁决未开放。
 
 ## 逐条登记原地图片
 
@@ -132,3 +132,19 @@ S3 每页最多200条，每次扫描最多50000条原始观测、1000页。页�
 SFTP 复用逐目录检查点、取消恢复及末次目录清单核对，每目录最多5000条，扫描总预算仍为50000条；没有跨连接的持久目录游标。普通文件以路径、服务器观测和完整 SHA 固定身份，不宣称 inode、不可变版本或条件读取能力。符号链接和特殊文件不接入；已观测到的目录变化使扫描不完整。根离线或权限失效停止当前尝试，保留候选与已提交部分。
 
 资格锚点写入扫描历史和内容绑定。调整或撤回资格须先禁用位置、递增修订，再协调 API/worker 部署；新资格不能自动重绑历史引用。部署步骤见[只读 SFTP 引用](/ops/deploy/docker-compose#只读-sftp-引用)。
+
+## 周期扫描与预检
+
+| 方法 | 路径                                                  | 行为                             |
+| ---- | ----------------------------------------------------- | -------------------------------- |
+| GET  | `/dataset-sources/{source_id}/sync-schedule`          | 查看计划；尚未配置返回 null      |
+| PUT  | `/dataset-sources/{source_id}/sync-schedule`          | 配置间隔或暂停，返回当前计划     |
+| POST | `/dataset-sources/{source_id}/sync-schedule/continue` | 核对后跳过本轮差异，安排下一周期 |
+
+写操作要求当前来源管理权与 `datasets:write`；启用还要求 `datasets:read`。PUT 请求 `{"expected_revision":0,"enabled":true,"interval_minutes":60}`；首次修订为0，后续传响应的 revision。间隔15–10080分钟，默认60；不支持 cron、日历时区或错过周期补跑。每分钟检查，繁忙或离线会延后。暂停传 enabled=false；仅停止后续协调，已经创建的扫描/预检/人工登记独立继续，取消仍走任务接口。
+
+计划按启用人的实时权限运行，固定账号和可选 API Key 的原证明，不保存 JWT 或 Key 明文。响应包含 revision、enabled、interval_minutes、actor_id、state、scan_id、registration_id、next_run_at、last_checked_at、last_started_at、last_error；不返回内部证明、根身份或派发令牌。state 为 idle/scanning/preflighting/awaiting_review/registering/blocked。修订或核对对象过期返回409 `schedule_revision_changed/schedule_review_changed`；活动扫描或预检期间更换执行账号或凭据返回409 `schedule_cycle_authority_pinned`，应先完成、取消该轮或处理阻断。
+
+后台在来源指定 worker 重新探测自身可读性，再扫描和完整预检；不冒充 API 节点，也不自动登记样本。人工确认仍由真实 API 节点复读。只包含相同项的完整预检直接安排下一周期；任何其他差异等待核对。可通过原确认接口登记新增，完成后继续周期；或调用 continue，传 `{"expected_revision":当前修订,"scan_id":"当前扫描UUID"}`，显式跳过本轮，不接纳任何样本，也不修改差异证据。计划不接管手动活动扫描/预检；人工正式登记仅观察，不刷新其执行身份。
+
+权限撤销、Key 轮换/到期/降权、来源或位置配置变化、根身份或资格变化会阻断并停用计划，核对后显式重新启用。暂态探测或派发错误保留当前指针并按间隔重试。过期协调消息被拒绝；失租的本计划扫描/预检可恢复，已取消任务不自动恢复。位置或来源自身停用仍按生命周期合同撤销在途业务任务；这与仅暂停周期不同。

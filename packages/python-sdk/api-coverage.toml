@@ -402,3 +402,9 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "GET /api/v1/dataset-sources/{source_id}/lifecycle-impact" = { status = "excluded", reason = "separate-connector-epic" }
 "POST /api/v1/dataset-sources/{source_id}/lifecycle" = { status = "excluded", reason = "separate-connector-epic" }
 "GET /api/v1/dataset-sources/{source_id}/entries/{path_digest}/preview" = { status = "excluded", reason = "separate-connector-epic" }
+
+"GET /api/v1/dataset-sources/{source_id}/sync-schedule" = { status = "excluded", reason = "separate-connector-epic" }
+
+"PUT /api/v1/dataset-sources/{source_id}/sync-schedule" = { status = "excluded", reason = "separate-connector-epic" }
+
+"POST /api/v1/dataset-sources/{source_id}/sync-schedule/continue" = { status = "excluded", reason = "separate-connector-epic" }

@@ -17,9 +17,18 @@ import type {
   DatasetRegistrationEntryList,
   DatasetSourceChangeList,
   DatasetRegistrationConfirm,
+  SourceSyncScheduleOut,
+  SourceSyncScheduleUpdate,
+  SourceSyncScheduleContinue,
 } from "./generated/types.gen";
 
 export const datasetSourcesApi = {
+  syncSchedule: (id: string, signal?: AbortSignal) =>
+    apiClient.get<SourceSyncScheduleOut | null>(`/dataset-sources/${id}/sync-schedule`, { signal }),
+  configureSync: (id: string, payload: SourceSyncScheduleUpdate) =>
+    apiClient.put<SourceSyncScheduleOut>(`/dataset-sources/${id}/sync-schedule`, payload),
+  continueSync: (id: string, payload: SourceSyncScheduleContinue) =>
+    apiClient.post<SourceSyncScheduleOut>(`/dataset-sources/${id}/sync-schedule/continue`, payload),
   locations: (signal?: AbortSignal) =>
     apiClient.get<StorageLocationList>("/storage-locations?limit=200", { signal }),
   browse: (id: string, path: string, cursor?: string, signal?: AbortSignal) =>

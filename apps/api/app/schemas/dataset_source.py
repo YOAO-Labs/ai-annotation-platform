@@ -190,3 +190,34 @@ class SourceLifecycleChange(BaseModel):
 class DatasetRegistrationEntryList(BaseModel):
     items: list[DatasetRegistrationEntryOut]
     total: int
+
+
+class SourceSyncScheduleUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(ge=0)
+    enabled: bool
+    interval_minutes: int = Field(default=60, ge=15, le=10080)
+
+
+class SourceSyncScheduleContinue(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(ge=1)
+    scan_id: uuid.UUID
+
+
+class SourceSyncScheduleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    source_id: uuid.UUID
+    revision: int
+    enabled: bool
+    interval_minutes: int
+    actor_id: uuid.UUID
+    state: Literal[
+        "idle", "scanning", "preflighting", "awaiting_review", "registering", "blocked"
+    ]
+    scan_id: uuid.UUID | None
+    registration_id: uuid.UUID | None
+    next_run_at: datetime | None
+    last_checked_at: datetime | None
+    last_started_at: datetime | None
+    last_error: str | None

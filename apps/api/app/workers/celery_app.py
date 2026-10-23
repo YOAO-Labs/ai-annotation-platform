@@ -45,6 +45,7 @@ celery_app = Celery(
         "app.workers.storage_probe",
         "app.workers.dataset_scan",
         "app.workers.dataset_registration",
+        "app.workers.dataset_source_sync",
         # v0.12.0 · B4 建任务异步化（大 dataset link → Celery 建 task）
         "app.workers.create_tasks",
         "app.workers.cross_frame_job",
@@ -74,6 +75,7 @@ celery_app.conf.update(
     # 队列堆积、永不执行。收口到 default 让兜底任务真正跑起来。
     task_default_queue="default",
     task_routes={
+        "app.workers.dataset_source_sync.tick_source_syncs": {"queue": "default"},
         "app.workers.tasks.batch_predict": {"queue": "ml"},
         # v0.21.7 · 逐帧段任务跑 GPU predict → ml 队列; finalize 轻量走 default。
         "app.workers.frame_preannotate.predict_video_segment": {"queue": "ml"},
@@ -152,6 +154,10 @@ celery_app.conf.update(
     # v0.7.0：beat schedule。运维侧需 deploy `celery -A app.workers.celery_app beat` 进程
     # （或 worker --beat 单进程模式）才会触发。
     beat_schedule={
+        "check-source-sync-schedules": {
+            "task": "app.workers.dataset_source_sync.tick_source_syncs",
+            "schedule": 60.0,
+        },
         "maintain-active-learning-rounds": {
             "task": "app.workers.active_learning.maintain_rounds",
             "schedule": crontab(minute="*"),

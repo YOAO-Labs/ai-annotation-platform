@@ -127,7 +127,7 @@ async def attempt(db, run, source, actor, *, api_key_id=None, key_proof):
     return job
 
 
-async def start_preflight(db, scan_id, actor, *, api_key_id=None):
+async def start_preflight(db, scan_id, actor, *, api_key_id=None, worker_node=None):
     from app.services.directory_policy import effective_cache_policy
 
     key_proof = await key_authority(db, actor, api_key_id, "datasets:write")
@@ -163,17 +163,22 @@ async def start_preflight(db, scan_id, actor, *, api_key_id=None):
             )
         )
     ).one()
-    result = await probe_candidates(
-        db, location, source, scan.id, locations.api_node_id()
-    )
-    await request_authority(db, actor, api_key_id, key_proof, source)
-    await locations.store_probe(
-        db, location, locations.api_node_id(), result, await scans.now(db)
-    )
-    if not result["ok"]:
-        raise HTTPException(
-            409, detail={"code": "api_source_unavailable", "reason": result["code"]}
+    if worker_node is not None:
+        if worker_node != source.config["node_id"]:
+            raise HTTPException(409, detail={"code": "wrong_execution_node"})
+        await key_authority(db, actor, api_key_id, "datasets:read")
+    else:
+        result = await probe_candidates(
+            db, location, source, scan.id, locations.api_node_id()
         )
+        await request_authority(db, actor, api_key_id, key_proof, source)
+        await locations.store_probe(
+            db, location, locations.api_node_id(), result, await scans.now(db)
+        )
+        if not result["ok"]:
+            raise HTTPException(
+                409, detail={"code": "api_source_unavailable", "reason": result["code"]}
+            )
     run = Run(
         scan_run_id=scan.id,
         source_id=source.id,
