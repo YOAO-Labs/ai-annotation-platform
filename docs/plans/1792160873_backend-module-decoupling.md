@@ -7485,3 +7485,22 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Keep the overall goal and Identity blocker open; the next bounded diagnostic is
   the original full business sequence on that host-forwarded path, preserving the
   same safe tracing and comparing authentication and account-read RPCs separately.
+
+- Documentation checkpoint 00825d63b083fd0e361958dda11876137118b99c passed normal
+  hooks and the documentation build in 16.654 seconds. Remove two obsolete ledger
+  next-item references to the already qualified E2E slice; this final wording-only
+  cleanup uses normal formatting checks rather than repeating acceptance.
+- Final preservation confirms twenty unchanged editable bindings, protected clean
+  primary HEAD 856fa79c87ef2668d0ed74eb570df0a3e529d49f, four unchanged shared
+  containers, 116 known owned PostgreSQL containers absent and no Root/fixture
+  runtime. All five images used by this checkpoint match current inputs. The older
+  Workspace API image remains preserved; its only drift is the two host diagnostic
+  test inputs, not runtime application/package source. Earlier worker archives and
+  retained branches are unchanged.
+- Aggregate `.worktree/identity-forwarding-diagnostics.json` has SHA256
+  `b9367f9427a1f1df1351eda405c322607b21dd3a047ecd4e6d1a8e9d05c5b2e0`.
+  It records two different cold runtime cases and their actual public-call/trace
+  receipts, the native failure control, image/source identities, backup hashes,
+  migration/cleanup/preservation facts and retained original failures. Its status
+  is diagnostics_verified, explicitly not a historical repair or complete module.
+  No primary cutover, push, release, production deployment, remote CI or Go expansion.
