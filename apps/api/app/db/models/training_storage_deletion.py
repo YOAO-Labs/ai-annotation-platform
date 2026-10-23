@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 from app.db.models.training_dataset import TRAINING_STORAGE_REF_CHECK
+from app.db.models.training_run import TRAINING_RUN_STORAGE_REF_CHECK
 
 
 class TrainingStorageDeletion(Base):
@@ -19,7 +20,8 @@ class TrainingStorageDeletion(Base):
         ),
         Index("ix_training_storage_deletion_attempt", "last_attempted_at", "id"),
         CheckConstraint(
-            TRAINING_STORAGE_REF_CHECK, name="ck_training_deletion_storage_ref"
+            f"({TRAINING_STORAGE_REF_CHECK}) OR ({TRAINING_RUN_STORAGE_REF_CHECK})",
+            name="ck_training_deletion_storage_ref",
         ),
         CheckConstraint(
             "storage_ref IS NULL OR (storage_ref->>'bucket' = bucket "

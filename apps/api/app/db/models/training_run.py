@@ -18,6 +18,11 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.db.models.training_dataset import TRAINING_STORAGE_REF_CHECK
+
+TRAINING_RUN_STORAGE_REF_CHECK = TRAINING_STORAGE_REF_CHECK.replace(
+    "'training-dataset'", "'training-run'"
+).replace("/datasets/", "/runs/")
 
 
 class TrainingRun(Base):
@@ -51,6 +56,14 @@ class TrainingRun(Base):
         CheckConstraint(
             "status IN ('queued','preparing','training','evaluating','uploading','cancelling','lost','succeeded','failed','cancelled')",
             name="ck_training_run_status",
+        ),
+        CheckConstraint(
+            TRAINING_RUN_STORAGE_REF_CHECK, name="ck_training_run_storage_ref"
+        ),
+        CheckConstraint(
+            "storage_ref IS NULL OR storage_ref->>'prefix' = "
+            "'projects/' || project_id::text || '/runs/' || id::text || '/'",
+            name="ck_training_run_storage_prefix",
         ),
     )
 
@@ -97,6 +110,7 @@ class TrainingRun(Base):
     config: Mapped[dict] = mapped_column(JSONB, nullable=False)
     config_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     origin: Mapped[dict | None] = mapped_column(JSONB)
+    storage_ref: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     authorization: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     current_attempt_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     metrics: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)

@@ -40,10 +40,15 @@ _FIELDS = frozenset(
         "evidence",
     }
 )
-_PREFIX = re.compile(
-    r"projects/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})/"
-    r"datasets/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})/"
-)
+_NAMESPACES = {"training-dataset": "datasets", "training-run": "runs"}
+_PREFIXES = {
+    purpose: re.compile(
+        r"projects/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})/"
+        + namespace
+        + r"/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})/"
+    )
+    for purpose, namespace in _NAMESPACES.items()
+}
 
 
 def _reject(code="training_storage_identity_changed"):
@@ -59,11 +64,16 @@ def _reject(code="training_storage_identity_changed"):
     )
 
 
-def prefix_for(project_id, version_id) -> str:
+def _prefix_for(project_id, identifier, *, purpose) -> str:
     try:
-        return f"projects/{uuid.UUID(str(project_id))}/datasets/{uuid.UUID(str(version_id))}/"
-    except (TypeError, ValueError, AttributeError):
+        namespace = _NAMESPACES[purpose]
+        return f"projects/{uuid.UUID(str(project_id))}/{namespace}/{uuid.UUID(str(identifier))}/"
+    except (KeyError, TypeError, ValueError, AttributeError):
         _reject("training_storage_invalid_key")
+
+
+def prefix_for(project_id, version_id) -> str:
+    return _prefix_for(project_id, version_id, purpose="training-dataset")
 
 
 def _plain(value, maximum):
@@ -152,7 +162,7 @@ class Owner:
         return result
 
 
-def resolve_ref(ref, *, expected_prefix=None) -> Owner:
+def _resolve_ref(ref, *, purpose, expected_prefix=None) -> Owner:
     if ref is None:
         _reject("training_storage_unpinned")
     if (
@@ -160,7 +170,7 @@ def resolve_ref(ref, *, expected_prefix=None) -> Owner:
         or set(ref) != _FIELDS
         or type(ref["schema"]) is not int
         or ref["schema"] != 1
-        or ref["purpose"] != "training-dataset"
+        or ref["purpose"] != purpose
         or ref["location_id"] != str(LEGACY_LOCATION_ID)
         or type(ref["config_revision"]) is not int
         or ref["config_revision"] != 1
@@ -169,7 +179,7 @@ def resolve_ref(ref, *, expected_prefix=None) -> Owner:
         or not _plain(ref["bucket"], 255)
         or any(char in ref["bucket"] for char in "/\\?#@")
         or not isinstance(ref["prefix"], str)
-        or _PREFIX.fullmatch(ref["prefix"]) is None
+        or _PREFIXES[purpose].fullmatch(ref["prefix"]) is None
         or (expected_prefix is not None and ref["prefix"] != expected_prefix)
         or not isinstance(ref["origin"], str)
         or ref["origin"] not in {"new", "verified-retained"}
@@ -190,14 +200,25 @@ def resolve_ref(ref, *, expected_prefix=None) -> Owner:
     return Owner(value["bucket"], value["prefix"], value)
 
 
-def resolve(version) -> Owner:
-    return resolve_ref(
-        getattr(version, "storage_ref", None),
-        expected_prefix=prefix_for(version.project_id, version.id),
+def resolve_ref(ref, *, expected_prefix=None) -> Owner:
+    return _resolve_ref(
+        ref, purpose="training-dataset", expected_prefix=expected_prefix
     )
 
 
-async def adoption_candidate(db, version) -> dict:
+def _resolve(record, *, purpose) -> Owner:
+    return _resolve_ref(
+        getattr(record, "storage_ref", None),
+        purpose=purpose,
+        expected_prefix=_prefix_for(record.project_id, record.id, purpose=purpose),
+    )
+
+
+def resolve(version) -> Owner:
+    return _resolve(version, purpose="training-dataset")
+
+
+async def _adoption_candidate(db, record, *, purpose) -> dict:
     """Read the persisted candidate; content adoption belongs to its verifier."""
     location = await db.get(StorageLocation, LEGACY_LOCATION_ID, populate_existing=True)
     binding = await db.scalar(
@@ -220,31 +241,40 @@ async def adoption_candidate(db, version) -> dict:
     endpoint = _runtime_endpoint()
     candidate = {
         "schema": 1,
-        "purpose": "training-dataset",
+        "purpose": purpose,
         "location_id": str(location.id),
         "config_revision": location.config_revision,
         "binding_generation": binding.generation,
         "endpoint_url": endpoint,
         "bucket": binding.bucket,
-        "prefix": prefix_for(version.project_id, version.id),
+        "prefix": _prefix_for(record.project_id, record.id, purpose=purpose),
         "storage_identity": managed_storage_identity(endpoint, binding.bucket),
         "origin": "verified-retained",
         "evidence": None,
     }
-    return resolve_ref(candidate).ref
+    return _resolve_ref(candidate, purpose=purpose).ref
 
 
-async def allocate(db, version) -> dict:
-    if getattr(version, "storage_ref", None) is not None:
-        return resolve(version).ref
+async def adoption_candidate(db, version) -> dict:
+    """Read the persisted candidate; content adoption belongs to its verifier."""
+    return await _adoption_candidate(db, version, purpose="training-dataset")
+
+
+async def _allocate(db, record, *, purpose) -> dict:
+    if getattr(record, "storage_ref", None) is not None:
+        return _resolve(record, purpose=purpose).ref
     try:
         await ensure_legacy_bindings(db)
     except ValueError:
         _reject("training_storage_binding_unproven")
-    candidate = await adoption_candidate(db, version)
+    candidate = await _adoption_candidate(db, record, purpose=purpose)
     if candidate["bucket"] != storage_service.training_bucket:
         _reject("training_storage_binding_unproven")
     candidate["origin"] = "new"
-    version.storage_ref = candidate
+    record.storage_ref = candidate
     await db.flush()
-    return resolve(version).ref
+    return _resolve(record, purpose=purpose).ref
+
+
+async def allocate(db, version) -> dict:
+    return await _allocate(db, version, purpose="training-dataset")
