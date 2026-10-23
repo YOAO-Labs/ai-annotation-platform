@@ -61,10 +61,12 @@ last_reviewed: 2026-10-24
 | `apps/api/app/services/async_job_terminal.py`                                     | 不含 ORM/传输的不可变 `JobTerminal` 事实                     |
 | `apps/api/app/application/job_terminal.py`                                        | 领域终态绑定与信号兜底工作流，同事务协调状态/通知            |
 | `apps/api/app/application/job_cancellation.py`                                    | 取消准入、领域命令与执行停止请求组合，提交由入口持有         |
-| `apps/identity/src/aap_identity/notification_delivery_contract.py`                | Notifications publisher 的纯值领取协议                       |
-| `apps/identity/src/aap_identity/notification_delivery_postgres.py`                | Notifications publisher 的 PostgreSQL 执行器                 |
-| `apps/identity/src/aap_identity_runtime/notification_worker.py`                   | `NotificationDeliveryExecutor` 的独立运行入口                |
-| `apps/identity/src/aap_identity_runtime/notification_config.py`                   | `NotificationPublisherSettings` 环境配置                     |
+| `apps/notifications/src/aap_notifications/notification_delivery_contract.py`      | publisher 的领取、确认与策略协议                             |
+| `apps/notifications/src/aap_notifications/notification_delivery_postgres.py`      | publisher 的 PostgreSQL 执行器                               |
+| `apps/notifications/src/aap_notifications/delivery_worker.py`                     | `NotificationPublisher` 执行器与独立 CLI                     |
+| `apps/notifications/src/aap_notifications/delivery_config.py`                     | `NotificationPublisherSettings` 环境配置                     |
+| `apps/notifications/Dockerfile`                                                   | 锁定依赖、非 editable 安装的独立 publisher 工件定义          |
+| `apps/identity/src/aap_identity_runtime/notification_worker.py`                   | 既有 Identity publisher 命令的兼容入口                       |
 | `apps/api/app/services/job_execution_control.py`                                  | 不依赖 broker 的协作取消执行端口                             |
 | 各领域服务的 `reconcile_job_terminal`                                             | 只回填所属账本，保留各自终态语义                             |
 | `apps/api/app/workers/signals.py`                                                 | Celery 信号适配、连接与调用方提交/释放                       |
@@ -345,7 +347,7 @@ ORM DELETE evaluator 同步身份缓存，因此已有、脏、过期对象及�
 
 独立 `notification_publish_client` LOGIN 仅有 `identity_delivery_policy()`、`claim_identity_deliveries(jsonb)` 和 `finish_identity_delivery(jsonb)` 三项能力，不能查询或更新 Notification 表，也不持 Identity/AUTH/mail 凭据。领取 transaction 提交后才向 Redis `notify:{user_id}` 发消息；只有 Redis 接受以后才能确认 lease。锁等待后的时间由数据库检查，旧 worker lease 不能确认新领取。Redis 未确认或 publisher 崩溃时允许下一次 claim 重试；消息使用同一 Notification id，投递是 at-least-once 而非 exactly-once。
 
-独立命令 `python -m aap_identity_runtime.notification_worker` 使用专用 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` 和 `NOTIFICATION_PUBLISH_REDIS_URL(_FILE)`，没有 HTTP 监听。主 API/Celery 可以把同一 publisher executor 装入默认队列 relay，每 10 秒领取；两种执行路径共享 lease 和同一 durable outbox，不再调用这两个注销事件的旧 best-effort 即时发布路径。详见 [Identity 私有协议](/api/guides/identity-runtime#注销通知的-durable-publisher) 和 [ADR-0121](/dev/adr/0121-identity-self-deactivation-and-notification-delivery)。
+独立命令 `aap-notifications-publisher` 或 `python -m aap_notifications.delivery_worker` 由 Notifications 包持有，使用原 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` 和 `NOTIFICATION_PUBLISH_REDIS_URL(_FILE)`，没有 HTTP 监听。`apps/notifications/Dockerfile` 定义独立、锁定、非 editable 的运行工件；Identity 原导入路径和 `python -m aap_identity_runtime.notification_worker` 保留兼容转发，现有 Identity Compose 仍使用该入口。主 API/Celery 的每 10 秒 relay 直接复用 Notifications executor；owner 内部故障在 API 外层仍翻译成既有 Identity 错误。两种执行路径共享 lease 和同一 durable outbox，不改变至少一次投递、取消或确认顺序。详见 [Identity 私有协议](/api/guides/identity-runtime#注销通知的-durable-publisher) 和 [ADR-0121](/dev/adr/0121-identity-self-deactivation-and-notification-delivery)。
 
 新增可配置通知类型时要同步更新后端 `KNOWN_NOTIFICATION_TYPES` 与前端设置页标签；
 不可配置的运维类通知则刻意不进 `KNOWN`，避免被错误静音。

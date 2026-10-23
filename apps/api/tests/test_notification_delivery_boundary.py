@@ -10,8 +10,10 @@ import uuid
 
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity_runtime.notification_worker import NotificationPublisher
+from aap_notifications.delivery_worker import NotificationPublisher
+from aap_notifications.notification_delivery_contract import (
+    NotificationDeliveryUnavailable,
+)
 from app.config import settings
 from app.services import notification_delivery
 from app.services.identity_contracts import IdentityGatewayUnavailable
@@ -131,7 +133,7 @@ async def test_invalid_claim_rolls_back_before_commit_or_publication(fault):
     else:
         item["payload"]["auto"] = 1
     sessions = Sessions([raw])
-    with pytest.raises(IdentityUnavailable):
+    with pytest.raises(NotificationDeliveryUnavailable):
         await notification_delivery.NotificationDeliveryData(sessions).claim_deliveries(
             worker_id
         )

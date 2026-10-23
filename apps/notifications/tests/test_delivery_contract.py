@@ -7,8 +7,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.notification_delivery_contract import (
+from aap_notifications.notification_delivery_contract import (
     NOTIFICATION_DELIVERY_POLICY,
     NOTIFICATION_DELIVERY_POLICY_PROTOCOL,
     NOTIFICATION_DELIVERY_PROTOCOL,
@@ -18,6 +17,7 @@ from aap_identity.notification_delivery_contract import (
     NotificationFinishReply,
     NotificationFinishRequest,
     NotificationRequestedLease,
+    NotificationDeliveryUnavailable,
     decode_notification_claim_reply,
     decode_notification_claim_request,
     decode_notification_delivery_policy,
@@ -84,7 +84,7 @@ def test_notification_delivery_policy_is_exact_and_closed():
             "extra": "field",
         },
     ):
-        with pytest.raises(IdentityUnavailable):
+        with pytest.raises(NotificationDeliveryUnavailable):
             decode_notification_delivery_policy(payload)
 
 
@@ -114,10 +114,10 @@ def test_claim_request_rejects_coercion_unknown_fields_and_duplicate_keys():
             "lease_seconds": 60,
             **change,
         }
-        with pytest.raises(IdentityUnavailable):
+        with pytest.raises(NotificationDeliveryUnavailable):
             decode_notification_claim_request(payload)
 
-    with pytest.raises(IdentityUnavailable):
+    with pytest.raises(NotificationDeliveryUnavailable):
         decode_notification_claim_request(
             (
                 '{"schema":"aap-notifications-delivery/v1",'
@@ -142,23 +142,23 @@ def test_claim_reply_uses_only_lifecycle_payloads(completed):
 
     bad = _lease(completed=completed)
     bad["payload"]["reason"] = "must never be delivered"
-    with pytest.raises(IdentityUnavailable):
+    with pytest.raises(NotificationDeliveryUnavailable):
         decode_notification_claim_reply(_claim([bad]))
 
 
 def test_claim_reply_rejects_non_boolean_success_target_mismatch_and_oversized_page():
     lease = _lease()
-    with pytest.raises(IdentityUnavailable):
+    with pytest.raises(NotificationDeliveryUnavailable):
         decode_notification_claim_reply({**_claim([lease]), "ok": 1})
     with pytest.raises(ValidationError):
         NotificationClaimReply.model_validate({**_claim([lease]), "ok": 1})
 
     lease["target_type"] = "project"
-    with pytest.raises(IdentityUnavailable):
+    with pytest.raises(NotificationDeliveryUnavailable):
         decode_notification_claim_reply(_claim([lease]))
 
     items = [_lease() for _ in range(101)]
-    with pytest.raises(IdentityUnavailable):
+    with pytest.raises(NotificationDeliveryUnavailable):
         decode_notification_claim_reply(_claim(items))
 
 
@@ -185,7 +185,7 @@ def test_finish_request_has_closed_safe_outcomes_and_reasons():
         {"outcome": "retry", "reason": "published"},
         {"notification_id": str(uuid.uuid4()), "extra": "field"},
     ):
-        with pytest.raises(IdentityUnavailable):
+        with pytest.raises(NotificationDeliveryUnavailable):
             decode_notification_finish_request({**request, **change})
 
 
@@ -199,9 +199,9 @@ def test_finish_reply_requires_strict_booleans_and_closed_data():
     assert isinstance(reply, NotificationFinishReply)
     assert reply.data.accepted is False
 
-    with pytest.raises(IdentityUnavailable):
+    with pytest.raises(NotificationDeliveryUnavailable):
         decode_notification_finish_reply({**payload, "data": {"accepted": 1}})
-    with pytest.raises(IdentityUnavailable):
+    with pytest.raises(NotificationDeliveryUnavailable):
         decode_notification_finish_reply(
             {**payload, "data": {"accepted": False, "extra": True}}
         )

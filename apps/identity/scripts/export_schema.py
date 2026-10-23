@@ -150,12 +150,8 @@ from aap_identity.mail_v2_contract import (  # noqa: E402
     MailV2PolicyReply,
     MailV2RenewRequest,
 )
-from aap_identity.notification_delivery_contract import (  # noqa: E402
-    NotificationClaimReply,
-    NotificationClaimRequest,
-    NotificationDeliveryPolicyReply,
-    NotificationFinishReply,
-    NotificationFinishRequest,
+from aap_notifications.notification_delivery_contract import (  # noqa: E402
+    notification_delivery_protocol_schema,
 )
 from aap_identity.key_contract import (  # noqa: E402
     KeyFailureReply,
@@ -515,16 +511,7 @@ def main():
             TypeAdapter(LabelingPlatformRoleFactsReply),
             "aap-labeling-identity-platform-role-facts/v1",
         ),
-        "src/aap_identity/notification_delivery_protocol.schema.json": render_schema(
-            TypeAdapter(
-                NotificationDeliveryPolicyReply
-                | NotificationClaimRequest
-                | NotificationClaimReply
-                | NotificationFinishRequest
-                | NotificationFinishReply
-            ),
-            "aap-notifications-delivery/v1",
-        ),
+        "src/aap_identity/notification_delivery_protocol.schema.json": notification_delivery_protocol_schema(),
         "src/aap_identity/native_mail_protocol.schema.json": render_schema(
             TypeAdapter(
                 MailClaimRequest

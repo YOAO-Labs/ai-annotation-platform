@@ -6,8 +6,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from aap_identity.notification_delivery_contract import NotificationRequestedLease
-from aap_identity_runtime.notification_worker import (
+from aap_notifications.notification_delivery_contract import NotificationRequestedLease
+from aap_notifications.delivery_worker import (
     NotificationPublisher,
     _notification_message,
 )

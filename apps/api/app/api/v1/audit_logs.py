@@ -121,7 +121,7 @@ async def _load_monthly_summary_rows(
                                 ELSE 0::smallint
                             END AS status_family,
                             COUNT(*)::bigint AS event_count
-                        FROM audit_logs
+                        FROM aap_audit_v1.audit_events
                         WHERE created_at >= :raw_start AND created_at < :month_end
                           AND (:business_only = false OR action NOT LIKE 'http.%')
                         GROUP BY day, action, target_type, actor_role, status_family

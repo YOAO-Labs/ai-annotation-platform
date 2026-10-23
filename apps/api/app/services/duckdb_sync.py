@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.models.audit_log import AuditLog
+from app.services.audit_read_relations import audit_event
 from app.db.models.task_event import TaskEvent
 
 log = logging.getLogger(__name__)
@@ -170,17 +170,17 @@ async def sync_audit_logs(db: AsyncSession) -> dict:
         watermark = _get_high_water(con, "audit_logs")
         stmt = (
             select(
-                AuditLog.id,
-                AuditLog.actor_id,
-                AuditLog.actor_role,
-                AuditLog.action,
-                AuditLog.target_type,
-                AuditLog.target_id,
-                AuditLog.status_code,
-                AuditLog.created_at,
+                audit_event.id,
+                audit_event.actor_id,
+                audit_event.actor_role,
+                audit_event.action,
+                audit_event.target_type,
+                audit_event.target_id,
+                audit_event.status_code,
+                audit_event.created_at,
             )
-            .where(AuditLog.created_at > watermark)
-            .order_by(AuditLog.created_at)
+            .where(audit_event.created_at > watermark)
+            .order_by(audit_event.created_at)
             .limit(50000)  # 单次 cap，防止首次同步爆内存
         )
         result = await db.execute(stmt)

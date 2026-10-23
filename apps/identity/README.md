@@ -385,14 +385,19 @@ through its existing API process.
 
 Identity writes the two fixed deactivation events through the Notifications
 owner in the same database transaction. Delivery uses the separate
-`notification_publish_client` and the same package's
-`python -m aap_identity_runtime.notification_worker` process; this publisher
+`notification_publish_client`; the existing
+`python -m aap_identity_runtime.notification_worker` entry remains as a
+compatibility wrapper around the Notifications publisher. The publisher
 requires only `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` and
 `NOTIFICATION_PUBLISH_REDIS_URL(_FILE)`, with no Identity/auth/signing secret.
-Its portable DTO and Postgres execution live in
-`aap_identity.notification_delivery_contract` and
-`aap_identity.notification_delivery_postgres`; runtime settings are owned by
-`aap_identity_runtime.notification_config`.
+The contract, PostgreSQL client, runtime settings, and executor are owned by
+`aap_notifications.notification_delivery_contract`,
+`aap_notifications.notification_delivery_postgres`,
+`aap_notifications.delivery_config`, and
+`aap_notifications.delivery_worker`; Identity's old import paths remain
+compatibility wrappers. The Identity runtime image installs the Notifications
+package as a noneditable dependency so its existing worker deployment remains
+independent.
 See [the private protocol](../../docs-site/api/guides/identity-runtime.md#自助注销与最后一名超级管理员围栏),
 [ADR-0121](../../docs/adr/0121-identity-self-deactivation-and-notification-delivery.md),
 and the [deployment slice status](../../docs-site/dev/concepts/module-deployment.md).

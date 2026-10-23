@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from aap_identity_runtime.notification_config import NotificationPublisherSettings
+from aap_notifications.delivery_config import NotificationPublisherSettings
 
 
 def test_publisher_settings_need_only_owner_dsn_and_redis_url():

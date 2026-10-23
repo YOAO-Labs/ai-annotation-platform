@@ -35,6 +35,70 @@ async def test_materialized_view_only_contains_completed_utc_days(db_session):
     assert [(row.action, row.event_count) for row in rows] == [(completed_action, 1)]
 
 
+async def test_monthly_summary_combines_completed_day_and_raw_tail(db_session):
+    from app.api.v1.audit_logs import _load_monthly_summary_rows
+
+    now = datetime.now(timezone.utc)
+    today = now.date()
+    completed_day = today - timedelta(days=1)
+    completed_action = "test.audit_bi.completed_day"
+    tail_action = "test.audit_bi.raw_tail"
+    db_session.add_all(
+        [
+            AuditLog(
+                action=completed_action,
+                target_type="project",
+                actor_role="reviewer",
+                status_code=201,
+                created_at=datetime.combine(
+                    completed_day, datetime.min.time(), timezone.utc
+                )
+                + timedelta(hours=12),
+            ),
+            AuditLog(
+                action=tail_action,
+                target_type="task",
+                actor_role="reviewer",
+                status_code=500,
+                created_at=now,
+            ),
+        ]
+    )
+    await db_session.flush()
+    await db_session.execute(text("REFRESH MATERIALIZED VIEW mv_audit_bi_daily"))
+
+    class RecordingSession:
+        def __init__(self, session):
+            self.session = session
+            self.statements = []
+
+        async def execute(self, statement, params=None):
+            self.statements.append(str(statement))
+            return await self.session.execute(statement, params)
+
+    recorded = RecordingSession(db_session)
+    materialized_through, rows = await _load_monthly_summary_rows(
+        recorded,
+        month_start=completed_day,
+        month_end=today + timedelta(days=1),
+        business_only=False,
+    )
+
+    assert materialized_through == completed_day
+    by_action = {row.action: row for row in rows}
+    assert by_action[completed_action].day == completed_day
+    assert by_action[completed_action].event_count == 1
+    assert by_action[tail_action].day == today
+    assert by_action[tail_action].event_count == 1
+    assert any(
+        "from aap_audit_v1.audit_events" in statement.lower()
+        for statement in recorded.statements
+    )
+    assert not any(
+        "from audit_logs" in statement.lower() for statement in recorded.statements
+    )
+
+
 async def test_monthly_summary_merges_dimensions_and_business_scope(
     httpx_client, db_session, auth_headers
 ):

@@ -55,11 +55,13 @@ the project-admin list, annotation/task histories, batch audit logs, admin
 registration/person activity, and review-round contributor snapshot. The
 super-admin global list/export remains on `query_events(jsonb)`.
 
-Analytics and lifecycle readers remain outside this relation migration:
-monthly summary's materialized/raw tail, DuckDB sync, project performance,
-Learning/active-learning evidence, partition retention/archive maintenance,
-and append/hydration consumers. Their existing API `audit_logs` privileges
-prevent a universal private-table SELECT revocation in this slice.
+The monthly summary's raw tail, DuckDB sync, and project-performance event
+reads use `audit_events`. The summary's completed-day aggregates and refresh
+still use `mv_audit_bi_daily`. Learning/active-learning evidence, partition
+retention/archive maintenance, and append/hydration consumers still read or
+write the base table, so the API retains its existing private-table privileges.
+This reader migration does not change materialized-view ownership or refresh
+authority.
 
 Migration `0315` adds append and `0317` adds global query after Notifications
 read-state `0316`; `0320` adds the read relation after Notifications deletion
@@ -77,8 +79,9 @@ The `audit-query-grants.sql` profile gives one LOGIN only `query_events(jsonb)`;
 the separate `audit-read-grants.sql` profile gives another LOGIN only
 `SELECT` on `audit_events`. Neither profile grants direct base-table reads,
 sequences, or write functions. The API LOGIN gains SELECT on the view while
-retaining current private-table access for residual analytics, Learning,
-retention and test/seed consumers. Focused checks cover the row contract,
+retaining current base-table access for Learning, retention, and test/seed
+consumers; the monthly summary also still reads its materialized view directly.
+Focused checks cover the row contract,
 native INET parity, identity-map/autoflush behavior, API scope, and the Node
 read-only peer. This relation slice does not close full Audit assembly,
 analytics ownership, partition/archive recovery, or universal private-table

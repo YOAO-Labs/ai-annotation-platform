@@ -9,12 +9,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.notification_delivery_contract import (
+from aap_notifications.notification_delivery_contract import (
     NOTIFICATION_DELIVERY_POLICY_PROTOCOL,
     NOTIFICATION_DELIVERY_PROTOCOL,
+    NotificationDeliveryUnavailable,
 )
-from aap_identity.notification_delivery_postgres import (
+from aap_notifications.notification_delivery_postgres import (
     NotificationDeliveryPostgresData,
 )
 
@@ -126,7 +126,7 @@ async def test_claim_validates_reply_and_worker_binding_before_commit(monkeypatc
 
     connection = FakeConnection(_claim_reply(uuid.uuid4()))
     monkeypatch.setitem(sys.modules, "asyncpg", _asyncpg(connection))
-    with pytest.raises(IdentityUnavailable):
+    with pytest.raises(NotificationDeliveryUnavailable):
         await NotificationDeliveryPostgresData("postgresql://mail/db").claim_deliveries(
             WORKER_ID
         )
@@ -137,7 +137,7 @@ async def test_claim_validates_reply_and_worker_binding_before_commit(monkeypatc
 @pytest.mark.asyncio
 async def test_malformed_finish_reply_rolls_back_owner_mutation(monkeypatch):
     lease = _claim_reply(WORKER_ID)["data"]["items"][0]
-    from aap_identity.notification_delivery_contract import (
+    from aap_notifications.notification_delivery_contract import (
         decode_notification_claim_reply,
     )
 
@@ -151,7 +151,7 @@ async def test_malformed_finish_reply_rolls_back_owner_mutation(monkeypatch):
     )
     monkeypatch.setitem(sys.modules, "asyncpg", _asyncpg(connection))
 
-    with pytest.raises(IdentityUnavailable):
+    with pytest.raises(NotificationDeliveryUnavailable):
         await NotificationDeliveryPostgresData("postgresql://mail/db").finish_delivery(
             item, outcome="delivered", reason="published"
         )
@@ -229,7 +229,7 @@ async def test_readiness_requires_exact_global_function_capabilities_and_no_tabl
         [*grants, ("aap_identity_v1", "unsafe", "uuid", True)]
     )
     monkeypatch.setitem(sys.modules, "asyncpg", _asyncpg(connection))
-    with pytest.raises(IdentityUnavailable):
+    with pytest.raises(NotificationDeliveryUnavailable):
         await NotificationDeliveryPostgresData(
             "postgresql://publisher/db"
         ).delivery_policy()
@@ -237,7 +237,7 @@ async def test_readiness_requires_exact_global_function_capabilities_and_no_tabl
 
     connection = PolicyConnection(grants, column_access=True)
     monkeypatch.setitem(sys.modules, "asyncpg", _asyncpg(connection))
-    with pytest.raises(IdentityUnavailable):
+    with pytest.raises(NotificationDeliveryUnavailable):
         await NotificationDeliveryPostgresData(
             "postgresql://publisher/db"
         ).delivery_policy()
@@ -245,7 +245,7 @@ async def test_readiness_requires_exact_global_function_capabilities_and_no_tabl
 
     connection = PolicyConnection([*grants, ("public", "unsafe_definer", "uuid", True)])
     monkeypatch.setitem(sys.modules, "asyncpg", _asyncpg(connection))
-    with pytest.raises(IdentityUnavailable):
+    with pytest.raises(NotificationDeliveryUnavailable):
         await NotificationDeliveryPostgresData(
             "postgresql://publisher/db"
         ).delivery_policy()
@@ -253,7 +253,7 @@ async def test_readiness_requires_exact_global_function_capabilities_and_no_tabl
 
     connection = PolicyConnection(grants, table_access=True)
     monkeypatch.setitem(sys.modules, "asyncpg", _asyncpg(connection))
-    with pytest.raises(IdentityUnavailable):
+    with pytest.raises(NotificationDeliveryUnavailable):
         await NotificationDeliveryPostgresData(
             "postgresql://publisher/db"
         ).delivery_policy()

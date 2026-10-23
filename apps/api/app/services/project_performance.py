@@ -37,7 +37,6 @@ from sqlalchemy.orm import aliased
 from aap_identity.read_relation_contract import AccountProfile
 
 from app.db.models.annotation import Annotation
-from app.db.models.audit_log import AuditLog
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
@@ -64,6 +63,7 @@ from app.schemas.project_performance import (
     PerformanceTrendPoint,
 )
 from app.services.audit import AuditAction
+from app.services.audit_read_relations import audit_event
 from app.services.csv_export import csv_literal
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.identity_read_relations import (
@@ -238,7 +238,7 @@ def _annotation_source_label(source: Any, imported: Any) -> str:
 def _project_audit_filter(project_id: UUID):
     # ``contains`` works on PostgreSQL JSONB and is also understood by the
     # SQLite test dialect used by the API unit suite.
-    return AuditLog.detail_json.contains({"project_id": str(project_id)})
+    return audit_event.detail_json.contains({"project_id": str(project_id)})
 
 
 async def resolve_performance_access(
@@ -280,7 +280,7 @@ async def _load_workflow_metrics(
             """
             WITH interval_events AS MATERIALIZED (
                 SELECT id, actor_id, action, target_id, created_at, detail_json
-                FROM audit_logs
+                FROM aap_audit_v1.audit_events
                 WHERE status_code = 200
                   AND detail_json @> CAST(:project_filter AS jsonb)
                   AND created_at >= :start_at AND created_at < :end_at
@@ -293,7 +293,7 @@ async def _load_workflow_metrics(
                 FROM interval_events
                 WHERE action = 'task.submit' AND target_id IS NOT NULL
             ), prior_submissions AS (
-                SELECT DISTINCT target_id FROM audit_logs
+                SELECT DISTINCT target_id FROM aap_audit_v1.audit_events
                 WHERE status_code = 200 AND action = 'task.submit'
                   AND detail_json @> CAST(:project_filter AS jsonb)
                   AND created_at < :start_at
@@ -313,7 +313,7 @@ async def _load_workflow_metrics(
                 SELECT DISTINCT ON (s.target_id, r.round_id)
                        s.target_id, r.round_id, s.id,
                        s.detail_json -> 'contributor_ids' AS contributors
-                FROM audit_logs s JOIN decision_rounds r
+                FROM aap_audit_v1.audit_events s JOIN decision_rounds r
                   ON s.target_id = r.target_id
                  AND s.detail_json ->> 'review_round_id' = r.round_id
                 WHERE :work_type = 'annotation'
@@ -414,14 +414,14 @@ async def _load_submission_coverage(
 ) -> str:
     """Detect old video rounds whose submit audit was never retained."""
     submit_exists = (
-        select(AuditLog.id)
+        select(audit_event.id)
         .where(
-            AuditLog.action.in_(_ROUND_START_ACTIONS),
-            AuditLog.status_code == 200,
+            audit_event.action.in_(_ROUND_START_ACTIONS),
+            audit_event.status_code == 200,
             _project_audit_filter(project_id),
-            AuditLog.target_id == cast(Task.id, String),
-            AuditLog.created_at >= scope.start,
-            AuditLog.created_at < scope.end,
+            audit_event.target_id == cast(Task.id, String),
+            audit_event.created_at >= scope.start,
+            audit_event.created_at < scope.end,
         )
         .correlate(Task)
         .exists()
@@ -741,7 +741,7 @@ async def _build_roster(
                 """
                 WITH activity AS (
                     SELECT actor_id, detail_json
-                    FROM audit_logs
+                    FROM aap_audit_v1.audit_events
                     WHERE status_code = 200
                       AND action = ANY(:actions)
                       AND detail_json @> CAST(:project_filter AS jsonb)
@@ -982,7 +982,7 @@ async def _load_first_review_metrics(
                        SELECT 1 FROM jsonb_array_elements_text(contributors) c
                        WHERE c.value ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
                    )), false) OR EXISTS (
-                       SELECT 1 FROM audit_logs a
+                       SELECT 1 FROM aap_audit_v1.audit_events a
                        LEFT JOIN tasks t ON t.project_id = :project_id
                            AND t.id::text = a.target_id
                        WHERE a.status_code = 200
@@ -1587,38 +1587,38 @@ async def _load_evidence_page(
 ) -> tuple[list[PerformanceEvidenceItem], str | None]:
     """Fetch one bounded, SQL-paginated page of audit and session evidence."""
     audit_detail = func.coalesce(
-        AuditLog.detail_json["reason"].astext,
-        AuditLog.detail_json["result"].astext,
-        AuditLog.detail_json["reason_type"].astext,
+        audit_event.detail_json["reason"].astext,
+        audit_event.detail_json["result"].astext,
+        audit_event.detail_json["reason_type"].astext,
     )
     audit_stmt = select(
         literal("audit").label("source_kind"),
-        cast(AuditLog.id, String).label("source_id"),
-        AuditLog.created_at.label("at"),
-        AuditLog.action.label("action"),
-        AuditLog.target_id.label("task_id"),
+        cast(audit_event.id, String).label("source_id"),
+        audit_event.created_at.label("at"),
+        audit_event.action.label("action"),
+        audit_event.target_id.label("task_id"),
         audit_detail.label("detail"),
     ).where(
-        AuditLog.status_code == 200,
+        audit_event.status_code == 200,
         _project_audit_filter(project_id),
-        AuditLog.created_at >= scope.start,
-        AuditLog.created_at < scope.end,
+        audit_event.created_at >= scope.start,
+        audit_event.created_at < scope.end,
     )
     if work_type == "review":
         audit_stmt = audit_stmt.where(
-            AuditLog.actor_id == member_id,
-            AuditLog.action.in_(_REVIEW_ACTIONS),
+            audit_event.actor_id == member_id,
+            audit_event.action.in_(_REVIEW_ACTIONS),
         )
     else:
         audit_stmt = audit_stmt.where(
             or_(
                 and_(
-                    AuditLog.actor_id == member_id,
-                    AuditLog.action.in_(_ANNOTATION_ACTIONS),
+                    audit_event.actor_id == member_id,
+                    audit_event.action.in_(_ANNOTATION_ACTIONS),
                 ),
                 and_(
-                    AuditLog.action.in_(_DECISION_ACTIONS),
-                    AuditLog.detail_json.contains(
+                    audit_event.action.in_(_DECISION_ACTIONS),
+                    audit_event.detail_json.contains(
                         {"contributor_ids": [str(member_id)]}
                     ),
                 ),

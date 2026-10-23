@@ -8,8 +8,9 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from aap_identity.contract import IdentityUnavailable
-from aap_identity.notification_delivery_contract import (
+from aap_notifications.notification_delivery_contract import (
     NOTIFICATION_DELIVERY_PROTOCOL,
+    NotificationDeliveryUnavailable,
     NotificationClaimRequest,
     NotificationFinishRequest,
     decode_notification_claim_reply,
@@ -17,8 +18,10 @@ from aap_identity.notification_delivery_contract import (
     decode_notification_finish_reply,
     native_notification_command_json,
 )
-from aap_identity.notification_delivery_postgres import NotificationDeliveryPostgresData
-from aap_identity_runtime.notification_worker import NotificationPublisher
+from aap_notifications.notification_delivery_postgres import (
+    NotificationDeliveryPostgresData,
+)
+from aap_notifications.delivery_worker import NotificationPublisher
 from app.config import settings
 from app.db.base import async_session
 from app.services.identity_gateway import get_identity_gateway, identity_database_source
@@ -48,9 +51,9 @@ class NotificationDeliveryData:
                     result = decode(raw)
                     await db.commit()
                     return result
-            except (SQLAlchemyError, TimeoutError):
+            except (SQLAlchemyError, TimeoutError, NotificationDeliveryUnavailable):
                 await db.rollback()
-                raise IdentityUnavailable() from None
+                raise NotificationDeliveryUnavailable() from None
             except BaseException:
                 await db.rollback()
                 raise
@@ -76,7 +79,7 @@ class NotificationDeliveryData:
                 or len({item.lease_id for item in items}) != len(items)
                 or any(item.worker_id != request.worker_id for item in items)
             ):
-                raise IdentityUnavailable()
+                raise NotificationDeliveryUnavailable()
             return items
 
         return await self._execute("claim_identity_deliveries", request, decode)
@@ -120,6 +123,8 @@ async def run_identity_notifications(*, session_factory=None, redis=None):
         await data.delivery_policy()
         result = await NotificationPublisher(data, redis).run_once()
         return {"state": "idle" if result["claimed"] == 0 else "processed", **result}
+    except NotificationDeliveryUnavailable:
+        raise IdentityUnavailable() from None
     finally:
         if owns_redis:
             await redis.aclose()
