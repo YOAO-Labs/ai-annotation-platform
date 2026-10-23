@@ -101,6 +101,7 @@ async def test_independent_receipt_does_not_commit_caller_and_connection_bind_is
         }
     finally:
         await db.rollback()
+        await db.bind.rollback()
         async with test_engine.begin() as connection:
             await connection.execute(
                 delete(StorageOperation).where(
@@ -295,4 +296,60 @@ async def test_receipt_rejects_arbitrary_path_like_labels(test_engine, field, va
         payload = {"purpose": "safe", field: value}
         with pytest.raises(ValueError, match="Invalid storage operation"):
             await access.acquire(db, location_id, **payload)
+        assert await count(test_engine, location_id) == 0
+
+
+@pytest.mark.parametrize("interruption", ["error", "cancel", "timeout"])
+async def test_uncertain_close_remains_unsettled_after_late_executor_error(
+    test_engine, interruption
+):
+    async with world(test_engine) as (db, location_id):
+        started, release = threading.Event(), threading.Event()
+
+        class Handle:
+            def close(self):
+                raise OSError("uncertain close")
+
+        def blocking():
+            started.set()
+            release.wait(5)
+            access.close_registered(Handle())
+
+        task = asyncio.create_task(
+            access.run(
+                db,
+                location_id,
+                "uncertain_close",
+                blocking,
+                timeout=0.02 if interruption == "timeout" else None,
+            )
+        )
+        try:
+            assert await asyncio.to_thread(started.wait, 2)
+            if interruption == "cancel":
+                task.cancel()
+            await asyncio.sleep(0.05)
+            assert await count(test_engine, location_id) == 1
+        finally:
+            release.set()
+        expected = {
+            "error": OSError,
+            "cancel": asyncio.CancelledError,
+            "timeout": TimeoutError,
+        }[interruption]
+        with pytest.raises(expected) as caught:
+            await task
+        assert caught.value.storage_operation_unsettled is True
+        assert await count(test_engine, location_id) == 1
+
+
+async def test_read_error_with_successful_close_settles_receipt(test_engine):
+    async with world(test_engine) as (db, location_id):
+        with pytest.raises(OSError, match="read failed"):
+            await access.run(
+                db,
+                location_id,
+                "failed_read",
+                lambda: (_ for _ in ()).throw(OSError("read failed")),
+            )
         assert await count(test_engine, location_id) == 0

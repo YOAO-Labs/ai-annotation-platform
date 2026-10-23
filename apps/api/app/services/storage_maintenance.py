@@ -7,7 +7,7 @@ import json
 from fastapi import HTTPException
 from jose import ExpiredSignatureError, JWTError, jwt
 from sqlalchemy import func, literal, select
-from sqlalchemy.dialects.postgresql import JSONB, aggregate_order_by
+from sqlalchemy.dialects.postgresql import JSONB, UUID, aggregate_order_by
 from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
@@ -164,7 +164,9 @@ def status_query(location_id):
         .where(Operation.location_id == location_id)
         .scalar_subquery()
     )
-    anchor = select(literal(location_id).label("location_id")).subquery()
+    anchor = select(
+        literal(location_id, type_=UUID(as_uuid=True)).label("location_id")
+    ).subquery()
     return select(
         func.coalesce(Gate.state, "active").label("state"),
         func.coalesce(Gate.revision, 1).label("revision"),

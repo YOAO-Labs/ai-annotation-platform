@@ -1,6 +1,7 @@
 """Independent durable admission; a receipt survives until physical I/O settles."""
 
 import asyncio
+from contextlib import contextmanager
 from contextvars import copy_context
 from dataclasses import dataclass
 from functools import partial
@@ -30,6 +31,29 @@ def error(code, status=409):
     from app.services.content_snapshot import ContentError
 
     return ContentError(code, status)
+
+
+def mark_unsettled(exc):
+    """Preserve uncertainty when a physical constructor or close did not settle."""
+    exc.storage_operation_unsettled = True
+    return exc
+
+
+def close_registered(resource):
+    """A failed close is not proof that a registered physical handle ended."""
+    try:
+        resource.close()
+    except BaseException as exc:
+        raise mark_unsettled(exc)
+
+
+@contextmanager
+def closing_registered(resource):
+    """Close a physical handle without losing evidence of uncertain closure."""
+    try:
+        yield resource
+    finally:
+        close_registered(resource)
 
 
 def engine(db):
@@ -152,6 +176,8 @@ class Permit:
         self._settled = True
 
     async def __aexit__(self, exc_type, exc, traceback):
+        if getattr(exc, "storage_operation_unsettled", False):
+            return False
         if not self._settled:
             task = asyncio.create_task(self._settle())
             cancelled = False
@@ -235,10 +261,11 @@ async def run(
             if timeout is None:
                 return await asyncio.shield(future)
             return await asyncio.wait_for(asyncio.shield(future), timeout)
-        except (asyncio.CancelledError, TimeoutError):
+        except (asyncio.CancelledError, TimeoutError) as interrupted:
             # Cancellation of an await is not evidence the physical handle closed.
             try:
                 await finish(future)
-            except BaseException:
-                pass
+            except BaseException as late:
+                if getattr(late, "storage_operation_unsettled", False):
+                    mark_unsettled(interrupted)
             raise

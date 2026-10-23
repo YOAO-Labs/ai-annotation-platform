@@ -30,6 +30,9 @@ async def where(db_session, test_engine):
     identity = row.id
     yield row
     await db_session.rollback()
+    # The shared fixture owns an outer Connection transaction beyond Session
+    # SAVEPOINTs; release its locks before independent ledger cleanup.
+    await db_session.bind.rollback()
     async with test_engine.begin() as connection:
         await connection.execute(
             delete(StorageOperation).where(StorageOperation.location_id == identity)
