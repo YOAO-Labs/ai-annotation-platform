@@ -148,6 +148,43 @@ async def test_task_authorization_and_legacy_url_share_visibility(
     ).status_code in {403, 404}
 
 
+@pytest.mark.parametrize(
+    "dataset_bound,file_type,bucket_attribute",
+    [
+        (True, "image", "datasets_bucket"),
+        (False, "point_cloud", "datasets_bucket"),
+        (False, "image", "bucket"),
+    ],
+)
+async def test_file_url_uses_the_tasks_actual_purpose_bucket(
+    httpx_client,
+    db_session,
+    annotator,
+    stored_world,
+    monkeypatch,
+    dataset_bound,
+    file_type,
+    bucket_attribute,
+):
+    task = stored_world[0]
+    if not dataset_bound:
+        task.dataset_item_id = None
+    task.file_type = file_type
+    await db_session.flush()
+    signed = []
+
+    def sign(key, **kwargs):
+        signed.append((key, kwargs["bucket"]))
+        return "http://storage.test/correct-purpose"
+
+    monkeypatch.setattr(storage_service, "generate_download_url", sign)
+    response = await httpx_client.get(
+        f"/api/v1/files/tasks/{task.id}/file-url", headers=headers(annotator)
+    )
+    assert response.status_code == 200, response.text
+    assert signed == [(task.file_path, getattr(storage_service, bucket_attribute))]
+
+
 async def test_membership_revocation_after_copy_closes_snapshot(
     db_session, annotator, stored_world, monkeypatch
 ):

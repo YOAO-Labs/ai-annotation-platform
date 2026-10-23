@@ -93,7 +93,12 @@ async def get_file_url(
     if is_reference(task.file_path):
         raise HTTPException(409, detail={"code": "reference_requires_verified_content"})
 
-    url = storage_service.generate_download_url(task.file_path)
+    bucket = (
+        storage_service.datasets_bucket
+        if task.dataset_item_id or task.file_type == "point_cloud"
+        else storage_service.bucket
+    )
+    url = storage_service.generate_download_url(task.file_path, bucket=bucket)
     return TaskFileUrlResponse(url=url, expires_in=3600)
 
 

@@ -556,11 +556,26 @@ async def upload_init(
         raise HTTPException(status_code=404, detail="Dataset not found")
 
     ensure_dataset_storage_name_is_writable(ds.name)
-    from app.services.dataset_storage_keys import managed_dataset_key
+    from app.services import managed_original_creation as creations
+    from app.services.dataset_assets import MAX_DIRECT_UPLOAD_BYTES
+    from app.services.content_snapshot import ContentError
 
     try:
         relative_name = await svc._unique_file_name(dataset_id, data.file_name)
-        storage_key = managed_dataset_key(dataset_id, relative_name)
+        allocation = await creations.allocate(
+            db,
+            dataset_id=dataset_id,
+            logical_path=relative_name,
+            origin="direct",
+            max_bytes=MAX_DIRECT_UPLOAD_BYTES,
+            requested_by=current_user.id,
+            authority=getattr(request.state, "directory_dataset_authority", None),
+            staging=True,
+            content_type=data.content_type,
+        )
+        storage_key = allocation["object_key"]
+    except ContentError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
     except ValueError as exc:
         raise HTTPException(
             status_code=422, detail="Invalid dataset relative path"
@@ -577,9 +592,9 @@ async def upload_init(
     await db.commit()
 
     upload_url = storage_service.generate_upload_url(
-        storage_key,
+        allocation["staging_key"],
         data.content_type,
-        bucket=storage_service.datasets_bucket,
+        bucket=allocation["staging_bucket"],
     )
     return DatasetUploadInitResponse(
         item_id=item.id, upload_url=upload_url, expires_in=900
@@ -603,18 +618,6 @@ async def upload_complete(
     if not item or item.dataset_id != dataset_id:
         raise HTTPException(status_code=404, detail="Item not found")
 
-    meta = storage_service.verify_upload(
-        item.file_path, bucket=storage_service.datasets_bucket
-    )
-    if not meta:
-        # 上传未完成 — 清理占位 DatasetItem
-        await recheck_directory_write(request, db, dataset_id)
-        await svc.delete_item(item_id)
-        await recheck_directory_write(request, db, dataset_id)
-        await db.commit()
-        await svc.cleanup_directory_previews()
-        raise HTTPException(status_code=400, detail="File not found in storage")
-
     from app.services.dataset_assets import (
         find_verified_content,
         hash_stored_object,
@@ -625,15 +628,46 @@ async def upload_complete(
 
     from starlette.concurrency import run_in_threadpool
     from botocore.exceptions import ClientError
+    from app.services import managed_original_creation as creations
+    from app.services.content_snapshot import ContentError
 
-    if (meta.get("ContentLength") or 0) > MAX_DIRECT_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="Direct upload exceeds 5 GiB")
     try:
-        content_hash, sha256, size, etag = await run_in_threadpool(
-            hash_stored_object, item.file_path, meta
+        allocation = await creations.for_key(
+            db, dataset_id=dataset_id, object_key=item.file_path
         )
+        if allocation is not None:
+            if allocation["origin"] != "direct":
+                raise HTTPException(409, detail={"code": "creation_origin_changed"})
+            created = await creations.complete_direct(db, allocation)
+            content_hash, sha256, size, etag = (
+                created.md5,
+                created.sha256,
+                created.size_bytes,
+                created.etag,
+            )
+        else:
+            # Existing upload URLs retain their historical completion contract.
+            meta = storage_service.verify_upload(
+                item.file_path, bucket=storage_service.datasets_bucket
+            )
+            if not meta:
+                await recheck_directory_write(request, db, dataset_id)
+                await svc.delete_item(item_id)
+                await recheck_directory_write(request, db, dataset_id)
+                await db.commit()
+                await svc.cleanup_directory_previews()
+                raise HTTPException(400, detail="File not found in storage")
+            if (meta.get("ContentLength") or 0) > MAX_DIRECT_UPLOAD_BYTES:
+                raise HTTPException(413, detail="Direct upload exceeds 5 GiB")
+            content_hash, sha256, size, etag = await run_in_threadpool(
+                hash_stored_object, item.file_path, meta
+            )
         await recheck_directory_write(request, db, dataset_id)
         await register_item_asset(db, item, sha256=sha256, size_bytes=size, etag=etag)
+        if allocation is not None:
+            await creations.attach(db, item, created.creation_id)
+    except ContentError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
     except ValueError as exc:
         raise HTTPException(
             status_code=409, detail="Dataset content or storage identity changed"
@@ -654,10 +688,12 @@ async def upload_complete(
         db, dataset_id, sha256, exclude_item_id=item_id, legacy_md5=content_hash
     )
     if existing:
-        # 删除刚上传的对象与占位记录，返回 409 告知前端
+        # A new sealed object remains a durable, unlinked creation responsibility.
         await recheck_directory_write(request, db, dataset_id)
         try:
-            if item.file_path.startswith(managed_dataset_prefix(dataset_id)):
+            if allocation is None and item.file_path.startswith(
+                managed_dataset_prefix(dataset_id)
+            ):
                 storage_service.delete_object(
                     item.file_path, bucket=storage_service.datasets_bucket
                 )
@@ -761,7 +797,7 @@ async def upload_zip(
     request: Request,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """前端 multipart 上传单个 ZIP 包，由后端解压并把每个文件入库 + 上传到 MinIO。
 
@@ -827,7 +863,6 @@ async def upload_zip(
     deduped = 0
     skipped: list[str] = list(archive.skipped_paths)
     errors: list[dict] = []
-    written_keys: list[str] = []  # 已写入 MinIO 的对象 key，校验失败时回滚清理
     new_image_item_ids: list[uuid.UUID] = []
     new_video_item_ids: list[uuid.UUID] = []
     new_item_ids: list[uuid.UUID] = []
@@ -837,7 +872,8 @@ async def upload_zip(
     from app.db.models.dataset import DatasetItem
 
     from app.db.models.dataset_asset import DatasetAsset
-    from app.services.dataset_storage_keys import managed_dataset_key
+    from app.services import managed_original_creation as creations
+    from app.services.content_snapshot import ContentError
 
     # Only verified byte digests establish duplicates; legacy hashes may be ETags.
     hash_rows = await db.execute(
@@ -861,13 +897,6 @@ async def upload_zip(
         except HTTPException:
             archive.close()
             await db.rollback()
-            for key in written_keys:
-                try:
-                    storage_service.delete_object(
-                        key, bucket=storage_service.datasets_bucket
-                    )
-                except Exception:
-                    pass
             raise
 
     for info in infos:
@@ -910,20 +939,25 @@ async def upload_zip(
         logical_path = await svc._unique_file_name(
             dataset_id, safe_relpath, existing_names=existing_names
         )
-        storage_key = managed_dataset_key(dataset_id, logical_path)
-
         await check_authority()
         try:
-            storage_service.client.put_object(
-                Bucket=storage_service.datasets_bucket,
-                Key=storage_key,
-                Body=data,
-                ContentType=content_type,
+            allocation = await creations.allocate(
+                db,
+                dataset_id=dataset_id,
+                logical_path=logical_path,
+                origin="zip",
+                max_bytes=_PER_FILE_MAX_BYTES,
+                requested_by=current_user.id,
+                authority=getattr(request.state, "directory_dataset_authority", None),
+                content_type=content_type,
             )
-        except Exception as e:  # noqa: BLE001
-            errors.append({"name": name, "error": f"对象存储写入失败: {e}"})
+            created = await creations.create_stream(
+                db, allocation, io.BytesIO(data), content_type=content_type
+            )
+        except ContentError as exc:
+            errors.append({"name": name, "error": exc.code})
             continue
-        written_keys.append(storage_key)
+        storage_key = allocation["object_key"]
 
         width: int | None = None
         height: int | None = None
@@ -942,9 +976,11 @@ async def upload_zip(
             width=width,
             height=height,
             sha256=sha256,
+            object_etag=created.etag,
             storage_binding=binding,
             logical_path=logical_path,
         )
+        await creations.attach(db, item, created.creation_id)
         existing_names.add(logical_path)
         existing_hashes.add(sha256)
         added += 1
@@ -1001,16 +1037,8 @@ async def upload_zip(
     try:
         await svc.assert_temporal_dataset_has_scenes(dataset_id)
     except ValueError as exc:
-        # 校验失败 → 事务将 rollback，但本次已写入 MinIO 的对象不在事务内，
-        # 需显式删除，否则变成孤儿对象。
+        # The independent creation ledger survives a rolled back ZIP batch.
         await db.rollback()
-        for key in written_keys:
-            try:
-                storage_service.delete_object(
-                    key, bucket=storage_service.datasets_bucket
-                )
-            except Exception:  # noqa: BLE001
-                pass
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     await check_authority()

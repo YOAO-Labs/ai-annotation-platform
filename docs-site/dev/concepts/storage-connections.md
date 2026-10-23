@@ -360,6 +360,18 @@ manifest 暂存于独占 TemporaryFile，避免同时打开两个 ZIP 写句柄�
 
 此协议表达一个逻辑 Location 的平台受控访问，不是整块挂载、服务器、桶或所有物理读者的静止证明。多个 Location 可共享根；候选/内联连接验证、直接外部客户端、远端已复制输入及平台自有清理不在源静止保证内。当前片不交付退役、卸载或物理 GC；这些能力仍须独立核对身份、保留、引用及实际物理访问范围。
 
+## 托管原件条件创建
+
+`managed_original_creation` 是新数据集直传、ZIP、连接复制和目录 managed_copy 的共同创建 owner。0219独立账本先提交最终键、入口和预算、当前配置/绑定及权限快照；无业务/Location级联外键，避免未提交业务外键自锁。状态经准备、冻结输入、单次最终写入、实际回执、完整回读进入 verified；所有初始事实、冻结输入、写回执和终态均受数据库约束。来源与目标维护 Permit 分别登记，目标 operation 在首个物理 I/O 前独立提交。
+
+直传 init 先预留最终 locator，只向 import 桶 `__aap_upload_staging__/` 签 PUT；该根为保留名称且不进入 managed 扫描。complete 完整条件读取后冻结源 SHA/大小/ETag/真实 VersionId，用单 part UploadPartCopy 准备不超过5GiB的暂存对象，最终 Complete 带 IfNoneMatch=\*；空对象走条件 PUT。普通导入分块计算完整摘要并以相同条件完成 MPU。禁止 CopyObject 封存与无条件降级；目标命名空间不签客户端 PUT。已有旧直传、扫描及历史原件不回填创建事实。
+
+SDK 每步单次尝试，真实成功响应先独立持久化，再按真实非 null VersionId 或 ETag 条件完整回读、核对 SHA/大小；无真实版本时最终 HEAD 复查当前观测。调用者在原事务重验权限、配置、维护代次和精确内容后关联 AssetLocation.creation_id。业务回滚、去重或提交应答不明保留最终对象及独立责任；仅可 abort 明确的本次 UploadId。写入/落库应答丢失、构造或关闭不确定保留 unknown/中间状态与未收尾 Permit，不能靠 TTL、HEAD404、同 SHA 或后来的412提升为已创建。
+
+退休断言在同事务捕获可空 creation_id，并通过 RESTRICT 保留原始证据；已有断言禁止补写创建关联。离线恢复对创建账本所有列计算受保护摘要，不重定位或伪造目标创建响应；目标 AssetLocation/退休定位可按既有白名单映射，但原回执仍明确属于源物理存储。恢复不自动继续未完成创建。
+
+真实 VersionId 仅为本次响应证据；无版本不视为不可变版本。当前恢复格式拒绝版本化桶，本片不启用版本化。条件创建与客户端直传隔离建立平台新写入协议，不能证明生产专属权限或阻止外部写者；所有消费者的固定版本/内容读取与物理回收资格仍需独立完成。
+
 ## 托管原件移除后的保留证据
 
 迁移0216的`managed_original_retirements`保存已登记托管原件关系的逻辑移除断言。DatasetService在既有Dataset/Item删除锁内、级联删除前，以同一业务事务流式批量保存历史Dataset/Item/Asset/Location ID、精确内部locator、已有内容证据及当时可证明的配置/绑定身份。无业务外键；失败或调用方回滚同时撤回断言，重复捕获以唯一摘要幂等。外部reference、缓存及派生角色不进入此账本，未登记或此前已丢失的位置不合成回填。

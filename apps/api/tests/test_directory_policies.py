@@ -1,7 +1,6 @@
 """Real snapshots, persistent ownership, derivative isolation and lifecycle fences."""
 
 import hashlib
-import io
 
 import pytest
 from fastapi import HTTPException
@@ -24,27 +23,18 @@ from tests.test_dataset_registration import start, drain, begin_confirmed
 
 @pytest.fixture
 def object_store(monkeypatch):
-    objects = {}
+    from app.services import managed_original_creation as creations
+    from tests.fakes.managed_creation_storage import CreationStorage
 
-    def put(**kwargs):
-        body = kwargs["Body"]
-        objects[kwargs["Bucket"], kwargs["Key"]] = (
-            body.read() if hasattr(body, "read") else body
-        )
-        return {"ETag": '"fixture-etag"'}
-
-    def get(**kwargs):
-        body = objects[kwargs["Bucket"], kwargs["Key"]]
-        return {"Body": io.BytesIO(body), "ContentLength": len(body)}
-
-    monkeypatch.setattr(storage_service.client, "put_object", put)
-    monkeypatch.setattr(storage_service.client, "get_object", get)
+    fake = CreationStorage(keyed_by_bucket=True)
+    monkeypatch.setattr(storage_service, "client", fake)
+    monkeypatch.setattr(creations, "create_client", lambda **_: fake)
     monkeypatch.setattr(
         storage_service,
         "delete_object",
-        lambda key, *, bucket: objects.pop((bucket, key), None),
+        lambda key, *, bucket: fake.objects.pop((bucket, key), None),
     )
-    return objects
+    return fake.objects
 
 
 @pytest.mark.parametrize("ownership", ["reference", "managed_copy"])
@@ -245,22 +235,35 @@ async def test_native_cancellation_waits_for_owned_put_before_cleanup(
     import threading
 
     db = db_session
-    _, _, actor, _, _, source, scan, entry = content_world
+    _, _, actor, dataset, _, source, scan, entry = content_world
+    dataset_id = dataset.id
     source.ownership_mode = "managed_copy" if stage == "original" else "reference"
     source.cache_policy = "none" if stage == "original" else "preview"
     await db.commit()
     entered, release = threading.Event(), threading.Event()
-    put = storage_service.client.put_object
+    method = "complete_multipart_upload" if stage == "original" else "put_object"
+    put = getattr(storage_service.client, method)
     file_open_at_finish = []
+    original_streams = []
+    if stage == "original":
+        from app.services import managed_original_creation as creations
+
+        create_stream = creations.create_stream
+
+        async def retain_source(db, allocation, stream, **kwargs):
+            original_streams.append(stream)
+            return await create_stream(db, allocation, stream, **kwargs)
+
+        monkeypatch.setattr(creations, "create_stream", retain_source)
 
     def blocking_put(**kwargs):
         entered.set()
         assert release.wait(5)
-        body = kwargs["Body"]
+        body = original_streams[0] if original_streams else kwargs["Body"]
         file_open_at_finish.append(not body.closed if hasattr(body, "closed") else True)
         return put(**kwargs)
 
-    monkeypatch.setattr(storage_service.client, "put_object", blocking_put)
+    monkeypatch.setattr(storage_service.client, method, blocking_put)
     task = asyncio.create_task(
         register_entry(
             db, scan.id, entry.path_digest, actor, node_id="worker:content@test"
@@ -277,7 +280,20 @@ async def test_native_cancellation_waits_for_owned_put_before_cleanup(
         await task
     await db.rollback()
     assert file_open_at_finish == [True]
-    assert object_store == {}
+    if stage == "preview":
+        assert object_store == {}
+    else:
+        from app.db.models.managed_original_creation import ManagedOriginalCreation
+
+        creation = await db.scalar(
+            select(ManagedOriginalCreation).where(
+                ManagedOriginalCreation.dataset_id == dataset_id
+            )
+        )
+        assert creation.status == "verified"
+        assert len(object_store) == 1
+        assert (creation.bucket, creation.object_key) in object_store
+        assert not await db.scalar(select(DatasetItem.id))
 
 
 async def test_missing_preview_regenerates_and_delete_cleans_exact_keys(

@@ -261,6 +261,10 @@ class StorageService:
         expires_in: int = 900,
         bucket: str | None = None,
     ) -> str:
+        from app.services.dataset_storage_keys import MANAGED_DATASET_PREFIX
+
+        if key.lstrip("/").startswith(MANAGED_DATASET_PREFIX + "/"):
+            raise ValueError("Managed originals require controlled server creation")
         url = self.client.generate_presigned_url(
             "put_object",
             Params={

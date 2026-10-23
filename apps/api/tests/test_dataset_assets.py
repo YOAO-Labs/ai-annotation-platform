@@ -31,29 +31,24 @@ from app.services.dataset_storage_keys import (
 from app.services.storage import storage_service
 
 
-class ObjectClient:
+from tests.fakes.managed_creation_storage import CreationStorage
+
+
+class ObjectClient(CreationStorage):
     def __init__(self):
-        self.objects = {}
+        super().__init__()
         self.read_threads = []
 
-    def head_bucket(self, **kwargs):
-        return {}
-
-    def put_object(self, *, Bucket, Key, Body, **kwargs):
-        self.objects[Key] = bytes(Body)
-
-    def generate_presigned_url(self, operation, **kwargs):
-        return "http://storage.test/object"
-
-    def head_object(self, *, Bucket, Key):
-        return {"ContentLength": len(self.objects[Key]), "ETag": '"' + "a" * 32 + '"'}
-
-    def get_object(self, *, Bucket, Key, **kwargs):
+    def get_object(self, **kwargs):
         self.read_threads.append(threading.get_ident())
-        return {"Body": io.BytesIO(self.objects[Key]), "ETag": '"' + "a" * 32 + '"'}
+        return super().get_object(**kwargs)
 
-    def delete_object(self, *, Bucket, Key):
-        self.objects.pop(Key, None)
+
+@pytest.fixture(autouse=True)
+def local_creation_client(monkeypatch):
+    from app.services import managed_original_creation as creations
+
+    monkeypatch.setattr(creations, "create_client", lambda **_: storage_service.client)
 
 
 def test_managed_paths_have_unique_identity_and_retain_logical_directories():
@@ -172,7 +167,9 @@ async def test_same_name_uploads_etag_dedup_rename_and_zero_bytes(
         item = await db_session.get(DatasetItem, item_id)
         key = item.file_path
         keys.append(key)
-        fake.objects[key] = data
+        staging_key = fake.presigned[-1][1]["Key"]
+        assert staging_key != key
+        fake.objects[staging_key] = data
         response = await httpx_client.post(
             f"/api/v1/datasets/{dataset.id}/items/upload-complete/{item_id}",
             headers=headers,
@@ -186,7 +183,8 @@ async def test_same_name_uploads_etag_dedup_rename_and_zero_bytes(
     assert dataset_relative_path(keys[1]) == "a-1.bin"
     assert fake.objects[keys[0]] == b"original"
     assert fake.objects[keys[1]] == b"changed"
-    assert keys[2] not in fake.objects
+    assert fake.objects[keys[2]] == b"original"
+    assert not [call for call in fake.calls if call[0] == "delete"]
     assert dataset.storage_scan_prefix == original_root
     assets = list(await db_session.scalars(select(DatasetAsset)))
     assert {asset.checksum_value for asset in assets} == {
@@ -436,7 +434,7 @@ async def test_upload_completion_maps_storage_races_to_conflict(
     assert response.status_code == 200, response.text
     item_id = uuid.UUID(response.json()["item_id"])
     item = await db_session.get(DatasetItem, item_id)
-    fake.objects[item.file_path] = b"original"
+    fake.objects[fake.presigned[-1][1]["Key"]] = b"original"
 
     def changed(**kwargs):
         assert kwargs["IfMatch"]

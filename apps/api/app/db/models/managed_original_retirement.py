@@ -7,6 +7,7 @@ from sqlalchemy import (
     BigInteger,
     CheckConstraint,
     DateTime,
+    ForeignKey,
     Index,
     String,
     Text,
@@ -63,6 +64,9 @@ class ManagedOriginalRetirement(Base):
     dataset_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     dataset_item_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     asset_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    creation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("managed_original_creations.id", ondelete="RESTRICT")
+    )
     location_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     bucket: Mapped[str] = mapped_column(String(255), nullable=False)
     object_key: Mapped[str] = mapped_column(String(1000), nullable=False)

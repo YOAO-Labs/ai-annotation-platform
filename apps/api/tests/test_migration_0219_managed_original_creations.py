@@ -3,7 +3,7 @@
 import uuid
 
 import pytest
-from sqlalchemy import delete, inspect, insert, update
+from sqlalchemy import delete, inspect, insert, text, update
 from sqlalchemy.exc import IntegrityError
 
 from app.db.models.dataset_asset import DatasetAssetLocation
@@ -32,21 +32,28 @@ async def test_empty_creation_schema_roundtrip_and_exact_columns(creation_db):
 
         def check(sync):
             module = migration(sync)
+            owned_schema = sync.scalar(text("SELECT current_schema()"))
             assert module.down_revision == "0218"
             module.downgrade()
-            assert "managed_original_creations" not in inspect(sync).get_table_names()
+            assert "managed_original_creations" not in inspect(sync).get_table_names(
+                schema=owned_schema
+            )
             module.upgrade()
             schema = inspect(sync)
             assert {
                 column["name"]
-                for column in schema.get_columns("managed_original_creations")
+                for column in schema.get_columns(
+                    "managed_original_creations", schema=owned_schema
+                )
             } == set(Creation.__table__.columns.keys())
-            assert not schema.get_foreign_keys("managed_original_creations")
+            assert not schema.get_foreign_keys(
+                "managed_original_creations", schema=owned_schema
+            )
             for table in ("dataset_asset_locations", "managed_original_retirements"):
                 assert any(
                     fk["referred_table"] == "managed_original_creations"
                     and fk["options"]["ondelete"] == "RESTRICT"
-                    for fk in schema.get_foreign_keys(table)
+                    for fk in schema.get_foreign_keys(table, schema=owned_schema)
                 )
 
         await connection.run_sync(check)

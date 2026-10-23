@@ -427,11 +427,12 @@ async def test_upload_completion_rechecks_initial_key_after_hashing(
     from app.db.models.dataset_asset import DatasetAsset
     from app.services.storage import storage_service
     from tests.test_dataset_assets import ObjectClient
-    import starlette.concurrency as concurrency
+    from app.services import managed_original_creation as creations
 
     world, _ = managed_world
     fake = ObjectClient()
     monkeypatch.setattr(storage_service, "client", fake)
+    monkeypatch.setattr(creations, "create_client", lambda **_: fake)
     response = await httpx_client.post(
         "/api/v1/me/api-keys",
         headers=headers(project_admin),
@@ -446,9 +447,8 @@ async def test_upload_completion_rechecks_initial_key_after_hashing(
     )
     assert init.status_code == 200
     item_id = uuid.UUID(init.json()["item_id"])
-    item = await db_session.get(DatasetItem, item_id)
-    fake.objects[item.file_path] = b"original"
-    original = concurrency.run_in_threadpool
+    fake.objects[fake.presigned[-1][1]["Key"]] = b"original"
+    original = creations.complete_direct
 
     async def rotated(*args, **kwargs):
         result = await original(*args, **kwargs)
@@ -456,7 +456,7 @@ async def test_upload_completion_rechecks_initial_key_after_hashing(
         await db_session.flush()
         return result
 
-    monkeypatch.setattr(concurrency, "run_in_threadpool", rotated)
+    monkeypatch.setattr(creations, "complete_direct", rotated)
     response = await httpx_client.post(
         f"/api/v1/datasets/{world[3].id}/items/upload-complete/{item_id}",
         headers=auth,
@@ -527,7 +527,7 @@ async def test_directory_copy_ingest_retains_creation_after_revocation(
     authority = await access.capture_dataset_write(db_session, world[3].id, actor, None)
     fake = CreationStorage()
     monkeypatch.setattr(storage_service, "client", fake)
-    monkeypatch.setattr(originals, "create_client", lambda: fake)
+    monkeypatch.setattr(originals, "create_client", lambda **_: fake)
     create_stream = originals.create_stream
     completed = []
 
@@ -635,8 +635,11 @@ async def test_zip_into_directory_dataset_keeps_non_temporal_registration(
     from app.services.dataset import DatasetService
 
     world, _ = managed_world
+    from app.services import managed_original_creation as creations
+
     fake = ObjectClient()
     monkeypatch.setattr(storage_service, "client", fake)
+    monkeypatch.setattr(creations, "create_client", lambda **_: fake)
 
     async def unexpected(*args, **kwargs):
         raise AssertionError("Directory image ZIP must not create scenes")
@@ -672,13 +675,13 @@ async def test_upload_cleanup_is_not_a_revocation_bypass(
     world, actor = managed_world
     fake = ObjectClient()
     monkeypatch.setattr(storage_service, "client", fake)
-    response = await httpx_client.post(
-        f"/api/v1/datasets/{world[3].id}/items/upload-init",
-        headers=headers(project_admin),
-        json={"file_name": "a.bin", "content_type": "application/octet-stream"},
+    from app.services.dataset import DatasetService
+
+    # This exercises completion of upload URLs issued before staging isolation.
+    item = await DatasetService(db_session).add_item(
+        world[3].id, "a.bin", f"legacy-upload/{uuid.uuid4()}/a.bin", "other"
     )
-    item_id = uuid.UUID(response.json()["item_id"])
-    item = await db_session.get(DatasetItem, item_id)
+    item_id = item.id
     key = item.file_path
     if cleanup == "duplicate":
         fake.objects[key] = b"original"

@@ -332,7 +332,7 @@ def _creation_client(monkeypatch):
     from tests.fakes.managed_creation_storage import CreationStorage
 
     client = CreationStorage()
-    monkeypatch.setattr(originals, "create_client", lambda: client)
+    monkeypatch.setattr(originals, "create_client", lambda **_: client)
     monkeypatch.setattr(storage_service, "client", client)
     return client
 
@@ -454,10 +454,7 @@ async def test_ingest_one_preserves_subdirectory_structure(
     # 子目录层级保留进 file_name 与 file_path（无多余嵌套）
     assert item.file_name == "a/img.jpg"
     assert dataset_relative_path(item.file_path) == "a/img.jpg"
-    assert (
-        storage_service.datasets_bucket,
-        item.file_path,
-    ) in fake_client.objects
+    assert fake_client.objects[item.file_path] == b"bytes"
 
 
 async def test_import_from_connection_api_creates_secretless_job(

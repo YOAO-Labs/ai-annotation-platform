@@ -23,6 +23,7 @@ from app.services.dataset_storage_keys import (
     managed_dataset_prefix,
 )
 from app.services.storage import TRUSTED_NUSCENES_PREFIX, storage_service
+from tests.fakes.managed_creation_storage import CreationStorage
 
 pytestmark = pytest.mark.asyncio
 
@@ -34,21 +35,15 @@ def _bearer(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-class _FakePutOnlyClient:
-    """仅实现 put_object 的 fake storage client（用于 upload_zip 路径）。"""
+class _FakePutOnlyClient(CreationStorage):
+    """Realistic conditional creation fake for ZIP and its business mappings."""
 
-    def __init__(self) -> None:
-        self.objects: dict[str, bytes] = {}
 
-    def put_object(self, *, Bucket, Key, Body, ContentType=None):
-        self.objects[Key] = bytes(Body)
+@pytest.fixture(autouse=True)
+def local_creation_client(monkeypatch):
+    from app.services import managed_original_creation as creations
 
-    def delete_object(self, *, Bucket, Key):
-        self.objects.pop(Key, None)
-
-    def head_bucket(self, *, Bucket):
-        # create_dataset → ensure_bucket 会先 head_bucket 探测;假装 bucket 已存在。
-        return {}
+    monkeypatch.setattr(creations, "create_client", lambda **_: storage_service.client)
 
 
 def _make_zip(entries: dict[str, bytes]) -> bytes:
@@ -461,15 +456,10 @@ async def test_upload_zip_notes_reserved_role_top_level_mix(
     assert any("保留角色目录" in note and "import-formats.md" in note for note in notes)
 
 
-async def test_upload_zip_temporal_validation_failure_cleans_storage(
+async def test_upload_zip_temporal_validation_failure_preserves_creation_responsibility(
     httpx_client, db_session, super_admin, monkeypatch
 ):
-    """时序数据集 scene 校验失败(422) → 本次已写入 MinIO 的对象必须被清理,不留孤儿。
-
-    构造:is_temporal=True 的 dataset,zip 只含根级文件(无子目录)→ scene_inference
-    推不出任何 scene → assert_temporal_dataset_has_scenes 抛 422。断言 fake storage
-    中已无残留对象,且 DatasetItem 因事务 rollback 未落库。
-    """
+    """A rejected ZIP rolls back items but keeps independently verified creations."""
     user, token = super_admin
 
     fake_client = _FakePutOnlyClient()
@@ -511,10 +501,21 @@ async def test_upload_zip_temporal_validation_failure_cleans_storage(
     )
     assert resp.status_code == 422, resp.text
 
-    # 本次上传写入的对象应被清理,不留孤儿;dataset 创建时的文件夹占位
-    # ("{name}/" 空对象)属于 dataset 本身,不在本次清理范围内,允许保留。
+    from app.db.models.managed_original_creation import ManagedOriginalCreation
+
     leftover_files = [k for k in fake_client.objects if not k.endswith("/")]
-    assert leftover_files == [], leftover_files
+    assert len(leftover_files) == 2
+    creations = list(
+        await db_session.scalars(
+            select(ManagedOriginalCreation).where(
+                ManagedOriginalCreation.dataset_id == uuid.UUID(ds_id)
+            )
+        )
+    )
+    assert len(creations) == 2
+    assert {row.object_key for row in creations} == set(leftover_files)
+    assert all(row.status == "verified" for row in creations)
+    assert not [call for call in fake_client.calls if call[0] == "delete"]
 
     # 事务 rollback,DatasetItem 不应落库
     rows = (

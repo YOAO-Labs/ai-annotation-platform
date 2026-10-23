@@ -148,6 +148,7 @@ async def seed(db, external: Path):
     from app.services.storage import storage_service as storage
     from app.workers import training_dataset as worker
     from app.services import managed_original_verification as verifications
+    from app.services import managed_original_creation as creations
     from app.workers import managed_original_verification as verification_worker
     from tests.factory import create_project, create_user
     from tests.test_dataset_content import create_content_world
@@ -177,11 +178,18 @@ async def seed(db, external: Path):
         )
         db.add(managed)
         await db.flush()
-        storage.client.put_object(
-            Bucket=storage.datasets_bucket,
-            Key=managed.file_path,
-            Body=green,
-            ContentType="image/png",
+        allocation = await creations.allocate(
+            db,
+            dataset_id=managed.dataset_id,
+            logical_path=managed.file_name,
+            origin="zip",
+            max_bytes=len(green),
+            requested_by=actor.id,
+            content_type="image/png",
+        )
+        managed.file_path = allocation["object_key"]
+        created = await creations.create_stream(
+            db, allocation, io.BytesIO(green), content_type="image/png"
         )
         await register_item_asset(
             db,
@@ -190,6 +198,7 @@ async def seed(db, external: Path):
             size_bytes=len(green),
             binding=binding,
         )
+        await creations.attach(db, managed, created.creation_id)
         authority = await capture_dataset_write(db, world[3].id, actor, None)
         await DatasetService(db).link_project(
             world[3].id, project.id, directory_authority=authority
@@ -280,11 +289,18 @@ async def seed(db, external: Path):
         )
         db.add(retired)
         await db.flush()
-        storage.client.put_object(
-            Bucket=storage.datasets_bucket,
-            Key=retired.file_path,
-            Body=green,
-            ContentType="image/png",
+        allocation = await creations.allocate(
+            db,
+            dataset_id=retired.dataset_id,
+            logical_path=retired.file_name,
+            origin="zip",
+            max_bytes=len(green),
+            requested_by=actor.id,
+            content_type="image/png",
+        )
+        retired.file_path = allocation["object_key"]
+        created = await creations.create_stream(
+            db, allocation, io.BytesIO(green), content_type="image/png"
         )
         await register_item_asset(
             db,
@@ -293,6 +309,7 @@ async def seed(db, external: Path):
             size_bytes=len(green),
             binding=binding,
         )
+        await creations.attach(db, retired, created.creation_id)
         assert await DatasetService(db).delete_item(retired.id)
         # Related assertions must preserve independent policies and complete hold
         # history while following the same physical locator through restoration.
@@ -534,6 +551,7 @@ async def verify_application(db, external: Path):
         ManagedOriginalRetentionHold,
     )
     from app.db.models.managed_original_verification import ManagedOriginalVerification
+    from app.db.models.managed_original_creation import ManagedOriginalCreation
     from app.db.models.storage_connection import StorageConnection
     from app.db.models.training_dataset import TrainingDatasetVersion
     from app.db.models.user import User
@@ -555,6 +573,28 @@ async def verify_application(db, external: Path):
         original_cache.verify_stored(record)
     retirements = list(await db.scalars(select(ManagedOriginalRetirement)))
     assert len(retirements) == 2
+    creation_rows = list(await db.scalars(select(ManagedOriginalCreation)))
+    assert len(creation_rows) == 2
+    assert all(row.status == "verified" for row in creation_rows)
+    # Restoration maps physical locations, never historical successful writes.
+    assert all(row.bucket != storage.datasets_bucket for row in creation_rows)
+    from app.services import managed_original_creation as creations
+
+    for creation in creation_rows:
+        try:
+            await creations.for_key(
+                db,
+                dataset_id=creation.dataset_id,
+                object_key=creation.object_key,
+            )
+        except ContentError as exc:
+            assert exc.code == "managed_original_configuration_changed"
+        else:
+            raise AssertionError("Source creation cannot be adopted in target context")
+    assert sum(row.creation_id is not None for row in retirements) == 1
+    assert {row.creation_id for row in retirements if row.creation_id} <= {
+        row.id for row in creation_rows
+    }
     for record in retirements:
         response = storage.client.get_object(
             Bucket=record.bucket, Key=record.object_key
@@ -749,6 +789,8 @@ async def verify_application(db, external: Path):
         "same_name_replacements_rejected": replacements_rejected,
         "verified_frozen_media": media_count,
         "managed_original_assertions": len(retirements),
+        "preserved_original_creations": len(creation_rows),
+        "source_creation_receipts_remapped": False,
         "preserved_original_verifications": len(old_probes),
         "restored_observation_context_matches": False,
         "target_original_verification": target_probe.outcome,

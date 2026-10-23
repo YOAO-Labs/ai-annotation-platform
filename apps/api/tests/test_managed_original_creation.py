@@ -395,6 +395,7 @@ async def publication(db, row, result):
     db.add(item)
     await db.flush()
     asset = DatasetAsset(
+        id=uuid.uuid4(),
         dataset_item_id=item.id,
         media_type="image",
         checksum_algorithm="sha256",
@@ -426,9 +427,10 @@ async def test_attach_is_transactional_and_preserves_source_provenance_on_bucket
     item, location = await publication(db, row, result)
     await service.attach(db, item, row["id"])
     await db.commit()
+    asset_id = location.asset_id
     await db.execute(
         update(DatasetAssetLocation)
-        .where(DatasetAssetLocation.asset_id == location.asset_id)
+        .where(DatasetAssetLocation.asset_id == asset_id)
         .values(bucket="offline-remapped-target")
     )
     await db.commit()
@@ -441,7 +443,7 @@ async def test_attach_is_transactional_and_preserves_source_provenance_on_bucket
         async with db.begin_nested():
             await db.execute(
                 update(DatasetAssetLocation)
-                .where(DatasetAssetLocation.asset_id == location.asset_id)
+                .where(DatasetAssetLocation.asset_id == asset_id)
                 .values(creation_id=None)
             )
 

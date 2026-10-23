@@ -30,7 +30,9 @@ async def test_empty_managed_retirement_schema_roundtrip(db_session, monkeypatch
         verification = migration(
             sync, monkeypatch, "0218_managed_original_verifications.py"
         )
+        creation = migration(sync, monkeypatch, "0219_managed_original_creations.py")
         assert module.down_revision == "0215"
+        creation.downgrade()
         verification.downgrade()
         retention.downgrade()
         module.downgrade()
@@ -44,7 +46,7 @@ async def test_empty_managed_retirement_schema_roundtrip(db_session, monkeypatch
         assert {
             column["name"]
             for column in schema.get_columns("managed_original_retirements")
-        } == set(ManagedOriginalRetirement.__table__.columns.keys())
+        } == set(ManagedOriginalRetirement.__table__.columns.keys()) - {"creation_id"}
         assert {
             index["name"]
             for index in schema.get_indexes("managed_original_retirements")
@@ -58,6 +60,7 @@ async def test_empty_managed_retirement_schema_roundtrip(db_session, monkeypatch
         )
         retention.upgrade()
         verification.upgrade()
+        creation.upgrade()
 
     await db_session.run_sync(verify)
 
@@ -94,8 +97,11 @@ async def test_retirement_assertions_block_destructive_downgrade(
             ),
             {"id": record.id},
         ).one() == ("a" * 64, None)
-        assert not inspect(sync.connection()).get_foreign_keys(
-            "managed_original_retirements"
+        assert all(
+            foreign_key["referred_table"] == "managed_original_creations"
+            for foreign_key in inspect(sync.connection()).get_foreign_keys(
+                "managed_original_retirements"
+            )
         )
 
     await db_session.run_sync(verify)

@@ -1,6 +1,6 @@
 # EPIC-11：权限、删除与保留治理
 
-> 状态：approved；2026-10-24 的 E11-B1/E09-B3 位置盘点、E11-B2 位置配置确认、E11-B3 数据集归档/恢复、E11-C1 逻辑位置访问维护、E11-C2-A 托管原件保留预演、E11-C2-B 显式策略/声明要求及 E11-C2-C 完整内容核验已完成；整项 E11 继续活动，未分配发布版本。
+> 状态：approved；2026-10-24 的 E11-B1/E09-B3 位置盘点、E11-B2 位置配置确认、E11-B3 数据集归档/恢复、E11-C1 逻辑位置访问维护、E11-C2-A 托管原件保留预演、E11-C2-B 显式策略/声明要求、E11-C2-C 完整内容核验及 E11-C2-D 新原件条件创建已完成；整项 E11 继续活动，未分配发布版本。
 > 晋升基线：`802e6e4df`；工作树干净，保留 3100/8100、两个 Worker 与 beat，不重建镜像。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -11,6 +11,36 @@
 | 依赖     | 与 EPIC-01/02/03/05 同步定义对象、位置和读取权限，不作为末尾补丁   |
 | 协同     | EPIC-04 的并发任务；EPIC-08/09 的操作反馈；EPIC-10 的冻结引用      |
 | 交付阶段 | M1 最小安全闭环；M2 完整影响预览、保留与回收；M3 站点授权扩展      |
+
+## 本轮定稿：E11-C2-D 新托管原件条件创建与直传隔离
+
+在干净基线 `f68886760` 上继续实施。覆盖新数据集直传、ZIP、连接器复制和目录 managed_copy 四条实际写入入口；扫描只登记已有对象，不补造创建事实。保存真实创建响应与完整回读，并隔离直传旧 URL 是本片完整边界；所有消费者的固定内容读取、生产命名空间权限、最小副本和物理执行仍分别过后续门禁。
+
+0219 增加独立 `managed_original_creations`，无业务/操作者/Location 级联外键，先耐久分配精确最终键、来源入口、授权与配置/绑定、实际字节预算。最终键永久不复用。准入后独立保存目标 Permit ID；完成输入后冻结 SHA/大小，再单次发出条件创建。真实成功响应独立落库后完整回读验证，最后在原业务事务中复核当前权限、配置、维护代次和内容并关联 AssetLocation.creation_id。Item 删除前同事务捕获该创建关联，原始创建账本不会随业务删除或回滚消失。历史、扫描、相同 SHA、元信息和随机键均不得补成创建证明。
+
+直传 init 仍返回原字段，但 PUT URL 只指向 import 用途桶的 `__aap_upload_staging__/`，Item/AssetLocation 先保留独立最终键。complete 完整条件读取暂存内容后冻结输入，以带源 ETag/真实版本的单 part copy 准备最终 MPU，Complete 使用 IfNoneMatch=\*；零字节使用条件 PUT。最终键永不签 PUT URL，旧暂存 URL 重放只影响暂存对象，重复 complete 只复用已持久的 verified 结果。已有旧 init 保留历史完成路径，不伪造新创建证据。暂存使用既有 import 生命周期，不以 URL 到期或生命周期推定远端访问已收尾。
+
+普通服务端导入也共用条件 MPU/空对象 PUT 和完整回读；逐入口保留现有预算，连接器以实际消费字节累计总额度，不能仅信清单大小或套用直传/图片上限。实际 MinIO 已验证 PUT/Complete 的 IfNoneMatch=\* 返回412；CopyObject 的目标条件被忽略，禁止使用它封存。UploadPartCopy 的错误源条件实测返回412。SDK 每步单次尝试，条件不支持、冲突、写入结果未知分别处理，不退回无条件写入。
+
+```text
+allocation committed -> destination Permit committed -> prepare and freeze input
+         |                                       |
+client PUT -> staging only              conditional final create once
+                                                     |
+                                      actual write receipt committed
+                                                     |
+                                   complete SHA readback -> verified
+                                                     |
+                      existing authorization/config/Gate + business attach
+                                                     |
+                     business rollback / dedupe keeps durable responsibility
+```
+
+网络应答丢失、DB 应答丢失、进程中断、MPU/客户端关闭不确定均保留独立责任；不靠 HEAD404、同 SHA、412、TTL 或 abort 推断已创建或已消失。取消等待真实工作和回执持久化结束再传播。业务回滚、去重或提交确认丢失不裸删最终键；只有明确的本次 MPU 可以精确 abort。真实非 null VersionId 保存为证据，缺失或字符串 null 不称固定版本；不启用现有桶版本化，维持当前离线恢复合同。
+
+本片超过8文件，跨纯对象 I/O、独立DB领域、四入口、退休关联、恢复工具和正式文档。三个修改子代理分别在当前 HEAD 的隔离工作树负责纯 writer、领域账本及迁移、连接/目录入口；主树负责直传/ZIP、PUT 签名限制、退休关联、恢复与实际验收、文档及集成提交。无新依赖、镜像重建、环境变量、服务或版本；保留 3100/8100 人工环境、两个 Worker 与 beat。
+
+验证包括真实暂存 URL 重放、重复 complete、四入口创建回执及回读、零字节、同/异 SHA 碰撞、输入变化、真实字节超限、写应答丢失、回执落库失败、取消/中断、业务回滚/提交不确定、严格状态/不可变事实及退休后关联保留。仅使用核实 owner 的一次性 test 数据库/Redis/九桶。离线恢复不得改写创建账本任何列；旧源创建事实保留，目标物理映射与新创建证据须分别表达，不能用恢复重定位冒充原始创建。完成后追加实际 Outcome 并按 owner 清理测试资源及已集成工作树。
 
 ## 本轮定稿：E11-C2-C 已登记原件定位与完整内容核验
 
@@ -421,6 +451,19 @@ Asset 的业务引用保护的是应保留的内容，不会永久固定每一�
 完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
 
 ## Outcome
+
+### E11-C2-D 新托管原件条件创建与直传隔离
+
+2026-10-24 在 `f68886760` 基线上交付；连接/目录入口、纯对象 writer、创建领域与迁移分别集成为 `143e7c58f`、`8fb2499a3`、`e151da5ba`，直传/ZIP、退休关联、恢复和正式文档同本次集成提交。完整 C2、E11/E09 和整套 Epic 继续活动，未分配发布版本。
+
+- 创建责任：0219在最终 I/O 前独立提交永久预留键、入口、预算、权威/配置和真实目标 Permit；冻结输入后单次条件写，先保存真实成功响应再完整 SHA/大小回读，verified 才在原业务事务复核并关联。业务回滚、去重、应答未知保留独立事实及最终对象；不以 HEAD404、同 SHA、412 或 TTL 推定写入成功或责任消失。仅 abort 明确属于本次的 MPU，取消等待物理工作、回执和关闭真实收尾。
+- 四入口：新直传仅签 import 暂存 PUT URL，后端以条件 MPU copy封存；ZIP、连接器和目录 managed_copy共用条件流式写入。已有旧直传兼容，扫描不伪造创建证据。真实 MinIO确认 PUT/Complete 条件冲突412、源copy条件错误412；目标 CopyObject 条件被忽略，未用于封存。分片按预算自适应，保留连接器200GiB默认总量；实际源字节在当前 Worker执行内跨成功/失败/去重累计。
+- 数据保护：AssetLocation 与退休断言保留可空 creation_id并RESTRICT；关联初次校验真实内容/定位，之后不能换创建身份。退休关联不能补写。恢复可映射现用bucket而不修改源创建账本任何列，源回执不会变成目标创建；旧配置下的完成/重关联明确拒绝，未完成创建不自动重放。真实非 null VersionId保留，缺失/字符串null不称不可变版本，本次未启用桶版本化。
+- 本地检查：286个不同 API/DB/调用方用例、66个纯 writer及11个恢复纯测试通过，共363个不同用例；覆盖碰撞、空对象、超量、应答丢失、关闭不确定、取消、权限/配置变化、业务回滚及不可变状态。早期失败为旧fake/夹具不适配；最后一条引用只读断言受真实验收的4个现存AssetLocation干扰，整体销毁一次性环境后在干净DB重验通过，未修改该断言规避数据干扰。
+- 真实验收：独立18100/13100及两个真实 Worker/MinIO完成直传、ZIP、连接复制和目录复制，四条verified创建均关联且完整SHA一致，未收尾operation为0。真实浏览器上传成功后重放原暂存URL得到200，已接受原件内容不变，重复complete200且复用回执，严格任务快照摘要一致。发现并修复旧Task file-url错用默认桶导致404的问题，数据集图片/独立图片/点云三种用途回归通过，实际下载成功。
+- 浏览器与恢复：已检查1440×1000日间及390×844夜间的真实数据集/居中样本详情；页面错误0，控制台13条仅debug/info/log，首段HAR307请求无HTTP失败。合成源销毁后恢复151表93行、九桶20对象，两个源创建回执全部保持，退休关联保留；目标显式核验与冻结/中断、外部文件缺失及同名替换拒绝继续通过。随机源/目标均按owner销毁并验证。
+- 资料与运行：用户存储指南、datasets/verified-content API、存储架构、恢复说明、README及CHANGELOG Unreleased同步；Ruff check/format、文档frontmatter197/navigation199/严格可读性198及构建通过，正常提交钩子和diff检查通过，未运行远程CI。0219应用于所属人工环境并刷新API、两个Worker与beat，3100/8100健康；8Dataset/12Item/8Source/12Task/7Annotation/1TrainingVersion、24对象SHA与12源文件保持，不改共享.env、不重建镜像。
+- 清理与剩余：一次性test命名空间及浏览器/凭据、任务临时文件、构建与测试缓存、等价集成子工作树按owner清理，保留人工环境和不可变业务历史。全部消费者的固定内容/版本读取、专属生产命名空间权限、最小副本、真实恢复点/迁移资格与可恢复物理执行仍各过独立门禁；跨崩溃/重投递的连接器总传输累计与exactly-once作业尚未交付。下一步按整套队列复核剩余合同，物理回收保持关闭，E11/E09不归档。
 
 ### E11-C2-C 已登记原件完整内容核验
 
