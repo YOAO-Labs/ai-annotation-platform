@@ -22,6 +22,40 @@ from sqlalchemy.orm import Mapped, mapped_column, column_property
 from app.db.base import Base
 
 
+# Both durable owners use the same non-secret locator envelope. Runtime
+# resolution applies the stricter platform identity and canonical key checks.
+TRAINING_STORAGE_REF_CHECK = """
+storage_ref IS NULL OR COALESCE((
+    jsonb_typeof(storage_ref) = 'object'
+    AND storage_ref ?& ARRAY['schema','purpose','location_id','config_revision',
+        'binding_generation','endpoint_url','bucket','prefix','storage_identity',
+        'origin','evidence']
+    AND storage_ref - ARRAY['schema','purpose','location_id','config_revision',
+        'binding_generation','endpoint_url','bucket','prefix','storage_identity',
+        'origin','evidence']::text[] = '{}'::jsonb
+    AND storage_ref->'schema' = '1'::jsonb
+    AND storage_ref->>'purpose' = 'training-dataset'
+    AND jsonb_typeof(storage_ref->'location_id') = 'string'
+    AND storage_ref->'config_revision' = '1'::jsonb
+    AND storage_ref->'binding_generation' = '1'::jsonb
+    AND jsonb_typeof(storage_ref->'endpoint_url') = 'string'
+    AND storage_ref->>'endpoint_url' ~ '^https?://[^[:space:]/?#@]+$'
+    AND jsonb_typeof(storage_ref->'bucket') = 'string'
+    AND length(storage_ref->>'bucket') BETWEEN 1 AND 255
+    AND storage_ref->>'bucket' !~ '[[:space:]/?#@]'
+    AND position(chr(92) in (storage_ref->>'bucket')) = 0
+    AND jsonb_typeof(storage_ref->'prefix') = 'string'
+    AND storage_ref->>'prefix' ~ '^projects/[0-9a-f-]{36}/datasets/[0-9a-f-]{36}/$'
+    AND jsonb_typeof(storage_ref->'storage_identity') = 'string'
+    AND storage_ref->>'storage_identity' ~ '^[0-9a-f]{64}$'
+    AND storage_ref->>'origin' IN ('new','verified-retained')
+    AND (storage_ref->'evidence' = 'null'::jsonb
+        OR jsonb_typeof(storage_ref->'evidence') = 'object')
+    AND (storage_ref->>'origin' != 'new' OR storage_ref->'evidence' = 'null'::jsonb)
+), false)
+"""
+
+
 class TrainingDatasetVersion(Base):
     __tablename__ = "training_dataset_versions"
     __table_args__ = (
@@ -33,6 +67,14 @@ class TrainingDatasetVersion(Base):
             name="ck_training_dataset_status",
         ),
         Index("ix_training_dataset_project_created", "project_id", "created_at"),
+        CheckConstraint(
+            TRAINING_STORAGE_REF_CHECK, name="ck_training_dataset_storage_ref"
+        ),
+        CheckConstraint(
+            "storage_ref IS NULL OR storage_ref->>'prefix' = "
+            "'projects/' || project_id::text || '/datasets/' || id::text || '/'",
+            name="ck_training_dataset_storage_prefix",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -99,6 +141,7 @@ class TrainingDatasetVersion(Base):
     progress_pct: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(80))
     error_message: Mapped[str | None] = mapped_column(String(1000))
+    storage_ref: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     package_key: Mapped[str | None] = mapped_column(String(500))
     package_sha256: Mapped[str | None] = mapped_column(String(64))
     size_bytes: Mapped[int | None] = mapped_column(BigInteger)
