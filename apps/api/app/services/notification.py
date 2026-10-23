@@ -69,6 +69,10 @@ from aap_notifications.read_state_postgres import NotificationReadStatePostgresD
 from aap_notifications.delete import NotificationDeleteManager
 from aap_notifications.delete_postgres import NotificationDeletePostgresData
 from aap_notifications.redis_pubsub import channel_for, publish_json as _publish_json
+from aap_notifications.realtime_event_contract import (
+    notification_event_message,
+    notification_sync_message,
+)
 from aap_notifications.terminal_append import NotificationTerminalAppendManager
 from aap_notifications.terminal_append_contract import (
     TERMINAL_APPEND_PROTOCOL,
@@ -666,16 +670,16 @@ class NotificationService:
             try:
                 await _publish(
                     user_id=row.user_id,
-                    message={
-                        "id": str(row.id),
-                        "type": row.type,
-                        "target_type": row.target_type,
-                        "target_id": str(row.target_id),
-                        "payload": row.payload,
-                        "created_at": (
+                    message=notification_event_message(
+                        id=str(row.id),
+                        type=row.type,
+                        target_type=row.target_type,
+                        target_id=str(row.target_id),
+                        payload=row.payload,
+                        created_at=(
                             row.created_at or datetime.now(timezone.utc)
                         ).isoformat(),
-                    },
+                    ),
                 )
             except Exception as e:
                 log.warning(
@@ -707,16 +711,14 @@ class NotificationService:
             return False
         await _publish(
             user_id=row.user_id,
-            message={
-                "id": str(row.id),
-                "type": row.type,
-                "target_type": row.target_type,
-                "target_id": str(row.target_id),
-                "payload": row.payload,
-                "created_at": (
-                    row.created_at or datetime.now(timezone.utc)
-                ).isoformat(),
-            },
+            message=notification_event_message(
+                id=str(row.id),
+                type=row.type,
+                target_type=row.target_type,
+                target_id=str(row.target_id),
+                payload=row.payload,
+                created_at=(row.created_at or datetime.now(timezone.utc)).isoformat(),
+            ),
         )
         return True
 
@@ -731,7 +733,7 @@ class NotificationService:
         try:
             await _publish(
                 user_id=user_id,
-                message={"type": "notifications.sync", "reason": reason},
+                message=notification_sync_message(reason=reason),
             )
         except Exception as e:
             log.warning(

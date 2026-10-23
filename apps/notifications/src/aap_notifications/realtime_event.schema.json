@@ -1,0 +1,80 @@
+{
+  "$defs": {
+    "NotificationEvent": {
+      "additionalProperties": false,
+      "description": "Persisted notification event sent through the existing user channel.",
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "title": "Payload",
+          "type": "object"
+        },
+        "target_id": {
+          "format": "uuid",
+          "title": "Target Id",
+          "type": "string"
+        },
+        "target_type": {
+          "maxLength": 30,
+          "title": "Target Type",
+          "type": "string"
+        },
+        "type": {
+          "maxLength": 60,
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["id", "type", "target_type", "target_id", "payload", "created_at"],
+      "title": "NotificationEvent",
+      "type": "object"
+    },
+    "NotificationSyncEvent": {
+      "additionalProperties": true,
+      "description": "Open sync hint; clients may ignore unknown reasons and extensions.",
+      "properties": {
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "type": {
+          "const": "notifications.sync",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["type"],
+      "title": "NotificationSyncEvent",
+      "type": "object"
+    }
+  },
+  "$id": "aap-notification-realtime/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/NotificationEvent"
+    },
+    {
+      "$ref": "#/$defs/NotificationSyncEvent"
+    }
+  ],
+  "title": "AAP Notifications realtime event protocol"
+}

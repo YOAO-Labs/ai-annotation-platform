@@ -17,20 +17,21 @@ from .notification_delivery_contract import (
 from .notification_delivery_postgres import NotificationDeliveryPostgresData
 
 from .delivery_config import NotificationPublisherSettings
+from .realtime_event_contract import notification_event_message
 
 log = logging.getLogger("aap_notifications.delivery_worker")
 
 
 def _notification_message(lease: NotificationLease) -> tuple[str, str]:
     """Build the existing WebSocket channel and message shape without user_id."""
-    message = {
-        "id": str(lease.id),
-        "type": lease.type,
-        "target_type": lease.target_type,
-        "target_id": str(lease.target_id),
-        "payload": lease.payload.model_dump(mode="json", by_alias=True),
-        "created_at": lease.created_at.astimezone(UTC).isoformat(),
-    }
+    message = notification_event_message(
+        id=str(lease.id),
+        type=lease.type,
+        target_type=lease.target_type,
+        target_id=str(lease.target_id),
+        payload=lease.payload.model_dump(mode="json", by_alias=True),
+        created_at=lease.created_at.astimezone(UTC).isoformat(),
+    )
     try:
         encoded = json.dumps(
             message,

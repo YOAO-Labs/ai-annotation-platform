@@ -81,7 +81,21 @@ async def test_publisher_emits_existing_websocket_shape_then_finishes_stable_id(
 
     channel, encoded = redis.calls[0]
     message = json.loads(encoded)
+    expected = {
+        "id": str(lease.id),
+        "type": lease.type,
+        "target_type": lease.target_type,
+        "target_id": str(lease.target_id),
+        "payload": lease.payload.model_dump(mode="json", by_alias=True),
+        "created_at": lease.created_at.astimezone(UTC).isoformat(),
+    }
     assert channel == f"notify:{lease.user_id}"
+    assert encoded == json.dumps(
+        expected,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
     assert set(message) == {
         "id",
         "type",
