@@ -178,20 +178,19 @@ def crop_inputs_from_boxes(
         bottom = min(float(img_h), bottom + bh * pad)
         left_int, top_int = int(left), int(top)
         right_int, bottom_int = int(round(right)), int(round(bottom))
-        crop = image.crop((left_int, top_int, right_int, bottom_int))
-        if crop.width <= 0 or crop.height <= 0:
-            skipped_geometry += 1
-            continue
-        # v0.18.14 · 嵌套裁剪越深裁得越小, 短边过小的 crop 上采样后画质崩坏; 低于阈值跳过
-        # (计 skipped_geometry), 父框靠 on_failure=keep_parent 保留。0=不守卫 (向后兼容)。
-        if min_crop_side_px and (
-            crop.width < min_crop_side_px or crop.height < min_crop_side_px
-        ):
-            skipped_geometry += 1
-            continue
-        buf = io.BytesIO()
-        crop.convert("RGB").save(buf, format="JPEG", quality=jpeg_quality)
-        jpeg_bytes = buf.getvalue()
+        with image.crop((left_int, top_int, right_int, bottom_int)) as crop:
+            if crop.width <= 0 or crop.height <= 0:
+                skipped_geometry += 1
+                continue
+            # Small ROIs retain the existing geometry-skip and parent policy.
+            if min_crop_side_px and (
+                crop.width < min_crop_side_px or crop.height < min_crop_side_px
+            ):
+                skipped_geometry += 1
+                continue
+            with io.BytesIO() as buf, crop.convert("RGB") as rgb:
+                rgb.save(buf, format="JPEG", quality=jpeg_quality)
+                jpeg_bytes = buf.getvalue()
         if delivery == "presigned":
             if upload_fn is None:
                 raise ValueError("delivery='presigned' 需要 upload_fn")

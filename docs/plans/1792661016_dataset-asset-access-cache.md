@@ -1,6 +1,6 @@
 # EPIC-05：统一文件访问、预览与缓存
 
-> 状态：E05-A 读取基座、E03 工作台、E10 训练冻结及 E05-C1 图片导出已完成本地验收；E05-B 与预测投递仍待实施；不分配发布版本。
+> 状态：E05-A 读取基座、E03 工作台、E10 训练冻结、E05-C1 图片导出及 C2-A 输入回收基座已完成本地验收；E05-B 与引用预测资格仍待实施；不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -13,7 +13,19 @@
 | 最小依赖      | E01 Asset/位置契约；E02 可达性；E11 授权切片             |
 | 下游          | E03 原地目录标注、E06 多站点、E08 样本浏览、E10 训练读取 |
 
-## 当前实施定案：E05-C1 引用图片导出
+## 当前实施定案：E05-C2 预测输入与结果资格
+
+基线 `4af982c12`，工作树干净。重新核对批量/工作台预标、模型快照、snapshot retry、ROI、候选写入及采纳守卫。C1 完成不等于 ML 消费者获得引用资格：当前模型快照不冻结原图、ROI 另读原件、取消与结果提交没有共同锁边界，失败重试还有两个入口。沿用人工环境 3100/8100；不重建后端或 ML 镜像，不改共享配置，不依赖尚未指定的远端站点。
+
+C2 最终合同：入队固定实际任务、任务版本、原发起 Key proof、模型快照及 Item/Asset/SHA/来源修订；真实 worker 节点捕获严格快照，经独占临时输入交付现有 HTTP 协议，根阶段、geometry 和 ROI 共用同份字节。最终事务与取消共锁，复验后以服务器专有 receipt 写候选；失败重试采用新授权但保留原模型/内容。采纳使用当次权限和严格原图证明，不把历史 Task.version 永久相等作为采纳条件，保留 draft 预标后分派/激活的合法流程。交互、predict-test、mask repair 按同一合同分别获得资格，不全局移除 `resolve_task_url` 的引用门禁。
+
+本轮先实施 C2-A 共用输入资源所有者，并实际接入现有多阶段预标及 snapshot retry 的 ROI 上传。上传前独立提交回收记录，使用服务生成的 attempt UUID 前缀；正常结束主动清理，删除失败持久重试，过期/失联尝试持续扫除可能迟到的写入。记录不随 job/task/project 删除级联消失，固定存储身份不匹配时拒绝访问新后端。原图快照转移所有权及同字节 image loader 也由该 owner 提供，后续 C2-B 接入引用、receipt、取消事务与重试/采纳；C2-A 不宣称已开放引用预标。
+
+范围超过 8 个文件：新增 `db/models/prediction_input.py`、迁移 `0212_prediction_input_leases.py`、`services/prediction_inputs.py`、`workers/prediction_input_cleanup.py` 及专项测试；修改模型注册、`StorageService` 可选有界客户端配置、`workers/{tasks,predictions_retry,roi,celery_app}.py` 和适用现有测试。同步 `docs-site/dev/concepts/prediction-pipeline.md`、存储架构/桶用途文档、运维清理说明、CHANGELOG、本计划与执行队列。没有新公开接口、依赖或环境变量。
+
+验证使用已核验的 disposable test DB/Redis/九桶：覆盖上传前跨连接持久化、attempt 隔离、正常/异常/取消关闭、删除失败重试、过期恢复与迟到 PUT、存储身份变化、资源预算、同快照 ROI、不误删源原件和其他前缀，以及旧管线/模型快照/失败重试回归。真实 MinIO 对象与实际 worker 清理任务单独验收。迁移升级与有记录降级拒绝均验证；刷新本 checkout worker 与 beat 后检查任务注册/队列，保留人工数据。最终检查 diff、文档及提交 hooks，清理任务所属测试资源再提交。完整 C2/E05 继续执行中。
+
+## 已完成实施定案：E05-C1 引用图片导出
 
 基线 `883468e58`，工作树干净。依据当前 export worker、packaging、严格 reference reader、三个排队 API 和最终授权守卫重新审计。本切片已获“推进整个 Epic”授权；没有真实跨站点或迁移目标不阻塞本地实施。Orca 中继连接拒绝，串行修改当前 checkout；保留人工验收 3100/8100、dev 数据和 beat，不重建镜像，不改共享 `.env`、MinIO endpoint 或凭据。
 
@@ -269,3 +281,15 @@ M1 严格方案：对需要与标注绑定的可变原图，读取到受限临�
 - 清理：本轮独立 test/e2e 数据库、Redis 和各自九个桶已由环境所有者销毁；专用浏览器已关闭，临时验收脚本、截图、ZIP、日志与本 checkout 的测试缓存已清理。人工环境及业务数据保留。
 - 正式文档：`README.md`、`docs-site/api/guides/{export,verified-content}.md`、`docs-site/dev/concepts/storage-connections.md`、`docs-site/user-guide/reference/export-formats.md`、`docs-site/user-guide/datasets/{index,import-images,prediction-import-export}.md` 与 CHANGELOG Unreleased。公共 schema 未变，OpenAPI 快照核对一致，无 SDK 方法或版本变更。
 - 后续边界：同步 VOC、预测/采纳仍保留引用门禁；E05-C2 需独立实现投递与结果资格，E05-B 持久缓存/Range/全局配额、E01 历史 artifact binding、硬崩溃与存储删除失败的持久回收继续后续治理。导出桶七天生命周期兜底清理遗留桶对象；硬崩溃后的本地 ZIP 恢复清理仍需后续实现。已签发链接和已下载包不承诺实时撤回。S3/SFTP 为合同测试，不冒充真实远端网络资格或生产性能基准。
+
+### E05-C2-A Outcome
+
+- 落地范围：本节与实现同次提交。`prediction_inputs.py` 提供上传前独立提交的 attempt 回收账本、独占前缀、固定 bucket/endpoint 身份、预算、原图快照接管及同字节 ROI loader；实际接入批量/工作台多阶段预标及模型快照重试。移除旧无账本 crop uploader，保留纯函数注入/内联模式；Task、原件授权和候选资格仍归原 owner。
+- 生命周期：正常完成、部分失败、普通异常及取消关闭输入和图像并主动清理；删除失败保持持久重试。过期失联或不确定 PUT 的记录继续保留到活动期限后七天，反复扫除迟到写入。专用 SDK 只尝试一次；连续取消仍等待已启动 I/O 完成才关文件。旧 ROI 前缀采用原生命周期，不从未登记对象猜测删除范围。
+- 数据与迁移：0212 创建独立且无业务级联外键的 lease 表。非空降级拒绝；检查前取得表排他锁，独立连接证明新 lease 无法穿过空表检查而后丢失。空表降级、再升级通过。存储身份不符只记录错误，不改账本或追随新后端。
+- 本地验证：221 个不同 API 案例通过，涵盖输入恢复、非零 root/多级 ROI、旧管线校验、项目/工作台范围、模型快照/失败重试、存储 URL/事件循环；最终迁移并发保护的专项复跑通过，不重复计数。实际 localhost HTTP 503 测试证明 SDK 只发一次 PUT，剩余 1/17/30 秒签名不对齐延长。Ruff、OpenAPI 快照核对、196 页 frontmatter、198 页导航及 diff 检查通过；未声明远程 CI 或新增 UI 浏览器验收。
+- 真实验收：独立 test DB、Redis、MinIO 九桶中的真实 Celery `cleanup` worker 注册并消费新任务；原图快照上传后从 S3 取回并核对 SHA。过期尝试首次回收保留账本，迟到 PUT 再次回收并按到期窗口移除账本；活动 attempt、邻近前缀与独立源对象均保留，正常 close 移除对象和账本。最初验收脚本将 Celery 节点直达队列误判为业务订阅，已修正脚本；应用路由未因此改变。此处没有进行真实 ML HTTP 网络/推理资格验证。
+- 运行环境：确认没有运行中业务 job 后，人工 3100/8100 应用 0212，刷新本 checkout 的 API、普通/维护 worker 与 beat；最终 doctor healthy，HTTP 均 200，新任务已注册到 cleanup，实际 beat 派发后执行计数为 1，lease 表为空。没有重建任何后端/ML 镜像或修改共享 .env、凭据、endpoint 和业务原件。
+- 正式文档：`docs-site/dev/concepts/{prediction-pipeline,storage-connections}.md`、`docs-site/dev/reference/storage-buckets.md`、`docs-site/ops/deploy/docker-compose.md`、`docs-site/user-guide/projects/ai-preannotate.md` 与 CHANGELOG Unreleased。没有新公共接口、依赖或环境变量。
+- 清理：独立验收 worker 已退出，任务所属对象与账本已清除；test 数据库、Redis 和九桶由环境所有者销毁。临时脚本、SDK 测试 HTTP 服务、日志/XML、pytest 中间文件与本 checkout 测试缓存均已清理；人工环境、身份文件和业务数据保留。
+- 剩余工作：C2-B 入队固定 Task/内容/Key、严格引用投递、服务器 receipt、取消与候选写入原子边界、两个重试入口及采纳仍需实施，交互/predict-test/mask repair 逐入口资格验证。输入账本不是授权证明，也不完成全局配额或持久原图缓存；本计划继续执行，不归档。

@@ -334,13 +334,12 @@ async def _run_snapshot_retry(session_factory, failed_id, actor_id):
     )
     from app.services.prediction import PredictionService
     from app.services import trained_models
-    from app.services.storage import resolve_task_url, StorageService
+    from app.services.storage import resolve_task_url
     from app.services.ml_routing.client import RoutedMLBackendClient
     from app.services.gpu_arbitration.dispatch import build_gpu_dispatch_context_factory
     from app.workers.tasks import (
         _run_task_pipeline,
         _resolve_input_mode,
-        _make_crop_uploader,
         _hold_preannotation_authority,
         _preannotation_actor_revoked,
     )
@@ -413,9 +412,9 @@ async def _run_snapshot_retry(session_factory, failed_id, actor_id):
                 resolve_url=resolve_task_url,
                 stage_modes=modes,
                 execution_snapshot_id=fp.execution_snapshot_id,
-                upload_crop=_make_crop_uploader(StorageService(), f"retry-{failed_id}")
-                if len(stages) > 1
-                else None,
+                input_session_factory=session_factory,
+                input_owner_id=failed_id,
+                input_owner_kind="prediction_retry",
             )
             if (extra or {}).get("pipeline", {}).get("partial"):
                 pipeline_errors = extra["pipeline"].get("stage_errors", [])

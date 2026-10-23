@@ -316,6 +316,8 @@ worker/beat 容器已在 `docker-compose.yml` 定义、由 §4.1 一并拉起，
 
 **Celery beat（`celery-beat`，必须单实例）**：定时任务调度（审计 partition 月度归档、PerfHud 推送、ml health 巡检等）。worker 可水平扩多副本（`docker compose up -d --scale celery-worker=N`），但 **beat 多实例会重复触发，绝不能扩副本**。漏了 beat 不报错，但所有定时任务静默不跑。
 
+多阶段 ROI 临时输入需要应用 0212，并刷新平台 worker 和 beat。`app.workers.prediction_input_cleanup.recover_prediction_inputs` 每分钟派发到 `cleanup`；正常处理结束直接回收，删除失败及过期尝试由该任务重扫。`prediction_input_leases.error_code` 的 `storage_cleanup_failed` 表示等待存储恢复，`storage_identity_changed` 表示当前 endpoint/bucket 与登记时不符，须核查原部署映射，不能直接改账本使其匹配新后端。回收记录独立于业务记录；有记录时降级迁移会拒绝，不能通过删账本绕过。预算和七天重扫窗口见[预测流水线](/dev/concepts/prediction-pipeline#crop-投递通用化)。挂载源码只需刷新对应进程，无需因此重建后端或 ML 镜像。
+
 ### 4.3 首个 super_admin（bootstrap_admin）
 
 平台没有「第一个用户自动当管理员」的逻辑。第一次部署后在 api 容器内跑一次（依赖已装到 `/opt/venv`，容器 `PATH` 已包含该环境，可直接 `python -m`）：

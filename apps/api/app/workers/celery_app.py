@@ -20,6 +20,7 @@ celery_app = Celery(
         "app.workers.presence",
         "app.workers.ml_health",
         "app.workers.predictions_retry",
+        "app.workers.prediction_input_cleanup",
         "app.workers.video_tracker",
         "app.workers.video_track_quality",
         "app.workers.mask_qc",
@@ -88,6 +89,9 @@ celery_app.conf.update(
         "app.workers.frame_preannotate.extract_frames_task": {"queue": "media"},
         "app.workers.frame_preannotate.launch_predict_phase": {"queue": "default"},
         "app.workers.predictions_retry.retry_failed_prediction": {"queue": "ml"},
+        "app.workers.prediction_input_cleanup.recover_prediction_inputs": {
+            "queue": "cleanup"
+        },
         "app.workers.media.generate_thumbnail": {"queue": "media"},
         "app.workers.media.generate_video_metadata": {"queue": "media"},
         "app.workers.media.generate_task_thumbnail": {"queue": "media"},
@@ -158,6 +162,10 @@ celery_app.conf.update(
     # v0.7.0：beat schedule。运维侧需 deploy `celery -A app.workers.celery_app beat` 进程
     # （或 worker --beat 单进程模式）才会触发。
     beat_schedule={
+        "recover-prediction-inputs": {
+            "task": "app.workers.prediction_input_cleanup.recover_prediction_inputs",
+            "schedule": 60.0,
+        },
         "check-source-sync-schedules": {
             "task": "app.workers.dataset_source_sync.tick_source_syncs",
             "schedule": 60.0,

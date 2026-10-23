@@ -36,6 +36,8 @@ last_reviewed: 2026-10-23
 
 ## 读写路由规则
 
+多阶段预标的临时 ROI 使用 import 桶 `prediction-inputs/<attempt UUID>/`。上传前持久登记，处理结束主动回收，失败或过期由 `cleanup` 队列恢复；不确定 PUT 的记录保留重扫窗口，桶的七天生命周期兜底。此策略只处理有归属的新 attempt，旧 `roi-crops/` 与其他导入产物继续采用各自原有合同。完整预算及恢复合同见[预测流水线](../concepts/prediction-pipeline.md#crop-投递通用化)。
+
 - **写入侧**：各领域服务与 Celery Worker（如 `workers/media.py`、`audit_partition_service.py`、`training_datasets.py`）直接指定目标桶写入。
 - **读取侧（派生缓存路由）**：API 通过 `StorageService.bucket_for_cache_key(key)` 按前缀自动分流：
 

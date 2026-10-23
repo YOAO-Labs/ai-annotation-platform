@@ -134,6 +134,7 @@ from app.db.models.storage_connection import (
 )
 
 from app.db.models.prediction_execution import PredictionExecutionSnapshot
+from app.db.models.prediction_input import PredictionInputLease
 
 from app.db.models.dataset_asset import (
     DatasetAsset,
@@ -151,6 +152,7 @@ from app.db.models.dataset_source import (
 )
 
 __all__ = [
+    "PredictionInputLease",
     "PredictionExecutionSnapshot",
     "TrainedModelVersion",
     "ModelDeployment",

@@ -245,6 +245,7 @@ def _load_task_image(task):
     避免 worker 容器无法解析 ml_backend_storage_host 的问题。
     """
     import io
+    from contextlib import closing
 
     from PIL import Image
 
@@ -252,27 +253,14 @@ def _load_task_image(task):
 
     storage = StorageService()
     bucket = storage.datasets_bucket if task.dataset_item_id else storage.bucket
-    obj = storage.client.get_object(Bucket=bucket, Key=task.file_path)
-    raw = obj["Body"].read()
-    return Image.open(io.BytesIO(raw)).convert("RGB")
-
-
-def _make_crop_uploader(storage, job_id: str):
-    """v0.18.4 · 返回 ``upload_crop(task, box_idx, jpeg_bytes) -> presigned URL``。
-
-    crop 上传 import 桶 (7 天 lifecycle 自动清), key=``roi-crops/{job_id}/{task_id}/{box_idx}.jpg``,
-    经 ml_backend host 重写返回容器可拉取 URL——对所有走 ``httpx.get`` 的下游后端通用
-    (gsam2/sam3 不支持 ``data:`` URI)。
-    """
-
-    def upload_crop(task, box_idx: int, jpeg_bytes: bytes) -> str:
-        import hashlib
-
-        digest = hashlib.sha256(jpeg_bytes).hexdigest()[:20]
-        key = f"roi-crops/{job_id}/{task.id}/{box_idx}-{digest}.jpg"
-        return storage.upload_crop_bytes(jpeg_bytes, key)
-
-    return upload_crop
+    try:
+        obj = storage.client.get_object(Bucket=bucket, Key=task.file_path)
+        with closing(obj["Body"]) as body:
+            raw = body.read()
+        with io.BytesIO(raw) as content, Image.open(content) as image:
+            return image.convert("RGB")
+    finally:
+        storage.client.close()
 
 
 _PAD_BY_DEPTH: dict[int, float] = {1: 0.05, 2: 0.08, 3: 0.12}
@@ -350,6 +338,61 @@ async def _run_task_pipeline(
     upload_crop=None,
     stage_modes=None,
     execution_snapshot_id=None,
+    load_image=None,
+    input_session_factory=None,
+    input_owner_id=None,
+    input_owner_kind="batch_predict",
+):
+    """Own image handles and, for production ROI calls, durable temporary inputs."""
+    images = []
+
+    def owned_image(current_task):
+        image = (load_image or _load_task_image)(current_task)
+        images.append(image)
+        return image
+
+    async def execute(uploader):
+        return await _execute_task_pipeline(
+            task,
+            stages,
+            stage_clients,
+            stage_contexts,
+            resolve_url=resolve_url,
+            upload_crop=uploader,
+            stage_modes=stage_modes,
+            execution_snapshot_id=execution_snapshot_id,
+            load_image=owned_image,
+        )
+
+    modes = stage_modes or ["crop"] * len(stages)
+    try:
+        if input_session_factory and any(mode == "crop" for mode in modes[1:]):
+            from app.services.prediction_inputs import prediction_inputs
+
+            async with prediction_inputs(
+                input_session_factory,
+                owner_id=input_owner_id,
+                owner_kind=input_owner_kind,
+                task_id=task.id,
+            ) as inputs:
+                return await execute(inputs.upload_crop)
+        return await execute(upload_crop)
+    finally:
+        for image in images:
+            image.close()
+
+
+async def _execute_task_pipeline(
+    task,
+    stages,
+    stage_clients,
+    stage_contexts,
+    *,
+    resolve_url,
+    upload_crop=None,
+    stage_modes=None,
+    execution_snapshot_id=None,
+    load_image=None,
 ):
     """v0.18.1 ~ v0.18.14 · 对单个 task 按受限树形拓扑跑各阶段, 返回 (pred_results, pipeline_extra, stage_stats)。
 
@@ -458,7 +501,7 @@ async def _run_task_pipeline(
     depths = _compute_stage_depths(stages)
     # geometry 模式纯坐标换算无需原图; 仅当存在 crop 下游阶段时才加载 (省去无谓全图拉取)。
     needs_image = any(modes[si] == "crop" for si in range(1, len(stages)))
-    image = _load_task_image(task) if needs_image else None
+    image = (load_image or _load_task_image)(task) if needs_image else None
     delivery = "presigned" if upload_crop is not None else "data_uri"
     enriched_keys: set[str] = set()
     gpu_arbiter_failures: list[dict] = []
@@ -1372,14 +1415,6 @@ async def _run_batch(
                     )
                 )
 
-        # v0.18.4 · 多阶段时构造 crop 上传器 (presigned 投递, 对所有下游后端通用)。
-        # 单阶段无下游 crop, 不建 (省去对象存储往返)。
-        crop_uploader = None
-        if len(stages) > 1:
-            from app.services.storage import StorageService
-
-            crop_uploader = _make_crop_uploader(StorageService(), str(async_job_id))
-
         snapshot_id = precreated_job.execution_snapshot_id if precreated_job else None
         retry_request_context = (
             None if snapshot_id else _retryable_request_context(stage_contexts[0])
@@ -1446,9 +1481,10 @@ async def _run_batch(
                     stage_clients,
                     stage_contexts,
                     resolve_url=_resolve_task_url,
-                    upload_crop=crop_uploader,
                     stage_modes=stage_modes,
                     execution_snapshot_id=snapshot_id,
+                    input_session_factory=SessionLocal,
+                    input_owner_id=async_job_id,
                 )
                 _accumulate_stage_stats(stage_stats)
                 gpu_arbiter_failures.extend(

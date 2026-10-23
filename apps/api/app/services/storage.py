@@ -53,13 +53,14 @@ def _aligned_expires_in(expires_in: int) -> int:
 
 
 class StorageService:
-    def __init__(self) -> None:
+    def __init__(self, *, client_config=None) -> None:
         scheme = "https" if settings.minio_use_ssl else "http"
         self.client = boto3.client(
             "s3",
             endpoint_url=f"{scheme}://{settings.minio_endpoint}",
             aws_access_key_id=settings.minio_access_key,
             aws_secret_access_key=settings.minio_secret_key,
+            config=client_config,
         )
         self.client.meta.events.register(
             "before-parameter-build.s3", _reject_reference_s3

@@ -17,6 +17,7 @@ from app.services import trained_models
 from app.services.ml_client import PredictionResult
 from tests.factory import create_task, create_membership
 from tests.test_failed_predictions import _passthrough_session_factory
+from tests.test_prediction_inputs import input_world as input_world
 from tests.test_trained_models import (
     controlled_artifacts as controlled_artifacts,
     seed_source,
@@ -153,6 +154,7 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
     super_admin,
     monkeypatch,
     child_fails,
+    input_world,
 ):
     from app.workers.predictions_retry import _run_snapshot_retry
     from app.services.prediction_execution import create_snapshot
@@ -248,7 +250,6 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
         "app.workers.tasks._load_task_image",
         lambda _task: Image.new("RGB", (1000, 1000)),
     )
-    monkeypatch.setattr("app.workers.tasks._make_crop_uploader", lambda *_: None)
     result = await _run_snapshot_retry(
         _passthrough_session_factory(db_session), fid, owner.id
     )
@@ -268,7 +269,8 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
     assert result["status"] == "succeeded", result
     assert len(calls) == 2
     assert calls[0][0][0]["id"] == str(task.id)
-    assert calls[1][0][0]["file_path"].startswith("data:image/jpeg;base64,")
+    assert "/prediction-inputs/" in calls[1][0][0]["file_path"]
+    assert not input_world.objects
     assert calls[1][1]["frozen_model_ref"] == ref and calls[1][1]["classes"] == [1]
     pred = await db_session.scalar(
         select(Prediction).where(Prediction.task_id == task.id)

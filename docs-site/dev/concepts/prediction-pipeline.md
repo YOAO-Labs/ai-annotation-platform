@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-23
 ---
 
 # 预标注流水线（Prediction Pipeline）
@@ -211,7 +211,13 @@ worker 解析投递模式：端点（`apps/api/app/api/v1/projects.py`）按下�
 
 ### crop 投递通用化
 
-crop 模式默认走 **presigned URL** 而非 `data:` base64：平台把裁好的 ROI 上传 import 桶（key=`roi-crops/{job_id}/{task_id}/{box_idx}.jpg`），挂 7 天 lifecycle 自动清，URL 经 [`StorageService.rewrite_host_for_ml_backend`](../../../apps/api/app/services/storage.py) 重写到 backend 可拉取的 host。所有走 `httpx.get` 的下游 backend（gsam2 / sam3）零改造可作分类阶段。`data:` 内联保留为纯函数快路径（单测 / 已知支持 `data:` 的 backend：onnxtools / yolo），由 `_make_crop_uploader` 是否注入 `upload_crop` 选择路径。
+crop 模式默认走 **presigned URL**：现有 HTTP 后端直接读取 import 桶内的 ROI，不需要修改 ML 镜像。批量预标与模型快照重试通过 `services/prediction_inputs.py` 创建独立 attempt，上传前在独立事务中提交 `prediction_input_leases`；对象使用 `prediction-inputs/<attempt UUID>/crops/<框索引>-<SHA>.jpg`，同题重试和同时执行的 job 不共用前缀。`_run_task_pipeline` 管理原图/PIL 句柄及输入 owner，成功、部分失败、普通异常或取消均在结束时主动清理本 attempt。纯函数调用仍可注入 `upload_crop`，或使用 `data:` 内联。
+
+临时对象最多 10,000 个、总计 4 GiB，单个不超过 64 MiB；attempt 最长活动两小时，到期拒绝新上传。签名最长一小时且不超过剩余活动期，使用 `align=False`，继续复用现有 `rewrite_host_for_ml_backend` 的部署网络合同。专用 S3 客户端连接/读超时为 3/15 秒，只尝试一次，避免 PUT 的自动重试掩盖仍可能迟到的旧请求。临时输入上传与签名错误只记录稳定代码，不将签名地址或 SDK 私有信息写入失败记录。
+
+清理记录无业务级联外键，固定实际 bucket 与 endpoint 身份摘要；job、Task 或项目删除不能抹去回收意图。存储身份变化时保留 `storage_identity_changed`，不跟随新配置删除其他后端。正常完成并确认删除后移除记录；删除失败继续保留。过期失联或 PUT 结果不确定时，在活动期限后继续保留七天并重复清前缀，覆盖第一次清理之后才完成的旧 PUT。`recover_prediction_inputs` 由 beat 每分钟派到 `cleanup`，每轮最多处理 50 条，具体恢复延迟还取决于积压与存储可用性；导入桶七天生命周期是最后兜底。旧 `roi-crops/` 仍按原桶生命周期过期，不从无归属前缀反推可删除范围。
+
+原图快照可由输入 owner 接管，通过同份快照产生 ROI，取消会等待已启动 SDK I/O 结束再关文件。该组件负责资源所有权，不授予原图访问或结果写入资格。当前引用图片的预标、交互和采纳仍保留门禁；固定任务/内容证明、原 Key、最终取消事务与服务器 receipt 的接入继续独立实施。
 
 ### 单层并行兄弟（声明式，非 Celery chord）
 
