@@ -25,6 +25,7 @@ export const CANCELLABLE_ASYNC_JOB_KINDS = new Set<AsyncJobKind>([
   "dataset_import",
   "dataset_scan",
   "dataset_registration",
+  "dataset_quality",
   "mask_qc",
   "mask_repair",
   "mask_format_import",

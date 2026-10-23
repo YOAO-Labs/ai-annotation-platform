@@ -20,7 +20,7 @@ function ownedMutation<T>(
   owner.assert();
   return work();
 }
-function useDatasetOwner() {
+export function useDatasetOwner() {
   const revision = useSessionRevision();
   const userId = useAuthStore((s) => s.user?.id);
   const capture = useSessionGuard();

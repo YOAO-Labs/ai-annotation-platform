@@ -218,3 +218,23 @@ async def reconcile_domain_terminal(
     if reconciler is None:
         return
     await reconciler(db, job, cancelled=cancelled, error=error)
+
+
+async def reconcile_dataset_quality(db, job, *, cancelled, error):
+    from app.db.models.dataset_quality import DatasetQualityRun
+    from app.services.dataset_quality import now
+
+    run = await db.scalar(
+        select(DatasetQualityRun)
+        .where(DatasetQualityRun.async_job_id == job.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if run is not None and _locks_open(run.status):
+        run.status = "cancelled" if cancelled else "failed"
+        run.error_code = "cancelled" if cancelled else "worker_failed"
+        run.completed_at, run.lease_until = now(), None
+        run.generation += 1
+
+
+DOMAIN_TERMINAL_RECONCILERS["dataset_quality"] = reconcile_dataset_quality

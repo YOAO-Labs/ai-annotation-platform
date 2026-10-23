@@ -1,6 +1,6 @@
 # EPIC-08：数据集工作台与质量管理
 
-> 状态：E08-A complete；E08-B1 complete；质量治理与批量范围待后续晋升；未分配发布版本。
+> 状态：E08-A complete；E08-B1 complete；E08-B2 complete；固定批量范围待后续晋升；未分配发布版本。
 > 转入日期：2026-10-22；A 切片验收：2026-10-23；初始调研基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -11,6 +11,28 @@
 | 依赖     | EPIC-01/02/03/05 的身份、来源、接入与读取；EPIC-11 的权限切片      |
 | 协同     | EPIC-04 提供同步；EPIC-09 统一页面边界；EPIC-10 提供冻结版本       |
 | 交付阶段 | M1 最小工作台；M2 质量、视图与批量管理；近似重复能力按实际需求后置 |
+
+## E08-B2 晋升复核与实施合同
+
+用户已授权继续。基线 `fba96aaa1`，工作树干净。本切片交付整份数据集图片质量检测、可信精确重复与人工复核；不自动删除、合并或改变训练资格。当前筛选/个人视图不参与范围。未核验 Asset、非图片及超预算内容明确未检测，不升级旧 MD5/ETag。规则 `image-quality-1` 默认宽高各 64–8192，可在运行前配置；每次最多 10000 个固定成员。
+
+超过 8 个文件。准确范围：API `db/models/{dataset_quality,__init__,async_job}.py`、`schemas/dataset_quality.py`、`services/{dataset_quality,content_snapshot,dataset_content,async_job_terminal,async_job_notify}.py`、`workers/{dataset_quality,celery_app,signals}.py`、`api/v1/{dataset_quality,async_jobs,router}.py`；迁移 `0207_dataset_quality.py` 与测试 `test_dataset_quality.py`；Web `api/{datasetQuality,asyncJobs}.ts`、`hooks/{useDatasetQuality,useDatasets}.ts`、`pages/Datasets/{DatasetQualityPanel,DatasetDetailPage}.tsx`、`datasetsUrlState.ts`、共享任务展示/详情及相关测试；OpenAPI、SDK 覆盖清单、本地类型；README、CHANGELOG、数据集用户/API/架构文档、本计划与路线索引。
+
+```text
+quality tab -> fixed run + member/result ledger -> AsyncJob
+                      |                              |
+                review + audit                leased bounded worker
+                      |                              |
+                paged evidence <- full SHA proof + image inspection
+                                         /
+                              managed original       reference context
+```
+
+两张表保存运行和成员/结果；复核有乐观版本，追加历史进入现有审计日志。证据固定 Item、Asset、SHA/size、规则/配置及时间；删除仍保留历史，内容身份变化不继承。引用来源按当前授权查询；任务载荷不含凭据。AsyncJob 关联 SET NULL，任务清理不删除质量历史。完整读取与解码分开：仅已证明字节无法解码才报损坏；缺失、变化、权限、预算分别处理。重复以本次完整读取证明的 SHA256+size 分组，分页展示成员。
+
+运行使用租约、generation、task/job 联合 fencing，I/O 前后重新授权，逐成员提交、分块续派；取消保留结果。恢复同一固定成员且只处理未完成项；完成后的重检创建新运行。Beat 恢复过期租约，迟到 Worker 无权写入；每数据集仅一个活动运行。
+
+验证：可丢弃 test 库迁移往返、固定成员、可信重复、坏图与不可读、EXIF 尺寸、恢复/fencing/取消、撤权及复核冲突；前端 URL、分页、终态刷新、弹层目标固定；人工环境明暗/桌面/窄屏及网络/控制台。迁移应用当前 dev 库，刷新本工作树 Worker/Beat，不重建镜像。回退先停任务并导出证据再降级；旧数据集/来源/训练版本无数据迁移。
 
 ## E08-B1 晋升复核与实施合同
 
@@ -229,7 +251,7 @@ source/job summary <------------------- source + sanitized item status
 - [x] 接入来源与可用性摘要接口，移除数据集页 MinIO 固定文案。
 - [x] 完成项目上下文统计，验证不重复计算跨项目标注。
 - [x] B1：实现个人动态视图与组合筛选合同、查询修订和权限检查。
-- [ ] B2：实现质量结果的最小数据合同、内容修订与规则版本检查。
+- [x] B2：实现质量结果的最小数据合同、内容修订与规则版本检查。
 - [ ] 将批量操作接入影响预览和统一任务模型。
 - [x] A：完成独立工作台验收与迁移回归，更新用户说明及接口文档；B 范围另行验收。
 
@@ -276,3 +298,15 @@ E08-A 独立工作台与最小目录体验和 E08-B1 组合筛选/个人动态�
 - 运行与文档：当前人工dev库已通过所属服务重启应用0206；8100/3100、普通/维护worker与beat继续运行，未重建镜像。用户指南、API指南、README、CHANGELOG、OpenAPI快照、本地TS类型和SDK排除清单同步；文档196文件frontmatter、198页面导航检查通过。
 - 清理：已通过owner/连接校验销毁 `1822b025369a33f4:test`，删除临时视图、专用浏览器会话、JUnit、截图、测试缓存及本次误建的空SDK虚拟环境；保留人工环境、演示来源和已有训练版本。未推送或发布。
 - 下一切片建议：E08-B2质量任务，先处理解码、尺寸与可信精确重复的内容修订绑定和可恢复结果；全部筛选结果的固定批量范围另作后续切片，仍需独立复核与验收。当前保存视图不自动成为训练版本的固定成员集合。
+
+### E08-B2：图片质量与可信精确重复
+
+2026-10-23 完成。数据集新增“质量”页签，固定整份数据集的 Item/Asset/SHA/size 与尺寸规则；检测原图解码、逻辑尺寸及本次完整字节证明形成的精确重复组。未核验、非图片、预算、不可读和变化明确跳过，不误报坏图。结果支持分页、重复组与复核状态过滤、历史运行、居中复核弹层和有原因/乐观修订的审计决定；不自动删除、合并或改变训练资格。
+
+运行复用 AsyncJob；generation/task/job/租约 fencing、逐成员 checkpoint、分块和按引用节点续派。取消保留证据，恢复只消费原固定成员中的 pending；过期租约由 Beat 恢复，迟到任务和旧失败信号无权覆盖。0207 仅增加运行/结果表，Item 删除保留历史 UUID，任务保留策略不删除证据；已完成迁移往返验证。
+
+验证：API/DB 62 项通过（质量、严格内容读取、引用、通用任务），覆盖 MD5 提示相同而 SHA 不同、坏图/零字节/截断、不可读/变化、EXIF、PIL 预算、固定新增/删除、取消恢复、过期租约、旧信号、撤权、复核冲突和父子权限。前端相关测试分批共50项通过（质量页/终态刷新/URL/数据集详情/共享任务）；SDK 合同4项通过。Web 类型、ESLint/CSS tokens、Ruff、文档 frontmatter196/导航198 均通过；仅存在原有4条 ESLint warning 与2条无关层级语义化提示。本地检查不代替远程 CI。
+
+人工 dev 环境已升级0207，Worker 实际注册 detect_quality/recover_quality，Beat 保持运行，未重建镜像。通过页面提交真实质量运行 `1bb72614-70dc-4a76-8cf2-448b2772bce9`：D-7 三个固定引用成员，1个正常、1个源变化、1个源路径缺失；已核对复核保存/筛选、共享任务详情回到对应质量运行、焦点恢复和网络/控制台。1440桌面及390窄屏、明暗主题截图检查完成；详情居中、提示位于下拉控件外并使用弱化文字，窄屏结果表内部横向滚动。人工环境保留这一真实检测记录与复核供用户继续查看，原3样本/来源/冻结 ready 版本保持不变。
+
+一次性 test 数据库、Redis、九用途桶已按 owner 校验销毁；独立浏览器已关闭，截图、JUnit、测试缓存与类型中间产物在提交后清理。整个 E08 继续保留为活动计划：下一切片为 B3 固定批量范围、影响预览与统一任务执行；近似重复、未核验旧图的身份升级、共享视图和训练视图冻结仍不在本次范围。完成后重检必须新建运行，不重试本轮已完成的 skipped 项。

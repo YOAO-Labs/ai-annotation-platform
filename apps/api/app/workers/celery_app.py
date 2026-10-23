@@ -45,6 +45,7 @@ celery_app = Celery(
         "app.workers.storage_probe",
         "app.workers.dataset_scan",
         "app.workers.dataset_registration",
+        "app.workers.dataset_quality",
         "app.workers.dataset_source_sync",
         # v0.12.0 · B4 建任务异步化（大 dataset link → Celery 建 task）
         "app.workers.create_tasks",
@@ -75,6 +76,7 @@ celery_app.conf.update(
     # 队列堆积、永不执行。收口到 default 让兜底任务真正跑起来。
     task_default_queue="default",
     task_routes={
+        "app.workers.dataset_quality.detect_quality": {"queue": "media"},
         "app.workers.dataset_source_sync.tick_source_syncs": {"queue": "default"},
         "app.workers.tasks.batch_predict": {"queue": "ml"},
         # v0.21.7 · 逐帧段任务跑 GPU predict → ml 队列; finalize 轻量走 default。
@@ -263,6 +265,10 @@ celery_app.conf.update(
             "schedule": crontab(hour=2, minute=30),
         },
         # v0.10.16 · async_jobs 终态 retention purge：30 天后清 completed/failed/cancelled
+        "recover-dataset-quality": {
+            "task": "app.workers.dataset_quality.recover_quality",
+            "schedule": 30.0,
+        },
         "recover-dataset-registrations": {
             "task": "app.workers.dataset_registration.recover_registrations",
             "schedule": 30.0,

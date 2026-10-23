@@ -104,3 +104,12 @@ describe("Datasets URL state", () => {
     );
   });
 });
+it("recognizes the quality tab without consuming item filter context", () => {
+  const state = parseDatasetDetailUrl(
+    new URLSearchParams("tab=quality&quality_run=run&item=item&q=car&page=3"),
+  );
+  expect(state.tab).toBe("quality");
+  expect(state.itemId).toBe("item");
+  expect(state.query).toBe("car");
+  expect(state.page).toBe(2);
+});

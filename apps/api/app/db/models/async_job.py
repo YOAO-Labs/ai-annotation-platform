@@ -34,6 +34,7 @@ class AsyncJobKind(str, enum.Enum):
     TRAINING_PREVIEW = "training_preview"
     SAMPLE_EVALUATION = "sample_evaluation"
     ACTIVE_LEARNING_ROUND = "active_learning_round"
+    DATASET_QUALITY = "dataset_quality"
     DATASET_SCAN = "dataset_scan"
     DATASET_REGISTRATION = "dataset_registration"
     DATASET_IMPORT = "dataset_import"  # 外部连接器数据集导入

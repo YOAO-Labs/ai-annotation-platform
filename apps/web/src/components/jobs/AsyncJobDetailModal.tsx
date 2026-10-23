@@ -171,7 +171,10 @@ export function AsyncJobDetailModal({
       } else if (kind === "dataset" && datasetId) {
         await datasetsApi.get(datasetId);
         if (!current()) return;
-        url = `/datasets?dataset=${encodeURIComponent(datasetId)}`;
+        url =
+          job?.kind === "dataset_quality"
+            ? `/datasets/${encodeURIComponent(datasetId)}?tab=quality&quality_run=${encodeURIComponent(jobString(job.payload, "run_id") ?? "")}`
+            : `/datasets?dataset=${encodeURIComponent(datasetId)}`;
       } else if (kind === "dashboard") {
         url = "/dashboard";
       } else if (job.project_id) {

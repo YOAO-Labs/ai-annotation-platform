@@ -1,3 +1,4 @@
+from app.db.models.dataset_quality import DatasetQualityRun, DatasetQualityResult
 from app.db.models.dataset_saved_view import DatasetSavedView
 from app.db.models.user import User
 from app.db.models.training_preview import TrainingPreview, TrainingPreviewResourceLease
@@ -275,3 +276,5 @@ __all__ += [
     "DatasetScanEntry",
     "DatasetSourceRevision",
 ]
+
+__all__ += ["DatasetQualityRun", "DatasetQualityResult"]

@@ -44,6 +44,7 @@ class Snapshot:
     media_type: str
     width: int
     height: int
+    inspection_error: str | None = None
     _closed: bool = False
     _lock: object = field(default_factory=threading.Lock)
 
@@ -66,7 +67,7 @@ class Snapshot:
         }
 
 
-def _capture(factory, expected_sha256, stop):
+def _capture(factory, expected_sha256, stop, inspect_quality=False):
     temporary = None
     transferred = False
     try:
@@ -98,6 +99,12 @@ def _capture(factory, expected_sha256, stop):
         if expected_sha256 and expected_sha256 != sha256:
             raise ContentError("content_mismatch")
         temporary.seek(0)
+        media_type, width, height, inspection_error = (
+            "application/octet-stream",
+            0,
+            0,
+            None,
+        )
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("error", Image.DecompressionBombWarning)
@@ -115,19 +122,29 @@ def _capture(factory, expected_sha256, stop):
 
                     width, height = StorageService._logical_image_dimensions(image)
                     image.load()
-        except ContentError:
-            raise
-        except (
-            OSError,
-            ValueError,
-            Image.DecompressionBombError,
-            Image.DecompressionBombWarning,
-        ):
-            raise ContentError("invalid_image", 415) from None
+        except ContentError as exc:
+            if not inspect_quality:
+                raise
+            inspection_error = exc.code
+        except (Image.DecompressionBombError, Image.DecompressionBombWarning):
+            if not inspect_quality:
+                raise ContentError("invalid_image", 415) from None
+            inspection_error = "image_pixel_budget_exceeded"
+        except (OSError, ValueError):
+            if not inspect_quality:
+                raise ContentError("invalid_image", 415) from None
+            inspection_error = "invalid_image"
         check()
         temporary.seek(0)
         result = Snapshot(
-            temporary, sha256, size, observation, media_type, width, height
+            temporary,
+            sha256,
+            size,
+            observation,
+            media_type,
+            width,
+            height,
+            inspection_error=inspection_error,
         )
         transferred = True
         return result
@@ -147,12 +164,12 @@ def _dispose(task):
         pass  # Errors have no returned snapshot; the reader owns cleanup.
 
 
-async def capture(factory, expected_sha256=None):
+async def _capture_bounded(factory, expected_sha256=None, *, inspect_quality=False):
     if not _slots.acquire(blocking=False):
         raise ContentError("snapshot_capacity_exceeded", 429)
     stop = threading.Event()
     task = asyncio.create_task(
-        asyncio.to_thread(_capture, factory, expected_sha256, stop)
+        asyncio.to_thread(_capture, factory, expected_sha256, stop, inspect_quality)
     )
     try:
         return await asyncio.wait_for(asyncio.shield(task), WAIT_SECONDS)
@@ -162,6 +179,15 @@ async def capture(factory, expected_sha256=None):
         if isinstance(exc, asyncio.CancelledError):
             raise
         raise ContentError("content_read_timeout", 504) from None
+
+
+async def capture(factory, expected_sha256=None):
+    return await _capture_bounded(factory, expected_sha256)
+
+
+async def capture_for_quality(factory, expected_sha256):
+    """Keep the full-byte proof when bounded image inspection cannot decode it."""
+    return await _capture_bounded(factory, expected_sha256, inspect_quality=True)
 
 
 class SnapshotResponse(StreamingResponse):

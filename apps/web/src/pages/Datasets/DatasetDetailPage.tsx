@@ -22,6 +22,7 @@ import {
   useUpdateDataset,
 } from "@/hooks/useDatasets";
 import { DatasetItemFilters } from "./DatasetItemFilters";
+import { DatasetQualityPanel } from "./DatasetQualityPanel";
 import { DatasetSavedViews } from "./DatasetSavedViews";
 import { projectsApi } from "@/api/projects";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -58,6 +59,7 @@ const tdClass = "border-b border-border px-3 py-2.5 text-left text-sm";
 const tabs: { value: DatasetTab; label: string }[] = [
   { value: "data", label: "数据" },
   { value: "sources", label: "来源与同步" },
+  { value: "quality", label: "质量" },
   { value: "projects", label: "项目关联" },
   { value: "versions", label: "关联版本" },
 ];
@@ -610,6 +612,7 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
           />
         </section>
       )}
+      {state.tab === "quality" && <DatasetQualityPanel datasetId={ds.id} canManage={canManage} />}
       {state.tab === "sources" && (
         <section aria-label="来源与同步">
           {canManage && ds.data_type === "image" && !ds.is_temporal ? (

@@ -319,3 +319,96 @@ async def task_snapshot(db, task_id, actor, expected_sha256, *, api_key_id=None)
     except BaseException:
         snapshot.close()
         raise
+
+
+async def quality_identity(db, item_id, actor, *, node_id=None):
+    """Resolve a dataset-managed original without borrowing Task authority."""
+    from app.services.dataset_source_access import assert_dataset_manage
+    from app.services.reference_keys import is_reference
+    from app.services.dataset_references import reference_context
+
+    item = await db.get(DatasetItem, item_id, populate_existing=True)
+    if item is None:
+        raise snapshots.ContentError("item_removed")
+    await assert_dataset_manage(db, item.dataset_id, actor)
+    asset = await db.scalar(
+        select(DatasetAsset)
+        .where(DatasetAsset.dataset_item_id == item_id)
+        .execution_options(populate_existing=True)
+    )
+    if asset is None or asset.verification_state != "verified":
+        raise snapshots.ContentError("content_unverified")
+    if item.file_type != "image" or asset.media_type != "image":
+        raise snapshots.ContentError("media_not_supported")
+    if is_reference(item.file_path):
+        context = await reference_context(db, item_id, actor, node_id=node_id)
+        return (asset.id, asset.checksum_value, asset.size_bytes, context)
+    replica = await db.scalar(
+        select(DatasetAssetLocation)
+        .where(
+            DatasetAssetLocation.asset_id == asset.id,
+            DatasetAssetLocation.location_id == LEGACY_LOCATION_ID,
+            DatasetAssetLocation.bucket == storage_service.datasets_bucket,
+            DatasetAssetLocation.role == "managed_original",
+            DatasetAssetLocation.reference_state == "present",
+        )
+        .execution_options(populate_existing=True)
+    )
+    location = await db.get(StorageLocation, LEGACY_LOCATION_ID, populate_existing=True)
+    if (
+        replica is None
+        or location is None
+        or not location.enabled
+        or await validate_legacy_bindings(db)
+    ):
+        raise snapshots.ContentError("no_readable_original")
+    if replica.object_key != item.file_path:
+        raise snapshots.ContentError("content_binding_changed")
+    return (
+        asset.id,
+        asset.checksum_value,
+        asset.size_bytes,
+        (replica.bucket, replica.object_key),
+    )
+
+
+async def quality_snapshot(
+    db, item_id, actor, identity, *, api_key_id=None, node_id=None
+):
+    """Preserve strict locator/authority checks around a bounded quality read."""
+    from app.services import reference_storage
+
+    current = await quality_identity(db, item_id, actor, node_id=node_id)
+    if current != identity:
+        raise snapshots.ContentError("content_binding_changed")
+    proof = await key_authority(db, actor, api_key_id, "datasets:write")
+    locator = identity[3]
+    if isinstance(locator, dict):
+
+        def factory():
+            return reference_storage.content_file(
+                locator["config"],
+                locator["base"],
+                locator["path"],
+                expected_anchor=locator["anchor"],
+                expected=locator["expected"],
+                expected_source_identity=locator["source_identity"],
+            )
+    else:
+
+        def factory():
+            return stored_content(locator[0], locator[1], identity[2])
+
+    # The caller releases its lease lock before entering this function.
+    snapshot = await snapshots.capture_for_quality(factory, identity[1])
+    try:
+        if await quality_identity(db, item_id, actor, node_id=node_id) != identity:
+            raise snapshots.ContentError("content_binding_changed")
+        if await key_authority(db, actor, api_key_id, "datasets:write") != proof:
+            raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+        if snapshot.size != identity[2]:
+            raise snapshots.ContentError("content_mismatch")
+        return snapshot
+    except BaseException:
+        snapshot.close()
+        raise

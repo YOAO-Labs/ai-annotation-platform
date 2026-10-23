@@ -113,10 +113,12 @@ export function datasetFilterSignature(filters: DatasetItemFilters): string {
   return JSON.stringify(values);
 }
 
-export type DatasetTab = "data" | "sources" | "projects" | "versions";
+export type DatasetTab = "data" | "sources" | "quality" | "projects" | "versions";
 export function parseDatasetDetailUrl(params: URLSearchParams) {
   const rawTab = params.get("tab");
-  const tab: DatasetTab = ["data", "sources", "projects", "versions"].includes(rawTab ?? "")
+  const tab: DatasetTab = ["data", "sources", "quality", "projects", "versions"].includes(
+    rawTab ?? "",
+  )
     ? (rawTab as DatasetTab)
     : params.has("source") || params.has("scan")
       ? "sources"

@@ -430,3 +430,11 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "POST /api/v1/datasets/{dataset_id}/saved-views" = { status = "excluded", reason = "web-only" }
 "PUT /api/v1/datasets/{dataset_id}/saved-views/{view_id}" = { status = "excluded", reason = "web-only" }
 "DELETE /api/v1/datasets/{dataset_id}/saved-views/{view_id}" = { status = "excluded", reason = "web-only" }
+
+# Dataset quality review currently belongs to the web workbench.
+"GET /api/v1/datasets/{dataset_id}/quality-runs" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/datasets/{dataset_id}/quality-runs" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/datasets/{dataset_id}/quality-runs/{run_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/results" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/results/{result_id}/review" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/resume" = { status = "excluded", reason = "web-only" }

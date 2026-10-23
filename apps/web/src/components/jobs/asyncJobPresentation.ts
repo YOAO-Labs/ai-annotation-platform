@@ -9,6 +9,7 @@ export const JOB_KIND_LABEL: Record<string, string> = {
   prediction_retry: "失败预测重试",
   dataset_import: "数据集导入",
   dataset_scan: "目录观测扫描",
+  dataset_quality: "数据集图片质检",
   dataset_registration: "目录预检与登记",
   create_tasks: "建任务",
   export: "数据导出",
@@ -60,22 +61,29 @@ export function jobNumber(record: Record<string, unknown>, key: string): number 
 export function jobResultSummary(job: Pick<AsyncJob, "kind" | "result">): string | null {
   const result = job.result ?? {};
   const fields =
-    job.kind === "dataset_registration"
+    job.kind === "dataset_quality"
       ? {
-          ready_count: "已核验",
-          registered_count: "新增",
-          unchanged_count: "已存在",
-          error_count: "异常",
+          checked_count: "已检测",
+          skipped_count: "未检测",
+          issue_count: "解码或尺寸异常",
+          duplicate_group_count: "重复组",
         }
-      : job.kind === "dataset_scan"
-        ? { processed_count: "已观测", file_count: "匹配文件", skipped_count: "跳过" }
-        : job.kind === "dataset_import" || job.kind === "mask_format_import"
-          ? { imported: "导入", skipped: "跳过", error_count: "错误" }
-          : job.kind === "create_tasks"
-            ? { created_tasks: "已建任务", skipped: "跳过" }
-            : job.kind === "export"
-              ? { file_count: "文件" }
-              : { success_count: "成功", failed_count: "失败", skipped_count: "跳过" };
+      : job.kind === "dataset_registration"
+        ? {
+            ready_count: "已核验",
+            registered_count: "新增",
+            unchanged_count: "已存在",
+            error_count: "异常",
+          }
+        : job.kind === "dataset_scan"
+          ? { processed_count: "已观测", file_count: "匹配文件", skipped_count: "跳过" }
+          : job.kind === "dataset_import" || job.kind === "mask_format_import"
+            ? { imported: "导入", skipped: "跳过", error_count: "错误" }
+            : job.kind === "create_tasks"
+              ? { created_tasks: "已建任务", skipped: "跳过" }
+              : job.kind === "export"
+                ? { file_count: "文件" }
+                : { success_count: "成功", failed_count: "失败", skipped_count: "跳过" };
   const parts = Object.entries(fields).flatMap(([key, label]) => {
     const value = jobNumber(result, key);
     return value === null ? [] : [`${label} ${value}`];
