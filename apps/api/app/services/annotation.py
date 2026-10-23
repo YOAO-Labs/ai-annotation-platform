@@ -321,6 +321,7 @@ class AnnotationService:
         override_class_name: str | None = None,
         attribute_overrides: dict | None = None,
         video_segment_id: uuid.UUID | None = None,
+        reference_receipt=None,
     ) -> list[Annotation] | None:
         """采纳预测 → 转 annotation。
 
@@ -345,7 +346,12 @@ class AnnotationService:
             return None
         from app.services.reference_access import reject_reference_scope
 
-        await reject_reference_scope(self.db, task_ids=[prediction.task_id])
+        if reference_receipt is None:
+            await reject_reference_scope(self.db, task_ids=[prediction.task_id])
+        else:
+            from app.services.prediction_acceptance import validate_acceptance
+
+            await validate_acceptance(self.db, prediction, user_id, reference_receipt)
         if prediction.source == INTERACTIVE_ACCEPT_PREDICTION_SOURCE:
             return None
 

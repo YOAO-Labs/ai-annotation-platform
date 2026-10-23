@@ -1,6 +1,6 @@
 import uuid
 from typing import Any
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -224,6 +224,7 @@ async def get_prediction_mask_content_frame(
 async def accept_prediction(
     task_id: uuid.UUID,
     prediction_id: uuid.UUID,
+    request: Request,
     video_segment_id: uuid.UUID | None = Query(None),
     shape_index: int | None = Query(
         None,
@@ -252,6 +253,11 @@ async def accept_prediction(
     task = await _load_task_or_404(db, task_id)
     await _assert_task_visible(db, task, current_user, access=access)
     _assert_task_editable(task, current_user, access=access)
+    prediction = await db.scalar(
+        select(Prediction).where(Prediction.id == prediction_id)
+    )
+    if prediction is None or prediction.task_id != task_id:
+        raise HTTPException(404, detail="Prediction not found")
     await assert_video_annotation_write_scope(
         db,
         task=task,
@@ -268,6 +274,7 @@ async def accept_prediction(
             override_class_name=override_class_name,
             attribute_overrides=attribute_overrides,
             video_segment_id=video_segment_id,
+            reference_receipt=getattr(request.state, "reference_acceptance", None),
         )
     except RasterMaskContractError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc

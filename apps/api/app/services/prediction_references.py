@@ -60,6 +60,7 @@ async def capture_authority(
     batch_id,
     predict_mode,
     execution_unit=None,
+    job_kind="batch_predict",
 ):
     """Server-only proof. Capture once, never replace it on pending republish."""
     if project.data_type != "image":
@@ -79,6 +80,7 @@ async def capture_authority(
         bindings.append(binding)
     return {
         "schema": 1,
+        "job_kind": job_kind,
         "actor_id": str(actor.id),
         "project_id": str(project.id),
         "batch_id": str(batch_id) if batch_id else None,
@@ -147,6 +149,7 @@ class ReferencePredictionJob:
         snapshot_digest,
         node_id,
         execution_unit=None,
+        job_kind="batch_predict",
     ):
         self.db, self.job_id, self.proof, self.node_id = (
             db,
@@ -155,9 +158,12 @@ class ReferencePredictionJob:
             node_id,
         )
         self.project_id, self.actor_id, self.scope = project_id, actor_id, scope
+        self.job_kind = job_kind
         self.bindings = {uuid.UUID(row["task_id"]): row for row in proof["tasks"]}
         if (
             proof.get("schema") != 1
+            or job_kind not in {"batch_predict", "prediction_retry"}
+            or proof.get("job_kind", "batch_predict") != job_kind
             or not actor_id
             or proof.get("actor_id") != str(actor_id)
             or proof.get("project_id") != str(project_id)
@@ -182,7 +188,7 @@ class ReferencePredictionJob:
         project = await self.db.get(Project, self.project_id, populate_existing=True)
         if (
             job is None
-            or job.kind != "batch_predict"
+            or job.kind != self.job_kind
             or job.user_id != self.actor_id
             or job.project_id != self.project_id
             or job.status != "running"
@@ -268,7 +274,7 @@ class ReferencePredictionJob:
             inputs = await PredictionInputs.create(
                 factory,
                 owner_id=self.job_id,
-                owner_kind="batch_predict",
+                owner_kind=self.job_kind,
                 task_id=task.id,
             )
             url = await inputs.upload_snapshot(snapshot)

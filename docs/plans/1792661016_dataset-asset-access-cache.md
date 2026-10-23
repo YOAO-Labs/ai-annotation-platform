@@ -1,6 +1,6 @@
 # EPIC-05：统一文件访问、预览与缓存
 
-> 状态：E05-A 读取基座、E03 工作台、E10 训练冻结、E05-C1 图片导出及 C2-A 输入回收基座已完成本地验收；后台引用图片预标主路径已接通；E05-B、引用失败重试/采纳及交互资格仍待实施；不分配发布版本。
+> 状态：E05-A 读取基座、E03 工作台、E10 训练冻结、E05-C1 图片导出及 C2-A 输入回收基座已完成本地验收；后台引用图片预标、失败重试与普通几何采纳已接通；E05-B、交互与原生掩码资格仍待实施；不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -24,6 +24,8 @@ C2 最终合同：入队固定实际任务、任务版本、原发起 Key proof�
 C2-B 首个前置增量处理既有结果事务缺口（基线 `5b012036f`）：图片覆盖删除后移，与全部候选、元信息和显式 partial 失败记录同事务；写入异常先完整回滚，再记录失败。成功数和费用在提交后累加，回滚后的下一题按固定 UUID 刷新状态，路由客户端按 registry ID 重新解析。取消 API、逐题写入、最终批次/作业完成及迟到失败回调共用 fresh AsyncJob 行锁；作业元信息合并保留已提交取消标记，broker revoke 在数据库提交后执行。视频逐帧仍由独立 owner 负责，保留原派发前清理合同。该增量不开放引用门禁，Task/内容/Key 冻结、同快照投递、专有 receipt 和重试/采纳仍是 C2-B 的后续必要部分。
 
 当前继续主路径（基线 `167db664f`）：后台 bulk/工作台单题图片预标固定实际 Task 列表（包括空列表）、Task.version、Item/Asset/SHA/尺寸、来源修订和原发起 Key proof，并固定模型执行快照；pending 幂等重发复用首次证据。实际范围中已无引用时只固定范围，不额外要求读图 scope 或模型快照。抽取导出与预测共用的内容绑定和生命周期锁，业务授权仍分别校验。worker 使用真实节点严格读取，原图、geometry 与 ROI 共用一次捕获的字节，经独占临时输入交付旧 HTTP 协议；逐阶段复查资格，最终事务签发专有凭证才放行引用候选写入。凭证绑定当前 session、非嵌套事务、Task 与内容，不作为公开请求参数或持久授权；公开候选只保存必要身份与执行溯源，原 Key proof 不回传。引用禁止进入 frame 旧清理分支；资格/内容失败不适用模型软失败策略。两个重试入口与预测采纳继续在本主路径之后按同一合同接入，当前不绕过其门禁。
+
+继续重试/采纳（基线 `53ea800c9`）：两个失败重试入口共用准备与设备路由；引用重试预建 durable job，固定新 actor/Key 和当前 Task 版本，同时保留原模型快照及逻辑 Item/Asset/SHA/尺寸。无原绑定的历史引用失败不猜测恢复。worker 在原件和模型 I/O 期间不持 FailedPrediction 行锁，最终复验 attempt/job/失败记录与当前资格，候选、partial 替代、失败删除和 retry 作业终态同事务。失败回滚后原子记录计数与作业失败，私有证明不出 DTO。采纳显式核验 URL Task=Prediction Task，按当前可编辑权限和严格原图核对候选内容身份，用 session/事务/Task/Prediction 绑定 receipt 放行；不要求历史推理 Task.version 永远相等。引用原生掩码和其它未获资格入口继续门禁。验证含两个 API 入口、真实 worker/HTTP/MinIO、当前授权与原内容变化、重复派发、最终写入失败整题回滚、draft 后分派/激活采纳及跨任务拒绝；沿用人工环境并清理独立测试资源。
 
 范围超过 8 个文件：新增 `db/models/prediction_input.py`、迁移 `0212_prediction_input_leases.py`、`services/prediction_inputs.py`、`workers/prediction_input_cleanup.py` 及专项测试；修改模型注册、`StorageService` 可选有界客户端配置、`workers/{tasks,predictions_retry,roi,celery_app}.py` 和适用现有测试。同步 `docs-site/dev/concepts/prediction-pipeline.md`、存储架构/桶用途文档、运维清理说明、CHANGELOG、本计划与执行队列。没有新公开接口、依赖或环境变量。
 
@@ -317,3 +319,14 @@ M1 严格方案：对需要与标注绑定的可变原图，读取到受限临�
 - Ruff、OpenAPI 快照、196 页 frontmatter 与198 页导航检查通过；没有公共请求 schema、新依赖、环境变量或迁移变更。同步 README、用户指南、API 和架构文档及 CHANGELOG。
 - 人工环境 3100/8100 沿用原 dev 数据，确认无活动作业后刷新普通/maintenance worker 与 beat；任务注册、8/2 队列订阅及真实 cleanup 派发通过。未重建镜像。独立 test 数据库、Redis 与九桶按 owner 确认销毁，任务所属脚本、日志与缓存在验证后清理。
 - 完整 C2-B 继续执行：两个失败重试入口、预测采纳、交互/predict-test/mask repair 尚未接入；引用失败目前重新提交预标。E05-B、E10 血缘及整套 Epic 仍未完成，不归档，不声称远程 CI 或生产部署验收。
+
+### E05-C2-B 失败重试与普通几何采纳 Outcome
+
+- 两个失败重试入口共用准备、设备队列和发布。引用失败使用原模型快照与 Item/Asset/SHA/大小/尺寸，另行固定当前 Task 版本、新 actor/Key 及来源状态，并预建 durable prediction_retry。缺少原内容或模型证明的历史引用失败明确拒绝，要求重新预标；原作业过期不改变失败项仍持有的快照。
+- 复用引用输入 owner 的真实 worker 节点、一次严格快照、geometry/ROI 和专有写入 receipt。原件和模型 I/O 期间不持 FailedPrediction 行锁，最终共同锁 job/失败项及当前授权与内容，一起提交候选、partial 替代、失败删除、作业完成与通知；失败先回滚，再只处理匹配 attempt 的计数与 claim。发布响应丢失不撤销 running attempt；Celery 中断、重复终态及迟到旧队列消息不清除后续 attempt。通用 signal 终态前刷新并锁定作业，避免迟到失败覆盖已完成结果。
+- 采纳统一核对 URL Task 与候选归属（托管也覆盖）；引用普通几何要求当前读取和标注权限、严格 API 原图及候选内容身份。最终锁下刷新 TaskBatch，锁住候选与元信息、Key 和内容生命周期；内部凭证绑定 session/非嵌套事务、actor、Task、候选与正文/溯源摘要。历史推理 Task.version 不作永久门槛，draft 预标后正常分派/激活及版本变化可采纳；类别、属性、贡献者、审核和统计沿用既有流程。原生 mask 在预测物化和采纳前继续明确拒绝。
+- 最终 281 个不同本地 API 用例通过，按最新 JUnit 逐用例去重；包含两个入口、新 Key、原内容、版本/dismiss/partial/第二结果失败整题回滚、重复消费、signal/迟到占用、历史 CPU 路由、分派后采纳、两个 Key scope、源/原件/正文/权限变化、跨 Task、异常 UUID/几何及 receipt 失效，另含现有 managed/native mask、角色与管线回归。修正通知测试对事务内相同时间戳顺序的假设，断言仍核对各类型与目标/内容。
+- 真实 ASGI API→一次性 Celery worker→HTTP 协议夹具→MinIO 验证三阶段重试成功、模型返回前撤 Key、第二结果元信息坏数据及真实 Celery 中断；失败保留原候选并释放本 attempt。实际原图 SHA 与 ROI 拉取核对，结束后 lease 和临时对象清零。分派/版本变化后采纳成功，另一连接占用候选行返回409；独立连接仅改批次分派或状态时返回404、零标注且不覆盖并发状态。夹具验证平台协议、事务与授权，不代表真实模型质量或生产远端网络资格。
+- Ruff、OpenAPI 快照、196 页 frontmatter、198 页导航及最终 diff 检查通过。同步 README、用户/API/架构文档、CHANGELOG 与执行队列；无新公共参数、依赖、环境变量、迁移或版本号。
+- 人工环境3100/8100保留原dev数据，无活动作业时刷新普通/maintenance worker和beat；验证真实新retry签名、8/2队列和cleanup派发，不重建镜像。验证用独立test资源按owner销毁，脚本/日志/XML/缓存清理，未声称远程CI。
+- 后续继续逐入口完成交互/predict-test/mask repair/native mask资格、E05-B缓存及E10血缘；完整E05与整套Epic仍未完成，不归档。

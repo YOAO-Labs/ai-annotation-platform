@@ -51,8 +51,17 @@ async def claim_failed_prediction_retry(
 async def release_failed_prediction_retry_claim(
     db: AsyncSession, failed_id: uuid.UUID
 ) -> None:
-    row = await db.get(FailedPrediction, failed_id)
-    if row and (row.extra or {}).get("retry_pending"):
+    row = await db.scalar(
+        select(FailedPrediction)
+        .where(FailedPrediction.id == failed_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if (
+        row
+        and not (row.extra or {}).get("retry_job_id")
+        and (row.extra or {}).get("retry_pending")
+    ):
         extra = dict(row.extra or {})
         extra.pop("retry_pending", None)
         row.extra = extra
@@ -488,6 +497,19 @@ class PredictionService:
             reference_evidence = await validate_receipt(
                 self.db, task_id, project_id, reference_receipt
             )
+            from app.services.raster_mask_storage import collect_mask_geometries
+
+            if (
+                (token_meta or {}).get("mask_objects") is not None
+                or collect_mask_geometries(result)
+                or any(
+                    isinstance(shape, dict) and shape.get("type") == "brushlabels"
+                    for shape in result
+                )
+            ):
+                from app.services.content_snapshot import ContentError
+
+                raise ContentError("reference_prediction_geometry_not_supported")
         result = _remap_track_ids(result)
         task = await self.db.scalar(
             select(Task)

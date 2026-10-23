@@ -230,7 +230,13 @@ worker 使用 `worker:<Celery hostname>` 的已核验锚点捕获 strict snapsho
 
 最终短事务沿用作业取消锁、账号/项目/成员、原 Key、批次/Task，再持有来源/位置/连接和 Item/Asset/节点探测的生命周期锁，复核绑定与模型快照。签发的专有 receipt 绑定当前 session、非嵌套事务、Task 和内容，提交或回滚即失效；`PredictionService` 仅据该 receipt 放行引用候选写入。持久元数据只存必要的内容及执行溯源，不能充当授权，也不保存 Key proof、原件定位配置或临时 URL。内容绑定与短锁 helper 由导出和预测复用，两者业务权限仍分别检查。
 
-失败记录保留原内容绑定和执行快照，尚未开放引用失败重试；当前可重新提交预标。预测采纳、交互、predict-test 和 mask repair 继续逐入口资格验证，不全局放宽旧 URL resolver。
+### 引用失败重试与采纳
+
+两个 retry API 通过 `prediction_retries` 共用设备路由和准备：引用失败需有原模型快照及逻辑内容绑定，新提交固定当前 actor/Key、Task.version 和来源状态，保留原 Item/Asset/SHA/大小/尺寸。新建持久 `prediction_retry`，FailedPrediction claim 绑定该 job UUID；原作业过期不改变快照身份，旧引用失败缺少证明时拒绝猜测恢复。managed 历史请求保持原单阶段兼容，CPU/GPU 路由在两个入口一致。
+
+引用 worker 复用 `ReferencePredictionJob` 和同快照输入，不持 FailedPrediction 行锁等待原图或模型 I/O。最终按 job→账号/项目/成员→失败项→Key→批次/Task→内容生命周期锁复验本 attempt，再一起提交候选、同快照 partial 替代、失败删除和作业完成。异常先回滚业务，再用 job→失败项锁独立记录本次失败与计数；Celery failure/revoked 使用相同边界，重复或迟到回调只处理匹配的 attempt，不清除后续 claim。发布响应丢失时不撤销已运行的 attempt。
+
+普通几何采纳由 `prediction_acceptance` 核验 URL Task 与候选归属、当前标注/读取权限及严格 API 原图，并与候选内容溯源比对。历史推理版本不作为永久门槛；当次操作固定当前版本与来源修订。最终持有账号/项目/成员、Key、批次/Task、Prediction/Meta 和内容生命周期锁，专有 receipt 绑定 session、非嵌套事务、actor、Task、候选及正文/溯源摘要，提交或回滚后失效。沿用类别、属性、贡献者、审核证据与统计流程；原生掩码和视频形态仍拒绝。交互、predict-test 和 mask repair 继续逐入口资格验证，不全局放宽旧 URL resolver。
 
 ### 单层并行兄弟（声明式，非 Celery chord）
 

@@ -225,17 +225,19 @@ class TestAsyncJobTerminalNotifications:
         await notify_job_terminal(db_session, job_id=cancelled.id)
 
         rows = await self._notification_rows(db_session, user.id)
-        assert [row.type for row in rows] == [
+        assert len(rows) == 3
+        by_type = {row.type: row for row in rows}
+        assert set(by_type) == {
             "job.completed",
             "job.failed",
             "job.cancelled",
-        ]
-        assert rows[0].target_type == "async_job"
-        assert rows[0].target_id == completed.id
-        assert rows[0].payload["kind"] == "batch_predict"
-        assert rows[0].payload["batch_display_id"] == "BATCH-1"
-        assert rows[0].payload["success_count"] == 2
-        assert rows[1].payload["error_message"] == "tracker failed"
+        }
+        assert by_type["job.completed"].target_type == "async_job"
+        assert by_type["job.completed"].target_id == completed.id
+        assert by_type["job.completed"].payload["kind"] == "batch_predict"
+        assert by_type["job.completed"].payload["batch_display_id"] == "BATCH-1"
+        assert by_type["job.completed"].payload["success_count"] == 2
+        assert by_type["job.failed"].payload["error_message"] == "tracker failed"
 
     async def test_terminal_notification_skips_export_and_system_jobs(
         self, db_session, annotator
@@ -460,8 +462,8 @@ class TestAsyncJobsAPI:
         queued: list[tuple[str, str]] = []
         monkeypatch.setattr(
             predictions_retry.retry_failed_prediction,
-            "delay",
-            lambda failed_id, user_id: queued.append((failed_id, user_id)),
+            "apply_async",
+            lambda *, args, **kwargs: queued.append(tuple(args)),
         )
 
         r = await httpx_client.post(

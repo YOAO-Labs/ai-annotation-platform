@@ -57,6 +57,20 @@ async def _apply_terminal(
             aj = await async_job_svc.find_by_celery_task_id(db, celery_task_id)
             if aj is None:
                 return
+            if aj.kind == "prediction_retry" and (aj.payload or {}).get(
+                "prediction_authority"
+            ):
+                from app.services.prediction_retries import finish_retry_attempt
+
+                await finish_retry_attempt(
+                    db,
+                    aj.id,
+                    celery_task_id=celery_task_id,
+                    cancelled=cancelled,
+                    reason="prediction_retry_interrupted",
+                )
+                await db.commit()
+                return
             if aj.kind == "storage_usage":
                 from app.services.storage_usage import signal_interrupted
 
@@ -95,6 +109,9 @@ async def _apply_terminal(
 
                 await signal_interrupted(db, aj, cancelled=cancelled)
                 await db.commit()
+                return
+            aj = await async_job_svc.lock_job(db, aj.id)
+            if aj is None:
                 return
             if cancelled:
                 await async_job_svc.mark_cancelled(db, aj.id)

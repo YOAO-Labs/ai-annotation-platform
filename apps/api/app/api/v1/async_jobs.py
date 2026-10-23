@@ -670,6 +670,7 @@ async def cancel_async_job(
 )
 async def retry_failed_async_job_items(
     job_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AsyncJobRetryFailedResponse:
@@ -711,32 +712,31 @@ async def retry_failed_async_job_items(
         )
 
     from app.api.v1.predictions import MAX_RETRY_COUNT
-    from app.services.prediction import (
-        claim_failed_prediction_retry,
-        release_failed_prediction_retry_claim,
-    )
-    from app.workers.predictions_retry import retry_failed_prediction as task_fn
+    from app.services.prediction import claim_failed_prediction_retry
+    from app.services.prediction_retries import prepare_retry, release_unpublished_retry
 
-    claimed_ids: list[uuid.UUID] = []
-    for failed_id in failed_ids:
-        if await claim_failed_prediction_retry(db, failed_id, MAX_RETRY_COUNT):
-            claimed_ids.append(failed_id)
-
-    if not claimed_ids:
+    plans = []
+    for failed_id in sorted(failed_ids, key=str):
+        claimed = await claim_failed_prediction_retry(db, failed_id, MAX_RETRY_COUNT)
+        if claimed is not None:
+            plans.append(
+                await prepare_retry(
+                    db, claimed, current_user, request, project_id=job.project_id
+                )
+            )
+    if not plans:
         raise HTTPException(
-            status_code=409,
-            detail="no retryable failed predictions remain for this job",
+            409, detail="no retryable failed predictions remain for this job"
         )
     await db.commit()
-
     queued = 0
     try:
-        for failed_id in claimed_ids:
-            task_fn.delay(str(failed_id), str(current_user.id))
+        for plan in plans:
+            plan.publish(current_user.id)
             queued += 1
     except Exception:
-        for failed_id in claimed_ids[queued:]:
-            await release_failed_prediction_retry_claim(db, failed_id)
+        for plan in plans[queued:]:
+            await release_unpublished_retry(db, plan)
         await db.commit()
         raise
 
