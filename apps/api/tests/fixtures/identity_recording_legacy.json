@@ -1,0 +1,4525 @@
+{
+  "source_commit": "adbc84451ae6877193ca58195c6d02affbd7edfd",
+  "capture_driver_sha256": "f01cfa42da40f866fb7306d5c126eef5a3ef7bbe56af3eca8a02a808d35fd1cd",
+  "capture_helper_sha256": "82ace8e7c3a9e5af9d34d4332aee7d3a2490b5375092c5074e7ff2bb916115c6",
+  "snapshots": {
+    "guard-jobs": {
+      "exit_code": 2,
+      "stderr": "[jobs-retry-recovery] refusing production database\n"
+    },
+    "guard-review": {
+      "exit_code": 2,
+      "stderr": "[review-reject-fixture] refusing to run in production\n"
+    },
+    "jobs-bad_backend": {
+      "outcome": {
+        "error": "RuntimeError",
+        "sqlstate": null,
+        "message": "jobs-retry-recovery requires the real RapidOCR backend"
+      },
+      "state": {
+        "jobs": [],
+        "failed": [],
+        "tasks": [
+          {
+            "id": "ocr_task",
+            "status": "pending",
+            "reviewer_id": null,
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": [],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          },
+          {
+            "id": "image_task",
+            "status": "rejected",
+            "reviewer_id": "recorder",
+            "assignee_id": "annotator",
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": ["annotator"],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "reject",
+            "body": "unrelated recording feedback",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          },
+          {
+            "kind": "reject",
+            "body": "车辆边界存在偏移，请重新贴合目标外沿。",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          }
+        ],
+        "notifications": [
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "unrelated recording feedback"
+            }
+          },
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "车辆边界存在偏移，请重新贴合目标外沿。"
+            }
+          }
+        ],
+        "users": [
+          {
+            "id": "owner",
+            "email": "owner@fixture.test",
+            "role": "super_admin",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "recorder",
+            "email": "recording-inactive-viewer@fixture.test",
+            "role": "viewer",
+            "is_active": false,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "annotator",
+            "email": "annotator@fixture.test",
+            "role": "employee",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "batches": [
+          {
+            "id": "batch",
+            "total_tasks": 0,
+            "completed_tasks": 0,
+            "review_tasks": 0
+          }
+        ]
+      }
+    },
+    "jobs-bad_project": {
+      "outcome": {
+        "error": "RuntimeError",
+        "sqlstate": null,
+        "message": "cleanup scope is not screenshot project P-OCR: 2c69f2c8-25d4-58ef-9319-bd4e7b900138"
+      },
+      "state": {
+        "jobs": [],
+        "failed": [],
+        "tasks": [
+          {
+            "id": "ocr_task",
+            "status": "pending",
+            "reviewer_id": null,
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": [],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          },
+          {
+            "id": "image_task",
+            "status": "rejected",
+            "reviewer_id": "recorder",
+            "assignee_id": "annotator",
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": ["annotator"],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "reject",
+            "body": "unrelated recording feedback",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          },
+          {
+            "kind": "reject",
+            "body": "车辆边界存在偏移，请重新贴合目标外沿。",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          }
+        ],
+        "notifications": [
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "unrelated recording feedback"
+            }
+          },
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "车辆边界存在偏移，请重新贴合目标外沿。"
+            }
+          }
+        ],
+        "users": [
+          {
+            "id": "owner",
+            "email": "owner@fixture.test",
+            "role": "super_admin",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "recorder",
+            "email": "recording-inactive-viewer@fixture.test",
+            "role": "viewer",
+            "is_active": false,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "annotator",
+            "email": "annotator@fixture.test",
+            "role": "employee",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "batches": [
+          {
+            "id": "batch",
+            "total_tasks": 0,
+            "completed_tasks": 0,
+            "review_tasks": 0
+          }
+        ]
+      }
+    },
+    "jobs-cleanup": {
+      "outcome": {
+        "result": {
+          "async_jobs": 1,
+          "failed_predictions": 1,
+          "notifications": 0,
+          "predictions": 0
+        }
+      },
+      "state": {
+        "jobs": [],
+        "failed": [],
+        "tasks": [
+          {
+            "id": "ocr_task",
+            "status": "pending",
+            "reviewer_id": null,
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": [],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          },
+          {
+            "id": "image_task",
+            "status": "rejected",
+            "reviewer_id": "recorder",
+            "assignee_id": "annotator",
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": ["annotator"],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "reject",
+            "body": "unrelated recording feedback",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          },
+          {
+            "kind": "reject",
+            "body": "车辆边界存在偏移，请重新贴合目标外沿。",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          }
+        ],
+        "notifications": [
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "unrelated recording feedback"
+            }
+          },
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "车辆边界存在偏移，请重新贴合目标外沿。"
+            }
+          }
+        ],
+        "users": [
+          {
+            "id": "owner",
+            "email": "owner@fixture.test",
+            "role": "super_admin",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "recorder",
+            "email": "recording-inactive-viewer@fixture.test",
+            "role": "viewer",
+            "is_active": false,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "annotator",
+            "email": "annotator@fixture.test",
+            "role": "employee",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "batches": [
+          {
+            "id": "batch",
+            "total_tasks": 0,
+            "completed_tasks": 0,
+            "review_tasks": 0
+          }
+        ]
+      }
+    },
+    "jobs-happy": {
+      "outcome": {
+        "result": {
+          "asset_id": "jobs-retry-recovery",
+          "project_id": "ocr_project",
+          "task_id": "ocr_task",
+          "backend_id": "backend",
+          "failed_prediction_id": "failed-0",
+          "async_job_id": "job-0"
+        }
+      },
+      "state": {
+        "jobs": [
+          {
+            "id": "job-0",
+            "kind": "batch_predict",
+            "user_id": "recorder",
+            "status": "failed",
+            "payload": {
+              "task_id": "ocr_task",
+              "model_id": "ocr-e2e",
+              "task_type": "ocr",
+              "total_tasks": 1,
+              "project_name": "Owned recording ocr",
+              "ml_backend_id": "backend",
+              "ml_backend_name": "RapidOCR isolated recording fixture",
+              "task_display_id": "T-RECORDING-ocr",
+              "project_display_id": "P-OCR",
+              "recording_asset_id": "jobs-retry-recovery"
+            },
+            "result": {
+              "total_cost": "0.0000",
+              "duration_ms": 8420,
+              "failed_count": 1,
+              "success_count": 0,
+              "failed_prediction_ids": ["failed-0"]
+            }
+          }
+        ],
+        "failed": [
+          {
+            "id": "failed-0",
+            "task_id": "ocr_task",
+            "project_id": "ocr_project",
+            "ml_backend_id": "backend",
+            "error_type": "BackendTimeout",
+            "message": "RapidOCR 推理节点短暂超时，服务已恢复",
+            "extra": {
+              "request_context": {
+                "type": "ocr",
+                "model_id": "ocr-e2e"
+              },
+              "recording_asset_id": "jobs-retry-recovery"
+            }
+          }
+        ],
+        "tasks": [
+          {
+            "id": "ocr_task",
+            "status": "pending",
+            "reviewer_id": null,
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": [],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          },
+          {
+            "id": "image_task",
+            "status": "rejected",
+            "reviewer_id": "recorder",
+            "assignee_id": "annotator",
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": ["annotator"],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "reject",
+            "body": "unrelated recording feedback",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          },
+          {
+            "kind": "reject",
+            "body": "车辆边界存在偏移，请重新贴合目标外沿。",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          }
+        ],
+        "notifications": [
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "unrelated recording feedback"
+            }
+          },
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "车辆边界存在偏移，请重新贴合目标外沿。"
+            }
+          }
+        ],
+        "users": [
+          {
+            "id": "owner",
+            "email": "owner@fixture.test",
+            "role": "super_admin",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "recorder",
+            "email": "recording-inactive-viewer@fixture.test",
+            "role": "viewer",
+            "is_active": false,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "annotator",
+            "email": "annotator@fixture.test",
+            "role": "employee",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "batches": [
+          {
+            "id": "batch",
+            "total_tasks": 0,
+            "completed_tasks": 0,
+            "review_tasks": 0
+          }
+        ]
+      }
+    },
+    "jobs-missing_argument": {
+      "outcome": {
+        "error": "RuntimeError",
+        "sqlstate": null,
+        "message": "seed requires --user-email"
+      },
+      "state": {
+        "jobs": [],
+        "failed": [],
+        "tasks": [
+          {
+            "id": "ocr_task",
+            "status": "pending",
+            "reviewer_id": null,
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": [],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          },
+          {
+            "id": "image_task",
+            "status": "rejected",
+            "reviewer_id": "recorder",
+            "assignee_id": "annotator",
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": ["annotator"],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "reject",
+            "body": "unrelated recording feedback",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          },
+          {
+            "kind": "reject",
+            "body": "车辆边界存在偏移，请重新贴合目标外沿。",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          }
+        ],
+        "notifications": [
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "unrelated recording feedback"
+            }
+          },
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "车辆边界存在偏移，请重新贴合目标外沿。"
+            }
+          }
+        ],
+        "users": [
+          {
+            "id": "owner",
+            "email": "owner@fixture.test",
+            "role": "super_admin",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "recorder",
+            "email": "recording-inactive-viewer@fixture.test",
+            "role": "viewer",
+            "is_active": false,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "annotator",
+            "email": "annotator@fixture.test",
+            "role": "employee",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "batches": [
+          {
+            "id": "batch",
+            "total_tasks": 0,
+            "completed_tasks": 0,
+            "review_tasks": 0
+          }
+        ]
+      }
+    },
+    "jobs-missing_user": {
+      "outcome": {
+        "error": "RuntimeError",
+        "sqlstate": null,
+        "message": "recording user not found: missing@fixture.test"
+      },
+      "state": {
+        "jobs": [
+          {
+            "id": "job-0",
+            "kind": "batch_predict",
+            "user_id": "recorder",
+            "status": "failed",
+            "payload": {
+              "task_id": "ocr_task",
+              "model_id": "ocr-e2e",
+              "task_type": "ocr",
+              "total_tasks": 1,
+              "project_name": "Owned recording ocr",
+              "ml_backend_id": "backend",
+              "ml_backend_name": "RapidOCR isolated recording fixture",
+              "task_display_id": "T-RECORDING-ocr",
+              "project_display_id": "P-OCR",
+              "recording_asset_id": "jobs-retry-recovery"
+            },
+            "result": {
+              "total_cost": "0.0000",
+              "duration_ms": 8420,
+              "failed_count": 1,
+              "success_count": 0,
+              "failed_prediction_ids": ["failed-0"]
+            }
+          }
+        ],
+        "failed": [
+          {
+            "id": "failed-0",
+            "task_id": "ocr_task",
+            "project_id": "ocr_project",
+            "ml_backend_id": "backend",
+            "error_type": "BackendTimeout",
+            "message": "RapidOCR 推理节点短暂超时，服务已恢复",
+            "extra": {
+              "request_context": {
+                "type": "ocr",
+                "model_id": "ocr-e2e"
+              },
+              "recording_asset_id": "jobs-retry-recovery"
+            }
+          }
+        ],
+        "tasks": [
+          {
+            "id": "ocr_task",
+            "status": "pending",
+            "reviewer_id": null,
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": [],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          },
+          {
+            "id": "image_task",
+            "status": "rejected",
+            "reviewer_id": "recorder",
+            "assignee_id": "annotator",
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": ["annotator"],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "reject",
+            "body": "unrelated recording feedback",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          },
+          {
+            "kind": "reject",
+            "body": "车辆边界存在偏移，请重新贴合目标外沿。",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          }
+        ],
+        "notifications": [
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "unrelated recording feedback"
+            }
+          },
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "车辆边界存在偏移，请重新贴合目标外沿。"
+            }
+          }
+        ],
+        "users": [
+          {
+            "id": "owner",
+            "email": "owner@fixture.test",
+            "role": "super_admin",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "recorder",
+            "email": "recording-inactive-viewer@fixture.test",
+            "role": "viewer",
+            "is_active": false,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "annotator",
+            "email": "annotator@fixture.test",
+            "role": "employee",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "batches": [
+          {
+            "id": "batch",
+            "total_tasks": 0,
+            "completed_tasks": 0,
+            "review_tasks": 0
+          }
+        ]
+      }
+    },
+    "jobs-no_stage": {
+      "outcome": {
+        "error": "RuntimeError",
+        "sqlstate": null,
+        "message": "OCR screenshot project has no default backend stage"
+      },
+      "state": {
+        "jobs": [],
+        "failed": [],
+        "tasks": [
+          {
+            "id": "ocr_task",
+            "status": "pending",
+            "reviewer_id": null,
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": [],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          },
+          {
+            "id": "image_task",
+            "status": "rejected",
+            "reviewer_id": "recorder",
+            "assignee_id": "annotator",
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": ["annotator"],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "reject",
+            "body": "unrelated recording feedback",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          },
+          {
+            "kind": "reject",
+            "body": "车辆边界存在偏移，请重新贴合目标外沿。",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          }
+        ],
+        "notifications": [
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "unrelated recording feedback"
+            }
+          },
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "车辆边界存在偏移，请重新贴合目标外沿。"
+            }
+          }
+        ],
+        "users": [
+          {
+            "id": "owner",
+            "email": "owner@fixture.test",
+            "role": "super_admin",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "recorder",
+            "email": "recording-inactive-viewer@fixture.test",
+            "role": "viewer",
+            "is_active": false,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "annotator",
+            "email": "annotator@fixture.test",
+            "role": "employee",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "batches": [
+          {
+            "id": "batch",
+            "total_tasks": 0,
+            "completed_tasks": 0,
+            "review_tasks": 0
+          }
+        ]
+      }
+    },
+    "jobs-repeat": {
+      "outcome": {
+        "result": {
+          "asset_id": "jobs-retry-recovery",
+          "project_id": "ocr_project",
+          "task_id": "ocr_task",
+          "backend_id": "backend",
+          "failed_prediction_id": "failed-0",
+          "async_job_id": "job-0"
+        }
+      },
+      "state": {
+        "jobs": [
+          {
+            "id": "job-0",
+            "kind": "batch_predict",
+            "user_id": "recorder",
+            "status": "failed",
+            "payload": {
+              "task_id": "ocr_task",
+              "model_id": "ocr-e2e",
+              "task_type": "ocr",
+              "total_tasks": 1,
+              "project_name": "Owned recording ocr",
+              "ml_backend_id": "backend",
+              "ml_backend_name": "RapidOCR isolated recording fixture",
+              "task_display_id": "T-RECORDING-ocr",
+              "project_display_id": "P-OCR",
+              "recording_asset_id": "jobs-retry-recovery"
+            },
+            "result": {
+              "total_cost": "0.0000",
+              "duration_ms": 8420,
+              "failed_count": 1,
+              "success_count": 0,
+              "failed_prediction_ids": ["failed-0"]
+            }
+          }
+        ],
+        "failed": [
+          {
+            "id": "failed-0",
+            "task_id": "ocr_task",
+            "project_id": "ocr_project",
+            "ml_backend_id": "backend",
+            "error_type": "BackendTimeout",
+            "message": "RapidOCR 推理节点短暂超时，服务已恢复",
+            "extra": {
+              "request_context": {
+                "type": "ocr",
+                "model_id": "ocr-e2e"
+              },
+              "recording_asset_id": "jobs-retry-recovery"
+            }
+          }
+        ],
+        "tasks": [
+          {
+            "id": "ocr_task",
+            "status": "pending",
+            "reviewer_id": null,
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": [],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          },
+          {
+            "id": "image_task",
+            "status": "rejected",
+            "reviewer_id": "recorder",
+            "assignee_id": "annotator",
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": ["annotator"],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "reject",
+            "body": "unrelated recording feedback",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          },
+          {
+            "kind": "reject",
+            "body": "车辆边界存在偏移，请重新贴合目标外沿。",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          }
+        ],
+        "notifications": [
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "unrelated recording feedback"
+            }
+          },
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "车辆边界存在偏移，请重新贴合目标外沿。"
+            }
+          }
+        ],
+        "users": [
+          {
+            "id": "owner",
+            "email": "owner@fixture.test",
+            "role": "super_admin",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "recorder",
+            "email": "recording-inactive-viewer@fixture.test",
+            "role": "viewer",
+            "is_active": false,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "annotator",
+            "email": "annotator@fixture.test",
+            "role": "employee",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "batches": [
+          {
+            "id": "batch",
+            "total_tasks": 0,
+            "completed_tasks": 0,
+            "review_tasks": 0
+          }
+        ]
+      }
+    },
+    "jobs-undeclared_task": {
+      "outcome": {
+        "error": "RuntimeError",
+        "sqlstate": null,
+        "message": "cleanup refused: task is not declared by screenshot seed"
+      },
+      "state": {
+        "jobs": [],
+        "failed": [],
+        "tasks": [
+          {
+            "id": "ocr_task",
+            "status": "pending",
+            "reviewer_id": null,
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": [],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          },
+          {
+            "id": "image_task",
+            "status": "rejected",
+            "reviewer_id": "recorder",
+            "assignee_id": "annotator",
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": ["annotator"],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "reject",
+            "body": "unrelated recording feedback",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          },
+          {
+            "kind": "reject",
+            "body": "车辆边界存在偏移，请重新贴合目标外沿。",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          }
+        ],
+        "notifications": [
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "unrelated recording feedback"
+            }
+          },
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "车辆边界存在偏移，请重新贴合目标外沿。"
+            }
+          }
+        ],
+        "users": [
+          {
+            "id": "owner",
+            "email": "owner@fixture.test",
+            "role": "super_admin",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "recorder",
+            "email": "recording-inactive-viewer@fixture.test",
+            "role": "viewer",
+            "is_active": false,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "annotator",
+            "email": "annotator@fixture.test",
+            "role": "employee",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "batches": [
+          {
+            "id": "batch",
+            "total_tasks": 0,
+            "completed_tasks": 0,
+            "review_tasks": 0
+          }
+        ]
+      }
+    },
+    "jobs-unmanaged": {
+      "outcome": {
+        "error": "RuntimeError",
+        "sqlstate": null,
+        "message": "cleanup refused: project is not screenshot-seed managed"
+      },
+      "state": {
+        "jobs": [],
+        "failed": [],
+        "tasks": [
+          {
+            "id": "ocr_task",
+            "status": "pending",
+            "reviewer_id": null,
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": [],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          },
+          {
+            "id": "image_task",
+            "status": "rejected",
+            "reviewer_id": "recorder",
+            "assignee_id": "annotator",
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": ["annotator"],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "reject",
+            "body": "unrelated recording feedback",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          },
+          {
+            "kind": "reject",
+            "body": "车辆边界存在偏移，请重新贴合目标外沿。",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          }
+        ],
+        "notifications": [
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "unrelated recording feedback"
+            }
+          },
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "车辆边界存在偏移，请重新贴合目标外沿。"
+            }
+          }
+        ],
+        "users": [
+          {
+            "id": "owner",
+            "email": "owner@fixture.test",
+            "role": "super_admin",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "recorder",
+            "email": "recording-inactive-viewer@fixture.test",
+            "role": "viewer",
+            "is_active": false,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "annotator",
+            "email": "annotator@fixture.test",
+            "role": "employee",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "batches": [
+          {
+            "id": "batch",
+            "total_tasks": 0,
+            "completed_tasks": 0,
+            "review_tasks": 0
+          }
+        ]
+      }
+    },
+    "preferences-empty": {
+      "outcome": {
+        "result": null
+      },
+      "engine_options": [
+        {
+          "pool_pre_ping": true
+        }
+      ],
+      "users": [
+        {
+          "id": "owner",
+          "email": "owner@fixture.test",
+          "role": "super_admin",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "recorder",
+          "email": "recording-inactive-viewer@fixture.test",
+          "role": "viewer",
+          "is_active": false,
+          "preferences": {}
+        },
+        {
+          "id": "annotator",
+          "email": "annotator@fixture.test",
+          "role": "employee",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "preferences-fallback_dsn": {
+      "outcome": {
+        "result": null
+      },
+      "engine_options": [
+        {
+          "pool_pre_ping": true
+        }
+      ],
+      "users": [
+        {
+          "id": "owner",
+          "email": "owner@fixture.test",
+          "role": "super_admin",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "recorder",
+          "email": "recording-inactive-viewer@fixture.test",
+          "role": "viewer",
+          "is_active": false,
+          "preferences": {
+            "未知": {
+              "none": null,
+              "number": 1.25
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "fresh": {
+                      "shown": false
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "annotator",
+          "email": "annotator@fixture.test",
+          "role": "employee",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "preferences-invalid_json": {
+      "outcome": {
+        "error": "JSONDecodeError",
+        "sqlstate": null,
+        "message": "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"
+      },
+      "engine_options": [],
+      "users": [
+        {
+          "id": "owner",
+          "email": "owner@fixture.test",
+          "role": "super_admin",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "recorder",
+          "email": "recording-inactive-viewer@fixture.test",
+          "role": "viewer",
+          "is_active": false,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "annotator",
+          "email": "annotator@fixture.test",
+          "role": "employee",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "preferences-invalid_list": {
+      "outcome": {
+        "error": "ValueError",
+        "sqlstate": null,
+        "message": "preferences JSON must be an object"
+      },
+      "engine_options": [],
+      "users": [
+        {
+          "id": "owner",
+          "email": "owner@fixture.test",
+          "role": "super_admin",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "recorder",
+          "email": "recording-inactive-viewer@fixture.test",
+          "role": "viewer",
+          "is_active": false,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "annotator",
+          "email": "annotator@fixture.test",
+          "role": "employee",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "preferences-missing_dsn": {
+      "outcome": {
+        "error": "RuntimeError",
+        "sqlstate": null,
+        "message": "SCREENSHOT_DATABASE_URL or DATABASE_URL is required"
+      },
+      "engine_options": [],
+      "users": [
+        {
+          "id": "owner",
+          "email": "owner@fixture.test",
+          "role": "super_admin",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "recorder",
+          "email": "recording-inactive-viewer@fixture.test",
+          "role": "viewer",
+          "is_active": false,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "annotator",
+          "email": "annotator@fixture.test",
+          "role": "employee",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "preferences-missing_file": {
+      "outcome": {
+        "error": "FileNotFoundError",
+        "sqlstate": null,
+        "message": "<missing preferences file>"
+      },
+      "engine_options": [],
+      "users": [
+        {
+          "id": "owner",
+          "email": "owner@fixture.test",
+          "role": "super_admin",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "recorder",
+          "email": "recording-inactive-viewer@fixture.test",
+          "role": "viewer",
+          "is_active": false,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "annotator",
+          "email": "annotator@fixture.test",
+          "role": "employee",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "preferences-missing_user": {
+      "outcome": {
+        "error": "RuntimeError",
+        "sqlstate": null,
+        "message": "expected one user row, updated 0"
+      },
+      "engine_options": [
+        {
+          "pool_pre_ping": true
+        }
+      ],
+      "users": [
+        {
+          "id": "owner",
+          "email": "owner@fixture.test",
+          "role": "super_admin",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "recorder",
+          "email": "recording-inactive-viewer@fixture.test",
+          "role": "viewer",
+          "is_active": false,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "annotator",
+          "email": "annotator@fixture.test",
+          "role": "employee",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "preferences-nan": {
+      "outcome": {
+        "error": "DBAPIError",
+        "sqlstate": "22P02",
+        "message": null
+      },
+      "engine_options": [
+        {
+          "pool_pre_ping": true
+        }
+      ],
+      "users": [
+        {
+          "id": "owner",
+          "email": "owner@fixture.test",
+          "role": "super_admin",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "recorder",
+          "email": "recording-inactive-viewer@fixture.test",
+          "role": "viewer",
+          "is_active": false,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "annotator",
+          "email": "annotator@fixture.test",
+          "role": "employee",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "preferences-nested": {
+      "outcome": {
+        "result": null
+      },
+      "engine_options": [
+        {
+          "pool_pre_ping": true
+        }
+      ],
+      "users": [
+        {
+          "id": "owner",
+          "email": "owner@fixture.test",
+          "role": "super_admin",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "recorder",
+          "email": "recording-inactive-viewer@fixture.test",
+          "role": "viewer",
+          "is_active": false,
+          "preferences": {
+            "未知": {
+              "none": null,
+              "number": 1.25
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "fresh": {
+                      "shown": false
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "annotator",
+          "email": "annotator@fixture.test",
+          "role": "employee",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "preferences-null_user": {
+      "outcome": {
+        "error": "RuntimeError",
+        "sqlstate": null,
+        "message": "expected one user row, updated 0"
+      },
+      "engine_options": [
+        {
+          "pool_pre_ping": true
+        }
+      ],
+      "users": [
+        {
+          "id": "owner",
+          "email": "owner@fixture.test",
+          "role": "super_admin",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "recorder",
+          "email": "recording-inactive-viewer@fixture.test",
+          "role": "viewer",
+          "is_active": false,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "annotator",
+          "email": "annotator@fixture.test",
+          "role": "employee",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "preferences-preferred_dsn": {
+      "outcome": {
+        "result": null
+      },
+      "engine_options": [
+        {
+          "pool_pre_ping": true
+        }
+      ],
+      "users": [
+        {
+          "id": "owner",
+          "email": "owner@fixture.test",
+          "role": "super_admin",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "recorder",
+          "email": "recording-inactive-viewer@fixture.test",
+          "role": "viewer",
+          "is_active": false,
+          "preferences": {
+            "未知": {
+              "none": null,
+              "number": 1.25
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "fresh": {
+                      "shown": false
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "annotator",
+          "email": "annotator@fixture.test",
+          "role": "employee",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "preferences-same": {
+      "outcome": {
+        "result": null
+      },
+      "engine_options": [
+        {
+          "pool_pre_ping": true
+        }
+      ],
+      "users": [
+        {
+          "id": "owner",
+          "email": "owner@fixture.test",
+          "role": "super_admin",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "recorder",
+          "email": "recording-inactive-viewer@fixture.test",
+          "role": "viewer",
+          "is_active": false,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "annotator",
+          "email": "annotator@fixture.test",
+          "role": "employee",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "preferences-wrong_database": {
+      "outcome": {
+        "error": "RuntimeError",
+        "sqlstate": null,
+        "message": "preference restore requires an isolated *_test or *_e2e database"
+      },
+      "engine_options": [],
+      "users": [
+        {
+          "id": "owner",
+          "email": "owner@fixture.test",
+          "role": "super_admin",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "recorder",
+          "email": "recording-inactive-viewer@fixture.test",
+          "role": "viewer",
+          "is_active": false,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "id": "annotator",
+          "email": "annotator@fixture.test",
+          "role": "employee",
+          "is_active": true,
+          "preferences": {
+            "existing": {
+              "kept": 1
+            },
+            "workbench": {
+              "layout": {
+                "workspace": {
+                  "contexts": {
+                    "old": {
+                      "visible": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "review-bad_project": {
+      "outcome": {
+        "error": "RuntimeError",
+        "sqlstate": null,
+        "message": "cleanup scope is not screenshot project P-COCO8: 4ea7d399-080e-504a-ac70-90806eea3bbc"
+      },
+      "state": {
+        "jobs": [],
+        "failed": [],
+        "tasks": [
+          {
+            "id": "ocr_task",
+            "status": "pending",
+            "reviewer_id": null,
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": [],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          },
+          {
+            "id": "image_task",
+            "status": "rejected",
+            "reviewer_id": "recorder",
+            "assignee_id": "annotator",
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": ["annotator"],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "reject",
+            "body": "unrelated recording feedback",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          },
+          {
+            "kind": "reject",
+            "body": "车辆边界存在偏移，请重新贴合目标外沿。",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          }
+        ],
+        "notifications": [
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "unrelated recording feedback"
+            }
+          },
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "车辆边界存在偏移，请重新贴合目标外沿。"
+            }
+          }
+        ],
+        "users": [
+          {
+            "id": "owner",
+            "email": "owner@fixture.test",
+            "role": "super_admin",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "recorder",
+            "email": "recording-inactive-viewer@fixture.test",
+            "role": "viewer",
+            "is_active": false,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "annotator",
+            "email": "annotator@fixture.test",
+            "role": "employee",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "batches": [
+          {
+            "id": "batch",
+            "total_tasks": 0,
+            "completed_tasks": 0,
+            "review_tasks": 0
+          }
+        ]
+      }
+    },
+    "review-cleanup": {
+      "outcome": {
+        "result": {
+          "status": "review",
+          "feedbacks": 1,
+          "notifications": 1
+        }
+      },
+      "state": {
+        "jobs": [],
+        "failed": [],
+        "tasks": [
+          {
+            "id": "ocr_task",
+            "status": "pending",
+            "reviewer_id": null,
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": [],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          },
+          {
+            "id": "image_task",
+            "status": "review",
+            "reviewer_id": "recorder",
+            "assignee_id": "annotator",
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": "review-round",
+            "annotation_contributor_ids": ["annotator"],
+            "review_contributor_ids": ["annotator"],
+            "review_submitter_id": "annotator"
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "reject",
+            "body": "unrelated recording feedback",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          }
+        ],
+        "notifications": [
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "unrelated recording feedback"
+            }
+          }
+        ],
+        "users": [
+          {
+            "id": "owner",
+            "email": "owner@fixture.test",
+            "role": "super_admin",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "recorder",
+            "email": "recording-inactive-viewer@fixture.test",
+            "role": "viewer",
+            "is_active": false,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "annotator",
+            "email": "annotator@fixture.test",
+            "role": "employee",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "batches": [
+          {
+            "id": "batch",
+            "total_tasks": 1,
+            "completed_tasks": 0,
+            "review_tasks": 1
+          }
+        ]
+      }
+    },
+    "review-happy": {
+      "outcome": {
+        "result": {
+          "status": "review",
+          "feedbacks": 1,
+          "notifications": 1
+        }
+      },
+      "state": {
+        "jobs": [],
+        "failed": [],
+        "tasks": [
+          {
+            "id": "ocr_task",
+            "status": "pending",
+            "reviewer_id": null,
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": [],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          },
+          {
+            "id": "image_task",
+            "status": "review",
+            "reviewer_id": "recorder",
+            "assignee_id": "annotator",
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": "review-round",
+            "annotation_contributor_ids": ["annotator"],
+            "review_contributor_ids": ["annotator"],
+            "review_submitter_id": "annotator"
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "reject",
+            "body": "unrelated recording feedback",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          }
+        ],
+        "notifications": [
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "unrelated recording feedback"
+            }
+          }
+        ],
+        "users": [
+          {
+            "id": "owner",
+            "email": "owner@fixture.test",
+            "role": "super_admin",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "recorder",
+            "email": "recording-inactive-viewer@fixture.test",
+            "role": "viewer",
+            "is_active": false,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "annotator",
+            "email": "annotator@fixture.test",
+            "role": "employee",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "batches": [
+          {
+            "id": "batch",
+            "total_tasks": 1,
+            "completed_tasks": 0,
+            "review_tasks": 1
+          }
+        ]
+      }
+    },
+    "review-missing_assignee": {
+      "outcome": {
+        "error": "RuntimeError",
+        "sqlstate": null,
+        "message": "review-reject fixture needs complete seeded author evidence; repair the screenshot seed before recording"
+      },
+      "state": {
+        "jobs": [],
+        "failed": [],
+        "tasks": [
+          {
+            "id": "ocr_task",
+            "status": "pending",
+            "reviewer_id": null,
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": [],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          },
+          {
+            "id": "image_task",
+            "status": "rejected",
+            "reviewer_id": "recorder",
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": ["annotator"],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "reject",
+            "body": "unrelated recording feedback",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          },
+          {
+            "kind": "reject",
+            "body": "车辆边界存在偏移，请重新贴合目标外沿。",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          }
+        ],
+        "notifications": [
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "unrelated recording feedback"
+            }
+          },
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "车辆边界存在偏移，请重新贴合目标外沿。"
+            }
+          }
+        ],
+        "users": [
+          {
+            "id": "owner",
+            "email": "owner@fixture.test",
+            "role": "super_admin",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "recorder",
+            "email": "recording-inactive-viewer@fixture.test",
+            "role": "viewer",
+            "is_active": false,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "annotator",
+            "email": "annotator@fixture.test",
+            "role": "employee",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "batches": [
+          {
+            "id": "batch",
+            "total_tasks": 0,
+            "completed_tasks": 0,
+            "review_tasks": 0
+          }
+        ]
+      }
+    },
+    "review-missing_user": {
+      "outcome": {
+        "error": "RuntimeError",
+        "sqlstate": null,
+        "message": "review-reject task is not assigned to the recording reviewer"
+      },
+      "state": {
+        "jobs": [],
+        "failed": [],
+        "tasks": [
+          {
+            "id": "ocr_task",
+            "status": "pending",
+            "reviewer_id": null,
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": [],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          },
+          {
+            "id": "image_task",
+            "status": "rejected",
+            "reviewer_id": "recorder",
+            "assignee_id": "annotator",
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": ["annotator"],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "reject",
+            "body": "unrelated recording feedback",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          },
+          {
+            "kind": "reject",
+            "body": "车辆边界存在偏移，请重新贴合目标外沿。",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          }
+        ],
+        "notifications": [
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "unrelated recording feedback"
+            }
+          },
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "车辆边界存在偏移，请重新贴合目标外沿。"
+            }
+          }
+        ],
+        "users": [
+          {
+            "id": "owner",
+            "email": "owner@fixture.test",
+            "role": "super_admin",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "recorder",
+            "email": "recording-inactive-viewer@fixture.test",
+            "role": "viewer",
+            "is_active": false,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "annotator",
+            "email": "annotator@fixture.test",
+            "role": "employee",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "batches": [
+          {
+            "id": "batch",
+            "total_tasks": 0,
+            "completed_tasks": 0,
+            "review_tasks": 0
+          }
+        ]
+      }
+    },
+    "review-repeat": {
+      "outcome": {
+        "result": {
+          "status": "review",
+          "feedbacks": 0,
+          "notifications": 0
+        }
+      },
+      "state": {
+        "jobs": [],
+        "failed": [],
+        "tasks": [
+          {
+            "id": "ocr_task",
+            "status": "pending",
+            "reviewer_id": null,
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": [],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          },
+          {
+            "id": "image_task",
+            "status": "review",
+            "reviewer_id": "recorder",
+            "assignee_id": "annotator",
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": "review-round",
+            "annotation_contributor_ids": ["annotator"],
+            "review_contributor_ids": ["annotator"],
+            "review_submitter_id": "annotator"
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "reject",
+            "body": "unrelated recording feedback",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          }
+        ],
+        "notifications": [
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "unrelated recording feedback"
+            }
+          }
+        ],
+        "users": [
+          {
+            "id": "owner",
+            "email": "owner@fixture.test",
+            "role": "super_admin",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "recorder",
+            "email": "recording-inactive-viewer@fixture.test",
+            "role": "viewer",
+            "is_active": false,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "annotator",
+            "email": "annotator@fixture.test",
+            "role": "employee",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "batches": [
+          {
+            "id": "batch",
+            "total_tasks": 1,
+            "completed_tasks": 0,
+            "review_tasks": 1
+          }
+        ]
+      }
+    },
+    "review-self_review": {
+      "outcome": {
+        "error": "RuntimeError",
+        "sqlstate": null,
+        "message": "review-reject fixture needs complete seeded author evidence; repair the screenshot seed before recording"
+      },
+      "state": {
+        "jobs": [],
+        "failed": [],
+        "tasks": [
+          {
+            "id": "ocr_task",
+            "status": "pending",
+            "reviewer_id": null,
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": [],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          },
+          {
+            "id": "image_task",
+            "status": "rejected",
+            "reviewer_id": "recorder",
+            "assignee_id": "annotator",
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": ["annotator", "recorder"],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "reject",
+            "body": "unrelated recording feedback",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          },
+          {
+            "kind": "reject",
+            "body": "车辆边界存在偏移，请重新贴合目标外沿。",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          }
+        ],
+        "notifications": [
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "unrelated recording feedback"
+            }
+          },
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "车辆边界存在偏移，请重新贴合目标外沿。"
+            }
+          }
+        ],
+        "users": [
+          {
+            "id": "owner",
+            "email": "owner@fixture.test",
+            "role": "super_admin",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "recorder",
+            "email": "recording-inactive-viewer@fixture.test",
+            "role": "viewer",
+            "is_active": false,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "annotator",
+            "email": "annotator@fixture.test",
+            "role": "employee",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "batches": [
+          {
+            "id": "batch",
+            "total_tasks": 0,
+            "completed_tasks": 0,
+            "review_tasks": 0
+          }
+        ]
+      }
+    },
+    "review-undeclared_task": {
+      "outcome": {
+        "error": "RuntimeError",
+        "sqlstate": null,
+        "message": "cleanup refused: task is not declared by screenshot seed"
+      },
+      "state": {
+        "jobs": [],
+        "failed": [],
+        "tasks": [
+          {
+            "id": "ocr_task",
+            "status": "pending",
+            "reviewer_id": null,
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": [],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          },
+          {
+            "id": "image_task",
+            "status": "rejected",
+            "reviewer_id": "recorder",
+            "assignee_id": "annotator",
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": ["annotator"],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "reject",
+            "body": "unrelated recording feedback",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          },
+          {
+            "kind": "reject",
+            "body": "车辆边界存在偏移，请重新贴合目标外沿。",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          }
+        ],
+        "notifications": [
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "unrelated recording feedback"
+            }
+          },
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "车辆边界存在偏移，请重新贴合目标外沿。"
+            }
+          }
+        ],
+        "users": [
+          {
+            "id": "owner",
+            "email": "owner@fixture.test",
+            "role": "super_admin",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "recorder",
+            "email": "recording-inactive-viewer@fixture.test",
+            "role": "viewer",
+            "is_active": false,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "annotator",
+            "email": "annotator@fixture.test",
+            "role": "employee",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "batches": [
+          {
+            "id": "batch",
+            "total_tasks": 0,
+            "completed_tasks": 0,
+            "review_tasks": 0
+          }
+        ]
+      }
+    },
+    "review-unknown_evidence": {
+      "outcome": {
+        "error": "RuntimeError",
+        "sqlstate": null,
+        "message": "review-reject fixture needs complete seeded author evidence; repair the screenshot seed before recording"
+      },
+      "state": {
+        "jobs": [],
+        "failed": [],
+        "tasks": [
+          {
+            "id": "ocr_task",
+            "status": "pending",
+            "reviewer_id": null,
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": [],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          },
+          {
+            "id": "image_task",
+            "status": "rejected",
+            "reviewer_id": "recorder",
+            "assignee_id": "annotator",
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": null,
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "reject",
+            "body": "unrelated recording feedback",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          },
+          {
+            "kind": "reject",
+            "body": "车辆边界存在偏移，请重新贴合目标外沿。",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          }
+        ],
+        "notifications": [
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "unrelated recording feedback"
+            }
+          },
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "车辆边界存在偏移，请重新贴合目标外沿。"
+            }
+          }
+        ],
+        "users": [
+          {
+            "id": "owner",
+            "email": "owner@fixture.test",
+            "role": "super_admin",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "recorder",
+            "email": "recording-inactive-viewer@fixture.test",
+            "role": "viewer",
+            "is_active": false,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "annotator",
+            "email": "annotator@fixture.test",
+            "role": "employee",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "batches": [
+          {
+            "id": "batch",
+            "total_tasks": 0,
+            "completed_tasks": 0,
+            "review_tasks": 0
+          }
+        ]
+      }
+    },
+    "review-unmanaged": {
+      "outcome": {
+        "error": "RuntimeError",
+        "sqlstate": null,
+        "message": "cleanup refused: project is not screenshot-seed managed"
+      },
+      "state": {
+        "jobs": [],
+        "failed": [],
+        "tasks": [
+          {
+            "id": "ocr_task",
+            "status": "pending",
+            "reviewer_id": null,
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": [],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          },
+          {
+            "id": "image_task",
+            "status": "rejected",
+            "reviewer_id": "recorder",
+            "assignee_id": "annotator",
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": ["annotator"],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "reject",
+            "body": "unrelated recording feedback",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          },
+          {
+            "kind": "reject",
+            "body": "车辆边界存在偏移，请重新贴合目标外沿。",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          }
+        ],
+        "notifications": [
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "unrelated recording feedback"
+            }
+          },
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "车辆边界存在偏移，请重新贴合目标外沿。"
+            }
+          }
+        ],
+        "users": [
+          {
+            "id": "owner",
+            "email": "owner@fixture.test",
+            "role": "super_admin",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "recorder",
+            "email": "recording-inactive-viewer@fixture.test",
+            "role": "viewer",
+            "is_active": false,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "annotator",
+            "email": "annotator@fixture.test",
+            "role": "employee",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "batches": [
+          {
+            "id": "batch",
+            "total_tasks": 0,
+            "completed_tasks": 0,
+            "review_tasks": 0
+          }
+        ]
+      }
+    },
+    "review-wrong_reviewer": {
+      "outcome": {
+        "error": "RuntimeError",
+        "sqlstate": null,
+        "message": "review-reject task is not assigned to the recording reviewer"
+      },
+      "state": {
+        "jobs": [],
+        "failed": [],
+        "tasks": [
+          {
+            "id": "ocr_task",
+            "status": "pending",
+            "reviewer_id": null,
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": [],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          },
+          {
+            "id": "image_task",
+            "status": "rejected",
+            "reviewer_id": "recorder",
+            "assignee_id": "annotator",
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": ["annotator"],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "reject",
+            "body": "unrelated recording feedback",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          },
+          {
+            "kind": "reject",
+            "body": "车辆边界存在偏移，请重新贴合目标外沿。",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          }
+        ],
+        "notifications": [
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "unrelated recording feedback"
+            }
+          },
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "车辆边界存在偏移，请重新贴合目标外沿。"
+            }
+          }
+        ],
+        "users": [
+          {
+            "id": "owner",
+            "email": "owner@fixture.test",
+            "role": "super_admin",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "recorder",
+            "email": "recording-inactive-viewer@fixture.test",
+            "role": "viewer",
+            "is_active": false,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "annotator",
+            "email": "annotator@fixture.test",
+            "role": "employee",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "batches": [
+          {
+            "id": "batch",
+            "total_tasks": 0,
+            "completed_tasks": 0,
+            "review_tasks": 0
+          }
+        ]
+      }
+    },
+    "jobs-cached-email": {
+      "result": {
+        "asset_id": "jobs-retry-recovery",
+        "project_id": "ocr_project",
+        "task_id": "ocr_task",
+        "backend_id": "backend",
+        "failed_prediction_id": "failed-0",
+        "async_job_id": "job-0"
+      },
+      "state": {
+        "jobs": [
+          {
+            "id": "job-0",
+            "kind": "batch_predict",
+            "user_id": "recorder",
+            "status": "failed",
+            "payload": {
+              "task_id": "ocr_task",
+              "model_id": "ocr-e2e",
+              "task_type": "ocr",
+              "total_tasks": 1,
+              "project_name": "Owned recording ocr",
+              "ml_backend_id": "backend",
+              "ml_backend_name": "RapidOCR isolated recording fixture",
+              "task_display_id": "T-RECORDING-ocr",
+              "project_display_id": "P-OCR",
+              "recording_asset_id": "jobs-retry-recovery"
+            },
+            "result": {
+              "total_cost": "0.0000",
+              "duration_ms": 8420,
+              "failed_count": 1,
+              "success_count": 0,
+              "failed_prediction_ids": ["failed-0"]
+            }
+          }
+        ],
+        "failed": [
+          {
+            "id": "failed-0",
+            "task_id": "ocr_task",
+            "project_id": "ocr_project",
+            "ml_backend_id": "backend",
+            "error_type": "BackendTimeout",
+            "message": "RapidOCR 推理节点短暂超时，服务已恢复",
+            "extra": {
+              "request_context": {
+                "type": "ocr",
+                "model_id": "ocr-e2e"
+              },
+              "recording_asset_id": "jobs-retry-recovery"
+            }
+          }
+        ],
+        "tasks": [
+          {
+            "id": "ocr_task",
+            "status": "pending",
+            "reviewer_id": null,
+            "assignee_id": null,
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": [],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          },
+          {
+            "id": "image_task",
+            "status": "rejected",
+            "reviewer_id": "recorder",
+            "assignee_id": "annotator",
+            "total_predictions": 0,
+            "reviewed_at": null,
+            "reject_reason_type": null,
+            "reject_reason": null,
+            "reviewer_claimed_at": null,
+            "review_round_id": null,
+            "annotation_contributor_ids": ["annotator"],
+            "review_contributor_ids": null,
+            "review_submitter_id": null
+          }
+        ],
+        "feedback": [
+          {
+            "kind": "reject",
+            "body": "unrelated recording feedback",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          },
+          {
+            "kind": "reject",
+            "body": "车辆边界存在偏移，请重新贴合目标外沿。",
+            "author_id": "recorder",
+            "task_id": "image_task"
+          }
+        ],
+        "notifications": [
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "unrelated recording feedback"
+            }
+          },
+          {
+            "type": "task.rejected",
+            "target_type": "task",
+            "target_id": "image_task",
+            "user_id": "annotator",
+            "payload": {
+              "reject_reason": "车辆边界存在偏移，请重新贴合目标外沿。"
+            }
+          }
+        ],
+        "users": [
+          {
+            "id": "owner",
+            "email": "owner@fixture.test",
+            "role": "super_admin",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "recorder",
+            "email": "changed-recording@fixture.test",
+            "role": "viewer",
+            "is_active": false,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "annotator",
+            "email": "annotator@fixture.test",
+            "role": "employee",
+            "is_active": true,
+            "preferences": {
+              "existing": {
+                "kept": 1
+              },
+              "workbench": {
+                "layout": {
+                  "workspace": {
+                    "contexts": {
+                      "old": {
+                        "visible": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "batches": [
+          {
+            "id": "batch",
+            "total_tasks": 0,
+            "completed_tasks": 0,
+            "review_tasks": 0
+          }
+        ]
+      }
+    }
+  },
+  "cache_driver_sha256": "63c63adf9dc53f3adb42eec38bd491b01170936c5814cbd990b991dd7c9938b9"
+}

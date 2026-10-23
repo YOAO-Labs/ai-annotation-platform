@@ -1,0 +1,143 @@
+{
+  "source_commit": "f7fb219abe41788a7356910aedfc973b1b241f59",
+  "inputs": {
+    "apps/api/app/api/v1/_test_seed.py": {
+      "path": ".worktree/identity-e2e-legacy-test-seed.py",
+      "sha256": "688fbdc17610ca09c7e07365975671782999f0fe9a9d4e4576a54e13dc57871a"
+    },
+    "apps/api/app/api/v1/_test_seed_filters.py": {
+      "path": ".worktree/identity-e2e-legacy-filters.py",
+      "sha256": "02c7380756f8b087698c3716c776fad818d42046d80f9ba3a84242dcccffabeb"
+    },
+    "apps/api/tests/factory.py": {
+      "path": ".worktree/identity-e2e-legacy-factory.py",
+      "sha256": "145647dab2e72e09bf8516b935e497b99f67f59ef7bf07d5d19afce81d3a1c40"
+    },
+    "apps/api/app/schemas/user.py": {
+      "path": ".worktree/identity-e2e-legacy-user-schema.py",
+      "sha256": "5f9200c5ffa4ea50e1b7bd4652a8d2ef9846e58e0c5b698ae79619334231dd45"
+    }
+  },
+  "capture_driver_sha256": "052cc333d70372a25ed27e563bba2ba7302748c5a0ad49a9776c9d33efcc914c",
+  "snapshots": {
+    "cleanup-owned": {
+      "users": [
+        {
+          "id": "neighbor",
+          "email": "admin-probeb@e2e.test",
+          "name": "Neighbor",
+          "role": "super_admin",
+          "is_active": true,
+          "status": "offline",
+          "preferences": {}
+        },
+        {
+          "id": "dev",
+          "email": "keeper@example.test",
+          "name": "Dev",
+          "role": "super_admin",
+          "is_active": false,
+          "status": "offline",
+          "preferences": {}
+        }
+      ],
+      "reset_tokens": [],
+      "invitations": []
+    },
+    "cleanup-shared": {
+      "users": [
+        {
+          "id": "dev",
+          "email": "keeper@example.test",
+          "name": "Dev",
+          "role": "super_admin",
+          "is_active": false,
+          "status": "offline",
+          "preferences": {}
+        }
+      ],
+      "reset_tokens": [],
+      "invitations": []
+    },
+    "login-cached_email": {
+      "user": {
+        "id": "target",
+        "email": "admin-probea@e2e.test",
+        "name": "原样 🚙",
+        "role": "viewer",
+        "group_name": "分组",
+        "group_id": null,
+        "status": "offline",
+        "is_active": false,
+        "disabled_kind": "manual",
+        "disabled_at": "2025-02-03T04:05:06Z",
+        "disabled_by": "neighbor",
+        "disabled_reason": "保留",
+        "email_verified_at": "2025-02-03T04:05:06Z",
+        "last_login_at": "2025-02-03T04:05:06Z",
+        "last_seen_at": "2025-02-03T04:05:06Z",
+        "password_admin_reset_at": "2025-02-03T04:05:06Z",
+        "deactivation_requested_at": "2025-02-03T04:05:06Z",
+        "deactivation_scheduled_at": "2025-02-10T04:05:06Z",
+        "preferences": {
+          "unknown": {
+            "nested": [null, false, {}],
+            "unicode": "雪"
+          }
+        },
+        "avatar_ref": "preset:fox",
+        "created_at": "2025-02-03T04:05:06Z"
+      },
+      "claims": {
+        "sub": "target",
+        "role": "viewer"
+      },
+      "token_type": "bearer"
+    },
+    "login-full": {
+      "user": {
+        "id": "target",
+        "email": "admin-probea@e2e.test",
+        "name": "原样 🚙",
+        "role": "viewer",
+        "group_name": "分组",
+        "group_id": null,
+        "status": "offline",
+        "is_active": false,
+        "disabled_kind": "manual",
+        "disabled_at": "2025-02-03T04:05:06Z",
+        "disabled_by": "neighbor",
+        "disabled_reason": "保留",
+        "email_verified_at": "2025-02-03T04:05:06Z",
+        "last_login_at": "2025-02-03T04:05:06Z",
+        "last_seen_at": "2025-02-03T04:05:06Z",
+        "password_admin_reset_at": "2025-02-03T04:05:06Z",
+        "deactivation_requested_at": "2025-02-03T04:05:06Z",
+        "deactivation_scheduled_at": "2025-02-10T04:05:06Z",
+        "preferences": {
+          "unknown": {
+            "nested": [null, false, {}],
+            "unicode": "雪"
+          }
+        },
+        "avatar_ref": "preset:fox",
+        "created_at": "2025-02-03T04:05:06Z"
+      },
+      "claims": {
+        "sub": "target",
+        "role": "viewer"
+      },
+      "token_type": "bearer"
+    },
+    "login-missing": {
+      "error": "HTTPException",
+      "status": 404,
+      "detail": "user missing@example.test not found"
+    },
+    "peek-priority": {
+      "admin_email": "keeper@example.test",
+      "project_id": null,
+      "task_id": null
+    }
+  }
+}

@@ -1,0 +1,128 @@
+{
+  "kind": "actual-legacy-admitted-actor-fence",
+  "records": [
+    {
+      "case": "current",
+      "status": 200,
+      "body": {
+        "id": "4ae12646-326e-50f1-bf9e-b8e927619dc2",
+        "name": "  Current actor \ud83d\ude00",
+        "email": "current@actor-context.test",
+        "role": "employee",
+        "is_active": true,
+        "weekly_target_default": 307,
+        "admitted_name": "Admitted name",
+        "scopes": ["annotations:read"],
+        "key_id": "00000000-0000-0000-0000-000000000047"
+      },
+      "www_authenticate": null,
+      "state": {
+        "identity_principal": true,
+        "api_key_scopes": true,
+        "api_key_id": true
+      }
+    },
+    {
+      "case": "profile_changed",
+      "status": 200,
+      "body": {
+        "id": "78fe4fb6-4f3e-595d-81c7-05c0df1c526c",
+        "name": "Updated \u505c \ud83d\ude00",
+        "email": "updated@actor-context.test",
+        "role": "employee",
+        "is_active": true,
+        "weekly_target_default": 307,
+        "admitted_name": "Admitted name",
+        "scopes": ["annotations:read"],
+        "key_id": "00000000-0000-0000-0000-000000000047"
+      },
+      "www_authenticate": null,
+      "state": {
+        "identity_principal": true,
+        "api_key_scopes": true,
+        "api_key_id": true
+      }
+    },
+    {
+      "case": "role_changed",
+      "status": 401,
+      "body": {
+        "detail": "\u65e0\u6548\u7684\u8ba4\u8bc1\u51ed\u636e"
+      },
+      "www_authenticate": "Bearer",
+      "state": {
+        "identity_principal": false,
+        "api_key_scopes": false,
+        "api_key_id": false
+      }
+    },
+    {
+      "case": "inactive",
+      "status": 401,
+      "body": {
+        "detail": "\u65e0\u6548\u7684\u8ba4\u8bc1\u51ed\u636e"
+      },
+      "www_authenticate": "Bearer",
+      "state": {
+        "identity_principal": false,
+        "api_key_scopes": false,
+        "api_key_id": false
+      }
+    },
+    {
+      "case": "missing",
+      "status": 401,
+      "body": {
+        "detail": "\u65e0\u6548\u7684\u8ba4\u8bc1\u51ed\u636e"
+      },
+      "www_authenticate": "Bearer",
+      "state": {
+        "identity_principal": false,
+        "api_key_scopes": false,
+        "api_key_id": false
+      }
+    },
+    {
+      "case": "autoflush",
+      "status": 200,
+      "body": {
+        "id": "58574a4a-b02e-570c-91f7-4d0fe8f9dad4",
+        "name": "Pending profile",
+        "email": "autoflush@actor-context.test",
+        "role": "employee",
+        "is_active": true,
+        "weekly_target_default": 411,
+        "admitted_name": "Admitted name",
+        "scopes": ["annotations:read"],
+        "key_id": "00000000-0000-0000-0000-000000000047"
+      },
+      "www_authenticate": null,
+      "state": {
+        "identity_principal": true,
+        "api_key_scopes": true,
+        "api_key_id": true
+      }
+    },
+    {
+      "case": "no_autoflush",
+      "status": 200,
+      "body": {
+        "id": "d401ed14-9241-57a1-95e9-2ced5f605cff",
+        "name": "  Current actor \ud83d\ude00",
+        "email": "no_autoflush@actor-context.test",
+        "role": "employee",
+        "is_active": true,
+        "weekly_target_default": 307,
+        "admitted_name": "Admitted name",
+        "scopes": ["annotations:read"],
+        "key_id": "00000000-0000-0000-0000-000000000047"
+      },
+      "www_authenticate": null,
+      "state": {
+        "identity_principal": true,
+        "api_key_scopes": true,
+        "api_key_id": true
+      }
+    }
+  ]
+}

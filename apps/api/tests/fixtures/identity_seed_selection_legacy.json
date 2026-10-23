@@ -1,0 +1,167 @@
+{
+  "source_commit": "44171ef27",
+  "capture_driver_sha256": "3c32e9651225d8b9182adaf3e4242f4a29d87e25b57ca5e3338c5893bb550fe5",
+  "snapshots": {
+    "selection-cross_project": {
+      "actors": ["admin", "unlinked"],
+      "commits": 4,
+      "outcome": "completed",
+      "disposed": 1,
+      "printed_done": true,
+      "printed_missing_actors": false,
+      "project_owner": "admin",
+      "total_tasks": 4,
+      "tasks": 4,
+      "batches": 2,
+      "annotations": 1
+    },
+    "selection-inactive_only": {
+      "actors": ["admin", null],
+      "commits": 1,
+      "outcome": {
+        "exit": 1
+      },
+      "disposed": 0,
+      "printed_done": false,
+      "printed_missing_actors": true,
+      "project_owner": null
+    },
+    "selection-ties": {
+      "actors": ["admin_tie", "annotator_tie"],
+      "commits": 4,
+      "outcome": "completed",
+      "disposed": 1,
+      "printed_done": true,
+      "printed_missing_actors": false,
+      "project_owner": "admin_tie",
+      "total_tasks": 4,
+      "tasks": 4,
+      "batches": 2,
+      "annotations": 1
+    },
+    "identity-import-multiple": {
+      "dataset_count": 1,
+      "owner_in_candidates": true,
+      "file_counts": [2],
+      "files": [
+        {
+          "file_name": "a.png",
+          "file_path": "identity-input/a.png"
+        },
+        {
+          "file_name": "b.jpg",
+          "file_path": "identity-input/b.jpg"
+        }
+      ],
+      "objects": ["head", ["identity-input/a.png", "a.png"], ["identity-input/b.jpg", "b.jpg"]],
+      "disposed": 1,
+      "missing_user": false,
+      "finished": true
+    },
+    "identity-import-empty": {
+      "dataset_count": 0,
+      "owner_in_candidates": true,
+      "file_counts": [],
+      "files": [],
+      "objects": ["head"],
+      "disposed": 0,
+      "missing_user": true,
+      "finished": false
+    },
+    "selection-no_duty": {
+      "actors": ["admin", null],
+      "commits": 1,
+      "outcome": {
+        "exit": 1
+      },
+      "disposed": 0,
+      "printed_done": false,
+      "printed_missing_actors": true,
+      "project_owner": null
+    },
+    "identity-import-inactive_viewer": {
+      "dataset_count": 1,
+      "owner_in_candidates": true,
+      "file_counts": [2],
+      "files": [
+        {
+          "file_name": "a.png",
+          "file_path": "identity-input/a.png"
+        },
+        {
+          "file_name": "b.jpg",
+          "file_path": "identity-input/b.jpg"
+        }
+      ],
+      "objects": ["head", ["identity-input/a.png", "a.png"], ["identity-input/b.jpg", "b.jpg"]],
+      "disposed": 1,
+      "missing_user": false,
+      "finished": true
+    },
+    "selection-infinite": {
+      "actors": ["admin", "annotator"],
+      "commits": 4,
+      "outcome": "completed",
+      "disposed": 1,
+      "printed_done": true,
+      "printed_missing_actors": false,
+      "project_owner": "admin",
+      "total_tasks": 4,
+      "tasks": 4,
+      "batches": 2,
+      "annotations": 1
+    },
+    "selection-no_admin": {
+      "actors": [null, "annotator"],
+      "commits": 1,
+      "outcome": {
+        "exit": 1
+      },
+      "disposed": 0,
+      "printed_done": false,
+      "printed_missing_actors": true,
+      "project_owner": null
+    },
+    "selection-normal": {
+      "actors": ["admin", "annotator"],
+      "commits": 4,
+      "outcome": "completed",
+      "disposed": 1,
+      "printed_done": true,
+      "printed_missing_actors": false,
+      "project_owner": "admin",
+      "total_tasks": 4,
+      "tasks": 4,
+      "batches": 2,
+      "annotations": 1
+    },
+    "selection-duplicates": {
+      "actors": ["admin", "annotator"],
+      "commits": 4,
+      "outcome": "completed",
+      "disposed": 1,
+      "printed_done": true,
+      "printed_missing_actors": false,
+      "project_owner": "admin",
+      "total_tasks": 4,
+      "tasks": 4,
+      "batches": 2,
+      "annotations": 1
+    },
+    "identity-import-limit": {
+      "dataset_count": 1,
+      "owner_in_candidates": true,
+      "file_counts": [1],
+      "files": [
+        {
+          "file_name": "a.png",
+          "file_path": "identity-input/a.png"
+        }
+      ],
+      "objects": ["head", ["identity-input/a.png", "a.png"]],
+      "disposed": 1,
+      "missing_user": false,
+      "finished": true
+    }
+  }
+}

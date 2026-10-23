@@ -1,0 +1,2836 @@
+{
+  "source_commit": "18865c060f5c2bc631467a3d3d249058a020eac2",
+  "capture_driver_sha256": "e9569576b9585e23dbc2f0edd135966c9d7d7cdda68e5e993b40462b8b02a92a",
+  "snapshots": {
+    "empty-1": {
+      "report_version": "project-role-audit/2",
+      "run_id": "identity-role-audit-replay",
+      "generated_at": "<timestamp>",
+      "read_only": true,
+      "baseline": {
+        "plan_document": "docs/plans/1789807315_project-scoped-employee-roles.md",
+        "increment": "A",
+        "report_tool": "apps/api/scripts/audit_project_roles.py",
+        "database_revisions": ["<head>"],
+        "script_heads": ["<head>"],
+        "schema_in_sync": true,
+        "schema_capabilities": {
+          "project_members.version": true,
+          "project_members.updated_at": true,
+          "user_invitations.project_role": true,
+          "tasks.annotation_contributor_ids": true,
+          "tasks.review_contributor_ids": true,
+          "tasks.review_submitter_id": true
+        }
+      },
+      "limits": {
+        "max_rows_per_section": 1,
+        "truncated_sections": []
+      },
+      "summary": {
+        "schema_in_sync": true,
+        "preparation_columns_present": true,
+        "unknown_platform_roles": 0,
+        "unknown_member_roles": 0,
+        "legacy_global_member_mismatches": 0,
+        "cross_project_role_diversity": 0,
+        "viewer_membership_conflicts": 0,
+        "administrator_memberships": 0,
+        "invalid_administrative_owners": 0,
+        "inactive_administrative_owners": 0,
+        "annotator_missing_membership": 0,
+        "reviewer_missing_membership": 0,
+        "annotator_wrong_membership_role": 0,
+        "reviewer_wrong_membership_role": 0,
+        "assignment_to_inactive_account": 0,
+        "inactive_accounts_with_unfinished_work": 0,
+        "pending_invitations": 0,
+        "pending_deleted_project_target": 0,
+        "pending_project_role_to_backfill": 0,
+        "account_invitation_with_project_role": 0,
+        "review_evidence_complete": 0,
+        "review_evidence_incomplete": 0
+      },
+      "findings": {
+        "role_discrepancies": {
+          "unknown_platform_roles": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "unknown_member_roles": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "legacy_global_member_mismatches": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "cross_project_role_diversity": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "viewer_membership_conflicts": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "administrator_memberships": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "invalid_administrative_owners": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "inactive_administrative_owners": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          }
+        },
+        "assignment_membership_gaps": {
+          "annotator_missing_membership": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "annotator_wrong_membership_role": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "reviewer_missing_membership": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "reviewer_wrong_membership_role": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "assignment_to_inactive_account": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "inactive_accounts_with_unfinished_work": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          }
+        },
+        "invitations": {
+          "status_counts": {
+            "pending": 0,
+            "accepted": 0,
+            "revoked": 0,
+            "expired": 0
+          },
+          "pending": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "pending_account_only": {
+            "total": 0
+          },
+          "pending_project_target": {
+            "total": 0
+          },
+          "pending_deleted_project_target": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "pending_project_role_to_backfill": {
+            "total": 0
+          },
+          "account_invitation_with_project_role": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          }
+        },
+        "review_evidence": {
+          "complete": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "incomplete": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "incomplete_reasons": {
+            "missing_round": {
+              "total": 0
+            },
+            "missing_submitter": {
+              "total": 0
+            },
+            "malformed_review_array": {
+              "total": 0
+            },
+            "unknown_accumulator": {
+              "total": 0
+            },
+            "missing_contributors": {
+              "total": 0
+            }
+          },
+          "no_review_activity": {
+            "total": 0
+          }
+        }
+      },
+      "reconciliation": {
+        "users": {
+          "total": 0,
+          "active": 0,
+          "inactive": 0,
+          "by_role": {}
+        },
+        "memberships": {
+          "total": 0,
+          "by_role": {}
+        },
+        "projects": {
+          "total": 0,
+          "by_status": {}
+        },
+        "tasks": {
+          "total": 0,
+          "by_status": {}
+        },
+        "assignments": {
+          "with_effective_assignee": 0,
+          "with_effective_reviewer": 0,
+          "unassigned_not_completed": 0,
+          "review_claimed_not_completed": 0
+        },
+        "locks": {
+          "total": 0,
+          "unexpired": 0
+        },
+        "annotations": {
+          "total": 0,
+          "active": 0,
+          "cancelled": 0,
+          "distinct_authors": 0,
+          "by_source": {}
+        },
+        "historical_review": {
+          "first_reviewed": 0,
+          "by_first_review_result": {}
+        },
+        "annotations_by_author": []
+      }
+    },
+    "empty-1000": {
+      "report_version": "project-role-audit/2",
+      "run_id": "identity-role-audit-replay",
+      "generated_at": "<timestamp>",
+      "read_only": true,
+      "baseline": {
+        "plan_document": "docs/plans/1789807315_project-scoped-employee-roles.md",
+        "increment": "A",
+        "report_tool": "apps/api/scripts/audit_project_roles.py",
+        "database_revisions": ["<head>"],
+        "script_heads": ["<head>"],
+        "schema_in_sync": true,
+        "schema_capabilities": {
+          "project_members.version": true,
+          "project_members.updated_at": true,
+          "user_invitations.project_role": true,
+          "tasks.annotation_contributor_ids": true,
+          "tasks.review_contributor_ids": true,
+          "tasks.review_submitter_id": true
+        }
+      },
+      "limits": {
+        "max_rows_per_section": 1000,
+        "truncated_sections": []
+      },
+      "summary": {
+        "schema_in_sync": true,
+        "preparation_columns_present": true,
+        "unknown_platform_roles": 0,
+        "unknown_member_roles": 0,
+        "legacy_global_member_mismatches": 0,
+        "cross_project_role_diversity": 0,
+        "viewer_membership_conflicts": 0,
+        "administrator_memberships": 0,
+        "invalid_administrative_owners": 0,
+        "inactive_administrative_owners": 0,
+        "annotator_missing_membership": 0,
+        "reviewer_missing_membership": 0,
+        "annotator_wrong_membership_role": 0,
+        "reviewer_wrong_membership_role": 0,
+        "assignment_to_inactive_account": 0,
+        "inactive_accounts_with_unfinished_work": 0,
+        "pending_invitations": 0,
+        "pending_deleted_project_target": 0,
+        "pending_project_role_to_backfill": 0,
+        "account_invitation_with_project_role": 0,
+        "review_evidence_complete": 0,
+        "review_evidence_incomplete": 0
+      },
+      "findings": {
+        "role_discrepancies": {
+          "unknown_platform_roles": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "unknown_member_roles": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "legacy_global_member_mismatches": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "cross_project_role_diversity": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "viewer_membership_conflicts": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "administrator_memberships": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "invalid_administrative_owners": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "inactive_administrative_owners": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          }
+        },
+        "assignment_membership_gaps": {
+          "annotator_missing_membership": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "annotator_wrong_membership_role": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "reviewer_missing_membership": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "reviewer_wrong_membership_role": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "assignment_to_inactive_account": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "inactive_accounts_with_unfinished_work": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          }
+        },
+        "invitations": {
+          "status_counts": {
+            "pending": 0,
+            "accepted": 0,
+            "revoked": 0,
+            "expired": 0
+          },
+          "pending": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "pending_account_only": {
+            "total": 0
+          },
+          "pending_project_target": {
+            "total": 0
+          },
+          "pending_deleted_project_target": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "pending_project_role_to_backfill": {
+            "total": 0
+          },
+          "account_invitation_with_project_role": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          }
+        },
+        "review_evidence": {
+          "complete": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "incomplete": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "incomplete_reasons": {
+            "missing_round": {
+              "total": 0
+            },
+            "missing_submitter": {
+              "total": 0
+            },
+            "malformed_review_array": {
+              "total": 0
+            },
+            "unknown_accumulator": {
+              "total": 0
+            },
+            "missing_contributors": {
+              "total": 0
+            }
+          },
+          "no_review_activity": {
+            "total": 0
+          }
+        }
+      },
+      "reconciliation": {
+        "users": {
+          "total": 0,
+          "active": 0,
+          "inactive": 0,
+          "by_role": {}
+        },
+        "memberships": {
+          "total": 0,
+          "by_role": {}
+        },
+        "projects": {
+          "total": 0,
+          "by_status": {}
+        },
+        "tasks": {
+          "total": 0,
+          "by_status": {}
+        },
+        "assignments": {
+          "with_effective_assignee": 0,
+          "with_effective_reviewer": 0,
+          "unassigned_not_completed": 0,
+          "review_claimed_not_completed": 0
+        },
+        "locks": {
+          "total": 0,
+          "unexpired": 0
+        },
+        "annotations": {
+          "total": 0,
+          "active": 0,
+          "cancelled": 0,
+          "distinct_authors": 0,
+          "by_source": {}
+        },
+        "historical_review": {
+          "first_reviewed": 0,
+          "by_first_review_result": {}
+        },
+        "annotations_by_author": []
+      }
+    },
+    "full-1": {
+      "report_version": "project-role-audit/2",
+      "run_id": "identity-role-audit-replay",
+      "generated_at": "<timestamp>",
+      "read_only": true,
+      "baseline": {
+        "plan_document": "docs/plans/1789807315_project-scoped-employee-roles.md",
+        "increment": "A",
+        "report_tool": "apps/api/scripts/audit_project_roles.py",
+        "database_revisions": ["<head>"],
+        "script_heads": ["<head>"],
+        "schema_in_sync": true,
+        "schema_capabilities": {
+          "project_members.version": true,
+          "project_members.updated_at": true,
+          "user_invitations.project_role": true,
+          "tasks.annotation_contributor_ids": true,
+          "tasks.review_contributor_ids": true,
+          "tasks.review_submitter_id": true
+        }
+      },
+      "limits": {
+        "max_rows_per_section": 1,
+        "truncated_sections": ["annotator_missing_membership", "incomplete", "pending"]
+      },
+      "summary": {
+        "schema_in_sync": true,
+        "preparation_columns_present": true,
+        "unknown_platform_roles": 1,
+        "unknown_member_roles": 1,
+        "legacy_global_member_mismatches": 1,
+        "cross_project_role_diversity": 1,
+        "viewer_membership_conflicts": 1,
+        "administrator_memberships": 1,
+        "invalid_administrative_owners": 1,
+        "inactive_administrative_owners": 1,
+        "annotator_missing_membership": 4,
+        "reviewer_missing_membership": 1,
+        "annotator_wrong_membership_role": 1,
+        "reviewer_wrong_membership_role": 0,
+        "assignment_to_inactive_account": 1,
+        "inactive_accounts_with_unfinished_work": 1,
+        "pending_invitations": 3,
+        "pending_deleted_project_target": 1,
+        "pending_project_role_to_backfill": 1,
+        "account_invitation_with_project_role": 1,
+        "review_evidence_complete": 1,
+        "review_evidence_incomplete": 7
+      },
+      "findings": {
+        "role_discrepancies": {
+          "unknown_platform_roles": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "id": "00c8d289-49a2-5870-991b-9e6222f48800",
+                "role": "mystery_role"
+              }
+            ]
+          },
+          "unknown_member_roles": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "id": "0787111b-1f48-5728-ac34-f5a7054614bb",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "user_id": "00c8d289-49a2-5870-991b-9e6222f48800",
+                "role": "mystery_member"
+              }
+            ]
+          },
+          "legacy_global_member_mismatches": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "id": "93ee998f-e5b0-53e9-9736-ba024d2ac85a",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "user_id": "37cdc644-bba7-521d-bd30-2dcbb8823f2e",
+                "platform_role": "annotator",
+                "project_role": "reviewer",
+                "expected_project_role": "annotator"
+              }
+            ]
+          },
+          "cross_project_role_diversity": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "user_id": "ab0a4395-8fa4-549f-b7af-3ce43993cb76",
+                "distinct_project_roles": 2,
+                "project_roles": ["annotator", "reviewer"]
+              }
+            ]
+          },
+          "viewer_membership_conflicts": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "id": "68fb78aa-449a-5e9a-8bb2-9664d37755b3",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "user_id": "841f3a7e-7254-5073-9cbd-a3c2dc386925",
+                "platform_role": "viewer",
+                "project_role": "annotator"
+              }
+            ]
+          },
+          "administrator_memberships": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "id": "396ed097-2836-5926-abf8-80883e4c542c",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "user_id": "d3cb9474-6a07-5441-a185-32fc0cc9a76f",
+                "platform_role": "project_admin",
+                "project_role": "viewer"
+              }
+            ]
+          },
+          "invalid_administrative_owners": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "project_id": "a9d15de5-3691-5695-bd00-6252135981be",
+                "owner_id": "a719ded9-41f9-59ef-97ed-40de3650165b",
+                "owner_role": "annotator"
+              }
+            ]
+          },
+          "inactive_administrative_owners": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "project_id": "52fa5a59-5540-533c-a261-60d93e30f972",
+                "owner_id": "5191ae59-f23e-5096-9b68-bf0caf13bacc",
+                "owner_role": "project_admin"
+              }
+            ]
+          }
+        },
+        "assignment_membership_gaps": {
+          "annotator_missing_membership": {
+            "total": 4,
+            "returned": 1,
+            "truncated": true,
+            "items": [
+              {
+                "task_id": "69c3cc9f-c30b-5ca6-a515-c786e5d1ba48",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "status": "pending",
+                "effective_assignee_id": "a2c60e6f-e7cb-5fa0-95c9-a611ecf65b5d",
+                "assignee_member_role": null,
+                "assignee_active": true,
+                "effective_reviewer_id": null,
+                "reviewer_member_role": null,
+                "reviewer_active": null
+              }
+            ]
+          },
+          "annotator_wrong_membership_role": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "task_id": "bb31e827-db8f-5b97-b5f0-a9bedcb8bbac",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "status": "pending",
+                "effective_assignee_id": "37cdc644-bba7-521d-bd30-2dcbb8823f2e",
+                "assignee_member_role": "reviewer",
+                "assignee_active": true,
+                "effective_reviewer_id": null,
+                "reviewer_member_role": null,
+                "reviewer_active": null
+              }
+            ]
+          },
+          "reviewer_missing_membership": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "task_id": "50aec137-c933-568e-b00e-3878940de713",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "status": "pending",
+                "effective_assignee_id": null,
+                "assignee_member_role": null,
+                "assignee_active": null,
+                "effective_reviewer_id": "4c3c4eb1-6766-5aa6-9409-70211a0e5423",
+                "reviewer_member_role": null,
+                "reviewer_active": true
+              }
+            ]
+          },
+          "reviewer_wrong_membership_role": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "assignment_to_inactive_account": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "task_id": "91b0b6ae-12d4-5302-a4ce-86cf9247c4a9",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "status": "in_progress",
+                "effective_assignee_id": "81f76ee2-639f-5b6f-bd14-cd20b9d925ce",
+                "assignee_member_role": null,
+                "assignee_active": false,
+                "effective_reviewer_id": null,
+                "reviewer_member_role": null,
+                "reviewer_active": null
+              }
+            ]
+          },
+          "inactive_accounts_with_unfinished_work": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "user_id": "81f76ee2-639f-5b6f-bd14-cd20b9d925ce",
+                "role": "annotator",
+                "unfinished_tasks": 1
+              }
+            ]
+          }
+        },
+        "invitations": {
+          "status_counts": {
+            "pending": 3,
+            "accepted": 0,
+            "revoked": 0,
+            "expired": 0
+          },
+          "pending": {
+            "total": 3,
+            "returned": 1,
+            "truncated": true,
+            "items": [
+              {
+                "id": "800733c9-d4a4-5cbf-a5d0-2f190e8f1a95",
+                "project_id": null,
+                "role": "viewer",
+                "project_role": "annotator",
+                "expires_at": "<timestamp>",
+                "invited_by": "d3cb9474-6a07-5441-a185-32fc0cc9a76f",
+                "target_exists": false
+              }
+            ]
+          },
+          "pending_account_only": {
+            "total": 1
+          },
+          "pending_project_target": {
+            "total": 2
+          },
+          "pending_deleted_project_target": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "id": "3af0fb1f-9658-5f3f-80d5-fb387b1d887a",
+                "project_id": "e46c66fd-1989-5acf-a6b3-ae0e4f6d7692",
+                "role": "reviewer",
+                "project_role": "reviewer",
+                "expires_at": "<timestamp>"
+              }
+            ]
+          },
+          "pending_project_role_to_backfill": {
+            "total": 1
+          },
+          "account_invitation_with_project_role": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "id": "800733c9-d4a4-5cbf-a5d0-2f190e8f1a95",
+                "role": "viewer",
+                "project_role": "annotator"
+              }
+            ]
+          }
+        },
+        "review_evidence": {
+          "complete": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "task_id": "79576c4f-8669-57dd-82c2-be1cbacb1e63",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "review_round_id": "5521e1f7-2073-5176-bb45-fa8cccd80911",
+                "has_submitter": true,
+                "review_contributor_kind": "array",
+                "annotation_contributor_kind": "array"
+              }
+            ]
+          },
+          "incomplete": {
+            "total": 7,
+            "returned": 1,
+            "truncated": true,
+            "items": [
+              {
+                "task_id": "1e319dec-e3c3-5e93-a7ec-e84022ef4fa6",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "review_round_id": "483dd671-5ad2-5a64-a7de-0e66837fd646",
+                "has_submitter": true,
+                "review_contributor_kind": "array",
+                "annotation_contributor_kind": "array"
+              }
+            ]
+          },
+          "incomplete_reasons": {
+            "missing_round": {
+              "total": 1
+            },
+            "missing_submitter": {
+              "total": 1
+            },
+            "malformed_review_array": {
+              "total": 3
+            },
+            "unknown_accumulator": {
+              "total": 1
+            },
+            "missing_contributors": {
+              "total": 1
+            }
+          },
+          "no_review_activity": {
+            "total": 6
+          }
+        }
+      },
+      "reconciliation": {
+        "users": {
+          "total": 11,
+          "active": 9,
+          "inactive": 2,
+          "by_role": {
+            "project_admin": 2,
+            "mystery_role": 1,
+            "reviewer": 1,
+            "viewer": 1,
+            "employee": 1,
+            "annotator": 5
+          }
+        },
+        "memberships": {
+          "total": 6,
+          "by_role": {
+            "annotator": 2,
+            "viewer": 1,
+            "mystery_member": 1,
+            "reviewer": 2
+          }
+        },
+        "projects": {
+          "total": 4,
+          "by_status": {
+            "in_progress": 4
+          }
+        },
+        "tasks": {
+          "total": 14,
+          "by_status": {
+            "review": 7,
+            "completed": 1,
+            "in_progress": 1,
+            "pending": 5
+          }
+        },
+        "assignments": {
+          "with_effective_assignee": 5,
+          "with_effective_reviewer": 1,
+          "unassigned_not_completed": 8,
+          "review_claimed_not_completed": 0
+        },
+        "locks": {
+          "total": 0,
+          "unexpired": 0
+        },
+        "annotations": {
+          "total": 0,
+          "active": 0,
+          "cancelled": 0,
+          "distinct_authors": 0,
+          "by_source": {}
+        },
+        "historical_review": {
+          "first_reviewed": 0,
+          "by_first_review_result": {}
+        },
+        "annotations_by_author": []
+      }
+    },
+    "full-1000": {
+      "report_version": "project-role-audit/2",
+      "run_id": "identity-role-audit-replay",
+      "generated_at": "<timestamp>",
+      "read_only": true,
+      "baseline": {
+        "plan_document": "docs/plans/1789807315_project-scoped-employee-roles.md",
+        "increment": "A",
+        "report_tool": "apps/api/scripts/audit_project_roles.py",
+        "database_revisions": ["<head>"],
+        "script_heads": ["<head>"],
+        "schema_in_sync": true,
+        "schema_capabilities": {
+          "project_members.version": true,
+          "project_members.updated_at": true,
+          "user_invitations.project_role": true,
+          "tasks.annotation_contributor_ids": true,
+          "tasks.review_contributor_ids": true,
+          "tasks.review_submitter_id": true
+        }
+      },
+      "limits": {
+        "max_rows_per_section": 1000,
+        "truncated_sections": []
+      },
+      "summary": {
+        "schema_in_sync": true,
+        "preparation_columns_present": true,
+        "unknown_platform_roles": 1,
+        "unknown_member_roles": 1,
+        "legacy_global_member_mismatches": 1,
+        "cross_project_role_diversity": 1,
+        "viewer_membership_conflicts": 1,
+        "administrator_memberships": 1,
+        "invalid_administrative_owners": 1,
+        "inactive_administrative_owners": 1,
+        "annotator_missing_membership": 4,
+        "reviewer_missing_membership": 1,
+        "annotator_wrong_membership_role": 1,
+        "reviewer_wrong_membership_role": 0,
+        "assignment_to_inactive_account": 1,
+        "inactive_accounts_with_unfinished_work": 1,
+        "pending_invitations": 3,
+        "pending_deleted_project_target": 1,
+        "pending_project_role_to_backfill": 1,
+        "account_invitation_with_project_role": 1,
+        "review_evidence_complete": 1,
+        "review_evidence_incomplete": 7
+      },
+      "findings": {
+        "role_discrepancies": {
+          "unknown_platform_roles": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "id": "00c8d289-49a2-5870-991b-9e6222f48800",
+                "role": "mystery_role"
+              }
+            ]
+          },
+          "unknown_member_roles": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "id": "0787111b-1f48-5728-ac34-f5a7054614bb",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "user_id": "00c8d289-49a2-5870-991b-9e6222f48800",
+                "role": "mystery_member"
+              }
+            ]
+          },
+          "legacy_global_member_mismatches": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "id": "93ee998f-e5b0-53e9-9736-ba024d2ac85a",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "user_id": "37cdc644-bba7-521d-bd30-2dcbb8823f2e",
+                "platform_role": "annotator",
+                "project_role": "reviewer",
+                "expected_project_role": "annotator"
+              }
+            ]
+          },
+          "cross_project_role_diversity": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "user_id": "ab0a4395-8fa4-549f-b7af-3ce43993cb76",
+                "distinct_project_roles": 2,
+                "project_roles": ["annotator", "reviewer"]
+              }
+            ]
+          },
+          "viewer_membership_conflicts": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "id": "68fb78aa-449a-5e9a-8bb2-9664d37755b3",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "user_id": "841f3a7e-7254-5073-9cbd-a3c2dc386925",
+                "platform_role": "viewer",
+                "project_role": "annotator"
+              }
+            ]
+          },
+          "administrator_memberships": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "id": "396ed097-2836-5926-abf8-80883e4c542c",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "user_id": "d3cb9474-6a07-5441-a185-32fc0cc9a76f",
+                "platform_role": "project_admin",
+                "project_role": "viewer"
+              }
+            ]
+          },
+          "invalid_administrative_owners": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "project_id": "a9d15de5-3691-5695-bd00-6252135981be",
+                "owner_id": "a719ded9-41f9-59ef-97ed-40de3650165b",
+                "owner_role": "annotator"
+              }
+            ]
+          },
+          "inactive_administrative_owners": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "project_id": "52fa5a59-5540-533c-a261-60d93e30f972",
+                "owner_id": "5191ae59-f23e-5096-9b68-bf0caf13bacc",
+                "owner_role": "project_admin"
+              }
+            ]
+          }
+        },
+        "assignment_membership_gaps": {
+          "annotator_missing_membership": {
+            "total": 4,
+            "returned": 4,
+            "truncated": false,
+            "items": [
+              {
+                "task_id": "69c3cc9f-c30b-5ca6-a515-c786e5d1ba48",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "status": "pending",
+                "effective_assignee_id": "a2c60e6f-e7cb-5fa0-95c9-a611ecf65b5d",
+                "assignee_member_role": null,
+                "assignee_active": true,
+                "effective_reviewer_id": null,
+                "reviewer_member_role": null,
+                "reviewer_active": null
+              },
+              {
+                "task_id": "91b0b6ae-12d4-5302-a4ce-86cf9247c4a9",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "status": "in_progress",
+                "effective_assignee_id": "81f76ee2-639f-5b6f-bd14-cd20b9d925ce",
+                "assignee_member_role": null,
+                "assignee_active": false,
+                "effective_reviewer_id": null,
+                "reviewer_member_role": null,
+                "reviewer_active": null
+              },
+              {
+                "task_id": "aac05a63-e5ce-54b8-bab2-545da0c9b6b2",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "status": "pending",
+                "effective_assignee_id": "a2c60e6f-e7cb-5fa0-95c9-a611ecf65b5d",
+                "assignee_member_role": null,
+                "assignee_active": true,
+                "effective_reviewer_id": null,
+                "reviewer_member_role": null,
+                "reviewer_active": null
+              },
+              {
+                "task_id": "ea1bb9ac-3629-5b36-85f1-9d68f1d57c2d",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "status": "pending",
+                "effective_assignee_id": "d737458f-981f-5bd3-9d9b-38ef3f63a2ef",
+                "assignee_member_role": null,
+                "assignee_active": true,
+                "effective_reviewer_id": null,
+                "reviewer_member_role": null,
+                "reviewer_active": null
+              }
+            ]
+          },
+          "annotator_wrong_membership_role": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "task_id": "bb31e827-db8f-5b97-b5f0-a9bedcb8bbac",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "status": "pending",
+                "effective_assignee_id": "37cdc644-bba7-521d-bd30-2dcbb8823f2e",
+                "assignee_member_role": "reviewer",
+                "assignee_active": true,
+                "effective_reviewer_id": null,
+                "reviewer_member_role": null,
+                "reviewer_active": null
+              }
+            ]
+          },
+          "reviewer_missing_membership": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "task_id": "50aec137-c933-568e-b00e-3878940de713",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "status": "pending",
+                "effective_assignee_id": null,
+                "assignee_member_role": null,
+                "assignee_active": null,
+                "effective_reviewer_id": "4c3c4eb1-6766-5aa6-9409-70211a0e5423",
+                "reviewer_member_role": null,
+                "reviewer_active": true
+              }
+            ]
+          },
+          "reviewer_wrong_membership_role": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "assignment_to_inactive_account": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "task_id": "91b0b6ae-12d4-5302-a4ce-86cf9247c4a9",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "status": "in_progress",
+                "effective_assignee_id": "81f76ee2-639f-5b6f-bd14-cd20b9d925ce",
+                "assignee_member_role": null,
+                "assignee_active": false,
+                "effective_reviewer_id": null,
+                "reviewer_member_role": null,
+                "reviewer_active": null
+              }
+            ]
+          },
+          "inactive_accounts_with_unfinished_work": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "user_id": "81f76ee2-639f-5b6f-bd14-cd20b9d925ce",
+                "role": "annotator",
+                "unfinished_tasks": 1
+              }
+            ]
+          }
+        },
+        "invitations": {
+          "status_counts": {
+            "pending": 3,
+            "accepted": 0,
+            "revoked": 0,
+            "expired": 0
+          },
+          "pending": {
+            "total": 3,
+            "returned": 3,
+            "truncated": false,
+            "items": [
+              {
+                "id": "800733c9-d4a4-5cbf-a5d0-2f190e8f1a95",
+                "project_id": null,
+                "role": "viewer",
+                "project_role": "annotator",
+                "expires_at": "<timestamp>",
+                "invited_by": "d3cb9474-6a07-5441-a185-32fc0cc9a76f",
+                "target_exists": false
+              },
+              {
+                "id": "306b247f-54c8-5381-9c30-61484bd4547c",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "role": "annotator",
+                "project_role": null,
+                "expires_at": "<timestamp>",
+                "invited_by": "d3cb9474-6a07-5441-a185-32fc0cc9a76f",
+                "target_exists": true
+              },
+              {
+                "id": "3af0fb1f-9658-5f3f-80d5-fb387b1d887a",
+                "project_id": "e46c66fd-1989-5acf-a6b3-ae0e4f6d7692",
+                "role": "reviewer",
+                "project_role": "reviewer",
+                "expires_at": "<timestamp>",
+                "invited_by": "d3cb9474-6a07-5441-a185-32fc0cc9a76f",
+                "target_exists": false
+              }
+            ]
+          },
+          "pending_account_only": {
+            "total": 1
+          },
+          "pending_project_target": {
+            "total": 2
+          },
+          "pending_deleted_project_target": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "id": "3af0fb1f-9658-5f3f-80d5-fb387b1d887a",
+                "project_id": "e46c66fd-1989-5acf-a6b3-ae0e4f6d7692",
+                "role": "reviewer",
+                "project_role": "reviewer",
+                "expires_at": "<timestamp>"
+              }
+            ]
+          },
+          "pending_project_role_to_backfill": {
+            "total": 1
+          },
+          "account_invitation_with_project_role": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "id": "800733c9-d4a4-5cbf-a5d0-2f190e8f1a95",
+                "role": "viewer",
+                "project_role": "annotator"
+              }
+            ]
+          }
+        },
+        "review_evidence": {
+          "complete": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "task_id": "79576c4f-8669-57dd-82c2-be1cbacb1e63",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "review_round_id": "5521e1f7-2073-5176-bb45-fa8cccd80911",
+                "has_submitter": true,
+                "review_contributor_kind": "array",
+                "annotation_contributor_kind": "array"
+              }
+            ]
+          },
+          "incomplete": {
+            "total": 7,
+            "returned": 7,
+            "truncated": false,
+            "items": [
+              {
+                "task_id": "1e319dec-e3c3-5e93-a7ec-e84022ef4fa6",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "review_round_id": "483dd671-5ad2-5a64-a7de-0e66837fd646",
+                "has_submitter": true,
+                "review_contributor_kind": "array",
+                "annotation_contributor_kind": "array"
+              },
+              {
+                "task_id": "2bfad473-9f17-55a8-a3c8-adf848dda88d",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "review_round_id": null,
+                "has_submitter": false,
+                "review_contributor_kind": null,
+                "annotation_contributor_kind": "array"
+              },
+              {
+                "task_id": "49ab9db8-5d20-5100-9061-c4771cf39fd5",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "review_round_id": "d0c8c7fa-d84b-5a51-b10b-1c0ac9db9cef",
+                "has_submitter": true,
+                "review_contributor_kind": "object",
+                "annotation_contributor_kind": "array"
+              },
+              {
+                "task_id": "6f333865-6e87-5173-997a-eef91a18238b",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "review_round_id": "f2dcec8a-f23b-5028-aca2-0a13bfac10a9",
+                "has_submitter": true,
+                "review_contributor_kind": "array",
+                "annotation_contributor_kind": "null"
+              },
+              {
+                "task_id": "81089309-9e90-5994-8156-1ec8cec23f79",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "review_round_id": "2086039b-1c25-53f2-b01d-3590302317a9",
+                "has_submitter": false,
+                "review_contributor_kind": "array",
+                "annotation_contributor_kind": "array"
+              },
+              {
+                "task_id": "82656c45-f367-5638-9b67-126faa484d16",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "review_round_id": "1533e6f1-117b-5ca1-bfd4-c240378c3d71",
+                "has_submitter": true,
+                "review_contributor_kind": "array",
+                "annotation_contributor_kind": "array"
+              },
+              {
+                "task_id": "e556f1c6-d1d8-5e46-a618-e313f343cf99",
+                "project_id": "7efbb6cf-d561-5706-a9f8-e940f20a2977",
+                "review_round_id": "b9435ca1-a4d7-5da0-ba47-44c5298dbea7",
+                "has_submitter": true,
+                "review_contributor_kind": "array",
+                "annotation_contributor_kind": "array"
+              }
+            ]
+          },
+          "incomplete_reasons": {
+            "missing_round": {
+              "total": 1
+            },
+            "missing_submitter": {
+              "total": 1
+            },
+            "malformed_review_array": {
+              "total": 3
+            },
+            "unknown_accumulator": {
+              "total": 1
+            },
+            "missing_contributors": {
+              "total": 1
+            }
+          },
+          "no_review_activity": {
+            "total": 6
+          }
+        }
+      },
+      "reconciliation": {
+        "users": {
+          "total": 11,
+          "active": 9,
+          "inactive": 2,
+          "by_role": {
+            "project_admin": 2,
+            "mystery_role": 1,
+            "reviewer": 1,
+            "viewer": 1,
+            "employee": 1,
+            "annotator": 5
+          }
+        },
+        "memberships": {
+          "total": 6,
+          "by_role": {
+            "annotator": 2,
+            "viewer": 1,
+            "mystery_member": 1,
+            "reviewer": 2
+          }
+        },
+        "projects": {
+          "total": 4,
+          "by_status": {
+            "in_progress": 4
+          }
+        },
+        "tasks": {
+          "total": 14,
+          "by_status": {
+            "review": 7,
+            "completed": 1,
+            "in_progress": 1,
+            "pending": 5
+          }
+        },
+        "assignments": {
+          "with_effective_assignee": 5,
+          "with_effective_reviewer": 1,
+          "unassigned_not_completed": 8,
+          "review_claimed_not_completed": 0
+        },
+        "locks": {
+          "total": 0,
+          "unexpired": 0
+        },
+        "annotations": {
+          "total": 0,
+          "active": 0,
+          "cancelled": 0,
+          "distinct_authors": 0,
+          "by_source": {}
+        },
+        "historical_review": {
+          "first_reviewed": 0,
+          "by_first_review_result": {}
+        },
+        "annotations_by_author": []
+      }
+    },
+    "historical-0171-1": {
+      "report_version": "project-role-audit/2",
+      "run_id": "identity-role-audit-replay",
+      "generated_at": "<timestamp>",
+      "read_only": true,
+      "baseline": {
+        "plan_document": "docs/plans/1789807315_project-scoped-employee-roles.md",
+        "increment": "A",
+        "report_tool": "apps/api/scripts/audit_project_roles.py",
+        "database_revisions": ["0171"],
+        "script_heads": ["<head>"],
+        "schema_in_sync": false,
+        "schema_capabilities": {
+          "project_members.version": false,
+          "project_members.updated_at": false,
+          "user_invitations.project_role": false,
+          "tasks.annotation_contributor_ids": false,
+          "tasks.review_contributor_ids": false,
+          "tasks.review_submitter_id": false
+        }
+      },
+      "limits": {
+        "max_rows_per_section": 1,
+        "truncated_sections": []
+      },
+      "summary": {
+        "schema_in_sync": false,
+        "preparation_columns_present": false,
+        "unknown_platform_roles": 1,
+        "unknown_member_roles": 0,
+        "legacy_global_member_mismatches": 1,
+        "cross_project_role_diversity": 0,
+        "viewer_membership_conflicts": 0,
+        "administrator_memberships": 0,
+        "invalid_administrative_owners": 0,
+        "inactive_administrative_owners": 0,
+        "annotator_missing_membership": 0,
+        "reviewer_missing_membership": 0,
+        "annotator_wrong_membership_role": 0,
+        "reviewer_wrong_membership_role": 1,
+        "assignment_to_inactive_account": 1,
+        "inactive_accounts_with_unfinished_work": 1,
+        "pending_invitations": 1,
+        "pending_deleted_project_target": 0,
+        "pending_project_role_to_backfill": 1,
+        "account_invitation_with_project_role": 0,
+        "review_evidence_complete": 0,
+        "review_evidence_incomplete": 1
+      },
+      "findings": {
+        "role_discrepancies": {
+          "unknown_platform_roles": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "id": "10000000-0000-0000-0000-000000000003",
+                "role": "mystery"
+              }
+            ]
+          },
+          "unknown_member_roles": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "legacy_global_member_mismatches": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "id": "30000000-0000-0000-0000-000000000001",
+                "project_id": "20000000-0000-0000-0000-000000000001",
+                "user_id": "10000000-0000-0000-0000-000000000002",
+                "platform_role": "annotator",
+                "project_role": "viewer",
+                "expected_project_role": "annotator"
+              }
+            ]
+          },
+          "cross_project_role_diversity": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "viewer_membership_conflicts": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "administrator_memberships": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "invalid_administrative_owners": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "inactive_administrative_owners": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          }
+        },
+        "assignment_membership_gaps": {
+          "annotator_missing_membership": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "annotator_wrong_membership_role": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "reviewer_missing_membership": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "reviewer_wrong_membership_role": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "task_id": "40000000-0000-0000-0000-000000000001",
+                "project_id": "20000000-0000-0000-0000-000000000001",
+                "status": "review",
+                "effective_assignee_id": "10000000-0000-0000-0000-000000000001",
+                "assignee_member_role": null,
+                "assignee_active": true,
+                "effective_reviewer_id": "10000000-0000-0000-0000-000000000002",
+                "reviewer_member_role": "viewer",
+                "reviewer_active": false
+              }
+            ]
+          },
+          "assignment_to_inactive_account": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "task_id": "40000000-0000-0000-0000-000000000001",
+                "project_id": "20000000-0000-0000-0000-000000000001",
+                "status": "review",
+                "effective_assignee_id": "10000000-0000-0000-0000-000000000001",
+                "assignee_member_role": null,
+                "assignee_active": true,
+                "effective_reviewer_id": "10000000-0000-0000-0000-000000000002",
+                "reviewer_member_role": "viewer",
+                "reviewer_active": false
+              }
+            ]
+          },
+          "inactive_accounts_with_unfinished_work": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "user_id": "10000000-0000-0000-0000-000000000002",
+                "role": "annotator",
+                "unfinished_tasks": 1
+              }
+            ]
+          }
+        },
+        "invitations": {
+          "status_counts": {
+            "pending": 1,
+            "accepted": 0,
+            "revoked": 0,
+            "expired": 0
+          },
+          "pending": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "id": "60000000-0000-0000-0000-000000000001",
+                "project_id": "20000000-0000-0000-0000-000000000001",
+                "role": "annotator",
+                "project_role": null,
+                "expires_at": "<timestamp>",
+                "invited_by": "10000000-0000-0000-0000-000000000001",
+                "target_exists": true
+              }
+            ]
+          },
+          "pending_account_only": {
+            "total": 0
+          },
+          "pending_project_target": {
+            "total": 1
+          },
+          "pending_deleted_project_target": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "pending_project_role_to_backfill": {
+            "total": 1
+          },
+          "account_invitation_with_project_role": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          }
+        },
+        "review_evidence": {
+          "complete": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "incomplete": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "task_id": "40000000-0000-0000-0000-000000000001",
+                "project_id": "20000000-0000-0000-0000-000000000001",
+                "review_round_id": "50000000-0000-0000-0000-000000000001",
+                "has_submitter": false,
+                "review_contributor_kind": null,
+                "annotation_contributor_kind": null
+              }
+            ]
+          },
+          "incomplete_reasons": {
+            "missing_round": {
+              "total": 0
+            },
+            "missing_submitter": {
+              "total": 1
+            },
+            "malformed_review_array": {
+              "total": 0
+            },
+            "unknown_accumulator": {
+              "total": 0
+            },
+            "missing_contributors": {
+              "total": 0
+            }
+          },
+          "no_review_activity": {
+            "total": 0
+          }
+        }
+      },
+      "reconciliation": {
+        "users": {
+          "total": 3,
+          "active": 2,
+          "inactive": 1,
+          "by_role": {
+            "project_admin": 1,
+            "mystery": 1,
+            "annotator": 1
+          }
+        },
+        "memberships": {
+          "total": 1,
+          "by_role": {
+            "viewer": 1
+          }
+        },
+        "projects": {
+          "total": 1,
+          "by_status": {
+            "in_progress": 1
+          }
+        },
+        "tasks": {
+          "total": 1,
+          "by_status": {
+            "review": 1
+          }
+        },
+        "assignments": {
+          "with_effective_assignee": 1,
+          "with_effective_reviewer": 1,
+          "unassigned_not_completed": 0,
+          "review_claimed_not_completed": 0
+        },
+        "locks": {
+          "total": 0,
+          "unexpired": 0
+        },
+        "annotations": {
+          "total": 0,
+          "active": 0,
+          "cancelled": 0,
+          "distinct_authors": 0,
+          "by_source": {}
+        },
+        "historical_review": {
+          "first_reviewed": 0,
+          "by_first_review_result": {}
+        },
+        "annotations_by_author": []
+      }
+    },
+    "historical-0171-1000": {
+      "report_version": "project-role-audit/2",
+      "run_id": "identity-role-audit-replay",
+      "generated_at": "<timestamp>",
+      "read_only": true,
+      "baseline": {
+        "plan_document": "docs/plans/1789807315_project-scoped-employee-roles.md",
+        "increment": "A",
+        "report_tool": "apps/api/scripts/audit_project_roles.py",
+        "database_revisions": ["0171"],
+        "script_heads": ["<head>"],
+        "schema_in_sync": false,
+        "schema_capabilities": {
+          "project_members.version": false,
+          "project_members.updated_at": false,
+          "user_invitations.project_role": false,
+          "tasks.annotation_contributor_ids": false,
+          "tasks.review_contributor_ids": false,
+          "tasks.review_submitter_id": false
+        }
+      },
+      "limits": {
+        "max_rows_per_section": 1000,
+        "truncated_sections": []
+      },
+      "summary": {
+        "schema_in_sync": false,
+        "preparation_columns_present": false,
+        "unknown_platform_roles": 1,
+        "unknown_member_roles": 0,
+        "legacy_global_member_mismatches": 1,
+        "cross_project_role_diversity": 0,
+        "viewer_membership_conflicts": 0,
+        "administrator_memberships": 0,
+        "invalid_administrative_owners": 0,
+        "inactive_administrative_owners": 0,
+        "annotator_missing_membership": 0,
+        "reviewer_missing_membership": 0,
+        "annotator_wrong_membership_role": 0,
+        "reviewer_wrong_membership_role": 1,
+        "assignment_to_inactive_account": 1,
+        "inactive_accounts_with_unfinished_work": 1,
+        "pending_invitations": 1,
+        "pending_deleted_project_target": 0,
+        "pending_project_role_to_backfill": 1,
+        "account_invitation_with_project_role": 0,
+        "review_evidence_complete": 0,
+        "review_evidence_incomplete": 1
+      },
+      "findings": {
+        "role_discrepancies": {
+          "unknown_platform_roles": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "id": "10000000-0000-0000-0000-000000000003",
+                "role": "mystery"
+              }
+            ]
+          },
+          "unknown_member_roles": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "legacy_global_member_mismatches": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "id": "30000000-0000-0000-0000-000000000001",
+                "project_id": "20000000-0000-0000-0000-000000000001",
+                "user_id": "10000000-0000-0000-0000-000000000002",
+                "platform_role": "annotator",
+                "project_role": "viewer",
+                "expected_project_role": "annotator"
+              }
+            ]
+          },
+          "cross_project_role_diversity": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "viewer_membership_conflicts": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "administrator_memberships": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "invalid_administrative_owners": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "inactive_administrative_owners": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          }
+        },
+        "assignment_membership_gaps": {
+          "annotator_missing_membership": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "annotator_wrong_membership_role": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "reviewer_missing_membership": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "reviewer_wrong_membership_role": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "task_id": "40000000-0000-0000-0000-000000000001",
+                "project_id": "20000000-0000-0000-0000-000000000001",
+                "status": "review",
+                "effective_assignee_id": "10000000-0000-0000-0000-000000000001",
+                "assignee_member_role": null,
+                "assignee_active": true,
+                "effective_reviewer_id": "10000000-0000-0000-0000-000000000002",
+                "reviewer_member_role": "viewer",
+                "reviewer_active": false
+              }
+            ]
+          },
+          "assignment_to_inactive_account": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "task_id": "40000000-0000-0000-0000-000000000001",
+                "project_id": "20000000-0000-0000-0000-000000000001",
+                "status": "review",
+                "effective_assignee_id": "10000000-0000-0000-0000-000000000001",
+                "assignee_member_role": null,
+                "assignee_active": true,
+                "effective_reviewer_id": "10000000-0000-0000-0000-000000000002",
+                "reviewer_member_role": "viewer",
+                "reviewer_active": false
+              }
+            ]
+          },
+          "inactive_accounts_with_unfinished_work": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "user_id": "10000000-0000-0000-0000-000000000002",
+                "role": "annotator",
+                "unfinished_tasks": 1
+              }
+            ]
+          }
+        },
+        "invitations": {
+          "status_counts": {
+            "pending": 1,
+            "accepted": 0,
+            "revoked": 0,
+            "expired": 0
+          },
+          "pending": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "id": "60000000-0000-0000-0000-000000000001",
+                "project_id": "20000000-0000-0000-0000-000000000001",
+                "role": "annotator",
+                "project_role": null,
+                "expires_at": "<timestamp>",
+                "invited_by": "10000000-0000-0000-0000-000000000001",
+                "target_exists": true
+              }
+            ]
+          },
+          "pending_account_only": {
+            "total": 0
+          },
+          "pending_project_target": {
+            "total": 1
+          },
+          "pending_deleted_project_target": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "pending_project_role_to_backfill": {
+            "total": 1
+          },
+          "account_invitation_with_project_role": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          }
+        },
+        "review_evidence": {
+          "complete": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "incomplete": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "task_id": "40000000-0000-0000-0000-000000000001",
+                "project_id": "20000000-0000-0000-0000-000000000001",
+                "review_round_id": "50000000-0000-0000-0000-000000000001",
+                "has_submitter": false,
+                "review_contributor_kind": null,
+                "annotation_contributor_kind": null
+              }
+            ]
+          },
+          "incomplete_reasons": {
+            "missing_round": {
+              "total": 0
+            },
+            "missing_submitter": {
+              "total": 1
+            },
+            "malformed_review_array": {
+              "total": 0
+            },
+            "unknown_accumulator": {
+              "total": 0
+            },
+            "missing_contributors": {
+              "total": 0
+            }
+          },
+          "no_review_activity": {
+            "total": 0
+          }
+        }
+      },
+      "reconciliation": {
+        "users": {
+          "total": 3,
+          "active": 2,
+          "inactive": 1,
+          "by_role": {
+            "project_admin": 1,
+            "mystery": 1,
+            "annotator": 1
+          }
+        },
+        "memberships": {
+          "total": 1,
+          "by_role": {
+            "viewer": 1
+          }
+        },
+        "projects": {
+          "total": 1,
+          "by_status": {
+            "in_progress": 1
+          }
+        },
+        "tasks": {
+          "total": 1,
+          "by_status": {
+            "review": 1
+          }
+        },
+        "assignments": {
+          "with_effective_assignee": 1,
+          "with_effective_reviewer": 1,
+          "unassigned_not_completed": 0,
+          "review_claimed_not_completed": 0
+        },
+        "locks": {
+          "total": 0,
+          "unexpired": 0
+        },
+        "annotations": {
+          "total": 0,
+          "active": 0,
+          "cancelled": 0,
+          "distinct_authors": 0,
+          "by_source": {}
+        },
+        "historical_review": {
+          "first_reviewed": 0,
+          "by_first_review_result": {}
+        },
+        "annotations_by_author": []
+      }
+    },
+    "managers-1": {
+      "report_version": "project-role-audit/2",
+      "run_id": "identity-role-audit-replay",
+      "generated_at": "<timestamp>",
+      "read_only": true,
+      "baseline": {
+        "plan_document": "docs/plans/1789807315_project-scoped-employee-roles.md",
+        "increment": "A",
+        "report_tool": "apps/api/scripts/audit_project_roles.py",
+        "database_revisions": ["<head>"],
+        "script_heads": ["<head>"],
+        "schema_in_sync": true,
+        "schema_capabilities": {
+          "project_members.version": true,
+          "project_members.updated_at": true,
+          "user_invitations.project_role": true,
+          "tasks.annotation_contributor_ids": true,
+          "tasks.review_contributor_ids": true,
+          "tasks.review_submitter_id": true
+        }
+      },
+      "limits": {
+        "max_rows_per_section": 1,
+        "truncated_sections": [
+          "annotator_missing_membership",
+          "assignment_to_inactive_account",
+          "inactive_accounts_with_unfinished_work",
+          "reviewer_missing_membership"
+        ]
+      },
+      "summary": {
+        "schema_in_sync": true,
+        "preparation_columns_present": true,
+        "unknown_platform_roles": 0,
+        "unknown_member_roles": 0,
+        "legacy_global_member_mismatches": 0,
+        "cross_project_role_diversity": 0,
+        "viewer_membership_conflicts": 0,
+        "administrator_memberships": 1,
+        "invalid_administrative_owners": 1,
+        "inactive_administrative_owners": 1,
+        "annotator_missing_membership": 4,
+        "reviewer_missing_membership": 2,
+        "annotator_wrong_membership_role": 1,
+        "reviewer_wrong_membership_role": 0,
+        "assignment_to_inactive_account": 2,
+        "inactive_accounts_with_unfinished_work": 2,
+        "pending_invitations": 0,
+        "pending_deleted_project_target": 0,
+        "pending_project_role_to_backfill": 0,
+        "account_invitation_with_project_role": 0,
+        "review_evidence_complete": 0,
+        "review_evidence_incomplete": 0
+      },
+      "findings": {
+        "role_discrepancies": {
+          "unknown_platform_roles": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "unknown_member_roles": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "legacy_global_member_mismatches": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "cross_project_role_diversity": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "viewer_membership_conflicts": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "administrator_memberships": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "id": "02ec2036-e28a-5ca9-80eb-38db850d1a72",
+                "project_id": "eb40c0e9-a9d0-5b62-80b8-e2b9657e9958",
+                "user_id": "4451d20d-31f8-5d2b-b8e7-14cec020a2fe",
+                "platform_role": "super_admin",
+                "project_role": "viewer"
+              }
+            ]
+          },
+          "invalid_administrative_owners": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "project_id": "a3395963-b5b4-5e0d-9692-3ba14f85aa38",
+                "owner_id": "1a064d0c-543f-56df-aa1a-747424686f37",
+                "owner_role": "employee"
+              }
+            ]
+          },
+          "inactive_administrative_owners": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "project_id": "9ac72eb0-4b9a-5c2f-bd90-3170aab45d4e",
+                "owner_id": "319d1880-3e33-557c-98df-8273043eacc5",
+                "owner_role": "project_admin"
+              }
+            ]
+          }
+        },
+        "assignment_membership_gaps": {
+          "annotator_missing_membership": {
+            "total": 4,
+            "returned": 1,
+            "truncated": true,
+            "items": [
+              {
+                "task_id": "a775a762-b824-55a2-b947-fe65cd58b6e0",
+                "project_id": "eb40c0e9-a9d0-5b62-80b8-e2b9657e9958",
+                "status": "pending",
+                "effective_assignee_id": "527a55a4-e7d0-5d79-a67b-568047a57268",
+                "assignee_member_role": null,
+                "assignee_active": true,
+                "effective_reviewer_id": null,
+                "reviewer_member_role": null,
+                "reviewer_active": null
+              }
+            ]
+          },
+          "annotator_wrong_membership_role": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "task_id": "06117f02-b513-5b34-83be-13499bc2a5e4",
+                "project_id": "eb40c0e9-a9d0-5b62-80b8-e2b9657e9958",
+                "status": "pending",
+                "effective_assignee_id": "c1a381bd-fba4-54bc-9788-fcbc92a49310",
+                "assignee_member_role": "reviewer",
+                "assignee_active": true,
+                "effective_reviewer_id": null,
+                "reviewer_member_role": null,
+                "reviewer_active": null
+              }
+            ]
+          },
+          "reviewer_missing_membership": {
+            "total": 2,
+            "returned": 1,
+            "truncated": true,
+            "items": [
+              {
+                "task_id": "1155812c-2f5d-5923-9095-85f337141bac",
+                "project_id": "eb40c0e9-a9d0-5b62-80b8-e2b9657e9958",
+                "status": "pending",
+                "effective_assignee_id": null,
+                "assignee_member_role": null,
+                "assignee_active": null,
+                "effective_reviewer_id": "527a55a4-e7d0-5d79-a67b-568047a57268",
+                "reviewer_member_role": null,
+                "reviewer_active": true
+              }
+            ]
+          },
+          "reviewer_wrong_membership_role": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "assignment_to_inactive_account": {
+            "total": 2,
+            "returned": 1,
+            "truncated": true,
+            "items": [
+              {
+                "task_id": "bbcd5624-625e-5aea-9d87-23c3aae37edf",
+                "project_id": "9ac72eb0-4b9a-5c2f-bd90-3170aab45d4e",
+                "status": "pending",
+                "effective_assignee_id": "319d1880-3e33-557c-98df-8273043eacc5",
+                "assignee_member_role": null,
+                "assignee_active": false,
+                "effective_reviewer_id": null,
+                "reviewer_member_role": null,
+                "reviewer_active": null
+              }
+            ]
+          },
+          "inactive_accounts_with_unfinished_work": {
+            "total": 2,
+            "returned": 1,
+            "truncated": true,
+            "items": [
+              {
+                "user_id": "319d1880-3e33-557c-98df-8273043eacc5",
+                "role": "project_admin",
+                "unfinished_tasks": 1
+              }
+            ]
+          }
+        },
+        "invitations": {
+          "status_counts": {
+            "pending": 0,
+            "accepted": 0,
+            "revoked": 0,
+            "expired": 0
+          },
+          "pending": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "pending_account_only": {
+            "total": 0
+          },
+          "pending_project_target": {
+            "total": 0
+          },
+          "pending_deleted_project_target": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "pending_project_role_to_backfill": {
+            "total": 0
+          },
+          "account_invitation_with_project_role": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          }
+        },
+        "review_evidence": {
+          "complete": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "incomplete": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "incomplete_reasons": {
+            "missing_round": {
+              "total": 0
+            },
+            "missing_submitter": {
+              "total": 0
+            },
+            "malformed_review_array": {
+              "total": 0
+            },
+            "unknown_accumulator": {
+              "total": 0
+            },
+            "missing_contributors": {
+              "total": 0
+            }
+          },
+          "no_review_activity": {
+            "total": 13
+          }
+        }
+      },
+      "reconciliation": {
+        "users": {
+          "total": 9,
+          "active": 7,
+          "inactive": 2,
+          "by_role": {
+            "project_admin": 3,
+            "employee": 3,
+            "super_admin": 3
+          }
+        },
+        "memberships": {
+          "total": 2,
+          "by_role": {
+            "viewer": 1,
+            "reviewer": 1
+          }
+        },
+        "projects": {
+          "total": 4,
+          "by_status": {
+            "in_progress": 4
+          }
+        },
+        "tasks": {
+          "total": 13,
+          "by_status": {
+            "pending": 13
+          }
+        },
+        "assignments": {
+          "with_effective_assignee": 8,
+          "with_effective_reviewer": 5,
+          "unassigned_not_completed": 5,
+          "review_claimed_not_completed": 0
+        },
+        "locks": {
+          "total": 0,
+          "unexpired": 0
+        },
+        "annotations": {
+          "total": 0,
+          "active": 0,
+          "cancelled": 0,
+          "distinct_authors": 0,
+          "by_source": {}
+        },
+        "historical_review": {
+          "first_reviewed": 0,
+          "by_first_review_result": {}
+        },
+        "annotations_by_author": []
+      }
+    },
+    "managers-1000": {
+      "report_version": "project-role-audit/2",
+      "run_id": "identity-role-audit-replay",
+      "generated_at": "<timestamp>",
+      "read_only": true,
+      "baseline": {
+        "plan_document": "docs/plans/1789807315_project-scoped-employee-roles.md",
+        "increment": "A",
+        "report_tool": "apps/api/scripts/audit_project_roles.py",
+        "database_revisions": ["<head>"],
+        "script_heads": ["<head>"],
+        "schema_in_sync": true,
+        "schema_capabilities": {
+          "project_members.version": true,
+          "project_members.updated_at": true,
+          "user_invitations.project_role": true,
+          "tasks.annotation_contributor_ids": true,
+          "tasks.review_contributor_ids": true,
+          "tasks.review_submitter_id": true
+        }
+      },
+      "limits": {
+        "max_rows_per_section": 1000,
+        "truncated_sections": []
+      },
+      "summary": {
+        "schema_in_sync": true,
+        "preparation_columns_present": true,
+        "unknown_platform_roles": 0,
+        "unknown_member_roles": 0,
+        "legacy_global_member_mismatches": 0,
+        "cross_project_role_diversity": 0,
+        "viewer_membership_conflicts": 0,
+        "administrator_memberships": 1,
+        "invalid_administrative_owners": 1,
+        "inactive_administrative_owners": 1,
+        "annotator_missing_membership": 4,
+        "reviewer_missing_membership": 2,
+        "annotator_wrong_membership_role": 1,
+        "reviewer_wrong_membership_role": 0,
+        "assignment_to_inactive_account": 2,
+        "inactive_accounts_with_unfinished_work": 2,
+        "pending_invitations": 0,
+        "pending_deleted_project_target": 0,
+        "pending_project_role_to_backfill": 0,
+        "account_invitation_with_project_role": 0,
+        "review_evidence_complete": 0,
+        "review_evidence_incomplete": 0
+      },
+      "findings": {
+        "role_discrepancies": {
+          "unknown_platform_roles": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "unknown_member_roles": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "legacy_global_member_mismatches": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "cross_project_role_diversity": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "viewer_membership_conflicts": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "administrator_memberships": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "id": "02ec2036-e28a-5ca9-80eb-38db850d1a72",
+                "project_id": "eb40c0e9-a9d0-5b62-80b8-e2b9657e9958",
+                "user_id": "4451d20d-31f8-5d2b-b8e7-14cec020a2fe",
+                "platform_role": "super_admin",
+                "project_role": "viewer"
+              }
+            ]
+          },
+          "invalid_administrative_owners": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "project_id": "a3395963-b5b4-5e0d-9692-3ba14f85aa38",
+                "owner_id": "1a064d0c-543f-56df-aa1a-747424686f37",
+                "owner_role": "employee"
+              }
+            ]
+          },
+          "inactive_administrative_owners": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "project_id": "9ac72eb0-4b9a-5c2f-bd90-3170aab45d4e",
+                "owner_id": "319d1880-3e33-557c-98df-8273043eacc5",
+                "owner_role": "project_admin"
+              }
+            ]
+          }
+        },
+        "assignment_membership_gaps": {
+          "annotator_missing_membership": {
+            "total": 4,
+            "returned": 4,
+            "truncated": false,
+            "items": [
+              {
+                "task_id": "a775a762-b824-55a2-b947-fe65cd58b6e0",
+                "project_id": "eb40c0e9-a9d0-5b62-80b8-e2b9657e9958",
+                "status": "pending",
+                "effective_assignee_id": "527a55a4-e7d0-5d79-a67b-568047a57268",
+                "assignee_member_role": null,
+                "assignee_active": true,
+                "effective_reviewer_id": null,
+                "reviewer_member_role": null,
+                "reviewer_active": null
+              },
+              {
+                "task_id": "bbcd5624-625e-5aea-9d87-23c3aae37edf",
+                "project_id": "9ac72eb0-4b9a-5c2f-bd90-3170aab45d4e",
+                "status": "pending",
+                "effective_assignee_id": "319d1880-3e33-557c-98df-8273043eacc5",
+                "assignee_member_role": null,
+                "assignee_active": false,
+                "effective_reviewer_id": null,
+                "reviewer_member_role": null,
+                "reviewer_active": null
+              },
+              {
+                "task_id": "f1f48d7f-908d-575d-b724-62601f823b66",
+                "project_id": "eb40c0e9-a9d0-5b62-80b8-e2b9657e9958",
+                "status": "pending",
+                "effective_assignee_id": "5eb019a1-6e03-57f3-a1a1-ba87e3e71d84",
+                "assignee_member_role": null,
+                "assignee_active": true,
+                "effective_reviewer_id": null,
+                "reviewer_member_role": null,
+                "reviewer_active": null
+              },
+              {
+                "task_id": "f4c3729b-a110-5807-a47f-e716703c9f6e",
+                "project_id": "a3395963-b5b4-5e0d-9692-3ba14f85aa38",
+                "status": "pending",
+                "effective_assignee_id": "1a064d0c-543f-56df-aa1a-747424686f37",
+                "assignee_member_role": null,
+                "assignee_active": true,
+                "effective_reviewer_id": null,
+                "reviewer_member_role": null,
+                "reviewer_active": null
+              }
+            ]
+          },
+          "annotator_wrong_membership_role": {
+            "total": 1,
+            "returned": 1,
+            "truncated": false,
+            "items": [
+              {
+                "task_id": "06117f02-b513-5b34-83be-13499bc2a5e4",
+                "project_id": "eb40c0e9-a9d0-5b62-80b8-e2b9657e9958",
+                "status": "pending",
+                "effective_assignee_id": "c1a381bd-fba4-54bc-9788-fcbc92a49310",
+                "assignee_member_role": "reviewer",
+                "assignee_active": true,
+                "effective_reviewer_id": null,
+                "reviewer_member_role": null,
+                "reviewer_active": null
+              }
+            ]
+          },
+          "reviewer_missing_membership": {
+            "total": 2,
+            "returned": 2,
+            "truncated": false,
+            "items": [
+              {
+                "task_id": "1155812c-2f5d-5923-9095-85f337141bac",
+                "project_id": "eb40c0e9-a9d0-5b62-80b8-e2b9657e9958",
+                "status": "pending",
+                "effective_assignee_id": null,
+                "assignee_member_role": null,
+                "assignee_active": null,
+                "effective_reviewer_id": "527a55a4-e7d0-5d79-a67b-568047a57268",
+                "reviewer_member_role": null,
+                "reviewer_active": true
+              },
+              {
+                "task_id": "c9e3d031-28aa-5585-afdd-66768bc5c11f",
+                "project_id": "eb40c0e9-a9d0-5b62-80b8-e2b9657e9958",
+                "status": "pending",
+                "effective_assignee_id": null,
+                "assignee_member_role": null,
+                "assignee_active": null,
+                "effective_reviewer_id": "add040ba-0c19-56a2-957d-bbcf2b01845a",
+                "reviewer_member_role": null,
+                "reviewer_active": false
+              }
+            ]
+          },
+          "reviewer_wrong_membership_role": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "assignment_to_inactive_account": {
+            "total": 2,
+            "returned": 2,
+            "truncated": false,
+            "items": [
+              {
+                "task_id": "bbcd5624-625e-5aea-9d87-23c3aae37edf",
+                "project_id": "9ac72eb0-4b9a-5c2f-bd90-3170aab45d4e",
+                "status": "pending",
+                "effective_assignee_id": "319d1880-3e33-557c-98df-8273043eacc5",
+                "assignee_member_role": null,
+                "assignee_active": false,
+                "effective_reviewer_id": null,
+                "reviewer_member_role": null,
+                "reviewer_active": null
+              },
+              {
+                "task_id": "c9e3d031-28aa-5585-afdd-66768bc5c11f",
+                "project_id": "eb40c0e9-a9d0-5b62-80b8-e2b9657e9958",
+                "status": "pending",
+                "effective_assignee_id": null,
+                "assignee_member_role": null,
+                "assignee_active": null,
+                "effective_reviewer_id": "add040ba-0c19-56a2-957d-bbcf2b01845a",
+                "reviewer_member_role": null,
+                "reviewer_active": false
+              }
+            ]
+          },
+          "inactive_accounts_with_unfinished_work": {
+            "total": 2,
+            "returned": 2,
+            "truncated": false,
+            "items": [
+              {
+                "user_id": "319d1880-3e33-557c-98df-8273043eacc5",
+                "role": "project_admin",
+                "unfinished_tasks": 1
+              },
+              {
+                "user_id": "add040ba-0c19-56a2-957d-bbcf2b01845a",
+                "role": "super_admin",
+                "unfinished_tasks": 1
+              }
+            ]
+          }
+        },
+        "invitations": {
+          "status_counts": {
+            "pending": 0,
+            "accepted": 0,
+            "revoked": 0,
+            "expired": 0
+          },
+          "pending": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "pending_account_only": {
+            "total": 0
+          },
+          "pending_project_target": {
+            "total": 0
+          },
+          "pending_deleted_project_target": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "pending_project_role_to_backfill": {
+            "total": 0
+          },
+          "account_invitation_with_project_role": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          }
+        },
+        "review_evidence": {
+          "complete": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "incomplete": {
+            "total": 0,
+            "returned": 0,
+            "truncated": false,
+            "items": []
+          },
+          "incomplete_reasons": {
+            "missing_round": {
+              "total": 0
+            },
+            "missing_submitter": {
+              "total": 0
+            },
+            "malformed_review_array": {
+              "total": 0
+            },
+            "unknown_accumulator": {
+              "total": 0
+            },
+            "missing_contributors": {
+              "total": 0
+            }
+          },
+          "no_review_activity": {
+            "total": 13
+          }
+        }
+      },
+      "reconciliation": {
+        "users": {
+          "total": 9,
+          "active": 7,
+          "inactive": 2,
+          "by_role": {
+            "project_admin": 3,
+            "employee": 3,
+            "super_admin": 3
+          }
+        },
+        "memberships": {
+          "total": 2,
+          "by_role": {
+            "viewer": 1,
+            "reviewer": 1
+          }
+        },
+        "projects": {
+          "total": 4,
+          "by_status": {
+            "in_progress": 4
+          }
+        },
+        "tasks": {
+          "total": 13,
+          "by_status": {
+            "pending": 13
+          }
+        },
+        "assignments": {
+          "with_effective_assignee": 8,
+          "with_effective_reviewer": 5,
+          "unassigned_not_completed": 5,
+          "review_claimed_not_completed": 0
+        },
+        "locks": {
+          "total": 0,
+          "unexpired": 0
+        },
+        "annotations": {
+          "total": 0,
+          "active": 0,
+          "cancelled": 0,
+          "distinct_authors": 0,
+          "by_source": {}
+        },
+        "historical_review": {
+          "first_reviewed": 0,
+          "by_first_review_result": {}
+        },
+        "annotations_by_author": []
+      }
+    }
+  },
+  "capture_helper_sha256": "cd0dd1c3953e735cd4fc2243f415b85c071c161e2702f4a7d9373397350f5727",
+  "original_consumer_sha256": "1b44c65f24a50ca6524566f984ed7496e534c1a8a7d8f08f02bf42846e384b2a"
+}
