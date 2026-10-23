@@ -253,6 +253,11 @@ class DatasetSourceRevision(Base):
     )
     path_digest: Mapped[str] = mapped_column(String(64))
     run_id: Mapped[uuid.UUID] = mapped_column()
+    acceptance_order: Mapped[int] = mapped_column(
+        BigInteger,
+        server_default=text("nextval('dataset_source_acceptance_order_seq')"),
+        unique=True,
+    )
     revision_number: Mapped[int] = mapped_column()
     item_id_at_accept: Mapped[uuid.UUID] = mapped_column()
     asset_id_at_accept: Mapped[uuid.UUID] = mapped_column()

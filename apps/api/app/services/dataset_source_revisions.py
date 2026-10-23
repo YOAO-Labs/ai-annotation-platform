@@ -58,7 +58,13 @@ async def append(db, source, scan, entry, result, asset, actor, *, resolution=No
         content_sha256=result["sha256"],
         ownership_mode=source.ownership_mode,
         owns_item=result.get("owns_item", result["created"]),
-        previous_revision_id=previous.id if previous else None,
+        previous_revision_id=(
+            resolution["before_revision_id"]
+            if resolution
+            else previous.id
+            if previous
+            else None
+        ),
         registration_id=resolution["registration_id"] if resolution else None,
         accepted_by_id=actor.id,
         accepted_at=await scans.now(db),
@@ -89,6 +95,7 @@ async def accept(
     api_key_id=None,
     node_id=None,
     revalidate=False,
+    relocate=False,
 ):
     """A completed preflight grants no authority to silently replace old items."""
     from app.services.dataset_references import register_entry
@@ -118,7 +125,37 @@ async def accept(
         ):
             conflict("revision_preflight_required")
         change = await session.get(Change, (run.id, digest), populate_existing=True)
-        if (
+        if relocate:
+            before = await session.get(
+                Revision, payload.before_revision_id, populate_existing=True
+            )
+            old_change = (
+                await session.get(
+                    Change, (run.id, before.path_digest), populate_existing=True
+                )
+                if before
+                else None
+            )
+            previous_scan = (
+                await session.get(DatasetScanRun, before.run_id) if before else None
+            )
+            candidate_scan = await session.get(DatasetScanRun, run.scan_run_id)
+            if (
+                change is None
+                or change.kind != "added"
+                or change.candidate_sha256 != payload.candidate_sha256
+                or before is None
+                or before.source_id != source.id
+                or before.path_digest == digest
+                or before.content_sha256 != payload.candidate_sha256
+                or old_change is None
+                or old_change.kind != "not_seen"
+                or old_change.before_revision_id != payload.before_revision_id
+                or old_change.before_sha256 != payload.candidate_sha256
+                or previous_scan.snapshot["anchor"] != candidate_scan.snapshot["anchor"]
+            ):
+                conflict("revision_selection_changed")
+        elif (
             change is None
             or change.kind != "changed"
             or change.reason
@@ -160,9 +197,26 @@ async def accept(
             if accepted.dataset_item_id is None:
                 conflict("accepted_revision_item_deleted")
             return run, change, accepted
-        head = await session.get(Head, (source.id, digest), populate_existing=True)
+        head = await session.get(
+            Head,
+            (source.id, before.path_digest if relocate else digest),
+            populate_existing=True,
+        )
         if head is None or head.current_revision_id != payload.before_revision_id:
             conflict("source_revision_changed")
+        if relocate:
+            from app.db.models.dataset_source import DatasetRegistrationEntry
+
+            target = await session.get(
+                DatasetRegistrationEntry, (run.id, digest), populate_existing=True
+            )
+            if (
+                await session.get(Head, (source.id, digest), populate_existing=True)
+                is not None
+                or target is None
+                or target.state != "ready"
+            ):
+                conflict("relocation_target_unavailable")
         return run, change, None
 
     run, change, accepted = await guard(db)
@@ -172,8 +226,9 @@ async def accept(
     resolution = dict(
         registration_id=run.id,
         revision_id=new_id,
-        before_revision_id=change.before_revision_id,
-        revalidate=revalidate,
+        before_revision_id=payload.before_revision_id,
+        revalidate=revalidate or relocate,
+        relocate=relocate,
     )
 
     async def before_apply(session):
@@ -234,9 +289,13 @@ async def history(db, source_id, digest, limit, offset):
         items=[
             dict(
                 **result_out(r),
+                acceptance_order=r.acceptance_order,
+                previous_path_digest=p.path_digest if p else None,
                 acceptance_kind=(
                     "initial"
                     if p is None
+                    else "relocation"
+                    if r.path_digest != p.path_digest
                     else "observation_revalidation"
                     if (
                         r.item_id_at_accept == p.item_id_at_accept
@@ -253,5 +312,59 @@ async def history(db, source_id, digest, limit, offset):
                 item_available=r.dataset_item_id is not None,
             )
             for r, p in rows
+        ],
+    )
+
+
+async def move_candidates(db, run, digest, limit, offset):
+    """Same SHA is a suggestion for an explicit choice, never identity inference."""
+    from app.db.models.dataset_source import DatasetRegistrationEntry
+
+    old = await db.get(Change, (run.id, digest), populate_existing=True)
+    if (
+        not run.comparison_complete
+        or run.phase != "preflight"
+        or run.status != "completed"
+        or old is None
+        or old.kind != "not_seen"
+        or old.before_revision_id is None
+    ):
+        conflict("revision_preflight_required")
+    resolved = await db.scalar(
+        select(Revision.id).where(
+            Revision.registration_id == run.id,
+            Revision.previous_revision_id == old.before_revision_id,
+        )
+    )
+    head = await db.get(Head, (run.source_id, digest), populate_existing=True)
+    if resolved or head is None or head.current_revision_id != old.before_revision_id:
+        return dict(total=0, items=[])
+    stmt = (
+        select(Change)
+        .join(
+            DatasetRegistrationEntry,
+            (DatasetRegistrationEntry.run_id == Change.run_id)
+            & (DatasetRegistrationEntry.path_digest == Change.path_digest),
+        )
+        .where(
+            Change.run_id == run.id,
+            Change.kind == "added",
+            Change.candidate_sha256 == old.before_sha256,
+            DatasetRegistrationEntry.state == "ready",
+        )
+    )
+    total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
+    rows = await db.scalars(
+        stmt.order_by(Change.path_digest).offset(offset).limit(limit)
+    )
+    return dict(
+        total=total,
+        items=[
+            dict(
+                path_digest=c.path_digest,
+                relative_path=c.relative_path,
+                candidate_sha256=c.candidate_sha256,
+            )
+            for c in rows
         ],
     )

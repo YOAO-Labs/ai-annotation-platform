@@ -235,6 +235,19 @@ export function DirectoryRegistrationProgress({
             <DirectorySourceChanges
               key={`${owner}:${run.id}:${run.generation}:${run.phase}:${run.status}`}
               scanId={scanId}
+              registrationId={run.id}
+              onRelocate={
+                run.phase === "preflight" && run.status === "completed" && !stale
+                  ? (entry, target) =>
+                      act(() =>
+                        api.relocate(run.id, target.path_digest, {
+                          expected_generation: run.generation,
+                          before_revision_id: entry.before_revision_id!,
+                          candidate_sha256: target.candidate_sha256,
+                        }),
+                      )
+                  : undefined
+              }
               busy={busy || active || stale}
               actionError={error}
               onAccept={
@@ -271,6 +284,14 @@ export function DirectoryRegistrationProgress({
               接纳新内容或重新核验需在预检阶段逐项确认；如还需登记新增，请先处理变化项。开始仅新增登记后，未处理的变化需重新扫描和预检。
             </p>
           )}
+          {run.phase === "preflight" &&
+            run.status === "completed" &&
+            run.comparison_complete &&
+            changes.data?.remaining_added_count === 0 && (
+              <p className="mt-2 text-muted-foreground">
+                没有待登记的新增路径；已用于重定位的目标保留原样本。
+              </p>
+            )}
           {run.phase === "preflight" && run.status === "completed" && (
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <label className="flex items-center gap-1">
@@ -290,7 +311,7 @@ export function DirectoryRegistrationProgress({
                   !reviewed ||
                   busy ||
                   stale ||
-                  (run.comparison_complete && !changes.data?.counts.added)
+                  (run.comparison_complete && !changes.data?.remaining_added_count)
                 }
                 onClick={() =>
                   void act(() =>

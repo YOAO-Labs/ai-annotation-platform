@@ -1,7 +1,7 @@
 """Frozen, preflight-owned differences; not-seen never means deleted."""
 
 from fastapi import HTTPException
-from sqlalchemy import case, func, insert, literal, select, update
+from sqlalchemy import case, func, insert, literal, select, update, or_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import aliased
 
@@ -131,6 +131,7 @@ async def page(db, run, kind, limit, offset):
     if not run.comparison_complete:
         return {
             "complete": False,
+            "remaining_added_count": 0,
             "counts": {},
             "total": 0,
             "items": [],
@@ -145,8 +146,9 @@ async def page(db, run, kind, limit, offset):
     ).all()
     counts = dict.fromkeys(KINDS, 0)
     counts.update(dict(rows))
+    previous, accepted_entry = aliased(Revision), aliased(DatasetScanEntry)
     stmt = (
-        select(Change, Entry, Revision)
+        select(Change, Entry, Revision, previous, accepted_entry.relative_path)
         .outerjoin(
             Entry,
             (Entry.run_id == Change.run_id) & (Entry.path_digest == Change.path_digest),
@@ -154,7 +156,17 @@ async def page(db, run, kind, limit, offset):
         .outerjoin(
             Revision,
             (Revision.registration_id == Change.run_id)
-            & (Revision.path_digest == Change.path_digest),
+            & or_(
+                Revision.path_digest == Change.path_digest,
+                (Change.kind == "not_seen")
+                & (Revision.previous_revision_id == Change.before_revision_id),
+            ),
+        )
+        .outerjoin(previous, previous.id == Revision.previous_revision_id)
+        .outerjoin(
+            accepted_entry,
+            (accepted_entry.run_id == Revision.run_id)
+            & (accepted_entry.path_digest == Revision.path_digest),
         )
         .where(Change.run_id == run.id)
     )
@@ -164,8 +176,18 @@ async def page(db, run, kind, limit, offset):
     entries = (
         await db.execute(stmt.order_by(Change.path_digest).offset(offset).limit(limit))
     ).all()
+    remaining_added_count = await db.scalar(
+        select(func.count())
+        .select_from(Change)
+        .join(
+            Entry,
+            (Entry.run_id == Change.run_id) & (Entry.path_digest == Change.path_digest),
+        )
+        .where(Change.run_id == run.id, Change.kind == "added", Entry.state == "ready")
+    )
     return {
         "complete": True,
+        "remaining_added_count": remaining_added_count,
         "counts": counts,
         "total": total,
         "observed_at": run.created_at,
@@ -197,12 +219,23 @@ async def page(db, run, kind, limit, offset):
                     and c.before_item_id is not None
                     and c.before_sha256 == c.candidate_sha256
                 ),
+                can_relocate=(
+                    r is None
+                    and run.phase == "preflight"
+                    and run.status == "completed"
+                    and c.kind == "not_seen"
+                    and c.before_revision_id is not None
+                    and c.before_item_id is not None
+                ),
+                relocated_to_path=path
+                if r and p and r.path_digest != p.path_digest
+                else None,
                 before_sha256=c.before_sha256,
                 candidate_sha256=c.candidate_sha256,
                 registration_state=e.state if e else None,
                 error_code=e.error_code if e else None,
             )
-            for c, e, r in entries
+            for c, e, r, p, path in entries
         ],
     }
 

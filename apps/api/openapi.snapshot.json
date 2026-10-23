@@ -12740,12 +12740,17 @@
             "title": "Observed At",
             "type": "string"
           },
+          "remaining_added_count": {
+            "title": "Remaining Added Count",
+            "type": "integer"
+          },
           "total": {
             "title": "Total",
             "type": "integer"
           }
         },
         "required": [
+          "remaining_added_count",
           "complete",
           "observed_at",
           "counts",
@@ -12820,6 +12825,10 @@
             "title": "Can Accept Revision",
             "type": "boolean"
           },
+          "can_relocate": {
+            "title": "Can Relocate",
+            "type": "boolean"
+          },
           "can_revalidate": {
             "title": "Can Revalidate",
             "type": "boolean"
@@ -12887,6 +12896,17 @@
           "relative_path": {
             "title": "Relative Path",
             "type": "string"
+          },
+          "relocated_to_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relocated To Path"
           }
         },
         "required": [
@@ -12900,6 +12920,8 @@
           "accepted_item_id",
           "can_accept_revision",
           "can_revalidate",
+          "can_relocate",
+          "relocated_to_path",
           "before_sha256",
           "candidate_sha256",
           "registration_state",
@@ -40006,6 +40028,50 @@
         "title": "SourceLifecycleImpact",
         "type": "object"
       },
+      "SourceMoveCandidate": {
+        "properties": {
+          "candidate_sha256": {
+            "title": "Candidate Sha256",
+            "type": "string"
+          },
+          "path_digest": {
+            "title": "Path Digest",
+            "type": "string"
+          },
+          "relative_path": {
+            "title": "Relative Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path_digest",
+          "relative_path",
+          "candidate_sha256"
+        ],
+        "title": "SourceMoveCandidate",
+        "type": "object"
+      },
+      "SourceMoveCandidateList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SourceMoveCandidate"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "items"
+        ],
+        "title": "SourceMoveCandidateList",
+        "type": "object"
+      },
       "SourceRevisionAccept": {
         "additionalProperties": false,
         "properties": {
@@ -40060,10 +40126,15 @@
             "enum": [
               "initial",
               "content_revision",
-              "observation_revalidation"
+              "observation_revalidation",
+              "relocation"
             ],
             "title": "Acceptance Kind",
             "type": "string"
+          },
+          "acceptance_order": {
+            "title": "Acceptance Order",
+            "type": "integer"
           },
           "accepted_at": {
             "anyOf": [
@@ -40105,6 +40176,17 @@
           "path_digest": {
             "title": "Path Digest",
             "type": "string"
+          },
+          "previous_path_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Path Digest"
           },
           "previous_revision_id": {
             "anyOf": [
@@ -40156,6 +40238,8 @@
           "item_id",
           "sha256",
           "created",
+          "acceptance_order",
+          "previous_path_digest",
           "acceptance_kind",
           "path_digest",
           "scan_run_id",
@@ -61263,6 +61347,153 @@
           }
         ],
         "summary": "Accept Content Revision",
+        "tags": [
+          "dataset-sources"
+        ]
+      }
+    },
+    "/api/v1/dataset-registrations/{registration_id}/changes/{path_digest}/move-candidates": {
+      "get": {
+        "operationId": "list_move_candidates_api_v1_dataset_registrations__registration_id__changes__path_digest__move_candidates_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registration_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registration Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "path_digest",
+            "required": true,
+            "schema": {
+              "title": "Path Digest",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceMoveCandidateList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Move Candidates",
+        "tags": [
+          "dataset-sources"
+        ]
+      }
+    },
+    "/api/v1/dataset-registrations/{registration_id}/changes/{path_digest}/relocate": {
+      "post": {
+        "operationId": "relocate_observation_api_v1_dataset_registrations__registration_id__changes__path_digest__relocate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registration_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registration Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "path_digest",
+            "required": true,
+            "schema": {
+              "title": "Path Digest",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceRevisionAccept"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceRevisionResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Relocate Observation",
         "tags": [
           "dataset-sources"
         ]

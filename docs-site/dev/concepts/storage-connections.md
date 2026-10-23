@@ -245,4 +245,10 @@ DatasetSourceItem 是来源/路径的当前头；DatasetSourceRevision 保存不
 
 ### 同摘要观测重新核验
 
-完整预检的 observation_changed 可明确接受为同 Item/Asset 的新 SourceRevision，继承 owns_item，不改业务身份、原 Reference、标注及 metadata。读取先验证原始绑定，再按同 Source/path/Item/Asset 选最新接纳观测；不按当前路径头或 SHA 搜索样本，不在失败时回退旧凭据。返回上下文包含选中修订 ID，I/O 后切换证据会被发现。资格锚点变化保持阻断。无需 schema 迁移；回退入口后仍需保留已接纳账本与其严格读取。见 [ADR0103](/dev/adr/0103-explicit-same-content-revalidation)。
+完整预检的 observation_changed 可明确接受为同 Item/Asset 的新 SourceRevision，继承 owns_item，不改业务身份、原 Reference、标注及 metadata。读取先验证原始绑定，再按同 Source/Item/Asset 选最新接纳观测；不按当前路径头或 SHA 搜索样本，不在失败时回退旧凭据。返回上下文包含选中修订 ID，I/O 后切换证据会被发现。资格锚点变化保持阻断。无需 schema 迁移；回退入口后仍需保留已接纳账本与其严格读取。见 [ADR0103](/dev/adr/0103-explicit-same-content-revalidation)。
+
+### 显式定位迁移
+
+同来源完整预检的 not_seen→added 配对必须由人选择、核验同 SHA 后接纳。SourceRevision 的前驱可以跨路径，路径内编号独立；acceptance_order 由数据库序列给出接纳顺序。跨路径前驱必须保留永久 Item/Asset/SHA 与所有权。原 Reference 不变，resolver 按同业务资产的最新接纳顺序取实际路径，不按时间或路径内编号猜测。
+
+退役旧 SourceItem 与建立新头、目标 RegistrationEntry 消费、审计同事务提交；原差异保持冻结。旧预览精确键在提交后清理，新路径按当前策略生成派生物。旧路径回归是新增候选。迁移0204保留原账本事实，已有移动历史时拒绝降级到旧定位读取。见 [ADR0104](/dev/adr/0104-explicit-source-relocations)。

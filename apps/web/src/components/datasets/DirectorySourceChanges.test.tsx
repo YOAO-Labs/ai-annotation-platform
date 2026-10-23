@@ -25,11 +25,14 @@ const entry: DatasetSourceChangeOut = {
   accepted_item_id: null,
   can_accept_revision: true,
   can_revalidate: false,
+  can_relocate: false,
+  relocated_to_path: null,
   registration_state: "error",
   error_code: "reference_content_changed",
 };
 const data: DatasetSourceChangeList = {
   complete: true,
+  remaining_added_count: 0,
   observed_at: "2026-10-23T00:00:00Z",
   total: 1,
   counts: { changed: 1 },

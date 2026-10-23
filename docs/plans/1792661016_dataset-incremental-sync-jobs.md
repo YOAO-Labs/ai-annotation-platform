@@ -1,12 +1,12 @@
 # EPIC-04：增量同步与后台任务编排
 
-> 状态：E04-A / E04-B1 / E04-B2 / E04-B3 / E04-B4 completed；用户要求完整完成 E04，移动与其余合同继续实施；用户已授权推进和提交，不分配发布版本。
+> 状态：E04-A / E04-B1 / E04-B2 / E04-B3 / E04-B4 / E04-B5 completed；用户要求完整完成 E04，移动与其余合同继续实施；用户已授权推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 | 项目          | 内容                                                     |
 | ------------- | -------------------------------------------------------- |
-| 状态          | E04-A 至 E04-B4 已完成本地验收；其余合同继续实施         |
+| 状态          | E04-A 至 E04-B5 已完成本地验收；其余合同继续实施         |
 | 日期          | 2026-10-23（Asia/Shanghai）                              |
 | 优先级 / 阶段 | P0：M1 幂等手动扫描与变化保护；P1：M2 周期同步与裁决     |
 | 负责角色      | 后端、任务系统维护者、前端、测试                         |
@@ -364,3 +364,35 @@ UI configure -> SourceSyncSchedule <- existing beat / bounded tick
 - Verification: the 109-case backend regression passed 108 cases initially; its new S3 test used a nonexistent helper name, which was corrected and passed separately. An additional SFTP same-byte/changed-mtime case passed. Includes independent concurrent confirmations, both I/O authority barriers, original Key rotation/revocation, strict read before/after revalidation, no duplicate business objects, retained labels, managed-copy ownership/no new upload, and historical isolation. Five Web component cases, TypeScript, full Web lint/CSS tokens, Ruff, SDK/OpenAPI (4 cases), docs build and diff checks passed locally. Existing unrelated lint warnings remain; no remote CI claimed.
 - Actual browser acceptance: separate retained fixture showed a decoded candidate with matching old/new SHA, explicit checkbox and successful single-item revalidation. The original Workbench Task then displayed the original image and one retained manual box, with one Item/Task total. No browser errors. Current-checkout API, both workers and beat were refreshed without image rebuild; all user-requested manual fixtures/services remain.
 - Full-E04 scope audit: AC05 still requires explicit relocation. Original contracts also require opt-in pure-addition ingestion, filter-change impact review, schedule timezone display, source/history navigation, and a frozen-version invariance regression. Continue these before closing or archiving the Epic. Physical deletion, external qualification replacement, calendar cron and ledger compaction are outside the required closure; durable evidence remains retained under existing source budgets.
+
+## 本轮实施定案：E04-B5 显式移动重定位
+
+基线 `03308a2ad`。为满足 AC05，在同一来源、完整预检中，由用户把 `not_seen` 的旧当前样本和 `added/ready` 的同 SHA 新路径明确配对。摘要相同仅生成候选，不自动认定移动；支持多候选分页选择。旧路径未见仍不是物理删除证明，所有外部文件保持只读。
+
+POST `.../changes/{目标path_digest}/relocate` 固定 generation、旧前驱 ID 和候选 SHA。追加同 Item/Asset 的目标路径修订，业务前驱指向旧路径当前修订，目标路径修订号独立递增；继承所有权。一个事务内退役旧路径头、建立新头、把目标登记条目标为 registered 并调整原计数，原差异两端保持冻结且显示同一裁决结果。重复确认返回原记录；目标已占用、旧头过期、业务删除或候选变化拒绝。旧路径日后重新出现视为新增，不自动抢回已移动样本。
+
+0204迁移新增数据库单调 acceptance_order，既有账本按来源/路径/修订号回填，不虚构接纳时间；不可变触发器继续保护记录，并增加跨路径前驱身份一致性检查。读取保留原 Reference 起点校验，按同来源/同 Item/Asset 最新接纳序号解析实际新路径，固定原资格和根；不根据路径内修订号、时间或摘要猜最新位置。存在移动记录时拒绝降级到不支持跨路径读取的应用 schema。
+
+复用 register_entry 两次严格快照、Location→Source→Dataset 锁、原账号/Key proof/策略/前驱复核及并发重放；移动不会建 Item/Task、复制标注或托管原图。旧路径派生预览先记录其准确对象键，原子删除旧头后按新路径生成预览，提交后仅清理旧预览对象。失败保留旧有效定位。
+
+```text
+旧未见项 -> 分页同SHA新增候选 -> 人工选择与图像确认
+                                      |
+                      严格读取 + 旧头CAS + 目标空缺
+                                      |
+                 接纳定位账本 + 新头 / 退役旧头 / 消费新增候选
+                                      |
+                      原Task按新定位读取，标注身份保留
+```
+
+超过8文件：0204迁移、模型、revisions/references/changes及移动服务、schema/API、Web API/差异面板/移动确认、后端与迁移回归、API/SDK/用户/开发文档、ADR0104、CHANGELOG/README和计划进度。无新依赖、服务、环境配置或镜像构建。
+
+验收覆盖 A→B、A高修订→B低修订、A→B→A、原路径回归、同SHA多候选需明确选择、目标消费后不重复登记、双方CAS/并发幂等、两次I/O撤权/候选变化、最新定位失败不回退、预览清理与托管所有权、旧标注/任务/业务身份不变、迁移回填与回退屏障。实际浏览器移动前读图拒绝、目标预览与确认、原Task恢复且原框保留。保留人工dev，测试只用独立test资源；全Epic其余合同继续推进。
+
+## Outcome — E04-B5
+
+- Delivered explicit same-source relocation from a frozen not-seen predecessor to a user-selected, same-SHA added/ready target. Business Item/Asset/Task/labels and original Reference remain unchanged; the transaction retires the old head, creates the target head, consumes the target registration entry, preserves ownership and records audit. Both frozen difference rows display the resolution. Returning former paths are independent additions.
+- Migration0204 adds immutable database acceptance ordering and cross-path predecessor identity guards. Current reads choose the latest accepted locator for the exact business asset across paths, retaining original qualification checks and rejecting failed latest reads without fallback. Path-local revision numbers remain independent. Backfill preserves original facts; populated relocation history blocks unsafe downgrade. Old preview keys are cleaned only after commit; managed originals remain untouched.
+- Verification: 35-case focused backend regression passed; final 14-case relocation/migration suite passed, including direct SQL rejection of changed cross-path identity/source. Five independent concurrent-transaction cases passed: content and observation replay, identical moves, two targets competing for one predecessor, and two predecessors competing for one target. Covered high-to-low path revision numbers, roundtrip moves, explicit multi-candidate selection, returning paths, target consumption, I/O authority/file changes, managed ownership/preview cleanup, and exact S3 keys. Ten Web component cases passed, including decoded-target confirmation and no remaining additions after all targets are consumed. TypeScript, full Web lint/CSS, Ruff, OpenAPI consistency, SDK contract (4), documentation build and diff checks passed locally. No remote CI claimed.
+- Actual browser: a separate retained filesystem fixture was moved before preflight; old Task content was409. Browser explicitly selected and previewed the target, confirmed relocation, displayed matching results on both paths and kept additions confirmation disabled even when its checkbox was checked. Reopened the exact original Task and visually inspected the original image with its original one-box annotation. API assertions confirmed one original Item/Task/annotation, latest target locator, remaining additions0 and content200. Browser error collection was empty. User-requested dev services and all fixtures remain running.
+- Remaining full-E04 work: opt-in pure-addition ingestion, schedule timezone, rule-change impact review, last-complete/history and storage fault navigation, and existing frozen-version invariance acceptance. Continue implementation before closing the Epic. Test infrastructure and task-owned temporary artifacts are cleaned between slices; no image rebuild, push or release.

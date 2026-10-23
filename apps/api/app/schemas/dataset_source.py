@@ -144,10 +144,23 @@ class DatasetSourceChangeOut(BaseModel):
     accepted_item_id: uuid.UUID | None
     can_accept_revision: bool
     can_revalidate: bool
+    can_relocate: bool
+    relocated_to_path: str | None
     before_sha256: str | None
     candidate_sha256: str | None
     registration_state: str | None
     error_code: str | None
+
+
+class SourceMoveCandidate(BaseModel):
+    path_digest: str
+    relative_path: str
+    candidate_sha256: str
+
+
+class SourceMoveCandidateList(BaseModel):
+    total: int
+    items: list[SourceMoveCandidate]
 
 
 class SourceRevisionAccept(BaseModel):
@@ -167,7 +180,11 @@ class SourceRevisionResult(BaseModel):
 
 
 class SourceRevisionOut(SourceRevisionResult):
-    acceptance_kind: Literal["initial", "content_revision", "observation_revalidation"]
+    acceptance_order: int
+    previous_path_digest: str | None
+    acceptance_kind: Literal[
+        "initial", "content_revision", "observation_revalidation", "relocation"
+    ]
     path_digest: str
     scan_run_id: uuid.UUID
     registration_id: uuid.UUID | None
@@ -182,6 +199,7 @@ class SourceRevisionList(BaseModel):
 
 
 class DatasetSourceChangeList(BaseModel):
+    remaining_added_count: int
     complete: bool
     observed_at: datetime
     counts: dict[str, int]

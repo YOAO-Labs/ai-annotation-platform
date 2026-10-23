@@ -156,14 +156,27 @@ async def register_entry(
                     populate_existing=True,
                 )
                 if (
-                    mapping is None
-                    or previous is None
+                    previous is None
                     or previous.dataset_item_id is None
                     or previous.asset_id is None
-                    or mapping.current_revision_id != previous.id
+                    or (
+                        await db.get(
+                            DatasetSourceItem,
+                            (source.id, previous.path_digest),
+                            populate_existing=True,
+                        )
+                    )
+                    is None
                     or previous.content_sha256 != receipt["sha256"]
                     or previous.ownership_mode != source.ownership_mode
                 ):
+                    raise HTTPException(409, detail={"code": "source_revision_changed"})
+                previous_mapping = await db.get(
+                    DatasetSourceItem,
+                    (source.id, previous.path_digest),
+                    populate_existing=True,
+                )
+                if previous_mapping.current_revision_id != previous.id:
                     raise HTTPException(409, detail={"code": "source_revision_changed"})
                 result = {
                     "item_id": previous.dataset_item_id,
@@ -210,6 +223,41 @@ async def register_entry(
                 actor,
                 resolution=revision_context,
             )
+            relocating = bool(revision_context and revision_context.get("relocate"))
+            if relocating:
+                from app.db.models.dataset_source import (
+                    DatasetSourcePreview,
+                    DatasetRegistrationRun,
+                    DatasetRegistrationEntry,
+                )
+
+                old_preview = await db.get(
+                    DatasetSourcePreview, (source.id, previous.path_digest)
+                )
+                if old_preview and old_preview.object_key:
+                    retired.append((old_preview.bucket, old_preview.object_key))
+                await db.delete(previous_mapping)
+                await db.flush()
+                registration_run = await db.get(
+                    DatasetRegistrationRun, revision_context["registration_id"]
+                )
+                registration_entry = await db.get(
+                    DatasetRegistrationEntry, (registration_run.id, path_digest)
+                )
+                from app.services import dataset_registration
+
+                dataset_registration.transition(
+                    registration_run,
+                    registration_entry,
+                    "registered",
+                    item_id=result["item_id"],
+                )
+                registration_run.counts = {
+                    **registration_run.counts,
+                    "estimated_new_count": max(
+                        0, registration_run.counts.get("estimated_new_count", 0) - 1
+                    ),
+                }
             if mapping is None:
                 mapping = DatasetSourceItem(
                     source_id=source.id, path_digest=path_digest
@@ -242,7 +290,9 @@ async def register_entry(
                 await AuditService.log(
                     db,
                     actor=actor,
-                    action="dataset_source.revalidate"
+                    action="dataset_source.relocate"
+                    if relocating
+                    else "dataset_source.revalidate"
                     if revalidate
                     else "dataset_source.accept_revision",
                     target_type="dataset_item",
@@ -499,19 +549,20 @@ async def reference_context(db, item_id, actor, *, task_id=None):
         select(DatasetSourceRevision)
         .where(
             DatasetSourceRevision.source_id == ref.source_id,
-            DatasetSourceRevision.path_digest == ref.path_digest,
             DatasetSourceRevision.dataset_item_id == item_id,
             DatasetSourceRevision.asset_id == asset.id,
             DatasetSourceRevision.ownership_mode == "reference",
         )
-        .order_by(DatasetSourceRevision.revision_number.desc())
+        .order_by(DatasetSourceRevision.acceptance_order.desc())
         .limit(1)
         .execution_options(populate_existing=True)
     )
     effective_run_id = accepted.run_id if accepted else ref.run_id
     run = await db.get(DatasetScanRun, effective_run_id, populate_existing=True)
     entry = await db.get(
-        DatasetScanEntry, (effective_run_id, ref.path_digest), populate_existing=True
+        DatasetScanEntry,
+        (effective_run_id, accepted.path_digest if accepted else ref.path_digest),
+        populate_existing=True,
     )
     if task_id is None and source is not None:
         await scans.require_actor(db, actor.id, source)

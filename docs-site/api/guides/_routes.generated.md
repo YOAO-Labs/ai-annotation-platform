@@ -294,6 +294,8 @@
 | POST | `/dataset-sources/{source_id}/sync-schedule/continue` |
 | POST | `/dataset-registrations/{registration_id}/changes/{path_digest}/accept-revision` |
 | POST | `/dataset-registrations/{registration_id}/changes/{path_digest}/revalidate` |
+| POST | `/dataset-registrations/{registration_id}/changes/{path_digest}/relocate` |
+| GET | `/dataset-registrations/{registration_id}/changes/{path_digest}/move-candidates` |
 | GET | `/dataset-sources/{source_id}/revisions` |
 
 ## `datasets.py`
@@ -964,4 +966,4 @@
 
 ---
 
-_共 86 模块 / 557 路由_
+_共 86 模块 / 559 路由_

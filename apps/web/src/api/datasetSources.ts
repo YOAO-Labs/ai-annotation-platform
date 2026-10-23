@@ -18,6 +18,7 @@ import type {
   DatasetSourceChangeList,
   SourceRevisionAccept,
   SourceRevisionResult,
+  SourceMoveCandidateList,
   DatasetRegistrationConfirm,
   SourceSyncScheduleOut,
   SourceSyncScheduleUpdate,
@@ -63,6 +64,16 @@ export const datasetSourcesApi = {
     apiClient.post<DatasetRegistrationOut>(`/dataset-scans/${scanId}/registration`),
   confirmRegistration: (id: string, scope: DatasetRegistrationConfirm["scope"] = "all_safe") =>
     apiClient.post<DatasetRegistrationOut>(`/dataset-registrations/${id}/confirm`, { scope }),
+  moveCandidates: (id: string, digest: string, offset: number, signal?: AbortSignal) =>
+    apiClient.get<SourceMoveCandidateList>(
+      `/dataset-registrations/${id}/changes/${digest}/move-candidates?limit=20&offset=${offset}`,
+      { signal },
+    ),
+  relocate: (id: string, digest: string, payload: SourceRevisionAccept) =>
+    apiClient.post<SourceRevisionResult>(
+      `/dataset-registrations/${id}/changes/${digest}/relocate`,
+      payload,
+    ),
   revalidate: (id: string, digest: string, payload: SourceRevisionAccept) =>
     apiClient.post<SourceRevisionResult>(
       `/dataset-registrations/${id}/changes/${digest}/revalidate`,

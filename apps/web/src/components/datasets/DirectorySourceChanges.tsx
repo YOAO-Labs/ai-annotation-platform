@@ -1,7 +1,12 @@
 import { useState } from "react";
 import { useSessionGuard } from "@/hooks/useSessionGuard";
+import { DirectoryMoveConfirmation } from "./DirectoryMoveConfirmation";
 import { DirectoryRevisionConfirmation } from "./DirectoryRevisionConfirmation";
-import type { DatasetSourceChangeOut, DatasetSourceChangeList } from "@/api/generated/types.gen";
+import type {
+  DatasetSourceChangeOut,
+  DatasetSourceChangeList,
+  SourceMoveCandidate,
+} from "@/api/generated/types.gen";
 import { Button } from "@/components/ui/Button";
 import { verifiedContentError } from "@/hooks/useVerifiedImage";
 
@@ -39,8 +44,12 @@ export function DirectorySourceChanges({
   busy = false,
   actionError = "",
   onAccept,
+  registrationId,
+  onRelocate,
 }: {
   scanId?: string;
+  registrationId?: string;
+  onRelocate?: (entry: DatasetSourceChangeOut, target: SourceMoveCandidate) => Promise<boolean>;
   busy?: boolean;
   actionError?: string;
   onAccept?: (entry: DatasetSourceChangeOut) => Promise<boolean>;
@@ -54,6 +63,7 @@ export function DirectorySourceChanges({
   onOffset: (value: number) => void;
 }) {
   const [selected, setSelected] = useState<DatasetSourceChangeOut | null>(null);
+  const [moving, setMoving] = useState<DatasetSourceChangeOut | null>(null);
   const capture = useSessionGuard();
   return (
     <section aria-label="本轮增量差异" className="mt-3 rounded-md border border-border p-3">
@@ -111,21 +121,28 @@ export function DirectorySourceChanges({
                     <td className="p-2">{entry.relative_path}</td>
                     <td>{labels[entry.kind]}</td>
                     <td>
-                      {entry.accepted_revision_id
-                        ? entry.accepted_item_id === entry.before_item_id
-                          ? `已重新核验 · 保留样本 ${entry.accepted_item_id}，可重新读取或重开原任务`
-                          : `已接受为新修订 · 新样本 ${entry.accepted_item_id}`
-                        : entry.reason
-                          ? (reasons[entry.reason] ?? entry.reason)
-                          : entry.registration_state === "error"
-                            ? "本轮登记异常，详见下方结果"
-                            : entry.registration_state === "registered"
-                              ? "本轮已登记"
-                              : entry.registration_state === "unchanged"
-                                ? "已有样本保留"
-                                : entry.kind === "added"
-                                  ? "确认后登记为新增样本"
-                                  : "保留已有样本与内容绑定"}
+                      {entry.relocated_to_path
+                        ? `已重定位 · 目标 ${entry.relocated_to_path} · 保留样本 ${entry.accepted_item_id}`
+                        : entry.accepted_revision_id
+                          ? entry.accepted_item_id === entry.before_item_id
+                            ? `已重新核验 · 保留样本 ${entry.accepted_item_id}，可重新读取或重开原任务`
+                            : `已接受为新修订 · 新样本 ${entry.accepted_item_id}`
+                          : entry.reason
+                            ? (reasons[entry.reason] ?? entry.reason)
+                            : entry.registration_state === "error"
+                              ? "本轮登记异常，详见下方结果"
+                              : entry.registration_state === "registered"
+                                ? "本轮已登记"
+                                : entry.registration_state === "unchanged"
+                                  ? "已有样本保留"
+                                  : entry.kind === "added"
+                                    ? "确认后登记为新增样本"
+                                    : "保留已有样本与内容绑定"}
+                      {entry.can_relocate && onRelocate && (
+                        <Button size="sm" disabled={busy} onClick={() => setMoving({ ...entry })}>
+                          选择移动目标
+                        </Button>
+                      )}
                       {(entry.can_accept_revision || entry.can_revalidate) && onAccept && (
                         <Button size="sm" disabled={busy} onClick={() => setSelected({ ...entry })}>
                           {entry.can_revalidate ? "重新核验并保留样本" : "接受为新修订"}
@@ -159,6 +176,23 @@ export function DirectorySourceChanges({
             {pending && <span role="status">正在刷新差异…</span>}
           </div>
         </>
+      )}
+      {moving && registrationId && scanId && onRelocate && (
+        <DirectoryMoveConfirmation
+          key={moving.path_digest}
+          entry={moving}
+          registrationId={registrationId}
+          scanId={scanId}
+          busy={busy}
+          error={actionError}
+          onClose={() => setMoving(null)}
+          onConfirm={(target) => {
+            const current = capture();
+            void onRelocate(moving, target).then((accepted) => {
+              if (accepted && current()) setMoving(null);
+            });
+          }}
+        />
       )}
       {selected && scanId && onAccept && (
         <DirectoryRevisionConfirmation
