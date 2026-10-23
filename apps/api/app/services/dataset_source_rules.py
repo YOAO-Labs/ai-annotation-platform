@@ -24,6 +24,7 @@ async def preview(
     original_proof = await key_authority(db, actor, api_key_id, "datasets:write")
     location, source = await scans.source_context(db, source_id)
     await scans.require_actor(db, actor.id, source)
+    dataset = await scans.require_dataset_write(db, source)
     if original_proof != await key_authority(db, actor, api_key_id, "datasets:write"):
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
     if source.unregistered_at or source.config_revision != payload.expected_revision:
@@ -82,6 +83,7 @@ async def preview(
                 "source": str(source.id),
                 "source_revision": source.config_revision,
                 "location_revision": location.config_revision,
+                "dataset_lifecycle_revision": dataset.lifecycle_revision,
                 "config": source.config,
                 "rules": rules,
                 "heads": [(d, str(r)) for d, r, _ in rows],
@@ -110,6 +112,7 @@ async def apply(db, source_id, payload, actor, api_key_id=None):
         raise HTTPException(409, detail={"code": "source_busy"})
     _, source = await scans.source_context(db, source_id)
     await scans.require_actor(db, actor.id, source)
+    await scans.require_dataset_write(db, source)
     if original_proof != await key_authority(db, actor, api_key_id, "datasets:write"):
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
     rules = payload.model_dump(include=selection.RULE_KEYS)

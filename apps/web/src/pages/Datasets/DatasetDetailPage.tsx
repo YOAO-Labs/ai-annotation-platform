@@ -28,6 +28,7 @@ import {
   datasetTrainingFilterSummary,
   datasetTrainingPath,
 } from "./datasetTrainingSelection";
+import { DatasetLifecycleAction } from "@/components/datasets/DatasetLifecycleAction";
 import { DatasetSavedViews } from "./DatasetSavedViews";
 import { projectsApi } from "@/api/projects";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -191,8 +192,10 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
   const { role } = usePermissions();
   const userId = useAuthStore((s) => s.user?.id);
   const revision = useSessionRevision();
-  const canManage =
+  const canManageLifecycle =
     role === "super_admin" || (role === "project_admin" && ds.created_by === userId);
+  const archived = !!ds.archived_at;
+  const canManage = canManageLifecycle && !archived;
   const client = useQueryClient();
   const toast = useToastStore((s) => s.push);
   const workbench = useDatasetWorkbench(ds.id);
@@ -349,24 +352,41 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
             {new Date(ds.updated_at).toLocaleString("zh-CN")}
           </p>
         </div>
-        {canManage && (
-          <div className="flex gap-2">
-            <Button
-              onClick={() => {
-                setName(ds.name);
-                setDescription(ds.description);
-                setEditOpen(true);
-              }}
-            >
-              编辑信息
-            </Button>
-            <Button onClick={() => patch({ import: "1" })}>
-              <Upload className="mr-1.5 size-3.5" />
-              上传文件
-            </Button>
-          </div>
-        )}
+        <div className="flex flex-wrap gap-2">
+          {canManageLifecycle && <DatasetLifecycleAction dataset={ds} onApplied={refresh} />}
+          {canManage && (
+            <div className="flex gap-2">
+              <Button
+                onClick={() => {
+                  setName(ds.name);
+                  setDescription(ds.description);
+                  setEditOpen(true);
+                }}
+              >
+                编辑信息
+              </Button>
+              <Button onClick={() => patch({ import: "1" })}>
+                <Upload className="mr-1.5 size-3.5" />
+                上传文件
+              </Button>
+            </div>
+          )}
+        </div>
       </header>
+      {archived && (
+        <section
+          aria-label="数据集归档状态"
+          className="mb-4 rounded-lg border border-border bg-muted p-4 text-sm"
+        >
+          <h2 className="text-md font-semibold">数据集已归档</h2>
+          <p className="mt-2 leading-relaxed">
+            样本、来源历史、已有项目任务、标注和冻结版本均保留。数据集的新接入、修改、关联和新训练冻结已停止；已有任务继续按当前项目权限使用。
+          </p>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+            恢复只解除归档，不恢复已撤销的人员权限、来源或同步委托，也不自动重启旧后台任务。
+          </p>
+        </section>
+      )}
       {actionError && (
         <div
           role="alert"
@@ -398,7 +418,7 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
       )}
       {state.tab === "data" && (
         <section aria-label="数据浏览" className="rounded-lg border border-border bg-card">
-          {freezeFilter && freezeFilter.signature === location.key && (
+          {!archived && freezeFilter && freezeFilter.signature === location.key && (
             <Modal
               open
               returnFocusRef={freezeButtonRef}
@@ -466,6 +486,7 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
                   size="sm"
                   ref={freezeButtonRef}
                   disabled={
+                    archived ||
                     state.restoreSavedView ||
                     !files.data ||
                     files.isFetching ||
@@ -474,7 +495,7 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
                     !!workbench.error
                   }
                   onClick={() => {
-                    if (currentOwner() && filterJson !== null)
+                    if (!archived && currentOwner() && filterJson !== null)
                       setFreezeFilter({ query: filterJson, signature: location.key });
                   }}
                 >
@@ -683,11 +704,12 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
       {state.tab === "quality" && <DatasetQualityPanel datasetId={ds.id} canManage={canManage} />}
       {state.tab === "sources" && (
         <section aria-label="来源与同步">
-          {canManage && ds.data_type === "image" && !ds.is_temporal ? (
+          {canManageLifecycle && ds.data_type === "image" && !ds.is_temporal ? (
             <DirectoryReferencePanel
               key={`${ds.id}/${revision}`}
               {...{ persistUrl: true }}
               datasetId={ds.id}
+              archived={archived}
               initialSourceId={params.get("source") ?? undefined}
               initialScanId={params.get("scan") ?? undefined}
             />
@@ -726,7 +748,7 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
                     </p>
                   </div>
                   <div className="flex gap-2">
-                    {project.can_manage && (
+                    {!archived && project.can_manage && (
                       <Link
                         className="text-xs text-primary hover:underline"
                         to={datasetTrainingPath(project.id, ds.id)}
@@ -831,7 +853,7 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
             </p>
             <div className="mt-3 flex flex-wrap gap-3">
               {projects
-                .filter((p) => p.can_manage)
+                .filter((p) => !archived && p.can_manage)
                 .map((project) => (
                   <Link
                     key={project.id}
@@ -902,7 +924,7 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
           detailReturn={`${location.pathname}${location.search}`}
         />
       )}
-      {unlinkProject && (
+      {!archived && unlinkProject && (
         <UnlinkDatasetProject
           key={unlinkProject.id}
           dataset={ds}
@@ -930,7 +952,7 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
         datasetName={ds.name}
         onUploaded={refresh}
       />
-      <Modal open={editOpen} onClose={() => setEditOpen(false)} title="编辑数据集信息">
+      <Modal open={editOpen && canManage} onClose={() => setEditOpen(false)} title="编辑数据集信息">
         <form
           className="grid gap-3"
           onSubmit={(e) => {

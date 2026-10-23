@@ -9,6 +9,7 @@ import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
 import { getAuthSessionRevision } from "@/stores/authSession";
 import type {
   DatasetItemListParams,
+  DatasetLifecycleState,
   DatasetSavedViewPayload,
   DatasetSavedView,
 } from "@/api/datasets";
@@ -85,6 +86,7 @@ export function useDatasetTrainingVersions(
 
 export function useDatasets(params?: {
   search?: string;
+  state?: DatasetLifecycleState;
   data_type?: string;
   has_scenes?: boolean;
   location_id?: string;

@@ -334,6 +334,7 @@ async def freeze_selection(
             "digest": content_digest(dataset_selection),
         }
     samples, excluded, issues = [], [], []
+    eligible_dataset_ids = set()
     excluded_annotations = 0
     negatives = {str(value) for value in selection.confirmed_negative_ids}
     for task, item, _, active_annotations in rows:
@@ -390,6 +391,8 @@ async def freeze_selection(
         except (TrainingDatasetError, DatasetContractError) as exc:
             issues.append({"task_id": task_id, "code": exc.code, "message": str(exc)})
             continue
+        if item is not None:
+            eligible_dataset_ids.add(item.dataset_id)
         samples.append(
             {
                 **({"raster_contract": True} if is_instance_rle(contract) else {}),
@@ -420,6 +423,12 @@ async def freeze_selection(
                 },
             }
         )
+    from app.services.dataset_lifecycle import require_writable
+
+    dataset_revisions = {}
+    for dataset_id in sorted(eligible_dataset_ids, key=str):
+        dataset = await require_writable(db, dataset_id)
+        dataset_revisions[dataset_id] = dataset.lifecycle_revision
     semaphore = asyncio.Semaphore(8)
 
     async def capture(sample):
@@ -588,6 +597,10 @@ async def freeze_selection(
         from app.services.raster_mask_storage import lock_raster_mask_references
 
         await lock_raster_mask_references(db, snapshot)
+    # Only a new selection is gated. Workers serving existing immutable versions
+    # continue under their captured content and current project permissions.
+    for dataset_id, revision in dataset_revisions.items():
+        await require_writable(db, dataset_id, expected_revision=revision, lock=True)
     return snapshot, report
 
 

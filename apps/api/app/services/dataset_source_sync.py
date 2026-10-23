@@ -34,6 +34,8 @@ BLOCKING = {
     "source_unavailable",
     "location_unavailable",
     "run_authority_changed",
+    "dataset_archived",
+    "dataset_lifecycle_changed",
 }
 
 
@@ -56,6 +58,7 @@ async def configure(db, source_id, payload, actor, key_id=None):
     location, source, row = await context(db, source_id)
     await access.require_source(db, source.id, actor)
     proof = await key_authority(db, actor, key_id, "datasets:write")
+    dataset = await scans.require_dataset_write(db, source)
     if (row.revision if row else 0) != payload.expected_revision:
         raise HTTPException(409, detail={"code": "schedule_revision_changed"})
     if row is None:
@@ -71,7 +74,7 @@ async def configure(db, source_id, payload, actor, key_id=None):
     stamp = await scans.now(db)
     if payload.enabled:
         await key_authority(db, actor, key_id, "datasets:read")
-        await scans.validate_context(db, location, source)
+        await scans.validate_write_context(db, location, source)
         anchor = await locations.node_anchor(
             db, location, f"worker:{source.config['node_id']}"
         )
@@ -85,8 +88,18 @@ async def configure(db, source_id, payload, actor, key_id=None):
         snapshot = {
             "source_revision": source.config_revision,
             "location_revision": location.config_revision,
+            "dataset_lifecycle_revision": dataset.lifecycle_revision,
             "anchor": anchor,
         }
+        lifecycle_changed = (
+            row.snapshot.get("dataset_lifecycle_revision", 1)
+            != dataset.lifecycle_revision
+        )
+        if lifecycle_changed:
+            # A renewed delegation cannot adopt observations or jobs from before
+            # an archive/restore cycle. Existing attempts stop at their own fence.
+            row.scan_id = row.registration_id = None
+            row.state = "idle"
         if delegation_changed or row.snapshot != snapshot or row.state == "blocked":
             scan = await db.get(Scan, row.scan_id) if row.scan_id else None
             registration = (
@@ -138,6 +151,10 @@ async def continue_cycle(db, source_id, payload, actor, key_id=None):
     _, source, row = await context(db, source_id)
     await access.require_source(db, source.id, actor)
     await key_authority(db, actor, key_id, "datasets:write")
+    if row is not None:
+        await scans.require_dataset_write(db, source, snapshot=row.snapshot)
+    else:
+        await scans.require_dataset_write(db, source)
     if (
         row is None
         or row.revision != payload.expected_revision
@@ -171,7 +188,7 @@ async def authority(db, location, source, row):
     for scope in ("datasets:read", "datasets:write"):
         if await key_authority(db, actor, row.api_key_id, scope) != row.key_proof:
             raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
-    await scans.validate_context(db, location, source, snapshot=row.snapshot)
+    await scans.validate_write_context(db, location, source, snapshot=row.snapshot)
     return actor
 
 
@@ -194,6 +211,8 @@ async def require_run_authority(db, run, row):
         or snapshot.get("api_key_id")
         != (str(row.api_key_id) if row.api_key_id else None)
         or snapshot.get("key_proof") != row.key_proof
+        or snapshot.get("dataset_lifecycle_revision", 1)
+        != row.snapshot.get("dataset_lifecycle_revision", 1)
     ):
         raise HTTPException(409, detail={"code": "run_authority_changed"})
 
@@ -379,6 +398,8 @@ def owns_run(run, row):
         == (str(row.api_key_id) if row.api_key_id else None)
         and snapshot.get("key_proof") == row.key_proof
         and snapshot.get("sync_source_id") == str(row.source_id)
+        and snapshot.get("dataset_lifecycle_revision", 1)
+        == row.snapshot.get("dataset_lifecycle_revision", 1)
     )
 
 

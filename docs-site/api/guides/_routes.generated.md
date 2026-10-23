@@ -262,6 +262,13 @@
 | POST | `/projects/{project_id}/data-manager/tracks/query` |
 | GET | `/projects/{project_id}/data-manager/tracks/{track_ref}/detail` |
 
+## `dataset_lifecycle.py`
+
+| Method | Path |
+|---|---|
+| POST | `/{dataset_id}/lifecycle-preview` |
+| POST | `/{dataset_id}/lifecycle` |
+
 ## `dataset_quality_review.py`
 
 | Method | Path |
@@ -1007,4 +1014,4 @@
 
 ---
 
-_共 90 模块 / 585 路由_
+_共 91 模块 / 587 路由_

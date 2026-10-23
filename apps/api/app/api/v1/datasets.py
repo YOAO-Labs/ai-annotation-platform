@@ -1,3 +1,4 @@
+from typing import Literal
 from typing import Annotated
 import asyncio
 import hashlib
@@ -25,7 +26,6 @@ from app.deps import (
     require_project_owner,
     require_roles,
     require_scopes,
-    assert_request_scopes,
 )
 from app.db.enums import UserRole
 from app.db.models.project import Project
@@ -79,18 +79,15 @@ async def directory_dataset_write_access(
         return
     from app.services.dataset_source_access import (
         capture_dataset_write,
-        has_directory_source,
     )
 
     try:
         dataset_id = uuid.UUID(str(request.path_params["dataset_id"]))
     except ValueError:
         raise HTTPException(422, "Invalid dataset ID") from None
-    if await has_directory_source(db, dataset_id):
-        assert_request_scopes(request, "datasets:write")
-        request.state.directory_dataset_authority = await capture_dataset_write(
-            db, dataset_id, actor, getattr(request.state, "api_key_id", None)
-        )
+    request.state.directory_dataset_authority = await capture_dataset_write(
+        db, dataset_id, actor, getattr(request.state, "api_key_id", None)
+    )
 
 
 async def recheck_directory_write(request, db, dataset_id, *, project_id=None):
@@ -101,6 +98,7 @@ async def recheck_directory_write(request, db, dataset_id, *, project_id=None):
         dataset_id,
         getattr(request.state, "directory_dataset_authority", None),
         project_id=project_id,
+        lock=True,
     )
 
 
@@ -116,6 +114,7 @@ _MANAGERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
 )
 async def list_datasets(
     search: str | None = None,
+    state: Literal["active", "archived", "all"] = "active",
     data_type: str | None = None,
     has_scenes: bool | None = None,
     location_id: uuid.UUID | None = None,
@@ -133,6 +132,7 @@ async def list_datasets(
     svc = DatasetService(db)
     items, total = await svc.list(
         search=search,
+        state=state,
         data_type=data_type,
         has_scenes=has_scenes,
         limit=limit,
@@ -183,11 +183,13 @@ async def get_dataset(
 
 @router.put("/{dataset_id}", response_model=DatasetOut)
 async def update_dataset(
+    request: Request,
     dataset_id: uuid.UUID,
     data: DatasetUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
 ):
+    await recheck_directory_write(request, db, dataset_id)
     svc = DatasetService(db)
     # v0.13.11 · 用 model_fields_set 区分「字段未传」与「显式传 None」(后者清除
     # metadata_["axis_convention"])。未传时不进 kwargs，让 service 走 _UNSET。
@@ -242,10 +244,12 @@ async def sniff_axis_convention(
 
 @router.delete("/{dataset_id}", status_code=204)
 async def delete_dataset(
+    request: Request,
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
 ):
+    await recheck_directory_write(request, db, dataset_id)
     svc = DatasetService(db)
     cleanup = await svc.delete(dataset_id)
     if cleanup is None:
@@ -511,11 +515,13 @@ async def import_from_connection(
     "/{dataset_id}/items/upload-init", response_model=DatasetUploadInitResponse
 )
 async def upload_init(
+    request: Request,
     dataset_id: uuid.UUID,
     data: DatasetUploadInitRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await recheck_directory_write(request, db, dataset_id)
     svc = DatasetService(db)
     ds = await svc.get(dataset_id)
     if not ds:
@@ -560,6 +566,7 @@ async def upload_complete(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await recheck_directory_write(request, db, dataset_id)
     from app.db.models.dataset import DatasetItem
 
     svc = DatasetService(db)
@@ -733,6 +740,7 @@ async def upload_zip(
     限制：≤ 200MB 整包、≤ 5000 文件、单文件 ≤ 100MB；自动跳过 macOS 元数据（__MACOSX/）
     与隐藏文件（.DS_Store 等）；同名文件以路径 hash 后缀去重。
     """
+    await recheck_directory_write(request, db, dataset_id)
     svc = DatasetService(db)
     ds = await svc.get(dataset_id)
     if not ds:
@@ -1034,6 +1042,7 @@ async def scan_items(
 
 @router.post("/{dataset_id}/backfill-dimensions")
 async def backfill_dimensions(
+    request: Request,
     dataset_id: uuid.UUID,
     batch: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
@@ -1043,6 +1052,7 @@ async def backfill_dimensions(
 
     一次最多处理 batch 条（默认 50），多次调用直到 processed == 0 视为完成。
     """
+    await recheck_directory_write(request, db, dataset_id)
     from sqlalchemy import select as sa_select
     from app.db.models.dataset import DatasetItem
 
@@ -1078,11 +1088,13 @@ async def backfill_dimensions(
 
 @router.post("/{dataset_id}/backfill-media")
 async def backfill_media_endpoint(
+    request: Request,
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
 ):
     """异步触发存量图像缩略图 / 视频元数据与 poster 回填。"""
+    await recheck_directory_write(request, db, dataset_id)
     svc = DatasetService(db)
     ds = await svc.get(dataset_id)
     if not ds:
@@ -1100,6 +1112,7 @@ async def backfill_media_endpoint(
 
 @router.post("/{dataset_id}/scenes/backfill")
 async def backfill_scenes_endpoint(
+    request: Request,
     dataset_id: uuid.UUID,
     mode: str = Query(
         "auto",
@@ -1115,6 +1128,7 @@ async def backfill_scenes_endpoint(
     幂等:dataset 已有 scene → 直接返回(notes 提示)。
     dry_run:不写库,返回会创建 / 赋值的统计。
     """
+    await recheck_directory_write(request, db, dataset_id)
     from app.schemas.scene import InferenceResult
     from app.services.scene_inference import infer_and_apply
 
@@ -1144,11 +1158,13 @@ async def backfill_scenes_endpoint(
 
 @router.delete("/{dataset_id}/items/{item_id}", status_code=204)
 async def delete_item(
+    request: Request,
     dataset_id: uuid.UUID,
     item_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_roles(*_MANAGERS)),
 ):
+    await recheck_directory_write(request, db, dataset_id)
     svc = DatasetService(db)
     ok = await svc.delete_item(item_id, dataset_id=dataset_id)
     if not ok:
@@ -1301,6 +1317,7 @@ async def unlink_project(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await recheck_directory_write(request, db, dataset_id)
     svc = DatasetService(db)
     info = await svc.unlink_project(dataset_id, project_id)
     if info is None:

@@ -43,13 +43,15 @@ vi.mock("@/components/datasets/DirectoryReferencePanel", () => ({
     initialSourceId,
     initialScanId,
     persistUrl,
+    archived,
   }: {
     datasetId: string;
     initialSourceId?: string;
     initialScanId?: string;
     persistUrl?: boolean;
+    archived?: boolean;
   }) => (
-    <p data-persist-url={String(persistUrl)}>
+    <p data-persist-url={String(persistUrl)} data-archived={String(archived)}>
       来源面板 {datasetId} {initialSourceId} {initialScanId}
     </p>
   ),
@@ -625,4 +627,34 @@ it("retires the filter project dialog across navigation and browser return", asy
   fireEvent.click(screen.getByRole("button", { name: "返回先前筛选" }));
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("q=car"));
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
+it("keeps archived samples readable while hiding management and new freeze actions", async () => {
+  vi.mocked(datasetsApi.get).mockResolvedValue({
+    ...dataset,
+    archived_at: dataset.created_at,
+    lifecycle_revision: 2,
+  } as never);
+  mount();
+  await screen.findByRole("region", { name: "数据集归档状态" });
+  expect(await screen.findByText("car.png")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "编辑信息" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "上传文件" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "冻结当前筛选" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "恢复数据集" })).toBeEnabled();
+});
+it("shows archived source history in readonly mode and retains linked projects and versions", async () => {
+  vi.mocked(datasetsApi.get).mockResolvedValue({
+    ...dataset,
+    archived_at: dataset.created_at,
+    lifecycle_revision: 2,
+  } as never);
+  mount("/datasets/dataset-one?tab=sources&source=src&scan=run");
+  expect(await screen.findByText(/来源面板 dataset-one/)).toHaveAttribute("data-archived", "true");
+  fireEvent.click(screen.getByRole("button", { name: "项目关联" }));
+  await screen.findByRole("link", { name: "车辆检测" });
+  expect(screen.queryByRole("button", { name: "取消关联" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "为整份数据集创建版本" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "关联版本" }));
+  expect(await screen.findByText("冻结首轮")).toBeVisible();
 });

@@ -12556,6 +12556,242 @@
         "title": "DatasetItemOut",
         "type": "object"
       },
+      "DatasetLifecycleApply": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "impact_token": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Impact Token",
+            "type": "string"
+          },
+          "operation": {
+            "enum": [
+              "archive",
+              "restore"
+            ],
+            "title": "Operation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation",
+          "expected_revision",
+          "impact_token"
+        ],
+        "title": "DatasetLifecycleApply",
+        "type": "object"
+      },
+      "DatasetLifecycleCounts": {
+        "properties": {
+          "active_registrations": {
+            "title": "Active Registrations",
+            "type": "integer"
+          },
+          "active_scans": {
+            "title": "Active Scans",
+            "type": "integer"
+          },
+          "annotations": {
+            "title": "Annotations",
+            "type": "integer"
+          },
+          "enabled_schedules": {
+            "title": "Enabled Schedules",
+            "type": "integer"
+          },
+          "items": {
+            "title": "Items",
+            "type": "integer"
+          },
+          "pending_jobs": {
+            "title": "Pending Jobs",
+            "type": "integer"
+          },
+          "projects": {
+            "title": "Projects",
+            "type": "integer"
+          },
+          "ready_lineage_versions": {
+            "title": "Ready Lineage Versions",
+            "type": "integer"
+          },
+          "sources": {
+            "title": "Sources",
+            "type": "integer"
+          },
+          "tasks": {
+            "title": "Tasks",
+            "type": "integer"
+          },
+          "unfinished_lineage_versions": {
+            "title": "Unfinished Lineage Versions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "sources",
+          "projects",
+          "tasks",
+          "annotations",
+          "active_scans",
+          "active_registrations",
+          "enabled_schedules",
+          "pending_jobs",
+          "ready_lineage_versions",
+          "unfinished_lineage_versions"
+        ],
+        "title": "DatasetLifecycleCounts",
+        "type": "object"
+      },
+      "DatasetLifecyclePreview": {
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/DatasetLifecycleCounts"
+          },
+          "dataset_id": {
+            "format": "uuid",
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "frozen_coverage": {
+            "const": "recorded_dataset_membership_only",
+            "title": "Frozen Coverage",
+            "type": "string"
+          },
+          "impact_token": {
+            "title": "Impact Token",
+            "type": "string"
+          },
+          "lifecycle_revision": {
+            "title": "Lifecycle Revision",
+            "type": "integer"
+          },
+          "measured_at": {
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "operation": {
+            "enum": [
+              "archive",
+              "restore"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "active",
+              "archived"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "lifecycle_revision",
+          "state",
+          "operation",
+          "measured_at",
+          "expires_at",
+          "impact_token",
+          "counts",
+          "frozen_coverage"
+        ],
+        "title": "DatasetLifecyclePreview",
+        "type": "object"
+      },
+      "DatasetLifecyclePreviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "operation": {
+            "enum": [
+              "archive",
+              "restore"
+            ],
+            "title": "Operation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation",
+          "expected_revision"
+        ],
+        "title": "DatasetLifecyclePreviewRequest",
+        "type": "object"
+      },
+      "DatasetLifecycleResult": {
+        "properties": {
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
+          "archived_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived By"
+          },
+          "dataset_id": {
+            "format": "uuid",
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "lifecycle_revision": {
+            "title": "Lifecycle Revision",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "active",
+              "archived"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "lifecycle_revision",
+          "state",
+          "archived_at",
+          "archived_by"
+        ],
+        "title": "DatasetLifecycleResult",
+        "type": "object"
+      },
       "DatasetLinkRequest": {
         "properties": {
           "project_id": {
@@ -12603,6 +12839,30 @@
       },
       "DatasetOut": {
         "properties": {
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
+          "archived_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived By"
+          },
           "axis_convention": {
             "anyOf": [
               {
@@ -12664,6 +12924,11 @@
             "default": false,
             "title": "Is Temporal",
             "type": "boolean"
+          },
+          "lifecycle_revision": {
+            "default": 1,
+            "title": "Lifecycle Revision",
+            "type": "integer"
           },
           "name": {
             "title": "Name",
@@ -66475,6 +66740,21 @@
           },
           {
             "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "active",
+              "enum": [
+                "active",
+                "archived",
+                "all"
+              ],
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "data_type",
             "required": false,
             "schema": {
@@ -67598,6 +67878,122 @@
           }
         ],
         "summary": "Get Dataset Item Preview",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
+    "/api/v1/datasets/{dataset_id}/lifecycle": {
+      "post": {
+        "operationId": "change_lifecycle_api_v1_datasets__dataset_id__lifecycle_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DatasetLifecycleApply"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetLifecycleResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Change Lifecycle",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
+    "/api/v1/datasets/{dataset_id}/lifecycle-preview": {
+      "post": {
+        "operationId": "preview_lifecycle_api_v1_datasets__dataset_id__lifecycle_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DatasetLifecyclePreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetLifecyclePreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview Lifecycle",
         "tags": [
           "datasets"
         ]

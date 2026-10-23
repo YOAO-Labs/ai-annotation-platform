@@ -7,7 +7,7 @@ import uuid
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
+from app.db.models.dataset import DatasetItem, ProjectDataset
 from app.db.models.dataset_asset import DatasetAsset, StorageLocation
 from app.db.models.dataset_source import (
     DatasetReference,
@@ -46,6 +46,29 @@ async def register_entry(
     from app.services.dataset_assets import ensure_legacy_bindings
     from app.services import directory_previews as previews
 
+    async def dataset_guard(current_db):
+        from app.services import dataset_source_access as access
+
+        scan = await access.require_run(current_db, DatasetScanRun, run_id, actor)
+        current_source = await access.require_source(current_db, scan.source_id, actor)
+        await scans.require_dataset_write(
+            current_db, current_source, snapshot=scan.snapshot
+        )
+
+    async def guarded_commit(current_db):
+        await dataset_guard(current_db)
+        if before_apply is not None:
+            await before_apply(current_db)
+
+    # Reject an archived or superseded lifecycle before binding/source I/O. The
+    # final callback locks Dataset only after scan_context has locked its Source.
+    from app.services import dataset_source_access as access
+
+    initial_scan = await access.require_run(db, DatasetScanRun, run_id, actor)
+    initial_source = await access.require_source(db, initial_scan.source_id, actor)
+    await scans.require_dataset_write(
+        db, initial_source, snapshot=initial_scan.snapshot, lock=False
+    )
     # Binding initialization precedes the Location/Source lock order.
     binding = await ensure_legacy_bindings(db)
 
@@ -58,7 +81,8 @@ async def register_entry(
         verify=True,
         api_key_id=api_key_id,
         node_id=node_id,
-        before_commit=before_apply,
+        before_io=dataset_guard,
+        before_commit=guarded_commit,
     )
     observation = dict(snapshot.observation)
     snapshot.close()
@@ -66,24 +90,8 @@ async def register_entry(
     location, source, run, entry, node, anchor = await scan_context(
         db, run_id, path_digest, actor, lock=True, node_id=node_id
     )
-    # Source deletion takes the inverse FK lock order: never wait on Dataset.
-    from sqlalchemy.exc import DBAPIError
-
-    try:
-        async with db.begin_nested():
-            dataset = await db.scalar(
-                select(Dataset)
-                .where(Dataset.id == source.dataset_id)
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True)
-            )
-    except DBAPIError as exc:
-        if getattr(exc.orig, "sqlstate", None) != "55P03":
-            raise
-        raise HTTPException(
-            409,
-            detail={"code": "dataset_busy", "message": "数据集正在变更，请稍后重试"},
-        ) from None
+    # Source deletion owns Dataset first, so this short write never waits on it.
+    dataset = await scans.require_dataset_write(db, source, snapshot=run.snapshot)
     await scans.require_actor(db, actor.id, source)
     if await key_authority(db, actor, api_key_id, "datasets:write") != key_proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
@@ -318,7 +326,7 @@ async def register_entry(
                 db, location, source, mapping, final, uploaded, retired
             )
         )
-        await scans.validate_context(db, location, source, snapshot=run.snapshot)
+        await scans.validate_write_context(db, location, source, snapshot=run.snapshot)
         await scans.require_actor(db, actor.id, source)
         if await key_authority(db, actor, api_key_id, "datasets:write") != key_proof:
             raise HTTPException(403, detail={"code": "api_key_authority_revoked"})

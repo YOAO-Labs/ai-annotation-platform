@@ -114,7 +114,9 @@ async def accept(
         await registration.request_authority(
             session, current_actor, api_key_id, proof, source
         )
-        await scans.validate_context(session, location, source, snapshot=run.snapshot)
+        await scans.validate_write_context(
+            session, location, source, snapshot=run.snapshot
+        )
         if source.policy_revision != run.snapshot.get("policy_revision", 1):
             conflict("configuration_changed")
         if (

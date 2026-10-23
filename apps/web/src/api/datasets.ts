@@ -1,6 +1,8 @@
 import { apiClient } from "./client";
 import type {
   DatasetOut,
+  DatasetLifecyclePreview,
+  DatasetLifecycleResult,
   DatasetSavedViewOut,
   DatasetSavedViewWrite,
   DatasetSceneOptions,
@@ -12,6 +14,8 @@ function datasetGet<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export type DatasetResponse = DatasetOut;
+export type DatasetLifecycleState = "active" | "archived" | "all";
+export type { DatasetLifecyclePreview, DatasetLifecycleResult };
 
 export type DatasetAvailabilityState =
   | "verified"
@@ -160,6 +164,7 @@ export const datasetsApi = {
   list: (
     params?: {
       search?: string;
+      state?: DatasetLifecycleState;
       data_type?: string;
       has_scenes?: boolean;
       location_id?: string;
@@ -170,6 +175,7 @@ export const datasetsApi = {
   ) => {
     const q = new URLSearchParams();
     if (params?.search) q.set("search", params.search);
+    if (params?.state) q.set("state", params.state);
     if (params?.data_type) q.set("data_type", params.data_type);
     if (params?.location_id) q.set("location_id", params.location_id);
     if (params?.has_scenes !== undefined) {
@@ -205,6 +211,15 @@ export const datasetsApi = {
       `/datasets/${id}/training-versions?${new URLSearchParams({ limit: String(params.limit), offset: String(params.offset) })}`,
       init,
     ),
+
+  previewLifecycle: (
+    id: string,
+    payload: { operation: "archive" | "restore"; expected_revision: number },
+  ) => apiClient.post<DatasetLifecyclePreview>(`/datasets/${id}/lifecycle-preview`, payload),
+  setLifecycle: (
+    id: string,
+    payload: { operation: "archive" | "restore"; expected_revision: number; impact_token: string },
+  ) => apiClient.post<DatasetLifecycleResult>(`/datasets/${id}/lifecycle`, payload),
 
   create: (payload: DatasetCreatePayload) => apiClient.post<DatasetResponse>("/datasets", payload),
 

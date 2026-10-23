@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DirectoryReferencePanel } from "./DirectoryReferencePanel";
 const api = vi.hoisted(() => ({
   sources: vi.fn(),
+  start: vi.fn(),
   source: vi.fn(),
   probe: vi.fn(),
   create: vi.fn(),
@@ -182,6 +183,36 @@ it("configures the first source, closes its form and focuses the new URL identit
   expect(api.create).toHaveBeenCalledWith(
     expect.objectContaining({ dataset_id: "dataset", location_id: "location", node_id: "node" }),
   );
+  view.unmount();
+  client.clear();
+});
+
+it("retains source history navigation while archived and removes source write configuration", async () => {
+  vi.clearAllMocks();
+  api.sources.mockResolvedValue({ items: [source], total: 1 });
+  api.locations.mockResolvedValue({ items: [], total: 0 });
+  api.scans.mockResolvedValue({ items: [], total: 0 });
+  api.activeRegistration.mockResolvedValue(null);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <DirectoryReferencePanel datasetId="dataset" archived />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  await screen.findByRole("option", { name: "source" });
+  expect(screen.getByRole("button", { name: "只读预扫描" })).toBeDisabled();
+  expect(screen.getByText("新增来源", { exact: false }).closest("details")).toHaveAttribute(
+    "hidden",
+  );
+  expect(screen.queryByText("来源设置", { exact: false })).not.toBeInTheDocument();
+  expect(screen.queryByText("周期计划", { exact: false })).not.toBeInTheDocument();
+  expect(screen.getByText("扫描历史", { exact: false })).toBeVisible();
+  expect(screen.getByText("数据集已归档，来源历史保持只读。")).toBeInTheDocument();
+  expect(screen.queryByText("来源已停用或注销，仅查看保留历史。")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "只读预扫描" }));
+  expect(api.start).not.toHaveBeenCalled();
   view.unmount();
   client.clear();
 });

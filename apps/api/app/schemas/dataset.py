@@ -34,6 +34,9 @@ class DatasetOut(BaseModel):
     total_size: int = 0
     created_by: UUID
     project_count: int = 0
+    archived_at: datetime | None = None
+    archived_by: UUID | None = None
+    lifecycle_revision: int = 1
     # v0.13.11 · 派生自 metadata_["axis_convention"]，None = 视作 iso_8855。
     axis_convention: LidarAxisConvention | None = None
     created_at: datetime

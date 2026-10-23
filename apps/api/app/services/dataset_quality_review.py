@@ -27,6 +27,7 @@ from app.services.dataset_content import key_authority
 ACTIVE = quality.ACTIVE
 LEASE_SECONDS = quality.LEASE_SECONDS
 now = quality.now
+failure_code = quality.failure_code
 EVIDENCE_FIELDS = (
     "item_id",
     "asset_id",
@@ -85,6 +86,7 @@ async def require_batch(db, dataset_id, run_id, batch_id, actor, *, lock=False):
 
 async def preview(db, dataset_id, run_id, actor, payload):
     run = await quality.require_run(db, dataset_id, run_id, actor, lock=True)
+    dataset = await quality.require_write(db, dataset_id)
     if run.status in ACTIVE:
         raise HTTPException(409, "Wait until quality detection has stopped")
     await db.execute(
@@ -166,6 +168,7 @@ async def preview(db, dataset_id, run_id, actor, payload):
     blocked = sum(m.state == "blocked" for m in members)
     batch = Batch(
         quality_run_id=run_id,
+        authority={"dataset_lifecycle_revision": dataset.lifecycle_revision},
         created_by=actor.id,
         selection=selection,
         proof=proof,
@@ -205,11 +208,14 @@ async def authority(db, batch):
         != batch.authority["key_proof"]
     ):
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+    await quality.require_write(db, run.dataset_id, snapshot=batch.authority)
     return actor, run
 
 
 async def attach_job(db, batch, run, actor, key_id):
+    dataset = await quality.require_write(db, run.dataset_id, snapshot=batch.authority)
     batch.authority = {
+        "dataset_lifecycle_revision": dataset.lifecycle_revision,
         "actor_id": str(actor.id),
         "api_key_id": str(key_id) if key_id else None,
         "key_proof": await key_authority(db, actor, key_id, "datasets:write"),
@@ -220,6 +226,7 @@ async def attach_job(db, batch, run, actor, key_id):
         user_id=actor.id,
         payload={
             "dataset_id": str(run.dataset_id),
+            "dataset_lifecycle_revision": dataset.lifecycle_revision,
             "run_id": str(run.id),
             "batch_id": str(batch.id),
             "decision": batch.decision,
@@ -238,6 +245,7 @@ async def execute_preview(
     db, dataset_id, run_id, batch_id, actor, payload, key_id=None
 ):
     batch = await require_batch(db, dataset_id, run_id, batch_id, actor, lock=True)
+    await quality.require_write(db, dataset_id, snapshot=batch.authority)
     if batch.created_by != actor.id:
         raise HTTPException(403, "Only the preview creator can confirm this scope")
     if batch.scope_digest != payload.scope_digest:
@@ -268,6 +276,7 @@ async def execute_preview(
 
 async def resume(db, dataset_id, run_id, batch_id, actor, key_id=None):
     batch = await require_batch(db, dataset_id, run_id, batch_id, actor, lock=True)
+    await quality.require_write(db, dataset_id, snapshot=batch.authority)
     if batch.status not in {"failed", "cancelled"} or batch.processed >= batch.total:
         raise HTTPException(
             409, "Only interrupted batches with pending members can resume"
@@ -305,6 +314,11 @@ async def summarize(db, batch):
 
 
 async def finish(db, batch, status, error=None):
+    if status == "completed":
+        run = await db.get(Run, batch.quality_run_id, populate_existing=True)
+        if run is None:
+            raise HTTPException(404, "Quality run not found")
+        await quality.require_write(db, run.dataset_id, snapshot=batch.authority)
     await summarize(db, batch)
     batch.status = (
         "partial" if status == "completed" and batch.summary["partial"] else status
@@ -376,6 +390,7 @@ async def process_member(db, batch, actor, run):
         .with_for_update()
         .execution_options(populate_existing=True)
     )
+    await quality.require_write(db, run.dataset_id, snapshot=batch.authority)
     expected = {k: member.snapshot[k] for k in EVIDENCE_FIELDS}
     if (
         row is None

@@ -21,6 +21,7 @@ from app.api.v1 import (
     dashboard,
     data_manager,
     datasets,
+    dataset_lifecycle,
     dataset_views,
     dataset_quality,
     dataset_quality_review,
@@ -158,6 +159,7 @@ api_router.include_router(
 )
 api_router.include_router(files.router, prefix="/files", tags=["files"])
 api_router.include_router(datasets.router, prefix="/datasets", tags=["datasets"])
+api_router.include_router(dataset_lifecycle.router, tags=["datasets"])
 api_router.include_router(dataset_views.router, tags=["datasets"])
 api_router.include_router(dataset_quality.router, tags=["datasets"])
 api_router.include_router(dataset_quality_review.router, tags=["datasets"])

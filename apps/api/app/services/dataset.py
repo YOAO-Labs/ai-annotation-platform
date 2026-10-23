@@ -39,6 +39,7 @@ from app.services.storage import TRUSTED_NUSCENES_PREFIX, storage_service
 from app.services.system_settings_service import SystemSettingsService
 from app.services.reference_keys import is_reference, PREFIX
 from app.services.dataset_source_access import validate_dataset_write
+from app.services.dataset_lifecycle import require_writable
 
 _STREAM_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024
 _IMAGE_HEAD_BYTES = 256 * 1024
@@ -93,6 +94,16 @@ class DatasetDeleteCleanup:
     directory_objects: tuple[tuple[str, str], ...] = ()
 
 
+async def writable_dataset(db, dataset_id):
+    """Preserve managed-writer serialization before validating lifecycle state."""
+    await db.scalar(
+        select(Dataset.id)
+        .where(Dataset.id == dataset_id)
+        .with_for_update(key_share=True)
+    )
+    return await require_writable(db, dataset_id)
+
+
 async def build_tasks_for_link(
     db: AsyncSession,
     *,
@@ -112,7 +123,7 @@ async def build_tasks_for_link(
     先写各相机标定，再按帧建 Task + 多文件 link（见 services/pointcloud_import.py）。
     """
     await validate_dataset_write(
-        db, dataset_id, directory_authority, project_id=project_id
+        db, dataset_id, directory_authority, project_id=project_id, lock=True
     )
     await db.execute(
         select(Dataset.id).where(Dataset.id == dataset_id).with_for_update()
@@ -141,7 +152,7 @@ async def build_tasks_for_link(
         # 若不在此 commit，attach_calibration 的 flush 会在 session 关闭时回滚 —— 重导入
         # （如修正 calib 文件后重跑）将刷不掉旧标定。commit 在这让标定持久化与建任务解耦。
         await validate_dataset_write(
-            db, dataset_id, directory_authority, project_id=project_id
+            db, dataset_id, directory_authority, project_id=project_id, lock=True
         )
         await db.commit()
         return await build_pointcloud_tasks_for_link(
@@ -150,6 +161,7 @@ async def build_tasks_for_link(
             project_id=project_id,
             job_id=job_id,
             chunk_size=chunk_size,
+            directory_authority=directory_authority,
         )
 
     item_q = (
@@ -180,7 +192,7 @@ async def build_tasks_for_link(
     for start in range(0, total, chunk_size):
         chunk = items[start : start + chunk_size]
         await validate_dataset_write(
-            db, dataset_id, directory_authority, project_id=project_id
+            db, dataset_id, directory_authority, project_id=project_id, lock=True
         )
         await db.execute(
             select(Dataset.id).where(Dataset.id == dataset_id).with_for_update()
@@ -232,7 +244,7 @@ async def build_tasks_for_link(
                 last_pct = pct
 
         await validate_dataset_write(
-            db, dataset_id, directory_authority, project_id=project_id
+            db, dataset_id, directory_authority, project_id=project_id, lock=True
         )
         await db.commit()
 
@@ -252,9 +264,17 @@ class DatasetService:
         offset: int = 0,
         location_id: uuid.UUID | None = None,
         actor=None,
+        state: str = "active",
     ) -> tuple[list[dict], int]:
         q = select(Dataset)
         count_q = select(func.count()).select_from(Dataset)
+        if state != "all":
+            clause = (
+                Dataset.archived_at.is_not(None)
+                if state == "archived"
+                else Dataset.archived_at.is_(None)
+            )
+            q, count_q = q.where(clause), count_q.where(clause)
         if location_id is not None:
             from app.services.dataset_workbench import location_dataset_scope
 
@@ -408,6 +428,7 @@ class DatasetService:
         ds = await self.db.get(Dataset, dataset_id)
         if not ds:
             return None
+        ds = await writable_dataset(self.db, dataset_id)
         if name is not None:
             ensure_dataset_storage_name_is_writable(name)
             if ds.storage_scan_prefix is None:
@@ -433,6 +454,7 @@ class DatasetService:
         )
         if not ds:
             return None
+        await writable_dataset(self.db, dataset_id)
         from app.services.active_learning_pool import guard_source
 
         await guard_source(self.db, dataset_id=dataset_id)
@@ -590,7 +612,7 @@ class DatasetService:
         storage_binding=None,
         logical_path: str | None = None,
     ) -> DatasetItem:
-        ds = await self.db.get(Dataset, dataset_id, with_for_update={"key_share": True})
+        ds = await writable_dataset(self.db, dataset_id)
         item = DatasetItem(
             dataset_id=dataset_id,
             file_name=file_name,
@@ -630,6 +652,7 @@ class DatasetService:
             dataset_id is not None and candidate.dataset_id != dataset_id
         ):
             return False
+        await writable_dataset(self.db, candidate.dataset_id)
         # Writers acquire the dataset before its items. NO KEY UPDATE also
         # remains compatible with existing FK references from other writers.
         await self.db.get(
@@ -772,9 +795,11 @@ class DatasetService:
             )
             uploaded_storage = True
 
-        async def check_authority():
+        async def check_authority(*, lock=False):
             try:
-                await validate_dataset_write(self.db, dataset_id, directory_authority)
+                await validate_dataset_write(
+                    self.db, dataset_id, directory_authority, lock=lock
+                )
             except HTTPException:
                 if uploaded_storage:
                     storage_service.delete_object(
@@ -821,6 +846,7 @@ class DatasetService:
             if dims:
                 width, height = dims
 
+        await check_authority(lock=True)
         item = await self.add_item(
             dataset_id=dataset_id,
             file_name=final_name,
@@ -1063,13 +1089,13 @@ class DatasetService:
         在 db.commit() 之后 enqueue。返回 LinkProjectResult 让 endpoint 决策。
         """
         await validate_dataset_write(
-            self.db, dataset_id, directory_authority, project_id=project_id
+            self.db, dataset_id, directory_authority, project_id=project_id, lock=True
         )
         dataset = await self.db.scalar(
             select(Dataset).where(Dataset.id == dataset_id).with_for_update()
         )
         await validate_dataset_write(
-            self.db, dataset_id, directory_authority, project_id=project_id
+            self.db, dataset_id, directory_authority, project_id=project_id, lock=True
         )
         existing = (
             await self.db.execute(
@@ -1151,6 +1177,7 @@ class DatasetService:
         `link_project` handles the initial backfill. This method covers the append path:
         upload / zip / scan can add new DatasetItem rows after a dataset is already linked.
         """
+        await writable_dataset(self.db, dataset_id)
         await self.db.execute(
             select(Dataset.id).where(Dataset.id == dataset_id).with_for_update()
         )
@@ -1276,6 +1303,7 @@ class DatasetService:
             {"deleted_tasks": N, "deleted_annotations": M, "deleted_batches": K,
              "deleted_batch_ids": [...], "soft": false}
         """
+        await writable_dataset(self.db, dataset_id)
         from app.db.models.annotation import Annotation
         from app.db.models.annotation_comment import AnnotationComment
         from app.db.models.task_lock import TaskLock
@@ -1461,6 +1489,9 @@ def _dataset_dict(ds: Dataset) -> dict:
         "file_count": ds.file_count,
         "total_size": 0,  # 调用方会覆盖
         "created_by": ds.created_by,
+        "archived_at": ds.archived_at,
+        "archived_by": ds.archived_by,
+        "lifecycle_revision": ds.lifecycle_revision,
         # v0.13.11 · 派生自 metadata_["axis_convention"], None = 视作 iso_8855。
         "axis_convention": (ds.metadata_ or {}).get("axis_convention"),
         "created_at": ds.created_at,

@@ -89,11 +89,37 @@ async def authority(db, run):
         != run.authority["key_proof"]
     ):
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+    await require_write(db, run.dataset_id, snapshot=run.authority)
     return actor
 
 
+async def require_write(db, dataset_id, *, snapshot=None):
+    """Keep historical evidence readable while fencing new business writes."""
+    from app.services.dataset_lifecycle import require_writable
+
+    expected = (
+        snapshot.get("dataset_lifecycle_revision", 1) if snapshot is not None else None
+    )
+    return await require_writable(db, dataset_id, expected_revision=expected, lock=True)
+
+
+def failure_code(exc):
+    if isinstance(exc, HTTPException):
+        if exc.status_code in {401, 403, 404}:
+            return "access_revoked"
+        if isinstance(exc.detail, dict) and exc.detail.get("code") in {
+            "dataset_archived",
+            "dataset_lifecycle_changed",
+            "dataset_busy",
+        }:
+            return exc.detail["code"]
+    return "worker_failed"
+
+
 async def attach_job(db, run, actor, key_id):
+    dataset = await require_write(db, run.dataset_id, snapshot=run.authority)
     run.authority = dict(
+        dataset_lifecycle_revision=dataset.lifecycle_revision,
         actor_id=str(actor.id),
         api_key_id=str(key_id) if key_id else None,
         key_proof=await key_authority(db, actor, key_id, "datasets:write"),
@@ -105,6 +131,7 @@ async def attach_job(db, run, actor, key_id):
         user_id=actor.id,
         payload={
             "dataset_id": str(run.dataset_id),
+            "dataset_lifecycle_revision": dataset.lifecycle_revision,
             "run_id": str(run.id),
             "rule_version": run.rule_version,
             "total": run.total,
@@ -121,9 +148,7 @@ async def attach_job(db, run, actor, key_id):
 
 async def start(db, dataset_id, actor, config, key_id=None):
     actor = await access.assert_dataset_manage(db, dataset_id, actor)
-    await db.scalar(
-        select(Dataset.id).where(Dataset.id == dataset_id).with_for_update()
-    )
+    dataset = await require_write(db, dataset_id)
     if await db.scalar(
         select(Run.id).where(Run.dataset_id == dataset_id, Run.status.in_(ACTIVE))
     ):
@@ -146,7 +171,7 @@ async def start(db, dataset_id, actor, config, key_id=None):
         await access.require_source(db, source_id, actor)
     run = Run(
         dataset_id=dataset_id,
-        authority={},
+        authority={"dataset_lifecycle_revision": dataset.lifecycle_revision},
         config=config.model_dump(),
         total=len(members),
         processed=0,
@@ -191,10 +216,8 @@ async def start(db, dataset_id, actor, config, key_id=None):
 
 
 async def resume(db, dataset_id, run_id, actor, key_id=None):
-    await db.scalar(
-        select(Dataset.id).where(Dataset.id == dataset_id).with_for_update()
-    )
     run = await require_run(db, dataset_id, run_id, actor, lock=True)
+    await require_write(db, dataset_id, snapshot=run.authority)
     if run.status == "completed" or (
         run.status in ACTIVE and run.lease_until and run.lease_until > now()
     ):
@@ -220,6 +243,8 @@ async def resume(db, dataset_id, run_id, actor, key_id=None):
 
 
 async def finish(db, run, status, error=None):
+    if status == "completed":
+        await require_write(db, run.dataset_id, snapshot=run.authority)
     run.status, run.error_code, run.completed_at, run.lease_until = (
         status,
         error,
@@ -374,6 +399,7 @@ async def review_result(db, run, result_id, actor, payload, *, batch_id=None):
     )
     if row is None:
         raise HTTPException(404, "Quality result not found")
+    await require_write(db, run.dataset_id)
     if row.state == "pending":
         raise HTTPException(409, "Result is not available yet")
     if row.review_revision != payload.expected_revision:

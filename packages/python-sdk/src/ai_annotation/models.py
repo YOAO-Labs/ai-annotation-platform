@@ -94,6 +94,50 @@ class Dataset(_AAPModel):
     file_count: int = 0
     total_size: int = 0
     created_at: datetime | None = None
+    archived_at: datetime | None = None
+    archived_by: UUID | None = None
+    lifecycle_revision: int = 1
+
+
+DatasetListState = Literal["active", "archived", "all"]
+DatasetLifecycleOperation = Literal["archive", "restore"]
+DatasetLifecycleState = Literal["active", "archived"]
+
+
+class DatasetLifecycleCounts(_AAPModel):
+    items: int
+    sources: int
+    projects: int
+    tasks: int
+    annotations: int
+    active_scans: int
+    active_registrations: int
+    enabled_schedules: int
+    pending_jobs: int
+    ready_lineage_versions: int
+    unfinished_lineage_versions: int
+
+
+class DatasetLifecyclePreview(_AAPModel):
+    """A short-lived impact review bound to the actor and dataset revision."""
+
+    dataset_id: UUID
+    lifecycle_revision: int
+    state: DatasetLifecycleState
+    operation: DatasetLifecycleOperation
+    measured_at: datetime
+    expires_at: datetime
+    impact_token: str
+    counts: DatasetLifecycleCounts
+    frozen_coverage: Literal["recorded_dataset_membership_only"]
+
+
+class DatasetLifecycleResult(_AAPModel):
+    dataset_id: UUID
+    lifecycle_revision: int
+    state: DatasetLifecycleState
+    archived_at: datetime | None
+    archived_by: UUID | None
 
 
 class DatasetItem(_AAPModel):

@@ -62,6 +62,7 @@ export function ReferenceItemPreview({ filePath }: { filePath: string }) {
 
 export interface DirectorySourceFocus {
   persistUrl?: boolean;
+  archived?: boolean;
   initialSourceId?: string;
   initialScanId?: string;
 }
@@ -69,7 +70,7 @@ export function DirectoryReferencePanel(props: { datasetId: string } & Directory
   const revision = useSessionRevision();
   return (
     <DirectoryReferencePanelOwner
-      key={`${revision}/${props.datasetId}/${props.initialSourceId ?? ""}/${props.initialScanId ?? ""}`}
+      key={`${revision}/${props.datasetId}/${props.archived ?? false}/${props.initialSourceId ?? ""}/${props.initialScanId ?? ""}`}
       {...props}
     />
   );
@@ -80,6 +81,7 @@ function DirectoryReferencePanelOwner({
   initialSourceId,
   initialScanId,
   persistUrl = false,
+  archived = false,
 }: { datasetId: string } & DirectorySourceFocus) {
   const hintId = useId();
   const navigation = useLocation();
@@ -150,7 +152,7 @@ function DirectoryReferencePanelOwner({
       ? sourceOptions.map((item) => (item.id === source.id ? source : item))
       : [source, ...sourceOptions]
     : sourceOptions;
-  const writable = !!source?.enabled && !source.unregistered_at;
+  const writable = !archived && !!source?.enabled && !source.unregistered_at;
   const samplePath = (path: string) => {
     const base = source!.relative_path;
     return locations.data?.items.find((l) => l.id === source!.location_id)?.kind === "s3"
@@ -249,6 +251,10 @@ function DirectoryReferencePanelOwner({
     enabled: !!locationId && browsePath !== null,
   });
   const act = async (work: (current: () => boolean) => Promise<unknown>) => {
+    if (archived) {
+      setError("数据集已归档，来源管理保持只读。");
+      return;
+    }
     const current = capture();
     setBusy(true);
     setError("");
@@ -416,7 +422,7 @@ function DirectoryReferencePanelOwner({
             )}
           </div>
         )}
-        <details className="mt-3 border-t border-border pt-3" open={!source}>
+        <details hidden={archived} className="mt-3 border-t border-border pt-3" open={!source}>
           <summary className={disclosure}>
             新增来源{" "}
             <span className="ml-2 text-xs font-normal text-muted-foreground">
@@ -767,7 +773,11 @@ function DirectoryReferencePanelOwner({
               </p>
             )}
             {!writable && (
-              <p className="mt-2 text-muted-foreground">来源已停用或注销，仅查看保留历史。</p>
+              <p className="mt-2 text-muted-foreground">
+                {archived
+                  ? "数据集已归档，来源历史保持只读。"
+                  : "来源已停用或注销，仅查看保留历史。"}
+              </p>
             )}
           </div>
         </details>
@@ -881,7 +891,7 @@ function DirectoryReferencePanelOwner({
           </div>
         </details>
       )}
-      {source && (
+      {!archived && source && (
         <details className="rounded-lg border border-border bg-card p-4">
           <summary className={disclosure}>
             来源设置{" "}
@@ -896,7 +906,7 @@ function DirectoryReferencePanelOwner({
           />
         </details>
       )}
-      {source?.enabled && !source.unregistered_at && (
+      {!archived && source?.enabled && !source.unregistered_at && (
         <details className="rounded-lg border border-border bg-card p-4">
           <summary className={disclosure}>
             周期计划{" "}

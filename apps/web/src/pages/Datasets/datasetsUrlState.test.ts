@@ -43,6 +43,7 @@ describe("Datasets URL state", () => {
     );
     expect(parsed.state).toEqual({
       query: "lidar",
+      state: "active",
       data_type: "point_cloud",
       page: 2,
       pageSize: 50,
@@ -55,7 +56,14 @@ describe("Datasets URL state", () => {
   });
   it("bounds invalid paging and reports invalid types", () => {
     expect(parseDatasetsUrlWithIssues("page=-2&page_size=999&data_type=unknown")).toEqual({
-      state: { query: "", page: 0, pageSize: 20, data_type: undefined, location_id: undefined },
+      state: {
+        query: "",
+        state: "active",
+        page: 0,
+        pageSize: 20,
+        data_type: undefined,
+        location_id: undefined,
+      },
       issues: [{ key: "data_type", message: "未知的数据集类型" }],
     });
   });
@@ -123,4 +131,20 @@ it("round-trips Scene identity and keeps invalid Scene URL conditions for server
   expect(datasetFilterSignature({ scene_id: "scene-b" })).not.toBe(
     datasetFilterSignature({ scene_id: "scene-a" }),
   );
+});
+
+it("preserves archive filters through pagination, legacy links and return navigation", () => {
+  const parsed = parseDatasetsUrlWithIssues("state=archived&page=3&q=car");
+  expect(parsed.state.state).toBe("archived");
+  const encoded = datasetsUrlCodec.encode(new URLSearchParams("keep=1"), parsed.state);
+  expect(encoded.get("state")).toBe("archived");
+  expect(encoded.get("page")).toBe("3");
+  expect(datasetDetailPath("ds", `?${encoded}`)).toContain("state%3Darchived");
+  expect(legacyDatasetDetailPath(new URLSearchParams("dataset=ds&state=archived"))).toContain(
+    "state%3Darchived",
+  );
+  expect(parseDatasetsUrlWithIssues("state=invalid")).toMatchObject({
+    state: { state: "active" },
+    issues: [{ key: "state" }],
+  });
 });

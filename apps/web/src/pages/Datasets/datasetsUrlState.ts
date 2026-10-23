@@ -1,18 +1,35 @@
 import type { UrlStateCodec, UrlStateIssue } from "@/hooks/useUrlFilterState";
 import { listPageSize } from "@/components/ui/ListPagination";
-import type { DatasetAvailabilityState, DatasetItemFilters } from "@/api/datasets";
+import type {
+  DatasetAvailabilityState,
+  DatasetItemFilters,
+  DatasetLifecycleState,
+} from "@/api/datasets";
 
 export const DATASET_DATA_TYPE_VALUES = ["image", "video", "point_cloud", "multimodal"] as const;
 export type DatasetDataType = (typeof DATASET_DATA_TYPE_VALUES)[number];
 export interface DatasetsUrlState {
   query: string;
+  state: DatasetLifecycleState;
   data_type?: DatasetDataType;
   location_id?: string;
   page: number;
   pageSize: number;
 }
-export const EMPTY_DATASETS_URL_STATE: DatasetsUrlState = { query: "", page: 0, pageSize: 20 };
-export const DATASET_FILTER_KEYS = ["q", "data_type", "location_id", "page", "page_size"] as const;
+export const EMPTY_DATASETS_URL_STATE: DatasetsUrlState = {
+  query: "",
+  state: "active",
+  page: 0,
+  pageSize: 20,
+};
+export const DATASET_FILTER_KEYS = [
+  "q",
+  "state",
+  "data_type",
+  "location_id",
+  "page",
+  "page_size",
+] as const;
 export const availabilityLabels: Record<DatasetAvailabilityState, string> = {
   verified: "已核验（读取时复核）",
   missing: "文件缺失",
@@ -38,8 +55,12 @@ export function parseDatasetsUrlWithIssues(search: string | URLSearchParams): {
   const type = rawType === "all" || !rawType ? undefined : rawType;
   const valid = DATASET_DATA_TYPE_VALUES.includes(type as DatasetDataType);
   if (type && !valid) issues.push({ key: "data_type", message: "未知的数据集类型" });
+  const rawState = params.get("state") ?? "active";
+  const stateValid = ["active", "archived", "all"].includes(rawState);
+  if (!stateValid) issues.push({ key: "state", message: "未知的数据集状态" });
   return {
     state: {
+      state: stateValid ? (rawState as DatasetLifecycleState) : "active",
       query: params.get("q")?.trim() ?? "",
       data_type: valid ? (type as DatasetDataType) : undefined,
       location_id: params.get("location_id")?.trim() || undefined,
@@ -53,6 +74,7 @@ function updateDatasetsUrl(current: URLSearchParams, state: DatasetsUrlState): U
   const next = new URLSearchParams(current);
   const values = {
     q: state.query.trim(),
+    state: state.state === "active" ? undefined : state.state,
     data_type: state.data_type,
     location_id: state.location_id,
     page: state.page > 0 ? String(state.page + 1) : undefined,

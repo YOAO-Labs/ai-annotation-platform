@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Database, FolderInput, Plus } from "lucide-react";
@@ -44,6 +44,7 @@ function DatasetsList() {
   const location = useLocation();
   const navigate = useNavigate();
   const state = parseDatasetsUrl(params);
+  const stateHint = useId();
   const capture = useSessionGuard();
   const currentOwner = capture();
   const { role } = usePermissions();
@@ -58,6 +59,7 @@ function DatasetsList() {
   const result = useDatasets({
     search: search.trim() || undefined,
     data_type: state.data_type,
+    state: state.state,
     location_id: state.location_id,
     limit: state.pageSize,
     offset: state.page * state.pageSize,
@@ -132,29 +134,50 @@ function DatasetsList() {
       )}
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-3">
-          <label className="flex items-center gap-2 text-sm">
-            数据类型
-            <select
-              aria-label="数据类型"
-              className="rounded-md border border-input bg-background p-2 text-sm"
-              value={state.data_type ?? ""}
-              onChange={(e) =>
-                patch({
-                  data_type: (e.target.value as typeof state.data_type) || undefined,
-                  page: 0,
-                })
-              }
-            >
-              <option value="">全部类型</option>
-              {Object.entries(typeLabels)
-                .filter(([key]) => key !== "other")
-                .map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
-                ))}
-            </select>
-          </label>
+          <div className="flex flex-wrap items-start gap-3">
+            <label className="grid gap-1 text-sm">
+              数据集状态
+              <select
+                aria-label="数据集状态"
+                aria-describedby={stateHint}
+                className="rounded-md border border-input bg-background p-2 text-sm"
+                value={state.state}
+                onChange={(event) =>
+                  patch({ state: event.target.value as typeof state.state, page: 0 })
+                }
+              >
+                <option value="active">活动</option>
+                <option value="archived">已归档</option>
+                <option value="all">全部</option>
+              </select>
+              <span id={stateHint} className="text-xs leading-relaxed text-muted-foreground">
+                归档保留内容，可在详情中恢复。
+              </span>
+            </label>
+            <label className="grid gap-1 text-sm">
+              数据类型
+              <select
+                aria-label="数据类型"
+                className="rounded-md border border-input bg-background p-2 text-sm"
+                value={state.data_type ?? ""}
+                onChange={(e) =>
+                  patch({
+                    data_type: (e.target.value as typeof state.data_type) || undefined,
+                    page: 0,
+                  })
+                }
+              >
+                <option value="">全部类型</option>
+                {Object.entries(typeLabels)
+                  .filter(([key]) => key !== "other")
+                  .map(([key, label]) => (
+                    <option key={key} value={key}>
+                      {label}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          </div>
           <SearchInput
             placeholder="搜索数据集..."
             value={query}
@@ -205,6 +228,11 @@ function DatasetsList() {
                       <Database className="size-3.5 shrink-0" />
                       {ds.name}
                     </Link>
+                    {ds.archived_at && (
+                      <Badge variant="outline" className="ml-2">
+                        已归档
+                      </Badge>
+                    )}
                     <p className="mt-1 max-w-80 truncate text-muted-foreground">
                       {ds.description || ds.display_id}
                     </p>
@@ -231,7 +259,7 @@ function DatasetsList() {
               {!result.isLoading && !result.error && !rows.length && (
                 <tr>
                   <td colSpan={6} className="p-8 text-center text-sm text-muted-foreground">
-                    {state.query || state.data_type || state.location_id
+                    {state.query || state.data_type || state.location_id || state.state !== "active"
                       ? "没有匹配的数据集"
                       : "暂无数据集，接入服务器目录或上传文件开始"}
                   </td>

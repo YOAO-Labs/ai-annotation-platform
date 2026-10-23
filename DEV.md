@@ -147,6 +147,8 @@ MinIO bucket，并隔离 DuckDB/临时文件。共享 `.env` 只作为基础配�
 
 任务版本流的增量迁移只增加 `project_task_datasets` 与 `task_dataset_version_memberships`，不重写历史冻结记录。先核对实际 API／worker 的 checkout、挂载、数据库与迁移图，再应用迁移，刷新手动创建的 API 和执行自动学习策略的 worker／scheduler。Celery 不会因 Python 文件更新自动重载；仅本次管理与分析代码变化不要求重建未改变的 GPU 训练／推理镜像。
 
+数据集生命周期升级须先应用 Alembic 0214，再接入新模型并刷新执行导入、建任务、扫描/登记、同步、质量检测及复核的 worker；原件与业务关系不回填。迁移是加列，历史为活动且生命周期修订1；发生归档/恢复后，降级会拒绝删除生命周期事实。独立工作树环境先核实资源所有权，使用其迁移连接；保留人工数据，禁止用测试数据库准备过程代替应用迁移。
+
 历史关联使用 `apps/api/scripts/backfill_task_datasets.py`。目标必选其一：`--project-id UUID` 或 `--all-projects`；模式必选其一：`--dry-run`、`--apply`、`--verify`。以下以已核对的当前工作树 `dev` 模式为例；先停止同模式运行进程再执行，避免与启动器模式锁竞争。生产环境使用部署中明确选定的应用环境和现有虚拟环境，不能沿用不明来源的共享 `.env`。
 
 ```bash

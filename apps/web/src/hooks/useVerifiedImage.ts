@@ -78,6 +78,10 @@ export function verifiedContentError(error: unknown): string {
     error instanceof ApiError && error.detailRaw && typeof error.detailRaw === "object"
       ? String((error.detailRaw as { code?: unknown }).code ?? "")
       : "";
+  if (code === "dataset_archived") return "数据集已归档；请由创建者或超级管理员恢复后再执行此操作";
+  if (code === "dataset_lifecycle_changed")
+    return "数据集生命周期已变化，请刷新并在当前权限下创建新操作";
+  if (code === "dataset_busy") return "数据集正在处理其他操作，请稍后重新核对";
   if (
     [
       "content_mismatch",

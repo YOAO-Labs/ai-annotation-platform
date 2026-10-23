@@ -77,7 +77,7 @@ async def context(db, run_id):
 
 
 async def validate(db, location, source, run):
-    await scans.validate_context(db, location, source, snapshot=run.snapshot)
+    await scans.validate_write_context(db, location, source, snapshot=run.snapshot)
     if source.policy_revision != run.snapshot.get("policy_revision", 1):
         raise fs.FilesystemStorageError("configuration_changed")
     actor = await scans.require_actor(db, uuid.UUID(run.snapshot["actor_id"]), source)
@@ -133,7 +133,7 @@ async def start_preflight(db, scan_id, actor, *, api_key_id=None, worker_node=No
     key_proof = await key_authority(db, actor, api_key_id, "datasets:write")
     location, source, scan, _ = await scans.run_context(db, scan_id)
     await request_authority(db, actor, api_key_id, key_proof, source)
-    await scans.validate_context(db, location, source, snapshot=scan.snapshot)
+    await scans.validate_write_context(db, location, source, snapshot=scan.snapshot)
     if not scan.complete or scan.status != "completed":
         raise HTTPException(409, detail={"code": "scan_incomplete"})
     existing = await db.scalar(select(Run).where(Run.scan_run_id == scan_id))
@@ -185,6 +185,9 @@ async def start_preflight(db, scan_id, actor, *, api_key_id=None, worker_node=No
         snapshot={
             "source_revision": source.config_revision,
             "location_revision": location.config_revision,
+            "dataset_lifecycle_revision": scan.snapshot.get(
+                "dataset_lifecycle_revision", 1
+            ),
             "node_id": source.config["node_id"],
             "ownership_mode": source.ownership_mode,
             "cache_policy": effective_cache_policy(source, location),
@@ -539,6 +542,8 @@ async def confirm(
 
     async def authorize_request(current_db):
         await request_authority(current_db, actor, api_key_id, key_proof, source)
+        if source is not None:
+            await scans.require_dataset_write(current_db, source, snapshot=run.snapshot)
         if before_commit is not None:
             await before_commit(current_db)
 
@@ -564,7 +569,7 @@ async def confirm(
             else locations.api_node_id()
         )
         await authorize(db)
-        await scans.validate_context(db, location, source, snapshot=run.snapshot)
+        await scans.validate_write_context(db, location, source, snapshot=run.snapshot)
         await other_active(db, run)
         if run.phase == "registering":
             if run.registration_scope != scope:
@@ -666,7 +671,7 @@ async def confirm(
         raise HTTPException(409, detail={"code": "api_verification_incomplete"})
     location, source, run, _ = await context(db, run_id)
     await authorize(db)
-    await scans.validate_context(db, location, source, snapshot=run.snapshot)
+    await scans.validate_write_context(db, location, source, snapshot=run.snapshot)
     await other_active(db, run)
     if run.phase != "preflight" or run.status != "completed":
         raise HTTPException(409, "Preflight changed; refresh before confirming")
@@ -682,7 +687,7 @@ async def resume(db, run_id, actor, *, api_key_id=None, path_digest=None):
     key_proof = await key_authority(db, actor, api_key_id, "datasets:write")
     location, source, run, old_job = await context(db, run_id)
     await request_authority(db, actor, api_key_id, key_proof, source)
-    await scans.validate_context(db, location, source, snapshot=run.snapshot)
+    await scans.validate_write_context(db, location, source, snapshot=run.snapshot)
     await other_active(db, run)
     if (
         run.status == "running"

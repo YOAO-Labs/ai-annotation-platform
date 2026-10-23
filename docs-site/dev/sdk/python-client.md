@@ -3,7 +3,7 @@ title: Python SDK 参考
 audience: [dev]
 type: reference
 status: beta
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-24
 ---
 
 # Python SDK 参考
@@ -84,27 +84,32 @@ with Client() as client:
 
 ### client.datasets
 
-| 方法             | 签名                                                                                                                  | 返回                   |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| `list`           | `list(search: str \| None = None, data_type: str \| None = None, limit: int = 50, offset: int = 0)`                   | `Page[Dataset]`        |
-| `create`         | `create(name: str, data_type: str = "image", **kwargs)`                                                               | `Dataset`              |
-| `get`            | `get(dataset_id)`                                                                                                     | `Dataset`              |
-| `update`         | `update(dataset_id, **fields)`                                                                                        | `Dataset`              |
-| `delete`         | `delete(dataset_id)`                                                                                                  | `None`                 |
-| `list_items`     | `list_items(dataset_id, limit: int = 50, offset: int = 0)`                                                            | `Page[DatasetItem]`    |
-| `delete_item`    | `delete_item(dataset_id, item_id)`                                                                                    | `None`                 |
-| `list_projects`  | `list_projects(dataset_id)`                                                                                           | `list[Project]`        |
-| `upload_files`   | `upload_files(dataset_id, paths: Sequence[str \| Path], on_progress: Callable[[int, int, str], None] \| None = None)` | `list[UploadedItem]`   |
-| `upload_zip`     | `upload_zip(dataset_id, zip_path: str \| Path)`                                                                       | `ZipUploadResult`      |
-| `link_project`   | `link_project(dataset_id, project_id)`                                                                                | `LinkResult`           |
-| `preview_unlink` | `preview_unlink(dataset_id, project_id)`                                                                              | `DatasetUnlinkPreview` |
-| `unlink_project` | `unlink_project(dataset_id, project_id)`                                                                              | `DatasetUnlinkResult`  |
+| 方法                | 签名                                                                                                                       | 返回                      |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `list`              | `list(search: str \| None = None, data_type: str \| None = None, limit: int = 50, offset: int = 0, state: str = "active")` | `Page[Dataset]`           |
+| `create`            | `create(name: str, data_type: str = "image", **kwargs)`                                                                    | `Dataset`                 |
+| `get`               | `get(dataset_id)`                                                                                                          | `Dataset`                 |
+| `update`            | `update(dataset_id, **fields)`                                                                                             | `Dataset`                 |
+| `delete`            | `delete(dataset_id)`                                                                                                       | `None`                    |
+| `list_items`        | `list_items(dataset_id, limit: int = 50, offset: int = 0)`                                                                 | `Page[DatasetItem]`       |
+| `delete_item`       | `delete_item(dataset_id, item_id)`                                                                                         | `None`                    |
+| `list_projects`     | `list_projects(dataset_id)`                                                                                                | `list[Project]`           |
+| `upload_files`      | `upload_files(dataset_id, paths: Sequence[str \| Path], on_progress: Callable[[int, int, str], None] \| None = None)`      | `list[UploadedItem]`      |
+| `upload_zip`        | `upload_zip(dataset_id, zip_path: str \| Path)`                                                                            | `ZipUploadResult`         |
+| `link_project`      | `link_project(dataset_id, project_id)`                                                                                     | `LinkResult`              |
+| `preview_unlink`    | `preview_unlink(dataset_id, project_id)`                                                                                   | `DatasetUnlinkPreview`    |
+| `unlink_project`    | `unlink_project(dataset_id, project_id)`                                                                                   | `DatasetUnlinkResult`     |
+| `preview_lifecycle` | `preview_lifecycle(dataset_id, operation, *, expected_revision: int)`                                                      | `DatasetLifecyclePreview` |
+| `set_lifecycle`     | `set_lifecycle(dataset_id, operation, *, expected_revision: int, impact_token: str)`                                       | `DatasetLifecycleResult`  |
 
 - `upload_files`:逐文件三步流(upload-init → PUT 预签名 URL → upload-complete)。`on_progress(done, total, file_name)` 在每个文件完成后回调。
 - `upload_zip`:multipart 上传单个 ZIP 包,后端解压入库(≤200MB / ≤5000 文件)。
 - `link_project`:返回的 `LinkResult.status == "linking"` 时建任务走异步,用 `async_job_id` 配合 `client.jobs.wait` 等待。
 - `update`: `**fields` 保留“未提供”与“显式传 `None`”的区别，因此可以用 `axis_convention=None` 清除坐标系约定。
 - `preview_unlink` 返回将删除的 task / annotation / batch 计数；`unlink_project` 返回实际删除计数。
+- `list` 默认只返回活动数据集；`state` 可为 `active`、`archived` 或 `all`。`Dataset` 包含 `archived_at`、`archived_by` 与 `lifecycle_revision`。
+- 归档与恢复的 `operation` 分别为 `archive` 与 `restore`。先用当前 `lifecycle_revision` 取得影响预览，核对计数与有效期，再显式把预览返回的修订和 `impact_token` 交给 `set_lifecycle`。凭证有效期为五分钟；过期或发生 409 冲突时须重新核对，SDK 不自动刷新凭证或重试变更。冻结版本计数仅覆盖已记录的数据集成员关系。
+- 归档保留现有任务、标注和冻结内容，停止数据集管理写入与新训练冻结；恢复只解除归档，不重放已撤销权限、来源委托或旧后台任务。已归档数据集须先恢复，才能调用原有删除操作。
 
 ### client.tasks
 

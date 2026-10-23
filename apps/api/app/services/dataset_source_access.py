@@ -29,22 +29,46 @@ async def has_directory_source(db, dataset_id):
 
 
 async def capture_dataset_write(db, dataset_id, actor, key_id):
+    from app.services.dataset_lifecycle import require_writable
+
+    dataset = await require_writable(db, dataset_id)
+    lifecycle = {"dataset_lifecycle_revision": dataset.lifecycle_revision}
     if not await has_directory_source(db, dataset_id):
-        return None
+        return lifecycle
     from app.services.dataset_content import key_authority
 
     actor = await assert_dataset_manage(db, dataset_id, actor)
     return {
+        **lifecycle,
         "actor_id": str(actor.id),
         "api_key_id": str(key_id) if key_id else None,
         "key_proof": await key_authority(db, actor, key_id, "datasets:write"),
     }
 
 
-async def validate_dataset_write(db, dataset_id, authority, *, project_id=None):
+async def validate_dataset_write(
+    db, dataset_id, authority, *, project_id=None, lock=False
+):
+    from app.services.dataset_lifecycle import require_writable
+
+    if lock:
+        # Existing managed writers serialize on Dataset. Source writers use the
+        # separate NOWAIT lifecycle helper after their Location/Source locks.
+        await db.scalar(
+            select(Dataset.id)
+            .where(Dataset.id == dataset_id)
+            .with_for_update(key_share=True)
+        )
+    # Legacy queued work is valid only in the original active lifecycle.
+    await require_writable(
+        db,
+        dataset_id,
+        expected_revision=(authority or {}).get("dataset_lifecycle_revision", 1),
+        lock=False,
+    )
     if not await has_directory_source(db, dataset_id):
         return
-    if authority is None:
+    if not authority or "actor_id" not in authority:
         raise HTTPException(403, detail={"code": "access_revoked"})
     import uuid
     from app.services.dataset_content import key_authority

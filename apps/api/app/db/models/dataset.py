@@ -21,6 +21,12 @@ from app.db.base import Base
 
 class Dataset(Base):
     __tablename__ = "datasets"
+    __table_args__ = (
+        CheckConstraint(
+            "lifecycle_revision >= 1", name="ck_datasets_lifecycle_revision"
+        ),
+        Index("ix_datasets_archived_at", "archived_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -36,6 +42,13 @@ class Dataset(Base):
     file_count: Mapped[int] = mapped_column(Integer, default=0)
     created_by: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id")
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    archived_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    lifecycle_revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
     )
     # v0.13.11 · 数据集级 jsonb 扩展点 (结构化视图见 schemas._jsonb_types.DatasetMetadata)。
     # 当前已知 key: axis_convention (lidar 坐标系约定，前端加载时做 ISO 8855 归一化)。

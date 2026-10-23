@@ -477,13 +477,27 @@ async def verify_scan_content(
 ):
     from app.services.dataset_content import scan_snapshot, content_http_error
 
+    async def dataset_guard(current_db, *, lock=True):
+        from app.services import dataset_source_access as access
+
+        run = await access.require_run(current_db, DatasetScanRun, run_id, actor)
+        source = await access.require_source(current_db, run.source_id, actor)
+        await svc.require_dataset_write(
+            current_db, source, snapshot=run.snapshot, lock=lock
+        )
+
     try:
+        # API verification publishes a receipt. Plain GET content keeps the
+        # existing read context and remains available for archived datasets.
+        await dataset_guard(db, lock=False)
         snapshot = await scan_snapshot(
             db,
             run_id,
             path_digest,
             actor,
             verify=True,
+            before_io=dataset_guard,
+            before_commit=dataset_guard,
             api_key_id=getattr(request.state, "api_key_id", None),
         )
     except Exception as exc:

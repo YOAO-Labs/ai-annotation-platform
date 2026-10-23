@@ -77,8 +77,24 @@ async def impact(db, source, actor):
         expected_revision=source.config_revision,
         active_attempt_count=len(attempts),
     )
+    from app.db.models.dataset import Dataset
+
+    dataset = (
+        await db.get(Dataset, source.dataset_id, populate_existing=True)
+        if source.dataset_id
+        else None
+    )
     proof = hashlib.sha256(
-        json.dumps({**counts, "attempts": attempts}, sort_keys=True).encode()
+        json.dumps(
+            {
+                **counts,
+                "attempts": attempts,
+                "dataset_lifecycle_revision": dataset.lifecycle_revision
+                if dataset
+                else None,
+            },
+            sort_keys=True,
+        ).encode()
     ).hexdigest()
     return {**counts, "proof": proof, "measured_at": await scans.now(db)}
 
@@ -86,6 +102,8 @@ async def impact(db, source, actor):
 async def change(db, source_id, payload, actor, api_key_id=None):
     proof = await key_authority(db, actor, api_key_id, "datasets:write")
     _, source = await scans.source_context(db, source_id)
+    await scans.require_actor(db, actor.id, source)
+    await scans.require_dataset_write(db, source)
     current = await impact(db, source, actor)
     if proof != await key_authority(db, actor, api_key_id, "datasets:write"):
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})

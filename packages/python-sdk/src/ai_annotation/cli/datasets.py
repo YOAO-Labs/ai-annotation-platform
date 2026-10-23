@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import sys
+from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 
 import typer
@@ -18,6 +21,7 @@ from ai_annotation.cli._output import (
     progress_console,
 )
 from ai_annotation.cli.jobs import wait_job
+from ai_annotation.models import DatasetLifecycleOperation, DatasetLifecyclePreview
 
 app = typer.Typer(
     help="数据集管理: 维护数据集/文件并管理项目关联。",
@@ -30,6 +34,156 @@ app = typer.Typer(
         "[dim]aap datasets link D-1 P-1[/]"
     ),
 )
+
+
+class DatasetState(str, Enum):
+    active = "active"
+    archived = "archived"
+    all = "all"
+
+
+@app.command("list")
+def list_(
+    state: DatasetState = typer.Option(
+        DatasetState.active, "--state", help="数据集状态，默认 active"
+    ),
+    search: str | None = typer.Option(None, "--search", help="名称搜索"),
+    data_type: str | None = typer.Option(None, "--data-type", help="数据类型"),
+    limit: int = typer.Option(50, "--limit", min=1, max=200, help="每页条数"),
+    offset: int = typer.Option(0, "--offset", min=0, help="分页偏移"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """列出数据集，默认只显示未归档的数据集。"""
+    with cli_errors(json_output):
+        with get_client(json_output) as client:
+            page = client.datasets.list(
+                search=search,
+                data_type=data_type,
+                limit=limit,
+                offset=offset,
+                state=state.value,
+            )
+    if json_output:
+        print_json(page.model_dump(mode="json"))
+        return
+    table = Table()
+    for label in ("ID", "名称", "类型", "文件数", "状态"):
+        table.add_column(label)
+    for dataset in page.items:
+        table.add_row(
+            dataset.display_id,
+            dataset.name,
+            dataset.data_type,
+            str(dataset.file_count),
+            "archived" if dataset.archived_at else "active",
+        )
+    console.print(table)
+    console.print(f"共 {page.total} 条 · offset={page.offset} · limit={page.limit}")
+
+
+def _print_lifecycle_preview(
+    preview: DatasetLifecyclePreview, json_output: bool
+) -> None:
+    output = progress_console if json_output else console
+    output.print(
+        f"影响预览: dataset={preview.dataset_id} · revision={preview.lifecycle_revision}"
+    )
+    table = Table("范围", "数量")
+    for field, label in (
+        ("items", "文件"),
+        ("sources", "来源"),
+        ("projects", "关联项目"),
+        ("tasks", "任务"),
+        ("annotations", "标注"),
+        ("active_scans", "进行中扫描"),
+        ("active_registrations", "进行中注册"),
+        ("enabled_schedules", "启用的同步计划"),
+        ("pending_jobs", "待完成作业"),
+        ("ready_lineage_versions", "已就绪的冻结版本"),
+        ("unfinished_lineage_versions", "未完成的冻结版本"),
+    ):
+        table.add_row(label, str(getattr(preview.counts, field)))
+    output.print(table)
+    output.print(f"冻结覆盖: {preview.frozen_coverage}")
+    output.print("冻结版本统计仅覆盖已记录的数据集成员关系。")
+    output.print(f"预览有效期至: {preview.expires_at.isoformat()}")
+    if preview.operation == "archive":
+        output.print(
+            "归档保留文件、来源、关联项目、任务、标注和已有冻结版本；"
+            "数据集管理写入停止，现有任务和标注仍按项目权限访问。"
+        )
+    else:
+        output.print(
+            "恢复仅改变数据集状态；不会恢复已撤销的权限、来源或同步委托，"
+            "也不会自动恢复旧作业。"
+        )
+
+
+def _change_lifecycle(
+    dataset_id: str,
+    operation: DatasetLifecycleOperation,
+    yes: bool,
+    json_output: bool,
+) -> None:
+    label = "归档" if operation == "archive" else "恢复"
+    if json_output and not yes:
+        confirm_destructive(f"确认{label}数据集?", yes, json_output)
+    if not yes and not sys.stdin.isatty():
+        raise typer.BadParameter("非交互终端执行生命周期变更时必须传 --yes")
+    with cli_errors(json_output):
+        with get_client(json_output) as client:
+            dataset = client.datasets.get(dataset_id)
+            preview = client.datasets.preview_lifecycle(
+                dataset.id,
+                operation,
+                expected_revision=dataset.lifecycle_revision,
+            )
+            expected_state = "active" if operation == "archive" else "archived"
+            if (
+                preview.dataset_id != dataset.id
+                or preview.lifecycle_revision != dataset.lifecycle_revision
+                or preview.operation != operation
+                or preview.state != expected_state
+            ):
+                print_error("影响预览与本次操作不一致，请重新运行命令。", json_output)
+                raise typer.Exit(code=1)
+            _print_lifecycle_preview(preview, json_output)
+            confirm_destructive(
+                f"确认{label}数据集 {dataset.display_id}?", yes, json_output
+            )
+            if preview.expires_at <= datetime.now(timezone.utc):
+                print_error("影响预览已过期，请重新运行命令。", json_output)
+                raise typer.Exit(code=1)
+            result = client.datasets.set_lifecycle(
+                preview.dataset_id,
+                preview.operation,
+                expected_revision=preview.lifecycle_revision,
+                impact_token=preview.impact_token,
+            )
+    if json_output:
+        print_json(result.model_dump(mode="json"))
+    else:
+        console.print(f"[green]数据集已{label}[/green] {result.dataset_id}")
+
+
+@app.command("archive")
+def archive(
+    dataset_id: str = typer.Argument(..., help="数据集 ID"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="查看预览后跳过交互确认"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """预览影响并确认归档数据集。脚本需显式传 --yes。"""
+    _change_lifecycle(dataset_id, "archive", yes, json_output)
+
+
+@app.command("restore")
+def restore(
+    dataset_id: str = typer.Argument(..., help="数据集 ID"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="查看预览后跳过交互确认"),
+    json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
+) -> None:
+    """预览影响并确认恢复数据集状态，旧权限、委托及作业不会自动恢复。"""
+    _change_lifecycle(dataset_id, "restore", yes, json_output)
 
 
 @app.command("create")

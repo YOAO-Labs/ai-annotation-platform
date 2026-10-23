@@ -160,6 +160,26 @@ async def validate_context(db, location, source, *, snapshot=None):
         raise fs.FilesystemStorageError("configuration_changed")
 
 
+async def require_dataset_write(db, source, *, snapshot=None, lock=True):
+    """Fence source writes without making retained task/scan content unreadable."""
+    from app.services.dataset_lifecycle import require_writable
+
+    if source.dataset_id is None:
+        raise HTTPException(409, detail={"code": "source_unavailable"})
+    expected = (
+        snapshot.get("dataset_lifecycle_revision", 1) if snapshot is not None else None
+    )
+    return await require_writable(
+        db, source.dataset_id, expected_revision=expected, lock=lock
+    )
+
+
+async def validate_write_context(db, location, source, *, snapshot=None):
+    dataset = await require_dataset_write(db, source, snapshot=snapshot)
+    await validate_context(db, location, source, snapshot=snapshot)
+    return dataset
+
+
 async def create_source(db, payload, actor, *, api_key_id=None):
     from app.services.dataset_content import key_authority
 
@@ -171,8 +191,9 @@ async def create_source(db, payload, actor, *, api_key_id=None):
     if await key_authority(db, actor, api_key_id, "datasets:write") != proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
     locations.require_reference_backend(location)
-    if await db.get(Dataset, payload.dataset_id) is None:
-        raise HTTPException(404, "Dataset not found")
+    from app.services.dataset_lifecycle import require_writable
+
+    await require_writable(db, payload.dataset_id, lock=True)
     if location.kind in {"filesystem", "sftp"}:
         fs.relative_path(payload.relative_path)
         if location.kind == "sftp":
@@ -215,6 +236,7 @@ async def update_source(db, source_id, payload, actor, *, api_key_id=None):
     await require_actor(db, actor.id, source)
     if await key_authority(db, actor, api_key_id, "datasets:write") != proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+    await require_dataset_write(db, source)
     if source.config_revision != payload.expected_revision:
         raise HTTPException(409, "Source configuration revision changed")
     if source.unregistered_at is not None:
@@ -291,13 +313,14 @@ async def start_scan(db, source_id, actor, *, api_key_id=None):
     key_proof = await key_authority(db, actor, api_key_id, "datasets:write")
     location, source = await source_context(db, source_id)
     await require_actor(db, actor.id, source)
-    await validate_context(db, location, source)
+    dataset = await validate_write_context(db, location, source)
     existing = await db.scalar(
         select(DatasetScanRun).where(
             DatasetScanRun.source_id == source.id, DatasetScanRun.status.in_(ACTIVE)
         )
     )
     if existing:
+        await require_dataset_write(db, source, snapshot=existing.snapshot)
         return existing, False
     node = f"worker:{source.config['node_id']}"
     await locations.require_scan_node(db, location, node)
@@ -312,6 +335,7 @@ async def start_scan(db, source_id, actor, *, api_key_id=None):
         snapshot={
             "source_revision": source.config_revision,
             "location_revision": location.config_revision,
+            "dataset_lifecycle_revision": dataset.lifecycle_revision,
             "anchor": anchor,
             "scan_host_id": probe.result.get("host_id"),
             "config": dict(source.config),
@@ -362,7 +386,7 @@ async def resume_scan(db, run_id, actor, *, api_key_id=None):
     key_proof = await key_authority(db, actor, api_key_id, "datasets:write")
     location, source, run, job = await run_context(db, run_id)
     await require_actor(db, actor.id, source)
-    await validate_context(db, location, source, snapshot=run.snapshot)
+    await validate_write_context(db, location, source, snapshot=run.snapshot)
     if run.status == "completed":
         raise HTTPException(409, "Completed scans cannot be resumed")
     if (
@@ -440,7 +464,7 @@ async def claim(db, run_id, task_id, node_id):
             db, actor, run.snapshot.get("api_key_id"), "datasets:write"
         ) != run.snapshot.get("key_proof"):
             raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
-        await validate_context(db, location, source, snapshot=run.snapshot)
+        await validate_write_context(db, location, source, snapshot=run.snapshot)
         if node_id != source.config["node_id"]:
             raise fs.FilesystemStorageError("wrong_execution_node")
         await locations.require_scan_node(db, location, f"worker:{node_id}")
@@ -490,7 +514,7 @@ async def fenced_context(db, run_id, task_id, fence):
     ):
         raise LostScanLease()
     actor = await require_actor(db, job.user_id, source)
-    await validate_context(db, location, source, snapshot=run.snapshot)
+    await validate_write_context(db, location, source, snapshot=run.snapshot)
     from app.services.dataset_content import key_authority
 
     if await key_authority(

@@ -1,6 +1,6 @@
 # EPIC-11：权限、删除与保留治理
 
-> 状态：approved；2026-10-24 的 E11-B1/E09-B3 位置盘点与 E11-B2 位置配置确认已完成；整项 E11 继续活动，未分配发布版本。
+> 状态：approved；2026-10-24 的 E11-B1/E09-B3 位置盘点、E11-B2 位置配置确认与 E11-B3 数据集归档/恢复已完成；整项 E11 继续活动，未分配发布版本。
 > 晋升基线：`802e6e4df`；工作树干净，保留 3100/8100、两个 Worker 与 beat，不重建镜像。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -11,6 +11,35 @@
 | 依赖     | 与 EPIC-01/02/03/05 同步定义对象、位置和读取权限，不作为末尾补丁   |
 | 协同     | EPIC-04 的并发任务；EPIC-08/09 的操作反馈；EPIC-10 的冻结引用      |
 | 交付阶段 | M1 最小安全闭环；M2 完整影响预览、保留与回收；M3 站点授权扩展      |
+
+## 本轮定稿：E11-B3 数据集归档与恢复
+
+基线 `d591508b0`，用户持续实施和提交授权有效。最直接方案是新增可逆的数据集生命周期，不复用硬删除、来源暂停或位置停用；这些操作会删除业务关系或阻断已有Task读取。保留现有DELETE含义，但归档状态拒绝DELETE，用户须先明确恢复再使用既有删除合同。归档仅更改Dataset生命周期，样本、来源配置/启用、项目关联、Task、标注、外部字节及已冻结内容不删除。当前创建者或超级管理员可预览并确认归档/恢复；本片不把非目录旧CRUD顺便改为新的全局ACL。
+
+新增迁移0214：`archived_at`、`archived_by`及`lifecycle_revision`（历史active/1）。新增POST `/{dataset_id}/lifecycle-preview` 和 `/{dataset_id}/lifecycle`，operation为archive/restore、expected_revision必填，执行须带五分钟签名impact_token。预览返回安全计数/关系指纹、统计时间及有效期，绑定当前actor/Key、Dataset配置/状态和候选；提交在User→Key→Dataset NO KEY UPDATE NOWAIT短事务重新验证。过期、跨身份/Key、配置或关系变化、同数替换、重放拒绝。盘点冻结只认持久sample.dataset_id，缺证据历史明确未覆盖；不提供物理回收许可。成功审计记录差异、版本、计数与时间；失败请求独立审计且业务回滚。
+
+```text
+List active/archived/all -> Dataset detail read-only banner + lifecycle action
+  creator/superadmin + datasets:write -> preview -> token -> recheck -> Dataset transition
+                                                   |               |
+ managed import/task tickets + scan/registration/sync snapshots <--- lifecycle revision
+             |                                     |
+ each short commit: current authority + active Dataset + captured revision
+             |
+ current Task reads/annotation and retained frozen packaging use existing project rights
+```
+
+归档阻止Dataset配置、上传完成、托管/连接/ZIP导入、成员删除、项目关联/解绑、Scene结构/标定，以及来源创建、扫描/登记、接受修订/重新核验/重定位、规则/同步和来源生命周期写操作。已有Task读取与标注继续遵守当前项目权限；个人阅读视图仍可保存。新冻结在全部选择模式中拒绝包含归档数据集的样本，已有冻结打包/下载不追加归档读取限制。
+
+不能只看archived_at：新托管导入/建任务授权与Scan/Registration/Sync执行快照捕获lifecycle_revision，历史缺字段按1处理；每个最终业务写检查点复核。归档再恢复会增加修订，旧排队任务、完成观测的旧登记许可和同步委托仍失效，必须明确创建新轮；恢复不回放授权、成员/Key、来源启用或同步启用配置。来源锁序保持Location→Source→Dataset NOWAIT，归档不反向等待Location/Source，不在公共Task读取上下文塞入写门禁。
+
+既有缩略图、视频元数据等派生媒体回填属于维护例外，仍可更新派生字段以保持已有Task可读；不携带生命周期票据，不据此宣称所有后台写入都被暂停。本阶段不新增全owner维护停止协议。
+
+范围超过8文件，跨生命周期/API、托管及来源执行owner、Web/SDK、文档/运行时五组件，共同交付后独立可用。准确owner分工：隔离工作树A维护Dataset模型/Out、0214、新生命周期schema/service/router、v1路由注册与生命周期测试；B维护dataset_scans/registration/references/source_revisions/revalidation/relocation/source_lifecycle/rules/sync，以及独立Quality/Review授权、执行检查点和必要source/qualityAPI/worker与测试；C维护Web数据集API/hooks、列表/详情/URL、归档确认和来源只读展示及测试。主工作树维护DatasetService序列化/列表/写入口、dataset_source_access授权票据、datasets API、托管import/create_tasks/pointcloud、Scene结构及新冻结检查、Python SDK/CLI合同与测试、正式文档和集成。新增文件均按所属现有owner就近放置，不新增服务、依赖或环境变量；OpenAPI/TS/API索引与SDK覆盖同步，README、CHANGELOG、用户/API/架构/运行说明及E11/执行队列同次更新。
+
+验证使用已核实一次性test模式：状态/授权/Key矩阵、过期/重放/同数替换、归档读写矩阵、文件摘要与身份保留、恢复不复活权限、托管/引用/混合及点云分块、排队任务/扫描/登记/同步跨归档恢复的拒绝、并发最终提交锁、冻结全部选择模式与历史包保留。执行定向API/Worker、Web、SDK/CLI、OpenAPI、Ruff、tsc、lint/css tokens、文档和正常提交钩子。浏览器无mock在3100/8100用自有临时Dataset验证创建/预览/归档/过滤/深链读取/恢复，明暗/桌面/窄屏、Escape/焦点与网络/控制台；保留既有人工作业和原件。先向已核实dev应用纯加列迁移再接入新模型，以免重载期间出现缺列；源码集成后通过拥有该环境的服务刷新两个worker，核实空闲、端口、任务注册与新执行屏障，不重建镜像；beat仅代码受影响时刷新。
+
+回滚不删除业务内容：代码可撤回，但含已归档或生命周期修订>1的数据拒绝数据库降级，避免丢失生命周期事实。测试结束销毁test DB/Redis/九桶并清理自有临时资源；dev数据保留，记录实际迁移/刷新证据与未完成的全owner回收门禁。归档/恢复完成仍不代表整项E11或整套Epic完成。
 
 ## 本轮定稿：E11-B2 位置配置候选预览与确认
 
@@ -269,6 +298,20 @@ Asset 的业务引用保护的是应保留的内容，不会永久固定每一�
 完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
 
 ## Outcome
+
+### E11-B3 数据集归档与恢复
+
+2026-10-24 在 `d591508b0` 基线上交付，实施、正式文档与本记录同次提交。完整E11继续活动，本片不交付物理回收或全owner停止协议。
+
+- 生命周期与确认：新增0214迁移及独立预览/提交端点，保留样本、来源启用状态、项目关联、Task/标注及冻结内容。五分钟凭证绑定当前身份/Key、Dataset配置/状态/修订和单SQL关系快照；过期、撤权、关系变化、等量替换、重放与竞争均拒绝。审计保留安全差异与时间，不保存令牌或路径。归档状态拒绝既有DELETE，明确恢复后仍使用原硬删除合同。
+- 写入屏障：托管导入/建任务、点云分块、来源扫描/登记/规则/生命周期/同步以及Quality/Review均捕获和复核生命周期修订，历史缺字段按1。归档再恢复不会复活旧委托；恢复只改生命周期，不回放撤销权限或配置。Scene结构/标定及各新管理写入受保护；新冻结只检查实际合格且选中的样本，全部选择模式共用。既有Task标注/读图、历史冻结打包/下载、个人阅读视图继续按原权限工作；取消/失败收尾及缩略图/视频元数据派生维护保留。
+- UI与SDK：活动/已归档/全部列表筛选进入URL并保留返回链接；详情有归档状态和居中影响确认，管理操作禁用或隐藏，历史仍可浏览。确认绑定对象、修订和会话，冲突需重新预览，到期禁止提交，Escape恢复触发按钮焦点。SDK同步字段、两个显式预览/提交方法和覆盖清单；CLI新增list/archive/restore，非交互或JSON缺--yes时零请求，预览写stderr、最终JSON写stdout，不自动重试变更。
+- 本地API/DB：413个不同用例通过，其中新增生命周期/托管/来源/质量132项、既有相关278项及迁移3项；重验重叠项未重复累计。覆盖权限/Key、票据/过期/同数替换、源I/O前后检查、各管理写入、跨归档恢复、分块与并发、冻结选择及读身份保留。迁移真实执行往返验证历史active/1，并验证已归档和已恢复revision3均阻止丢失生命周期事实的降级。发现归档后updated_at在共享ORM会话过期，已显式刷新并重验；旧删除测试替身已改为真实DB失败回滚，物理清理不提前发生。
+- Web/SDK与检查：57个不同Web及112个SDK/CLI/契约用例通过，合计582个不同本地用例。移除新测试中不受当前Testing Library类型支持的exact选项后tsc通过；修正归档时来源被误称停用的文案并重验。OpenAPI、TS、587条生成API索引、Ruff/Prettier、完整Web lint/CSS tokens、正常提交钩子、文档frontmatter197/navigation199/严格可读性198与构建通过。仅保留既有lint、样式建议及构建提示；未运行远程CI。
+- 真实运行：3100/8100无mock、独立浏览器会话；创建自有临时Dataset/Project/Location/Source，在真实Worker完成扫描/预检/登记，得到3样本、3Task、1标注。网页预览与实数一致，实际归档1→2、恢复2→3均200；归档时原图SHA和标注读取/修改成功，配置/扫描/新训练冻结被拒绝，Source.enabled保持true，既有ready ZIP下载SHA不变。恢复后旧扫描登记返回dataset_lifecycle_changed，新扫描在实际Worker完成，持久快照修订分别为1与3，审计各有归档/恢复记录。
+- 视觉与交互：1440×1000与390×900明暗主题截图已检查；桌面确认居中宽600，窄屏宽342，内容与底部按钮可用，页面/弹窗无横向溢出。初始焦点为取消，Escape关闭后焦点还给归档/恢复按钮。归档列表过滤、深链和返回state=archived保持；来源历史可读，管理按钮受限。浏览器JS错误与失败HTTP为0；自动化曾在异步关闭前立即查询、以及等待折叠历史内提示超时，改为状态等待和真实可见区域核对，无应用缺陷。
+- 环境与清理：先在核实owned dev数据库应用纯加列0214，8Dataset/12Item/8Source/12Task/7Annotation未变；再经所属服务刷新两个Worker及beat，原端口恢复、任务注册及实际派发通过，无镜像重建。自有临时业务经正常API删除，Source/运行/修订/终态Job/Location按receipt及FK精确清理，审计保留，已有Dataset仍active/1，三原件SHA不变。一次性test数据库、Redis与九桶按owner销毁；浏览器、报告/截图/构建缓存和已集成自有子工作树清理，人工环境保留。
+- 后续：全异步owner维护/停止资格、受控物理回收、保留窗口与整项跨Epic矩阵仍待实施；E11/E09及整套实施队列不归档。
 
 ### E11-B2 位置配置候选预览与确认
 

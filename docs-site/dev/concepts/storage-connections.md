@@ -306,6 +306,20 @@ Worker 以 run generation、task/job ID、租约共同 fencing，逐成员事务
 
 扫描和预检分别按来源批量查询，活动轮次优先，并独立保留最近完整成功记录。配置匹配由当前修订判断，不外露 snapshot。AsyncJob 保留期不删除领域证据。整个 GET 无源 I/O、写入或后台派发，不需要迁移或刷新 Worker。
 
+## 数据集归档与恢复
+
+迁移0214为Dataset增加archived_at、archived_by与lifecycle_revision，历史数据为active/1。`dataset_lifecycle`维护独立的预览/确认和共享写屏障，沿用当前创建者/超级管理员及Key权限；不通过停用Source/Location实现归档，避免破坏Task严格读取。单SQL汇总当前成员、主/次Task关联、活动run/Job/同步及有持久数据集归属的冻结版本，并以有序关系指纹检测等量替换；历史冻结归属缺失保持未知。
+
+归档只持有User→Key→Dataset NO KEY UPDATE NOWAIT，写入状态/操作者/递增修订和审计，不反向等待Location/Source/Task。来源执行遵循Location→Source→Dataset NOWAIT；托管管理写入沿用Dataset先于Item/Task的串行化，写前重新核验当前状态与请求票据。Scene/标定同样保护Dataset结构，派生缓存的既有读取/清理仍由原owner执行。
+
+托管接入和建任务授权、Scan/Registration快照、Sync委托及Quality/Review授权都捕获lifecycle_revision，旧记录缺失按1。最终提交前检查当前状态和捕获修订；归档再恢复不会复活旧排队工作、已完成观测的旧采纳许可或同步委托。新的显式请求可在当前权限下建立新轮；恢复不回放人员、位置、项目、Key或来源启用状态。失败/取消收尾保留，避免生命周期变化阻止清理。
+
+缩略图、视频元数据等既有派生媒体回填仍由原维护owner执行，不携带生命周期委托，也不因归档停用。这些维护可以更新派生字段以保持已有任务可读，不授权接入新样本或更换来源身份；本阶段的旧票据失效保证不涵盖所有派生媒体维护。
+
+训练新选择在合格样本集合上检查归档并保留生命周期票据，媒体核验后、发布版本前再次锁定复核；全部项目/数据集/批次/显式Task选择共用此路径。已排队或就绪的冻结版本使用自身不可变内容，不在历史媒体读取/worker打包路径追加归档限制。Task读图与标注继续遵守当前项目授权，个人阅读视图不是Dataset内容写入。
+
+升级先向已验证目标应用纯加列迁移，再接入模型并刷新实际执行这些服务的workers；Celery不会热重载。API/Web与worker可短暂使用旧代码读取新增列，业务关系不回填或删除。发生任何生命周期变更后，迁移降级拒绝删除这些事实；代码可回退，但不能以丢弃归档状态为代价回滚。此治理尚未提供物理GC、退役或保留窗口删除。
+
 ## 位置维护的存储关系盘点
 
 `storage_maintenance_impact` 在查询前后检查当前超级管理员、原Key身份及location revision。单条SQL以位置全部保留来源为范围，通过采纳历史/引用/Asset位置关系合并去重业务成员，再连接数据集、项目绑定、Task和标注；不遍历来源页、不执行外部I/O。活动扫描/登记读取持久run，不依赖短期AsyncJob。完整缓存按scope_location_id计入独立孤儿账本，读租约使用同一数据库时间。

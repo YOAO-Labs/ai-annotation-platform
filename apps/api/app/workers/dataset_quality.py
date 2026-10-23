@@ -171,6 +171,12 @@ async def execute(db, run_id, task_id, node_id):
     if job is None or job.celery_task_id != task_id or job.status not in svc.ACTIVE:
         await db.rollback()
         return
+    try:
+        await svc.authority(db, run)
+    except HTTPException as exc:
+        await svc.finish(db, run, "failed", svc.failure_code(exc))
+        await db.commit()
+        return
     generation, job_id = run.generation, job.id
     run.status = "running"
     run.lease_until = svc.now() + timedelta(seconds=svc.LEASE_SECONDS)
@@ -190,6 +196,7 @@ async def execute(db, run_id, task_id, node_id):
                 break
         run = await svc.fenced(db, run_id, job_id, task_id, generation)
         if run:
+            await svc.authority(db, run)
             job = await db.get(AsyncJob, job_id)
             run.status = "pending"
             run.generation += 1
@@ -199,12 +206,7 @@ async def execute(db, run_id, task_id, node_id):
         await db.rollback()
         run = await svc.fenced(db, run_id, job_id, task_id, generation)
         if run:
-            code = (
-                "access_revoked"
-                if isinstance(exc, HTTPException) and exc.status_code in {401, 403, 404}
-                else "worker_failed"
-            )
-            await svc.finish(db, run, "failed", code)
+            await svc.finish(db, run, "failed", svc.failure_code(exc))
             await db.commit()
         log.warning(
             "Quality attempt stopped run=%s exception=%s", run_id, type(exc).__name__
@@ -239,8 +241,8 @@ async def recover(db):
             continue
         try:
             await svc.authority(db, run)
-        except HTTPException:
-            await svc.finish(db, run, "failed", "access_revoked")
+        except HTTPException as exc:
+            await svc.finish(db, run, "failed", svc.failure_code(exc))
             await db.commit()
             continue
         run.status = "pending"

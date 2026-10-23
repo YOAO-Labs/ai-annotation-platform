@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
@@ -159,4 +159,25 @@ describe("Datasets list routes", () => {
       expect(screen.getByTestId("location")).toHaveTextContent("/storage?tab=locations"),
     );
   });
+});
+
+it("restores archived filters and resets pagination when the status changes", async () => {
+  mount("/datasets?state=archived&page=3&q=vehicle");
+  await screen.findByRole("link", { name: "车辆目录" });
+  expect(datasetsApi.list).toHaveBeenCalledWith(
+    expect.objectContaining({ state: "archived", offset: 40 }),
+    expect.anything(),
+  );
+  expect(screen.getByRole("combobox", { name: "数据集状态" })).toHaveValue("archived");
+  fireEvent.change(screen.getByRole("combobox", { name: "数据集状态" }), {
+    target: { value: "all" },
+  });
+  await waitFor(() =>
+    expect(datasetsApi.list).toHaveBeenLastCalledWith(
+      expect.objectContaining({ state: "all", offset: 0 }),
+      expect.anything(),
+    ),
+  );
+  expect(screen.getByTestId("location")).toHaveTextContent("state=all");
+  expect(screen.getByTestId("location")).not.toHaveTextContent("page=3");
 });

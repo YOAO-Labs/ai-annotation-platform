@@ -132,6 +132,8 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "POST /api/v1/datasets/{dataset_id}/items/upload-init" = { status = "covered" }
 "POST /api/v1/datasets/{dataset_id}/items/upload-zip" = { status = "covered" }
 "POST /api/v1/datasets/{dataset_id}/link" = { status = "covered" }
+"POST /api/v1/datasets/{dataset_id}/lifecycle" = { status = "covered" }
+"POST /api/v1/datasets/{dataset_id}/lifecycle-preview" = { status = "covered" }
 "POST /api/v1/datasets/{dataset_id}/scenes/backfill" = { status = "excluded", reason = "maintenance-risk" }
 "POST /api/v1/datasets/{dataset_id}/sniff-axis-convention" = { status = "excluded", reason = "maintenance-risk" }
 "POST /api/v1/projects" = { status = "covered" }

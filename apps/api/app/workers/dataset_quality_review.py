@@ -83,6 +83,12 @@ async def execute(db, batch_id, task_id):
     if job is None or job.celery_task_id != task_id or job.status not in svc.ACTIVE:
         await db.rollback()
         return
+    try:
+        await svc.authority(db, batch)
+    except HTTPException as exc:
+        await svc.finish(db, batch, "failed", svc.failure_code(exc))
+        await db.commit()
+        return
     generation, job_id = batch.generation, job.id
     batch.status = "running"
     batch.lease_until = svc.now() + timedelta(seconds=svc.LEASE_SECONDS)
@@ -97,6 +103,7 @@ async def execute(db, batch_id, task_id):
                 break
         batch = await svc.fenced(db, batch_id, job_id, task_id, generation)
         if batch:
+            await svc.authority(db, batch)
             job = await db.get(AsyncJob, job_id)
             batch.status = "pending"
             batch.generation += 1
@@ -106,12 +113,7 @@ async def execute(db, batch_id, task_id):
         await db.rollback()
         batch = await svc.fenced(db, batch_id, job_id, task_id, generation)
         if batch:
-            code = (
-                "access_revoked"
-                if isinstance(exc, HTTPException) and exc.status_code in {401, 403, 404}
-                else "worker_failed"
-            )
-            await svc.finish(db, batch, "failed", code)
+            await svc.finish(db, batch, "failed", svc.failure_code(exc))
             await db.commit()
         log.warning(
             "Quality review stopped batch=%s exception=%s", batch_id, type(exc).__name__
@@ -146,8 +148,8 @@ async def recover(db):
             continue
         try:
             await svc.authority(db, batch)
-        except HTTPException:
-            await svc.finish(db, batch, "failed", "access_revoked")
+        except HTTPException as exc:
+            await svc.finish(db, batch, "failed", svc.failure_code(exc))
             await db.commit()
             continue
         batch.status = "pending"

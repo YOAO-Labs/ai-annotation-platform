@@ -3,12 +3,31 @@ title: 数据集上传与扫描
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-23
+last_reviewed: 2026-10-24
 ---
 
 # 数据集上传与扫描
 
 端点均位于 `/api/v1/datasets`，沿用已有登录和数据集操作权限。文件位置属于服务端契约，客户端应使用返回的上传地址、item ID 与文件 URL，不按数据集名称拼接桶名或对象键。
+
+## 生命周期与列表状态
+
+`GET /datasets` 支持 `state=active|archived|all`，默认active，可与原search/data_type/has_scenes/location_id和分页组合。详情与列表的Dataset包含 `archived_at`、`archived_by`（可为空）和 `lifecycle_revision`（初始1）。归档不改变详情/成员GET、个人视图、已有Task或冻结版本的权限。
+
+当前有效的项目管理员且为创建者，或超级管理员，持有 `datasets:write` 时可调用：
+
+| 方法 | 路径                      | 请求与结果                                                                           |
+| ---- | ------------------------- | ------------------------------------------------------------------------------------ |
+| POST | `/{id}/lifecycle-preview` | `{operation:"archive"或"restore",expected_revision}`；返回五分钟影响预览             |
+| POST | `/{id}/lifecycle`         | 同一请求加 `impact_token`；返回dataset_id、state、lifecycle_revision、archived_at/by |
+
+预览包含 `dataset_id`、`lifecycle_revision`、`state`、`operation`、`measured_at`、`expires_at`、`impact_token` 和counts。计数为items、sources、projects、tasks、annotations、active_scans、active_registrations、enabled_schedules、pending_jobs、ready_lineage_versions和unfinished_lineage_versions。任务含多文件关联的次要成员；Job只统计当前payload.dataset_id可归因且pending/running的记录。冻结只统计持久sample.dataset_id可证明的版本，返回 `frozen_coverage=recorded_dataset_membership_only`，不把未知历史解释成无引用。
+
+提交绑定原操作者/Key、候选、数据集配置与生命周期及单SQL关系快照，重新复核计数、身份和相关状态。令牌不可跨人/Key/对象重用；配置/关系变化或等量替换返回409、`dataset_lifecycle_preview_changed`，过期为`dataset_lifecycle_preview_expired`，无效签名/用途为`dataset_lifecycle_preview_invalid`，陈旧修订或已提交令牌重放为`dataset_lifecycle_changed`，忙碌为`dataset_busy`。当前状态与操作不符也返回409。缺少令牌或非法字段返回422，权限/对象不可见沿用403/404。
+
+归档仅变更Dataset生命周期，阻止数据集业务写入：上传/导入、配置/成员/Scene结构与标定、关联/解绑、来源写操作、质量作业/复核以及包含归档合格样本的新冻结。写请求返回409、`dataset_archived`；历史异步票据跨生命周期返回`dataset_lifecycle_changed`。已有Task标注/读取、冻结打包与下载仍按原权限工作，取消/失败清理可收尾。归档状态的DELETE拒绝，恢复后才可使用原硬删除合同。
+
+每次归档/恢复递增修订。恢复不回放权限或来源/同步配置，也不重启旧作业；历史缺少执行修订按1解释，首次生命周期变化后失效。成功审计为`dataset.archive`或`dataset.restore`，记录前后修订、影响及预览/复核时间，不保存令牌或对象路径；失败由独立请求审计记录。此合同不删除原件，也不授予物理回收许可。
 
 ## 直传
 
