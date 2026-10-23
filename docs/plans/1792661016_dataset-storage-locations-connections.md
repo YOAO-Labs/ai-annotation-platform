@@ -8,6 +8,36 @@
 > 依赖：EPIC-01 的标识与适配契约；EPIC-11 的最小权限规则必须随 M1 一起交付。
 > 下游：EPIC-03 原地注册、EPIC-05 读取、EPIC-07 迁移、EPIC-09 存储控制台。
 
+## 本轮实施定案：E02-B3 训练版本冻结前缀的固定存储归属
+
+在干净基线 `3ce93cad0` 上复核并实施，沿用整套 Epic 持续实施和提交授权。现有版本仅保存 package_key，ZIP、独立冻结图片/掩码、派发与预览源、重试及删除均可能重新读取当前 training_bucket。新片固定版本自有前缀的归属，不开放整个 training 用途绑定切换，不修改 Executor/共享训练合同，不重建 API/ML 镜像。
+
+0220为 TrainingDatasetVersion及TrainingStorageDeletion增加可空内部 storage_ref；结构保存已登记平台Location/配置修订、training绑定代次、精确endpoint/bucket/prefix/物理身份及new或verified-retained来源。新版本在首次物理写入前于创建事务固定；所有重试、取消恢复、包发布及未知提交应答清理始终使用该归属。prefix严格为projects/{project}/datasets/{version}/，版本字段不可被普通更新改写。解析旧归属只核对实际同端点client，不按当前training_bucket或新绑定重新解释；端点、未知身份或非法子键在首个I/O前拒绝。
+
+迁移不根据环境变量回填历史。增加项目负责人显式POST /projects/{project_id}/training-datasets/{version_id}/storage-pin，GET保持零接管写入；候选只取已持久training绑定及平台位置，不顺带bootstrap。排除pending/running，先取消并等实际构建退出；使用同一版本advisory执行锁，在物理核验前后比较版本状态/attempt/snapshot/manifest/package与候选指纹，最终CAS保存归属与核验范围/清单摘要，不改snapshot、manifest或对象字节。已有pin幂等，普通重试不自动接管未知旧位置。失败/证据不足保留所有对象与记录。
+
+显式接管有界盘点整个精确前缀，条件完整读取、SHA/大小、关闭及末尾盘点复核后才提交。ready必须验证发布ZIP完整摘要/大小、唯一安全成员、内外manifest一致、逐图/标签，以及必需保留媒体/掩码；合法媒体集以全部snapshot样本为准，去重不能把未入ZIP样本误判垃圾。多余未知键、无法解释的旧attempt包、缺失必需文件或冲突均拒绝。failed/cancelled允许尚未物化成员和空前缀，但已有副本须对应固定snapshot的独立SHA及实例内容；只有对象自身metadata.sha256而无独立内容证据时返回legacy_content_identity_unproven，不扩大为已证明历史原始位置，也不隐含新增源读取。接管只表示核验当前保留副本，不证明独占或未来不可变。
+
+下载、analysis图片/掩码（包括sample evaluation）、训练assignment.dataset_url与增强preview源URL统一使用版本归属，不改历史preview.spec/input_digest或冻结run.config。删除在原事务复制storage_ref至独立tombstone，提交后才物理清理，身份不符或未知旧dataset清理意图不执行；训练运行产物的原清理合同独立保留。新版本尝试清理仍先复查已发布package引用，提交确认丢失不能删除已发布包。
+
+离线恢复明确验证源版本及意图的归属，再在既有物理映射白名单中改bucket/identity并记录映射账本；不得改prefix、接管证据、snapshot、manifest、包SHA和业务ID。数据库只允许拥有表的恢复工具在显式事务标记下进行这一受限物理映射；运行角色不能改已固定归属。未知旧dataset tombstone保持待核对，不凭当前配置补造端点后删除。
+
+```text
+version creation -> persisted storage_ref -> export Worker -> retained media/masks + ZIP
+legacy explicit pin -> bounded full verification -> same persisted storage_ref
+                                                            |
+           download / image-mask read / run source / preview source
+                                                            |
+          committed deletion intent(ref) -> same-origin cleanup
+          offline restore(ref) -> validated physical mapping ledger
+```
+
+范围超过8文件。领域/迁移子代理在当前HEAD隔离树负责两模型、0220、training_dataset_storage解析/分配及DB回归；消费者子代理在独立树负责Worker、analysis、training run与preview源及针对性回归；主树负责API显式接管、严格旧副本核验、删除/恢复、集成测试及正式文档。无新依赖、环境变量、凭据owner、镜像或用途切换。现有Fernet/MinIO凭据不复制到ref；3100/8100、业务数据、两个Worker与beat保留。
+
+验证：新创建/重试跨当前桶变化仍使用原位置，同键陷阱拒绝；图片/原生RLE/派发/预览/下载各入口；旧ready与部分/空接管、去重、元信息自洽但无独立SHA拒绝、未知attempt/键、变更/预算/关闭异常不接管；删除提交失败零I/O、失败意图保留、重试不碰其他桶及发布应答未知保护；迁移/不可变约束、恢复映射与源事实保持。仅用核实owner的一次性test命名空间，实际Celery+MinIO构建/取消恢复/旧副本接管/选桶与隔离恢复；正常hooks、Ruff、OpenAPI/SDK合同、文档与diff检查。按owner清理测试与等价集成树，刷新所属Worker并确认原人工内容不变后追加Outcome。
+
+回退保留additive列和固定事实，未知身份不降级回全局桶；已有固定归属时迁移拒绝破坏性降级。完整E02还需其余用途owner、切换/迁移及浏览器写入资格，E10真实框架加载集合对账仍需另行部署资格，本片不称完成。
+
 ## 继续实施定案：E02-B1/B2
 
 基线 `61d8ed982`，工作区干净，迁移单头 0209。E03/E04、严格原件读取、来源诊断及筛选冻结已落地；本轮不重复它们，也不因本轮交付开放用途绑定切换。人工环境 3100/8100 与其业务数据保留；Orca 中继不可用，修改串行完成。不构建镜像、不改 Compose、不引入依赖。
