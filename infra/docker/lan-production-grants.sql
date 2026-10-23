@@ -380,6 +380,32 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
 -- The monolithic API/Celery runtime composes retained video input capabilities
 -- locally. Keep this bounded to workflow, control, worker and labeling calls;
 -- system sweep and video-input garbage operations stay with their owners.
+-- Compose the existing Spatial native contract for default API/worker calls.
+GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.guard_spatial_actor(uuid,text),
+    aap_assets_v1.list_spatial_scenes(uuid,uuid,timestamp with time zone,uuid,integer),
+    aap_assets_v1.get_spatial_scene(uuid,uuid),
+    aap_assets_v1.read_spatial_layout(uuid,uuid,uuid,uuid,integer),
+    aap_assets_v1.read_spatial_items(uuid,uuid[],uuid,integer),
+    aap_assets_v1.read_spatial_poses(uuid,uuid,integer,integer),
+    aap_assets_v1.read_spatial_pose_pairs(jsonb),
+    aap_assets_v1.read_spatial_calibrations(uuid[],boolean,uuid,integer,integer),
+    aap_assets_v1.lock_spatial_calibration_facts(uuid,uuid,text,uuid,jsonb),
+    aap_assets_v1.mutate_spatial_scene(uuid,uuid,uuid,jsonb,jsonb),
+    aap_assets_v1.apply_spatial_layout(uuid,uuid,uuid,text,boolean,jsonb,jsonb),
+    aap_assets_v1.read_spatial_layout_receipt(uuid,uuid,uuid,text,boolean),
+    aap_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb),
+    aap_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid),
+    aap_assets_v1.assign_spatial_items(uuid,uuid,jsonb),
+    aap_assets_v1.set_spatial_scene_source(uuid,uuid,text,jsonb),
+    aap_assets_v1.update_spatial_calibration(uuid,uuid,uuid,text,integer,text,jsonb,text,text,jsonb,jsonb),
+    aap_assets_v1.read_pointcloud_preparation(uuid,uuid,integer),
+    aap_assets_v1.apply_pointcloud_preparation(uuid,jsonb,jsonb,jsonb),
+    aap_assets_v1.read_spatial_camera_target(uuid,uuid,text),
+    aap_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb),
+    aap_assets_v1.set_spatial_dataset_axis(uuid,uuid,text)
+    TO :"application_role";
+
 GRANT EXECUTE ON FUNCTION
     aap_assets_v1.capture_accepted_video_manifest(uuid, uuid, uuid, jsonb),
     aap_assets_v1.read_accepted_video_manifest(uuid, uuid, uuid),

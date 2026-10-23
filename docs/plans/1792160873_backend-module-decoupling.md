@@ -7895,3 +7895,13 @@ actual task_failure terminalization remain unproven. After the cross-frame gate,
 the smallest required next experiment is an owned export paused after lock
 acquisition, actual worker loss, and inspection of job, lock, broker, object and
 same/new-ID replay behavior. Do not infer signal failure from source alone.
+
+The first cold attempt reached the real restricted Workspace lock call, then the
+actual propagator failed with SQLSTATE 42501 on read_spatial_items. The default
+LAN application grant composition omitted the existing Spatial native contract,
+although module-data workflow grants already included it. The ordinary default
+profile now composes the same 22 published Spatial functions; no owner protocol
+or business implementation changed. A focused actual-role item/pose read passed
+before repeating cold execution. The original failed receipt and redacted worker
+diagnostics are retained, and all owned resources were removed. Existing local
+resource/deployment-grant unit checks also passed.

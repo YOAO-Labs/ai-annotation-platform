@@ -2742,7 +2742,9 @@ AAP_WORKSPACE_CROSS_FRAME_WORKER_LIVE=1 apps/api/.venv/bin/python \
 
 开关只用于验收夹具。worker 以受限 `identity_api_consumer` 连接自有 PostgreSQL／
 Redis 私网，所有十个桶均显式绑定隔离资源。普通员工通过 annotator 项目成员身份执行，
-不使用管理员权限绕过成员读取。任务注册、实际签名、队列、消息确认、数据库客户端
+不使用管理员权限绕过成员读取。默认组合授权同时包含既有 Spatial Native 合同，
+供传播读取同场景 item 和 pose；仍通过 owner 能力读取。任务注册、实际签名、队列、
+消息确认、数据库客户端
 身份和重启由实际容器核对；跨帧传播不调用 ML 服务。
 
 本案例验证 Workspace 的项目与成员调用边界，不代表完整 Labeling 或 Jobs 模块资格。

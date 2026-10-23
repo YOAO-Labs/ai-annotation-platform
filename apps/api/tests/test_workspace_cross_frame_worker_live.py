@@ -233,6 +233,7 @@ async def _seed_member_job(
                 tasks[index].id for index in sorted(tasks) if index > 0
             ],
             "track_id": track_id,
+            "item_ids": [task.dataset_item_id for task in ordered_tasks],
             "scene_id": scene.id,
         }
 
@@ -355,6 +356,29 @@ async def _dispatch_while_workspace_read_is_blocked(
     return result, ack, evidence
 
 
+async def test_cross_frame_prerequisite_spatial_reads_use_closed_api_role(test_engine):
+    from app.services.assets_spatial import AssetsSpatialGateway
+    from app.services.labeling_scene import read_spatial_item_facts
+
+    world = await _seed_member_job(
+        async_sessionmaker(test_engine, expire_on_commit=False), label="spatial-smoke"
+    )
+    await _assert_workspace_consumer_closure(test_engine)
+    engine = create_async_engine(_api_role_url(), hide_parameters=True)
+    try:
+        async with async_sessionmaker(engine)() as db:
+            items, _ = await read_spatial_item_facts(db, world["item_ids"])
+            assert set(items) == set(world["item_ids"])
+            assert {item.scene_id for item in items.values()} == {world["scene_id"]}
+            assert {item.frame_index for item in items.values()} == {0, 1}
+            assert (
+                await AssetsSpatialGateway(db).read_frame_pose(world["scene_id"], 0)
+                is None
+            )
+    finally:
+        await engine.dispose()
+
+
 async def test_real_cross_frame_worker_uses_workspace_fence_and_retry(
     test_engine, tmp_path, record_property, monkeypatch
 ):
@@ -442,6 +466,10 @@ async def test_real_cross_frame_worker_uses_workspace_fence_and_retry(
         )
         assert first_result is None
         status, result, _error = await _job_state(test_engine, success_world["job_id"])
+        record_property(
+            "cross_frame_first_durable_result",
+            {"status": status, "result": result, "error": _error},
+        )
         assert status == AsyncJobStatus.COMPLETED.value
         assert result["success_count"] == 1
         assert result["skipped_count"] == 1
