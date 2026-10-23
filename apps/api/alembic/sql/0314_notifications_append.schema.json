@@ -1,0 +1,209 @@
+{
+  "$defs": {
+    "AppendError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "invalid_request",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "AppendError",
+      "type": "object"
+    },
+    "AppendFailure": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-notification-append/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "error": {
+          "$ref": "#/$defs/AppendError"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "title": "AppendFailure",
+      "type": "object"
+    },
+    "AppendNotificationData": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "append",
+          "title": "Operation",
+          "type": "string"
+        },
+        "notification": {
+          "$ref": "#/$defs/AppendedNotification"
+        }
+      },
+      "required": ["operation", "notification"],
+      "title": "AppendNotificationData",
+      "type": "object"
+    },
+    "AppendNotificationReply": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-notification-append/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "data": {
+          "$ref": "#/$defs/AppendNotificationData"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "title": "AppendNotificationReply",
+      "type": "object"
+    },
+    "AppendNotificationRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-notification-append/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "append",
+          "title": "Operation",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "type": {
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        },
+        "target_type": {
+          "maxLength": 30,
+          "title": "Target Type",
+          "type": "string"
+        },
+        "target_id": {
+          "format": "uuid",
+          "title": "Target Id",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "title": "Payload",
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "id",
+        "user_id",
+        "type",
+        "target_type",
+        "target_id",
+        "payload"
+      ],
+      "title": "AppendNotificationRequest",
+      "type": "object"
+    },
+    "AppendedNotification": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "target_type": {
+          "title": "Target Type",
+          "type": "string"
+        },
+        "target_id": {
+          "format": "uuid",
+          "title": "Target Id",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "title": "Payload",
+          "type": "object"
+        },
+        "read_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Read At"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "user_id",
+        "type",
+        "target_type",
+        "target_id",
+        "payload",
+        "read_at",
+        "created_at"
+      ],
+      "title": "AppendedNotification",
+      "type": "object"
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/AppendNotificationRequest"
+    },
+    {
+      "$ref": "#/$defs/AppendNotificationReply"
+    },
+    {
+      "$ref": "#/$defs/AppendFailure"
+    }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-notification-append/v1",
+  "title": "AAP notification append protocol"
+}

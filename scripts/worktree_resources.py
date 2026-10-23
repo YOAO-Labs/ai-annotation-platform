@@ -116,6 +116,10 @@ IDENTITY_RUNTIME_CAPABILITIES = (
     "aap_identity_recovery_v1.finish_mail(jsonb)",
     "aap_settings_v1.mail_delivery_policy(jsonb)",
 )
+NOTIFICATION_RUNTIME_CAPABILITIES = (
+    "aap_notifications_v1.preference_command(jsonb)",
+    "aap_notifications_v1.append_notification(jsonb)",
+)
 _IDENTITY_PRIVATE_RUNTIME_ACL = """
 -- Preserve embedded command capabilities while denying direct Identity storage.
 DO $identity_private_acl$
@@ -927,6 +931,7 @@ class LocalResources:
             inference_routing_function_grant = ", ".join(
                 INFERENCE_ROUTING_RUNTIME_CAPABILITIES
             )
+            notification_function_grant = ", ".join(NOTIFICATION_RUNTIME_CAPABILITIES)
             async with engine.begin() as connection:
                 for sql in (
                     f"GRANT CONNECT ON DATABASE {database} TO {role}",
@@ -1183,6 +1188,7 @@ class LocalResources:
                     f"aap_jobs_v1.cancel_task_creation_job(uuid, uuid) TO {role}",
                     f"GRANT EXECUTE ON FUNCTION {video_function_grant} TO {role}",
                     f"GRANT EXECUTE ON FUNCTION {identity_function_grant} TO {role}",
+                    f"GRANT EXECUTE ON FUNCTION {notification_function_grant} TO {role}",
                     f"GRANT EXECUTE ON FUNCTION {image_media_function_grant} TO {role}",
                     f"GRANT EXECUTE ON FUNCTION {image_accepted_function_grant} TO {role}",
                 ):
@@ -1205,6 +1211,26 @@ class LocalResources:
                         observed, self._runtime_credentials(required=True)
                     )
                 await connection.exec_driver_sql(_IDENTITY_PRIVATE_RUNTIME_ACL)
+                notification_result = await connection.execute(
+                    text(
+                        "SELECT pg_catalog.has_function_privilege("
+                        ":role, pg_catalog.to_regprocedure("
+                        "'aap_notifications_v1.preference_command(jsonb)'), 'EXECUTE') "
+                        "AS preferences, pg_catalog.has_function_privilege("
+                        ":role, pg_catalog.to_regprocedure("
+                        "'aap_notifications_v1.append_notification(jsonb)'), 'EXECUTE') "
+                        "AS append"
+                    ),
+                    {"role": runtime.username},
+                )
+                notification_grants = notification_result.mappings().one()
+                if (
+                    notification_grants["preferences"] is not True
+                    or notification_grants["append"] is not True
+                ):
+                    raise WorktreeError(
+                        "Notifications preference and append capabilities were not granted"
+                    )
         finally:
             await engine.dispose()
 

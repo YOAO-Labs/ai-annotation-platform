@@ -482,6 +482,14 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 合同、SQL／策略镜像和独立包检查见 `apps/notifications/README.md`；受限数据库、真实 API 和 Node 同合同检查复用 `scripts/verify_module_data_boundary.py` 的独占临时资源。运行前先按 `apps/notifications/conformance/node/README.md` 在该独立目录安装锁定依赖，不向共享的根 Node 目录安装；验收器会在创建数据库和容器前执行 peer 自检，缺少 Node 或依赖时直接保留前置失败记录。完整 Notifications 投递、重放和通道装配仍按模块台账推进。
 
+### Notifications 通知追加事务内能力
+
+迁移 `0314` 安装 `aap_notifications_v1.append_notification(jsonb)`，合同为 `aap-notification-append/v1`。`NotificationService.notify`／`notify_many` 保留既有静音预检、逐用户去重、顺序及返回的 ORM 对象，并通过该固定能力写入。追加在原完整 flush 之前执行；在 `no_autoflush` 下保留旧预检视图和待删除用户的级联顺序，不为新用户添加特殊 flush。新记录的 `created_at` 仍来自数据库事务时间；调用方控制提交／回滚和原 `defer_publish` 行为。
+
+先安装当前迁移与 module-data owner 授权，再使用 `infra/docker/notification-append-grants.sql` 的明确数据库／角色参数。严格配置撤销 API 的通知表直接 INSERT，函数账号只拥有偏好和追加两项能力；Node 用同一连接和事务组合两次调用。必须先更新 API／worker 并排空旧写表消费者再撤权。普通工作树生成的运行角色已列出这两项函数并检查授权，无新增服务或环境变量。回退迁移时也要匹配调用代码与旧 grants，不能让新代码调用已移除的函数。
+
+操作级证据来自明确自有的工作树测试数据库，包含普通 API 角色及函数账号检查；它不等同于完整冷装配或整模块验收。下一次新工件与完整迁移往返会与 Audit 追加能力统一验证。收件箱查询、已读／删除、WebSocket、通用投递／重放和独立通道装配继续按[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)推进。
+
 ### 视频输入回收的保留前提
 
 视频输入保留迁移 `0312` 通过 Jobs 事实让 Labeling 保留未退役及未知旧执行的输入，并保留现有 pin、审核宽限期和已证明安全的释放。`0313` 还在领取已有垃圾前缀时重新核对当前输入引用；保留项按本次租约时长延后，已被新一代替代的前缀继续清理。升级前先停止全部 `apps/assets-cleanup` 进程并确认退出，盘点前缀与租约，等待剩余租约到期后再恢复清理；无法确认进程退出或在途 S3 请求结束时，须先隔离对象删除凭据。默认清理租约为 600 秒，Native claim 接受 60–7200 秒；租约到期本身不能证明物理删除已停止。

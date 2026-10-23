@@ -39,6 +39,7 @@ INFERENCE_ROUTING_ROLE = "inference_routing_client"
 VIDEO_EXECUTION_ROLE = "video_execution_client"
 IDENTITY_API_CONSUMER_ROLE = "identity_api_consumer"
 NOTIFICATION_PREFERENCES_ROLE = "notification_preferences_client"
+NOTIFICATION_APPEND_ROLE = "notification_append_client"
 IDENTITY_CLIENT_ROLES = {
     "AUTH": "identity_auth_client",
     "COMMAND": "identity_command_client",
@@ -112,6 +113,7 @@ MODULE_ROLES = (
     "preannotation_result_client",
     VIDEO_EXECUTION_ROLE,
     NOTIFICATION_PREFERENCES_ROLE,
+    NOTIFICATION_APPEND_ROLE,
     *IDENTITY_CLIENT_ROLES.values(),
 )
 SQL_ARTIFACTS = (
@@ -282,6 +284,7 @@ SQL_ARTIFACTS = (
     "0311_notifications_preferences.sql",
     "0312_video_tracker_input_retention.sql",
     "0313_video_tracker_input_garbage_retention.sql",
+    "0314_notifications_append.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -407,6 +410,7 @@ SCHEMA_ARTIFACTS = (
     "0311_notifications_preferences.schema.json",
     "0312_video_tracker_input_retention.schema.json",
     "0313_video_tracker_input_garbage_retention.schema.json",
+    "0314_notifications_append.schema.json",
 )
 TEST_FILES = (
     "tests/test_scale_seed_workspace_native.py",
@@ -1925,6 +1929,7 @@ def _create_module_roles(
     mask_gc_password: str,
     result_password: str,
     preference_password: str,
+    notification_append_password: str,
 ) -> None:
     _psql(
         container_id,
@@ -1996,6 +2001,9 @@ def _create_module_roles(
             "CREATE ROLE notification_preferences_client LOGIN "
             f"PASSWORD '{preference_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE notification_append_client LOGIN "
+            f"PASSWORD '{notification_append_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             'REVOKE TEMPORARY ON DATABASE :"expected_database" FROM PUBLIC;\n'
             'GRANT TEMPORARY ON DATABASE :"expected_database" TO '
             + ", ".join(
@@ -2012,6 +2020,7 @@ def _create_module_roles(
                         "labeling_mask_gc_client",
                         "preannotation_result_client",
                         NOTIFICATION_PREFERENCES_ROLE,
+                        NOTIFICATION_APPEND_ROLE,
                         VIDEO_EXECUTION_ROLE,
                         INFERENCE_REGISTRY_INGRESS_ROLE,
                         INFERENCE_ROUTING_ROLE,
@@ -2556,6 +2565,14 @@ def main(argv: list[str] | None = None) -> int:
             "function_only_role_grant": False,
             "node_contract_check": False,
         },
+        "notification_append": {
+            "node_prerequisites": "not_checked",
+            "api_function_grant": False,
+            "api_insert_revoked": False,
+            "api_function_call": False,
+            "function_only_role_grant": False,
+            "node_contract_check": False,
+        },
         "test_files": list(test_files),
         "junit_xml": str(junit),
         "test_exit_code": None,
@@ -2617,9 +2634,17 @@ def main(argv: list[str] | None = None) -> int:
             raise RuntimeError(f"Missing module-data acceptance cases: {missing_tests}")
         node_bin = shutil.which("node")
         node_provider = ROOT / "apps/notifications/conformance/node/provider.mjs"
-        if node_bin is None or not node_provider.is_file():
+        append_node_provider = (
+            ROOT / "apps/notifications/conformance/node/append_provider.mjs"
+        )
+        if (
+            node_bin is None
+            or not node_provider.is_file()
+            or not append_node_provider.is_file()
+        ):
             evidence["notification_preferences"]["node_prerequisites"] = "unavailable"
-            raise RuntimeError("Node Notifications preference client is unavailable")
+            evidence["notification_append"]["node_prerequisites"] = "unavailable"
+            raise RuntimeError("Node Notifications contract peer is unavailable")
         node_check = subprocess.run(
             [node_bin, str(node_provider), "--self-check"],
             cwd=node_provider.parent,
@@ -2635,7 +2660,21 @@ def main(argv: list[str] | None = None) -> int:
                 "Notifications peer prerequisites failed; install its locked "
                 "dependencies using apps/notifications/conformance/node/README.md"
             )
+        append_node_check = subprocess.run(
+            [node_bin, str(append_node_provider), "--self-check"],
+            cwd=append_node_provider.parent,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if append_node_check.returncode:
+            evidence["notification_append"]["node_prerequisites"] = "self_check_failed"
+            raise RuntimeError(
+                "Notifications append peer prerequisites failed; install its locked "
+                "dependencies using apps/notifications/conformance/node/README.md"
+            )
         evidence["notification_preferences"]["node_prerequisites"] = "passed"
+        evidence["notification_append"]["node_prerequisites"] = "passed"
         grants_path = ROOT / "infra/docker/module-data-grants.sql"
         catalog_grants_path = ROOT / "infra/docker/assets-catalog-grants.sql"
         source_grants_path = ROOT / "infra/docker/assets-source-grants.sql"
@@ -2741,6 +2780,9 @@ def main(argv: list[str] | None = None) -> int:
         notification_preferences_grants_path = (
             ROOT / "infra/docker/notification-preferences-grants.sql"
         )
+        notification_append_grants_path = (
+            ROOT / "infra/docker/notification-append-grants.sql"
+        )
         identity_recovery_grants_path = (
             ROOT / "infra/docker/identity-recovery-grants.sql"
         )
@@ -2769,6 +2811,7 @@ def main(argv: list[str] | None = None) -> int:
             or not identity_session_grants_path.is_file()
             or not identity_deactivation_grants_path.is_file()
             or not notification_preferences_grants_path.is_file()
+            or not notification_append_grants_path.is_file()
             or not identity_group_grants_path.is_file()
             or not identity_invitation_grants_path.is_file()
             or not identity_directory_grants_path.is_file()
@@ -2926,6 +2969,9 @@ def main(argv: list[str] | None = None) -> int:
         notification_preferences_grant_sql = (
             notification_preferences_grants_path.read_text(encoding="utf-8")
         )
+        notification_append_grant_sql = notification_append_grants_path.read_text(
+            encoding="utf-8"
+        )
         identity_account_grant_sql = identity_account_grants_path.read_text(
             encoding="utf-8"
         )
@@ -2963,6 +3009,7 @@ def main(argv: list[str] | None = None) -> int:
         mask_gc_password = f"mask-gc-{secrets.token_hex(16)}"
         result_password = f"batch-result-{secrets.token_hex(16)}"
         preference_password = f"notification-preference-{secrets.token_hex(16)}"
+        notification_append_password = f"notification-append-{secrets.token_hex(16)}"
         inference_registry_ingress_password = secrets.token_hex(24)
         inference_routing_password = secrets.token_hex(24)
         video_execution_password = secrets.token_hex(24)
@@ -3046,8 +3093,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0313"]:
-            raise RuntimeError("module-data acceptance requires migration head 0313")
+        if heads != ["0314"]:
+            raise RuntimeError("module-data acceptance requires migration head 0314")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -3164,6 +3211,14 @@ def main(argv: list[str] | None = None) -> int:
             port=port,
             database=database,
         ).render_as_string(hide_password=False)
+        notification_append_url = URL.create(
+            "postgresql",
+            username=NOTIFICATION_APPEND_ROLE,
+            password=notification_append_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
         role_create_password = append_password.replace("'", "''")
         phase = "create-scoped-roles"
         _create_module_roles(
@@ -3184,6 +3239,7 @@ def main(argv: list[str] | None = None) -> int:
             mask_gc_password,
             result_password,
             preference_password,
+            notification_append_password,
         )
         phase = "create-video-execution-client-role"
         _psql(
@@ -3295,10 +3351,33 @@ def main(argv: list[str] | None = None) -> int:
                 },
             )
 
+        def apply_notification_append_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=notification_append_grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "notifications_owner": "notifications_code",
+                    "api_role": "legacy_runtime",
+                    "append_role": NOTIFICATION_APPEND_ROLE,
+                },
+            )
+
         phase = "install-notification-preferences-grants"
         apply_notification_preferences_grants()
         evidence["notification_preferences"]["api_function_grant"] = True
         evidence["notification_preferences"]["function_only_role_grant"] = True
+        phase = "install-notification-append-grants"
+        apply_notification_append_grants()
+        evidence["notification_append"]["api_function_grant"] = True
+        evidence["notification_append"]["api_insert_revoked"] = True
+        evidence["notification_append"]["function_only_role_grant"] = True
         notification_preference_user_id = str(uuid4())
         _psql(
             container_id,
@@ -3354,6 +3433,56 @@ def main(argv: list[str] | None = None) -> int:
         else:
             raise RuntimeError("API LOGIN retained direct preference table access")
         evidence["notification_preferences"]["api_function_call"] = True
+        notification_append_request = json.dumps(
+            {
+                "schema": "aap-notification-append/v1",
+                "operation": "append",
+                "id": str(uuid4()),
+                "user_id": notification_preference_user_id,
+                "type": "task.approved",
+                "target_type": "task",
+                "target_id": str(uuid4()),
+                "payload": {"source": "module-data-verifier"},
+            },
+            separators=(",", ":"),
+        )
+        api_append_result = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT aap_notifications_v1.append_notification("
+                f"'{notification_append_request}'::jsonb) ->> 'ok';"
+            ),
+        )
+        if api_append_result.strip() != "true":
+            raise RuntimeError("API LOGIN could not call Notifications append owner")
+        api_direct_insert_id = str(uuid4())
+        try:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="legacy_runtime",
+                password=runtime_password,
+                database=database,
+                sql=(
+                    "INSERT INTO public.notifications "
+                    "(id,user_id,type,target_type,target_id,payload) VALUES ("
+                    f"'{api_direct_insert_id}'::uuid, "
+                    f"'{notification_preference_user_id}'::uuid, "
+                    "'task.approved', 'task', "
+                    f"'{uuid4()}'::uuid, '{{}}'::jsonb);"
+                ),
+            )
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("API LOGIN retained direct notification INSERT access")
+        evidence["notification_append"]["api_function_call"] = True
         node_environment = os.environ.copy()
         node_environment["NOTIFICATION_PREFERENCES_DATABASE_URL"] = (
             notification_preferences_url
@@ -3376,6 +3505,25 @@ def main(argv: list[str] | None = None) -> int:
                 f"{node_result.stderr[-3000:]}"
             )
         evidence["notification_preferences"]["node_contract_check"] = True
+        node_environment["NOTIFICATION_APPEND_DATABASE_URL"] = notification_append_url
+        node_environment["NOTIFICATION_APPEND_USER_ID"] = (
+            notification_preference_user_id
+        )
+        append_node_result = subprocess.run(
+            [node_bin, str(append_node_provider)],
+            cwd=append_node_provider.parent,
+            env=node_environment,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if append_node_result.returncode:
+            raise RuntimeError(
+                "Node Notifications append check failed: "
+                f"{append_node_result.stderr[-3000:]}"
+            )
+        evidence["notification_append"]["node_contract_check"] = True
 
         phase = "install-mask-gc-grants"
         _psql(
@@ -4925,8 +5073,9 @@ SELECT pg_catalog.jsonb_build_object(
                 if workspace_import_cli_fence is not None:
                     workspace_import_cli_fence()
                 # The launcher reapplies legacy table grants while preparing.
-                # Revoke preference access again before the selected API cases.
+                # Reapply the Notifications boundary after the broad test grants.
                 apply_notification_preferences_grants()
+                apply_notification_append_grants()
 
             with patch.object(backend, "prepare", prepare_fenced_resources):
                 exit_code = run_processes(backend, options)

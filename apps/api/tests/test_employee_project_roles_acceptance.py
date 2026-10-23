@@ -7,7 +7,6 @@ import pytest
 from app.core.security import create_access_token
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
-from app.db.models.notification import Notification
 from app.db.models.project_member import ProjectMember
 from tests.factory import (
     create_membership,
@@ -271,29 +270,29 @@ async def test_notification_delivery_uses_actual_job_project_after_revocation(
     )
     db_session.add(job)
     await db_session.flush()
-    secret = Notification(
+    service = NotificationService(db_session)
+    secret = await service.notify(
         user_id=employee.id,
         type="export.completed",
         target_type=target_type,
         target_id=job.id,
         payload={"project_id": str(project_b.id)} if misleading_payload else {},
     )
-    allowed = Notification(
+    allowed = await service.notify(
         user_id=employee.id,
         type="task.mentioned",
         target_type="task",
         target_id=uuid.uuid4(),
         payload={"project_id": str(project_b.id)},
     )
-    global_notice = Notification(
+    global_notice = await service.notify(
         user_id=employee.id,
         type="system.notice",
         target_type="system",
         target_id=uuid.uuid4(),
         payload={},
     )
-    db_session.add_all([secret, allowed, global_notice])
-    await db_session.flush()
+    assert secret is not None and allowed is not None and global_notice is not None
     await db_session.delete(membership)
     await db_session.flush()
     headers = {

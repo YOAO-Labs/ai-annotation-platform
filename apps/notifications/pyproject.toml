@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "aap-notifications"
 version = "0.1.0"
-description = "Portable notification preference contract and PostgreSQL capability client"
+description = "Portable Notifications contracts and PostgreSQL capability clients"
 requires-python = ">=3.11"
 dependencies = ["pydantic>=2.10.0"]
 
@@ -18,8 +18,10 @@ packages = ["src/aap_notifications"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/aap_notifications/sql/0311_notifications_preferences.sql" = "aap_notifications/sql/0311_notifications_preferences.sql"
+"src/aap_notifications/sql/0314_notifications_append.sql" = "aap_notifications/sql/0314_notifications_append.sql"
 "src/aap_notifications/preferences.schema.json" = "aap_notifications/preferences.schema.json"
 "src/aap_notifications/preferences.policy.json" = "aap_notifications/preferences.policy.json"
+"src/aap_notifications/append.schema.json" = "aap_notifications/append.schema.json"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

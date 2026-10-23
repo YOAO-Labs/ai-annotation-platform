@@ -26,7 +26,7 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import aliased, make_transient_to_detached
 
 from app.config import settings
 from app.db.enums import (
@@ -55,6 +55,9 @@ from app.services.workspace_read_relations import (
 )
 from aap_notifications.preferences import NotificationPreferenceManager
 from aap_notifications.preferences_postgres import NotificationPreferencesPostgresData
+from aap_notifications.append import NotificationAppendManager
+from aap_notifications.append_contract import AppendNotificationRequest
+from aap_notifications.append_postgres import NotificationAppendPostgresData
 
 
 log = logging.getLogger(__name__)
@@ -250,15 +253,38 @@ class NotificationService:
         if await self._is_in_app_muted(user_id, type):
             return None
 
-        row = Notification(
-            id=uuid.uuid4(),
-            user_id=user_id,
-            type=type,
-            target_type=target_type,
-            target_id=target_id,
-            payload=payload or {},
+        notification_id = uuid.uuid4()
+        notification_payload = payload or {}
+        # Preference policy remains authoritative in the existing owner
+        # preflight above. Append before the original full flush so pending
+        # caller changes keep the same unit-of-work ordering under no_autoflush.
+        appended = await NotificationAppendManager(
+            NotificationAppendPostgresData(self.db)
+        ).append(
+            AppendNotificationRequest(
+                schema="aap-notification-append/v1",
+                operation="append",
+                id=notification_id,
+                user_id=user_id,
+                type=type,
+                target_type=target_type,
+                target_id=target_id,
+                payload=notification_payload,
+            )
         )
-        self.db.add(row)
+        snapshot = appended.notification
+        row = Notification(
+            id=snapshot.id,
+            user_id=snapshot.user_id,
+            type=snapshot.type,
+            target_type=snapshot.target_type,
+            target_id=snapshot.target_id,
+            payload=snapshot.payload,
+            read_at=snapshot.read_at,
+            created_at=snapshot.created_at,
+        )
+        make_transient_to_detached(row)
+        row = await self.db.merge(row, load=False)
         await self.db.flush()
 
         if not defer_publish:
