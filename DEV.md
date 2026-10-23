@@ -2933,3 +2933,35 @@ AAP_WORKSPACE_CAPACITY_LIVE=1 apps/api/.venv/bin/python \
 错误回滚。正常成功流量与明确的竞争／撤权拒绝分别报告，所有原始失败日志保留。
 相同账号的管理写入仍可能按既有 NOWAIT 规则返回 409；不引入隐藏重试或放宽围栏。
 有限本机数据与未完成范围见[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
+
+### 宿主机转发诊断
+
+在 macOS 上使用已存在的不可变 Docker Python 镜像。镜像必须提供
+`/opt/venv/bin/python`（Python 3.11 以上），并允许普通 UID `10003` 运行。先把镜像
+SHA-256 ID 放入本地 shell 变量 `HOST_FORWARDING_IMAGE_ID`，再运行：
+
+```bash
+python3 scripts/verify_docker_host_forwarding.py \
+  --image "$HOST_FORWARDING_IMAGE_ID" \
+  --output .worktree/host-forwarding-diagnosis.json
+```
+
+诊断只创建带唯一所有权标签的临时 echo 容器、网络和宿主机 loopback 监听器，核对标记
+后正常关闭，再用同一源端口重连。普通模式不需要 root、业务凭据或抓包能力，不拉取
+镜像、不执行 SQL、不改变 Docker 配置，也不自动重试／切换失败路由。退出码非零并报告
+`diagnosed_not_repaired` 表示复现了故障；没有复现也不能据此宣称平台缺陷已修复。
+
+需要宿主机控制包元数据时，在**本机交互终端**先授权，再使用一个新的输出文件名：
+
+```bash
+sudo -v
+python3 scripts/verify_docker_host_forwarding.py \
+  --image "$HOST_FORWARDING_IMAGE_ID" --host-trace \
+  --output .worktree/host-forwarding-host-trace.json
+```
+
+管理员口令只在本机终端输入，不发送到聊天、命令参数或日志。抓取限定为本次自有原生
+监听端口的 TCP 元数据，不保存业务载荷；用后只停止已核对身份的自有抓取进程并清理
+临时资源。未取得 BPF／sudo 权限时会明确报告前置条件失败，不能记录为通过。
+[当前范围与未解决部分](docs-site/dev/concepts/module-deployment.md#runtime-host-forwarding)
+仍按唯一台账跟踪；此入口不是 Docker 的修复开关。
