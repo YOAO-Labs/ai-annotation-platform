@@ -7797,3 +7797,39 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
 - Matching cold artifacts and actual installed CLI acceptance are the next gate.
   This is the Workspace consumer boundary; raw other-domain bulk DML, full module
   closure, primary cutover, production, release and Go expansion are not claimed.
+
+- Root implementation/documentation commit
+  0a06b54735d3fa93d610ad8d2ffd70cace789c4d passes normal hooks, including
+  OpenAPI export. Matching non-editable Workspace image
+  sha256:961caf7098ac506911de5bca5142545c535db0ba91676b57074109485efd4645
+  matches 298 files in twelve namespaces; API image
+  sha256:5fe13f7c84af87fcce537cb54f032a8a5f1c8f8872ba283ede60b129080b6168
+  matches 1334 files (772 app, 530 package, 32 CLI) plus two runtime fixtures.
+  Four resource schemas match runtime generation; the owner still excludes API,
+  SQLAlchemy, Celery, boto3 and torch. Unchanged dependent images are reused.
+- Two separate cold cases pass: selection/scale in 70.245 seconds and recording
+  in 96.834 seconds. Eleven and twenty-three actual installed commands include
+  expected nonzero refusal/failure exits and physical cancellation 137. Recording
+  has twenty-one explicit command receipts plus two asserted successful preference
+  resets; do not count those calls as separate test cases. Both Role/Workspace
+  fences, real CLI behavior, rollback/retained phases, recovery and cleanup pass.
+  These are small fixtures, not default 100000-task or production capacity proof.
+- The source worker is integration-checked, bundle and ignored-artifact archived
+  (including hook-created virtualenv symlinks without following shared targets),
+  then removed. Its branch remains retained; partial archive attempt is preserved.
+  Root's exact owner edits are reviewed and recorded in workspace-scale-workers.json.
+- Preservation verifies twenty unchanged Root editable bindings, four unchanged
+  shared containers, all 155 known full owned PostgreSQL IDs absent plus the
+  independently verified interrupted-run prefix, all five current image COPY
+  path sets/hashes and ten retained worker receipts. The protected clean primary
+  stays at 856fa79c87ef2668d0ed74eb570df0a3e529d49f; no Root runtime remains.
+  This closes only this bounded Workspace consumer group locally. The sole ledger
+  advances to the privileged legacy Workspace audit; worker cold paths and actual
+  old video-retirement evidence remain, and the full active goal is unchanged.
+
+- Documentation build passes in 16.356 seconds. Aggregate
+  .worktree/workspace-scale-qualification.json SHA256 is
+  aad82f39949007876ff3da845a34e4e0c4f243f87a6f76fe9d37ff025d1214c4.
+  It binds the exact 51-case union, original baseline, 504 source cases, 358
+  architecture passes and 150 deferred rules, retained failures and recovery,
+  both cold cases/34 commands, artifact identities and final preservation.
