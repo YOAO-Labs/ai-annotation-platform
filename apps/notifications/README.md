@@ -1,0 +1,9 @@
+# Notifications preference capability
+
+This package owns the language-neutral notification preference contract and a bounded PostgreSQL capability for preference reads, PATCH updates, and in-app mute checks. It does not start an HTTP service: API requests must keep preference changes in the caller's PostgreSQL transaction so the API can publish `notifications.sync` only after commit.
+
+The public policy is stored in `src/aap_notifications/preferences.policy.json`. The JSON command/reply contract and schema live beside it. Migration `0311` installs `aap_notifications_v1.preference_command(jsonb)` after repository head `0310`; the SQL policy owns the allowed types and new-row defaults. The API adapter borrows the request `AsyncSession`, preserves its autoflush behavior, and never commits. The legacy API database binding remains the transaction coordinator.
+
+`infra/docker/module-data-grants.sql` gives `notifications_code` only the preference columns required for reads and atomic upserts. `infra/docker/notification-preferences-grants.sql` grants the command to the existing API LOGIN and a function-only `notification_preferences_client`, then revokes direct preference-table privileges from the API LOGIN and `PUBLIC`. Apply those strict grants only after all API and Celery processes use the 0311 owner path; older images still reading or writing `NotificationPreference` through the ORM will fail after revocation. Roll out the matching API/worker artifact and drain old processes first.
+
+The bounded acceptance checks are the package contract tests, `conformance/node` self-check and live same-contract peer, and `scripts/verify_module_data_boundary.py` against its owned disposable PostgreSQL resources. This capability closes the preference path only; it does not qualify complete Notifications delivery, WebSocket, or channel deployment.

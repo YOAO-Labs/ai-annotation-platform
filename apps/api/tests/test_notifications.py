@@ -11,7 +11,7 @@ from app.db.models.notification import Notification
 from app.db.models.notification_preference import NotificationPreference
 from app.services.display_id import next_display_id
 from app.services.notification import NotificationService
-from app.services.notification_preferences import (
+from aap_notifications.preferences_policy import (
     KNOWN_NOTIFICATION_TYPES,
     default_toast_for,
 )
@@ -62,6 +62,67 @@ async def test_notify_writes_row_and_unread_count(db_session, annotator):
     items, total, unread = await svc.list_for_user(user.id)
     assert total == 1 and unread == 1
     assert items[0].read_at is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("channels", "muted"),
+    [
+        ({}, False),
+        ({"in_app": None}, True),
+        ({"in_app": 0}, True),
+        ({"in_app": ""}, True),
+        ({"in_app": []}, True),
+        ({"in_app": {}}, True),
+        ({"in_app": 1}, False),
+        ({"in_app": "enabled"}, False),
+        ({"in_app": ["enabled"]}, False),
+        ({"in_app": {"enabled": True}}, False),
+    ],
+)
+async def test_preference_owner_keeps_python_truthiness_for_in_app(
+    channels, muted, db_session, annotator
+):
+    user, _ = annotator
+    db_session.add(
+        NotificationPreference(
+            user_id=user.id,
+            type="task.rejected",
+            channels=channels,
+        )
+    )
+    service = NotificationService(db_session)
+    assert await service._is_in_app_muted(user.id, "task.rejected") is muted
+
+
+@pytest.mark.asyncio
+async def test_preference_owner_preserves_autoflush_and_no_autoflush(
+    db_session, annotator
+):
+    user, _ = annotator
+    user.name = "Pending preference actor"
+    pending = NotificationPreference(
+        user_id=user.id,
+        type="task.rejected",
+        channels={"in_app": False},
+    )
+    db_session.add(pending)
+    service = NotificationService(db_session)
+    assert await service._is_in_app_muted(user.id, "task.rejected") is True
+    assert pending not in db_session.new
+    assert user not in db_session.dirty
+
+    deferred = NotificationPreference(
+        user_id=user.id,
+        type="future.preference",
+        channels={"in_app": False},
+    )
+    db_session.add(deferred)
+    with db_session.no_autoflush:
+        assert await service._is_in_app_muted(user.id, "future.preference") is False
+        assert deferred in db_session.new
+    assert await service._is_in_app_muted(user.id, "future.preference") is True
+    assert deferred not in db_session.new
 
 
 @pytest.mark.asyncio

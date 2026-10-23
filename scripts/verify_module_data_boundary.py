@@ -38,6 +38,7 @@ INFERENCE_REGISTRY_INGRESS_ROLE = "inference_registry_ingress_client"
 INFERENCE_ROUTING_ROLE = "inference_routing_client"
 VIDEO_EXECUTION_ROLE = "video_execution_client"
 IDENTITY_API_CONSUMER_ROLE = "identity_api_consumer"
+NOTIFICATION_PREFERENCES_ROLE = "notification_preferences_client"
 IDENTITY_CLIENT_ROLES = {
     "AUTH": "identity_auth_client",
     "COMMAND": "identity_command_client",
@@ -110,6 +111,7 @@ MODULE_ROLES = (
     "labeling_mask_gc_client",
     "preannotation_result_client",
     VIDEO_EXECUTION_ROLE,
+    NOTIFICATION_PREFERENCES_ROLE,
     *IDENTITY_CLIENT_ROLES.values(),
 )
 SQL_ARTIFACTS = (
@@ -277,6 +279,7 @@ SQL_ARTIFACTS = (
     "0308_workspace_seed_member_assignment.sql",
     "0309_workspace_e2e_fixtures.sql",
     "0310_workspace_scale_seed.sql",
+    "0311_notifications_preferences.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -399,6 +402,7 @@ SCHEMA_ARTIFACTS = (
     "0308_workspace_seed_member_assignment.schema.json",
     "0309_workspace_e2e_fixtures.schema.json",
     "0310_workspace_scale_seed.schema.json",
+    "0311_notifications_preferences.schema.json",
 )
 TEST_FILES = (
     "tests/test_scale_seed_workspace_native.py",
@@ -1915,6 +1919,7 @@ def _create_module_roles(
     image_worker_password: str,
     mask_gc_password: str,
     result_password: str,
+    preference_password: str,
 ) -> None:
     _psql(
         container_id,
@@ -1983,6 +1988,9 @@ def _create_module_roles(
             "CREATE ROLE preannotation_result_client LOGIN "
             f"PASSWORD '{result_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE notification_preferences_client LOGIN "
+            f"PASSWORD '{preference_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             'REVOKE TEMPORARY ON DATABASE :"expected_database" FROM PUBLIC;\n'
             'GRANT TEMPORARY ON DATABASE :"expected_database" TO '
             + ", ".join(
@@ -1998,6 +2006,7 @@ def _create_module_roles(
                         "asset_image_worker_client",
                         "labeling_mask_gc_client",
                         "preannotation_result_client",
+                        NOTIFICATION_PREFERENCES_ROLE,
                         VIDEO_EXECUTION_ROLE,
                         INFERENCE_REGISTRY_INGRESS_ROLE,
                         INFERENCE_ROUTING_ROLE,
@@ -2535,6 +2544,12 @@ def main(argv: list[str] | None = None) -> int:
         "database": None,
         "roles": list(MODULE_ROLES),
         "identity_api_consumer": None,
+        "notification_preferences": {
+            "api_function_grant": False,
+            "api_function_call": False,
+            "function_only_role_grant": False,
+            "node_contract_check": False,
+        },
         "test_files": list(test_files),
         "junit_xml": str(junit),
         "test_exit_code": None,
@@ -2696,6 +2711,9 @@ def main(argv: list[str] | None = None) -> int:
         identity_deactivation_grants_path = (
             ROOT / "infra/docker/identity-deactivation-grants.sql"
         )
+        notification_preferences_grants_path = (
+            ROOT / "infra/docker/notification-preferences-grants.sql"
+        )
         identity_recovery_grants_path = (
             ROOT / "infra/docker/identity-recovery-grants.sql"
         )
@@ -2723,6 +2741,7 @@ def main(argv: list[str] | None = None) -> int:
             or not identity_key_grants_path.is_file()
             or not identity_session_grants_path.is_file()
             or not identity_deactivation_grants_path.is_file()
+            or not notification_preferences_grants_path.is_file()
             or not identity_group_grants_path.is_file()
             or not identity_invitation_grants_path.is_file()
             or not identity_directory_grants_path.is_file()
@@ -2877,6 +2896,9 @@ def main(argv: list[str] | None = None) -> int:
         identity_deactivation_grant_sql = identity_deactivation_grants_path.read_text(
             encoding="utf-8"
         )
+        notification_preferences_grant_sql = (
+            notification_preferences_grants_path.read_text(encoding="utf-8")
+        )
         identity_account_grant_sql = identity_account_grants_path.read_text(
             encoding="utf-8"
         )
@@ -2913,6 +2935,7 @@ def main(argv: list[str] | None = None) -> int:
         image_worker_password = f"image-worker-{secrets.token_hex(16)}"
         mask_gc_password = f"mask-gc-{secrets.token_hex(16)}"
         result_password = f"batch-result-{secrets.token_hex(16)}"
+        preference_password = f"notification-preference-{secrets.token_hex(16)}"
         inference_registry_ingress_password = secrets.token_hex(24)
         inference_routing_password = secrets.token_hex(24)
         video_execution_password = secrets.token_hex(24)
@@ -2996,8 +3019,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0310"]:
-            raise RuntimeError("module-data acceptance requires migration head 0310")
+        if heads != ["0311"]:
+            raise RuntimeError("module-data acceptance requires migration head 0311")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -3106,6 +3129,14 @@ def main(argv: list[str] | None = None) -> int:
             port=port,
             database=database,
         ).render_as_string(hide_password=False)
+        notification_preferences_url = URL.create(
+            "postgresql",
+            username=NOTIFICATION_PREFERENCES_ROLE,
+            password=preference_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
         role_create_password = append_password.replace("'", "''")
         phase = "create-scoped-roles"
         _create_module_roles(
@@ -3125,6 +3156,7 @@ def main(argv: list[str] | None = None) -> int:
             image_worker_password,
             mask_gc_password,
             result_password,
+            preference_password,
         )
         phase = "create-video-execution-client-role"
         _psql(
@@ -3217,6 +3249,112 @@ def main(argv: list[str] | None = None) -> int:
                 "inference_routing_role": INFERENCE_ROUTING_ROLE,
             },
         )
+
+        def apply_notification_preferences_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=notification_preferences_grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "notifications_owner": "notifications_code",
+                    "api_role": "legacy_runtime",
+                    "preference_role": NOTIFICATION_PREFERENCES_ROLE,
+                },
+            )
+
+        phase = "install-notification-preferences-grants"
+        apply_notification_preferences_grants()
+        evidence["notification_preferences"]["api_function_grant"] = True
+        evidence["notification_preferences"]["function_only_role_grant"] = True
+        notification_preference_user_id = str(uuid4())
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=(
+                "INSERT INTO public.users "
+                "(id, email, name, password_hash, role, is_active, status) VALUES ("
+                f"'{notification_preference_user_id}'::uuid, "
+                f"'notification-preference-{notification_preference_user_id}@test.invalid', "
+                "'Preference owner fixture', 'module-data-fixture', 'employee', true, 'offline');"
+            ),
+        )
+        api_get_request = json.dumps(
+            {
+                "schema": "aap-notification-preferences/v1",
+                "operation": "get",
+                "user_id": notification_preference_user_id,
+            },
+            separators=(",", ":"),
+        )
+        api_function_result = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT aap_notifications_v1.preference_command("
+                f"'{api_get_request}'::jsonb) ->> 'ok';"
+            ),
+        )
+        if api_function_result.strip() != "true":
+            raise RuntimeError(
+                "API LOGIN could not call Notifications preference owner"
+            )
+        try:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="legacy_runtime",
+                password=runtime_password,
+                database=database,
+                sql="SELECT channels FROM public.notification_preferences LIMIT 1;",
+            )
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("API LOGIN retained direct preference table access")
+        evidence["notification_preferences"]["api_function_call"] = True
+        node_bin = shutil.which("node")
+        node_provider = ROOT / "apps/notifications/conformance/node/provider.mjs"
+        if node_bin is None or not node_provider.is_file():
+            raise RuntimeError(
+                "Node Notifications preference conformance client is unavailable"
+            )
+        node_environment = os.environ.copy()
+        node_environment["NOTIFICATION_PREFERENCES_DATABASE_URL"] = (
+            notification_preferences_url
+        )
+        node_environment["NOTIFICATION_PREFERENCE_USER_ID"] = (
+            notification_preference_user_id
+        )
+        node_result = subprocess.run(
+            [node_bin, str(node_provider)],
+            cwd=node_provider.parent,
+            env=node_environment,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if node_result.returncode:
+            raise RuntimeError(
+                "Node Notifications preference check failed: "
+                f"{node_result.stderr[-3000:]}"
+            )
+        evidence["notification_preferences"]["node_contract_check"] = True
 
         phase = "install-mask-gc-grants"
         _psql(
@@ -4759,19 +4897,18 @@ SELECT pg_catalog.jsonb_build_object(
             container_id, container_name, container_identity, require_running=True
         )
         with patch.dict(os.environ, resource_environment, clear=False):
-            if workspace_import_cli_fence is None:
-                exit_code = run_processes(backend, options)
-            else:
-                prepare_owned_resources = backend.prepare
+            prepare_owned_resources = backend.prepare
 
-                def prepare_fenced_import_resources(*, skip_migrations=False):
-                    prepare_owned_resources(skip_migrations=skip_migrations)
+            def prepare_fenced_resources(*, skip_migrations=False):
+                prepare_owned_resources(skip_migrations=skip_migrations)
+                if workspace_import_cli_fence is not None:
                     workspace_import_cli_fence()
+                # The launcher reapplies legacy table grants while preparing.
+                # Revoke preference access again before the selected API cases.
+                apply_notification_preferences_grants()
 
-                # The launcher reapplies compatibility grants while preparing.
-                # Fence its actual final credentials before it starts pytest.
-                with patch.object(backend, "prepare", prepare_fenced_import_resources):
-                    exit_code = run_processes(backend, options)
+            with patch.object(backend, "prepare", prepare_fenced_resources):
+                exit_code = run_processes(backend, options)
         evidence["test_exit_code"] = exit_code
         evidence["passed_test_count"] = _passed_test_count(junit)
         if exit_code == 0 and evidence["passed_test_count"] == 0:

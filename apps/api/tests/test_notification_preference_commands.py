@@ -39,12 +39,12 @@ _NO_OVERRIDE = object()
 async def preference_owner(test_engine):
     session_factory = async_sessionmaker(test_engine, expire_on_commit=False)
     email = f"notification-preference-{uuid.uuid4().hex}@test.local"
-    user = User(**make_user_dict("annotator", email, "Preference owner"))
+    user = User(**make_user_dict("employee", email, "Preference owner"))
     async with session_factory() as session:
         session.add(user)
         await session.commit()
     user_id = user.id
-    token = create_access_token(subject=str(user_id), role="annotator")
+    token = create_access_token(subject=str(user_id), role="employee")
     try:
         yield user_id, token, session_factory
     finally:
@@ -367,7 +367,7 @@ def test_notification_preference_catalog_cold_load_uses_only_stdlib():
 import importlib
 import sys
 sys.path.insert(0, sys.argv[1])
-importlib.import_module("app.services.notification_preferences")
+importlib.import_module("aap_notifications.preferences_policy")
 blocked = (
     "sqlalchemy",
     "fastapi",
@@ -385,7 +385,14 @@ assert not [
 ]
 """
     result = subprocess.run(
-        [sys.executable, "-I", "-S", "-c", script, str(_API_ROOT)],
+        [
+            sys.executable,
+            "-I",
+            "-S",
+            "-c",
+            script,
+            str(_API_ROOT.parent / "notifications" / "src"),
+        ],
         check=False,
         capture_output=True,
         text=True,

@@ -1,0 +1,297 @@
+{
+  "$defs": {
+    "GetPreferencesData": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/PreferenceItem"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "operation": {
+          "const": "get",
+          "title": "Operation",
+          "type": "string"
+        }
+      },
+      "required": ["operation", "items"],
+      "title": "GetPreferencesData",
+      "type": "object"
+    },
+    "GetPreferencesReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/GetPreferencesData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-notification-preferences/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "title": "GetPreferencesReply",
+      "type": "object"
+    },
+    "GetPreferencesRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "get",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-notification-preferences/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "user_id"],
+      "title": "GetPreferencesRequest",
+      "type": "object"
+    },
+    "IsInAppMutedData": {
+      "additionalProperties": false,
+      "properties": {
+        "muted": {
+          "title": "Muted",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "is_in_app_muted",
+          "title": "Operation",
+          "type": "string"
+        }
+      },
+      "required": ["operation", "muted"],
+      "title": "IsInAppMutedData",
+      "type": "object"
+    },
+    "IsInAppMutedReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/IsInAppMutedData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-notification-preferences/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "title": "IsInAppMutedReply",
+      "type": "object"
+    },
+    "IsInAppMutedRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "is_in_app_muted",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-notification-preferences/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "type": {
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "user_id", "type"],
+      "title": "IsInAppMutedRequest",
+      "type": "object"
+    },
+    "PatchPreferenceData": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "patch",
+          "title": "Operation",
+          "type": "string"
+        },
+        "updated": {
+          "const": true,
+          "title": "Updated",
+          "type": "boolean"
+        }
+      },
+      "required": ["operation", "updated"],
+      "title": "PatchPreferenceData",
+      "type": "object"
+    },
+    "PatchPreferenceReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/PatchPreferenceData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-notification-preferences/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "title": "PatchPreferenceReply",
+      "type": "object"
+    },
+    "PatchPreferenceRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "patch",
+          "title": "Operation",
+          "type": "string"
+        },
+        "patch": {
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "propertyNames": {
+            "enum": ["in_app", "toast"]
+          },
+          "title": "Patch",
+          "type": "object"
+        },
+        "schema": {
+          "const": "aap-notification-preferences/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "type": {
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "user_id", "type", "patch"],
+      "title": "PatchPreferenceRequest",
+      "type": "object"
+    },
+    "PreferenceError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": ["invalid_request", "unknown_type"],
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "PreferenceError",
+      "type": "object"
+    },
+    "PreferenceFailure": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/PreferenceError"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-notification-preferences/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "title": "PreferenceFailure",
+      "type": "object"
+    },
+    "PreferenceItem": {
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "title": "Email",
+          "type": "boolean"
+        },
+        "in_app": {
+          "title": "In App",
+          "type": "boolean"
+        },
+        "toast": {
+          "title": "Toast",
+          "type": "boolean"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["type", "in_app", "email", "toast"],
+      "title": "PreferenceItem",
+      "type": "object"
+    }
+  },
+  "$id": "aap-notification-preferences/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/GetPreferencesRequest"
+    },
+    {
+      "$ref": "#/$defs/PatchPreferenceRequest"
+    },
+    {
+      "$ref": "#/$defs/IsInAppMutedRequest"
+    },
+    {
+      "$ref": "#/$defs/GetPreferencesReply"
+    },
+    {
+      "$ref": "#/$defs/PatchPreferenceReply"
+    },
+    {
+      "$ref": "#/$defs/IsInAppMutedReply"
+    },
+    {
+      "$ref": "#/$defs/PreferenceFailure"
+    }
+  ],
+  "title": "AAP notification preferences protocol"
+}
