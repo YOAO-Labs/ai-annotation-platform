@@ -1,4 +1,4 @@
--- Give one restricted LOGIN SELECT on Audit's published event relation only.
+-- Give one restricted LOGIN SELECT on Audit's published event and daily facts only.
 -- Run after migrations and module-data-grants.sql.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
 --   -v audit_owner=audit_code -v api_role=api_runtime \
@@ -17,6 +17,7 @@ DECLARE
     v_api oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.api_role'));
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.read_client'));
     v_relation oid := pg_catalog.to_regclass('aap_audit_v1.audit_events')::oid;
+    v_daily oid := pg_catalog.to_regclass('aap_audit_v1.audit_daily_facts')::oid;
 BEGIN
     IF current_database() <> current_setting('aap.expected_database')
        OR current_user <> current_setting('aap.migration_role') THEN
@@ -24,7 +25,7 @@ BEGIN
     END IF;
     IF v_audit IS NULL OR v_api IS NULL OR v_client IS NULL
        OR v_audit IN (v_api, v_client) OR v_api = v_client
-       OR v_relation IS NULL THEN
+       OR v_relation IS NULL OR v_daily IS NULL THEN
         RAISE EXCEPTION 'Audit read roles or relation are missing or overlap';
     END IF;
     IF (SELECT rolcanlogin OR rolsuper OR rolcreatedb OR rolcreaterole
@@ -49,6 +50,15 @@ BEGIN
                    AND reloptions=ARRAY['security_barrier=true']::text[]
             FROM pg_catalog.pg_class WHERE oid=v_relation) THEN
         RAISE EXCEPTION 'Audit event relation must be an Audit-owned security-barrier view';
+    END IF;
+    IF NOT (SELECT relkind='v'
+                   AND relowner=v_audit
+                   AND reloptions=ARRAY['security_barrier=true']::text[]
+            FROM pg_catalog.pg_class WHERE oid=v_daily)
+       OR NOT (SELECT relkind='m' AND relowner=v_audit
+               FROM pg_catalog.pg_class
+               WHERE oid='public.mv_audit_bi_daily'::regclass) THEN
+        RAISE EXCEPTION 'Audit daily projection and MV must share the Audit owner';
     END IF;
 END;
 $guard$;
@@ -95,6 +105,12 @@ $revoke_public_columns$;
 GRANT CONNECT ON DATABASE :"expected_database" TO :"read_client";
 GRANT USAGE ON SCHEMA aap_audit_v1 TO :"read_client", :"api_role";
 GRANT SELECT ON TABLE aap_audit_v1.audit_events TO :"read_client", :"api_role";
+GRANT SELECT ON TABLE aap_audit_v1.audit_daily_facts TO :"read_client", :"api_role";
+REVOKE ALL ON TABLE public.mv_audit_bi_daily FROM :"api_role", PUBLIC;
+REVOKE ALL (day, action, target_type, actor_role, status_family, event_count)
+    ON TABLE public.mv_audit_bi_daily FROM :"api_role", PUBLIC;
+REVOKE EXECUTE ON FUNCTION aap_audit_v1.refresh_audit_bi_mv()
+    FROM :"api_role", PUBLIC;
 
 DO $verify$
 DECLARE
@@ -102,21 +118,32 @@ DECLARE
     v_api oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.api_role'));
     v_client oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_setting('aap.read_client'));
     v_relation oid := pg_catalog.to_regclass('aap_audit_v1.audit_events')::oid;
+    v_daily oid := pg_catalog.to_regclass('aap_audit_v1.audit_daily_facts')::oid;
+    v_refresh oid := pg_catalog.to_regprocedure('aap_audit_v1.refresh_audit_bi_mv()')::oid;
     v_append oid := pg_catalog.to_regprocedure('aap_audit_v1.append_events(jsonb)')::oid;
     v_query oid := pg_catalog.to_regprocedure('aap_audit_v1.query_events(pg_catalog.jsonb)')::oid;
 BEGIN
     IF NOT pg_catalog.has_database_privilege(v_client, current_database(), 'CONNECT')
-       OR v_append IS NULL OR v_query IS NULL
+       OR v_append IS NULL OR v_query IS NULL OR v_refresh IS NULL
        OR NOT pg_catalog.has_schema_privilege(v_client, 'aap_audit_v1', 'USAGE')
        OR NOT pg_catalog.has_table_privilege(v_client, v_relation, 'SELECT')
+       OR NOT pg_catalog.has_table_privilege(v_client, v_daily, 'SELECT')
        OR pg_catalog.has_function_privilege(v_client, v_append, 'EXECUTE')
        OR pg_catalog.has_function_privilege(v_client, v_query, 'EXECUTE')
+       OR pg_catalog.has_function_privilege(v_client, v_refresh, 'EXECUTE')
        OR pg_catalog.has_table_privilege(
             v_client, v_relation,
             'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
        )
        OR pg_catalog.has_any_column_privilege(
             v_client, v_relation, 'INSERT,UPDATE,REFERENCES'
+       )
+       OR pg_catalog.has_table_privilege(
+            v_client, v_daily,
+            'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+       )
+       OR pg_catalog.has_any_column_privilege(
+            v_client, v_daily, 'INSERT,UPDATE,REFERENCES'
        )
        OR pg_catalog.has_table_privilege(
             v_client, 'public.audit_logs',
@@ -179,6 +206,22 @@ BEGIN
     END IF;
     IF NOT pg_catalog.has_schema_privilege(v_api, 'aap_audit_v1', 'USAGE')
        OR NOT pg_catalog.has_table_privilege(v_api, v_relation, 'SELECT')
+       OR NOT pg_catalog.has_table_privilege(v_api, v_daily, 'SELECT')
+       OR pg_catalog.has_table_privilege(
+            v_api, v_daily,
+            'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+       )
+       OR pg_catalog.has_any_column_privilege(
+            v_api, v_daily, 'INSERT,UPDATE,REFERENCES'
+       )
+       OR pg_catalog.has_table_privilege(
+            v_api, 'public.mv_audit_bi_daily',
+            'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+       )
+       OR pg_catalog.has_any_column_privilege(
+            v_api, 'public.mv_audit_bi_daily', 'SELECT,INSERT,UPDATE,REFERENCES'
+       )
+       OR pg_catalog.has_function_privilege(v_api, v_refresh, 'EXECUTE')
        OR NOT pg_catalog.has_table_privilege(v_api, 'public.audit_logs', 'SELECT') THEN
         RAISE EXCEPTION 'API role is missing relation access or existing Audit reads';
     END IF;

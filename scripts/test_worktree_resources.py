@@ -576,6 +576,12 @@ class BucketUpgradeTests(unittest.TestCase):
             "audit_read": True,
             "audit_read_write": False,
             "audit_read_column_write": False,
+            "audit_daily_read": True,
+            "audit_daily_write": False,
+            "audit_daily_private": False,
+            "audit_daily_refresh": False,
+            "jobs_notification_scope": True,
+            "jobs_notification_scope_write": False,
         }
 
         class FunctionPrivileges:
@@ -622,6 +628,16 @@ class BucketUpgradeTests(unittest.TestCase):
             statements,
         )
         self.assertIn('GRANT SELECT ON aap_audit_v1.audit_events TO "app"', statements)
+        self.assertIn(
+            'GRANT SELECT ON aap_jobs_v1.notification_scope_facts TO "app"', statements
+        )
+        self.assertIn(
+            'GRANT SELECT ON aap_audit_v1.audit_daily_facts TO "app"', statements
+        )
+        self.assertIn(
+            'REVOKE ALL ON TABLE public.mv_audit_bi_daily FROM "app", PUBLIC',
+            statements,
+        )
         self.assertIn(
             "GRANT EXECUTE ON FUNCTION "
             + ", ".join(AUDIT_RUNTIME_CAPABILITIES)
@@ -690,6 +706,12 @@ class BucketUpgradeTests(unittest.TestCase):
             "audit_read",
             "audit_read_write",
             "audit_read_column_write",
+            "audit_daily_read",
+            "audit_daily_write",
+            "audit_daily_private",
+            "audit_daily_refresh",
+            "jobs_notification_scope",
+            "jobs_notification_scope_write",
         ):
             with self.subTest(unsafe_owner_privilege=key):
                 original = privileges[key]

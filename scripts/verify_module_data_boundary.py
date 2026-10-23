@@ -45,6 +45,8 @@ AUDIT_APPEND_ROLE = "audit_append_client"
 AUDIT_QUERY_ROLE = "audit_query_client"
 NOTIFICATION_READ_ROLE = "notification_read_client"
 AUDIT_READ_ROLE = "audit_read_client"
+AUDIT_DAILY_REFRESH_ROLE = "audit_daily_refresh_client"
+JOBS_NOTIFICATION_SCOPE_ROLE = "jobs_notification_scope_client"
 READ_RELATION_SPECS = {
     "aap_notifications_v1.notification_facts": {
         "sql": "0319_notifications_read_relations.sql",
@@ -78,6 +80,27 @@ READ_RELATION_SPECS = {
             ("detail_json", "jsonb"),
             ("request_id", "character varying(36)"),
             ("created_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_audit_v1.audit_daily_facts": {
+        "sql": "0322_audit_daily_projection.sql",
+        "owner": "audit_code",
+        "columns": [
+            ("day", "date"),
+            ("action", "character varying(64)"),
+            ("target_type", "character varying"),
+            ("actor_role", "character varying"),
+            ("status_family", "smallint"),
+            ("event_count", "bigint"),
+        ],
+    },
+    "aap_jobs_v1.notification_scope_facts": {
+        "sql": "0323_jobs_notification_scope_facts.sql",
+        "owner": "jobs_code",
+        "columns": [
+            ("id", "uuid"),
+            ("kind", "character varying(40)"),
+            ("scope_project_id", "uuid"),
         ],
     },
 }
@@ -159,6 +182,8 @@ MODULE_ROLES = (
     AUDIT_QUERY_ROLE,
     NOTIFICATION_READ_ROLE,
     AUDIT_READ_ROLE,
+    AUDIT_DAILY_REFRESH_ROLE,
+    JOBS_NOTIFICATION_SCOPE_ROLE,
     *IDENTITY_CLIENT_ROLES.values(),
 )
 SQL_ARTIFACTS = (
@@ -337,6 +362,8 @@ SQL_ARTIFACTS = (
     "0319_notifications_read_relations.sql",
     "0320_audit_read_relations.sql",
     "0321_notifications_terminal_append.sql",
+    "0322_audit_daily_projection.sql",
+    "0323_jobs_notification_scope_facts.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -470,6 +497,8 @@ SCHEMA_ARTIFACTS = (
     "0319_notifications_read_relations.schema.json",
     "0320_audit_read_relations.schema.json",
     "0321_notifications_terminal_append.schema.json",
+    "0322_audit_daily_projection.schema.json",
+    "0323_jobs_notification_scope_facts.schema.json",
 )
 TEST_FILES = (
     "tests/test_scale_seed_workspace_native.py",
@@ -657,6 +686,8 @@ TEST_FILES = (
     "tests/test_async_job_actor_freshness.py",
     "tests/test_notifications.py",
     "tests/test_notification_terminal_append.py",
+    "tests/test_notification_jobs_scope.py",
+    "tests/test_notification_delivery_scope.py",
     "tests/test_notification_read_state_cache.py",
     "tests/test_notification_delete_cache.py",
     "tests/test_notifications_delete_baseline.py",
@@ -2034,6 +2065,157 @@ def _installed_function_body_sha256(
     return hashlib.sha256(actual.encode("utf-8")).hexdigest()
 
 
+def _verify_audit_daily_projection_boundary(
+    container_id: str,
+    container_name: str,
+    container_identity: str,
+    *,
+    database: str,
+    owner_password: str,
+    runtime_password: str,
+    read_password: str,
+    refresh_password: str,
+    refresh_url: str,
+) -> dict:
+    def execute(username: str, password: str, sql: str) -> str:
+        return _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username=username,
+            password=password,
+            database=database,
+            sql=sql,
+        )
+
+    execute(
+        "owner",
+        owner_password,
+        f'GRANT USAGE ON SCHEMA aap_audit_v1 TO "{AUDIT_DAILY_REFRESH_ROLE}"; '
+        f'GRANT EXECUTE ON FUNCTION aap_audit_v1.refresh_audit_bi_mv() TO "{AUDIT_DAILY_REFRESH_ROLE}";',
+    )
+
+    async def verify_refresh_login() -> None:
+        import asyncpg
+
+        from aap_owner_data.postgres import verify_function_only_role
+
+        connection = await asyncpg.connect(refresh_url, timeout=5)
+        try:
+            await verify_function_only_role(
+                connection,
+                schema="aap_audit_v1",
+                functions={("refresh_audit_bi_mv", "")},
+                role=AUDIT_DAILY_REFRESH_ROLE,
+            )
+        finally:
+            await connection.close()
+
+    asyncio.run(verify_refresh_login())
+    ownership = json.loads(
+        execute(
+            "owner",
+            owner_password,
+            "SELECT json_build_object("
+            "'mv_owner',pg_get_userbyid(mv.relowner),"
+            "'view_owner',pg_get_userbyid(facts.relowner),"
+            "'refresh_owner',pg_get_userbyid(refresh.proowner),"
+            "'definer',refresh.prosecdef,"
+            "'owner_temp',has_database_privilege('audit_code',current_database(),'TEMP'),"
+            "'owner_public_create',has_schema_privilege('audit_code','public','CREATE'),"
+            "'owner_audit_create',has_schema_privilege('audit_code','aap_audit_v1','CREATE'),"
+            "'refresh_temp',has_database_privilege("
+            f"'{AUDIT_DAILY_REFRESH_ROLE}',current_database(),'TEMP')) "
+            "FROM pg_class AS mv,pg_class AS facts,pg_proc AS refresh "
+            "WHERE mv.oid='public.mv_audit_bi_daily'::regclass "
+            "AND facts.oid='aap_audit_v1.audit_daily_facts'::regclass "
+            "AND refresh.oid='aap_audit_v1.refresh_audit_bi_mv()'::regprocedure;",
+        )
+    )
+    if ownership != {
+        "mv_owner": "audit_code",
+        "view_owner": "audit_code",
+        "refresh_owner": "audit_code",
+        "definer": True,
+        "owner_temp": True,
+        "owner_public_create": False,
+        "owner_audit_create": False,
+        "refresh_temp": False,
+    }:
+        raise RuntimeError("Audit daily ownership or fixed refresh privileges differ")
+
+    action = f"probe.audit.daily.{uuid4().hex}"
+    execute(
+        "owner",
+        owner_password,
+        "INSERT INTO public.audit_logs(action,target_type,actor_role,status_code,created_at) "
+        f"VALUES ('{action}','verifier','super_admin',200,"
+        "(date_trunc('day',CURRENT_TIMESTAMP AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')"
+        "-interval '1 hour');",
+    )
+    execute(
+        AUDIT_DAILY_REFRESH_ROLE,
+        refresh_password,
+        "BEGIN; SELECT aap_audit_v1.refresh_audit_bi_mv(); COMMIT;",
+    )
+    projected_count = execute(
+        AUDIT_READ_ROLE,
+        read_password,
+        "SELECT event_count::text FROM aap_audit_v1.audit_daily_facts "
+        f"WHERE action='{action}' AND status_family=2;",
+    ).strip()
+    if projected_count != "1":
+        raise RuntimeError(
+            "The function-only refresh did not publish the tagged daily row"
+        )
+
+    for username, password, statements in (
+        (
+            "legacy_runtime",
+            runtime_password,
+            (
+                "SELECT * FROM public.mv_audit_bi_daily LIMIT 1",
+                "SELECT aap_audit_v1.refresh_audit_bi_mv()",
+            ),
+        ),
+        (
+            AUDIT_READ_ROLE,
+            read_password,
+            (
+                "SELECT * FROM public.mv_audit_bi_daily LIMIT 1",
+                "SELECT aap_audit_v1.refresh_audit_bi_mv()",
+            ),
+        ),
+        (
+            AUDIT_DAILY_REFRESH_ROLE,
+            refresh_password,
+            (
+                "SELECT * FROM public.audit_logs LIMIT 1",
+                "SELECT * FROM public.mv_audit_bi_daily LIMIT 1",
+                "SELECT * FROM aap_audit_v1.audit_daily_facts LIMIT 1",
+            ),
+        ),
+    ):
+        for statement in statements:
+            _assert_psql_permission_denied(
+                container_id,
+                container_name,
+                container_identity,
+                username=username,
+                password=password,
+                database=database,
+                statement=statement,
+            )
+    return {
+        "ownership": ownership,
+        "function_only_login": True,
+        "committed_refresh_and_projection": True,
+        "private_mv_and_unauthorized_refresh_denied": True,
+        "probe_action": action,
+        "probe_retention": "Append-only source row remains until exact owned DB destruction",
+    }
+
+
 def _read_relation_evidence_expression() -> str:
     targets = ", ".join(f"('{relation_name}')" for relation_name in READ_RELATION_SPECS)
     return f"""COALESCE((
@@ -2269,6 +2451,8 @@ def _create_module_roles(
     audit_query_password: str,
     notification_read_password: str,
     audit_read_password: str,
+    audit_daily_refresh_password: str,
+    jobs_notification_scope_password: str,
 ) -> None:
     _psql(
         container_id,
@@ -2355,9 +2539,16 @@ def _create_module_roles(
             "CREATE ROLE audit_read_client LOGIN "
             f"PASSWORD '{audit_read_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            f"CREATE ROLE {AUDIT_DAILY_REFRESH_ROLE} LOGIN "
+            f"PASSWORD '{audit_daily_refresh_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            f"CREATE ROLE {JOBS_NOTIFICATION_SCOPE_ROLE} LOGIN "
+            f"PASSWORD '{jobs_notification_scope_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             'REVOKE TEMPORARY ON DATABASE :"expected_database" FROM PUBLIC;\n'
             'GRANT CONNECT ON DATABASE :"expected_database" TO '
-            f'"{NOTIFICATION_READ_ROLE}", "{AUDIT_READ_ROLE}";\n'
+            f'"{NOTIFICATION_READ_ROLE}", "{AUDIT_READ_ROLE}", '
+            f'"{AUDIT_DAILY_REFRESH_ROLE}", "{JOBS_NOTIFICATION_SCOPE_ROLE}";\n'
             'GRANT TEMPORARY ON DATABASE :"expected_database" TO '
             + ", ".join(
                 ("legacy_runtime",)
@@ -2366,6 +2557,7 @@ def _create_module_roles(
                     for role in MODULE_ROLES
                     if role
                     not in {
+                        "audit_code",
                         "asset_operator_client",
                         "asset_media_control_client",
                         "asset_media_worker_client",
@@ -2378,6 +2570,8 @@ def _create_module_roles(
                         AUDIT_QUERY_ROLE,
                         NOTIFICATION_READ_ROLE,
                         AUDIT_READ_ROLE,
+                        AUDIT_DAILY_REFRESH_ROLE,
+                        JOBS_NOTIFICATION_SCOPE_ROLE,
                         VIDEO_EXECUTION_ROLE,
                         INFERENCE_REGISTRY_INGRESS_ROLE,
                         INFERENCE_ROUTING_ROLE,
@@ -2737,6 +2931,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_identity_briefs_v1') IS NULL "
             "AND to_regprocedure('aap_notifications_v1.delete_command(pg_catalog.jsonb)') IS NULL "
             "AND to_regprocedure('aap_notifications_v1.append_job_terminal_notification(jsonb)') IS NULL "
+            "AND to_regprocedure('aap_audit_v1.refresh_audit_bi_mv()') IS NULL "
             "AND to_regprocedure('aap_identity_v1.read_provisioning_account(text)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.create_provisioning_account(jsonb)') IS NULL "
             "AND to_regprocedure('aap_audit_v1.record_identity_bootstrap_admin(uuid,text,text)') IS NULL "
@@ -3004,6 +3199,14 @@ def main(argv: list[str] | None = None) -> int:
             "read_client_grant": False,
             "node_relation_check": False,
         },
+        "audit_daily_projection": {"status": "not_checked"},
+        "jobs_notification_scope": {
+            "node_prerequisites": "not_checked",
+            "api_relation_grant": False,
+            "api_fact_call": False,
+            "read_client_grant": False,
+            "node_relation_check": False,
+        },
         "test_files": list(test_files),
         "junit_xml": str(junit),
         "test_exit_code": None,
@@ -3091,6 +3294,10 @@ def main(argv: list[str] | None = None) -> int:
         notification_read_node_provider = (
             ROOT / "apps/notifications/conformance/node/read_relations_provider.mjs"
         )
+        jobs_scope_node_provider = (
+            ROOT
+            / "apps/notifications/conformance/node/jobs_notification_scope_provider.mjs"
+        )
         audit_append_node_provider = ROOT / "apps/audit/conformance/node/provider.mjs"
         audit_query_node_provider = (
             ROOT / "apps/audit/conformance/node/query_provider.mjs"
@@ -3106,6 +3313,7 @@ def main(argv: list[str] | None = None) -> int:
             or not read_state_node_provider.is_file()
             or not delete_node_provider.is_file()
             or not notification_read_node_provider.is_file()
+            or not jobs_scope_node_provider.is_file()
             or not audit_append_node_provider.is_file()
             or not audit_query_node_provider.is_file()
             or not audit_read_node_provider.is_file()
@@ -3123,6 +3331,7 @@ def main(argv: list[str] | None = None) -> int:
             evidence["audit_append"]["node_prerequisites"] = "unavailable"
             evidence["audit_query"]["node_prerequisites"] = "unavailable"
             evidence["audit_read_relations"]["node_prerequisites"] = "unavailable"
+            evidence["jobs_notification_scope"]["node_prerequisites"] = "unavailable"
             raise RuntimeError("Node Notifications contract peer is unavailable")
         phase = "preflight-node-notification-preferences"
         node_check = subprocess.run(
@@ -3255,6 +3464,20 @@ def main(argv: list[str] | None = None) -> int:
                 "Audit query peer prerequisites failed; install its locked "
                 "dependencies using apps/audit/conformance/node/README.md"
             )
+        phase = "preflight-node-jobs-notification-scope"
+        jobs_scope_node_check = subprocess.run(
+            [node_bin, str(jobs_scope_node_provider), "--self-check"],
+            cwd=jobs_scope_node_provider.parent,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if jobs_scope_node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, jobs_scope_node_check)
+            evidence["jobs_notification_scope"]["node_prerequisites"] = (
+                "self_check_failed"
+            )
+            raise RuntimeError("Jobs notification-scope peer prerequisites failed")
         phase = "preflight-node-audit-read-relations"
         audit_read_node_check = subprocess.run(
             [node_bin, str(audit_read_node_provider), "--self-check"],
@@ -3279,6 +3502,7 @@ def main(argv: list[str] | None = None) -> int:
         evidence["audit_append"]["node_prerequisites"] = "passed"
         evidence["audit_query"]["node_prerequisites"] = "passed"
         evidence["audit_read_relations"]["node_prerequisites"] = "passed"
+        evidence["jobs_notification_scope"]["node_prerequisites"] = "passed"
         grants_path = ROOT / "infra/docker/module-data-grants.sql"
         catalog_grants_path = ROOT / "infra/docker/assets-catalog-grants.sql"
         source_grants_path = ROOT / "infra/docker/assets-source-grants.sql"
@@ -3393,6 +3617,9 @@ def main(argv: list[str] | None = None) -> int:
         audit_append_grants_path = ROOT / "infra/docker/audit-append-grants.sql"
         audit_query_grants_path = ROOT / "infra/docker/audit-query-grants.sql"
         audit_read_grants_path = ROOT / "infra/docker/audit-read-grants.sql"
+        jobs_scope_grants_path = (
+            ROOT / "infra/docker/jobs-notification-scope-grants.sql"
+        )
         identity_recovery_grants_path = (
             ROOT / "infra/docker/identity-recovery-grants.sql"
         )
@@ -3426,6 +3653,7 @@ def main(argv: list[str] | None = None) -> int:
             or not audit_append_grants_path.is_file()
             or not audit_query_grants_path.is_file()
             or not audit_read_grants_path.is_file()
+            or not jobs_scope_grants_path.is_file()
             or not identity_group_grants_path.is_file()
             or not identity_invitation_grants_path.is_file()
             or not identity_directory_grants_path.is_file()
@@ -3592,6 +3820,7 @@ def main(argv: list[str] | None = None) -> int:
         audit_append_grant_sql = audit_append_grants_path.read_text(encoding="utf-8")
         audit_query_grant_sql = audit_query_grants_path.read_text(encoding="utf-8")
         audit_read_grant_sql = audit_read_grants_path.read_text(encoding="utf-8")
+        jobs_scope_grant_sql = jobs_scope_grants_path.read_text(encoding="utf-8")
         identity_account_grant_sql = identity_account_grants_path.read_text(
             encoding="utf-8"
         )
@@ -3634,6 +3863,8 @@ def main(argv: list[str] | None = None) -> int:
         audit_query_password = f"audit-query-{secrets.token_hex(16)}"
         notification_read_password = f"notification-read-{secrets.token_hex(16)}"
         audit_read_password = f"audit-read-{secrets.token_hex(16)}"
+        audit_daily_refresh_password = f"audit-daily-refresh-{secrets.token_hex(16)}"
+        jobs_notification_scope_password = f"jobs-scope-{secrets.token_hex(16)}"
         inference_registry_ingress_password = secrets.token_hex(24)
         inference_routing_password = secrets.token_hex(24)
         video_execution_password = secrets.token_hex(24)
@@ -3717,8 +3948,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0321"]:
-            raise RuntimeError("module-data acceptance requires migration head 0321")
+        if heads != ["0323"]:
+            raise RuntimeError("module-data acceptance requires migration head 0323")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         relation_sql_hashes = _read_relation_sql_input_sha256()
         evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes
@@ -3734,6 +3965,17 @@ def main(argv: list[str] | None = None) -> int:
             read_relations_before
         )
         installed_function_bodies = {
+            "aap_audit_v1.refresh_audit_bi_mv()": (
+                _installed_function_body_sha256(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    database=database,
+                    owner_password=owner_password,
+                    signature="aap_audit_v1.refresh_audit_bi_mv()",
+                    sql_name="0322_audit_daily_projection.sql",
+                )
+            ),
             "aap_notifications_v1.append_job_terminal_notification(jsonb)": (
                 _installed_function_body_sha256(
                     container_id,
@@ -3825,6 +4067,17 @@ def main(argv: list[str] | None = None) -> int:
         )
         evidence["migrations"]["read_relations_after_upgrade"] = read_relations_after
         if {
+            "aap_audit_v1.refresh_audit_bi_mv()": (
+                _installed_function_body_sha256(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    database=database,
+                    owner_password=owner_password,
+                    signature="aap_audit_v1.refresh_audit_bi_mv()",
+                    sql_name="0322_audit_daily_projection.sql",
+                )
+            ),
             "aap_notifications_v1.append_job_terminal_notification(jsonb)": (
                 _installed_function_body_sha256(
                     container_id,
@@ -3987,6 +4240,22 @@ def main(argv: list[str] | None = None) -> int:
             port=port,
             database=database,
         ).render_as_string(hide_password=False)
+        audit_daily_refresh_url = URL.create(
+            "postgresql",
+            username=AUDIT_DAILY_REFRESH_ROLE,
+            password=audit_daily_refresh_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
+        jobs_notification_scope_url = URL.create(
+            "postgresql",
+            username=JOBS_NOTIFICATION_SCOPE_ROLE,
+            password=jobs_notification_scope_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
         role_create_password = append_password.replace("'", "''")
         phase = "create-scoped-roles"
         _create_module_roles(
@@ -4012,6 +4281,8 @@ def main(argv: list[str] | None = None) -> int:
             audit_query_password,
             notification_read_password,
             audit_read_password,
+            audit_daily_refresh_password,
+            jobs_notification_scope_password,
         )
         phase = "create-video-execution-client-role"
         _psql(
@@ -4232,6 +4503,24 @@ def main(argv: list[str] | None = None) -> int:
                 },
             )
 
+        def apply_jobs_scope_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=jobs_scope_grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "jobs_owner": "jobs_code",
+                    "api_role": "legacy_runtime",
+                    "read_client": JOBS_NOTIFICATION_SCOPE_ROLE,
+                },
+            )
+
         phase = "install-notification-preferences-grants"
         apply_notification_preferences_grants()
         evidence["notification_preferences"]["api_function_grant"] = True
@@ -4268,6 +4557,25 @@ def main(argv: list[str] | None = None) -> int:
         apply_audit_read_grants()
         evidence["audit_read_relations"]["api_relation_grant"] = True
         evidence["audit_read_relations"]["read_client_grant"] = True
+        phase = "install-jobs-notification-scope-grants"
+        apply_jobs_scope_grants()
+        evidence["jobs_notification_scope"]["api_relation_grant"] = True
+        evidence["jobs_notification_scope"]["read_client_grant"] = True
+        phase = "verify-audit-daily-projection-native"
+        evidence["audit_daily_projection"] = {
+            "status": "passed",
+            **_verify_audit_daily_projection_boundary(
+                container_id,
+                container_name,
+                container_identity,
+                database=database,
+                owner_password=owner_password,
+                runtime_password=runtime_password,
+                read_password=audit_read_password,
+                refresh_password=audit_daily_refresh_password,
+                refresh_url=audit_daily_refresh_url,
+            ),
+        }
         read_role_contract = _psql(
             container_id,
             container_name,
@@ -4276,7 +4584,7 @@ def main(argv: list[str] | None = None) -> int:
             password=owner_password,
             database=database,
             sql=(
-                "SELECT pg_catalog.count(*)=2 AND pg_catalog.bool_and("
+                "SELECT pg_catalog.count(*)=4 AND pg_catalog.bool_and("
                 "role.rolcanlogin AND NOT role.rolinherit "
                 "AND NOT (role.rolsuper OR role.rolcreatedb OR role.rolcreaterole "
                 "OR role.rolreplication OR role.rolbypassrls) "
@@ -4289,7 +4597,8 @@ def main(argv: list[str] | None = None) -> int:
                 "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members AS membership "
                 "WHERE membership.member=role.oid OR membership.roleid=role.oid)) "
                 "FROM pg_catalog.pg_roles AS role "
-                f"WHERE role.rolname IN ('{NOTIFICATION_READ_ROLE}','{AUDIT_READ_ROLE}');"
+                f"WHERE role.rolname IN ('{NOTIFICATION_READ_ROLE}','{AUDIT_READ_ROLE}',"
+                f"'{AUDIT_DAILY_REFRESH_ROLE}','{JOBS_NOTIFICATION_SCOPE_ROLE}');"
             ),
         )
         if read_role_contract.strip() != "t":
@@ -4854,6 +5163,7 @@ def main(argv: list[str] | None = None) -> int:
         evidence["audit_query"]["node_contract_check"] = True
         audit_read_node_environment = os.environ.copy()
         audit_read_node_environment["AUDIT_READ_DATABASE_URL"] = audit_read_url
+        audit_read_node_environment["TZ"] = "Asia/Shanghai"
         phase = "verify-audit-read-relation-node"
         audit_read_node_result = subprocess.run(
             [node_bin, str(audit_read_node_provider), "--live"],
@@ -4990,6 +5300,68 @@ def main(argv: list[str] | None = None) -> int:
             )
             raise RuntimeError("Node Notifications read-relation check failed")
         evidence["notification_read_relations"]["node_relation_check"] = True
+
+        phase = "verify-jobs-notification-scope-node"
+        jobs_scope_id = str(uuid4())
+        jobs_scope_kind = "🧪" * 40
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=(
+                "INSERT INTO public.async_jobs(id,kind,status,payload,result) VALUES ("
+                f"'{jobs_scope_id}'::uuid,'{jobs_scope_kind}','completed','{{}}'::jsonb,'{{}}'::jsonb);"
+            ),
+        )
+        api_jobs_fact = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT row_to_json(fact) FROM aap_jobs_v1.notification_scope_facts AS fact "
+                f"WHERE id='{jobs_scope_id}'::uuid;"
+            ),
+        )
+        if json.loads(api_jobs_fact) != {
+            "id": jobs_scope_id,
+            "kind": jobs_scope_kind,
+            "scope_project_id": None,
+        }:
+            raise RuntimeError("API LOGIN could not read exact Jobs notification facts")
+        evidence["jobs_notification_scope"]["api_fact_call"] = True
+        jobs_scope_node_environment = os.environ.copy()
+        jobs_scope_node_environment.pop("JOBS_NOTIFICATION_SCOPE_SET_ROLE", None)
+        jobs_scope_node_environment.update(
+            {
+                "JOBS_NOTIFICATION_SCOPE_DATABASE_URL": jobs_notification_scope_url,
+                "JOBS_NOTIFICATION_SCOPE_JOB_ID": jobs_scope_id,
+                "JOBS_NOTIFICATION_SCOPE_EXPECTED_KIND": jobs_scope_kind,
+                "JOBS_NOTIFICATION_SCOPE_EXPECTED_PROJECT_ID": "null",
+                "JOBS_NOTIFICATION_SCOPE_EXPECTED_ROLE": JOBS_NOTIFICATION_SCOPE_ROLE,
+            }
+        )
+        jobs_scope_node_result = subprocess.run(
+            [node_bin, str(jobs_scope_node_provider), "--live"],
+            cwd=jobs_scope_node_provider.parent,
+            env=jobs_scope_node_environment,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if jobs_scope_node_result.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, jobs_scope_node_result)
+            raise RuntimeError("Node Jobs notification-scope read check failed")
+        evidence["jobs_notification_scope"]["node_relation_check"] = True
+        evidence["jobs_notification_scope"]["real_login_without_set_role"] = True
+        evidence["jobs_notification_scope"]["probe_job_id"] = jobs_scope_id
+        evidence["jobs_notification_scope"]["unicode_kind_codepoints"] = 40
 
         phase = "install-mask-gc-grants"
         _psql(
@@ -6677,6 +7049,7 @@ SELECT pg_catalog.jsonb_build_object(
                 apply_notification_read_grants("legacy_runtime")
                 apply_notification_read_grants(NOTIFICATION_READ_ROLE)
                 apply_audit_read_grants()
+                apply_jobs_scope_grants()
                 for statement in notification_private_statements:
                     _assert_psql_permission_denied(
                         container_id,

@@ -946,6 +946,9 @@ class LocalResources:
                     f"GRANT USAGE ON SCHEMA public TO {role}",
                     *fixture_grants,
                     f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {role}",
+                    f"REVOKE ALL ON TABLE public.mv_audit_bi_daily FROM {role}, PUBLIC",
+                    "REVOKE ALL (day, action, target_type, actor_role, status_family, event_count) "
+                    f"ON TABLE public.mv_audit_bi_daily FROM {role}, PUBLIC",
                     f"REVOKE ALL ON TABLE public.notifications FROM {role}, PUBLIC",
                     "REVOKE ALL (id, user_id, type, target_type, target_id, payload, read_at, created_at) "
                     f"ON TABLE public.notifications FROM {role}, PUBLIC",
@@ -974,6 +977,16 @@ class LocalResources:
                     "target_id, method, path, status_code, ip, detail_json, request_id, created_at) "
                     f"ON TABLE aap_audit_v1.audit_events FROM {role}, PUBLIC",
                     f"GRANT SELECT ON aap_audit_v1.audit_events TO {role}",
+                    f"REVOKE ALL ON TABLE aap_audit_v1.audit_daily_facts FROM {role}, PUBLIC",
+                    "REVOKE ALL (day, action, target_type, actor_role, status_family, event_count) "
+                    f"ON TABLE aap_audit_v1.audit_daily_facts FROM {role}, PUBLIC",
+                    f"GRANT SELECT ON aap_audit_v1.audit_daily_facts TO {role}",
+                    f"REVOKE ALL ON TABLE aap_jobs_v1.notification_scope_facts FROM {role}, PUBLIC",
+                    "REVOKE ALL (id, kind, scope_project_id) "
+                    f"ON TABLE aap_jobs_v1.notification_scope_facts FROM {role}, PUBLIC",
+                    f"GRANT SELECT ON aap_jobs_v1.notification_scope_facts TO {role}",
+                    "REVOKE EXECUTE ON FUNCTION aap_audit_v1.refresh_audit_bi_mv() "
+                    f"FROM {role}, PUBLIC",
                     f"GRANT SELECT ON aap_workspace_v1.project_member_facts TO {role}",
                     "GRANT SELECT ON aap_workspace_v1.project_facts, "
                     f"aap_labeling_v1.project_catalog_counters TO {role}",
@@ -1293,7 +1306,31 @@ class LocalResources:
                         "'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS audit_read_write, "
                         "pg_catalog.has_any_column_privilege("
                         ":role, 'aap_audit_v1.audit_events', "
-                        "'INSERT,UPDATE,REFERENCES') AS audit_read_column_write"
+                        "'INSERT,UPDATE,REFERENCES') AS audit_read_column_write, "
+                        "pg_catalog.has_table_privilege("
+                        ":role, 'aap_audit_v1.audit_daily_facts', 'SELECT') AS audit_daily_read, "
+                        "(pg_catalog.has_table_privilege("
+                        ":role, 'aap_audit_v1.audit_daily_facts', "
+                        "'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR "
+                        "pg_catalog.has_any_column_privilege("
+                        ":role, 'aap_audit_v1.audit_daily_facts', "
+                        "'INSERT,UPDATE,REFERENCES')) AS audit_daily_write, "
+                        "(pg_catalog.has_table_privilege("
+                        ":role, 'public.mv_audit_bi_daily', "
+                        "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR "
+                        "pg_catalog.has_any_column_privilege("
+                        ":role, 'public.mv_audit_bi_daily', "
+                        "'SELECT,INSERT,UPDATE,REFERENCES')) AS audit_daily_private, "
+                        "pg_catalog.has_function_privilege("
+                        ":role, 'aap_audit_v1.refresh_audit_bi_mv()', 'EXECUTE') "
+                        "AS audit_daily_refresh, pg_catalog.has_table_privilege("
+                        ":role, 'aap_jobs_v1.notification_scope_facts', 'SELECT') "
+                        "AS jobs_notification_scope, (pg_catalog.has_table_privilege("
+                        ":role, 'aap_jobs_v1.notification_scope_facts', "
+                        "'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR "
+                        "pg_catalog.has_any_column_privilege("
+                        ":role, 'aap_jobs_v1.notification_scope_facts', "
+                        "'INSERT,UPDATE,REFERENCES')) AS jobs_notification_scope_write"
                     ),
                     {"role": runtime.username},
                 )
@@ -1315,6 +1352,12 @@ class LocalResources:
                     or notification_grants["audit_read"] is not True
                     or notification_grants["audit_read_write"] is not False
                     or notification_grants["audit_read_column_write"] is not False
+                    or notification_grants["audit_daily_read"] is not True
+                    or notification_grants["audit_daily_write"] is not False
+                    or notification_grants["audit_daily_private"] is not False
+                    or notification_grants["audit_daily_refresh"] is not False
+                    or notification_grants["jobs_notification_scope"] is not True
+                    or notification_grants["jobs_notification_scope_write"] is not False
                 ):
                     raise WorktreeError(
                         "Notifications read/write boundary and Audit "

@@ -102,10 +102,10 @@ function assertEvent(event) {
     ["request_id", 36],
   ]) {
     assert.ok(event[field] === null || typeof event[field] === "string");
-    if (event[field] !== null) assert.ok(event[field].length <= maxLength);
+    if (event[field] !== null) assert.ok([...event[field]].length <= maxLength);
   }
   assert.equal(typeof event.action, "string");
-  assert.ok(event.action.length <= 64);
+  assert.ok([...event.action].length <= 64);
   assert.ok(
     event.status_code === null ||
       (Number.isInteger(event.status_code) &&
@@ -121,7 +121,7 @@ function assertEvent(event) {
 
 function assertDailyFact(fact) {
   assert.deepEqual(Object.keys(fact).sort(), [...dailyColumns].sort());
-  const day = fact.day instanceof Date ? fact.day.toISOString().slice(0, 10) : fact.day;
+  const day = fact.day;
   assert.equal(typeof day, "string");
   assert.match(day, /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/);
   const parsedDay = new Date(`${day}T00:00:00Z`);
@@ -133,7 +133,7 @@ function assertDailyFact(fact) {
     ["actor_role", 32],
   ]) {
     assert.equal(typeof fact[field], "string");
-    assert.ok(fact[field].length <= maxLength);
+    assert.ok([...fact[field]].length <= maxLength);
   }
   assert.ok(
     Number.isInteger(fact.status_family) &&
@@ -190,6 +190,7 @@ export async function selfCheck() {
     created_at: "2026-10-24T12:34:56.123456Z",
   };
   assertEvent(event);
+  assertEvent({ ...event, action: "😀".repeat(64) });
   assertEvent({ ...event, id: "0", ip: null, detail_json: null });
   assertEvent({ ...event, id: minAuditId.toString(), ip: "2001:db8::2/64" });
   assert.throws(() => assertEvent({ ...event, id: "9223372036854775808" }));
@@ -220,33 +221,38 @@ export async function selfCheck() {
   assert.equal(refresh?.security_definer, true);
   assert.equal(refresh?.concurrent, true);
   assert.equal(refresh?.caller_commit_required, true);
-  assertDailyFact({
+  const dailyFact = {
     day: "2026-10-24",
     action: "task.submit",
     target_type: "task",
     actor_role: "reviewer",
     status_family: 2,
     event_count: maxAuditId.toString(),
-  });
+  };
+  assertDailyFact(dailyFact);
+  assertDailyFact({ ...dailyFact, action: "😀".repeat(64) });
+  assert.throws(() => assertDailyFact({ ...dailyFact, event_count: "9223372036854775808" }));
   assert.throws(() =>
-    assertDailyFact({
-      day: "2026-10-24",
-      action: "task.submit",
-      target_type: "task",
-      actor_role: "reviewer",
-      status_family: 2,
-      event_count: "9223372036854775808",
-    }),
+    assertDailyFact({ ...dailyFact, day: new Date("2026-10-24T00:00:00+08:00") }),
   );
 
   process.stdout.write("Audit read and daily-projection schema self-check passed\n");
 }
 
 export async function verifyReadRelation() {
-  const { Client } = await import("pg");
+  const { Client, types } = await import("pg");
   const connectionString = process.env.AUDIT_READ_DATABASE_URL;
   assert.ok(connectionString, "missing owned read-only Audit relation LOGIN DSN");
-  const client = new Client({ connectionString, connectionTimeoutMillis: 5000 });
+  const client = new Client({
+    connectionString,
+    connectionTimeoutMillis: 5000,
+    types: {
+      getTypeParser(oid, format) {
+        // PostgreSQL DATE is a calendar value, not a timezone-dependent instant.
+        return oid === 1082 ? (value) => value : types.getTypeParser(oid, format);
+      },
+    },
+  });
   await client.connect();
   try {
     const relation = await client.query(

@@ -50,7 +50,8 @@ async function verifyRelation() {
   assert.ok(connectionString, "missing capability-only Jobs relation DSN");
   assert.ok(expectedRole, "missing expected capability-only role");
   assert.match(jobId ?? "", /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
-  assert.ok(expectedKind && expectedKind.length <= 40);
+  assert.equal(typeof expectedKind, "string");
+  assert.ok([...expectedKind].length <= 40);
   assert.ok(expectedProjectId !== undefined, "missing expected project-scope value");
   if (expectedProjectId !== "null") {
     assert.match(
@@ -65,8 +66,9 @@ async function verifyRelation() {
       assert.match(setRole, /^[a-z_][a-z0-9_]{0,62}$/);
       await client.query(`SET ROLE ${setRole}`);
     }
-    const role = await client.query("SELECT current_user AS role");
+    const role = await client.query("SELECT current_user AS role, session_user AS session_role");
     assert.equal(role.rows[0].role, expectedRole);
+    if (!setRole) assert.equal(role.rows[0].session_role, expectedRole);
     await client.query("BEGIN");
     const metadata = await client.query(
       "SELECT column_name, data_type, character_maximum_length " +

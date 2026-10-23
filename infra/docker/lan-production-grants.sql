@@ -213,6 +213,19 @@ REVOKE ALL (id, actor_id, actor_email, actor_role, action, target_type, target_i
     method, path, status_code, ip, detail_json, request_id, created_at)
     ON TABLE aap_audit_v1.audit_events FROM :"application_role", PUBLIC;
 GRANT SELECT ON aap_audit_v1.audit_events TO :"application_role";
+REVOKE ALL ON TABLE public.mv_audit_bi_daily FROM :"application_role", PUBLIC;
+REVOKE ALL (day, action, target_type, actor_role, status_family, event_count)
+    ON TABLE public.mv_audit_bi_daily FROM :"application_role", PUBLIC;
+REVOKE ALL ON TABLE aap_audit_v1.audit_daily_facts FROM :"application_role", PUBLIC;
+REVOKE ALL (day, action, target_type, actor_role, status_family, event_count)
+    ON TABLE aap_audit_v1.audit_daily_facts FROM :"application_role", PUBLIC;
+GRANT SELECT ON aap_audit_v1.audit_daily_facts TO :"application_role";
+REVOKE ALL ON TABLE aap_jobs_v1.notification_scope_facts FROM :"application_role", PUBLIC;
+REVOKE ALL (id, kind, scope_project_id)
+    ON TABLE aap_jobs_v1.notification_scope_facts FROM :"application_role", PUBLIC;
+GRANT SELECT ON aap_jobs_v1.notification_scope_facts TO :"application_role";
+REVOKE EXECUTE ON FUNCTION aap_audit_v1.refresh_audit_bi_mv()
+    FROM :"application_role", PUBLIC;
 DO $notification_private_acl$
 DECLARE
     v_runtime pg_catalog.name := current_setting('aap.application_role');
@@ -249,11 +262,34 @@ BEGIN
        OR pg_catalog.has_table_privilege(v_runtime, 'aap_audit_v1.audit_events',
             'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
        OR pg_catalog.has_any_column_privilege(v_runtime, 'aap_audit_v1.audit_events',
-            'INSERT,UPDATE,REFERENCES') THEN
+            'INSERT,UPDATE,REFERENCES')
+       OR NOT pg_catalog.has_table_privilege(v_runtime, 'aap_audit_v1.audit_daily_facts', 'SELECT')
+       OR pg_catalog.has_table_privilege(v_runtime, 'aap_audit_v1.audit_daily_facts',
+            'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR pg_catalog.has_any_column_privilege(v_runtime, 'aap_audit_v1.audit_daily_facts',
+            'INSERT,UPDATE,REFERENCES')
+       OR pg_catalog.has_table_privilege(v_runtime, 'public.mv_audit_bi_daily',
+            'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR pg_catalog.has_any_column_privilege(v_runtime, 'public.mv_audit_bi_daily',
+            'SELECT,INSERT,UPDATE,REFERENCES')
+       OR pg_catalog.has_function_privilege(v_runtime, 'aap_audit_v1.refresh_audit_bi_mv()', 'EXECUTE') THEN
         RAISE EXCEPTION 'The runtime role is missing read-only Audit facts';
     END IF;
 END;
 $audit_read_acl$;
+DO $jobs_scope_acl$
+DECLARE
+    v_runtime pg_catalog.name := current_setting('aap.application_role');
+BEGIN
+    IF NOT pg_catalog.has_table_privilege(v_runtime, 'aap_jobs_v1.notification_scope_facts', 'SELECT')
+       OR pg_catalog.has_table_privilege(v_runtime, 'aap_jobs_v1.notification_scope_facts',
+            'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR pg_catalog.has_any_column_privilege(v_runtime, 'aap_jobs_v1.notification_scope_facts',
+            'INSERT,UPDATE,REFERENCES') THEN
+        RAISE EXCEPTION 'The runtime role is missing read-only Jobs notification facts';
+    END IF;
+END;
+$jobs_scope_acl$;
 GRANT SELECT ON aap_workspace_v1.project_member_facts TO :"application_role";
 GRANT SELECT ON aap_workspace_v1.project_facts,
     aap_labeling_v1.project_catalog_counters TO :"application_role";
@@ -612,8 +648,6 @@ BEGIN
                        current_setting('aap.application_role'));
     END LOOP;
     EXECUTE format('ALTER MATERIALIZED VIEW public.mv_user_perf_daily OWNER TO %I',
-                   current_setting('aap.application_role'));
-    EXECUTE format('ALTER MATERIALIZED VIEW public.mv_audit_bi_daily OWNER TO %I',
                    current_setting('aap.application_role'));
 END $$;
 

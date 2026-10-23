@@ -2442,6 +2442,7 @@ ALTER FUNCTION aap_labeling_v1.workspace_project_query_batch_task_counts(uuid)
 REVOKE CREATE ON SCHEMA aap_labeling_v1 FROM :"labeling_owner";
 
 GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
+ALTER VIEW aap_jobs_v1.notification_scope_facts OWNER TO :"jobs_owner";
 ALTER SCHEMA aap_jobs_v1 OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.count_running_registry_predictions(uuid)
     OWNER TO :"jobs_owner";
@@ -2581,6 +2582,11 @@ ALTER FUNCTION aap_export_v1.clear_project_export_artifacts(uuid)
     OWNER TO :"export_owner";
 REVOKE CREATE ON SCHEMA aap_export_v1 FROM :"export_owner";
 
+GRANT CREATE ON SCHEMA public TO :"audit_owner";
+ALTER MATERIALIZED VIEW public.mv_audit_bi_daily OWNER TO :"audit_owner";
+REVOKE CREATE ON SCHEMA public FROM :"audit_owner";
+-- Concurrent refresh creates transient relations as the fixed MV owner.
+GRANT TEMPORARY ON DATABASE :"expected_database" TO :"audit_owner";
 GRANT CREATE ON SCHEMA aap_audit_v1 TO :"audit_owner";
 ALTER FUNCTION aap_audit_v1.record_identity_session_event(
     text, jsonb, jsonb, jsonb
@@ -2617,6 +2623,9 @@ ALTER FUNCTION aap_audit_v1.record_dataset_source_deletion(
 ALTER FUNCTION aap_audit_v1.append_events(jsonb) OWNER TO :"audit_owner";
 ALTER FUNCTION aap_audit_v1.query_events(pg_catalog.jsonb) OWNER TO :"audit_owner";
 ALTER VIEW aap_audit_v1.audit_events OWNER TO :"audit_owner";
+ALTER VIEW aap_audit_v1.audit_daily_facts OWNER TO :"audit_owner";
+ALTER FUNCTION aap_audit_v1.refresh_audit_bi_mv() OWNER TO :"audit_owner";
+GRANT EXECUTE ON FUNCTION aap_audit_v1.refresh_audit_bi_mv() TO :"migration_role";
 REVOKE CREATE ON SCHEMA aap_audit_v1 FROM :"audit_owner";
 
 -- Import and spatial helpers stay with their schema owner; runtime roles gain no DDL.

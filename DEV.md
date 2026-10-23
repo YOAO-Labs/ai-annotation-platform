@@ -492,7 +492,19 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 迁移 `0320` 发布 `aap_audit_v1.audit_events` 与 `aap-audit-read-relations/v1`。项目管理员查询、标注历史、批次日志、管理看板和评审贡献者快照通过该关系组合既有范围条件；授权仍由 API 持有。关系保留 14 个原生字段，包含 PostgreSQL INET，物理行键为 `(id, created_at)`；全局查询客户端同样允许 ID 相同、时间不同的合法记录。ORM 兼容绑定仍沿用现有仅按 ID 的 identity map，不改变调用方事务及 autoflush。
 
-先安装迁移和 `module-data-grants.sql`，再按 `infra/docker/audit-read-grants.sql` 文件头向预建 `LOGIN NOINHERIT` 只读账号授权。该账号不得有角色成员关系或数据库 TEMP 权限，只能 SELECT 公开关系，不能读取私表或调用追加函数。普通 API 另获关系 SELECT；月报、DuckDB、绩效和维护消费者尚需原有 Audit 读取权，不能提前全局撤销。该公开关系本身不按用户过滤，可信调用方必须继续组合授权范围。
+先安装迁移和 `module-data-grants.sql`，再按 `infra/docker/audit-read-grants.sql` 文件头向预建 `LOGIN NOINHERIT` 只读账号授权。该账号不得有角色成员关系或数据库 TEMP 权限，只能 SELECT 公开关系，不能读取私表或调用追加函数。普通 API 另获关系 SELECT；月报尾段、DuckDB 和绩效已读取公开关系，维护及尚未迁移的消费者仍需原有权限，不能提前全局撤销。该公开关系本身不按用户过滤，可信调用方必须继续组合授权范围。
+
+### Audit 日聚合与固定刷新
+
+迁移 `0322` 发布 `aap_audit_v1.audit_daily_facts` 与 `aap-audit-daily-projection/v1`。月报的已完成日期读取六列聚合事实，原始尾段继续读取公开事件关系。DATE 保留日历日期；BIGINT 在 JSON 中使用无损十进制字符串，数据库仍保留原生类型。
+
+`module-data-grants.sql` 将 `mv_audit_bi_daily`、公开聚合关系和固定无参 `refresh_audit_bi_mv()` 交给 Audit owner。并发刷新需要 owner 的数据库 TEMP 权限；只读客户端和刷新客户端均不需要 TEMP。普通 API 和只读账号只能读取事实，不能读取私有 MV 或刷新；维护调用方沿用现有迁移连接的明确 EXECUTE，保留调用方提交／回滚及维护队列。尚未提供独立维护凭据或完整 Audit 运行工件。LAN 和工作树授权在广泛授权后再次撤销 MV 的表／列权限，不能恢复旧 MV owner 绑定。
+
+### Jobs 通知范围事实
+
+迁移 `0323` 与 `apps/jobs` 发布 `aap-jobs-notification-scope-facts/v1`。`aap_jobs_v1.notification_scope_facts` 仅含 `id`、开放 `kind` 和 `scope_project_id`；后者保留当前项目优先、历史保留项目回退的顺序。通知筛选与批量投递读取公开关系，API 继续持有作业类型白名单、导出能力和当前成员授权；缺失作业仍 fail-closed，原 autoflush／no_autoflush 与调用方事务保持。
+
+安装迁移及 module-data grants 后，按 `infra/docker/jobs-notification-scope-grants.sql` 文件头为明确 API 与独立只读 LOGIN 授权。只读账号不能读取 Jobs 私表、写入关系或调用 Jobs 函数。普通 API 的其他作业消费者尚需原表权限，因此不能整体撤销 `async_jobs` 读取。没有新增 DSN、服务、执行器或环境变量；父线独立 LOGIN／Node 与完整迁移验收状态见[唯一台账](docs-site/dev/concepts/module-deployment.md#support-daily-and-jobs-facts)。
 
 ### Notifications 偏好事务内能力
 

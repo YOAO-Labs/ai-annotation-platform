@@ -692,3 +692,23 @@ boolean。Learning owner 有固定执行权；过渡 API 连接沿用原运行�
 调用方保留账号／项目资格与事务，key SHARE 等待后再核对当前撤销、scope 和真实过期时间。
 SQLSTATE 与失败事务状态不被吞掉。冻结描述为 `0285_identity_accepted_api_key.schema.json`。
 完整合同、消费者范围和定向证据见 [ADR-0161](/dev/adr/0161-identity-current-authority-consumers)。
+
+## Audit 日聚合与 Jobs 通知范围事实
+
+Audit 发布 `aap-audit-daily-projection/v1`：`aap_audit_v1.audit_daily_facts`
+保留 `day`、`action`、`target_type`、`actor_role`、`status_family`、`event_count`
+六个原生字段。DATE 是日历日期，BIGINT 的 JSON 表达是无损十进制字符串。
+固定无参 `aap_audit_v1.refresh_audit_bi_mv()` 由 Audit owner 并发刷新原 MV；
+调用方控制提交／回滚。owner 需要数据库 TEMP，读取和刷新客户端不需要该权限；
+普通读取账号不能读取私有 MV 或执行刷新。维护连接的进一步拆分仍按模块台账推进。
+
+Jobs 发布 `aap-jobs-notification-scope-facts/v1`：
+`aap_jobs_v1.notification_scope_facts` 只包含作业 UUID、开放 `kind` 和可空
+`scope_project_id`，保留当前项目优先、历史保留项目回退的语义。
+通知消费者通过该关系读取事实，API 继续组合当前成员和导出权限；
+缺失或不允许的作业类型仍拒绝投递。批量读取保留 autoflush、no_autoflush
+和调用方事务，普通 API 其他 Jobs 路径的私表权限尚未撤销。
+
+这两项是可信后端的同库合同，公开 HTTP 不变，关系本身不提供用户授权。
+冻结 schema 和原生客户端见仓库 `apps/audit`、`apps/jobs`；
+授权及限定验收范围见[模块台账](/dev/concepts/module-deployment#support-daily-and-jobs-facts)。
