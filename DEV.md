@@ -2790,8 +2790,9 @@ annotator 的执行、HTTP 取消后保留已提交帧、排队后撤员／停�
 后端控制器；恢复时只将精确旧代次的租约置为到期以控制夹具耗时，不证明默认恢复延迟。
 
 Media 与确定性推理 peer 仍通过 `host.docker.internal` 访问，沿用当前未修复的宿主机
-转发依赖。此入口已完成工件核对与收集检查，真实冷执行仍未通过；最终状态按
-[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)记录。
+转发依赖。当前已通过一个冷组合案例和一个独立 HTTP 撤权前置案例；五个 task ID
+共六次真实接收，最终队列与 unacked 均归零，完整迁移及自有资源清理通过。
+限定资格与恢复延迟限制见[唯一台账](docs-site/dev/concepts/module-deployment.md#workspace-video-tracker-cold-worker)。
 
 ### Workspace 冷运维导入验收
 
