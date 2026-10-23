@@ -54,6 +54,7 @@ from tests.test_identity_deactivation_live import (
     _cleanup_deactivation,
     _collect_notifications,
     _command,
+    _due_command,
     _node,
     _notification_rows,
     _wait_claimed,
@@ -786,6 +787,408 @@ async def test_standalone_publisher_acl_retry_restart_and_cold_lease_takeover(
                     maker,
                     actor_ids=actor_ids,
                     user_operation_ids=operation_ids,
+                ),
+            )
+        if primary_error is not None:
+            for label in cleanup_errors:
+                primary_error.add_note(f"Notifications cleanup failed: {label}")
+            for error in cleanup_interrupts:
+                primary_error.add_note(
+                    f"Notifications cleanup interrupted: {type(error).__name__}"
+                )
+        elif cleanup_interrupts:
+            raise cleanup_interrupts[0]
+        elif cleanup_errors:
+            pytest.fail("Notifications acceptance could not complete owned cleanup")
+
+
+async def test_standalone_publisher_delivers_real_deactivation_completed_event(
+    test_engine, tmp_path, record_property
+):
+    image = _publisher_environment()
+    run_id = uuid.uuid4().hex[:24]
+    image_id = image["id"]
+    suffix = uuid.uuid4().hex
+    secret, control = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    actor = None
+    actor_ids = []
+    operation_ids = []
+    due_operation_ids = []
+    identity = None
+    redis_owner = None
+    pubsub = None
+    containers = []
+    secret_directories = []
+    connected_dependencies = []
+    network = None
+    network_id = None
+    database_value = ""
+    redis_container_id = None
+    postgres_container_id = None
+
+    try:
+        database_url = _dsn("NOTIFICATION_PUBLISH", test_engine)
+        postgres_url = make_url(database_url)
+        _verify_postgres(postgres_url)
+        redis_base_url, redis_container_id = _redis_dependency()
+        postgres_container_id = os.environ["AAP_MODULE_DATA_PG_CONTAINER_ID"]
+        await _require_exclusive_delivery_database(maker)
+
+        maker, actor = await _world(test_engine)
+        actor_ids.append(actor)
+        actor_email = f"identity-live-{actor}@example.test"
+        actor_name = "Live Identity user"
+        async with maker.begin() as db:
+            other_admin = await create_user(
+                db,
+                "super_admin",
+                f"notifications-completed-{suffix}@example.test",
+                "Notifications completion recipient",
+            )
+        actor_ids.append(other_admin.id)
+        identity = _start_identity(
+            test_engine,
+            tmp_path,
+            secret,
+            control,
+            enable_keys=False,
+            enable_sessions=False,
+            enable_accounts=False,
+            enable_groups=False,
+            enable_presence=False,
+            enable_deactivation=True,
+            enable_deactivation_operator=True,
+        )
+
+        network, network_id = create_private_network(run_id)
+        for dependency_id, alias in (
+            (postgres_container_id, "notifications-postgres"),
+            (redis_container_id, "notifications-redis"),
+        ):
+            connected_dependencies.append(dependency_id)
+            connect_owned_dependency(network, network_id, dependency_id, alias)
+
+        postgres_url = postgres_url.set(host="notifications-postgres", port=5432)
+        database_value = postgres_url.render_as_string(hide_password=False)
+        async with _publisher_redis_users(
+            redis_base_url, redis_container_id
+        ) as redis_urls:
+            secret_directories.append(
+                tmp_path / "notifications-publisher-secrets-completed"
+            )
+            publisher_secrets = prepare_secret_files(
+                tmp_path,
+                label="completed",
+                database_url=database_value,
+                redis_url=redis_urls["allowed"],
+            )
+            assert all(
+                path.stat().st_mode & 0o777 == 0o444 for path in publisher_secrets
+            )
+
+            redis_owner = redis.from_url(os.environ["REDIS_URL"], decode_responses=True)
+            pubsub = redis_owner.pubsub()
+            channels = [f"notify:{actor}", f"notify:{other_admin.id}"]
+            await _subscribe(pubsub, channels)
+
+            async def run_once_case(case):
+                container_id = create_live_container(
+                    image_id=image_id,
+                    run_id=run_id,
+                    network_name=network,
+                    network_id=network_id,
+                    case=case,
+                    database_secret=publisher_secrets[0],
+                    redis_secret=publisher_secrets[1],
+                )
+                containers.append(container_id)
+                return await asyncio.to_thread(
+                    run_once_container,
+                    container_id,
+                    run_id=run_id,
+                    image_id=image_id,
+                    network_name=network,
+                    network_id=network_id,
+                    secrets_to_hide=(database_value, redis_urls["allowed"]),
+                    container_name=f"aap-notify-{run_id[:10]}-{case}",
+                    test_case=case,
+                )
+
+            reason = f"private-completed-reason-{suffix}"
+            request_id, request_rows = await _create_deactivation(
+                maker,
+                identity,
+                control,
+                actor,
+                secret,
+                operation_ids,
+                reason=reason,
+            )
+            request_ids = [row["id"] for row in request_rows]
+            request_result = await run_once_case("completed-request")
+            assert request_result == {
+                "claimed": 2,
+                "published": 2,
+                "retry": 0,
+                "stale": 0,
+                "unavailable": 0,
+            }
+            request_messages = await _collect_notifications(pubsub, request_ids)
+            assert set(request_messages) == {str(value) for value in request_ids}
+            for notification_id, (channel, body) in request_messages.items():
+                assert body["id"] == notification_id
+                assert body["type"] == "user.deactivation_requested"
+                assert body["target_type"] == "user"
+                assert body["target_id"] == str(actor)
+                assert set(body["payload"]) == {
+                    "email",
+                    "name",
+                    "role",
+                    "scheduled_at",
+                }
+                assert "user_id" not in body
+                assert reason not in json.dumps(body, ensure_ascii=False)
+                assert channel in channels
+            assert all(
+                row["state"] == "done"
+                for row in await _notification_rows(maker, request_id)
+            )
+
+            # Keep the accepted request and its correlation row in sync while
+            # making only this fixture actor due now.
+            async with maker.begin() as db:
+                await db.execute(
+                    text(
+                        "UPDATE public.users SET "
+                        "deactivation_requested_at=now()-interval '8 days', "
+                        "deactivation_scheduled_at=now()-interval '1 second' "
+                        "WHERE id=:actor AND is_active"
+                    ),
+                    {"actor": actor},
+                )
+                reservation = await db.execute(
+                    text(
+                        "UPDATE public.identity_deactivation_requests SET "
+                        "requested_at=now()-interval '8 days', "
+                        "scheduled_at=now()-interval '1 second', updated_at=now() "
+                        "WHERE request_id=:request_id AND user_id=:actor "
+                        "AND state='pending'"
+                    ),
+                    {"request_id": request_id, "actor": actor},
+                )
+                assert reservation.rowcount == 1
+
+            due_request = _due_command(limit=16)
+            due_id = uuid.UUID(due_request["operation_id"])
+            due_operation_ids.append(due_id)
+            due_result = await asyncio.to_thread(_node, identity, control, due_request)
+            assert due_result == {
+                "schema": "aap-identity-deactivation-due/v1",
+                "ok": True,
+                "operation_id": str(due_id),
+                "processed": 1,
+                "examined": 1,
+                "blocked_last_super_admin": 0,
+                "has_more": False,
+            }
+            async with maker() as db:
+                completed_actor = (
+                    (
+                        await db.execute(
+                            text(
+                                "SELECT is_active,status,disabled_kind,disabled_by,"
+                                "disabled_reason,deactivation_requested_at,"
+                                "deactivation_scheduled_at FROM public.users WHERE id=:actor"
+                            ),
+                            {"actor": actor},
+                        )
+                    )
+                    .mappings()
+                    .one()
+                )
+            assert completed_actor["is_active"] is False
+            assert completed_actor["status"] == "offline"
+            assert completed_actor["disabled_kind"] == "deleted"
+            assert completed_actor["disabled_by"] == actor
+            assert completed_actor["disabled_reason"] == reason
+            assert completed_actor["deactivation_requested_at"] is None
+            assert completed_actor["deactivation_scheduled_at"] is None
+
+            completion_rows = [
+                row
+                for row in await _notification_rows(maker, request_id)
+                if row["type"] == "user.deactivation_completed"
+            ]
+            assert len(completion_rows) == 1
+            completion = completion_rows[0]
+            assert completion["user_id"] == other_admin.id
+            assert completion["target_type"] == "user"
+            assert completion["target_id"] == actor
+            assert completion["payload"] == {
+                "email": actor_email,
+                "name": actor_name,
+                "auto": True,
+            }
+            assert completion["state"] == "pending"
+            assert completion["attempt"] == 0
+            completion_id = completion["id"]
+
+            completion_result = await run_once_case("completed-event")
+            assert completion_result == {
+                "claimed": 1,
+                "published": 1,
+                "retry": 0,
+                "stale": 0,
+                "unavailable": 0,
+            }
+            completion_messages = await _collect_notifications(pubsub, [completion_id])
+            assert set(completion_messages) == {str(completion_id)}
+            channel, body = completion_messages[str(completion_id)]
+            assert set(body) == {
+                "id",
+                "type",
+                "target_type",
+                "target_id",
+                "payload",
+                "created_at",
+            }
+            assert body["id"] == str(completion_id)
+            assert body["type"] == "user.deactivation_completed"
+            assert body["target_type"] == "user"
+            assert body["target_id"] == str(actor)
+            assert body["payload"] == {
+                "email": actor_email,
+                "name": actor_name,
+                "auto": True,
+            }
+            assert "user_id" not in body
+            assert "reason" not in body["payload"]
+            assert reason not in json.dumps(body, ensure_ascii=False)
+            assert channel == f"notify:{other_admin.id}"
+
+            completion_delivery = [
+                row
+                for row in await _delivery_rows(maker, request_id)
+                if row["notification_id"] == completion_id
+            ]
+            assert len(completion_delivery) == 1
+            assert completion_delivery[0]["state"] == "done"
+            assert completion_delivery[0]["attempt"] == 1
+            assert completion_delivery[0]["last_reason"] == "published"
+            assert completion_delivery[0]["worker_id"] is None
+            assert completion_delivery[0]["lease_id"] is None
+            assert completion_delivery[0]["lease_expires_at"] is None
+
+            empty_result = await run_once_case("completed-empty")
+            assert empty_result == {
+                "claimed": 0,
+                "published": 0,
+                "retry": 0,
+                "stale": 0,
+                "unavailable": 0,
+            }
+            await _assert_no_notifications(pubsub)
+            record_property("notifications_publisher_image_id", image_id)
+            record_property(
+                "notifications_publisher_image_acceptance_id",
+                image["acceptance_id"],
+            )
+            record_property(
+                "notifications_publisher_image_source_revision",
+                image["source_revision"],
+            )
+            record_property(
+                "notifications_publisher_container_ids",
+                ",".join(containers),
+            )
+            record_property("notifications_publisher_network_id", network_id)
+            record_property(
+                "notifications_deactivation_completed_acceptance",
+                "real-request,consistent-due-reservation,real-identity-operator,completion-only-active-admin,standalone-image-publish,stable-id,done,empty-restart",
+            )
+            record_property(
+                "notifications_publisher_postgres_container_id",
+                postgres_container_id,
+            )
+    finally:
+        primary_error = sys.exception()
+        cleanup_errors = []
+        cleanup_interrupts = []
+
+        async def attempt_cleanup(label, operation):
+            try:
+                error = await run_owned_cleanup_step(operation)
+            except BaseException as caught:
+                error = caught
+            if error is None:
+                return True
+            if isinstance(
+                error,
+                (asyncio.CancelledError, KeyboardInterrupt, SystemExit),
+            ):
+                cleanup_interrupts.append(error)
+            else:
+                cleanup_errors.append(label)
+            return False
+
+        if pubsub is not None:
+            await attempt_cleanup("Redis unsubscribe", pubsub.unsubscribe)
+            await attempt_cleanup("Redis subscription close", pubsub.aclose)
+        if redis_owner is not None:
+            await attempt_cleanup("Redis owner client", redis_owner.aclose)
+        if identity is not None:
+            await attempt_cleanup("Identity producer", identity.stop)
+        containers_clean = True
+        for container_id in reversed(containers):
+            if not await attempt_cleanup(
+                "owned container",
+                lambda container_id=container_id: remove_owned_container(
+                    container_id,
+                    run_id=run_id,
+                    network_name=network,
+                    network_id=network_id,
+                ),
+            ):
+                containers_clean = False
+        if containers_clean:
+            if not await attempt_cleanup(
+                "partially created owned container",
+                lambda: assert_no_owned_containers(run_id),
+            ):
+                containers_clean = False
+        if containers_clean:
+            for secret_directory in reversed(secret_directories):
+                await attempt_cleanup(
+                    "publisher secret files",
+                    lambda secret_directory=secret_directory: remove_secret_files(
+                        tmp_path, secret_directory
+                    ),
+                )
+        elif secret_directories:
+            cleanup_errors.append(
+                "publisher secrets retained because containers remain"
+            )
+        if network is not None and network_id is not None:
+            for dependency_id in reversed(connected_dependencies):
+                await attempt_cleanup(
+                    "dependency network attachment",
+                    lambda dependency_id=dependency_id: disconnect_owned_dependency(
+                        network, network_id, dependency_id
+                    ),
+                )
+            await attempt_cleanup(
+                "private network",
+                lambda: remove_owned_network(network, network_id, run_id),
+            )
+        if actor_ids or operation_ids or due_operation_ids:
+            await attempt_cleanup(
+                "committed producer fixture",
+                lambda: _cleanup_deactivation(
+                    maker,
+                    actor_ids=actor_ids,
+                    user_operation_ids=operation_ids,
+                    due_operation_ids=due_operation_ids,
                 ),
             )
         if primary_error is not None:
