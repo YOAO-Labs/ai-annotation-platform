@@ -7925,3 +7925,14 @@ now validates and uses identity_auth_client on the same owned database, while
 business requests continue through identity_api_consumer. The focused real-role
 prerequisite case passed token authentication, current actor context, Spatial
 reads and valid work handover. No Identity credential grant was widened.
+
+The fourth cold attempt reached retry admission and exposed another default-role
+composition omission: the two published spatial reference views were absent,
+although embedded workflow grants already provided them. The default profile
+now grants SELECT on those exact narrow owner views alongside the existing
+Spatial functions. Focused admission validates both references, resolves current
+non-manager ProjectAccess, and executes the real \_create_job preparation through
+the restricted API role before rolling back the candidate. The latest focused
+case passed Spatial reads, token/current-context admission, candidate creation,
+work handover and preserved annotation authorship. The earlier prerequisite
+attempt without ProjectAccess correctly failed closed and is retained.

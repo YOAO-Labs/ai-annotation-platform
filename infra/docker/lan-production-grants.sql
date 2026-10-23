@@ -381,6 +381,8 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
 -- locally. Keep this bounded to workflow, control, worker and labeling calls;
 -- system sweep and video-input garbage operations stay with their owners.
 -- Compose the existing Spatial native contract for default API/worker calls.
+GRANT SELECT ON aap_assets_v1.spatial_item_references,
+    aap_assets_v1.spatial_scene_references TO :"application_role";
 GRANT EXECUTE ON FUNCTION
     aap_assets_v1.guard_spatial_actor(uuid,text),
     aap_assets_v1.list_spatial_scenes(uuid,uuid,timestamp with time zone,uuid,integer),

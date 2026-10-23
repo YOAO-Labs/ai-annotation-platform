@@ -458,6 +458,45 @@ async def test_cross_frame_prerequisite_spatial_reads_use_closed_api_role(test_e
             assert principal.actor_id == world["actor_id"]
             context = await gateway.actor_context(principal, db=db)
             assert context.id == world["actor_id"] and context.role == "employee"
+
+            from app.api.v1.tasks.cross_frame_jobs import _create_job
+            from app.db.models.task import Task
+            from app.schemas.cross_frame_job import CrossFrameJobCreate
+            from app.services.assets_spatial_views import spatial_scene_references
+
+            assert (
+                await db.scalar(
+                    select(spatial_scene_references.c.scene_id).where(
+                        spatial_scene_references.c.scene_id == world["scene_id"]
+                    )
+                )
+                == world["scene_id"]
+            )
+            from app.services.task_access import resolve_task_access
+
+            source_task = await db.get(Task, world["source_task_id"])
+            source_access = await resolve_task_access(db, source_task, context.id)
+            candidate, created = await _create_job(
+                db,
+                source_task=source_task,
+                access=source_access,
+                current_user=context,
+                data=CrossFrameJobCreate(
+                    operation="propagate",
+                    scope="selected",
+                    direction="forward",
+                    annotation_ids=[world["source_annotation_id"]],
+                    start_frame=1,
+                    end_frame=1,
+                    conflict_policy="skip_existing",
+                ),
+                parent_job_id=world["job_id"],
+            )
+            assert (
+                created
+                and candidate.payload["targets"][0]["preflight_state"] == "ready"
+            )
+            await db.rollback()
     finally:
         await engine.dispose()
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
