@@ -7416,3 +7416,13 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   with actual SQLAlchemy objects before repeating cold acceptance. Preserve
   `.worktree/identity-runtime-role-cold-first.*` and its real exit 1. Parent-owned
   cleanup still removed its resources, bootstrap principal and PostgreSQL container.
+
+- Fixture correction 2c05d717888e70dd68e0c1f648b2b5fdd4e8eb2a passed normal
+  hooks. Its exact SQLAlchemy object reproduction passed without a DB connection.
+  Matching API cold acceptance then passed in 47.200 seconds: actual Uvicorn/TCP,
+  generated LOGIN, no Identity DSN selectors or migration/test owner in the API,
+  and the complete embedded HTTP lifecycle. Image sha256:214f38980b12d4a3c2557966e46153f67a24c9d6041fc640872c65c8780abd8d
+  matches 1,289 application/package files; the other three image inputs are reused.
+  Migration head 0306, frozen SQL install/rollback, full re-upgrade and all owned
+  cleanup pass. The first failed receipt remains immutable; no suite is rerun for
+  counts. Native union remains twenty and the cold case adds one distinct case.
