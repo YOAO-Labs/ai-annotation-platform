@@ -48,6 +48,7 @@ CANCELLABLE_KINDS = {
     "dataset_scan",
     "dataset_registration",
     "storage_usage",
+    "managed_original_verification",
     "dataset_quality",
     "dataset_quality_review",
     "mask_qc",
@@ -100,6 +101,7 @@ def _build_async_job_query(
                     AsyncJob.kind.not_in(
                         [
                             "storage_usage",
+                            "managed_original_verification",
                             "dataset_scan",
                             "dataset_registration",
                             "dataset_quality",
@@ -151,7 +153,7 @@ async def _can_access_job(db: AsyncSession, *, job: AsyncJob, user: User) -> boo
     be able to see the job's project, and the reviewer scope-expansion paths use
     the *current* project role rather than a stale global account role.
     """
-    if job.kind == "storage_usage":
+    if job.kind in {"storage_usage", "managed_original_verification"}:
         return user.is_active and user.role == PlatformRole.SUPER_ADMIN.value
     if job.kind in {"dataset_quality", "dataset_quality_review"}:
         try:
@@ -291,7 +293,9 @@ async def list_async_jobs(
             )
         )
     if scopes is not None and "*" not in scopes:
-        stmt = stmt.where(AsyncJob.kind != "storage_usage")
+        stmt = stmt.where(
+            AsyncJob.kind.not_in({"storage_usage", "managed_original_verification"})
+        )
     count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
 
     stmt = (
@@ -328,7 +332,7 @@ async def get_async_job(
         "dataset_quality_review",
     }:
         assert_request_scopes(request, "datasets:read")
-    if job.kind == "storage_usage":
+    if job.kind in {"storage_usage", "managed_original_verification"}:
         assert_request_scopes(request, "*")
     return await _to_async_job_out(db, job)
 
@@ -379,6 +383,25 @@ async def cancel_async_job(
         await async_job_svc.mark_cancelled(db, job.id)
         await db.commit()
         return {"status": "cancelled", "id": str(job.id)}
+
+    if job.kind == "managed_original_verification":
+        assert_request_scopes(request, "*")
+        from app.services import managed_original_verification, storage_maintenance
+
+        key_id = getattr(request.state, "api_key_id", None)
+        _, proof = await storage_maintenance.authority(
+            db, current_user, key_id, "*", lock=True
+        )
+        status = await managed_original_verification.cancel(db, job.id)
+        _, current_proof = await storage_maintenance.authority(
+            db, current_user, key_id, "*"
+        )
+        if current_proof != proof:
+            raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+        if status == "cancelled":
+            await notify_job_terminal(db, job_id=job.id)
+        await db.commit()
+        return {"status": status, "id": str(job.id)}
 
     if job.kind == "storage_usage":
         assert_request_scopes(request, "*")

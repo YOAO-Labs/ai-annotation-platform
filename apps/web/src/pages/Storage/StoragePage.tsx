@@ -190,6 +190,7 @@ function StoragePageOwner() {
       "storage-buckets",
       "storage-managed-original-reclamation",
       "managed-original-retention",
+      "managed-original-verifications",
       "storage-source-locations",
       "storage-location",
       "storage-location-probes",

@@ -469,3 +469,5 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "GET /api/v1/storage/managed-original-retirements/{retirement_id}/retention" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/storage/managed-original-retirements/{retirement_id}/retention-preview" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/storage/managed-original-retirements/{retirement_id}/retention" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/managed-original-retirements/{retirement_id}/verifications" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/managed-original-retirements/{retirement_id}/verifications" = { status = "excluded", reason = "web-only" }

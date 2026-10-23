@@ -147,6 +147,8 @@ async def seed(db, external: Path):
     from app.services.dataset_source_access import capture_dataset_write
     from app.services.storage import storage_service as storage
     from app.workers import training_dataset as worker
+    from app.services import managed_original_verification as verifications
+    from app.workers import managed_original_verification as verification_worker
     from tests.factory import create_project, create_user
     from tests.test_dataset_content import create_content_world
     from tests.test_dataset_source_changes import rescan, picture, accept_all_files
@@ -472,6 +474,41 @@ async def seed(db, external: Path):
             )
         )
         await db.commit()
+        # Keep both positive and negative immutable observations, plus an
+        # undispatched pending attempt. Restoring bytes must not rewrite these
+        # source facts or automatically resume an old queue.
+        attempt, probe_job, _ = await verifications.start(db, retired_record.id, actor)
+        await db.commit()
+        async with async_session() as verification_db:
+            assert await verification_worker.execute(
+                verification_db, probe_job.id, probe_job.celery_task_id
+            )
+        await db.refresh(attempt)
+        assert attempt.outcome == "matched"
+        changed = bytes([green[0] ^ 1]) + green[1:]
+        storage.client.put_object(
+            Bucket=retired_record.bucket,
+            Key=retired_record.object_key,
+            Body=changed,
+        )
+        attempt, probe_job, _ = await verifications.start(db, retired_record.id, actor)
+        await db.commit()
+        async with async_session() as verification_db:
+            assert await verification_worker.execute(
+                verification_db, probe_job.id, probe_job.celery_task_id
+            )
+        await db.refresh(attempt)
+        assert attempt.outcome == "changed"
+        assert attempt.observed_sha256 == hashlib.sha256(changed).hexdigest()
+        storage.client.put_object(
+            Bucket=retired_record.bucket,
+            Key=retired_record.object_key,
+            Body=green,
+            ContentType="image/png",
+        )
+        attempt, _, _ = await verifications.start(db, retired_record.id, actor)
+        await db.commit()
+        assert attempt.status == "pending" and attempt.operation_id is None
         facts = await inspect_database(db)
         facts["external_sources"] = [
             {
@@ -488,6 +525,7 @@ async def seed(db, external: Path):
 async def verify_application(db, external: Path):
     from sqlalchemy import select
     from app.core.crypto import decrypt_secret
+    from app.db.base import async_session
     from app.db.models.dataset import DatasetItem
     from app.db.models.dataset_source import DatasetReference, DatasetSourcePreview
     from app.db.models.original_cache import OriginalCacheEntry
@@ -495,6 +533,7 @@ async def verify_application(db, external: Path):
     from app.db.models.managed_original_retention_hold import (
         ManagedOriginalRetentionHold,
     )
+    from app.db.models.managed_original_verification import ManagedOriginalVerification
     from app.db.models.storage_connection import StorageConnection
     from app.db.models.training_dataset import TrainingDatasetVersion
     from app.db.models.user import User
@@ -543,8 +582,37 @@ async def verify_application(db, external: Path):
     for preview in await db.scalars(select(DatasetSourcePreview)):
         assert directory_previews.cached_bytes_match(preview)
     actor = await db.scalar(select(User).where(User.role == "super_admin"))
+    from app.services import managed_original_verification as verifications
+    from app.workers import managed_original_verification as verification_worker
     from app.services.managed_original_reclamation import preview as reclamation_preview
 
+    old_probes = list(await db.scalars(select(ManagedOriginalVerification)))
+    assert len(old_probes) == 3
+    assert {probe.outcome for probe in old_probes} == {"matched", "changed", None}
+    old_anchor_ids = {probe.retirement_id for probe in old_probes}
+    assert len(old_anchor_ids) == 1
+    old_anchor_id = next(iter(old_anchor_ids))
+    history = await verifications.history(db, old_anchor_id, actor)
+    assert history.total == 3 and all(
+        not item.context_matches for item in history.items
+    )
+    pending = next(probe for probe in old_probes if probe.status == "pending")
+    assert pending.operation_id is None and pending.started_at is None
+    # Reverify the other independent assertion explicitly in the target. The
+    # restored pending source attempt stays pending, preserving recovery facts.
+    target_anchor = next(record for record in retirements if record.id != old_anchor_id)
+    target_probe, target_job, _ = await verifications.start(db, target_anchor.id, actor)
+    await db.commit()
+    async with async_session() as verification_db:
+        assert await verification_worker.execute(
+            verification_db, target_job.id, target_job.celery_task_id
+        )
+    await db.refresh(target_probe)
+    assert target_probe.outcome == "matched"
+    target_history = await verifications.history(db, target_anchor.id, actor)
+    assert target_history.total == 1 and target_history.items[0].context_matches
+    await db.refresh(pending)
+    assert pending.status == "pending" and pending.started_at is None
     preview = await reclamation_preview(db, actor)
     assert preview.counts.total_assertions == preview.counts.protected_assertions == 2
     assert all(
@@ -681,6 +749,9 @@ async def verify_application(db, external: Path):
         "same_name_replacements_rejected": replacements_rejected,
         "verified_frozen_media": media_count,
         "managed_original_assertions": len(retirements),
+        "preserved_original_verifications": len(old_probes),
+        "restored_observation_context_matches": False,
+        "target_original_verification": target_probe.outcome,
         "declared_retention_holds": len(holds),
         "active_declared_retention_holds": sum(
             hold.released_at is None for hold in holds

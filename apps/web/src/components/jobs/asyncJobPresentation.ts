@@ -10,6 +10,7 @@ export const JOB_KIND_LABEL: Record<string, string> = {
   dataset_import: "数据集导入",
   dataset_scan: "目录观测扫描",
   storage_usage: "存储对象盘点",
+  managed_original_verification: "托管原件核验",
   dataset_quality_review: "质量批量复核",
   dataset_quality: "数据集图片质检",
   dataset_registration: "目录预检与登记",
@@ -62,6 +63,17 @@ export function jobNumber(record: Record<string, unknown>, key: string): number 
 
 export function jobResultSummary(job: Pick<AsyncJob, "kind" | "result">): string | null {
   const result = job.result ?? {};
+  if (job.kind === "managed_original_verification") {
+    const labels: Record<string, string> = {
+      matched: "本次内容与历史摘要相符",
+      missing: "本次未找到对象",
+      changed: "本次对象或内容已变化",
+      unverifiable: "本次无法完成核验",
+      failed: "本次核验失败",
+      cancelled: "本次核验已取消",
+    };
+    return labels[jobString(result, "outcome") ?? ""] ?? null;
+  }
   const fields =
     job.kind === "dataset_quality_review"
       ? { applied_count: "已复核", conflict_count: "冲突", blocked_count: "已阻止" }
@@ -104,6 +116,7 @@ export function jobStage(job: AsyncJob): string {
     preflight: "核验图片与接入影响",
     registering: "登记业务样本",
     collecting: "枚举文件",
+    reading: "读取并核验原件",
     enumerating: "枚举文件",
     resume_validation: "复核扫描检查点",
     validating: "复核目录清单",
@@ -141,6 +154,11 @@ export function exportDownloadState(result: Record<string, unknown>, now = Date.
 export function jobProgressText(
   job: Pick<AsyncJob, "kind" | "status" | "progress_pct" | "result">,
 ): string {
+  if (job.kind === "managed_original_verification" && ["pending", "running"].includes(job.status)) {
+    return job.result?.cancel_requested === true
+      ? "已请求取消，等待底层读取收尾"
+      : "核验单条原件 · 完整读取结束后给出结果";
+  }
   if (job.kind === "storage_usage" && ["pending", "running"].includes(job.status)) {
     const done =
       (jobNumber(job.result, "success_count") ?? 0) + (jobNumber(job.result, "failed_count") ?? 0);

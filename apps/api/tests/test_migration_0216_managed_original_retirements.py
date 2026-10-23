@@ -27,7 +27,11 @@ async def test_empty_managed_retirement_schema_roundtrip(db_session, monkeypatch
     def verify(sync):
         module = migration(sync, monkeypatch)
         retention = migration(sync, monkeypatch, "0217_managed_original_retention.py")
+        verification = migration(
+            sync, monkeypatch, "0218_managed_original_verifications.py"
+        )
         assert module.down_revision == "0215"
+        verification.downgrade()
         retention.downgrade()
         module.downgrade()
         assert (
@@ -53,6 +57,7 @@ async def test_empty_managed_retirement_schema_roundtrip(db_session, monkeypatch
             for unique in schema.get_unique_constraints("managed_original_retirements")
         )
         retention.upgrade()
+        verification.upgrade()
 
     await db_session.run_sync(verify)
 

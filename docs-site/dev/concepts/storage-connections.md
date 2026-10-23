@@ -379,3 +379,15 @@ manifest 暂存于独占 TemporaryFile，避免同时打开两个 ZIP 写句柄�
 仅当前超级管理员/全权Key可读取、预览和提交。五分钟确认绑定规范候选/原因、锚点修订/历史事实、完整peer/hold指纹与本地/持久配置；成功变更和安全审计同事务。写入按User→Key→bucket/key事务advisory锁→锚点→hold，所有保留控制共用组锁，没有任意peer行锁。既有捕获不追加跨组锁；它只能追加默认无限期证据，因此提交摘要只承诺重新观测，不对捕获或后续物理执行提供屏障。
 
 该表只记录管理员声明的备份/迁移要求；未登记覆盖仍unknown，不是可核验恢复点、S3 Object Lock或所有旧清理owner共用的物理锁。回收预演始终execution_permission=false，实际独占所有权/副本、恢复/迁移证据和物理读写互斥须另行交付。代码回退保留事实，存在hold或非初始策略时拒绝0217降级；离线恢复跟随稳定锚点，只改原有物理白名单，hold完整字段与策略事实均参与受保护数据库对账。
+
+### 已登记原件的完整内容观测
+
+核验表独立于业务对象，以RESTRICT关联退休锚点。创建时固定可信历史SHA/大小、锚点内容/定位与本地/持久平台配置、操作者/Key权威以及作业/任务身份，不重写退休断言或保留策略。已完成、失败及未完成责任均保留；通用AsyncJob删除后，领域历史不随之丢失。存在任何核验记录时0218拒绝破坏性降级。
+
+GET分页历史只读；显式POST创建或复用活动任务，接口和通用任务列表/详情/取消都要求当前超级管理员及Key全权。只允许已知平台身份、可信历史内容且在5GiB预算内的原件开始读取；没有历史SHA时不通过新读取伪造历史匹配。pending显式重派相同任务身份，原子认领后重复投递不再次读取；running不靠TTL重跑。
+
+任务按User→Key→Retirement→Verification→AsyncJob的锁序做短事务，I/O前提交，结果发布前重新验证权限、配置、锚点和任务状态。storage_access在executor开始前提交精确Permit ID；取消、超时等待底层线程及流实际结束，关闭不确定保留访问责任。取消请求、领域终态和实际收尾各自表达，信号兜底不以逻辑失败清除物理记录。
+
+读取使用短超时、单次SDK尝试及256KiB流块，不做图片解码或完整临时文件：当前HEAD固定对象观测，验证条件语义后按VersionId/IfMatch读取全部字节，比较SHA/大小，最后以无版本条件HEAD再次核对当前键。60秒协作截止和总字节预算拒绝未完成结果；HTTP403、缺失、内容变化、条件不支持和关闭不确定分别记录。ETag仅作条件值；AWS的[条件GET](https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html)及[ETag与内容完整性规则](https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity-upload.html)支持这一机制，S3兼容实现仍需实际验证。
+
+结果只证明所示观测时段完整读取与历史摘要相符。context_matches只表示历史锚点/配置仍匹配，不证明现在对象未被外部覆盖、独占管理、最小副本或删除资格。既有回收预演继续纯SQL与execution_permission=false，不消费历史匹配来绕过其他门禁。离线恢复不重定位历史观测；锚点物理位置变化后旧context失效，完整历史保留，需显式重新核验目标。

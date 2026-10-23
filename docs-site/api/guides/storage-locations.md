@@ -233,3 +233,15 @@ GET接受`limit=20`（1至100）及`offset=0`（0至1000000），返回`retireme
 预览返回`before/after`共同保护摘要、`shortens_retention`、动作及`hold_id/hold_kind/reference_code`、观测/到期时间和`impact_token`。提交额外携带该令牌，返回当前State；每次成功动作只将目标policy_revision递增一次。令牌绑定操作者、当前Key权威、锚点/规范候选/原因/修订、平台配置和完整peer/hold指纹；确认期间截止时间已到也拒绝。错误包括401/403、404缺失或非原锚点、409冲突/锁忙/过期/重复以及422输入或过去期限；失败不留半状态。
 
 所有保留控制写入按User→Key→保守locator组事务锁→锚点→hold排序，不锁任意peer或业务对象。新业务删除仍可能并发追加默认无限期断言；摘要是提交时重查的观测，不是捕获或物理执行屏障。成功审计保存安全前后摘要、原因、修订与确认时间，不保存物理路径或令牌。所有结果固定`coverage=declared_requirements_only`、`execution_permission=false`；空要求列表、解除或策略到期不能证明独占所有权、真实恢复点、迁移或现场最小副本已获资格。
+
+## 托管原件完整核验
+
+`GET /api/v1/storage/managed-original-retirements/{retirement_id}/verifications?limit=20&offset=0`仅查询历史，要求当前超级管理员及API Key全权`*`。返回`retirement_id/measured_at/scope=registered_retirement_assertion_only/execution_permission=false`、`can_start/blockers`、`max_bytes/timeout_seconds`及有界`items/total/limit/offset/has_more`。每项包含核验/作业ID、状态/结果、安全错误码、请求/开始/完成/取消请求时间、期望/观测SHA与大小、`context_matches`和`unsettled_operation`，不返回locator、端点或内部权限证明。
+
+`POST`同路径显式创建核验，202返回`retirement_id/verification_id/async_job_id/existing`。同锚点的活动记录复用；pending可重派同task ID，running不重复读取。当前平台配置或历史身份不能匹配、历史内容不可信、超出5GiB预算、已有未收尾责任等条件阻断首个对象I/O。领域记录独立保留，不随通用任务清理而消失；缺失或不匹配的活动作业不能直接重派。
+
+核验任务只读完整对象，使用条件GET、完整SHA与准确大小、最终当前键观测，单次协作读取预算60秒。结果为`matched/missing/changed/unverifiable/failed/cancelled`之一，活动时尚无结果。未找到对象与权限不足分别表达，ETag和HEAD不能代替完整摘要；缺少可信历史摘要不能通过当前内容静默补齐历史证明。
+
+通过`POST /api/v1/async-jobs/{job_id}/cancel`取消，授权同样要求当前超级管理员与全权Key。pending可直接取消；running返回`status=cancel_requested`，实际读取收尾后才终态。进程丢失或关闭不确定保留operation责任，信号/超时不会自动清空；未收尾期间不可重新启动同锚点。
+
+`context_matches`仅说明已记录锚点与配置仍适用，不承诺对象此刻未被覆盖。SHA匹配仍不是独占所有权、最小副本、可恢复备份或物理删除许可；所有结果维持`execution_permission=false`，不调整期限或声明要求。配置/定位在恢复后变化，旧观测按历史保留且不再匹配，需要显式核验新目标。

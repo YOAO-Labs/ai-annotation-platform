@@ -62,3 +62,23 @@ it("对象盘点用已处理桶数显示进度，不伪造当前桶总量", () =
     }),
   ).toBe("已处理 3 个桶 · 当前桶对象总量未知");
 });
+
+it("原件核验只报告本次观测，取消请求等待实际读取收尾", () => {
+  const job = {
+    kind: "managed_original_verification",
+    status: "running",
+    progress_pct: 99,
+    result: {},
+  } as Parameters<typeof jobProgressText>[0];
+  expect(jobProgressText(job)).toBe("核验单条原件 · 完整读取结束后给出结果");
+  expect(jobProgressText({ ...job, result: { cancel_requested: true } })).toBe(
+    "已请求取消，等待底层读取收尾",
+  );
+  expect(jobResultSummary({ kind: job.kind, result: { outcome: "matched" } })).toBe(
+    "本次内容与历史摘要相符",
+  );
+  expect(jobResultSummary({ kind: job.kind, result: { outcome: "missing" } })).toBe(
+    "本次未找到对象",
+  );
+  expect(jobResultSummary({ kind: job.kind, result: { outcome: "unrecognized" } })).toBeNull();
+});
