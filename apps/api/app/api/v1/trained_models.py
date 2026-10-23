@@ -309,13 +309,14 @@ async def download_model(
 ) -> dict:
     await lock_owner(db, user, project)
     version = await service.load_version(db, project.id, version_id)
+    owner = await service.owner_for_model(db, version)
     from app.services.storage import storage_service
 
     url = await asyncio.to_thread(
         storage_service.generate_download_url,
         version.artifact["key"],
         expires_in=600,
-        bucket=storage_service.training_bucket,
+        bucket=owner.bucket,
         download_name="best.pt",
         align=False,
     )

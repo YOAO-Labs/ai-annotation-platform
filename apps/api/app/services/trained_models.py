@@ -31,6 +31,7 @@ from app.services.ml_client import MLBackendClient
 from app.services.storage import storage_service as storage
 from app.services import training_dataset_storage
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
+from app.services import training_run_storage
 from app.services.training_runs import internal_download, verify_artifact
 from app.services.training_artifacts import read_json_artifact
 from app.services.training_evaluations import parse_evaluation
@@ -92,6 +93,54 @@ def validate_bindings(project, classes, bindings, task="detect"):
         assert_raster_mask_write_enabled(project)
 
 
+def owner_for_attempt(run, attempt, *artifacts):
+    """Resolve physical ownership without changing any frozen model payload."""
+    if run is None or attempt is None or attempt.run_id != run.id:
+        raise HTTPException(status_code=409, detail="训练产物的来源执行不一致")
+    try:
+        owner = training_run_storage.resolve(run)
+        for artifact in artifacts:
+            training_run_storage.expect_attempt(owner, attempt.id, artifact["key"])
+        return owner
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from None
+    except (KeyError, TypeError):
+        raise HTTPException(
+            status_code=409, detail="训练产物缺少固定对象定位"
+        ) from None
+
+
+async def owner_for_model(db, version):
+    """Models retain the referenced run namespace instead of duplicating it."""
+    run = await db.scalar(
+        select(TrainingRun).where(
+            TrainingRun.id == version.run_id,
+            TrainingRun.project_id == version.project_id,
+        )
+    )
+    attempt = await db.get(TrainingAttempt, version.attempt_id)
+    if (
+        run is None
+        or attempt is None
+        or run.id != version.run_id
+        or run.project_id != version.project_id
+        or attempt.id != version.attempt_id
+        or attempt.run_id != run.id
+        or not isinstance(version.artifact, dict)
+        or not isinstance(attempt.artifacts, dict)
+        or version.artifact.get("role") != "weights"
+        or not any(
+            artifact == version.artifact
+            for artifact in (attempt.artifacts or {}).values()
+        )
+    ):
+        raise HTTPException(status_code=409, detail="模型缺少一致的保留权重来源")
+    return owner_for_attempt(run, attempt, version.artifact)
+
+
 async def register(db, project, user, body):
     request_digest = content_digest(body.model_dump(mode="json"))
     existing = await db.scalar(
@@ -144,11 +193,16 @@ async def register(db, project, user, body):
             status_code=409, detail="来源执行缺少唯一的已验证权重与最终评估"
         )
     weights, metrics = weight_artifacts[0], metric_artifacts[0]
+    owner = owner_for_attempt(run, attempt, weights, metrics)
     classes = run.config["classes"]
     validate_bindings(project, classes, body.bindings, config_task(run.config))
     try:
-        await asyncio.to_thread(verify_artifact, weights["key"], weights, attempt.id)
-        evaluation = await asyncio.to_thread(read_json_artifact, metrics, attempt.id)
+        await asyncio.to_thread(
+            verify_artifact, weights["key"], weights, attempt.id, bucket=owner.bucket
+        )
+        evaluation = await asyncio.to_thread(
+            read_json_artifact, metrics, attempt.id, bucket=owner.bucket
+        )
         if (
             run.config["framework"] == "libreyolo"
             or config_task(run.config) == "segment"
@@ -379,8 +433,8 @@ async def assert_routable_backend(db, project_id, registry_id):
         raise HTTPException(status_code=409, detail="推理实例健康或能力校验尚未就绪")
 
 
-def download_url(key):
-    return storage.rewrite_host_for_ml_backend(internal_download(key))
+def download_url(key, *, bucket):
+    return storage.rewrite_host_for_ml_backend(internal_download(key, bucket=bucket))
 
 
 def frozen_sample_location(project_id, dataset, task_id):
@@ -402,6 +456,7 @@ def frozen_sample_location(project_id, dataset, task_id):
 
 
 async def install_and_trial(db, project, version, deployment):
+    weights_owner = await owner_for_model(db, version)
     dataset = await db.get(
         TrainingDatasetVersion, uuid.UUID(version.provenance["dataset_id"])
     )
@@ -418,7 +473,9 @@ async def install_and_trial(db, project, version, deployment):
         {
             **expected_receipt(version),
             "size_bytes": version.artifact["size_bytes"],
-            "download_url": download_url(version.artifact["key"]),
+            "download_url": download_url(
+                version.artifact["key"], bucket=weights_owner.bucket
+            ),
         }
     )
     check_receipt(version, receipt)

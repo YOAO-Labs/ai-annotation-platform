@@ -231,8 +231,13 @@ async def read_evaluation(run, attempt, offset, limit):
         raise HTTPException(
             status_code=409, detail="本次执行缺少唯一的已验证评估与最佳权重"
         )
+    from app.services.trained_models import owner_for_attempt
+
+    owner = owner_for_attempt(run, attempt, metrics[0], weights[0])
     try:
-        report = await asyncio.to_thread(read_json_artifact, metrics[0], attempt.id)
+        report = await asyncio.to_thread(
+            read_json_artifact, metrics[0], attempt.id, bucket=owner.bucket
+        )
         return parse_evaluation(
             report, run, attempt, metrics[0], weights[0], offset, limit
         )

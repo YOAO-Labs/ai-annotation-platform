@@ -39,6 +39,7 @@ def read_json_artifact(
     spec,
     attempt_id,
     *,
+    bucket=None,
     metadata_key="attempt-id",
     required_metadata=None,
     node_budget=100000,
@@ -48,7 +49,7 @@ def read_json_artifact(
     if not spec or not 0 < spec["size_bytes"] <= MAX_REPORT_BYTES:
         raise ValueError("Evaluation artifact is missing or too large")
     response = storage.client.get_object(
-        Bucket=storage.training_bucket, Key=spec["key"]
+        Bucket=storage.training_bucket if bucket is None else bucket, Key=spec["key"]
     )
     try:
         raw = response["Body"].read(spec["size_bytes"] + 1)

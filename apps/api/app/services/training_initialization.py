@@ -138,6 +138,9 @@ async def source_pin(db, project_id, version_id):
     ]
     if len(weights) != 1 or len(metrics) != 1 or weights[0] != version.artifact:
         raise ValueError("初始化模型不再对应来源执行的唯一已验证权重")
+    from app.services.trained_models import owner_for_attempt
+
+    owner = owner_for_attempt(run, attempt, weights[0], metrics[0])
     artifact = {
         key: version.artifact[key] for key in ("key", "role", "sha256", "size_bytes")
     }
@@ -178,7 +181,9 @@ async def source_pin(db, project_id, version_id):
         from app.services.training_evaluations import parse_evaluation
 
         try:
-            report = await asyncio.to_thread(read_json_artifact, metrics[0], attempt.id)
+            report = await asyncio.to_thread(
+                read_json_artifact, metrics[0], attempt.id, bucket=owner.bucket
+            )
         except (BotoCoreError, ClientError, OSError) as exc:
             raise ValueError("分割初始化的真实来源评估对象不可用") from exc
         checked = parse_evaluation(
@@ -209,14 +214,50 @@ async def source_pin(db, project_id, version_id):
     return validate_pin(pin), metrics[0]
 
 
-def verify_storage(pin, metrics, *, full):
+async def source_storage_owner(db, pin):
+    """Resolve the source model's retained owner independently of target output."""
+    from app.services.trained_models import owner_for_model
+
+    try:
+        version = await db.get(TrainedModelVersion, uuid.UUID(pin["model_version_id"]))
+        if (
+            version is None
+            or any(
+                str(actual) != pin[key]
+                for key, actual in (
+                    ("project_id", version.project_id),
+                    ("run_id", version.run_id),
+                    ("attempt_id", version.attempt_id),
+                )
+            )
+            or {
+                key: version.artifact.get(key)
+                for key in ("key", "role", "sha256", "size_bytes")
+            }
+            != pin["artifact"]
+        ):
+            raise ValueError("Initialization source does not match its retained model")
+        return await owner_for_model(db, version)
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise HTTPException(
+            status_code=409, detail="初始化来源与固定模型不一致"
+        ) from None
+
+
+def verify_storage(pin, metrics, *, owner, full):
     from app.services.training_runs import verify_artifact
     from app.services.training_artifacts import read_json_artifact
 
+    from app.services.training_run_storage import expect_attempt
+
     artifact = pin["artifact"]
+    expect_attempt(owner, pin["attempt_id"], artifact["key"])
+    expect_attempt(owner, pin["attempt_id"], metrics["key"])
     if full:
-        verify_artifact(artifact["key"], artifact, pin["attempt_id"])
-        report = read_json_artifact(metrics, pin["attempt_id"])
+        verify_artifact(
+            artifact["key"], artifact, pin["attempt_id"], bucket=owner.bucket
+        )
+        report = read_json_artifact(metrics, pin["attempt_id"], bucket=owner.bucket)
         if content_digest(report) != pin["evaluation"]["report_digest"]:
             raise ValueError("来源评估与候选注册时的报告不一致")
         if pin["task"] == SEGMENTATION and (
@@ -229,9 +270,7 @@ def verify_storage(pin, metrics, *, full):
         ):
             raise ValueError("分割初始化真实报告的权重或评估器身份不一致")
     else:
-        head = storage.client.head_object(
-            Bucket=storage.training_bucket, Key=artifact["key"]
-        )
+        head = storage.client.head_object(Bucket=owner.bucket, Key=artifact["key"])
         if (
             head["ContentLength"] != artifact["size_bytes"]
             or head.get("Metadata", {}).get("attempt-id") != pin["attempt_id"]
@@ -303,7 +342,8 @@ async def eligibility(
             "pin": None,
         }
     try:
-        await asyncio.to_thread(verify_storage, pin, metrics, full=False)
+        owner = await source_storage_owner(db, pin)
+        await asyncio.to_thread(verify_storage, pin, metrics, owner=owner, full=False)
     except Exception:
         reasons.append("来源权重对象缺失或身份不符；不会使用其他权重替代")
     return {
@@ -346,7 +386,8 @@ async def resolve(
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)[:500]) from exc
     try:
-        await asyncio.to_thread(verify_storage, pin, metrics, full=full)
+        owner = await source_storage_owner(db, pin)
+        await asyncio.to_thread(verify_storage, pin, metrics, owner=owner, full=full)
     except Exception as exc:
         raise HTTPException(
             status_code=409, detail="初始化权重或评估对象校验失败，请检查保留的来源产物"
