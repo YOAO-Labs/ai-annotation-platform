@@ -8,6 +8,29 @@
 > 依赖：EPIC-01 的标识与适配契约；EPIC-11 的最小权限规则必须随 M1 一起交付。
 > 下游：EPIC-03 原地注册、EPIC-05 读取、EPIC-07 迁移、EPIC-09 存储控制台。
 
+## 本轮实施定案：E02-B4 训练实验输出的固定归属
+
+在干净基线 `bfcd8d083` 继续执行已有整套实施授权。当前TrainingRun的权重、检查点、评估/原生配置/观测摘要及脱敏日志仍按全局training_bucket读写；模型和初始化只引用这些原对象。下一片固定每个实验的projects/{project}/runs/{run}/整个前缀，以同一owner覆盖所有attempt、重试续训、模型安装/下载/初始化、评估及删除责任。数据版本仍使用已有独立归属；增强预览自己的输出、基础权重及其他用途另行收敛。本片不开放整个用途切换，不改Executor/共享训练合同、冻结config/provenance/初始化pin，不重建镜像。
+
+0221为TrainingRun增加可空内部storage_ref，沿用现有locator envelope，purpose为training-run且prefix严格按项目/实验UUID限定。新建API、自动策略、参数搜索三入口在首次执行/I/O前显式固定；普通new_attempt/续训不能为NULL旧位置自动猜测。所有run输入输出URL、物理读取和派生脱敏日志使用保存端点/桶，模型通过RESTRICT来源run/attempt解析归属，不复制物理信息进冻结语义。先复核所属attempt键再I/O；NULL或身份变化明确拒绝，但取消/故障收尾仍保留原资源租约规则。
+
+历史只接受负责人显式POST /projects/{project_id}/training-runs/{run_id}/storage-pin。全部attempt终态且无保留GPU租约后，沿用有界条件完整读取/真实收尾的Reader及维护permit；候选仅取已持久绑定。逐项核对DB已发布或上传清单的SHA/大小/attempt身份，已发布对象缺失、未知键及未解释上传拒绝，不反序列化权重。脱敏日志只在受支持当前确定性变换可从独立核验的源日志重建完全相同字节时接管；未知历史修订不猜测。发布前复核操作者/Key、实验及全部attempt指纹、候选/Gate修订，保存当前保留副本证据，GET不写接管。
+
+删除同事务将run归属复制至独立tombstone，提交后清理；NULL旧run/dataset意图不做物理删除。受限离线恢复只映射bucket/identity，保护全部其他嵌套事实，新增run合成恢复证据。有run归属/意图时迁移拒绝破坏性降级。回退保留additive事实与读取拒绝，不重新采用全局桶。
+
+本片超过8文件：领域/迁移、实验流/观测和模型/初始化/评估分配到当前HEAD的独立工作树；主树负责旧副本接管、清理/恢复、集成/旧夹具、正式文档与真实环境。复用现有owner/Reader/角色权限，不新增依赖、环境变量、凭据或服务。
+
+```text
+API / 自动策略 / 参数搜索 -> persisted run.storage_ref -> attempts / uploads / finish
+                                      |                        |
+旧实验显式核验 -> 同一归属             |                        v
+                        模型 / 初始化 / 续训 / 报告 / 日志读取
+                                      |
+                  committed tombstone -> 同端点清理 / 离线受限映射
+```
+
+验证覆盖新建三入口、旧NULL拒绝、同键不同桶、续训和初始化分开归属、模型/报告/日志、旧副本完整/缺失/冲突/撤权/维护/真实收尾、提交失败零删除、失败意图持久、受限迁移/恢复。使用核实owner的一次性test环境，真实API/MinIO上传、摘要核验及URL下载证明路由，不以合成executor回执声称真实框架训练资格。正常hooks、Ruff、OpenAPI/SDK、文档与diff检查通过后提交；清理任务产物，保留人工3100/8100、两个Worker/beat及既有业务字节，再记录Outcome。
+
 ## 本轮实施定案：E02-B3 训练版本冻结前缀的固定存储归属
 
 在干净基线 `3ce93cad0` 上复核并实施，沿用整套 Epic 持续实施和提交授权。现有版本仅保存 package_key，ZIP、独立冻结图片/掩码、派发与预览源、重试及删除均可能重新读取当前 training_bucket。新片固定版本自有前缀的归属，不开放整个 training 用途绑定切换，不修改 Executor/共享训练合同，不重建 API/ML 镜像。
