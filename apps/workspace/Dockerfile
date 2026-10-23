@@ -7,6 +7,8 @@ COPY apps/_shared/inference_contract /_shared/inference_contract
 COPY apps/_shared/workspace_contract /_shared/workspace_contract
 COPY apps/_shared/task_contract /_shared/task_contract
 COPY apps/identity /identity
+COPY apps/notifications/pyproject.toml /notifications/pyproject.toml
+COPY apps/notifications/src /notifications/src
 COPY apps/assets-source /assets-source
 COPY apps/assets-cleanup /assets-cleanup
 COPY apps/_shared/audit_contract /_shared/audit_contract
