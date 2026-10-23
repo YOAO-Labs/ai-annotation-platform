@@ -16,8 +16,10 @@ from celery import Celery
 import httpx
 import pytest
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.config import settings
 from app.db.models.dataset import DatasetItem
 from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.task import Task
@@ -30,6 +32,7 @@ from tests.project_guide_asset_owner_helpers import (
     create_guide_storage_scope,
     endpoint_url,
 )
+from tests.test_module_data_roles import _role_url as _module_role_url
 from tests.test_video_input_authorities_native import _seed_video_task
 from tests.test_video_input_live import _video_bytes, _video_runtime
 from tests.test_tracker_input_live import _prepared
@@ -209,13 +212,24 @@ async def _seed_tracker_world(
         )
         suffix = uuid.uuid4().hex[:12]
         actor = await _make_actor(db, f"{label}-{suffix}")
-        await create_membership(
+        membership = await create_membership(
             db,
             project_id=project.id,
             user_id=actor.id,
             role="annotator",
             assigned_by=owner_id,
         )
+        replacement_id = None
+        if label == "removed":
+            replacement = await _make_actor(db, f"replacement-{suffix}")
+            replacement_id = replacement.id
+            await create_membership(
+                db,
+                project_id=project.id,
+                user_id=replacement_id,
+                role="annotator",
+                assigned_by=owner_id,
+            )
         project.tool_bindings = build_tool_bindings(["car"], unit="bbox")
         item = await db.get(DatasetItem, item_id)
         item.file_path = key
@@ -277,6 +291,8 @@ async def _seed_tracker_world(
             "owner_id": owner_id,
             "owner_token": _access_token(owner_id, "super_admin"),
             "actor_id": actor.id,
+            "membership_id": membership.id,
+            "replacement_id": replacement_id,
             "actor_token": _access_token(actor.id, "employee"),
             "project_id": project.id,
             "task_id": task_id,
@@ -308,6 +324,16 @@ async def _committed_api_client(app_module, test_engine):
     api_engine = create_async_engine(_api_role_url(), hide_parameters=True)
     api_sessions = async_sessionmaker(api_engine, expire_on_commit=False)
     gateway = _identity_gateway_for_owned_auth(test_engine)
+    suspension_dsn = make_url(
+        _module_role_url(
+            "AAP_MODULE_DATA_IDENTITY_SUSPENSION_URL", "identity_suspension_client"
+        )
+    )
+    assert (suspension_dsn.host, suspension_dsn.port, suspension_dsn.database) == (
+        test_engine.url.host,
+        test_engine.url.port,
+        test_engine.url.database,
+    )
     previous_db = app_module.dependency_overrides.get(get_db)
     previous_gateway = app_module.dependency_overrides.get(get_identity_gateway)
 
@@ -317,6 +343,13 @@ async def _committed_api_client(app_module, test_engine):
 
     app_module.dependency_overrides[get_db] = api_session_dependency
     app_module.dependency_overrides[get_identity_gateway] = lambda: gateway
+    scoped = pytest.MonkeyPatch()
+    scoped.setattr(
+        settings,
+        "identity_suspension_database_url",
+        suspension_dsn.render_as_string(hide_password=False),
+    )
+    scoped.setattr(settings, "identity_suspension_database_url_file", "")
     try:
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app_module), base_url="http://test"
@@ -331,6 +364,7 @@ async def _committed_api_client(app_module, test_engine):
             app_module.dependency_overrides.pop(get_identity_gateway, None)
         else:
             app_module.dependency_overrides[get_identity_gateway] = previous_gateway
+        scoped.undo()
         await api_engine.dispose()
 
 
@@ -698,12 +732,41 @@ async def test_real_video_tracker_cold_worker_uses_workspace_acl_and_genuine_ret
             record_property("video_tracker_cancel_retirement", cancel_execution)
 
             async with _committed_api_client(app_module, test_engine) as api:
-                remove_response = await api.delete(
-                    f"/api/v1/projects/{worlds['removed']['project_id']}/members/"
-                    f"{worlds['removed']['actor_id']}",
-                    headers={
-                        "Authorization": f"Bearer {worlds['removed']['owner_token']}"
+                removed = worlds["removed"]
+                member_path = (
+                    f"/api/v1/projects/{removed['project_id']}/members/"
+                    f"{removed['membership_id']}"
+                )
+                manager_headers = {"Authorization": f"Bearer {removed['owner_token']}"}
+                preview_response = await api.post(
+                    member_path + "/role/preview",
+                    headers=manager_headers,
+                    json={
+                        "project_role": "viewer",
+                        "replacement_annotator_id": str(removed["replacement_id"]),
                     },
+                )
+                assert preview_response.status_code == 200, preview_response.text
+                preview = preview_response.json()
+                assert preview["blockers"] == [], preview
+                assert set(preview["resource_snapshot"]["annotation_task_ids"]) == {
+                    str(removed["task_id"])
+                }
+                handover_response = await api.patch(
+                    member_path + "/role",
+                    headers=manager_headers,
+                    json={
+                        "project_role": "viewer",
+                        "replacement_annotator_id": str(removed["replacement_id"]),
+                        "expected_version": preview["current_version"],
+                        "preview_token": preview["preview_token"],
+                        "reason": "Queued tracker authority revocation after explicit handover",
+                    },
+                )
+                assert handover_response.status_code == 200, handover_response.text
+                remove_response = await api.delete(
+                    member_path,
+                    headers=manager_headers,
                 )
                 assert remove_response.status_code == 204, remove_response.text
                 deactivate_response = await api.post(
