@@ -565,6 +565,9 @@ class BucketUpgradeTests(unittest.TestCase):
                 return {
                     "preferences": True,
                     "append": True,
+                    "read_state": True,
+                    "notification_update": False,
+                    "notification_column_update": False,
                     "audit_append": True,
                 }
 
@@ -592,6 +595,10 @@ class BucketUpgradeTests(unittest.TestCase):
             + ' TO "app"'
         )
         self.assertIn(expected, statements)
+        self.assertIn(
+            'REVOKE UPDATE ON TABLE public.notifications FROM "app", PUBLIC',
+            statements,
+        )
         self.assertIn(
             "GRANT EXECUTE ON FUNCTION "
             + ", ".join(AUDIT_RUNTIME_CAPABILITIES)

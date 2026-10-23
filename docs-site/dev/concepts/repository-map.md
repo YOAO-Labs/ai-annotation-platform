@@ -291,7 +291,7 @@ last_reviewed: 2026-10-21
    讨论流的 `services/task_discussion.py` 与 `services/discussion_notifications.py` 直接调用
    `project_access.resolve_project_access_by_id` 和任务可见性所有者，不依赖 HTTP 装配；
    对实际接收人复核当前项目/任务资格，移除成员后不再成为受限讨论通知目的地。
-8. 通知偏好 GET／PUT 经 `aap_notifications.preferences` 调用 `aap_notifications_v1.preference_command(jsonb)`；`NotificationService.notify` 先用同一 owner 预检静音，再经 `aap_notifications_v1.append_notification(jsonb)` 在原事务写入并合并返回行到 Session identity map。HTTP 入口仍持有提交权，通知按 `defer_publish` 合同发布到 `notify:{user_id}`。
+8. 通知偏好 GET／PUT 经 `aap_notifications.preferences` 调用 `aap_notifications_v1.preference_command(jsonb)`；`NotificationService.notify` 先用同一 owner 预检静音，再经 `aap_notifications_v1.append_notification(jsonb)` 在原事务写入并合并返回行到 Session identity map。单条／批量已读经 `aap_notifications.read_state` 调用 `aap_notifications_v1.read_state_command(jsonb)`，保留 API 的认证、flush、提交和提交后同步职责。HTTP 入口仍持有提交权，通知按 `defer_publish` 合同发布到 `notify:{user_id}`。
 
 ## 4. ML backend 调用链
 

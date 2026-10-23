@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 
@@ -15,7 +16,13 @@ from aap_notifications.preferences_policy import (
     KNOWN_NOTIFICATION_TYPES,
     default_toast_for,
 )
-from sqlalchemy import select
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy import select, text, update
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
+
+from aap_notifications.read_state import NotificationReadStateManager
+from aap_notifications.read_state_postgres import NotificationReadStatePostgresData
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -146,6 +153,269 @@ async def test_mark_read_and_mark_all(db_session, annotator):
     n = await svc.mark_all_read(user.id)
     assert n == 1  # 只剩 n2 未读
     assert await svc.unread_count(user.id) == 0
+
+
+@pytest.mark.asyncio
+async def test_read_state_preserves_autoflush_no_autoflush_and_identity_state(
+    db_session, annotator
+):
+    user, _ = annotator
+    service = NotificationService(db_session)
+    rows = [
+        await service.notify(
+            user_id=user.id,
+            type="read-state.test",
+            target_type="task",
+            target_id=uuid.uuid4(),
+        )
+        for _ in range(3)
+    ]
+    assert all(row is not None for row in rows)
+    first, deleted, third = rows
+
+    pending = Notification(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        type="read-state.pending",
+        target_type="task",
+        target_id=uuid.uuid4(),
+        payload={},
+    )
+    db_session.add(pending)
+
+    assert await service.mark_read(user.id, first.id) is True
+    assert pending not in db_session.new
+    assert first.read_at is not None and first.read_at.tzinfo is not None
+    assert not db_session.is_modified(first, include_collections=False)
+
+    await db_session.delete(deleted)
+    assert await service.mark_read(user.id, deleted.id) is False
+
+    deferred = Notification(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        type="read-state.deferred",
+        target_type="task",
+        target_id=uuid.uuid4(),
+        payload={},
+    )
+    db_session.add(deferred)
+    with db_session.no_autoflush:
+        assert await service.mark_all_read(user.id) == 2
+        assert deferred in db_session.new
+        assert deferred.read_at is None
+
+    assert third.read_at is not None
+    assert pending.read_at == third.read_at
+    assert not db_session.is_modified(third, include_collections=False)
+    assert not db_session.is_modified(pending, include_collections=False)
+    assert deferred in db_session.new
+    assert deferred.read_at is None
+
+
+@pytest.mark.asyncio
+async def test_read_state_matches_legacy_orm_unit_of_work_baseline(
+    db_session, annotator, reviewer
+):
+    # The test-only owner session runs the former ORM operation as the UOW oracle.
+    legacy_user, _ = annotator
+    owner_user, _ = reviewer
+
+    async def seed_three(service, user_id, type_prefix):
+        rows = [
+            await service.notify(
+                user_id=user_id,
+                type=f"{type_prefix}.{index}",
+                target_type="task",
+                target_id=uuid.uuid4(),
+            )
+            for index in range(3)
+        ]
+        assert all(row is not None for row in rows)
+        return rows
+
+    legacy_rows = await seed_three(
+        NotificationService(db_session), legacy_user.id, "read-state.legacy"
+    )
+    legacy_first, legacy_deleted, legacy_last = legacy_rows
+    legacy_pending = Notification(
+        id=uuid.uuid4(),
+        user_id=legacy_user.id,
+        type="read-state.legacy.pending",
+        target_type="task",
+        target_id=uuid.uuid4(),
+        payload={},
+    )
+    db_session.add(legacy_pending)
+    legacy_first.payload = {"dirty": "autoflush"}
+    await db_session.delete(legacy_deleted)
+
+    legacy = await db_session.execute(
+        update(Notification)
+        .where(
+            Notification.user_id == legacy_user.id,
+            Notification.read_at.is_(None),
+        )
+        .values(read_at=datetime.now(timezone.utc))
+    )
+    assert legacy.rowcount == 3
+    assert legacy_pending not in db_session.new
+    assert legacy_deleted not in db_session
+    assert legacy_first.payload == {"dirty": "autoflush"}
+    assert legacy_first.read_at == legacy_last.read_at
+    assert legacy_pending.read_at is None
+    assert (
+        await db_session.scalar(
+            select(Notification.read_at).where(Notification.id == legacy_pending.id)
+        )
+    ) == legacy_first.read_at
+    assert not db_session.is_modified(legacy_first, include_collections=False)
+    assert not db_session.is_modified(legacy_pending, include_collections=False)
+
+    service = NotificationService(db_session)
+    owner_rows = await seed_three(service, owner_user.id, "read-state.owner")
+    owner_first, owner_deleted, owner_last = owner_rows
+    owner_pending = Notification(
+        id=uuid.uuid4(),
+        user_id=owner_user.id,
+        type="read-state.owner.pending",
+        target_type="task",
+        target_id=uuid.uuid4(),
+        payload={},
+    )
+    db_session.add(owner_pending)
+    owner_first.payload = {"dirty": "autoflush"}
+    await db_session.delete(owner_deleted)
+
+    assert await service.mark_all_read(owner_user.id) == 3
+    assert owner_pending not in db_session.new
+    assert owner_deleted not in db_session
+    assert owner_first.payload == {"dirty": "autoflush"}
+    assert owner_first.read_at == owner_last.read_at
+    assert owner_pending.read_at is None
+    assert (
+        await db_session.scalar(
+            select(Notification.read_at).where(Notification.id == owner_pending.id)
+        )
+    ) == owner_first.read_at
+    assert not db_session.is_modified(owner_first, include_collections=False)
+    assert not db_session.is_modified(owner_pending, include_collections=False)
+
+    legacy_no_autoflush_rows = await seed_three(
+        NotificationService(db_session), legacy_user.id, "read-state.legacy-no-flush"
+    )
+    legacy_no_autoflush = legacy_no_autoflush_rows[0]
+    legacy_deferred = Notification(
+        id=uuid.uuid4(),
+        user_id=legacy_user.id,
+        type="read-state.legacy-deferred",
+        target_type="task",
+        target_id=uuid.uuid4(),
+        payload={},
+    )
+    db_session.add(legacy_deferred)
+    legacy_no_autoflush.payload = {"dirty": "no_autoflush"}
+    with db_session.no_autoflush:
+        legacy_result = await db_session.execute(
+            update(Notification)
+            .where(
+                Notification.id == legacy_no_autoflush.id,
+                Notification.user_id == legacy_user.id,
+                Notification.read_at.is_(None),
+            )
+            .values(read_at=datetime.now(timezone.utc))
+        )
+        assert legacy_result.rowcount == 1
+        assert legacy_deferred in db_session.new
+        assert legacy_deferred.read_at is None
+        assert legacy_no_autoflush.read_at is not None
+        assert legacy_no_autoflush.payload == {"dirty": "no_autoflush"}
+        assert db_session.is_modified(legacy_no_autoflush, include_collections=False)
+
+    owner_no_autoflush_rows = await seed_three(
+        service, owner_user.id, "read-state.owner-no-flush"
+    )
+    owner_no_autoflush = owner_no_autoflush_rows[0]
+    owner_deferred = Notification(
+        id=uuid.uuid4(),
+        user_id=owner_user.id,
+        type="read-state.owner-deferred",
+        target_type="task",
+        target_id=uuid.uuid4(),
+        payload={},
+    )
+    db_session.add(owner_deferred)
+    owner_no_autoflush.payload = {"dirty": "no_autoflush"}
+    with db_session.no_autoflush:
+        assert await service.mark_read(owner_user.id, owner_no_autoflush.id) is True
+        assert owner_deferred in db_session.new
+        assert owner_deferred.read_at is None
+        assert owner_no_autoflush.read_at is not None
+        assert owner_no_autoflush.payload == {"dirty": "no_autoflush"}
+        assert db_session.is_modified(owner_no_autoflush, include_collections=False)
+
+    legacy_expired = await service.notify(
+        user_id=legacy_user.id,
+        type="read-state.legacy-expired",
+        target_type="task",
+        target_id=uuid.uuid4(),
+    )
+    owner_expired = await service.notify(
+        user_id=owner_user.id,
+        type="read-state.owner-expired",
+        target_type="task",
+        target_id=uuid.uuid4(),
+    )
+    assert legacy_expired is not None and owner_expired is not None
+    legacy_expired_id = legacy_expired.id
+    owner_expired_id = owner_expired.id
+
+    db_session.expire(legacy_expired)
+    assert sa_inspect(legacy_expired).expired
+    legacy_expired_read = await db_session.execute(
+        update(Notification)
+        .where(
+            Notification.id == legacy_expired_id,
+            Notification.user_id == legacy_user.id,
+            Notification.read_at.is_(None),
+        )
+        .values(read_at=datetime.now(timezone.utc))
+    )
+    assert legacy_expired_read.rowcount == 1
+    assert "read_at" in sa_inspect(legacy_expired).expired_attributes
+    legacy_expired_db_read_at = await db_session.scalar(
+        select(Notification.read_at).where(Notification.id == legacy_expired_id)
+    )
+    assert legacy_expired_db_read_at is not None
+    assert not db_session.is_modified(legacy_expired, include_collections=False)
+
+    db_session.expire(owner_expired)
+    assert sa_inspect(owner_expired).expired
+    assert await service.mark_read(owner_user.id, owner_expired_id) is True
+    assert "read_at" in sa_inspect(owner_expired).expired_attributes
+    owner_expired_db_read_at = await db_session.scalar(
+        select(Notification.read_at).where(Notification.id == owner_expired_id)
+    )
+    assert owner_expired_db_read_at is not None
+    assert not db_session.is_modified(owner_expired, include_collections=False)
+
+
+@pytest.mark.asyncio
+async def test_read_state_owner_binding_ignores_caller_temporary_type_shadowing(
+    test_engine,
+):
+    engine = create_async_engine(test_engine.url, poolclass=NullPool)
+    try:
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with session_factory() as db:
+            await db.execute(text("CREATE TYPE pg_temp.jsonb AS (value text)"))
+            result = await NotificationReadStateManager(
+                NotificationReadStatePostgresData(db)
+            ).mark_all_read(uuid.uuid4(), datetime.now(timezone.utc))
+            assert result.updated == 0
+            await db.rollback()
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio

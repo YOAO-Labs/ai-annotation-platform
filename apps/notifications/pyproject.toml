@@ -19,9 +19,11 @@ packages = ["src/aap_notifications"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/aap_notifications/sql/0311_notifications_preferences.sql" = "aap_notifications/sql/0311_notifications_preferences.sql"
 "src/aap_notifications/sql/0314_notifications_append.sql" = "aap_notifications/sql/0314_notifications_append.sql"
+"src/aap_notifications/sql/0316_notifications_read_state.sql" = "aap_notifications/sql/0316_notifications_read_state.sql"
 "src/aap_notifications/preferences.schema.json" = "aap_notifications/preferences.schema.json"
 "src/aap_notifications/preferences.policy.json" = "aap_notifications/preferences.policy.json"
 "src/aap_notifications/append.schema.json" = "aap_notifications/append.schema.json"
+"src/aap_notifications/read_state.schema.json" = "aap_notifications/read_state.schema.json"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

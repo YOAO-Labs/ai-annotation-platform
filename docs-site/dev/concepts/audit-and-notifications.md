@@ -222,6 +222,21 @@ HTTP 查询端点 `GET /api/v1/audit` 面向运营与排障，严格执行基于
 
 `append_notification` 是持久化能力，不重复执行业务静音策略，也不提交事务。API 保留既有偏好预检与事务协调，收到带有数据库 `now()` 时间戳的行快照后，把它合并进原 Session identity map，再按原有时序返回与发布。跨语言调用方同样先调用偏好 owner 的静音操作，再调用 append；两个调用继续借用同一 PostgreSQL 事务。
 
+### 已读状态命令
+
+`POST /api/v1/notifications/{id}/read` 与 `POST /api/v1/notifications/mark-all-read` 经
+`aap_notifications.read_state` 调用 `aap_notifications_v1.read_state_command(jsonb)`。
+API 仍从当前认证主体取得 `user_id`，owner 只更新该用户的未读行，并使用 API
+传入的单次 UTC `read_at` 时间戳。单条操作返回原有 boolean 结果；批量操作返回原有
+更新数量。Owner 返回受影响 ID，API 只把已加载的 `Notification.read_at` 写入 Session
+identity map，不额外查询，也不提交事务。
+
+绑定尊重借用 `AsyncSession` 的 `autoflush`／`no_autoflush`：普通调用先执行完整原有 flush，
+显式禁止 autoflush 时不提前提交待处理对象。HTTP handler 仍在数据库提交后发布
+`notifications.sync reason=read`；单条缺失、他人记录或已读通知仍返回 404，批量无更新时
+仍提交请求但不发布同步。列表可见性与 WebSocket 投递授权继续由原 Workspace／Jobs
+范围校验负责，dismiss 与 clear-read 仍是独立删除操作。
+
 这样系统就同时有：
 
 - 离线可恢复的持久化记录
@@ -265,7 +280,7 @@ HTTP 查询端点 `GET /api/v1/audit` 面向运营与排障，严格执行基于
 
 `apps/notifications/src/aap_notifications/preferences.policy.json` 是「**用户可在设置页配置**」的类型与默认 toast 合同。API 使用此名单做公开请求校验，0311 Notifications owner 在 PostgreSQL 内保留同一有序策略，并自行计算新行默认值；PATCH 不接受调用方传入默认值。Python contract 测试逐项比较 JSON 与冻结 SQL，Node peer 则直接调用同一 owner 函数。新增类型时更新该策略、后续线性 Alembic owner SQL 与前端设置页标签：
 
-`infra/docker/notification-preferences-grants.sql` 会撤销指定 API LOGIN 与 `PUBLIC` 对 `notification_preferences` 的直接表／列权限。`infra/docker/notification-append-grants.sql` 另外撤销 API LOGIN 对 `notifications` 的直接 INSERT，只向 API 授权 append 函数，并给函数限定的 Node peer 授权偏好检查和 append 两个 owner 函数；查询、已读与删除仍使用现有路径。先部署包含两个 owner 路径的 API/worker 工件并排空旧进程，再安装这组严格授权；旧工件仍调用 ORM 写通知或偏好，不能和撤权同时运行。
+`infra/docker/notification-preferences-grants.sql` 会撤销指定 API LOGIN 与 `PUBLIC` 对 `notification_preferences` 的直接表／列权限。`infra/docker/notification-append-grants.sql` 另外撤销 API LOGIN 对 `notifications` 的直接 INSERT／UPDATE；API 仅获 append 和 read-state 函数，函数限定的 Node peer 可组合偏好检查、append 与 read-state 命令。通知查询和独立 dismiss 删除仍走原路径。先部署包含这些 owner 路径的 API/worker 工件并排空旧进程，再安装严格授权；旧工件仍直接写通知表时不能和撤权同时运行。
 
 - `bug_report.commented`
 - `bug_report.reopened`
@@ -327,8 +342,8 @@ PUT `/notification-preferences` 只合并请求出现的键（JSONB `channels ||
 
 ### 读/删除同步的提交顺序
 
-`mark_read` / `mark_all_read` / `delete_for_user` / `clear_read` 只在事务内改行，
-`notifications.sync`（`reason=read` / `reason=deleted`）由 API handler 在
+`mark_read` / `mark_all_read` 经 read-state owner、`delete_for_user` / `clear_read` 经原 SQLAlchemy
+命令只在调用方事务内改行；`notifications.sync`（`reason=read` / `reason=deleted`）由 API handler 在
 `db.commit()` 成功且确有行变化后发布。收到事件的会话读到的必然是已提交状态；
 发布失败只记日志，不影响已提交的请求。历史创建路径（`notify` 默认立即 publish）
 仍可能在事务提交前发出，客户端继续把 push 视为「可以刷新了」并用 REST 读真值。
@@ -511,6 +526,7 @@ WS 握手时会校验 JWT，然后订阅：
 | 新增业务动作审计 | `services/audit.py` + 对应 route                                                                               |
 | 让某动作可通知   | `services/notification.py` + 对应 route                                                                        |
 | 通知偏好开关     | `api/v1/notifications.py` + `aap_notifications.preferences` + `aap_notifications_v1.preference_command(jsonb)` |
+| 标记通知已读     | `services/notification.py` + `aap_notifications.read_state` + `aap_notifications_v1.read_state_command(jsonb)` |
 | 后台任务终态通知 | `services/async_job_notify.py` + 对应 worker/API 终态点                                                        |
 | 作业终态领域账本 | 各领域 `reconcile_job_terminal` + `application/job_terminal.py` 绑定                                           |
 | 审计查询 / 导出  | `api/v1/audit_logs.py`                                                                                         |

@@ -20,13 +20,14 @@ from sqlalchemy import (
     case,
     delete,
     func,
+    inspect as sa_inspect,
     or_,
     select,
     tuple_,
-    update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, make_transient_to_detached
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.config import settings
 from app.db.enums import (
@@ -58,6 +59,8 @@ from aap_notifications.preferences_postgres import NotificationPreferencesPostgr
 from aap_notifications.append import NotificationAppendManager
 from aap_notifications.append_contract import AppendNotificationRequest
 from aap_notifications.append_postgres import NotificationAppendPostgresData
+from aap_notifications.read_state import NotificationReadStateManager
+from aap_notifications.read_state_postgres import NotificationReadStatePostgresData
 
 
 log = logging.getLogger(__name__)
@@ -714,28 +717,57 @@ class NotificationService:
 
     async def mark_read(self, user_id: uuid.UUID, notification_id: uuid.UUID) -> bool:
         """Mark one row read. The handler publishes ``reason=read`` after commit."""
-        result = await self.db.execute(
-            update(Notification)
-            .where(
-                Notification.id == notification_id,
-                Notification.user_id == user_id,
-                Notification.read_at.is_(None),
-            )
-            .values(read_at=datetime.now(timezone.utc))
+        loaded_read_at_ids = self._notification_identity_loaded_read_at_ids()
+        read_at = datetime.now(timezone.utc)
+        result = await NotificationReadStateManager(
+            NotificationReadStatePostgresData(self.db)
+        ).mark_read(user_id, notification_id, read_at)
+        self._synchronize_read_state_identity(
+            result.updated_ids, loaded_read_at_ids, read_at
         )
-        return (result.rowcount or 0) > 0
+        return result.updated
 
     async def mark_all_read(self, user_id: uuid.UUID) -> int:
         """Mark all rows read. The handler publishes ``reason=read`` after commit."""
-        result = await self.db.execute(
-            update(Notification)
-            .where(
-                Notification.user_id == user_id,
-                Notification.read_at.is_(None),
-            )
-            .values(read_at=datetime.now(timezone.utc))
+        loaded_read_at_ids = self._notification_identity_loaded_read_at_ids()
+        read_at = datetime.now(timezone.utc)
+        result = await NotificationReadStateManager(
+            NotificationReadStatePostgresData(self.db)
+        ).mark_all_read(user_id, read_at)
+        self._synchronize_read_state_identity(
+            result.updated_ids, loaded_read_at_ids, read_at
         )
-        return int(result.rowcount or 0)
+        return result.updated
+
+    def _notification_identity_loaded_read_at_ids(self) -> set[uuid.UUID]:
+        ids: set[uuid.UUID] = set()
+        for row in self.db.identity_map.values():
+            if not isinstance(row, Notification):
+                continue
+            state = sa_inspect(row)
+            identity = state.identity
+            if identity is not None and "read_at" not in state.expired_attributes:
+                ids.add(identity[0])
+        return ids
+
+    def _synchronize_read_state_identity(
+        self,
+        updated_ids: list[uuid.UUID],
+        known_ids: set[uuid.UUID],
+        read_at: datetime,
+    ) -> None:
+        updated = set(updated_ids) & known_ids
+        for row in self.db.identity_map.values():
+            if not isinstance(row, Notification):
+                continue
+            state = sa_inspect(row)
+            identity = state.identity
+            if (
+                identity is not None
+                and identity[0] in updated
+                and "read_at" not in state.expired_attributes
+            ):
+                set_committed_value(row, "read_at", read_at)
 
     async def delete_for_user(
         self, user_id: uuid.UUID, notification_id: uuid.UUID

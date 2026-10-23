@@ -494,9 +494,15 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 迁移 `0314` 安装 `aap_notifications_v1.append_notification(jsonb)`，合同为 `aap-notification-append/v1`。`NotificationService.notify`／`notify_many` 保留既有静音预检、逐用户去重、顺序及返回的 ORM 对象，并通过该固定能力写入。追加在原完整 flush 之前执行；在 `no_autoflush` 下保留旧预检视图和待删除用户的级联顺序，不为新用户添加特殊 flush。新记录的 `created_at` 仍来自数据库事务时间；调用方控制提交／回滚和原 `defer_publish` 行为。
 
-先安装当前迁移与 module-data owner 授权，再使用 `infra/docker/notification-append-grants.sql` 的明确数据库／角色参数。严格配置撤销 API 的通知表直接 INSERT，函数账号只拥有偏好和追加两项能力；Node 用同一连接和事务组合两次调用。必须先更新 API／worker 并排空旧写表消费者再撤权。普通工作树生成的运行角色已列出这两项函数并检查授权，无新增服务或环境变量。回退迁移时也要匹配调用代码与旧 grants，不能让新代码调用已移除的函数。
+先安装当前迁移与 module-data owner 授权，再使用 `infra/docker/notification-append-grants.sql` 的明确数据库／角色参数。严格配置撤销 API 的通知表直接 INSERT，函数账号拥有偏好、追加和已读状态三项固定能力；Node 用同一连接和事务组合两次调用。必须先更新 API／worker 并排空旧写表消费者再撤权。普通工作树生成的运行角色已列出这些函数并检查授权，无新增服务或环境变量。回退迁移时也要匹配调用代码与旧 grants，不能让新代码调用已移除的函数。
 
 操作级证据来自明确自有的工作树测试数据库，包含普通 API 角色及函数账号检查；它不等同于完整冷装配或整模块验收。与 Audit 的组合新工件、受限 Node 和完整迁移往返已通过，具体边界见唯一台账。收件箱查询、已读／删除、WebSocket、通用投递／重放和独立通道装配继续按[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)推进。
+
+### Notifications 已读事务内能力
+
+迁移 `0316` 安装 `aap_notifications_v1.read_state_command(jsonb)`；`aap-notification-read-state/v1` 覆盖单条和全部已读。API 仍传认证用户 ID 和原 caller UTC 时间，保留单条 404、全部更新数量、完整事务及提交后 `notifications.sync`。固定 owner 只更新该用户的未读行，回执含实际更新 ID；API 不回读私表，只同步调用前未过期的缓存，保留旧 ORM 对新插入和过期对象的行为。
+
+先部署匹配代码与迁移，再按上节安装 module-data、preferences 和 notification-append grants。追加函数账号现在拥有三项固定能力；严格配置撤销普通 API 的通知表／列 UPDATE，owner 只可更新 `read_at`。**先更新并排空旧直接 UPDATE 消费者后才撤权**，回退也须匹配旧代码与 grants。独立测试库的 API／Node、事务回滚、旧 ORM 对照、临时类型遮蔽及完整迁移往返已通过；它不包含当前新镜像、收件箱和完整投递装配，见[已读台账](docs-site/dev/concepts/module-deployment.md#notification-read-state-owner)。
 
 ### 视频输入回收的保留前提
 

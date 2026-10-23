@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import subprocess
 import sys
@@ -288,6 +289,7 @@ SQL_ARTIFACTS = (
     "0313_video_tracker_input_garbage_retention.sql",
     "0314_notifications_append.sql",
     "0315_audit_append.sql",
+    "0316_notifications_read_state.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -415,6 +417,7 @@ SCHEMA_ARTIFACTS = (
     "0313_video_tracker_input_garbage_retention.schema.json",
     "0314_notifications_append.schema.json",
     "0315_audit_append.schema.json",
+    "0316_notifications_read_state.schema.json",
 )
 TEST_FILES = (
     "tests/test_scale_seed_workspace_native.py",
@@ -601,6 +604,7 @@ TEST_FILES = (
     "tests/test_async_jobs.py",
     "tests/test_async_job_actor_freshness.py",
     "tests/test_notifications.py",
+    "tests/test_notification_read_state_cache.py",
     "tests/test_audit_append_adapter.py",
     "tests/test_audit_append_native.py",
     "tests/test_audit_metadata_append.py",
@@ -827,6 +831,33 @@ def _passed_test_count(junit: Path) -> int:
         all(case.find(state) is None for state in ("skipped", "failure", "error"))
         for case in ET.parse(junit).findall(".//testcase")
     )
+
+
+def _node_failure_diagnostic(
+    stage: str, result: subprocess.CompletedProcess
+) -> dict[str, object]:
+    stderr = result.stderr or ""
+    diagnostic: dict[str, object] = {
+        "stage": stage,
+        "returncode": result.returncode,
+        "category": "node_failure",
+    }
+    module_match = re.search(r"Cannot find package '([^']+)'", stderr)
+    if module_match:
+        diagnostic["category"] = "missing_node_module"
+        module_name = module_match.group(1)
+        if re.fullmatch(r"[A-Za-z0-9@._/-]+", module_name):
+            diagnostic["module"] = module_name
+        return diagnostic
+    sqlstate_match = re.search(r"\bcode:\s*['\"]([0-9A-Z]{5})['\"]", stderr)
+    if sqlstate_match:
+        diagnostic["category"] = "postgresql_error"
+        diagnostic["sqlstate"] = sqlstate_match.group(1)
+    elif "ECONNREFUSED" in stderr or "ETIMEDOUT" in stderr:
+        diagnostic["category"] = "connection_error"
+    elif "AssertionError" in stderr:
+        diagnostic["category"] = "assertion_failure"
+    return diagnostic
 
 
 def _cleanup_storage_scope(backend) -> dict:
@@ -2585,6 +2616,14 @@ def main(argv: list[str] | None = None) -> int:
             "function_only_role_grant": False,
             "node_contract_check": False,
         },
+        "notification_read_state": {
+            "node_prerequisites": "not_checked",
+            "api_function_grant": False,
+            "api_update_revoked": False,
+            "api_function_call": False,
+            "function_only_role_grant": False,
+            "node_contract_check": False,
+        },
         "audit_append": {
             "node_prerequisites": "not_checked",
             "api_function_grant": False,
@@ -2623,6 +2662,7 @@ def main(argv: list[str] | None = None) -> int:
         },
     }
     phase = "preflight"
+    node_diagnostic = None
     exit_code = 1
     container_id = None
     container_name = f"aap-module-data-{secrets.token_hex(6)}"
@@ -2657,17 +2697,23 @@ def main(argv: list[str] | None = None) -> int:
         append_node_provider = (
             ROOT / "apps/notifications/conformance/node/append_provider.mjs"
         )
+        read_state_node_provider = (
+            ROOT / "apps/notifications/conformance/node/read_state_provider.mjs"
+        )
         audit_append_node_provider = ROOT / "apps/audit/conformance/node/provider.mjs"
         if (
             node_bin is None
             or not node_provider.is_file()
             or not append_node_provider.is_file()
+            or not read_state_node_provider.is_file()
             or not audit_append_node_provider.is_file()
         ):
             evidence["notification_preferences"]["node_prerequisites"] = "unavailable"
             evidence["notification_append"]["node_prerequisites"] = "unavailable"
+            evidence["notification_read_state"]["node_prerequisites"] = "unavailable"
             evidence["audit_append"]["node_prerequisites"] = "unavailable"
             raise RuntimeError("Node Notifications contract peer is unavailable")
+        phase = "preflight-node-notification-preferences"
         node_check = subprocess.run(
             [node_bin, str(node_provider), "--self-check"],
             cwd=node_provider.parent,
@@ -2676,6 +2722,7 @@ def main(argv: list[str] | None = None) -> int:
             timeout=30,
         )
         if node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, node_check)
             evidence["notification_preferences"]["node_prerequisites"] = (
                 "self_check_failed"
             )
@@ -2683,6 +2730,7 @@ def main(argv: list[str] | None = None) -> int:
                 "Notifications peer prerequisites failed; install its locked "
                 "dependencies using apps/notifications/conformance/node/README.md"
             )
+        phase = "preflight-node-notification-append"
         append_node_check = subprocess.run(
             [node_bin, str(append_node_provider), "--self-check"],
             cwd=append_node_provider.parent,
@@ -2691,11 +2739,30 @@ def main(argv: list[str] | None = None) -> int:
             timeout=30,
         )
         if append_node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, append_node_check)
             evidence["notification_append"]["node_prerequisites"] = "self_check_failed"
             raise RuntimeError(
                 "Notifications append peer prerequisites failed; install its locked "
                 "dependencies using apps/notifications/conformance/node/README.md"
             )
+        phase = "preflight-node-notification-read-state"
+        read_state_node_check = subprocess.run(
+            [node_bin, str(read_state_node_provider), "--self-check"],
+            cwd=read_state_node_provider.parent,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if read_state_node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, read_state_node_check)
+            evidence["notification_read_state"]["node_prerequisites"] = (
+                "self_check_failed"
+            )
+            raise RuntimeError(
+                "Notifications read-state peer prerequisites failed; install its locked "
+                "dependencies using apps/notifications/conformance/node/README.md"
+            )
+        phase = "preflight-node-audit-append"
         audit_append_node_check = subprocess.run(
             [node_bin, str(audit_append_node_provider), "--self-check"],
             cwd=audit_append_node_provider.parent,
@@ -2704,6 +2771,7 @@ def main(argv: list[str] | None = None) -> int:
             timeout=30,
         )
         if audit_append_node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, audit_append_node_check)
             evidence["audit_append"]["node_prerequisites"] = "self_check_failed"
             raise RuntimeError(
                 "Audit append peer prerequisites failed; install its locked "
@@ -2711,6 +2779,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         evidence["notification_preferences"]["node_prerequisites"] = "passed"
         evidence["notification_append"]["node_prerequisites"] = "passed"
+        evidence["notification_read_state"]["node_prerequisites"] = "passed"
         evidence["audit_append"]["node_prerequisites"] = "passed"
         grants_path = ROOT / "infra/docker/module-data-grants.sql"
         catalog_grants_path = ROOT / "infra/docker/assets-catalog-grants.sql"
@@ -3134,8 +3203,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0315"]:
-            raise RuntimeError("module-data acceptance requires migration head 0315")
+        if heads != ["0316"]:
+            raise RuntimeError("module-data acceptance requires migration head 0316")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -3446,6 +3515,9 @@ def main(argv: list[str] | None = None) -> int:
         evidence["notification_append"]["api_function_grant"] = True
         evidence["notification_append"]["api_insert_revoked"] = True
         evidence["notification_append"]["function_only_role_grant"] = True
+        evidence["notification_read_state"]["api_function_grant"] = True
+        evidence["notification_read_state"]["api_update_revoked"] = True
+        evidence["notification_read_state"]["function_only_role_grant"] = True
         phase = "install-audit-append-grants"
         apply_audit_append_grants()
         evidence["audit_append"]["api_function_grant"] = True
@@ -3506,11 +3578,12 @@ def main(argv: list[str] | None = None) -> int:
         else:
             raise RuntimeError("API LOGIN retained direct preference table access")
         evidence["notification_preferences"]["api_function_call"] = True
+        notification_append_id = str(uuid4())
         notification_append_request = json.dumps(
             {
                 "schema": "aap-notification-append/v1",
                 "operation": "append",
-                "id": str(uuid4()),
+                "id": notification_append_id,
                 "user_id": notification_preference_user_id,
                 "type": "task.approved",
                 "target_type": "task",
@@ -3556,6 +3629,50 @@ def main(argv: list[str] | None = None) -> int:
         else:
             raise RuntimeError("API LOGIN retained direct notification INSERT access")
         evidence["notification_append"]["api_function_call"] = True
+        notification_read_at = (
+            datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        )
+        notification_read_state_request = json.dumps(
+            {
+                "schema": "aap-notification-read-state/v1",
+                "operation": "mark_read",
+                "user_id": notification_preference_user_id,
+                "notification_id": notification_append_id,
+                "read_at": notification_read_at,
+            },
+            separators=(",", ":"),
+        )
+        api_read_state_result = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT aap_notifications_v1.read_state_command("
+                f"'{notification_read_state_request}'::jsonb) -> 'data' ->> 'updated';"
+            ),
+        )
+        if api_read_state_result.strip() != "true":
+            raise RuntimeError(
+                "API LOGIN could not call Notifications read-state owner"
+            )
+        try:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="legacy_runtime",
+                password=runtime_password,
+                database=database,
+                sql="UPDATE public.notifications SET read_at=now() WHERE false;",
+            )
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("API LOGIN retained direct notification UPDATE access")
+        evidence["notification_read_state"]["api_function_call"] = True
         audit_append_request = json.dumps(
             {
                 "schema": "aap-audit-append/v1",
@@ -3626,6 +3743,7 @@ def main(argv: list[str] | None = None) -> int:
         evidence["audit_append"]["api_function_call"] = True
         audit_node_environment = os.environ.copy()
         audit_node_environment["AUDIT_APPEND_DATABASE_URL"] = audit_append_url
+        phase = "verify-audit-append-node"
         audit_node_result = subprocess.run(
             [node_bin, str(audit_append_node_provider), "--live"],
             cwd=audit_append_node_provider.parent,
@@ -3636,9 +3754,8 @@ def main(argv: list[str] | None = None) -> int:
             check=False,
         )
         if audit_node_result.returncode:
-            raise RuntimeError(
-                f"Node Audit append check failed: {audit_node_result.stderr[-3000:]}"
-            )
+            node_diagnostic = _node_failure_diagnostic(phase, audit_node_result)
+            raise RuntimeError("Node Audit append check failed")
         evidence["audit_append"]["node_contract_check"] = True
         node_environment = os.environ.copy()
         node_environment["NOTIFICATION_PREFERENCES_DATABASE_URL"] = (
@@ -3647,6 +3764,7 @@ def main(argv: list[str] | None = None) -> int:
         node_environment["NOTIFICATION_PREFERENCE_USER_ID"] = (
             notification_preference_user_id
         )
+        phase = "verify-notification-preferences-node"
         node_result = subprocess.run(
             [node_bin, str(node_provider)],
             cwd=node_provider.parent,
@@ -3657,15 +3775,14 @@ def main(argv: list[str] | None = None) -> int:
             check=False,
         )
         if node_result.returncode:
-            raise RuntimeError(
-                "Node Notifications preference check failed: "
-                f"{node_result.stderr[-3000:]}"
-            )
+            node_diagnostic = _node_failure_diagnostic(phase, node_result)
+            raise RuntimeError("Node Notifications preference check failed")
         evidence["notification_preferences"]["node_contract_check"] = True
         node_environment["NOTIFICATION_APPEND_DATABASE_URL"] = notification_append_url
         node_environment["NOTIFICATION_APPEND_USER_ID"] = (
             notification_preference_user_id
         )
+        phase = "verify-notification-append-node"
         append_node_result = subprocess.run(
             [node_bin, str(append_node_provider)],
             cwd=append_node_provider.parent,
@@ -3676,11 +3793,29 @@ def main(argv: list[str] | None = None) -> int:
             check=False,
         )
         if append_node_result.returncode:
-            raise RuntimeError(
-                "Node Notifications append check failed: "
-                f"{append_node_result.stderr[-3000:]}"
-            )
+            node_diagnostic = _node_failure_diagnostic(phase, append_node_result)
+            raise RuntimeError("Node Notifications append check failed")
         evidence["notification_append"]["node_contract_check"] = True
+        node_environment["NOTIFICATION_READ_STATE_DATABASE_URL"] = (
+            notification_append_url
+        )
+        node_environment["NOTIFICATION_READ_STATE_USER_ID"] = (
+            notification_preference_user_id
+        )
+        phase = "verify-notification-read-state-node"
+        read_state_node_result = subprocess.run(
+            [node_bin, str(read_state_node_provider)],
+            cwd=read_state_node_provider.parent,
+            env=node_environment,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if read_state_node_result.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, read_state_node_result)
+            raise RuntimeError("Node Notifications read-state check failed")
+        evidence["notification_read_state"]["node_contract_check"] = True
 
         phase = "install-mask-gc-grants"
         _psql(
@@ -5249,6 +5384,8 @@ SELECT pg_catalog.jsonb_build_object(
     except Exception as error:
         evidence["status"] = "failed"
         evidence["failure"] = {"phase": phase, "error_type": type(error).__name__}
+        if node_diagnostic is not None:
+            evidence["failure"]["node_diagnostic"] = node_diagnostic
         exit_code = 1
     finally:
         for label, scope in (

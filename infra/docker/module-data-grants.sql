@@ -761,6 +761,11 @@ GRANT SELECT (key, value_type, value_json) ON public.system_settings TO :"settin
 -- SHARE table locking fences an absent connector policy row from a concurrent insert.
 GRANT UPDATE ON public.system_settings TO :"settings_owner";
 GRANT SELECT, INSERT ON public.notifications TO :"notifications_owner";
+REVOKE UPDATE ON public.notifications FROM :"notifications_owner";
+REVOKE UPDATE (
+    id, user_id, type, target_type, target_id, payload, read_at, created_at
+) ON public.notifications FROM :"notifications_owner";
+GRANT UPDATE (read_at) ON public.notifications TO :"notifications_owner";
 GRANT SELECT (user_id, type, channels)
     ON public.notification_preferences TO :"notifications_owner";
 GRANT INSERT (user_id, type, channels)

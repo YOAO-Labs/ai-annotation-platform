@@ -152,7 +152,8 @@ GRANT USAGE ON SCHEMA aap_identity_v1, aap_identity_keys_v1,
 GRANT USAGE ON SCHEMA aap_audit_v1 TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_audit_v1.append_events(jsonb),
     aap_notifications_v1.preference_command(jsonb),
-    aap_notifications_v1.append_notification(jsonb)
+    aap_notifications_v1.append_notification(jsonb),
+    aap_notifications_v1.read_state_command(jsonb)
     TO :"application_role";
 SELECT right(current_database(),5)='_test' OR right(current_database(),4)='_e2e'
     AS identity_fixture_database \gset

@@ -1,4 +1,4 @@
--- Grant the bounded append function to the existing API LOGIN and a function-only peer.
+-- Grant bounded append and read-state functions to the API LOGIN and function-only peer.
 -- The peer also composes the existing preference command in its borrowed transaction.
 -- Run after module-data-grants.sql and notification-preferences-grants.sql as migration role.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
@@ -27,6 +27,9 @@ DECLARE
     v_preference_oid oid := pg_catalog.to_regprocedure(
         'aap_notifications_v1.preference_command(jsonb)'
     )::oid;
+    v_read_state_oid oid := pg_catalog.to_regprocedure(
+        'aap_notifications_v1.read_state_command(jsonb)'
+    )::oid;
 BEGIN
     IF current_database() <> current_setting('aap.expected_database')
        OR current_user <> current_setting('aap.migration_role')
@@ -46,7 +49,7 @@ BEGIN
     FROM pg_catalog.pg_roles AS role WHERE role.rolname = v_api;
     SELECT role.oid INTO v_client_oid
     FROM pg_catalog.pg_roles AS role WHERE role.rolname = v_client;
-    IF v_append_oid IS NULL OR v_preference_oid IS NULL
+    IF v_append_oid IS NULL OR v_preference_oid IS NULL OR v_read_state_oid IS NULL
        OR NOT EXISTS (
             SELECT 1 FROM pg_catalog.pg_roles AS role
             WHERE role.oid = v_owner_oid AND NOT role.rolcanlogin
@@ -75,6 +78,28 @@ BEGIN
         WHERE function.oid = v_append_oid) IS DISTINCT FROM v_owner_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = v_preference_oid) IS DISTINCT FROM v_owner_oid
+       OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
+           WHERE function.oid = v_read_state_oid) IS DISTINCT FROM v_owner_oid
+       OR pg_catalog.has_table_privilege(
+            v_owner_oid, 'public.notifications', 'UPDATE'
+       )
+       OR NOT pg_catalog.has_column_privilege(
+            v_owner_oid, 'public.notifications', 'read_at', 'UPDATE'
+       )
+       OR pg_catalog.has_column_privilege(
+            v_owner_oid, 'public.notifications', 'payload', 'UPDATE'
+       )
+       OR EXISTS (
+            SELECT 1
+            FROM pg_catalog.pg_attribute AS attribute
+            WHERE attribute.attrelid = 'public.notifications'::pg_catalog.regclass
+              AND attribute.attnum > 0
+              AND NOT attribute.attisdropped
+              AND attribute.attname <> 'read_at'
+              AND pg_catalog.has_column_privilege(
+                  v_owner_oid, 'public.notifications', attribute.attname, 'UPDATE'
+              )
+       )
        OR pg_catalog.has_table_privilege(
             v_client_oid, 'public.notifications',
             'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
@@ -99,11 +124,17 @@ REVOKE INSERT ON TABLE public.notifications FROM :"api_role", PUBLIC;
 REVOKE INSERT (
     id, user_id, type, target_type, target_id, payload, read_at, created_at
 ) ON TABLE public.notifications FROM :"api_role", PUBLIC;
+REVOKE UPDATE ON TABLE public.notifications FROM :"api_role", PUBLIC;
+REVOKE UPDATE (
+    id, user_id, type, target_type, target_id, payload, read_at, created_at
+) ON TABLE public.notifications FROM :"api_role", PUBLIC;
 REVOKE ALL ON SCHEMA aap_notifications_v1 FROM :"append_role";
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_notifications_v1 FROM :"append_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"append_role";
 GRANT USAGE ON SCHEMA aap_notifications_v1 TO :"api_role", :"append_role";
 GRANT EXECUTE ON FUNCTION aap_notifications_v1.append_notification(jsonb)
+    TO :"api_role", :"append_role";
+GRANT EXECUTE ON FUNCTION aap_notifications_v1.read_state_command(jsonb)
     TO :"api_role", :"append_role";
 GRANT EXECUTE ON FUNCTION aap_notifications_v1.preference_command(jsonb)
     TO :"append_role";
@@ -120,11 +151,16 @@ DECLARE
     v_preference oid := pg_catalog.to_regprocedure(
         'aap_notifications_v1.preference_command(jsonb)'
     )::oid;
+    v_read_state oid := pg_catalog.to_regprocedure(
+        'aap_notifications_v1.read_state_command(jsonb)'
+    )::oid;
 BEGIN
-    IF v_allowed IS NULL OR v_preference IS NULL
+    IF v_allowed IS NULL OR v_preference IS NULL OR v_read_state IS NULL
        OR NOT pg_catalog.has_function_privilege(v_client, v_allowed, 'EXECUTE')
        OR NOT pg_catalog.has_function_privilege(v_client, v_preference, 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_client, v_read_state, 'EXECUTE')
        OR NOT pg_catalog.has_function_privilege(v_api, v_allowed, 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_api, v_read_state, 'EXECUTE')
        OR EXISTS (
             SELECT 1
             FROM pg_catalog.pg_proc AS function
@@ -132,7 +168,7 @@ BEGIN
               ON namespace.oid = function.pronamespace
             WHERE namespace.nspname = 'aap_notifications_v1'
               AND pg_catalog.has_function_privilege(v_client, function.oid, 'EXECUTE')
-              AND function.oid NOT IN (v_allowed, v_preference)
+              AND function.oid NOT IN (v_allowed, v_preference, v_read_state)
        ) OR pg_catalog.has_table_privilege(
             v_client, 'public.notifications',
             'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
@@ -140,9 +176,9 @@ BEGIN
             v_client, 'public.notifications', 'SELECT,INSERT,UPDATE,REFERENCES'
        ) OR pg_catalog.has_table_privilege(
             v_api, 'public.notifications',
-            'INSERT,TRUNCATE,REFERENCES,TRIGGER'
+            'INSERT,UPDATE,TRUNCATE,REFERENCES,TRIGGER'
        ) OR pg_catalog.has_any_column_privilege(
-            v_api, 'public.notifications', 'INSERT,REFERENCES'
+            v_api, 'public.notifications', 'INSERT,UPDATE,REFERENCES'
        ) THEN
         RAISE EXCEPTION 'Notifications append grant has an unexpected privilege';
     END IF;
