@@ -35,7 +35,12 @@ def path_digest(path):
     return hashlib.sha256(path.encode()).hexdigest()
 
 
-def source_out(source):
+async def source_out(db, source, *, location=None):
+    from app.services.directory_policy import effective_cache_policy
+
+    location = location or await db.get(
+        StorageLocation, source.location_id, populate_existing=True
+    )
     return (
         {
             key: getattr(source, key)
@@ -53,7 +58,15 @@ def source_out(source):
             )
         }
         | source.config
-        | {"mode": "inventory"}
+        | {
+            "mode": "inventory",
+            "effective_cache_policy": effective_cache_policy(source, location)
+            if location
+            else "none",
+            "location_cache_policy": location.config.get("cache_policy", "preview")
+            if location
+            else "none",
+        }
     )
 
 

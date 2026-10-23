@@ -44,7 +44,7 @@ last_reviewed: 2026-10-23
 
 `restricted` 默认仅超管可用；`use_user_ids` 可授权活跃项目管理员，`global` 允许所有平台管理员使用。授权只允许项目管理员管理自己创建的数据集，不授予其他数据集管理权；普通员工沿用任务读取权限。浏览及探测在 I/O 前后复查账号、位置授权和最初 API Key，撤权后不交付目录结果或发布探测证据。位置只读；绝对路径、父级跳转、符号链接和跨子挂载被拒绝。根目录和位置基目录在每个节点固定身份，替换后返回 `root_identity_changed`，不能通过重试静默重新绑定。
 
-PATCH 允许 `name / enabled / cache_policy / scope / use_user_ids`，不允许改根或基目录。每次更新递增 `config_revision`；旧 `expected_revision` 返回409。外部 S3/SFTP 位置的 enabled/cache_policy 可由超管经此接口修改；名称、使用范围、定位和密钥需通过原连接器端点更新。平台固定位置不可修改。配置或密钥变化使位置修订递增；已被内容或用途引用的连接配置不能改向其他目标，也不能删除。
+PATCH 允许 `name / enabled / cache_policy / original_cache_quota_bytes / original_cache_ttl_seconds / scope / use_user_ids`，不允许改根或基目录。每次更新递增 `config_revision`；旧 `expected_revision` 返回409。外部 S3/SFTP 位置的启用、缓存策略、原图额度与TTL可由超管经此接口修改；名称、使用范围、定位和密钥需通过原连接器端点更新。平台固定位置不可修改。配置或密钥变化使位置修订递增；已被内容或用途引用的连接配置不能改向其他目标，也不能删除。
 
 ## 目录分页
 
@@ -64,7 +64,22 @@ PATCH 允许 `name / enabled / cache_policy / scope / use_user_ids`，不允许�
 
 API本地探测等待窗口3秒，远端等待窗口5秒。超时后台结果不会自行更新有效证据；操作系统阻塞的文件系统调用无法由线程取消，等待窗口不表示底层 I/O 已终止。首次探测某节点信任其部署根映射；跨节点 dev/inode 不比较，能力通过也不代表字节一致或原地预览已验收。
 
-目录位置的 `cache_policy` 为 none/preview，默认 preview；它是来源预览缓存的上限，none 优先于来源请求。修改上限更新位置修订，使旧扫描/登记不能继续发布。已有派生不隐式删除，预览读取实时检查上限；外部原图与已独立托管的副本不受缓存选择影响。
+## 完整原图缓存
+
+位置 `cache_policy` 为 `none / preview / on_demand`，默认 `preview`。来源同样选择请求策略，`effective_cache_policy` 按 `none < preview < on_demand` 取两者较小值；来源响应同时返回 `location_cache_policy`。`on_demand` 也允许预览，不会因启用完整缓存而停止预览生成或读取。
+
+仅超级管理员可配置位置的 `original_cache_quota_bytes` 和 `original_cache_ttl_seconds`。额度为严格整数，范围0至2^50字节、默认0；TTL为严格整数，范围60至2592000秒、默认86400。`on_demand` 必须配置正额度；PATCH 合并现有配置后验证，不能只传零额度继续启用按需策略。来源接口不接受位置额度或TTL。保存前后保持当前活跃超管和原始Key身份，等待锁期间撤权或轮换Key后拒绝提交。
+
+修改位置配置递增修订，使旧扫描/登记不能继续发布；旧修订完整缓存停止参与读取并由后台回收。关闭策略不等于立即释放空间，重新读源后可按新配置保留副本。已有预览实时检查策略上限；来源原件、托管原件和训练副本不归缓存清理。
+
+| 接口                                                  | 合同                                                                                                                                                  |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /storage-locations/{id}/original-cache`          | 超管、`datasets:read`；返回 `owned_original_cache_ledger` 账本快照、修订、额度/TTL、上传中/已登记/待删除各自数量与字节、失败/不确定写入数和观测时间。 |
+| `POST /storage-locations/{id}/original-cache/cleanup` | 超管、`datasets:write`；携带 `expected_revision`、上次用量的 `measured_at` 作为 `recorded_before`，以及1至100的 `limit`（默认100）。                  |
+
+清理返回202，仅将截止观测前已验证的、具有精确归属的可重建完整缓存封存为待删除；Entry锁内复查并跳过活跃读取，不强清上传中代。响应包含 `retired_count / skipped_leased_count / remaining_ready_count` 和当前用量。后台周期任务执行实际删除，删除失败、目标绑定变化或不确定写入保留责任时继续计费，可再次查询用量。它不在请求内等待对象删除，也不提供任意对象键参数。
+
+用量不访问源目录或对象存储，不等于桶盘点或物理容量；`ready`是账本登记状态，实际读图仍完整校验。并发账本变化可能使下一次查询不同。
 
 ## S3 浏览与探测
 

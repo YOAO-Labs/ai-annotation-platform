@@ -15,6 +15,7 @@ import { listStyles } from "@/components/ui/listStyles";
 import { Modal } from "@/components/ui/Modal";
 import { Card } from "@/components/ui/Card";
 import { ListPagination, listPageSize } from "@/components/ui/ListPagination";
+import { StorageOriginalCachePanel } from "./StorageOriginalCachePanel";
 import { FilesystemLocationsPanel } from "./FilesystemLocationsPanel";
 import { StorageConnectionsPanel } from "./StorageConnectionsPanel";
 import { StorageLocationSourceSummary } from "./StorageLocationSourceSummary";
@@ -430,7 +431,7 @@ function ConsoleOwner() {
                           {[
                             ["已索引源数据量", "待统计"],
                             ["物理容量", "未提供"],
-                            ["配额", "未提供"],
+                            ["存储配额", "未提供"],
                           ].map(([label, value]) => (
                             <div key={label}>
                               <dt className="text-muted-foreground">{label}</dt>
@@ -511,6 +512,13 @@ function ConsoleOwner() {
                         />
                       ) : null}
                     </div>
+                    {selected.allowed_actions?.includes("manage_location") &&
+                      ["filesystem", "s3", "sftp"].includes(selected.kind) && (
+                        <StorageOriginalCachePanel
+                          key={`${selected.id}/${selected.config_revision}`}
+                          location={selected}
+                        />
+                      )}
                     <StorageLocationSourceSummary
                       locationId={selected.id}
                       returnTo={storageContext}

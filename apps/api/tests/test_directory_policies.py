@@ -48,19 +48,25 @@ def object_store(monkeypatch):
 
 
 @pytest.mark.parametrize("ownership", ["reference", "managed_copy"])
-@pytest.mark.parametrize("cache", ["none", "preview"])
-async def test_four_policies_and_source_outage(
+@pytest.mark.parametrize("cache", ["none", "preview", "on_demand"])
+async def test_six_policies_and_source_outage(
     db_session, content_world, object_store, ownership, cache
 ):
     db = db_session
     root, data, actor, dataset, location, source, scan, entry = content_world
     source.ownership_mode, source.cache_policy = ownership, cache
+    if cache == "on_demand":
+        location.config = {
+            **location.config,
+            "cache_policy": "on_demand",
+            "original_cache_quota_bytes": len(data) * 2,
+        }
     await db.commit()
     run, task_id, fence = await start(db, content_world)
     await drain(db, run, task_id, fence)
     assert run.cache_policy == cache and run.ownership_mode == ownership
     assert run.counts["preview_estimated_count"] == 1
-    assert (run.counts["preview_estimated_bytes"] > 0) == (cache == "preview")
+    assert (run.counts["preview_estimated_bytes"] > 0) == (cache != "none")
     assert run.counts["original_estimated_bytes"] == (
         len(data) if ownership == "managed_copy" else 0
     )
@@ -77,7 +83,7 @@ async def test_four_policies_and_source_outage(
         len(data) if ownership == "managed_copy" else 0
     )
     preview = await db.get(DatasetSourcePreview, (source.id, entry.path_digest))
-    assert bool(preview) == (cache == "preview")
+    assert bool(preview) == (cache != "none")
     if preview:
         assert preview.state == "ready"
         body = object_store[preview.bucket, preview.object_key]
@@ -90,12 +96,10 @@ async def test_four_policies_and_source_outage(
         db, scan.id, entry.path_digest, actor, node_id="worker:content@test"
     )
     assert not result["created"] and result["item_id"] == item.id
-    assert len(object_store) == int(ownership == "managed_copy") + int(
-        cache == "preview"
-    )
+    assert len(object_store) == int(ownership == "managed_copy") + int(cache != "none")
     before = (root / entry.relative_path).read_bytes()
     (root / entry.relative_path).unlink()
-    if cache == "preview":
+    if cache != "none":
         snapshot = await previews.read_preview(db, source.id, entry.path_digest, actor)
         snapshot.close()
     if ownership == "reference":
@@ -110,7 +114,7 @@ async def test_four_policies_and_source_outage(
             assert body.read() == before
     observed = await lifecycle.impact(db, source, actor)
     assert observed["item_count"] == 1 and observed["preview_count"] == int(
-        cache == "preview"
+        cache != "none"
     )
     await lifecycle.change(
         db,
@@ -125,9 +129,7 @@ async def test_four_policies_and_source_outage(
     await db.commit()
     assert source.unregistered_at and not source.enabled
     assert await db.scalar(select(func.count()).select_from(DatasetItem)) == 1
-    assert len(object_store) == int(ownership == "managed_copy") + int(
-        cache == "preview"
-    )
+    assert len(object_store) == int(ownership == "managed_copy") + int(cache != "none")
 
 
 async def test_location_ceiling_and_lease_cancel(

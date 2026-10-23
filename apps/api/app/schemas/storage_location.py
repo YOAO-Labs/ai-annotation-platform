@@ -6,6 +6,8 @@ import uuid
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.storage_cache import CachePolicy, CacheQuota, CacheTTL
+
 
 class FilesystemLocationCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -14,7 +16,9 @@ class FilesystemLocationCreate(BaseModel):
     relative_path: str = Field(default="", max_length=1000)
     scope: Literal["restricted", "global"] = "restricted"
     use_user_ids: list[uuid.UUID] = Field(default_factory=list, max_length=100)
-    cache_policy: Literal["none", "preview"] = "preview"
+    cache_policy: CachePolicy = "preview"
+    original_cache_quota_bytes: CacheQuota = 0
+    original_cache_ttl_seconds: CacheTTL = 86400
 
 
 class StorageLocationUpdate(BaseModel):
@@ -24,7 +28,9 @@ class StorageLocationUpdate(BaseModel):
     enabled: bool | None = None
     scope: Literal["restricted", "global"] | None = None
     use_user_ids: list[uuid.UUID] | None = Field(default=None, max_length=100)
-    cache_policy: Literal["none", "preview"] | None = None
+    cache_policy: CachePolicy | None = None
+    original_cache_quota_bytes: CacheQuota | None = None
+    original_cache_ttl_seconds: CacheTTL | None = None
 
 
 class StorageLocationOut(BaseModel):
@@ -39,7 +45,9 @@ class StorageLocationOut(BaseModel):
     scope: str | None = None
     use_user_ids: list[uuid.UUID] = Field(default_factory=list)
     declared_capabilities: dict[str, bool]
-    cache_policy: Literal["none", "preview"] = "preview"
+    cache_policy: CachePolicy = "preview"
+    original_cache_quota_bytes: int = 0
+    original_cache_ttl_seconds: int = 86400
     allowed_actions: list[str] = Field(default_factory=list)
 
 
@@ -73,6 +81,8 @@ class StorageReferenceEvidence(BaseModel):
     observed_from: datetime | None
     observed_through: datetime | None
     preview_recorded_at: datetime | None
+    original_cache_recorded_count: int = 0
+    original_cache_recorded_at: datetime | None = None
 
 
 class StorageSourceRunEvidence(BaseModel):

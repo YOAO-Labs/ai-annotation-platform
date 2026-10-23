@@ -1,3 +1,4 @@
+import { cachePolicyLabels, type CachePolicy } from "@/utils/cachePolicy";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { storageLocationLink } from "./storageNavigation";
 import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
@@ -32,11 +33,7 @@ export function ReferenceImagePreview({ itemId, sha256 }: { itemId: string; sha2
   return (
     <div className="mt-2 rounded-md border border-border p-2">
       {image.url ? (
-        <img
-          src={image.url}
-          alt="已核验的来源原图"
-          className="max-h-56 max-w-full object-contain"
-        />
+        <img src={image.url} alt="已核验原图" className="max-h-56 max-w-full object-contain" />
       ) : (
         <p role="status" className="text-xs text-muted-foreground">
           {image.error ?? "正在核验并读取原图…"}
@@ -116,7 +113,7 @@ function DirectoryReferencePanelOwner({
   const [directory, setDirectory] = useState("");
   const [node, setNode] = useState("");
   const [ownership, setOwnership] = useState<"reference" | "managed_copy">("reference");
-  const [cache, setCache] = useState<"none" | "preview">("preview");
+  const [cache, setCache] = useState<CachePolicy>("preview");
   const [recursive, setRecursive] = useState(true);
   const [include, setInclude] = useState("*.png,*.jpg,*.jpeg,*.webp,*.PNG,*.JPG,*.JPEG,*.WEBP");
   const [exclude, setExclude] = useState("");
@@ -388,7 +385,7 @@ function DirectoryReferencePanelOwner({
             <span className="break-all">目录：{source.relative_path || "位置根目录"}</span>
             <span>
               {source.ownership_mode === "reference" ? "原地引用" : "托管复制"} ·{" "}
-              {source.cache_policy === "preview" ? "预览缓存" : "无缓存"}
+              {cachePolicyLabels[source.effective_cache_policy ?? source.cache_policy]}
             </span>
             <span>{source.unregistered_at ? "已注销" : source.enabled ? "已启用" : "已停用"}</span>
           </div>
@@ -510,16 +507,26 @@ function DirectoryReferencePanelOwner({
               </span>
             </label>
             <label className="grid gap-1">
-              预览策略
+              缓存策略
               <select
-                aria-label="预览策略"
+                aria-label="缓存策略"
+                aria-describedby={`${hintId}-cache`}
                 className={field}
                 value={cache}
                 onChange={(e) => setCache(e.target.value as typeof cache)}
               >
-                <option value="preview">预览缓存</option>
-                <option value="none">无缓存</option>
+                {Object.entries(cachePolicyLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
               </select>
+              <span
+                id={`${hintId}-cache`}
+                className="text-xs leading-relaxed text-muted-foreground"
+              >
+                请求策略受位置上限约束；按需原图须由位置管理员配置额度。
+              </span>
             </label>
             <label className="grid min-w-0 gap-1 sm:col-span-2">
               图片匹配规则
@@ -817,7 +824,7 @@ function DirectoryReferencePanelOwner({
                       {entry.preview_state === "ready" &&
                         source?.enabled &&
                         !source.unregistered_at &&
-                        source.cache_policy === "preview" && (
+                        (source.effective_cache_policy ?? source.cache_policy) !== "none" && (
                           <DirectoryCachedPreview
                             key={`${source.id}/${source.config_revision}/${entry.path_digest}`}
                             sourceId={source.id}

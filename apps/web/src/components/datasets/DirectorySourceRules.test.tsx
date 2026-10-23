@@ -8,6 +8,8 @@ vi.mock("@/hooks/useSessionGuard", () => ({ useSessionGuard: () => () => () => t
 const source: DatasetSourceOut = {
   id: "source",
   cache_policy: "none",
+  effective_cache_policy: "none",
+  location_cache_policy: "preview",
   dataset_id: "dataset",
   enabled: true,
   location_id: "location",

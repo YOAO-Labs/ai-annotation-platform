@@ -10,7 +10,7 @@ last_reviewed: 2026-08-27
 
 标注数据导出为下游训练可用格式。除 VOC 同步返回 blob 外，导出通过后台 job 执行：`POST` 创建 job 返回 `202 {job_id}`，产物 ZIP 生成后在任务铃用 7 天预签名 URL 下载。导出目标可多选，一个 job 产一个 ZIP。
 
-图片项目、批次和 Data Manager 显式任务导出支持原地引用与托管图片混合。含引用的任务在排队时固定实际 Task 清单、任务版本及 Item/Asset/SHA；API Key 还须具备 `tasks:read`，后台持续验证同一个 Key 的身份与权限。原图经统一引用 reader 捕获严格快照，完整核对 SHA-256 后写入 ZIP；实际读取来源时要求真实 worker 的锚点。内部完整缓存路径的当前接入边界见[严格内容读取](verified-content.md#完整原图缓存的接入状态)；来源停用或内容绑定变化仍拒绝，不回退预览或按来源路径猜测平台桶。
+图片项目、批次和 Data Manager 显式任务导出支持原地引用与托管图片混合。含引用的任务在排队时固定实际 Task 清单、任务版本及 Item/Asset/SHA；API Key 还须具备 `tasks:read`，后台持续验证同一个 Key 的身份与权限。原图经统一引用 reader 捕获严格快照，完整核对 SHA-256 后写入 ZIP；实际读取来源时要求真实 worker 的锚点。完整原图缓存的读取边界见[严格内容读取](verified-content.md#完整原图缓存的接入状态)；来源停用或内容绑定变化仍拒绝，不回退预览或按来源路径猜测平台桶。
 
 引用条目在 `images_manifest.json` 中包含 `storage_mode="embedded"`、`archive_path`、`archive_paths`、`asset_id`、`sha256` 和 `size_bytes`，不包含来源 URL。其包内路径为 `images/<dataset UUID>/<item UUID>/<task UUID>/<安全文件名>`；YOLO 图片与标签在对应目标目录下配对。COCO `file_name`、AAP `file_path` 及掩码 manifest 使用同一包内图片路径。托管条目保留原有预签名 URL 回源合同。`fetch_images.py` 先校验包内原图，再下载托管图片；托管 URL 过期不会跳过包内 SHA 校验。托管 URL 使用站内相对地址时，脚本需带 `--base-url https://平台地址`；显式平台 origin 不改写签名路径。
 

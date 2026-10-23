@@ -7707,6 +7707,24 @@
         "title": "BulkInviteResultItem",
         "type": "object"
       },
+      "CacheStateUsage": {
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "count",
+          "bytes"
+        ],
+        "title": "CacheStateUsage",
+        "type": "object"
+      },
       "CacheStats": {
         "additionalProperties": true,
         "properties": {
@@ -12127,6 +12145,35 @@
             ],
             "title": "Observed At"
           },
+          "original_cache_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Cache Expires At"
+          },
+          "original_cache_recorded": {
+            "default": false,
+            "title": "Original Cache Recorded",
+            "type": "boolean"
+          },
+          "original_cache_recorded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Cache Recorded At"
+          },
           "preview_available": {
             "default": false,
             "title": "Preview Available",
@@ -13952,7 +13999,8 @@
             "default": "preview",
             "enum": [
               "none",
-              "preview"
+              "preview",
+              "on_demand"
             ],
             "title": "Cache Policy",
             "type": "string"
@@ -14053,7 +14101,8 @@
           "cache_policy": {
             "enum": [
               "none",
-              "preview"
+              "preview",
+              "on_demand"
             ],
             "title": "Cache Policy",
             "type": "string"
@@ -14073,6 +14122,15 @@
               }
             ],
             "title": "Dataset Id"
+          },
+          "effective_cache_policy": {
+            "enum": [
+              "none",
+              "preview",
+              "on_demand"
+            ],
+            "title": "Effective Cache Policy",
+            "type": "string"
           },
           "enabled": {
             "title": "Enabled",
@@ -14096,6 +14154,15 @@
             },
             "title": "Include Globs",
             "type": "array"
+          },
+          "location_cache_policy": {
+            "enum": [
+              "none",
+              "preview",
+              "on_demand"
+            ],
+            "title": "Location Cache Policy",
+            "type": "string"
           },
           "location_id": {
             "format": "uuid",
@@ -14161,6 +14228,8 @@
           "include_globs",
           "ownership_mode",
           "cache_policy",
+          "effective_cache_policy",
+          "location_cache_policy",
           "policy_revision",
           "unregistered_at"
         ],
@@ -14175,7 +14244,8 @@
               {
                 "enum": [
                   "none",
-                  "preview"
+                  "preview",
+                  "on_demand"
                 ],
                 "type": "string"
               },
@@ -17128,7 +17198,8 @@
             "default": "preview",
             "enum": [
               "none",
-              "preview"
+              "preview",
+              "on_demand"
             ],
             "title": "Cache Policy",
             "type": "string"
@@ -17138,6 +17209,20 @@
             "minLength": 1,
             "title": "Name",
             "type": "string"
+          },
+          "original_cache_quota_bytes": {
+            "default": 0,
+            "maximum": 1125899906842624.0,
+            "minimum": 0.0,
+            "title": "Original Cache Quota Bytes",
+            "type": "integer"
+          },
+          "original_cache_ttl_seconds": {
+            "default": 86400,
+            "maximum": 2592000.0,
+            "minimum": 60.0,
+            "title": "Original Cache Ttl Seconds",
+            "type": "integer"
           },
           "relative_path": {
             "default": "",
@@ -29162,6 +29247,133 @@
           "password"
         ],
         "title": "OpenRegisterRequest",
+        "type": "object"
+      },
+      "OriginalCacheCleanup": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "limit": {
+            "default": 100,
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "recorded_before": {
+            "format": "date-time",
+            "title": "Recorded Before",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "recorded_before"
+        ],
+        "title": "OriginalCacheCleanup",
+        "type": "object"
+      },
+      "OriginalCacheCleanupResult": {
+        "properties": {
+          "remaining_ready_count": {
+            "title": "Remaining Ready Count",
+            "type": "integer"
+          },
+          "retired_count": {
+            "title": "Retired Count",
+            "type": "integer"
+          },
+          "skipped_leased_count": {
+            "title": "Skipped Leased Count",
+            "type": "integer"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/OriginalCacheUsage"
+          }
+        },
+        "required": [
+          "retired_count",
+          "skipped_leased_count",
+          "remaining_ready_count",
+          "usage"
+        ],
+        "title": "OriginalCacheCleanupResult",
+        "type": "object"
+      },
+      "OriginalCacheUsage": {
+        "properties": {
+          "cache_policy": {
+            "enum": [
+              "none",
+              "preview",
+              "on_demand"
+            ],
+            "title": "Cache Policy",
+            "type": "string"
+          },
+          "charged_bytes": {
+            "title": "Charged Bytes",
+            "type": "integer"
+          },
+          "deleting": {
+            "$ref": "#/components/schemas/CacheStateUsage"
+          },
+          "expected_revision": {
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "failed_count": {
+            "title": "Failed Count",
+            "type": "integer"
+          },
+          "measured_at": {
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "quota_bytes": {
+            "title": "Quota Bytes",
+            "type": "integer"
+          },
+          "ready": {
+            "$ref": "#/components/schemas/CacheStateUsage"
+          },
+          "scope": {
+            "const": "owned_original_cache_ledger",
+            "default": "owned_original_cache_ledger",
+            "title": "Scope",
+            "type": "string"
+          },
+          "ttl_seconds": {
+            "title": "Ttl Seconds",
+            "type": "integer"
+          },
+          "uncertain_count": {
+            "title": "Uncertain Count",
+            "type": "integer"
+          },
+          "uploading": {
+            "$ref": "#/components/schemas/CacheStateUsage"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "cache_policy",
+          "quota_bytes",
+          "ttl_seconds",
+          "charged_bytes",
+          "uploading",
+          "ready",
+          "deleting",
+          "failed_count",
+          "uncertain_count",
+          "measured_at"
+        ],
+        "title": "OriginalCacheUsage",
         "type": "object"
       },
       "PasswordChange": {
@@ -42569,7 +42781,8 @@
             "default": "preview",
             "enum": [
               "none",
-              "preview"
+              "preview",
+              "on_demand"
             ],
             "title": "Cache Policy",
             "type": "string"
@@ -42613,6 +42826,16 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "original_cache_quota_bytes": {
+            "default": 0,
+            "title": "Original Cache Quota Bytes",
+            "type": "integer"
+          },
+          "original_cache_ttl_seconds": {
+            "default": 86400,
+            "title": "Original Cache Ttl Seconds",
+            "type": "integer"
           },
           "relative_path": {
             "anyOf": [
@@ -42675,7 +42898,8 @@
               {
                 "enum": [
                   "none",
-                  "preview"
+                  "preview",
+                  "on_demand"
                 ],
                 "type": "string"
               },
@@ -42713,6 +42937,32 @@
               }
             ],
             "title": "Name"
+          },
+          "original_cache_quota_bytes": {
+            "anyOf": [
+              {
+                "maximum": 1125899906842624.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Cache Quota Bytes"
+          },
+          "original_cache_ttl_seconds": {
+            "anyOf": [
+              {
+                "maximum": 2592000.0,
+                "minimum": 60.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Cache Ttl Seconds"
           },
           "scope": {
             "anyOf": [
@@ -43035,6 +43285,23 @@
               }
             ],
             "title": "Observed Through"
+          },
+          "original_cache_recorded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Cache Recorded At"
+          },
+          "original_cache_recorded_count": {
+            "default": 0,
+            "title": "Original Cache Recorded Count",
+            "type": "integer"
           },
           "original_counts": {
             "$ref": "#/components/schemas/StorageOriginalCounts"
@@ -89384,6 +89651,112 @@
           }
         ],
         "summary": "Directories",
+        "tags": [
+          "storage-locations"
+        ]
+      }
+    },
+    "/api/v1/storage-locations/{location_id}/original-cache": {
+      "get": {
+        "operationId": "original_cache_usage_api_v1_storage_locations__location_id__original_cache_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Location Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OriginalCacheUsage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Original Cache Usage",
+        "tags": [
+          "storage-locations"
+        ]
+      }
+    },
+    "/api/v1/storage-locations/{location_id}/original-cache/cleanup": {
+      "post": {
+        "operationId": "cleanup_original_cache_api_v1_storage_locations__location_id__original_cache_cleanup_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Location Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OriginalCacheCleanup"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OriginalCacheCleanupResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cleanup Original Cache",
         "tags": [
           "storage-locations"
         ]

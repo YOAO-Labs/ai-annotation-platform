@@ -45,6 +45,7 @@ class AuditAction(str, Enum):
     STORAGE_LOCATION_CREATE = "storage_location.create"
     STORAGE_LOCATION_UPDATE = "storage_location.update"
     STORAGE_LOCATION_PROBE = "storage_location.probe"
+    STORAGE_ORIGINAL_CACHE_CLEANUP = "storage_location.original_cache_cleanup"
     CONNECTOR_ALLOWLIST_UPDATE = "connector.allowlist_update"
     SYSTEM_BOOTSTRAP_ADMIN = "system.bootstrap_admin"
     BUG_REPORT_CREATED = "bug_report.created"

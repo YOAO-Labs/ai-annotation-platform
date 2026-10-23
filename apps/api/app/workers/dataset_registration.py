@@ -16,6 +16,7 @@ from app.db.models.user import User
 from app.services import dataset_registration as svc
 from app.services import dataset_scans as scans
 from app.services import filesystem_storage as fs
+from app.services.directory_policy import permits_preview
 from app.services.content_snapshot import ContentError
 from app.services.dataset_content import scan_snapshot
 from app.services.dataset_references import register_entry
@@ -96,7 +97,7 @@ async def process_one(db, run_id, task_id, fence, work):
         )
         try:
             estimated, preview_error = 0, None
-            if work["cache_policy"] == "preview":
+            if permits_preview(work["cache_policy"]):
                 try:
                     from app.services.directory_previews import encode
 

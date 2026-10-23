@@ -65,6 +65,9 @@ class DatasetItemAvailability(BaseModel):
     reason_code: str = "not_verified"
     observed_at: datetime | None = None
     preview_available: bool = False
+    original_cache_recorded: bool = False
+    original_cache_recorded_at: datetime | None = None
+    original_cache_expires_at: datetime | None = None
     source_id: UUID | None = None
     source_name: str | None = None
     location_id: UUID | None = None

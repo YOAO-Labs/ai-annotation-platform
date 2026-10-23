@@ -176,6 +176,8 @@ async def to_out(db, location, actor):
         "enabled": location.enabled,
         "config_revision": location.config_revision,
         "cache_policy": config.get("cache_policy", "preview"),
+        "original_cache_quota_bytes": config.get("original_cache_quota_bytes", 0),
+        "original_cache_ttl_seconds": config.get("original_cache_ttl_seconds", 86400),
         "connection_id": location.connection_id,
         "root_handle": config.get("root_handle")
         if location.kind == "filesystem"
@@ -227,7 +229,10 @@ async def create_filesystem(db, payload):
         "scope": payload.scope,
         "use_user_ids": sorted({str(value) for value in payload.use_user_ids}),
         "cache_policy": payload.cache_policy,
+        "original_cache_quota_bytes": payload.original_cache_quota_bytes,
+        "original_cache_ttl_seconds": payload.original_cache_ttl_seconds,
     }
+    validate_cache_config(config)
     anchor = await run_in_threadpool(fs.capture_anchor, config)
     config.update(registration_node=api_node_id(), registration_anchor=anchor)
     location = StorageLocation(
@@ -259,8 +264,14 @@ async def update_filesystem(db, location, payload):
     if payload.use_user_ids is not None:
         await validate_grants(db, payload.use_user_ids)
     config = dict(location.config)
-    if payload.cache_policy is not None:
-        config["cache_policy"] = payload.cache_policy
+    for key in (
+        "cache_policy",
+        "original_cache_quota_bytes",
+        "original_cache_ttl_seconds",
+    ):
+        if getattr(payload, key) is not None:
+            config[key] = getattr(payload, key)
+    validate_cache_config(config)
     if payload.scope is not None:
         config["scope"] = payload.scope
     if payload.use_user_ids is not None:
@@ -272,6 +283,14 @@ async def update_filesystem(db, location, payload):
     location.config = config
     location.config_revision += 1
     await db.flush()
+
+
+def validate_cache_config(config):
+    if (
+        config.get("cache_policy", "preview") == "on_demand"
+        and config.get("original_cache_quota_bytes", 0) <= 0
+    ):
+        raise HTTPException(422, detail={"code": "original_cache_quota_required"})
 
 
 async def node_anchor(db, location, node_id):

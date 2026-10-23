@@ -25,6 +25,9 @@ export interface DatasetItemAvailability {
   reason_code: string;
   observed_at: string | null;
   preview_available: boolean;
+  original_cache_recorded?: boolean;
+  original_cache_recorded_at?: string | null;
+  original_cache_expires_at?: string | null;
   source_id: string | null;
   source_name: string | null;
   location_id: string | null;

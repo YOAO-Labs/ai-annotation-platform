@@ -1,3 +1,4 @@
+import { cachePolicyLabels, type CachePolicy } from "@/utils/cachePolicy";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { datasetSourcesApi as api } from "@/api/datasetSources";
@@ -272,7 +273,7 @@ export function DirectoryRegistrationProgress({
             </dl>
             <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
               {run.ownership_mode === "managed_copy" ? "托管复制" : "原地引用"} ·{" "}
-              {run.cache_policy === "preview" ? "预览缓存" : "无缓存"} · 观测于{" "}
+              {cachePolicyLabels[run.cache_policy as CachePolicy] ?? run.cache_policy} · 观测于{" "}
               {new Date(run.created_at).toLocaleString()}
               。体量与新增数为本轮估算，正式登记时重新读取；修复重试保留已有内容身份。
             </p>

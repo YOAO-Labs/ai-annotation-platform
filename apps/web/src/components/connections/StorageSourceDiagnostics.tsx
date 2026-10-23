@@ -181,6 +181,13 @@ export function SourceDiagnostics({
         <RunEvidence label="预检 / 登记" history={value.preflight} {...navigation} />
       </div>
       {!!evidence.total && (
+        <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+          完整原图缓存记录 {evidence.original_cache_recorded_count ?? 0} 个；最近登记：
+          {evidenceDate(evidence.original_cache_recorded_at ?? null)}
+          。读取时复核实际副本，不表示来源已恢复。
+        </p>
+      )}
+      {!!evidence.total && (
         <details className="mt-3 text-xs text-muted-foreground">
           <summary className="cursor-pointer">观测范围与数量明细</summary>
           <div className="mt-2 space-y-1 leading-relaxed">

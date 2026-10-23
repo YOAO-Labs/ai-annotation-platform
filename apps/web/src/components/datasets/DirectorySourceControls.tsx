@@ -1,5 +1,6 @@
 import { DirectorySourceRules } from "./DirectorySourceRules";
-import { useState } from "react";
+import { cachePolicyLabels } from "@/utils/cachePolicy";
+import { useId, useState } from "react";
 import type { DatasetSourceOut, SourceLifecycleImpact } from "@/api/generated/types.gen";
 import { datasetSourcesApi as api } from "@/api/datasetSources";
 import { Button } from "@/components/ui/Button";
@@ -13,6 +14,7 @@ export function DirectorySourceControls({
   source: DatasetSourceOut;
   act: (work: (current: () => boolean) => Promise<unknown>) => Promise<void>;
 }) {
+  const hint = useId();
   const capture = useSessionGuard();
   const [cache, setCache] = useState(source.cache_policy);
   const [impact, setImpact] = useState<SourceLifecycleImpact | null>(null);
@@ -33,17 +35,21 @@ export function DirectorySourceControls({
         {source.unregistered_at ? "已注销（保留历史）" : source.enabled ? "已启用" : "已停用"}
       </p>
       {!source.unregistered_at && (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <label>
-            来源缓存策略{" "}
+        <div className="mt-2 flex flex-wrap items-end gap-2">
+          <label className="grid gap-1">
+            来源缓存策略
             <select
               aria-label="来源缓存策略"
+              aria-describedby={hint}
               className="rounded-md border border-input bg-background px-2 py-1"
               value={cache}
               onChange={(e) => setCache(e.target.value as typeof cache)}
             >
-              <option value="none">无缓存</option>
-              <option value="preview">预览缓存</option>
+              {Object.entries(cachePolicyLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
             </select>
           </label>
           <Button
@@ -74,8 +80,10 @@ export function DirectorySourceControls({
           </Button>
         </div>
       )}
-      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-        位置禁止缓存时，来源的预览策略不生效。变更策略后须重新扫描、预检；已有缓存单独计量，关闭策略不删除共享对象。
+      <p id={hint} className="mt-2 text-xs leading-relaxed text-muted-foreground">
+        当前生效：{cachePolicyLabels[source.effective_cache_policy ?? source.cache_policy]}
+        ；位置上限：{cachePolicyLabels[source.location_cache_policy ?? "preview"]}
+        。来源请求不能提高位置额度。变更后重新扫描、预检；旧缓存逐步回收，来源原件和标注保留。
       </p>
       <DirectorySourceRules source={source} act={act} />
       {impact && !source.unregistered_at && (

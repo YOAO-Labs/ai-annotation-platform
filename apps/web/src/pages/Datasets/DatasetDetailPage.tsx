@@ -118,6 +118,9 @@ function Availability({ item }: { item: DatasetItemResponse }) {
       }
     >
       {availabilityLabels[item.availability?.state ?? "unverified"]}
+      {item.availability?.original_cache_recorded && (
+        <span className="ml-2 text-xs text-muted-foreground">有完整缓存记录</span>
+      )}
     </span>
   );
 }
@@ -1027,6 +1030,20 @@ function ItemInspector({
               </dd>
             </div>
             <div>
+              <dt className="text-muted-foreground">完整原图缓存</dt>
+              <dd className="mt-1">
+                {item.availability?.original_cache_recorded
+                  ? "已有登记，读取时复核"
+                  : "无当前有效记录"}
+              </dd>
+              {item.availability?.original_cache_expires_at && (
+                <dd className="mt-1 text-muted-foreground">
+                  到期{" "}
+                  {new Date(item.availability.original_cache_expires_at).toLocaleString("zh-CN")}
+                </dd>
+              )}
+            </div>
+            <div>
               <dt className="text-muted-foreground">预览状态</dt>
               <dd className="mt-1">
                 {item.availability?.preview_available ? "已有预览，读取时复核" : "无可用预览"}
@@ -1051,7 +1068,7 @@ function ItemInspector({
             </p>
           )}
           <p className="mt-3 text-xs text-muted-foreground">
-            预览仅供只读浏览，不能代替原图，也不表示当前可以编辑标注。实际标注请进入有权限的项目。
+            来源状态是历史观测；完整缓存记录不表示来源已恢复。预览仅供只读浏览，不能代替原图。核验读取后仍须进入有权限的项目进行标注。
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             {identity && actions.includes("read_original") && (
@@ -1098,7 +1115,7 @@ function ItemInspector({
           {image.url && (
             <img
               src={image.url}
-              alt={readOriginal ? "已核验的来源原图" : "只读缓存预览"}
+              alt={readOriginal ? "已核验原图" : "只读缓存预览"}
               className="mt-3 max-h-96 w-full object-contain"
             />
           )}

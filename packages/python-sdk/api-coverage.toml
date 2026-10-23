@@ -362,6 +362,10 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 
 "PATCH /api/v1/storage-locations/{location_id}" = { status = "excluded", reason = "separate-connector-epic" }
 
+"GET /api/v1/storage-locations/{location_id}/original-cache" = { status = "excluded", reason = "separate-connector-epic" }
+
+"POST /api/v1/storage-locations/{location_id}/original-cache/cleanup" = { status = "excluded", reason = "separate-connector-epic" }
+
 "GET /api/v1/storage-locations/{location_id}/directories" = { status = "excluded", reason = "separate-connector-epic" }
 
 "POST /api/v1/storage-locations/{location_id}/probe" = { status = "excluded", reason = "separate-connector-epic" }

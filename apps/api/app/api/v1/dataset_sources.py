@@ -19,6 +19,7 @@ from app.db.models.dataset_source import (
     DatasetRegistrationEntry,
 )
 from app.db.models.user import User
+from app.db.models.dataset_asset import StorageLocation
 from app.deps import get_db, require_roles, require_scopes, assert_request_scopes
 from app.schemas.dataset_source import (
     DatasetSourceCreate,
@@ -96,7 +97,7 @@ async def create_source(
         raise conflict(exc) from None
     await audit(db, actor, request, AuditAction.DATASET_SOURCE_CREATE, source.id)
     await db.commit()
-    return svc.source_out(source)
+    return await svc.source_out(db, source)
 
 
 @router.get("/dataset-sources", response_model=DatasetSourceList)
@@ -117,7 +118,22 @@ async def list_sources(
         .limit(limit)
         .offset(offset)
     )
-    return {"items": [svc.source_out(row) for row in rows], "total": total}
+    rows = list(rows)
+    location_map = {
+        location.id: location
+        for location in await db.scalars(
+            select(StorageLocation).where(
+                StorageLocation.id.in_({row.location_id for row in rows})
+            )
+        )
+    }
+    return {
+        "items": [
+            await svc.source_out(db, row, location=location_map.get(row.location_id))
+            for row in rows
+        ],
+        "total": total,
+    }
 
 
 @router.get("/dataset-sources/{source_id}", response_model=DatasetSourceOut)
@@ -127,7 +143,7 @@ async def get_source(
     actor: User = Depends(manager),
 ):
     source = await access.require_source(db, source_id, actor)
-    return svc.source_out(source)
+    return await svc.source_out(db, source)
 
 
 @router.patch("/dataset-sources/{source_id}", response_model=DatasetSourceOut)
@@ -147,7 +163,7 @@ async def patch_source(
     )
     await audit(db, actor, request, AuditAction.DATASET_SOURCE_UPDATE, source_id)
     await db.commit()
-    return svc.source_out(source)
+    return await svc.source_out(db, source)
 
 
 @router.get(
@@ -180,7 +196,7 @@ async def source_lifecycle(
     )
     await audit(db, actor, request, f"dataset_source.{payload.action}", source.id)
     await db.commit()
-    return svc.source_out(source)
+    return await svc.source_out(db, source)
 
 
 @router.get(
@@ -1009,4 +1025,4 @@ async def apply_source_rules(
         api_key_id=getattr(request.state, "api_key_id", None),
     )
     await db.commit()
-    return svc.source_out(source)
+    return await svc.source_out(db, source)

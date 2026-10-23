@@ -489,10 +489,10 @@ async def test_independent_worker_predicts_and_adopts_cached_reference_without_s
             assert not thread.is_alive()
 
         stack.push_async_callback(stop_http)
+        entry = await seed_cache(world)
         response_model = await _model(
             world, f"http://127.0.0.1:{server.server_port}", rle, mask
         )
-        entry = await seed_cache(world)
         source_path = world.content[0] / world.content[7].relative_path
         source_path.unlink()
         async with world.factory() as db:

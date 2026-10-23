@@ -238,7 +238,7 @@ crop 模式默认走 **presigned URL**：现有 HTTP 后端直接读取 import �
 
 后台 `bulk` 和工作台单题图片预标在 API 冻结实际 Task 范围、Task.version、原发起 Key proof、Item/Asset/SHA/大小/尺寸及来源修订，模型阶段写入不可变执行快照。skip 后不含引用的范围只固定 UUID，无需额外读图 scope 或模型快照；pending 幂等重发始终复用首次范围。没有服务器证明的旧队列仍不能消费引用。
 
-worker 通过统一引用 reader 捕获 strict snapshot，实际读源使用 `worker:<Celery hostname>` 的已核验锚点；内部完整缓存按同 Asset/SHA 和当前授权选择（公开按需配置仍待开放），随后经 `PredictionInputs` 投递独占 `original/` 对象，geometry 复用同一 URL，ROI 从该快照解码，避免各阶段读到不同原件。逐阶段资格失败整题中止，不适用模型的 keep_parent/drop_box 软失败策略；引用在 frame 旧清理分支前拒绝。
+worker 通过统一引用 reader 捕获 strict snapshot，实际读源使用 `worker:<Celery hostname>` 的已核验锚点；按需完整缓存按同 Asset/SHA 和当前授权选择，并受位置额度/TTL约束，随后经 `PredictionInputs` 投递独占 `original/` 对象，geometry 复用同一 URL，ROI 从该快照解码，避免各阶段读到不同原件。逐阶段资格失败整题中止，不适用模型的 keep_parent/drop_box 软失败策略；引用在 frame 旧清理分支前拒绝。
 
 最终短事务沿用作业取消锁、账号/项目/成员、原 Key、批次/Task，再持有来源/位置/连接和 Item/Asset 的生命周期锁，复核绑定与模型快照；节点探测仅用于实际读源资格。签发的专有 receipt 绑定当前 session、非嵌套事务、Task 和内容，提交或回滚即失效；`PredictionService` 仅据该 receipt 放行引用候选写入。持久元数据只存必要的内容及执行溯源，不能充当授权，也不保存 Key proof、原件定位配置或临时 URL。内容绑定与短锁 helper 由导出和预测复用，两者业务权限仍分别检查。
 

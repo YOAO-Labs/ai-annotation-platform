@@ -1,9 +1,8 @@
 """Own rebuildable full-image copies, not business read authorization.
 
 Callers must authorize and revalidate the exact reference before and after I/O.
-Public on_demand selection and the unified resolver are intentionally not enabled
-by this resource owner. No source bytes, managed originals or training copies
-are ever deleted here.
+Policy configuration and the unified resolver own public access decisions.
+No source bytes, managed originals or training copies are ever deleted here.
 """
 
 from contextlib import contextmanager
@@ -156,12 +155,84 @@ async def budget_lock(db, location_id):
 async def usage(db, location_id):
     rows = (
         await db.execute(
-            select(Entry.state, func.sum(Entry.size_bytes), func.count())
+            select(
+                Entry.state,
+                func.sum(Entry.size_bytes),
+                func.count(),
+                func.count().filter(Entry.error_code.is_not(None)),
+                func.count().filter(Entry.uncertain_write.is_(True)),
+            )
             .where(Entry.scope_location_id == location_id)
             .group_by(Entry.state)
         )
     ).all()
-    return {state: {"bytes": int(size), "count": count} for state, size, count in rows}
+    return {
+        state: {
+            "bytes": int(size),
+            "count": count,
+            "failed_count": failed,
+            "uncertain_count": uncertain,
+        }
+        for state, size, count, failed, uncertain in rows
+    }
+
+
+async def usage_snapshot(db, location):
+    checked = now()
+    states = await usage(db, location.id)
+    return {
+        "expected_revision": location.config_revision,
+        "cache_policy": location.config.get("cache_policy", "preview"),
+        "quota_bytes": location.config.get("original_cache_quota_bytes", 0),
+        "ttl_seconds": location.config.get(
+            "original_cache_ttl_seconds", DEFAULT_TTL_SECONDS
+        ),
+        "charged_bytes": sum(state["bytes"] for state in states.values()),
+        **{
+            state: states.get(state, {"count": 0, "bytes": 0})
+            for state in ("uploading", "ready", "deleting")
+        },
+        "failed_count": sum(state["failed_count"] for state in states.values()),
+        "uncertain_count": sum(state["uncertain_count"] for state in states.values()),
+        "measured_at": checked,
+    }
+
+
+async def request_cleanup(db, location, *, recorded_before, limit):
+    """Seal a bounded set in the caller's authorization transaction; never delete I/O."""
+    candidates = list(
+        await db.scalars(
+            select(Entry)
+            .where(
+                Entry.scope_location_id == location.id,
+                Entry.state == "ready",
+                Entry.verified_at <= recorded_before,
+            )
+            .order_by(Entry.last_accessed_at, Entry.id)
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+        )
+    )
+    retired, leased = 0, 0
+    for record in candidates:
+        if await readers(db, record.id):
+            leased += 1
+            continue
+        record.state, record.next_check_at = "deleting", now()
+        await detach(db, record)
+        retired += 1
+    await db.flush()
+    remaining = await db.scalar(
+        select(func.count())
+        .select_from(Entry)
+        .where(Entry.scope_location_id == location.id, Entry.state == "ready")
+    )
+    return {
+        "retired_count": retired,
+        "skipped_leased_count": leased,
+        "remaining_ready_count": remaining,
+        "usage": await usage_snapshot(db, location),
+    }
 
 
 async def charged_bytes(db, location_id):

@@ -7,6 +7,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.storage_cache import CachePolicy
+
 
 class DatasetSourceCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -21,7 +23,7 @@ class DatasetSourceCreate(BaseModel):
     )
     exclude_globs: list[str] = Field(default_factory=list, max_length=20)
     ownership_mode: Literal["reference", "managed_copy"] = "reference"
-    cache_policy: Literal["none", "preview"] = "preview"
+    cache_policy: CachePolicy = "preview"
 
 
 class DatasetSourceUpdate(BaseModel):
@@ -29,7 +31,7 @@ class DatasetSourceUpdate(BaseModel):
     expected_revision: int = Field(ge=1)
     name: str | None = Field(default=None, min_length=1, max_length=100)
     enabled: bool | None = None
-    cache_policy: Literal["none", "preview"] | None = None
+    cache_policy: CachePolicy | None = None
 
 
 class DatasetSourceOut(BaseModel):
@@ -46,7 +48,9 @@ class DatasetSourceOut(BaseModel):
     include_globs: list[str]
     exclude_globs: list[str] = Field(default_factory=list)
     ownership_mode: Literal["reference", "managed_copy"]
-    cache_policy: Literal["none", "preview"]
+    cache_policy: CachePolicy
+    effective_cache_policy: CachePolicy
+    location_cache_policy: CachePolicy
     policy_revision: int
     unregistered_at: datetime | None
 

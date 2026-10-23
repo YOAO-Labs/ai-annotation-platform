@@ -14,6 +14,7 @@ from app.services.dataset_assets import LEGACY_LOCATION_ID, validate_legacy_bind
 from app.services.dataset_workbench import STATES, observations
 from app.services.directory_previews import SPEC
 from app.services.storage import storage_service
+from app.services.directory_policy import preview_policy_clause
 
 PREVIEW_STATES = ("ready", "failed", "unrecorded", "not_requested", "blocked")
 
@@ -61,11 +62,7 @@ async def reference_evidence(db, source_ids, actor):
             "blocked",
         ),
         (
-            or_(
-                DatasetSource.cache_policy != "preview",
-                func.coalesce(StorageLocation.config["cache_policy"].astext, "preview")
-                != "preview",
-            ),
+            ~preview_policy_clause(),
             "not_requested",
         ),
         (and_(bindings_valid, ready.exists()), "ready"),
@@ -79,6 +76,8 @@ async def reference_evidence(db, source_ids, actor):
             obs.c.source_id,
             obs.c.state.label("original"),
             obs.c.observed_at,
+            obs.c.original_cache_recorded,
+            obs.c.original_cache_recorded_at,
             state.label("preview"),
             case(
                 (state == "ready", ready_time.scalar_subquery()),
@@ -101,6 +100,12 @@ async def reference_evidence(db, source_ids, actor):
             func.min(evidence.c.observed_at).label("observed_from"),
             func.max(evidence.c.observed_at).label("observed_through"),
             func.max(evidence.c.preview_recorded_at).label("preview_recorded_at"),
+            func.count()
+            .filter(evidence.c.original_cache_recorded)
+            .label("original_cache_recorded_count"),
+            func.max(evidence.c.original_cache_recorded_at).label(
+                "original_cache_recorded_at"
+            ),
         ).group_by(evidence.c.source_id, evidence.c.original, evidence.c.preview)
     )
     result = {
@@ -112,6 +117,8 @@ async def reference_evidence(db, source_ids, actor):
             "observed_from": None,
             "observed_through": None,
             "preview_recorded_at": None,
+            "original_cache_recorded_count": 0,
+            "original_cache_recorded_at": None,
         }
         for source_id in source_ids
     }
@@ -120,10 +127,12 @@ async def reference_evidence(db, source_ids, actor):
         item["total"] += row["count"]
         item["original_counts"][row["original"]] += row["count"]
         item["preview_counts"][row["preview"]] += row["count"]
+        item["original_cache_recorded_count"] += row["original_cache_recorded_count"]
         for key, choose in (
             ("observed_from", min),
             ("observed_through", max),
             ("preview_recorded_at", max),
+            ("original_cache_recorded_at", max),
         ):
             if row[key] is not None:
                 item[key] = choose(item[key], row[key]) if item[key] else row[key]

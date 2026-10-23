@@ -3,7 +3,7 @@ import uuid
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app.config import settings
 from app.db.models.dataset_asset import (
@@ -259,6 +259,9 @@ async def test_failed_or_late_node_result_never_rebinds_pinned_root(
 async def test_bindings_get_is_read_only_and_keeps_nine_shared_bucket_purposes(
     httpx_client, super_admin, db_session, monkeypatch
 ):
+    # Resource tests may have committed bootstrap bindings independently.
+    # This SAVEPOINT owns the empty-registry precondition and restores them.
+    await db_session.execute(delete(StorageBinding))
     monkeypatch.setattr(
         storage_service, "export_bucket", storage_service.datasets_bucket
     )

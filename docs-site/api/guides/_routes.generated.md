@@ -650,6 +650,8 @@
 | GET | `/{location_id}` |
 | GET | `/{location_id}/source-summary` |
 | PATCH | `/{location_id}` |
+| GET | `/{location_id}/original-cache` |
+| POST | `/{location_id}/original-cache/cleanup` |
 | GET | `/{location_id}/directories` |
 | POST | `/{location_id}/probe` |
 | GET | `/{location_id}/probes` |
@@ -1003,4 +1005,4 @@
 
 ---
 
-_共 90 模块 / 581 路由_
+_共 90 模块 / 583 路由_

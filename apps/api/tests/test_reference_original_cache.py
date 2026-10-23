@@ -26,6 +26,8 @@ from app.db.models.dataset_source import (
     DatasetSource,
     DatasetScanRun,
     DatasetSourceRevision,
+    DatasetRegistrationRun,
+    DatasetSourceChange,
 )
 from app.db.models.original_cache import OriginalCacheEntry as Entry
 from app.db.models.project import Project
@@ -119,8 +121,22 @@ async def referenced_cache(test_engine, monkeypatch, tmp_path):
             await db.execute(delete(Project).where(Project.id == project.id))
             await db.execute(delete(Dataset).where(Dataset.id == world.dataset_id))
             await db.execute(
+                delete(DatasetSourceChange).where(
+                    DatasetSourceChange.run_id.in_(
+                        select(DatasetRegistrationRun.id).where(
+                            DatasetRegistrationRun.source_id == source.id
+                        )
+                    )
+                )
+            )
+            await db.execute(
                 delete(DatasetSourceRevision).where(
                     DatasetSourceRevision.source_id == source.id
+                )
+            )
+            await db.execute(
+                delete(DatasetRegistrationRun).where(
+                    DatasetRegistrationRun.source_id == source.id
                 )
             )
             await db.execute(
@@ -131,7 +147,9 @@ async def referenced_cache(test_engine, monkeypatch, tmp_path):
                 delete(StorageLocation).where(StorageLocation.id == location.id)
             )
             await db.execute(
-                delete(AsyncJob).where(AsyncJob.id == content[6].async_job_id)
+                delete(AsyncJob).where(
+                    AsyncJob.user_id.in_([user.id for user in users])
+                )
             )
             await db.execute(text("SET LOCAL app.allow_audit_update = 'true'"))
             await db.execute(

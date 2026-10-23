@@ -27,6 +27,11 @@ from app.schemas.storage_location import (
     StorageProbeOut,
     StorageProbeRequest,
 )
+from app.schemas.storage_cache import (
+    OriginalCacheCleanup,
+    OriginalCacheCleanupResult,
+    OriginalCacheUsage,
+)
 from app.services import storage_location as svc
 from app.services.dataset_source_access import require_manager
 from app.services.dataset_content import key_authority
@@ -48,6 +53,31 @@ router = APIRouter(dependencies=[Depends(location_scopes)])
 
 def filesystem_error(exc):
     return HTTPException(409, detail={"code": exc.code})
+
+
+async def lock_current_admin(db, actor, request):
+    from app.db.models.api_key import ApiKey
+
+    key_id = getattr(request.state, "api_key_id", None)
+    proof = await key_authority(db, actor, key_id, "datasets:write")
+    actor = await db.scalar(
+        select(User)
+        .where(User.id == actor.id)
+        .with_for_update(read=True)
+        .execution_options(populate_existing=True)
+    )
+    if not actor or not actor.is_active or actor.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(403, "Platform administrator required")
+    if key_id:
+        await db.scalar(
+            select(ApiKey)
+            .where(ApiKey.id == key_id)
+            .with_for_update(read=True)
+            .execution_options(populate_existing=True)
+        )
+    if await key_authority(db, actor, key_id, "datasets:write") != proof:
+        raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+    return actor
 
 
 @router.get("/roots", response_model=list[str])
@@ -90,6 +120,7 @@ async def create_location(
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(super_admin),
 ):
+    actor = await lock_current_admin(db, actor, request)
     try:
         location = await svc.create_filesystem(db, payload)
     except FilesystemStorageError as exc:
@@ -150,6 +181,7 @@ async def update_location(
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(super_admin),
 ):
+    actor = await lock_current_admin(db, actor, request)
     location = await svc.get_visible(db, location_id, actor, lock=True)
     try:
         await svc.update_filesystem(db, location, payload)
@@ -170,6 +202,58 @@ async def update_location(
     )
     await db.commit()
     return await svc.to_out(db, location, actor)
+
+
+@router.get("/{location_id}/original-cache", response_model=OriginalCacheUsage)
+async def original_cache_usage(
+    location_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services.original_cache import usage_snapshot
+
+    location = await svc.get_visible(db, location_id, actor)
+    return await usage_snapshot(db, location)
+
+
+@router.post(
+    "/{location_id}/original-cache/cleanup",
+    response_model=OriginalCacheCleanupResult,
+    status_code=202,
+)
+async def cleanup_original_cache(
+    location_id: uuid.UUID,
+    payload: OriginalCacheCleanup,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services.original_cache import now, request_cleanup
+
+    actor = await lock_current_admin(db, actor, request)
+    location = await svc.get_visible(db, location_id, actor, lock=True)
+    if payload.expected_revision != location.config_revision:
+        raise HTTPException(409, "Storage configuration revision changed")
+    if payload.recorded_before > now():
+        raise HTTPException(422, "Cache observation must not be in the future")
+    result = await request_cleanup(
+        db, location, recorded_before=payload.recorded_before, limit=payload.limit
+    )
+    await AuditService.log(
+        db,
+        actor=actor,
+        request=request,
+        action=AuditAction.STORAGE_ORIGINAL_CACHE_CLEANUP,
+        target_type="storage_location",
+        target_id=str(location.id),
+        status_code=202,
+        detail={
+            "retired_count": result["retired_count"],
+            "skipped_leased_count": result["skipped_leased_count"],
+        },
+    )
+    await db.commit()
+    return result
 
 
 @router.get("/{location_id}/directories", response_model=StorageDirectoryPage)

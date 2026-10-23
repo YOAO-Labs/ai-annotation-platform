@@ -196,7 +196,7 @@ Job 外键 SET NULL，数据集删除只清空来源关联，长期观测账本�
 
 预检的 SHA-256 回执、正式登记业务对象和逐项检查点分别在各自事务提交。最终业务登记与该项计数共用事务；取消保留已提交部分，过期执行者不能在核验后继续落库。暂态数据集锁/快照容量不足退避重派；单文件错误隔离并允许显式重试，已核验摘要不可改写。确认固定预检尝试身份，I/O 期间出现新版预检时拒绝旧确认。
 
-固定节点以锚点和逐项真实安全读取证明可读，探测 TTL 不终止已领取的长任务。API 确认同样重新读取固定摘要，不以扫描前几项损坏文件的探测结果否定后续正常候选。原图复制量与派生占用独立计量，目录支持 reference/managed_copy 与 none/preview 的独立策略，默认 reference/preview；旧来源迁移为 reference/none。定位 config 与策略分列，Source 路径映射固定 Item/Asset/SHA；仅策略变化也要求新扫描和预检，旧引用内容身份不变。预览由独立记录固定父 Asset/SHA、规格、自身 SHA/字节和对象位置，走鉴权端点，不写 legacy thumbnail_path 或发签名 URL。来源停用/注销取消活动 lease，保留业务身份；托管复制原件已独立，继续可用。迁移0199增加可恢复账本；有历史记录时保留表，应用回退停止新尝试。取舍见 [ADR0096](/dev/adr/0096-durable-directory-registration)。
+固定节点以锚点和逐项真实安全读取证明可读，探测 TTL 不终止已领取的长任务。API 确认同样重新读取固定摘要，不以扫描前几项损坏文件的探测结果否定后续正常候选。原图复制量与派生占用独立计量，目录支持 reference/managed_copy 与 none/preview/on_demand 的独立策略，默认 reference/preview；旧来源迁移为 reference/none。定位 config 与策略分列，Source 路径映射固定 Item/Asset/SHA；仅策略变化也要求新扫描和预检，旧引用内容身份不变。预览由独立记录固定父 Asset/SHA、规格、自身 SHA/字节和对象位置，走鉴权端点，不写 legacy thumbnail_path 或发签名 URL。来源停用/注销取消活动 lease，保留业务身份；托管复制原件已独立，继续可用。迁移0199增加可恢复账本；有历史记录时保留表，应用回退停止新尝试。取舍见 [ADR0096](/dev/adr/0096-durable-directory-registration)。
 
 ## 目录管理的最小授权
 
@@ -208,7 +208,9 @@ Dataset.created_by 是目录数据集的最小管理边界：活跃超管管理�
 
 ### 完整原图缓存的资源归属
 
-`services/original_cache.py` 提供内部完整副本资源所有者，统一引用 reader 已接入，公开按需策略、配置页和可用性展示仍未开放。它要求来源和位置均选用按需策略、位置有显式正额度；默认额度为零。数据库保留该策略值，当前公开创建/更新仍只接受 `none/preview`。`reference_context` 保存当前业务授权与逻辑内容身份，`reference_source_context` 只在实际读源或质量检查时获取来源节点、锚点和连接配置；`reference_snapshot` 在缓存/来源 I/O 前后复验身份与 Key，本资源服务不签发读取权限。
+位置详情按独立位置修订管理缓存，不与远端连接凭据混合。用量接口只读账本；清理请求按当前Actor → Key → Location → Entry锁序封存截止观测前的最多100代，锁后复查原Key和角色、跳过活跃租约，实际对象删除由周期owner执行。`original_cache_recorded`及登记/到期时间是元数据证据，不覆盖原来的来源状态；样本原图读取动作允许尝试合格旧副本，仍由统一reader实际核验。
+
+`services/original_cache.py` 提供完整副本资源所有者，统一引用 reader 与位置/来源管理已接入。公开策略按 `none < preview < on_demand` 取来源请求和位置上限的较小值，按需原图包含预览；完整缓存要求来源和位置均选用按需策略、位置有显式正额度，默认额度为零。只有超管配置位置额度/TTL，来源管理不能扩大预算。`reference_context` 保存当前业务授权与逻辑内容身份，`reference_source_context` 只在实际读源或质量检查时获取来源节点、锚点和连接配置；`reference_snapshot` 在缓存/来源 I/O 前后复验身份与 Key，本资源服务不签发读取权限。
 
 缓存命中只替代来源物理可达性，不绕过任务分派、成员、账号、来源/位置启用和接受修订；最终事务仍锁住 Connection/Location/Source/Item/Asset，不再锁住与逻辑身份无关的 Probe。缓存缺失或损坏时重新按来源物理合同读取。首次严格读源成功后，独立连接提交可选保留；不提交调用方事务，外层持有业务锁时允许有界跳过保留。额度满时最多淘汰八代未被读取的完整缓存，再尝试保留；单图超过位置总额度时不淘汰。调用方显式管理外层 Connection 事务时跳过独立保留，继续严格来源读取。质量检查保持 `capture_for_quality` 的来源语义和坏图诊断，不借用缓存掩盖来源变化。
 

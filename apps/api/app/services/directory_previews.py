@@ -75,7 +75,7 @@ async def delete_owned(objects):
 
 
 async def generate(db, location, source, mapping, snapshot, uploaded, retired):
-    if policy.effective_cache_policy(source, location) != "preview":
+    if not policy.permits_preview(policy.effective_cache_policy(source, location)):
         return None
     row = await db.get(DatasetSourcePreview, (source.id, mapping.path_digest))
     if (
@@ -119,7 +119,7 @@ async def generate(db, location, source, mapping, snapshot, uploaded, retired):
             ContentType="image/webp",
         )
         if (
-            policy.effective_cache_policy(source, location) != "preview"
+            not policy.permits_preview(policy.effective_cache_policy(source, location))
             or not source.enabled
             or source.unregistered_at
         ):
@@ -150,7 +150,7 @@ async def preview_identity(db, source_id, path_digest, actor):
         or source.unregistered_at
         or location is None
         or not location.enabled
-        or policy.effective_cache_policy(source, location) != "preview"
+        or not policy.permits_preview(policy.effective_cache_policy(source, location))
     ):
         raise ContentError("preview_unavailable")
     mapping = await db.get(

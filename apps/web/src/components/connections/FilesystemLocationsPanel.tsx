@@ -1,3 +1,5 @@
+import { StorageCacheFields } from "./StorageCacheFields";
+import { originalCacheValues, type CachePolicy } from "@/utils/cachePolicy";
 import { storageAccessDenied } from "./storageQueryState";
 import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
 import { useId, useState } from "react";
@@ -45,8 +47,10 @@ function FilesystemLocationsPanelOwner({
   const [node, setNode] = useState("api");
   const [sample, setSample] = useState("");
   const [scope, setScope] = useState<"restricted" | "global">("restricted");
-  const [cachePolicy, setCachePolicy] = useState<"none" | "preview">("preview");
-  const [editCache, setEditCache] = useState<"none" | "preview">("preview");
+  const [cachePolicy, setCachePolicy] = useState<CachePolicy>("preview");
+  const [quotaMiB, setQuotaMiB] = useState("0");
+  const [ttl, setTTL] = useState("86400");
+  const cacheValues = originalCacheValues(cachePolicy, quotaMiB, ttl);
   const [userIds, setUserIds] = useState<string[]>([]);
   const [editing, setEditing] = useState<StorageLocationOut | null>(null);
   const [editScope, setEditScope] = useState<"restricted" | "global">("restricted");
@@ -132,21 +136,20 @@ function FilesystemLocationsPanelOwner({
                 placeholder="留空使用受控根"
               />
             </label>
-            <label className="grid min-w-0 gap-1 text-sm">
-              允许的缓存
-              <select
-                aria-label="位置缓存上限"
-                className={field}
-                value={cachePolicy}
-                onChange={(e) => setCachePolicy(e.target.value as "none" | "preview")}
-              >
-                <option value="preview">允许预览缓存</option>
-                <option value="none">禁止新增缓存</option>
-              </select>
-            </label>
+            <div className="sm:col-span-2">
+              <StorageCacheFields
+                policy={cachePolicy}
+                quotaMiB={quotaMiB}
+                ttl={ttl}
+                onPolicy={setCachePolicy}
+                onQuota={setQuotaMiB}
+                onTTL={setTTL}
+                disabled={busy}
+              />
+            </div>
             <Button
               size="sm"
-              disabled={!name.trim() || !root || busy}
+              disabled={!name.trim() || !root || busy || !cacheValues.valid}
               onClick={() =>
                 void act(async (current) => {
                   const location = await apiClient.post<StorageLocationOut>("/storage-locations", {
@@ -156,6 +159,8 @@ function FilesystemLocationsPanelOwner({
                     scope,
                     use_user_ids: userIds,
                     cache_policy: cachePolicy,
+                    original_cache_quota_bytes: cacheValues.original_cache_quota_bytes,
+                    original_cache_ttl_seconds: cacheValues.original_cache_ttl_seconds,
                   });
                   if (current()) {
                     setName("");
@@ -227,7 +232,6 @@ function FilesystemLocationsPanelOwner({
                   setEditing(l);
                   setEditScope(l.scope === "global" ? "global" : "restricted");
                   setEditUsers(l.use_user_ids ?? []);
-                  setEditCache(l.cache_policy ?? "preview");
                 }}
               >
                 配置使用范围 {l.name}
@@ -264,18 +268,6 @@ function FilesystemLocationsPanelOwner({
             onScope={setEditScope}
             onUsers={setEditUsers}
           />
-          <label className="grid min-w-0 gap-1 text-sm">
-            位置缓存上限
-            <select
-              aria-label="修改位置缓存上限"
-              className={field}
-              value={editCache}
-              onChange={(e) => setEditCache(e.target.value as "none" | "preview")}
-            >
-              <option value="preview">允许预览缓存</option>
-              <option value="none">禁止新增缓存</option>
-            </select>
-          </label>
           <p className="my-2 text-xs text-muted-foreground">
             保存会更新位置修订，使旧扫描与登记任务停止继续写入；已登记样本和外部原图保留。撤回人员使用权不撤销既有任务的分配权限。
           </p>
@@ -289,7 +281,6 @@ function FilesystemLocationsPanelOwner({
                     expected_revision: editing.config_revision,
                     scope: editScope,
                     use_user_ids: editUsers,
-                    cache_policy: editCache,
                   });
                   if (current()) setEditing(null);
                 })

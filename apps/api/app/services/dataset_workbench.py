@@ -7,8 +7,10 @@ from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.dataset_asset import (
     DatasetAsset,
     DatasetAssetLocation,
+    StorageBinding,
     StorageLocation,
 )
+from app.db.models.original_cache import OriginalCacheEntry
 from app.db.models.dataset_source import (
     DatasetReference,
     DatasetRegistrationRun,
@@ -23,6 +25,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.services.dataset_source_access import source_scope_clause
+from app.services.directory_policy import preview_policy_clause
 from app.services.project_access import is_privileged_for_project
 from app.services.project_aggregates import (
     managed_project_scope_clause,
@@ -98,9 +101,7 @@ def visible_mapping_query(item_id, actor):
         DatasetSource.enabled.is_(True),
         DatasetSource.unregistered_at.is_(None),
         StorageLocation.enabled.is_(True),
-        DatasetSource.cache_policy == "preview",
-        func.coalesce(StorageLocation.config["cache_policy"].astext, "preview")
-        == "preview",
+        preview_policy_clause(),
         DatasetSourcePreview.state == "ready",
         DatasetSourcePreview.asset_id == DatasetSourceItem.asset_id,
         DatasetSourcePreview.source_sha256 == DatasetSourceItem.content_sha256,
@@ -199,9 +200,7 @@ def observations(
         DatasetSource.enabled.is_(True),
         DatasetSource.unregistered_at.is_(None),
         StorageLocation.enabled.is_(True),
-        DatasetSource.cache_policy == "preview",
-        func.coalesce(StorageLocation.config["cache_policy"].astext, "preview")
-        == "preview",
+        preview_policy_clause(),
         (
             select(1)
             .select_from(DatasetSourcePreview)
@@ -254,6 +253,66 @@ def observations(
         (and_(~ref, verified, replica.is_not(None)), "verified"),
         else_="unverified",
     )
+    from app.services.original_cache import storage_identity
+    from app.services.storage import storage_service
+
+    cache = (
+        select(OriginalCacheEntry.verified_at, OriginalCacheEntry.expires_at)
+        .join(
+            StorageBinding,
+            and_(
+                StorageBinding.purpose == "media-cache",
+                StorageBinding.location_id == OriginalCacheEntry.location_id,
+                StorageBinding.bucket == OriginalCacheEntry.bucket,
+                StorageBinding.generation == OriginalCacheEntry.binding_generation,
+            ),
+        )
+        .join(
+            DatasetAssetLocation,
+            and_(
+                DatasetAssetLocation.asset_id == OriginalCacheEntry.asset_id,
+                DatasetAssetLocation.location_id == OriginalCacheEntry.location_id,
+                DatasetAssetLocation.bucket == OriginalCacheEntry.bucket,
+                DatasetAssetLocation.role == "original_cache",
+                DatasetAssetLocation.reference_state == "present",
+                DatasetAssetLocation.object_key
+                == func.concat(
+                    "original-cache/v1/",
+                    OriginalCacheEntry.asset_id,
+                    "/",
+                    OriginalCacheEntry.sha256,
+                    "/",
+                    OriginalCacheEntry.id,
+                ),
+            ),
+        )
+        .where(
+            ref,
+            verified,
+            manageable,
+            ~disabled,
+            DatasetSource.ownership_mode == "reference",
+            DatasetSource.cache_policy == "on_demand",
+            StorageLocation.config["cache_policy"].astext == "on_demand",
+            StorageLocation.config["original_cache_quota_bytes"].astext != "0",
+            OriginalCacheEntry.scope_location_id == DatasetSource.location_id,
+            OriginalCacheEntry.source_id == DatasetReference.source_id,
+            OriginalCacheEntry.asset_id == DatasetAsset.id,
+            OriginalCacheEntry.sha256 == DatasetAsset.checksum_value,
+            OriginalCacheEntry.size_bytes == DatasetAsset.size_bytes,
+            OriginalCacheEntry.source_revision == DatasetSource.config_revision,
+            OriginalCacheEntry.policy_revision == DatasetSource.policy_revision,
+            OriginalCacheEntry.location_revision == StorageLocation.config_revision,
+            OriginalCacheEntry.storage_identity == storage_identity(storage_service),
+            OriginalCacheEntry.state == "ready",
+            OriginalCacheEntry.expires_at > func.now(),
+        )
+        .correlate(
+            DatasetItem, DatasetAsset, DatasetReference, DatasetSource, StorageLocation
+        )
+        .limit(1)
+        .lateral("original_cache_record")
+    )
     base = (
         select(
             DatasetItem.id.label("item_id"),
@@ -262,6 +321,9 @@ def observations(
                 (ref, func.coalesce(changes.c.observed_at, accepted_at)), else_=replica
             ).label("observed_at"),
             func.coalesce(preview, False).label("preview_available"),
+            cache.c.verified_at.is_not(None).label("original_cache_recorded"),
+            cache.c.verified_at.label("original_cache_recorded_at"),
+            cache.c.expires_at.label("original_cache_expires_at"),
             case((manageable, DatasetSource.id), else_=None).label("source_id"),
             case((manageable, DatasetSource.name), else_=None).label("source_name"),
             case((manageable, DatasetSource.location_id), else_=None).label(
@@ -276,6 +338,7 @@ def observations(
         .outerjoin(DatasetSource, DatasetSource.id == source_id)
         .outerjoin(StorageLocation, StorageLocation.id == DatasetSource.location_id)
         .outerjoin(changes, literal(True))
+        .outerjoin(cache, literal(True))
     )
     if dataset_id is not None:
         base = base.where(DatasetItem.dataset_id == dataset_id)
@@ -289,7 +352,9 @@ def availability(row):
     actions = []
     if row["can_manage"] and row["source_id"]:
         actions.extend(["manage_source", "view_location"])
-        if row["is_reference"] and state == "verified":
+        if row["is_reference"] and (
+            state == "verified" or row["original_cache_recorded"]
+        ):
             actions.append("read_original")
     if row["preview_available"]:
         actions.append("read_preview")
@@ -305,6 +370,9 @@ def availability(row):
         }[state],
         "observed_at": row["observed_at"],
         "preview_available": row["preview_available"],
+        "original_cache_recorded": row["original_cache_recorded"],
+        "original_cache_recorded_at": row["original_cache_recorded_at"],
+        "original_cache_expires_at": row["original_cache_expires_at"],
         "source_id": row["source_id"],
         "source_name": row["source_name"],
         "location_id": row["location_id"],

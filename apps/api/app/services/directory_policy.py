@@ -6,11 +6,28 @@ from app.db.models.dataset_source import DatasetSourceRevision
 
 
 def effective_cache_policy(source, location):
-    return (
-        "preview"
-        if source.cache_policy == "preview"
-        and location.config.get("cache_policy", "preview") == "preview"
-        else "none"
+    ranks = {"none": 0, "preview": 1, "on_demand": 2}
+    return min(
+        source.cache_policy,
+        location.config.get("cache_policy", "preview"),
+        key=lambda value: ranks.get(value, 0),
+    )
+
+
+def permits_preview(value):
+    return value in {"preview", "on_demand"}
+
+
+def preview_policy_clause():
+    from sqlalchemy import and_, func
+    from app.db.models.dataset_asset import StorageLocation
+    from app.db.models.dataset_source import DatasetSource
+
+    return and_(
+        DatasetSource.cache_policy.in_(["preview", "on_demand"]),
+        func.coalesce(StorageLocation.config["cache_policy"].astext, "preview").in_(
+            ["preview", "on_demand"]
+        ),
     )
 
 
