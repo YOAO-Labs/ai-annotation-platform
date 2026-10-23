@@ -18,16 +18,16 @@ from app.db.models.dataset_asset import (
 from app.db.models.managed_original_retirement import (
     ManagedOriginalRetirement as Retirement,
 )
-from app.db.models.project import Project
 from app.db.models.task import Task
 from app.services.dataset import DatasetService
 from app.services.dataset_assets import LEGACY_LOCATION_ID, register_item_asset
 from app.services.dataset_storage_keys import managed_dataset_key
 from app.services import managed_original_retirement as retirement
 from app.services.storage import storage_service
+from tests.factory import create_project
 
 
-async def managed_item(db, owner):
+async def managed_item(db, owner, *, verified=True):
     dataset = Dataset(
         id=uuid.uuid4(),
         display_id=f"D-{uuid.uuid4().hex[:10]}",
@@ -40,15 +40,16 @@ async def managed_item(db, owner):
         file_name="photo.png",
         file_path=managed_dataset_key(dataset.id, "photo.png"),
         file_type="image",
-        file_size=123,
+        file_size=123 if verified else None,
     )
     db.add(dataset)
     await db.flush()
     db.add(item)
     await db.flush()
-    asset = await register_item_asset(
-        db, item, sha256="a" * 64, size_bytes=123, etag="etag"
+    evidence = (
+        {"sha256": "a" * 64, "size_bytes": 123, "etag": "etag"} if verified else {}
     )
+    asset = await register_item_asset(db, item, **evidence)
     return dataset, item, asset
 
 
@@ -213,17 +214,12 @@ async def test_legacy_unverified_registered_locator_is_preserved(
     db_session, super_admin
 ):
     db = db_session
-    dataset, item, asset = await managed_item(db, super_admin[0])
-    asset.verification_state = "unverified"
-    asset.checksum_algorithm = asset.checksum_value = None
-    asset.size_bytes = None
+    dataset, item, asset = await managed_item(db, super_admin[0], verified=False)
     locator = await db.get(
         DatasetAssetLocation,
         (asset.id, LEGACY_LOCATION_ID, storage_service.datasets_bucket),
     )
     locator.object_key = "historical/shared/photo.png"
-    locator.reference_state = "unverified"
-    locator.verified_at = None
     await db.flush()
     assert await DatasetService(db).delete_item(item.id)
     record = await db.scalar(select(Retirement).where(Retirement.asset_id == asset.id))
@@ -272,14 +268,7 @@ async def test_failed_business_fk_rolls_back_retirement_assertions(
 ):
     db = db_session
     dataset, item, asset = await managed_item(db, super_admin[0])
-    project = Project(
-        id=uuid.uuid4(),
-        display_id=f"P-{uuid.uuid4().hex[:10]}",
-        name="FK root",
-        owner_id=super_admin[0].id,
-    )
-    db.add(project)
-    await db.flush()
+    project = await create_project(db, owner_id=super_admin[0].id, name="FK root")
     db.add(
         Task(
             display_id=f"T-{uuid.uuid4().hex[:10]}",
