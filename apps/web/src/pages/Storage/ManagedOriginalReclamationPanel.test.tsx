@@ -13,6 +13,7 @@ vi.mock("@/api/client", async (original) => ({
   apiClient: api,
 }));
 vi.mock("@/hooks/useSessionGuard", () => ({ useSessionRevision: () => auth.revision }));
+vi.mock("@/components/jobs/AsyncJobDetailModal", () => ({ AsyncJobDetailModal: () => null }));
 vi.mock("@/stores/authStore", () => ({
   useAuthStore: (select: (state: unknown) => unknown) =>
     select({ sessionId: auth.session, user: { role: auth.role } }),
@@ -148,6 +149,9 @@ it("uses a centered detail modal with honest identity/retention labels and resto
   expect(within(dialog).getByText(/当前配置匹配，仅为配置证据/)).toBeInTheDocument();
   expect(within(dialog).getByText("未登记备份要求的覆盖仍未知")).toBeInTheDocument();
   expect(within(dialog).getByText(result().items[0].asset_id)).toBeInTheDocument();
+  expect(within(dialog).getByText("原件完整核验", { selector: "summary" })).toBeInTheDocument();
+  expect(api.get).toHaveBeenCalledTimes(1);
+  expect(within(dialog).getByText("本次预演未核验现场对象及最小副本")).toBeInTheDocument();
   fireEvent.keyDown(document, { key: "Escape" });
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   await waitFor(() => expect(trigger).toHaveFocus());

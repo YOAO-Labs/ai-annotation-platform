@@ -13,6 +13,7 @@ import { Modal } from "@/components/ui/Modal";
 import { ListPagination } from "@/components/ui/ListPagination";
 import { cacheBytes } from "@/utils/cachePolicy";
 import { ManagedOriginalRetentionPanel } from "./ManagedOriginalRetentionPanel";
+import { ManagedOriginalVerificationPanel } from "./ManagedOriginalVerificationPanel";
 
 const statusLabels = { retained: "保留中", protected: "仍有保护要求", blocked: "资格待核实" };
 const identityLabels = {
@@ -43,7 +44,7 @@ const reasons: Record<string, string> = {
   exclusive_ownership_unproven: "尚未证明原件由平台独占管理",
   backup_holds_unknown: "未登记备份要求的覆盖仍未知",
   migration_holds_unknown: "未登记迁移要求的覆盖仍未知",
-  object_presence_not_checked: "尚未核验现场对象及最小副本",
+  object_presence_not_checked: "本次预演未核验现场对象及最小副本",
 };
 const sharedReasons = new Set([
   "exclusive_ownership_unproven",
@@ -332,6 +333,7 @@ function ReclamationDetails({
         onChanged={onChanged}
         onDenied={onDenied}
       />
+      <ManagedOriginalVerificationPanel retirementId={item.id} onDenied={onDenied} />
       <p className="text-xs leading-relaxed text-muted-foreground">
         观测于 {date(measuredAt)}。{scope} 当前预演不提供物理删除许可。
       </p>
