@@ -7444,3 +7444,19 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   The next bounded delivery remains actual invitation, restored /auth/me and
   offboarding RPC diagnostics on the old host-forwarded PostgreSQL path. No push,
   release, production deployment, primary cutover, remote CI or Go expansion occurred.
+
+### Original host-forwarded Identity RPC diagnostics
+
+- Continue from clean Root 6be92a3b87bb535cedf1ca17cdc0aec72c8d68ea. The previous
+  turn completed bounded credential isolation and is progress. The whole goal and
+  the unexplained original forwarding failures remain open.
+- Reuse IdentityModuleStack and the exact ordinary API consumer; a test-only
+  subclass restores host.docker.internal PostgreSQL routing without weakening any
+  ownership, image, runtime, signer or capability checks. Installed-package command
+  wrappers record only RPC paths, phases, elapsed time, status, error type, SQLSTATE,
+  function name and PostgreSQL identity. No payload, token, password or arbitrary
+  SQL is logged. This instrumentation is diagnosis, not an asserted source fix.
+- A bounded actual consumer case exercises invitation and offboarding repeatedly,
+  performs a real complete backup/restore and probes restored /auth/me separately.
+  It retains all observations before asserting, without retrying ambiguous writes.
+  Matching current images and the first diagnostic run are pending.

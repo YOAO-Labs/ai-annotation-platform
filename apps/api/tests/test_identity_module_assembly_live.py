@@ -887,6 +887,197 @@ async def test_complete_compose_remote_api_workers_restart_and_restore(
         inbox.close()
 
 
+async def test_host_forwarded_identity_rpc_failures(
+    test_engine, tmp_path, record_property
+):
+    """Diagnose actual RPC consumers on the former topology, including restore."""
+    from tests.identity_forwarding_diagnostic_helpers import ForwardedIdentityStack
+
+    _verify_postgres(test_engine.url)
+    async with test_engine.connect() as db:
+        assert await db.scalar(text("SELECT count(*) FROM users")) == 0
+    password = "IdentityForwardingStrong123!"
+    maker, actor = await _world(test_engine, password=password)
+    suffix = uuid.uuid4().hex
+    async with maker.begin() as db:
+        receiver = await create_user(
+            db, "project_admin", f"forward-receiver-{suffix}@example.test", "Receiver"
+        )
+        invitation_project = await create_project(db, owner_id=actor)
+        leavers = []
+        for index in range(8):
+            leaver = await create_user(
+                db,
+                "employee",
+                f"forward-leaver-{index}-{suffix}@example.test",
+                "Leaver",
+            )
+            project = await create_project(db, owner_id=leaver.id)
+            leavers.append((str(leaver.id), str(project.id)))
+    await _assert_consumer_is_restricted(test_engine, actor)
+    secret, api_secret, control = [secrets.token_urlsafe(32) for _ in range(3)]
+    stack = None
+    inbox = SMTPInbox()
+    snapshot = tmp_path / "identity-forwarding.dump"
+    evidence = {"route": "host.docker.internal", "calls": [], "traces": []}
+    receipt = ROOT / ".worktree" / f"identity-forwarded-rpc-{suffix}.json"
+
+    async def call(client, operation, method, path, expected=200, **kwargs):
+        started = time.monotonic()
+        row = {"operation": operation, "expected": expected}
+        try:
+            response = await client.request(method, path, **kwargs)
+        except httpx.HTTPError as error:
+            row.update(status=None, error=type(error).__name__)
+            return None
+        else:
+            row["status"] = response.status_code
+            return response.json() if response.status_code == expected else None
+        finally:
+            row["seconds"] = round(time.monotonic() - started, 6)
+            evidence["calls"].append(row)
+
+    def collect_traces(stage):
+        evidence["traces"].extend(
+            {"stage": stage, **row} for row in stack.trace_records()
+        )
+
+    try:
+        async with (
+            _login_redis() as (login_url, _),
+            _publisher_redis() as (publisher_url, _),
+        ):
+            stack = ForwardedIdentityStack(
+                test_engine,
+                tmp_path,
+                secret=secret,
+                api_secret=api_secret,
+                control=control,
+                mail_key=Fernet.generate_key().decode(),
+                login_redis_url=login_url,
+                publisher_redis_url=publisher_url,
+                smtp_port=inbox.port,
+            )
+            await stack.start()
+            try:
+                async with httpx.AsyncClient(
+                    base_url=stack.api_origin, trust_env=False, timeout=40
+                ) as client:
+                    login = await call(
+                        client,
+                        "login",
+                        "POST",
+                        "/api/v1/auth/login",
+                        json={
+                            "email": f"identity-live-{actor}@example.test",
+                            "password": password,
+                        },
+                    )
+                    assert login is not None
+                    token = login["access_token"]
+                    client.headers["Authorization"] = "Bearer " + token
+                    for index, (leaver_id, project_id) in enumerate(leavers):
+                        await call(client, "profile", "GET", "/api/v1/auth/me")
+                        await call(
+                            client,
+                            "invitation",
+                            "POST",
+                            "/api/v1/users/invite",
+                            201,
+                            json={
+                                "email": f"forward-invite-{index}-{suffix}@example.test",
+                                "role": "employee",
+                                "group_name": None,
+                                "project_id": str(invitation_project.id),
+                                "project_member_role": "reviewer",
+                            },
+                        )
+                        preview = await call(
+                            client,
+                            "offboarding_preview",
+                            "GET",
+                            f"/api/v1/users/{leaver_id}/offboarding-preview",
+                        )
+                        if preview is not None:
+                            await call(
+                                client,
+                                "offboarding",
+                                "POST",
+                                f"/api/v1/users/{leaver_id}/offboarding",
+                                json={
+                                    "preview_version": preview["preview_version"],
+                                    "reason": "",
+                                    "projects": [
+                                        {
+                                            "project_id": project_id,
+                                            "owner_receiver_id": str(receiver.id),
+                                            "annotator_receiver_id": None,
+                                            "reviewer_receiver_id": None,
+                                        }
+                                    ],
+                                },
+                            )
+            finally:
+                collect_traces("original")
+                await stack.stop()
+            snapshot.touch(mode=0o600)
+            snapshot.write_bytes(
+                _postgres_tool(
+                    test_engine,
+                    [
+                        "pg_dump",
+                        "-U",
+                        "owner",
+                        "-Fc",
+                        "--dbname",
+                        str(test_engine.url.database),
+                    ],
+                )
+            )
+            assert snapshot.read_bytes().startswith(b"PGDMP")
+            evidence["backup_sha256"] = hashlib.sha256(
+                snapshot.read_bytes()
+            ).hexdigest()
+            async with _restored_database(test_engine, snapshot) as clone:
+                try:
+                    await stack.start(clone)
+                    async with httpx.AsyncClient(
+                        base_url=stack.api_origin,
+                        trust_env=False,
+                        timeout=40,
+                        headers={"Authorization": "Bearer " + token},
+                    ) as client:
+                        for _ in range(32):
+                            await call(
+                                client, "restored_profile", "GET", "/api/v1/auth/me"
+                            )
+                finally:
+                    collect_traces("restored")
+                    await stack.stop()
+        failures = [
+            row for row in evidence["calls"] if row["status"] != row["expected"]
+        ]
+        assert not failures, failures
+        for rpc in (
+            "/v1/identity/authenticate",
+            "/v1/identity/accounts/execute",
+            "/v1/identity/invitations/execute",
+            "/v1/identity/offboarding/execute",
+        ):
+            assert any(
+                row.get("rpc") == rpc and row["phase"] == "api_http"
+                for row in evidence["traces"]
+            ), rpc
+    finally:
+        receipt.touch(mode=0o600)
+        receipt.write_text(json.dumps(evidence, indent=2) + "\n")
+        record_property("forwarded_rpc_evidence", str(receipt))
+        if stack is not None:
+            await stack.stop()
+        snapshot.unlink(missing_ok=True)
+        inbox.close()
+
+
 async def test_complete_identity_migration_roundtrip(test_engine):
     _verify_postgres(test_engine.url)
     assert test_engine.url.database.endswith("_test")
