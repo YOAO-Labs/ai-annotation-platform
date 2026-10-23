@@ -386,11 +386,18 @@ def _restore_owned_unacked_export(sender: Celery, worker, task_id: str) -> dict:
             leftmost=True,
         )
         client = channel.client
-        if client.hget(channel.qos.unacked_key, raw_tag) is not None:
-            raise AssertionError("Kombu did not remove the restored unacked tag")
-        if client.zscore(channel.qos.unacked_index_key, raw_tag) is not None:
-            raise AssertionError("Kombu did not remove the restored unacked index")
-        return {**evidence, "restored": True, "unacked_tag_removed": True}
+        # A live consumer may immediately reinsert this same delivery tag.
+        # The eventual broker ACK below verifies both entries are gone.
+        return {
+            **evidence,
+            "restored": True,
+            "hash_present_after_restore": client.hget(channel.qos.unacked_key, raw_tag)
+            is not None,
+            "index_present_after_restore": client.zscore(
+                channel.qos.unacked_index_key, raw_tag
+            )
+            is not None,
+        }
 
 
 async def _job_snapshot(test_engine, job_id: uuid.UUID) -> dict:
@@ -1061,6 +1068,9 @@ async def test_export_recovers_after_worker_loss(
             test_engine, world["job_id"]
         )
         assert observation["job_after_new_delivery"]["status"] == "completed"
+        assert (
+            observation["job_after_new_delivery"]["celery_task_id"] == new_delivery_id
+        )
 
         original_restore = _restore_owned_unacked_export(
             sender, worker, first_delivery_id
@@ -1331,6 +1341,7 @@ async def test_export_recovers_after_worker_loss(
             if str(child_job_id) in key or child_job_id.hex in key
         ]
         assert child_attempt_objects == [child_key]
+        observation["final_worker_diagnostics"] = worker.capture_diagnostics()
 
         record_property(
             "workspace_export_hard_loss_probe", json.dumps(observation, default=str)
