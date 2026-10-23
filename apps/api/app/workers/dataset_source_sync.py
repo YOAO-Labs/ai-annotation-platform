@@ -8,12 +8,13 @@ from celery.utils.nodenames import worker_direct
 
 from app.services import dataset_source_sync as svc
 from app.services.filesystem_storage import FilesystemStorageError
+from app.services.content_snapshot import ContentError
 from app.workers._db import task_session
 from app.workers.celery_app import celery_app
 
 
 def error_code(exc):
-    if isinstance(exc, FilesystemStorageError):
+    if isinstance(exc, (FilesystemStorageError, ContentError)):
         return exc.code
     if isinstance(exc, HTTPException):
         if isinstance(exc.detail, dict):

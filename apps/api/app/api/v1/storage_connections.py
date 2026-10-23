@@ -28,6 +28,7 @@ from app.schemas.storage_connection import (
     StorageConnectionTestResult,
     StorageConnectionUpdate,
 )
+from app.services.content_snapshot import ContentError
 from app.services import connector_guard
 from app.services.audit import AuditAction, AuditService
 from app.services.storage_connection import (
@@ -303,6 +304,8 @@ async def test_connection(
             actor_id=user.id,
             api_key_id=getattr(request.state, "api_key_id", None),
         )
+    except ContentError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
     except ConnectorAccessDenied:
         raise HTTPException(status_code=404, detail="连接器不存在") from None
     except ConnectorValidationError as e:

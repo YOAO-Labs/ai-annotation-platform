@@ -15,7 +15,7 @@ from app.db.models.dataset_source import (
 from app.db.models.dataset_asset import StorageLocationProbe
 from app.db.models.async_job import AsyncJob
 from app.services import dataset_scans as scans, dataset_registration as registrations
-from app.services import storage_location as locations
+from app.services import storage_location as locations, storage_access
 from app.services import dataset_source_access as access
 from app.services.dataset_content import key_authority
 from app.services.filesystem_storage import FilesystemStorageError
@@ -36,6 +36,10 @@ BLOCKING = {
     "run_authority_changed",
     "dataset_archived",
     "dataset_lifecycle_changed",
+    "storage_maintenance",
+    "storage_maintenance_changed",
+    "storage_maintenance_busy",
+    "storage_operation_unsettled",
 }
 
 
@@ -88,16 +92,21 @@ async def configure(db, source_id, payload, actor, key_id=None):
         snapshot = {
             "source_revision": source.config_revision,
             "location_revision": location.config_revision,
+            "maintenance_revision": await storage_access.check(
+                db, location.id, lock=True
+            ),
             "dataset_lifecycle_revision": dataset.lifecycle_revision,
             "anchor": anchor,
         }
         lifecycle_changed = (
             row.snapshot.get("dataset_lifecycle_revision", 1)
             != dataset.lifecycle_revision
+            or row.snapshot.get("maintenance_revision", 1)
+            != snapshot["maintenance_revision"]
         )
         if lifecycle_changed:
             # A renewed delegation cannot adopt observations or jobs from before
-            # an archive/restore cycle. Existing attempts stop at their own fence.
+            # an archive/restore or maintenance cycle. Old attempts keep their fence.
             row.scan_id = row.registration_id = None
             row.state = "idle"
         if delegation_changed or row.snapshot != snapshot or row.state == "blocked":
@@ -148,11 +157,11 @@ async def configure(db, source_id, payload, actor, key_id=None):
 
 
 async def continue_cycle(db, source_id, payload, actor, key_id=None):
-    _, source, row = await context(db, source_id)
+    location, source, row = await context(db, source_id)
     await access.require_source(db, source.id, actor)
     await key_authority(db, actor, key_id, "datasets:write")
     if row is not None:
-        await scans.require_dataset_write(db, source, snapshot=row.snapshot)
+        await scans.validate_write_context(db, location, source, snapshot=row.snapshot)
     else:
         await scans.require_dataset_write(db, source)
     if (
@@ -213,6 +222,8 @@ async def require_run_authority(db, run, row):
         or snapshot.get("key_proof") != row.key_proof
         or snapshot.get("dataset_lifecycle_revision", 1)
         != row.snapshot.get("dataset_lifecycle_revision", 1)
+        or snapshot.get("maintenance_revision", 1)
+        != row.snapshot.get("maintenance_revision", 1)
     ):
         raise HTTPException(409, detail={"code": "run_authority_changed"})
 
@@ -400,6 +411,8 @@ def owns_run(run, row):
         and snapshot.get("sync_source_id") == str(row.source_id)
         and snapshot.get("dataset_lifecycle_revision", 1)
         == row.snapshot.get("dataset_lifecycle_revision", 1)
+        and snapshot.get("maintenance_revision", 1)
+        == row.snapshot.get("maintenance_revision", 1)
     )
 
 
@@ -425,7 +438,13 @@ async def process(db, source_id, revision, token, node):
     # Idle/review observations are committed before any broker publication.
     if operation:
         await db.commit()
-        result = await locations.perform_probe(db, location, f"worker:{node}", None)
+        result = await locations.perform_probe(
+            db,
+            location,
+            f"worker:{node}",
+            None,
+            maintenance_revision=row.snapshot.get("maintenance_revision", 1),
+        )
         location, source, row, actor = await fenced(
             db, source_id, revision, token, node
         )

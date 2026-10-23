@@ -426,7 +426,10 @@ async def import_from_connection(
 ):
     from app.db.models.async_job import AsyncJobKind
     from app.services import async_job as async_job_svc
-    from app.services import connector_guard
+    from app.services import connector_guard, storage_access
+    from app.services.content_snapshot import ContentError
+    from app.services.dataset_content import key_authority
+    from app.services.storage_location import connector_location_id
     from app.services.sources import SourcePathError, validate_source_path
     from app.services.storage_connection import (
         ConnectorAccessDenied,
@@ -461,6 +464,18 @@ async def import_from_connection(
         for pattern in (payload.include_globs or [])
         if pattern and pattern.strip()
     ]
+    connection_key_id = getattr(request.state, "api_key_id", None)
+    connection_key_proof = await key_authority(
+        db, current_user, connection_key_id, "datasets:write"
+    )
+    source_location_id = connector_location_id(conn.id)
+
+    try:
+        maintenance_revision = await storage_access.check(
+            db, source_location_id, lock=True
+        )
+    except ContentError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
     # Capture both import budgets in the same committed request snapshot.  The
     # worker must never re-read global settings while enumerating files: queued
     # jobs retain the limits accepted here even after an admin changes them.
@@ -476,6 +491,13 @@ async def import_from_connection(
             "connection_id": str(conn.id),
             "connection_name": conn.name,
             "connection_kind": conn.kind,
+            "connection_revision": conn.revision,
+            "source_location_id": str(source_location_id),
+            "source_maintenance_revision": maintenance_revision,
+            "connection_authority": {
+                "api_key_id": str(connection_key_id) if connection_key_id else None,
+                "key_proof": connection_key_proof,
+            },
             "source_path": payload.source_path,
             "recursive": payload.recursive,
             "include_globs": clean_globs,
@@ -502,6 +524,12 @@ async def import_from_connection(
             "settings_version": import_limits["version"],
         },
     )
+    try:
+        await storage_access.check(
+            db, source_location_id, expected_revision=maintenance_revision, lock=True
+        )
+    except ContentError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
     await recheck_directory_write(request, db, dataset_id)
     await db.commit()
 

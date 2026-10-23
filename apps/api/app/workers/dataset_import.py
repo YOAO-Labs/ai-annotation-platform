@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
+from contextlib import asynccontextmanager
 import logging
 import uuid
 from fastapi import HTTPException
 from datetime import datetime, timezone
-from typing import Any, BinaryIO, Iterable
+from typing import Any, Iterable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import (
@@ -21,7 +21,9 @@ from app.config import settings
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.db.models.dataset import Dataset
 from app.db.models.storage_connection import StorageConnection
-from app.services import async_job as async_job_svc
+from app.services import async_job as async_job_svc, storage_access
+from app.services.content_snapshot import ContentError
+from app.services.storage_location import connector_location_id
 from app.services.async_job_notify import notify_job_terminal
 from app.services.dataset import DatasetService, IngestOutcome
 from app.services.dataset_source_access import validate_dataset_write
@@ -148,11 +150,64 @@ def _collect_within_limits(
     return collected, total_bytes
 
 
-def _close_stream(stream: BinaryIO) -> None:
-    close = getattr(stream, "close", None)
-    if callable(close):
-        with suppress(Exception):
-            close()
+@asynccontextmanager
+async def _registered_source(db, conn, revision):
+    """Retain admission through stream ingestion and verified adapter closure."""
+    permit = await storage_access.acquire(
+        db,
+        connector_location_id(conn.id),
+        "connection_import",
+        expected_revision=revision,
+    )
+    adapter = None
+    handles_closed = True
+
+    def close_stream(stream):
+        nonlocal handles_closed
+        try:
+            stream.close()
+        except BaseException:
+            handles_closed = False
+            raise ContentError("storage_operation_unsettled", 503) from None
+
+    try:
+        adapter = await build_adapter(db, conn)
+        yield adapter, close_stream
+    finally:
+        # A failed constructor/close cannot prove physical handles have ended.
+        # Leave its durable receipt unresolved rather than claim the source quiet.
+        if adapter is not None:
+            try:
+                adapter.close()
+            except BaseException:
+                handles_closed = False
+                raise
+            finally:
+                if handles_closed:
+                    await permit.__aexit__(None, None, None)
+
+
+async def _validate_connection_import(
+    db, job, connection_id, revision, location_id, epoch, *, lock=False
+):
+    from app.services.dataset_source_access import require_manager
+    from app.services.dataset_content import key_authority
+    from app.services.storage_connection import assert_connection_usable
+
+    actor = await require_manager(db, job.user_id)
+    conn = await db.get(StorageConnection, connection_id, populate_existing=True)
+    if conn is None:
+        raise HTTPException(404, detail={"code": "access_revoked"})
+    assert_connection_usable(actor, conn)
+    if revision is not None and conn.revision != revision:
+        raise HTTPException(409, detail={"code": "connection_revision_conflict"})
+    proof = (job.payload or {}).get("connection_authority")
+    if proof is not None and await key_authority(
+        db, actor, proof.get("api_key_id"), "datasets:write"
+    ) != proof.get("key_proof"):
+        raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+    await storage_access.check(db, location_id, expected_revision=epoch, lock=lock)
+    return conn
 
 
 def _result(
@@ -189,7 +244,6 @@ async def _run_dataset_import(
     SessionLocal = async_sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False
     )
-    adapter = None
     try:
         async with SessionLocal() as db:
             try:
@@ -236,143 +290,169 @@ async def _run_dataset_import(
                 dataset = await db.get(Dataset, dataset_id)
                 if dataset is None:
                     raise ValueError("dataset not found")
-                conn = await db.get(StorageConnection, connection_id)
-                if conn is None:
-                    raise ValueError("storage connection not found")
+                location_id = connector_location_id(connection_id)
+                maintenance_revision = payload.get("source_maintenance_revision", 1)
+                connection_revision = payload.get("connection_revision")
 
-                adapter = await build_adapter(db, conn)
-                objects, total_bytes = _collect_within_limits(
-                    adapter.list(source_path, recursive, include_globs),
-                    max_files=max_files,
-                    max_total_bytes=max_total_bytes,
-                )
-                total = len(objects)
-                await validate_dataset_write(db, dataset_id, authority)
+                async def check_source(*, lock=False):
+                    return await _validate_connection_import(
+                        db,
+                        job,
+                        connection_id,
+                        connection_revision,
+                        location_id,
+                        maintenance_revision,
+                        lock=lock,
+                    )
 
-                await async_job_svc.update_progress(
-                    db,
-                    job_uuid,
-                    5 if total else 90,
-                    extra_payload={
-                        "stage": "importing",
-                        "total_files": total,
-                        "total_bytes": total_bytes,
-                        "settings_version": snapshot_version,
-                    },
-                )
-                await db.commit()
-
-                svc = DatasetService(db)
-                added = 0
-                skipped = 0
-                linked_tasks = 0
-                errors: list[dict] = []
-                error_count = 0
-                last_pct = 5
-
-                for index, obj in enumerate(objects, start=1):
+                conn = await check_source()
+                async with _registered_source(db, conn, maintenance_revision) as source:
+                    adapter, close_stream = source
+                    objects, total_bytes = await storage_access.run(
+                        db,
+                        location_id,
+                        "connection_listing",
+                        lambda: _collect_within_limits(
+                            adapter.list(source_path, recursive, include_globs),
+                            max_files=max_files,
+                            max_total_bytes=max_total_bytes,
+                        ),
+                        expected_revision=maintenance_revision,
+                    )
+                    total = len(objects)
                     await validate_dataset_write(db, dataset_id, authority)
-                    if await _cancel_requested(db, job_uuid):
-                        await _finish_cancelled(
-                            db,
-                            job_uuid,
-                            result=_result(
-                                total=total,
-                                added=added,
-                                skipped=skipped + (total - index + 1),
-                                error_count=error_count,
-                                errors=errors,
-                                linked_tasks=linked_tasks,
-                                cancelled_at_index=index - 1,
-                            ),
-                        )
-                        await notify_job_terminal(db, job_id=job_uuid)
-                        await db.commit()
-                        return
+                    await check_source(lock=True)
 
-                    try:
-                        stream = adapter.open(obj.relpath)
+                    await async_job_svc.update_progress(
+                        db,
+                        job_uuid,
+                        5 if total else 90,
+                        extra_payload={
+                            "stage": "importing",
+                            "total_files": total,
+                            "total_bytes": total_bytes,
+                            "settings_version": snapshot_version,
+                        },
+                    )
+                    await db.commit()
+
+                    svc = DatasetService(db)
+                    added = 0
+                    skipped = 0
+                    linked_tasks = 0
+                    errors: list[dict] = []
+                    error_count = 0
+                    last_pct = 5
+
+                    for index, obj in enumerate(objects, start=1):
+                        await validate_dataset_write(db, dataset_id, authority)
+                        await check_source()
+                        if await _cancel_requested(db, job_uuid):
+                            await _finish_cancelled(
+                                db,
+                                job_uuid,
+                                result=_result(
+                                    total=total,
+                                    added=added,
+                                    skipped=skipped + (total - index + 1),
+                                    error_count=error_count,
+                                    errors=errors,
+                                    linked_tasks=linked_tasks,
+                                    cancelled_at_index=index - 1,
+                                ),
+                            )
+                            await notify_job_terminal(db, job_id=job_uuid)
+                            await db.commit()
+                            return
+
                         try:
-                            # S3 适配器用 base_prefix，SFTP 用 base_path —— 取到哪个用哪个，
-                            # 用于在用户把 source_path 写成含 base 的形式时对齐剥离。
-                            adapter_base = getattr(adapter, "base_prefix", None)
-                            if adapter_base is None:
-                                adapter_base = getattr(adapter, "base_path", "")
-                            dest_rel = _dest_relpath(
-                                obj.relpath,
-                                source_path,
-                                adapter_base or "",
-                            )
-                            outcome = await svc.ingest_one(
-                                dataset_id,
-                                obj.relpath,
-                                stream,
-                                size=obj.size,
-                                dest_relpath=dest_rel or None,
-                                directory_authority=authority,
-                            )
-                        finally:
-                            _close_stream(stream)
-                        if outcome.status == "added":
-                            added += 1
-                            linked_tasks += outcome.linked_tasks
-                            await db.commit()
-                            if outcome.item_id is not None:
-                                try:
-                                    await svc.enqueue_media_for_items([outcome.item_id])
-                                except Exception as exc:  # noqa: BLE001
-                                    log.warning(
-                                        "dataset_import media enqueue failed "
-                                        "job=%s item=%s err=%s",
-                                        job_id,
-                                        outcome.item_id,
-                                        exc,
-                                    )
-                        elif outcome.status == "skipped":
-                            skipped += 1
-                            await db.commit()
-                        else:
-                            error_count += 1
-                            _append_error(errors, outcome)
+                            stream = adapter.open(obj.relpath)
+                            try:
+                                # S3 适配器用 base_prefix，SFTP 用 base_path —— 取到哪个用哪个，
+                                # 用于在用户把 source_path 写成含 base 的形式时对齐剥离。
+                                adapter_base = getattr(adapter, "base_prefix", None)
+                                if adapter_base is None:
+                                    adapter_base = getattr(adapter, "base_path", "")
+                                dest_rel = _dest_relpath(
+                                    obj.relpath,
+                                    source_path,
+                                    adapter_base or "",
+                                )
+                                outcome = await svc.ingest_one(
+                                    dataset_id,
+                                    obj.relpath,
+                                    stream,
+                                    size=obj.size,
+                                    dest_relpath=dest_rel or None,
+                                    directory_authority=authority,
+                                )
+                            finally:
+                                close_stream(stream)
+                            await check_source(lock=True)
+                            if outcome.status == "added":
+                                added += 1
+                                linked_tasks += outcome.linked_tasks
+                                await db.commit()
+                                if outcome.item_id is not None:
+                                    try:
+                                        await svc.enqueue_media_for_items(
+                                            [outcome.item_id]
+                                        )
+                                    except Exception as exc:  # noqa: BLE001
+                                        log.warning(
+                                            "dataset_import media enqueue failed "
+                                            "job=%s item=%s err=%s",
+                                            job_id,
+                                            outcome.item_id,
+                                            exc,
+                                        )
+                            elif outcome.status == "skipped":
+                                skipped += 1
+                                await db.commit()
+                            else:
+                                error_count += 1
+                                _append_error(errors, outcome)
+                                await db.rollback()
+                        except (HTTPException, ContentError):
+                            raise
+                        except Exception as exc:  # noqa: BLE001
                             await db.rollback()
-                    except HTTPException:
-                        raise
-                    except Exception as exc:  # noqa: BLE001
-                        await db.rollback()
-                        error_count += 1
-                        _append_error(
-                            errors,
-                            IngestOutcome(
-                                status="error",
-                                relpath=obj.relpath,
-                                error=f"{type(exc).__name__}: {exc}",
-                            ),
-                        )
-                        log.warning(
-                            "dataset_import item failed job=%s relpath=%s err=%s",
-                            job_id,
-                            obj.relpath,
-                            exc,
-                        )
+                            error_count += 1
+                            _append_error(
+                                errors,
+                                IngestOutcome(
+                                    status="error",
+                                    relpath=obj.relpath,
+                                    error=f"{type(exc).__name__}: {exc}",
+                                ),
+                            )
+                            log.warning(
+                                "dataset_import item failed job=%s relpath=%s err=%s",
+                                job_id,
+                                obj.relpath,
+                                exc,
+                            )
 
-                    pct = 5 + int(index / max(total, 1) * 90)
-                    if pct >= last_pct + 5 or index == total:
-                        await async_job_svc.update_progress(db, job_uuid, pct)
-                        await db.commit()
-                        last_pct = pct
+                        pct = 5 + int(index / max(total, 1) * 90)
+                        if pct >= last_pct + 5 or index == total:
+                            await check_source(lock=True)
+                            await async_job_svc.update_progress(db, job_uuid, pct)
+                            await db.commit()
+                            last_pct = pct
 
-                result = _result(
-                    total=total,
-                    added=added,
-                    skipped=skipped,
-                    error_count=error_count,
-                    errors=errors,
-                    linked_tasks=linked_tasks,
-                )
-                await svc.assert_temporal_dataset_has_scenes(dataset_id)
-                await async_job_svc.mark_complete(db, job_uuid, result=result)
-                await notify_job_terminal(db, job_id=job_uuid)
-                await db.commit()
+                    result = _result(
+                        total=total,
+                        added=added,
+                        skipped=skipped,
+                        error_count=error_count,
+                        errors=errors,
+                        linked_tasks=linked_tasks,
+                    )
+                    await svc.assert_temporal_dataset_has_scenes(dataset_id)
+                    await check_source(lock=True)
+                    await async_job_svc.mark_complete(db, job_uuid, result=result)
+                    await notify_job_terminal(db, job_id=job_uuid)
+                    await db.commit()
             except Exception as exc:  # noqa: BLE001
                 await db.rollback()
                 err = f"{type(exc).__name__}: {exc}"
@@ -384,9 +464,6 @@ async def _run_dataset_import(
                     await db.rollback()
                 raise
     finally:
-        if adapter is not None:
-            with suppress(Exception):
-                adapter.close()
         await engine.dispose()
 
 

@@ -17,7 +17,11 @@ from app.db.models.dataset_asset import StorageLocation, StorageLocationProbe
 from app.services import async_job as jobs
 from app.services import filesystem_storage as fs
 from app.services import storage_location as locations
-from app.services import reference_storage, source_selection as selection
+from app.services import (
+    reference_storage,
+    source_selection as selection,
+    storage_access,
+)
 from app.services import dataset_source_access as access
 from app.services.async_job_notify import notify_job_terminal
 
@@ -131,7 +135,9 @@ async def run_context(db, run_id):
     return location, source, run, job
 
 
-async def validate_context(db, location, source, *, snapshot=None):
+async def validate_context(
+    db, location, source, *, snapshot=None, check_maintenance_snapshot=True
+):
     if (
         not source.enabled
         or source.unregistered_at is not None
@@ -145,6 +151,16 @@ async def validate_context(db, location, source, *, snapshot=None):
         or location.kind not in {"filesystem", "s3", "sftp"}
     ):
         raise fs.FilesystemStorageError("location_unavailable")
+    await storage_access.check(
+        db,
+        location.id,
+        expected_revision=(
+            snapshot.get("maintenance_revision", 1)
+            if snapshot is not None and check_maintenance_snapshot
+            else None
+        ),
+        lock=True,
+    )
     if location.kind in {"s3", "sftp"}:
         configured = await reference_storage.configuration(db, location)
         if (
@@ -320,7 +336,7 @@ async def start_scan(db, source_id, actor, *, api_key_id=None):
         )
     )
     if existing:
-        await require_dataset_write(db, source, snapshot=existing.snapshot)
+        await validate_write_context(db, location, source, snapshot=existing.snapshot)
         return existing, False
     node = f"worker:{source.config['node_id']}"
     await locations.require_scan_node(db, location, node)
@@ -335,6 +351,9 @@ async def start_scan(db, source_id, actor, *, api_key_id=None):
         snapshot={
             "source_revision": source.config_revision,
             "location_revision": location.config_revision,
+            "maintenance_revision": await storage_access.check(
+                db, location.id, lock=True
+            ),
             "dataset_lifecycle_revision": dataset.lifecycle_revision,
             "anchor": anchor,
             "scan_host_id": probe.result.get("host_id"),
@@ -490,7 +509,9 @@ async def claim(db, run_id, task_id, node_id):
 
 
 def failure_code(exc, fallback):
-    if isinstance(exc, fs.FilesystemStorageError):
+    from app.services.content_snapshot import ContentError
+
+    if isinstance(exc, (fs.FilesystemStorageError, ContentError)):
         return exc.code
     if isinstance(exc, HTTPException):
         if isinstance(exc.detail, dict) and "code" in exc.detail:
@@ -565,6 +586,8 @@ async def next_directory(db, run_id, task_id, fence):
     )
     fs.relative_path(path)
     return {
+        "location_id": location.id,
+        "maintenance_revision": run.snapshot.get("maintenance_revision", 1),
         "path_digest": entry.path_digest,
         "relative_path": entry.relative_path,
         "phase": run.phase,

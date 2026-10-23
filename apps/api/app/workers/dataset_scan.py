@@ -11,7 +11,7 @@ from app.config import settings
 from app.db.models.dataset_source import DatasetScanRun, DatasetSource
 from app.db.models.async_job import AsyncJob
 from app.services import dataset_scans as svc
-from app.services import filesystem_storage as fs
+from app.services import filesystem_storage as fs, storage_access
 from app.workers.celery_app import celery_app
 
 
@@ -86,8 +86,15 @@ async def execute_scan(run_id, task_id, node_id):
                     if work.get("transition"):
                         continue
                     if work.get("kind") == "s3":
-                        manifest = await asyncio.to_thread(
-                            work["access"].list_page, work["path"], work["cursor"]
+                        manifest = await storage_access.run(
+                            db,
+                            work["location_id"],
+                            "scan",
+                            work["access"].list_page,
+                            work["path"],
+                            work["cursor"],
+                            expected_revision=work["maintenance_revision"],
+                            node_id=node_id,
                         )
                     else:
                         scan_directory = (
@@ -97,13 +104,16 @@ async def execute_scan(run_id, task_id, node_id):
                                 work["config"], *args, **kwargs
                             )
                         )
-                        manifest = await asyncio.wait_for(
-                            asyncio.to_thread(
-                                scan_directory,
-                                work["path"],
-                                expected_anchor=work["anchor"],
-                                expected_identity=work["identity"],
-                            ),
+                        manifest = await storage_access.run(
+                            db,
+                            work["location_id"],
+                            "scan",
+                            scan_directory,
+                            work["path"],
+                            expected_anchor=work["anchor"],
+                            expected_identity=work["identity"],
+                            expected_revision=work["maintenance_revision"],
+                            node_id=node_id,
                             timeout=5,
                         )
                     await svc.apply_directory(

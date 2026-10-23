@@ -52,7 +52,7 @@ from app.services import dataset_scans as svc
 from app.services import dataset_source_access as access
 from app.services.audit import AuditAction, AuditService
 from app.services.filesystem_storage import FilesystemStorageError
-from app.services.content_snapshot import IMAGE_RESPONSES
+from app.services.content_snapshot import IMAGE_RESPONSES, ContentError
 
 manager = require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
 
@@ -79,7 +79,7 @@ async def audit(db, actor, request, action, target_id):
 
 
 def conflict(exc):
-    return HTTPException(409, detail={"code": exc.code})
+    return HTTPException(getattr(exc, "status", 409), detail={"code": exc.code})
 
 
 @router.post("/dataset-sources", response_model=DatasetSourceOut, status_code=201)
@@ -93,7 +93,7 @@ async def create_source(
         source = await svc.create_source(
             db, payload, actor, api_key_id=getattr(request.state, "api_key_id", None)
         )
-    except FilesystemStorageError as exc:
+    except (FilesystemStorageError, ContentError) as exc:
         raise conflict(exc) from None
     await audit(db, actor, request, AuditAction.DATASET_SOURCE_CREATE, source.id)
     await db.commit()
@@ -243,7 +243,7 @@ async def start_scan(
         run, created = await svc.start_scan(
             db, source_id, actor, api_key_id=getattr(request.state, "api_key_id", None)
         )
-    except FilesystemStorageError as exc:
+    except (FilesystemStorageError, ContentError) as exc:
         raise conflict(exc) from None
     await audit(db, actor, request, AuditAction.DATASET_SCAN_START, source_id)
     await db.commit()
@@ -453,7 +453,7 @@ async def resume_scan(
         run = await svc.resume_scan(
             db, run_id, actor, api_key_id=getattr(request.state, "api_key_id", None)
         )
-    except FilesystemStorageError as exc:
+    except (FilesystemStorageError, ContentError) as exc:
         raise conflict(exc) from None
     await audit(db, actor, request, AuditAction.DATASET_SCAN_RESUME, run.source_id)
     await db.commit()
@@ -849,7 +849,7 @@ async def configure_sync_schedule(
         )
         await db.commit()
         return row
-    except FilesystemStorageError as exc:
+    except (FilesystemStorageError, ContentError) as exc:
         raise conflict(exc) from None
 
 
@@ -866,9 +866,12 @@ async def continue_sync_schedule(
 ):
     from app.services import dataset_source_sync as sync
 
-    row = await sync.continue_cycle(
-        db, source_id, payload, actor, getattr(request.state, "api_key_id", None)
-    )
+    try:
+        row = await sync.continue_cycle(
+            db, source_id, payload, actor, getattr(request.state, "api_key_id", None)
+        )
+    except (FilesystemStorageError, ContentError) as exc:
+        raise conflict(exc) from None
     await audit(db, actor, request, "dataset_source.sync_schedule.continue", source_id)
     await db.commit()
     return row

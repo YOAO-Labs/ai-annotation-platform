@@ -43,6 +43,8 @@ class StorageLocationOut(BaseModel):
     kind: str
     enabled: bool
     config_revision: int
+    maintenance_state: Literal["active", "draining", "stopped"] = "active"
+    maintenance_revision: int = 1
     connection_id: uuid.UUID | None = None
     root_handle: str | None = None
     relative_path: str | None = None

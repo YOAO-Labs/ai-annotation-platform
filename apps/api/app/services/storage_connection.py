@@ -11,6 +11,7 @@ import errno
 import socket
 from contextlib import contextmanager
 from threading import Timer
+from functools import partial
 
 from fastapi import HTTPException
 from botocore.exceptions import (
@@ -317,6 +318,8 @@ class StorageConnectionService:
         api_key_id: uuid.UUID | None = None,
     ) -> tuple[bool, str, int | None]:
         from app.services.dataset_content import key_authority
+        from app.services import storage_access
+        from app.services.storage_location import connector_location_id
 
         actor = await _active_actor(db, actor_id)
         assert_connection_usable(actor, conn)
@@ -325,8 +328,23 @@ class StorageConnectionService:
         target = target_host(conn)
         allowlist = await _allowed_target(db, target)
         secret = decrypt_secret(conn.secret_enc) if conn.secret_enc else {}
+        location_id = connector_location_id(conn_id)
+        maintenance_revision = await storage_access.check(db, location_id)
         result = await _probe(
-            conn.kind, dict(conn.config or {}), secret, allowlist=allowlist
+            conn.kind,
+            dict(conn.config or {}),
+            secret,
+            allowlist=allowlist,
+            io=partial(
+                storage_access.run,
+                db,
+                location_id,
+                "connection_test",
+                expected_revision=maintenance_revision,
+            ),
+        )
+        await storage_access.check(
+            db, location_id, expected_revision=maintenance_revision, lock=True
         )
         await _allowed_target(db, target)
         conn = await db.get(StorageConnection, conn_id, populate_existing=True)
@@ -400,13 +418,33 @@ async def _allowed_target(db, target):
 _PROBE_TIMEOUT_SECONDS = 35
 
 
-async def _probe(kind, config, secret, *, allowlist=None):
+async def _probe(kind, config, secret, *, allowlist=None, io=None):
+    from app.services.content_snapshot import ContentError
+
     try:
-        with anyio.fail_after(_PROBE_TIMEOUT_SECONDS):
-            count = await anyio.to_thread.run_sync(
-                _test_blocking, kind, config, secret, allowlist, abandon_on_cancel=True
+        if io is not None:
+            count = await io(
+                _test_blocking,
+                kind,
+                config,
+                secret,
+                allowlist,
+                timeout=_PROBE_TIMEOUT_SECONDS,
             )
+        else:
+            # Inline candidates do not establish a registered-location quiet proof.
+            with anyio.fail_after(_PROBE_TIMEOUT_SECONDS):
+                count = await anyio.to_thread.run_sync(
+                    _test_blocking,
+                    kind,
+                    config,
+                    secret,
+                    allowlist,
+                    abandon_on_cancel=True,
+                )
         return True, "认证与目录列举成功", count
+    except ContentError:
+        raise
     except Exception as exc:  # Never expose SDK errors: they may contain secrets/URLs.
         return False, _probe_failure_message(exc), None
 

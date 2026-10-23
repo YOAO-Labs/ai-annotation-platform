@@ -39,6 +39,7 @@ from app.services import storage_location as svc
 from app.services.dataset_source_access import require_manager
 from app.services.dataset_content import key_authority
 from app.services.audit import AuditAction, AuditService
+from app.services.content_snapshot import ContentError
 from app.services.filesystem_storage import FilesystemStorageError
 
 manager = require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
@@ -55,7 +56,7 @@ router = APIRouter(dependencies=[Depends(location_scopes)])
 
 
 def filesystem_error(exc):
-    return HTTPException(409, detail={"code": exc.code})
+    return HTTPException(getattr(exc, "status", 409), detail={"code": exc.code})
 
 
 async def lock_current_admin(db, actor, request):
@@ -126,7 +127,7 @@ async def create_location(
     actor = await lock_current_admin(db, actor, request)
     try:
         location = await svc.create_filesystem(db, payload)
-    except FilesystemStorageError as exc:
+    except (FilesystemStorageError, ContentError) as exc:
         raise filesystem_error(exc) from None
     except IntegrityError:
         raise HTTPException(409, "Storage location name already exists") from None
@@ -343,9 +344,19 @@ async def directories(
     actor = await require_manager(db, actor.id)
     location = await svc.get_visible(db, location_id, actor)
     revision = location.config_revision
+    from app.services import storage_access
+
     try:
-        result = await svc.browse(db, location, path=path, limit=limit, cursor=cursor)
-    except FilesystemStorageError as exc:
+        maintenance_revision = await storage_access.check(db, location.id)
+        result = await svc.browse(
+            db,
+            location,
+            path=path,
+            limit=limit,
+            cursor=cursor,
+            maintenance_revision=maintenance_revision,
+        )
+    except (FilesystemStorageError, ContentError) as exc:
         raise filesystem_error(exc) from None
     actor = await require_manager(db, actor.id)
     location = await svc.get_visible(db, location_id, actor, lock=True)
@@ -358,11 +369,24 @@ async def directories(
         != proof
     ):
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+    try:
+        await storage_access.check(
+            db, location.id, expected_revision=maintenance_revision, lock=True
+        )
+    except ContentError as exc:
+        raise filesystem_error(exc) from None
     return result
 
 
 def _probe_worker(
-    location_id, revision, actor_id, node_id, sample_file, api_key_id, key_proof
+    location_id,
+    revision,
+    actor_id,
+    node_id,
+    sample_file,
+    api_key_id=None,
+    key_proof=None,
+    maintenance_revision=1,
 ):
     from app.workers.storage_probe import probe_location
 
@@ -385,6 +409,7 @@ def _probe_worker(
                     sample_file,
                     str(api_key_id) if api_key_id else None,
                     key_proof,
+                    maintenance_revision,
                 ],
                 queue=worker_direct(node_id),
                 connection=connection,
@@ -423,8 +448,14 @@ async def probe(
             from app.services.filesystem_storage import relative_path
 
             relative_path(payload.sample_file)
-        except FilesystemStorageError as exc:
+        except (FilesystemStorageError, ContentError) as exc:
             raise filesystem_error(exc) from None
+    from app.services import storage_access
+
+    try:
+        maintenance_revision = await storage_access.check(db, location.id)
+    except ContentError as exc:
+        raise filesystem_error(exc) from None
     revision, actor_id = location.config_revision, actor.id
     observed_at = datetime.now(timezone.utc)
     node_id = (
@@ -432,7 +463,13 @@ async def probe(
     )
     try:
         result = (
-            await svc.perform_probe(db, location, node_id, payload.sample_file)
+            await svc.perform_probe(
+                db,
+                location,
+                node_id,
+                payload.sample_file,
+                maintenance_revision=maintenance_revision,
+            )
             if payload.node_id == "api"
             else await asyncio.wait_for(
                 asyncio.to_thread(
@@ -444,19 +481,35 @@ async def probe(
                     payload.sample_file,
                     key_id,
                     key_proof,
+                    maintenance_revision,
                 ),
                 timeout=5,
             )
         )
     except TimeoutError:
         result = {"ok": False, "code": "node_timeout", "capabilities": {}}
+    except ContentError as exc:
+        raise filesystem_error(exc) from None
+    if result.get("code") in {
+        "storage_maintenance",
+        "storage_maintenance_changed",
+        "storage_maintenance_busy",
+    }:
+        raise HTTPException(409, detail={"code": result["code"]})
     actor = await require_manager(db, actor.id)
     if await key_authority(db, actor, key_id, "datasets:write") != key_proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
     location = await svc.get_visible(db, location_id, actor, lock=True)
     if location.config_revision != revision or not location.enabled:
         raise HTTPException(409, "Storage configuration revision changed")
-    await svc.store_probe(db, location, node_id, result, observed_at)
+    try:
+        await storage_access.check(
+            db, location.id, expected_revision=maintenance_revision, lock=True
+        )
+        result = {**result, "maintenance_revision": maintenance_revision}
+        await svc.store_probe(db, location, node_id, result, observed_at)
+    except ContentError as exc:
+        raise filesystem_error(exc) from None
     await AuditService.log(
         db,
         actor=actor,

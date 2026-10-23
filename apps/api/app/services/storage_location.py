@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timedelta, timezone
 import hashlib
 import socket
@@ -24,7 +23,7 @@ from app.db.models.dataset_asset import (
 )
 from app.db.models.storage_connection import StorageConnection
 from app.db.models.user import User
-from app.services import filesystem_storage as fs
+from app.services import filesystem_storage as fs, storage_access
 from app.services.dataset_assets import (
     PURPOSE_BUCKET_ATTRIBUTES,
     validate_legacy_bindings,
@@ -157,8 +156,9 @@ async def to_out(db, location, actor):
             reference = True
         except fs.FilesystemStorageError:
             pass
+    maintenance = await storage_access.state(db, location.id)
     actions = ["read"]
-    if location.enabled and reference:
+    if location.enabled and reference and maintenance["state"] == "active":
         actions.extend(["probe", "browse"])
     if actor.role == UserRole.SUPER_ADMIN and (
         location.kind == "filesystem" or connection is not None
@@ -175,6 +175,8 @@ async def to_out(db, location, actor):
         "kind": location.kind,
         "enabled": location.enabled,
         "config_revision": location.config_revision,
+        "maintenance_state": maintenance["state"],
+        "maintenance_revision": maintenance["revision"],
         "cache_policy": config.get("cache_policy", "preview"),
         "original_cache_quota_bytes": config.get("original_cache_quota_bytes", 0),
         "original_cache_ttl_seconds": config.get("original_cache_ttl_seconds", 86400),
@@ -308,10 +310,15 @@ async def node_anchor(db, location, node_id):
     return (prior.result or {}).get("anchor") if prior else None
 
 
-async def browse(db, location, *, path, limit, cursor):
+async def browse(db, location, *, path, limit, cursor, maintenance_revision=None):
     if location.kind == "s3":
-        return await browse_s3(db, location, path, cursor)
+        return await browse_s3(
+            db, location, path, cursor, maintenance_revision=maintenance_revision
+        )
     require_reference_backend(location)
+    maintenance_revision = await storage_access.check(
+        db, location.id, expected_revision=maintenance_revision
+    )
     path = fs.relative_path(path)
     path_digest = hashlib.sha256(path.encode()).hexdigest()
     node = api_node_id()
@@ -330,6 +337,7 @@ async def browse(db, location, *, path, limit, cursor):
             if (
                 data["location"] != str(location.id)
                 or data["revision"] != location.config_revision
+                or data.get("maintenance_revision", 1) != maintenance_revision
                 or data["path_digest"] != path_digest
                 or data["node"] != node
             ):
@@ -345,18 +353,25 @@ async def browse(db, location, *, path, limit, cursor):
         from functools import partial
 
         browse_directory = partial(fs.browse_directory, location.config)
-    names, more, snapshot = await run_in_threadpool(
+    names, more, snapshot = await storage_access.run(
+        db,
+        location.id,
+        "browse",
         browse_directory,
         path,
+        expected_revision=maintenance_revision,
+        node_id=node,
         expected_anchor=anchor,
         limit=limit,
         after=data["after"] if data else None,
         snapshot=data["snapshot"] if data else None,
     )
+    await storage_access.check(db, location.id, expected_revision=maintenance_revision)
     next_cursor = (
         jwt.encode(
             {
                 "aud": "storage-directory",
+                "maintenance_revision": maintenance_revision,
                 "exp": datetime.now(timezone.utc) + timedelta(minutes=15),
                 "location": str(location.id),
                 "revision": location.config_revision,
@@ -380,33 +395,56 @@ async def browse(db, location, *, path, limit, cursor):
     }
 
 
-async def perform_probe(db, location, node_id, sample_file):
+async def perform_probe(
+    db, location, node_id, sample_file, *, maintenance_revision=None
+):
     require_reference_backend(location)
+    revision = await storage_access.check(
+        db, location.id, expected_revision=maintenance_revision
+    )
     if location.kind in {"s3", "sftp"}:
         from app.services.reference_storage import configuration
 
         access = await configuration(db, location)
-        return await asyncio.wait_for(
-            asyncio.to_thread(access.probe, sample_file), timeout=3
-        )
-    anchor = await node_anchor(db, location, node_id)
-    try:
-        result = await asyncio.wait_for(
-            asyncio.to_thread(
-                fs.probe_directory, location.config, sample_file, expected_anchor=anchor
-            ),
+        result = await storage_access.run(
+            db,
+            location.id,
+            "probe",
+            access.probe,
+            sample_file,
+            expected_revision=revision,
+            node_id=node_id,
             timeout=3,
         )
-    except TimeoutError:
-        result = {"ok": False, "code": "node_timeout", "capabilities": {}}
-    result["anchor"] = anchor or result.get("anchor")
-    return result
+    else:
+        anchor = await node_anchor(db, location, node_id)
+        try:
+            result = await storage_access.run(
+                db,
+                location.id,
+                "probe",
+                fs.probe_directory,
+                location.config,
+                sample_file,
+                expected_anchor=anchor,
+                expected_revision=revision,
+                node_id=node_id,
+                timeout=3,
+            )
+        except TimeoutError:
+            result = {"ok": False, "code": "node_timeout", "capabilities": {}}
+        result["anchor"] = anchor or result.get("anchor")
+    await storage_access.check(db, location.id, expected_revision=revision)
+    return {**result, "maintenance_revision": revision}
 
 
-async def browse_s3(db, location, path, cursor):
+async def browse_s3(db, location, path, cursor, *, maintenance_revision=None):
     from app.services.reference_storage import configuration
 
     require_reference_backend(location)
+    maintenance_revision = await storage_access.check(
+        db, location.id, expected_revision=maintenance_revision
+    )
     access = await configuration(db, location)
     token = None
     if cursor:
@@ -420,17 +458,30 @@ async def browse_s3(db, location, path, cursor):
             if (
                 data["location"] != str(location.id)
                 or data["revision"] != location.config_revision
+                or data.get("maintenance_revision", 1) != maintenance_revision
                 or data["path"] != path
             ):
                 raise ValueError()
             token = data["token"]
         except (JWTError, ValueError, KeyError, TypeError):
             raise HTTPException(409, "Directory cursor is invalid or stale") from None
-    page = await run_in_threadpool(access.list_page, path, token, directories=True)
+    page = await storage_access.run(
+        db,
+        location.id,
+        "browse",
+        access.list_page,
+        path,
+        token,
+        directories=True,
+        expected_revision=maintenance_revision,
+        node_id=api_node_id(),
+    )
+    await storage_access.check(db, location.id, expected_revision=maintenance_revision)
     next_cursor = (
         jwt.encode(
             {
                 "aud": "s3-directory",
+                "maintenance_revision": maintenance_revision,
                 "exp": datetime.now(timezone.utc) + timedelta(minutes=15),
                 "location": str(location.id),
                 "revision": location.config_revision,
@@ -455,6 +506,12 @@ async def browse_s3(db, location, path, cursor):
 
 
 async def store_probe(db, location, node_id, result, observed_at):
+    await storage_access.check(
+        db,
+        location.id,
+        expected_revision=result.get("maintenance_revision", 1),
+        lock=True,
+    )
     previous = await db.get(
         StorageLocationProbe, (location.id, node_id), populate_existing=True
     )
@@ -514,11 +571,13 @@ def probe_out(probe, location):
 
 async def require_scan_node(db, location, node_id):
     require_reference_backend(location)
+    revision = await storage_access.check(db, location.id, lock=True)
     if not node_id.startswith("worker:"):
         raise HTTPException(409, "Scanning requires a verified worker node")
     probe = await db.get(StorageLocationProbe, (location.id, node_id))
     if (
         probe is None
+        or (probe.result or {}).get("maintenance_revision", 1) != revision
         or not probe_out(probe, location)["ok"]
         or probe_out(probe, location)["capabilities"].get("list") != "verified"
     ):

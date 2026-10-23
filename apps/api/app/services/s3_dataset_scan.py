@@ -29,6 +29,8 @@ async def next_page(db, location, source, run, job):
     job.payload = {**job.payload, "stage": "enumerating"}
     return {
         "kind": "s3",
+        "location_id": location.id,
+        "maintenance_revision": run.snapshot.get("maintenance_revision", 1),
         "access": access,
         "path": source.config["relative_path"],
         "cursor": checkpoint.get("cursor"),

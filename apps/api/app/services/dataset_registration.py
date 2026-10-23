@@ -1,7 +1,6 @@
 """Fenced two-stage directory registration with durable, per-file checkpoints."""
 
 from datetime import timedelta
-import asyncio
 import uuid
 import time
 
@@ -19,7 +18,7 @@ from app.services import async_job as jobs
 from app.services import dataset_scans as scans
 from app.services import storage_location as locations
 from app.services import filesystem_storage as fs
-from app.services import reference_storage
+from app.services import reference_storage, storage_access
 from app.services import dataset_source_changes as changes
 from app.services.async_job_notify import notify_job_terminal
 from app.services.dataset_content import key_authority
@@ -185,6 +184,7 @@ async def start_preflight(db, scan_id, actor, *, api_key_id=None, worker_node=No
         snapshot={
             "source_revision": source.config_revision,
             "location_revision": location.config_revision,
+            "maintenance_revision": scan.snapshot.get("maintenance_revision", 1),
             "dataset_lifecycle_revision": scan.snapshot.get(
                 "dataset_lifecycle_revision", 1
             ),
@@ -513,10 +513,20 @@ async def ensure_source_available(db, location, source, node):
         source.config["relative_path"],
     )
     anchor = await locations.node_anchor(db, location, node)
+    revision = await storage_access.check(db, location.id, lock=True)
+    location_id = location.id
     await db.commit()
     try:
-        await asyncio.wait_for(
-            asyncio.to_thread(check_source_directory, config, relative, anchor),
+        await storage_access.run(
+            db,
+            location_id,
+            "registration_directory",
+            check_source_directory,
+            config,
+            relative,
+            anchor,
+            expected_revision=revision,
+            node_id=node,
             timeout=3,
         )
     except (TimeoutError, fs.FilesystemStorageError):
