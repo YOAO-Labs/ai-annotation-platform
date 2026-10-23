@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -16,6 +16,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from aap_assets_video_inputs import execution as tracker_input_execution
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import ProjectDataset
 from app.db.models.video_tracker_job import VideoTrackerJob
@@ -25,6 +26,14 @@ from tests.test_video_execution_native import (
     _install_ready_tracker_scope,
     _proof,
     _step,
+)
+from tests.test_video_tracker_input_lifecycle import (
+    _capture_input,
+    _finish_request,
+    _native_call as _tracker_native_call,
+    _plan_for_claim,
+    _prepare_and_claim,
+    _stage_times,
 )
 from tests.test_video_tracker_input_native import _capture, _seed_tracker_job
 
@@ -155,6 +164,41 @@ async def _delete(db, kind, fixture, *, operation_id=None):
     return json.loads(value) if isinstance(value, str) else value
 
 
+async def _seed_tracker_input(db, *, ready=True):
+    actor, _, _, task_id, job = await _seed_tracker_job(db)
+    _, captured = await _capture_input(db, actor, job)
+    claim = await _prepare_and_claim(db, actor, task_id, captured)
+    if ready:
+        plan, entries = _plan_for_claim(claim, frame_count=6)
+        await _stage_times(db, claim, entries)
+        result = await _tracker_native_call(
+            db, "finish_video_tracker_input", _finish_request(claim, plan)
+        )
+        assert result.status == "ready"
+    row = (
+        await db.execute(
+            text(
+                "SELECT task.project_id,item.dataset_id FROM tasks AS task "
+                "JOIN dataset_items AS item ON item.id=task.dataset_item_id "
+                "WHERE task.id=:id"
+            ),
+            {"id": task_id},
+        )
+    ).one()
+    db.add(ProjectDataset(project_id=row.project_id, dataset_id=row.dataset_id))
+    await db.flush()
+    return {
+        "actor_id": actor,
+        "project_id": row.project_id,
+        "dataset_id": row.dataset_id,
+        "task_id": task_id,
+        "job_id": job.id,
+        "input_id": captured.input_id,
+        "job": job,
+        "claim": claim,
+    }
+
+
 @pytest.mark.parametrize("kind", ["project", "unlink"])
 async def test_unretired_cancelled_execution_blocks_cascade(db_session, kind):
     fixture = await _seed_unretired(db_session)
@@ -281,6 +325,359 @@ async def test_started_legacy_job_without_ledger_requires_explicit_drain(
     )
     assert await _delete(db_session, kind, fixture) == _blocked(kind)
     await _assert_task_job_present(db_session, fixture)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "started_legacy",
+        "input_scope_orphan",
+        "missing_scope_started_legacy",
+        "current_run_before_journal",
+        "stale_retired_journal",
+    ],
+)
+async def test_deletion_block_also_retains_unproven_video_input(db_session, case):
+    fixture = await _seed_tracker_input(db_session)
+    job = fixture["job"]
+    now = await db_session.scalar(text("SELECT pg_catalog.clock_timestamp()"))
+
+    if case in {"current_run_before_journal", "stale_retired_journal"}:
+        result = await _step(
+            db_session,
+            "claim",
+            {
+                "job_id": str(job.id),
+                "worker_id": str(uuid.uuid4()),
+                "lease_seconds": 30,
+            },
+        )
+        assert result["status"] == "ok", result
+        if case == "stale_retired_journal":
+            await db_session.execute(
+                text(
+                    "INSERT INTO aap_jobs_v1.video_execution_journals "
+                    "(job_id,run_id,input_id,writer_terminal,execution_retired) "
+                    "VALUES(:job,:run,:input,true,true)"
+                ),
+                {
+                    "job": job.id,
+                    "run": uuid.uuid4(),
+                    "input": fixture["input_id"],
+                },
+            )
+        job.status = "cancelled"
+        job.cancel_requested_at = now
+    else:
+        job.status = "completed"
+        job.started_at = now
+        job.completed_at = now
+        if case == "input_scope_orphan":
+            await db_session.flush()
+            await db_session.execute(
+                text("DELETE FROM public.video_tracker_jobs WHERE id=:id"),
+                {"id": job.id},
+            )
+        elif case == "missing_scope_started_legacy":
+            await db_session.flush()
+            await db_session.execute(
+                text(
+                    "DELETE FROM public.video_tracker_input_scopes WHERE input_id=:id"
+                ),
+                {"id": fixture["input_id"]},
+            )
+    await db_session.flush()
+
+    deletion = await _delete(db_session, "project", fixture)
+    retention_raw = await db_session.scalar(
+        text("SELECT aap_labeling_v1.video_tracker_input_referenced(:id)"),
+        {"id": fixture["input_id"]},
+    )
+    retention = (
+        json.loads(retention_raw) if isinstance(retention_raw, str) else retention_raw
+    )
+    sweep = await _tracker_native_call(
+        db_session,
+        "sweep_video_tracker_inputs",
+        tracker_input_execution.SweepVideoInputsRequest(limit=10),
+    )
+    input_status = await db_session.scalar(
+        text(
+            "SELECT status FROM public.asset_accepted_video_inputs WHERE input_id=:id"
+        ),
+        {"id": fixture["input_id"]},
+    )
+    queued_prefixes = await db_session.scalar(
+        text(
+            "SELECT count(*) FROM public.asset_accepted_video_input_attempts AS attempt "
+            "JOIN public.asset_accepted_input_garbage AS garbage USING (prefix) "
+            "WHERE attempt.input_id=:id AND garbage.reason='input_expired'"
+        ),
+        {"id": fixture["input_id"]},
+    )
+
+    observed = {
+        "deletion": deletion,
+        "referenced": retention.get("data", {}).get("referenced"),
+        "sweep_expired": sweep.expired,
+        "input_status": input_status,
+        "queued_prefixes": queued_prefixes,
+    }
+    assert retention.get("data", {}).get("referenced") is True, retention
+    assert observed == {
+        "deletion": _blocked("project"),
+        "referenced": True,
+        "sweep_expired": 0,
+        "input_status": "ready",
+        "queued_prefixes": 0,
+    }, observed
+
+
+async def _retire_current_tracker_run_without_routes(db, fixture):
+    job = fixture["job"]
+    result = await _step(
+        db,
+        "claim",
+        {
+            "job_id": str(job.id),
+            "worker_id": str(uuid.uuid4()),
+            "lease_seconds": 30,
+        },
+    )
+    assert result["status"] == "ok", result
+    claim = result["execution"]
+    project_id = await db.scalar(
+        text("SELECT project_id FROM public.tasks WHERE id=:task"),
+        {"task": fixture["task_id"]},
+    )
+    await db.execute(
+        text(
+            "INSERT INTO aap_jobs_v1.video_execution_journals "
+            "(job_id,run_id,input_id,task_id,project_id,source_item_id) "
+            "VALUES(:job,:run,:input,:task,:project,:source)"
+        ),
+        {
+            "job": job.id,
+            "run": uuid.UUID(claim["run_id"]),
+            "input": fixture["input_id"],
+            "task": fixture["task_id"],
+            "project": project_id,
+            "source": job.dataset_item_id,
+        },
+    )
+    job.status = "failed"
+    job.completed_at = await db.scalar(text("SELECT pg_catalog.clock_timestamp()"))
+    await db.flush()
+    journal = (
+        await db.execute(
+            text(
+                "SELECT run_id,writer_terminal,execution_retired "
+                "FROM aap_jobs_v1.video_execution_journals WHERE job_id=:job"
+            ),
+            {"job": job.id},
+        )
+    ).one()
+    assert journal == (uuid.UUID(claim["run_id"]), True, True)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "never_started_terminal",
+        "retired_current_run",
+        "never_started_terminal_without_scope",
+        "retired_current_run_without_scope",
+        "review_grace",
+    ],
+)
+async def test_proven_safe_inputs_keep_existing_retention_rules(db_session, case):
+    fixture = await _seed_tracker_input(db_session)
+    job = fixture["job"]
+    now = await db_session.scalar(text("SELECT pg_catalog.clock_timestamp()"))
+    if case in {"never_started_terminal", "never_started_terminal_without_scope"}:
+        job.status = "completed"
+        job.completed_at = now
+    else:
+        await _retire_current_tracker_run_without_routes(db_session, fixture)
+        if case == "review_grace":
+            job.status = "pending_review"
+            job.staged_result = {"frames": []}
+            job.completed_at = now
+    if case in {
+        "never_started_terminal_without_scope",
+        "retired_current_run_without_scope",
+    }:
+        await db_session.flush()
+        await db_session.execute(
+            text("DELETE FROM public.video_tracker_input_scopes WHERE input_id=:id"),
+            {"id": fixture["input_id"]},
+        )
+    await db_session.flush()
+
+    retention_raw = await db_session.scalar(
+        text("SELECT aap_labeling_v1.video_tracker_input_referenced(:id)"),
+        {"id": fixture["input_id"]},
+    )
+    retention = (
+        json.loads(retention_raw) if isinstance(retention_raw, str) else retention_raw
+    )
+    sweep = await _tracker_native_call(
+        db_session,
+        "sweep_video_tracker_inputs",
+        tracker_input_execution.SweepVideoInputsRequest(limit=10),
+    )
+    input_status = await db_session.scalar(
+        text(
+            "SELECT status FROM public.asset_accepted_video_inputs WHERE input_id=:id"
+        ),
+        {"id": fixture["input_id"]},
+    )
+    queued_prefixes = await db_session.scalar(
+        text(
+            "SELECT count(*) FROM public.asset_accepted_video_input_attempts AS attempt "
+            "JOIN public.asset_accepted_input_garbage AS garbage USING (prefix) "
+            "WHERE attempt.input_id=:id AND garbage.reason='input_expired'"
+        ),
+        {"id": fixture["input_id"]},
+    )
+
+    if case == "review_grace":
+        assert retention["data"]["referenced"] is True
+        assert sweep.expired == 0
+        assert input_status == "ready"
+        assert queued_prefixes == 0
+    else:
+        assert retention["data"]["referenced"] is False
+        assert sweep.expired == 1
+        assert input_status == "expired"
+        assert queued_prefixes == 1
+
+
+async def test_missing_scope_nonready_input_fails_closed_and_gc_skips(db_session):
+    fixture = await _seed_tracker_input(db_session, ready=False)
+    now = await db_session.scalar(text("SELECT pg_catalog.clock_timestamp()"))
+    fixture["job"].status = "completed"
+    fixture["job"].started_at = now
+    fixture["job"].completed_at = now
+    await db_session.flush()
+    await db_session.execute(
+        text(
+            "UPDATE public.asset_accepted_video_inputs "
+            "SET lease_expires_at=:expired,retention_checked_at=NULL "
+            "WHERE input_id=:id"
+        ),
+        {"expired": now - timedelta(seconds=1), "id": fixture["input_id"]},
+    )
+    await db_session.execute(
+        text(
+            "UPDATE public.asset_accepted_video_input_attempts "
+            "SET lease_expires_at=:expired WHERE input_id=:id AND generation=:generation"
+        ),
+        {
+            "expired": now - timedelta(seconds=1),
+            "id": fixture["input_id"],
+            "generation": fixture["claim"].generation,
+        },
+    )
+    await db_session.execute(
+        text("DELETE FROM public.video_tracker_input_scopes WHERE input_id=:id"),
+        {"id": fixture["input_id"]},
+    )
+
+    retention_raw = await db_session.scalar(
+        text("SELECT aap_labeling_v1.video_tracker_input_referenced(:id)"),
+        {"id": fixture["input_id"]},
+    )
+    retention = (
+        json.loads(retention_raw) if isinstance(retention_raw, str) else retention_raw
+    )
+    sweep = await _tracker_native_call(
+        db_session,
+        "sweep_video_tracker_inputs",
+        tracker_input_execution.SweepVideoInputsRequest(limit=10),
+    )
+    observed = {
+        "retention": retention,
+        "sweep_expired": sweep.expired,
+        "input_status": await db_session.scalar(
+            text(
+                "SELECT status FROM public.asset_accepted_video_inputs WHERE input_id=:id"
+            ),
+            {"id": fixture["input_id"]},
+        ),
+        "queued_prefixes": await db_session.scalar(
+            text(
+                "SELECT count(*) FROM public.asset_accepted_video_input_attempts AS attempt "
+                "JOIN public.asset_accepted_input_garbage AS garbage USING (prefix) "
+                "WHERE attempt.input_id=:id"
+            ),
+            {"id": fixture["input_id"]},
+        ),
+    }
+    assert observed == {
+        "retention": {
+            "schema": "aap-labeling-video-tracker-inputs/v1",
+            "ok": False,
+            "error": {"code": "invalid_response"},
+        },
+        "sweep_expired": 0,
+        "input_status": "materializing",
+        "queued_prefixes": 0,
+    }, observed
+
+
+async def test_tracker_input_retention_lock_contention_fails_closed_and_gc_skips(
+    test_engine,
+):
+    owner = async_sessionmaker(test_engine, expire_on_commit=False)
+    async with owner.begin() as db:
+        fixture = await _seed_tracker_input(db)
+        now = await db.scalar(text("SELECT pg_catalog.clock_timestamp()"))
+        fixture["job"].status = "completed"
+        fixture["job"].started_at = now
+        fixture["job"].completed_at = now
+    async with owner() as locker, owner() as caller:
+        await locker.execute(
+            text("SELECT id FROM public.video_tracker_jobs WHERE id=:id FOR UPDATE"),
+            {"id": fixture["job_id"]},
+        )
+        retention_raw = await asyncio.wait_for(
+            caller.scalar(
+                text("SELECT aap_labeling_v1.video_tracker_input_referenced(:id)"),
+                {"id": fixture["input_id"]},
+            ),
+            5,
+        )
+        retention = (
+            json.loads(retention_raw)
+            if isinstance(retention_raw, str)
+            else retention_raw
+        )
+        sweep = await asyncio.wait_for(
+            _tracker_native_call(
+                caller,
+                "sweep_video_tracker_inputs",
+                tracker_input_execution.SweepVideoInputsRequest(limit=10),
+            ),
+            5,
+        )
+        assert retention == {
+            "schema": "aap-labeling-video-tracker-inputs/v1",
+            "ok": False,
+            "error": {"code": "invalid_response"},
+        }
+        assert sweep.expired == 0
+        assert (
+            await caller.scalar(
+                text(
+                    "SELECT status FROM public.asset_accepted_video_inputs WHERE input_id=:id"
+                ),
+                {"id": fixture["input_id"]},
+            )
+            == "ready"
+        )
+        await caller.rollback()
+        await locker.rollback()
 
 
 @pytest.mark.parametrize("kind", ["project", "unlink"])

@@ -280,6 +280,7 @@ SQL_ARTIFACTS = (
     "0309_workspace_e2e_fixtures.sql",
     "0310_workspace_scale_seed.sql",
     "0311_notifications_preferences.sql",
+    "0312_video_tracker_input_retention.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -403,6 +404,7 @@ SCHEMA_ARTIFACTS = (
     "0309_workspace_e2e_fixtures.schema.json",
     "0310_workspace_scale_seed.schema.json",
     "0311_notifications_preferences.schema.json",
+    "0312_video_tracker_input_retention.schema.json",
 )
 TEST_FILES = (
     "tests/test_scale_seed_workspace_native.py",
@@ -434,6 +436,7 @@ TEST_FILES = (
     "tests/test_workspace_module_healthcheck.py",
     "tests/test_workspace_consumer_profile_native.py",
     "tests/test_video_deletion_retirement_native.py",
+    "tests/test_video_tracker_input_retention_roles.py",
     "tests/test_video_deletion_retirement_bindings.py",
     "tests/test_video_deletion_retirement_http_native.py",
     "tests/test_workspace_dataset_unlink_native.py",
@@ -3041,8 +3044,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0311"]:
-            raise RuntimeError("module-data acceptance requires migration head 0311")
+        if heads != ["0312"]:
+            raise RuntimeError("module-data acceptance requires migration head 0312")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(

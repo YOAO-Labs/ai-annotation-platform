@@ -482,6 +482,10 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 合同、SQL／策略镜像和独立包检查见 `apps/notifications/README.md`；受限数据库、真实 API 和 Node 同合同检查复用 `scripts/verify_module_data_boundary.py` 的独占临时资源。运行前先按 `apps/notifications/conformance/node/README.md` 在该独立目录安装锁定依赖，不向共享的根 Node 目录安装；验收器会在创建数据库和容器前执行 peer 自检，缺少 Node 或依赖时直接保留前置失败记录。完整 Notifications 投递、重放和通道装配仍按模块台账推进。
 
+### 视频输入回收的保留前提
+
+视频输入保留迁移 `0312` 通过 Jobs 事实让 Labeling 保留未退役及未知旧执行的输入，并保留现有 pin、审核宽限期和已证明安全的释放。它只阻止后续误过期，不自动修复此前已过期或已进入垃圾队列的输入；旧 claim 路径和已发出对象删除租约仍需单独保护。升级或降级前先停止并排空／围栏清理器、盘点已有前缀与租约，在完成对应保护前不要重新启用删除。日常主环境尚未采用此迁移。
+
 ### Workspace 配置值与依赖能力
 
 API 的 locked sync 会安装本仓库 `apps/workspace` 和 `apps/inference`，不要从旧 API schema/service 路径导入已迁移的配置或预标注值。配置／模板模型与纯 kind、克隆和规范化策略位于 `aap_workspace`；预标注、能力词表／归一化和保存编排校验位于 `aap_inference`。API 的 `inference_limits` 适配器显式传入当前 tracker 设置。

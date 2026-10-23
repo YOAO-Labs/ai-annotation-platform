@@ -76,3 +76,29 @@ API 私表 Project SELECT／UPDATE 被撤销，独立函数账号和 Node 无私
 本轮仅本地整合与限定验收，未切换日常环境、推送、发布、部署生产或扩展 Go。
 完整凭据、冷工件、备份恢复和容量继续按
 [唯一台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)推进。
+
+## Follow-up — accepted tracker-input retention
+
+Migration 0312 adds a Jobs-owned retention fact used by the existing Labeling
+retention projection. An input remains referenced while a current execution is
+unretired, while a started legacy Job has no execution ledger, or while the
+available execution/journal facts cannot prove that the current run retired.
+A retired journal releases input only when its run ID matches the current
+execution and both `writer_terminal` and `execution_retired` are true. A
+never-started Job can proceed through the existing Labeling status and
+review-grace rules. For a missing Job, committed never-started clearance only
+resolves the Jobs execution-retention fact; Annotation pin checks still run,
+and there is no deleted Job status to inspect. Annotation pins and
+pending-review grace for existing Jobs are unchanged.
+
+If Labeling scope is absent, Jobs can recover the canonical Job ID from the
+existing Assets fact only while the accepted input is ready. A nonready
+scope-less input returns an invalid retention response, so the Assets sweeper
+skips it instead of expiring its input or queuing object deletion. This is a
+fail-closed backlog limitation for damaged or out-of-band records. It does not
+provide a legacy worker drain, an operator repair path, or physical worker and
+credential fencing; those remain separate recovery work.
+
+### 历史垃圾队列的采用限制
+
+0312 只改变后续引用／清扫判断，不撤回此前已过期和入队的前缀。原有垃圾领取会直接领取到期视频前缀，清理器随后删除 S3 版本；已发出的租约也不会被新事实自动撤销。采用或降级前须真实停止并排空／围栏清理器，盘点旧前缀与租约。claim-time 保护和旧输入修复仍是独立前提，不能仅凭本次判断修复重新启用删除。

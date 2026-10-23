@@ -3131,6 +3131,7 @@ ALTER FUNCTION aap_jobs_v1.video_execution_running_mask_roots_live(uuid) OWNER T
 ALTER FUNCTION aap_jobs_v1.video_execution_checkpoint_mask_retained(text) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.video_execution_input_retained(uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.video_execution_source_item_retained(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.video_tracker_input_retention_facts(uuid,uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1._video_checkpoint_reply(jsonb,text) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1._video_checkpoint_canonical_json(jsonb) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1._video_checkpoint_digest(jsonb) OWNER TO :"jobs_owner";
@@ -3168,6 +3169,8 @@ GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_running_mask_roots_live(uu
 GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_checkpoint_mask_retained(text) TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_input_retained(uuid) TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_source_item_retained(uuid) TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_tracker_input_retention_facts(uuid,uuid)
+    TO :"labeling_owner";
 
 -- Final video publication stays inside the Labeling business transaction.
 GRANT CREATE ON SCHEMA aap_labeling_v1 TO :"labeling_owner";
