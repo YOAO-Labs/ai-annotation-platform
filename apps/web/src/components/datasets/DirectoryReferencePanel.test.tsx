@@ -1,10 +1,13 @@
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DirectoryReferencePanel } from "./DirectoryReferencePanel";
 const api = vi.hoisted(() => ({
   sources: vi.fn(),
+  source: vi.fn(),
+  probe: vi.fn(),
+  create: vi.fn(),
   locations: vi.fn(),
   scans: vi.fn(),
   syncSchedule: vi.fn(),
@@ -22,25 +25,26 @@ vi.mock("@/stores/authStore", () => ({
   useAuthStore: (selector: (value: unknown) => unknown) =>
     selector({ user: { id: "user" }, sessionId: "session" }),
 }));
+const source = {
+  id: "source",
+  cache_policy: "none",
+  dataset_id: "dataset",
+  enabled: true,
+  location_id: "location",
+  name: "source",
+  node_id: "node",
+  ownership_mode: "reference",
+  policy_revision: 1,
+  relative_path: "root",
+  config_revision: 2,
+  recursive: true,
+  include_globs: ["*"],
+  exclude_globs: [],
+  unregistered_at: null,
+};
 it("refreshes a paused schedule revision after saving source rules before re-enabling", async () => {
   let changed = false;
-  const source = {
-    id: "source",
-    cache_policy: "none",
-    dataset_id: "dataset",
-    enabled: true,
-    location_id: "location",
-    name: "source",
-    node_id: "node",
-    ownership_mode: "reference",
-    policy_revision: 1,
-    relative_path: "root",
-    config_revision: 2,
-    recursive: true,
-    include_globs: ["*"],
-    exclude_globs: [],
-    unregistered_at: null,
-  };
+
   api.sources.mockImplementation(async () => ({
     items: [{ ...source, config_revision: changed ? 3 : 2 }],
     total: 1,
@@ -77,6 +81,19 @@ it("refreshes a paused schedule revision after saving source rules before re-ena
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  await screen.findByRole("option", { name: "source" });
+  const creation = screen.getByText("新增来源", { exact: false }).closest("details")!;
+  const settings = screen.getByText("来源设置", { exact: false }).closest("details")!;
+  const schedule = screen
+    .getByText("周期计划", { exact: false, selector: "summary" })
+    .closest("details")!;
+  expect(creation).not.toHaveAttribute("open");
+  expect(settings).not.toHaveAttribute("open");
+  expect(schedule).not.toHaveAttribute("open");
+  fireEvent.click(settings.querySelector("summary")!);
+  fireEvent.click(schedule.querySelector("summary")!);
+  expect(settings).toHaveAttribute("open");
+  expect(schedule).toHaveAttribute("open");
   await screen.findByRole("button", { name: "启用周期扫描" });
   fireEvent.change(screen.getByRole("textbox", { name: "新的排除规则 1" }), {
     target: { value: "hidden" },
@@ -99,3 +116,65 @@ it("refreshes a paused schedule revision after saving source rules before re-ena
 });
 
 vi.mock("@/components/jobs/AsyncJobDetailModal", () => ({ AsyncJobDetailModal: () => null }));
+
+function LocationOutput() {
+  return <output data-testid="location">{useLocation().search}</output>;
+}
+it("configures the first source, closes its form and focuses the new URL identity", async () => {
+  let created = false;
+  api.sources.mockImplementation(async () => ({
+    items: created ? [source] : [],
+    total: created ? 1 : 0,
+  }));
+  api.source.mockResolvedValue(source);
+  api.locations.mockResolvedValue({
+    items: [
+      {
+        id: "location",
+        name: "CephFS",
+        kind: "filesystem",
+        enabled: true,
+        declared_capabilities: { reference: true },
+      },
+    ],
+    total: 1,
+  });
+  api.scans.mockResolvedValue({ items: [], total: 0 });
+  api.syncSchedule.mockResolvedValue(null);
+  api.probe.mockResolvedValue({ ok: true });
+  api.create.mockImplementation(async () => {
+    created = true;
+    return source;
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={["/datasets/dataset?tab=sources"]}>
+        <DirectoryReferencePanel datasetId="dataset" persistUrl />
+        <LocationOutput />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  await screen.findByRole("option", { name: "CephFS（服务器目录）" });
+  fireEvent.change(screen.getByRole("combobox", { name: "原地引用存储位置" }), {
+    target: { value: "location" },
+  });
+  fireEvent.change(screen.getByPlaceholderText("worker 的完整 hostname"), {
+    target: { value: "node" },
+  });
+  expect(screen.getByRole("button", { name: "配置目录来源" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "配置目录来源" }));
+  await screen.findByText("来源已配置，请运行只读预扫描");
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(screen.getByTestId("location")).toHaveTextContent("source=source");
+  await waitFor(() =>
+    expect(screen.getByText("新增来源", { exact: false }).closest("details")).not.toHaveAttribute(
+      "open",
+    ),
+  );
+  expect(api.create).toHaveBeenCalledWith(
+    expect.objectContaining({ dataset_id: "dataset", location_id: "location", node_id: "node" }),
+  );
+  view.unmount();
+  client.clear();
+});

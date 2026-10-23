@@ -96,6 +96,11 @@ describe("重定位后的新增接纳", () => {
   it("移动后仍有未消费新增时可确认", async () => {
     mount(1);
     const checkbox = await screen.findByRole("checkbox", { name: /已核对差异/ });
+    expect(screen.getByLabelText("本轮增量差异").closest("details")).toBeNull();
+    const records = screen.getByText("预检与登记明细", { exact: false }).closest("details")!;
+    expect(records).not.toHaveAttribute("open");
+    fireEvent.click(records.querySelector("summary")!);
+    expect(records).toHaveAttribute("open");
     await waitFor(() => expect(screen.queryByText(/正在刷新差异/)).not.toBeInTheDocument());
     fireEvent.click(checkbox);
     expect(screen.getByRole("button", { name: "确认仅登记新增" })).toBeEnabled();

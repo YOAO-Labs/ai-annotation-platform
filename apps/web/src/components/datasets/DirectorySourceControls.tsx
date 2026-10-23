@@ -27,7 +27,7 @@ export function DirectorySourceControls({
     }
   };
   return (
-    <div className="mt-2 rounded-md bg-muted p-2">
+    <div className="mt-4 text-sm">
       <p>
         {source.ownership_mode === "reference" ? "原地引用" : "托管复制"} ·{" "}
         {source.unregistered_at ? "已注销（保留历史）" : source.enabled ? "已启用" : "已停用"}
@@ -74,7 +74,7 @@ export function DirectorySourceControls({
           </Button>
         </div>
       )}
-      <p className="mt-1 text-muted-foreground">
+      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
         位置禁止缓存时，来源的预览策略不生效。变更策略后须重新扫描、预检；已有缓存单独计量，关闭策略不删除共享对象。
       </p>
       <DirectorySourceRules source={source} act={act} />

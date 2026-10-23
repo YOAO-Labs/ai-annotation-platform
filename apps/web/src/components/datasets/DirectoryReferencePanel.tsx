@@ -4,6 +4,7 @@ import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { datasetSourcesApi as api } from "@/api/datasetSources";
+import { listStyles } from "@/components/ui/listStyles";
 import { Button } from "@/components/ui/Button";
 import { useAuthStore } from "@/stores/authStore";
 import { useVerifiedImage, verifiedContentError } from "@/hooks/useVerifiedImage";
@@ -13,7 +14,18 @@ import { DirectoryCachedPreview, DirectorySourceControls } from "./DirectorySour
 import { AsyncJobDetailModal } from "@/components/jobs/AsyncJobDetailModal";
 import { parseReference } from "@/utils/referenceContent";
 
-const field = "rounded-md border border-input bg-background px-2 py-1.5 text-xs text-foreground";
+const disclosure =
+  "cursor-pointer text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+const scanStatus: Record<string, string> = {
+  pending: "等待中",
+  running: "进行中",
+  completed: "完成",
+  failed: "失败",
+  cancelled: "已取消",
+};
+
+const field =
+  "min-w-0 max-w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 export function ReferenceImagePreview({ itemId, sha256 }: { itemId: string; sha256: string }) {
   const image = useVerifiedImage(`/dataset-items/${itemId}/content?sha256=${sha256}`);
@@ -264,310 +276,119 @@ function DirectoryReferencePanelOwner({
     }
   };
   return (
-    <section
-      aria-label="服务器目录接入"
-      className="mb-4 rounded-lg border border-border bg-card p-3 text-xs"
-    >
-      <h4 className="mb-1 text-sm font-semibold">服务器目录与远端来源 · 登记与复制</h4>
-      <p className="mb-3 text-muted-foreground">
-        选择原图保留在来源或复制到平台，预览缓存单独设置和计量。先扫描、预检，再确认登记；已提交结果保留。本机文件夹通过上传接入。
-      </p>
-      <div className="flex flex-wrap items-end gap-2">
-        <label className="grid gap-1">
-          存储位置
+    <section aria-label="服务器目录接入" className="mb-4 space-y-4 text-sm">
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-md font-semibold">目录来源</h2>
+            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+              先扫描目录，再预检差异，核对后登记图片。
+            </p>
+          </div>
+          {source && (
+            <Link
+              className="text-xs text-brand hover:underline"
+              to={storageLocationLink(source.location_id, sourceReturnPath)}
+            >
+              查看来源存储位置
+            </Link>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
           <select
-            aria-label="原地引用存储位置"
+            aria-label="已有目录来源"
             className={field}
-            value={locationId}
+            value={activeSource ?? ""}
             onChange={(e) => {
-              setLocationId(e.target.value);
-              setBrowsePath(null);
+              setSourceId(e.target.value);
+              syncFocus(e.target.value);
+              setIncompleteLink(false);
+              setSelectedScanId("");
+              setHistoryOffset(0);
+              setOffset(0);
             }}
           >
-            <option value="">选择已登记位置</option>
-            {locations.data?.items
-              .filter((l) => l.declared_capabilities.reference && l.enabled)
-              .map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}（{l.kind === "filesystem" ? "服务器目录" : l.kind.toUpperCase()}）
-                </option>
-              ))}
+            <option value="">选择来源</option>
+            {visibleSources.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+                {s.unregistered_at ? "（已注销）" : !s.enabled ? "（停用）" : ""}
+              </option>
+            ))}
           </select>
-        </label>
-        <label className="grid gap-1">
-          位置下相对目录 / S3 前缀
-          <input
-            className={field}
-            value={directory}
-            onChange={(e) => setDirectory(e.target.value)}
-            placeholder="例如 traffic/vehicle"
-          />
-        </label>
-        <Button
-          size="sm"
-          disabled={!locationId || busy}
-          onClick={() => {
-            setBrowseCursor(undefined);
-            setBrowsePath(directory);
-          }}
-        >
-          浏览目录
-        </Button>
-        <label className="grid gap-1">
-          扫描节点
-          <input
-            className={field}
-            value={node}
-            onChange={(e) => setNode(e.target.value)}
-            placeholder="worker 的完整 hostname"
-          />
-        </label>
-        <label className="grid gap-1">
-          原图策略
-          <select
-            aria-label="原图策略"
-            className={field}
-            value={ownership}
-            onChange={(e) => setOwnership(e.target.value as typeof ownership)}
-          >
-            <option value="reference">原地引用（不复制原图）</option>
-            <option value="managed_copy">托管复制</option>
-          </select>
-        </label>
-        <label className="grid gap-1">
-          预览策略
-          <select
-            aria-label="预览策略"
-            className={field}
-            value={cache}
-            onChange={(e) => setCache(e.target.value as typeof cache)}
-          >
-            <option value="preview">预览缓存</option>
-            <option value="none">无缓存</option>
-          </select>
-        </label>
-        <label className="flex items-center gap-1 py-1">
-          <input
-            type="checkbox"
-            checked={recursive}
-            onChange={(e) => setRecursive(e.target.checked)}
-          />
-          包含子目录
-        </label>
-        <label className="grid gap-1">
-          图片匹配规则
-          <input
-            aria-label="图片匹配规则"
-            className={field}
-            value={include}
-            onChange={(e) => setInclude(e.target.value)}
-          />
-        </label>
-        <label className="grid gap-1">
-          排除规则
-          <input
-            aria-label="排除规则"
-            className={field}
-            value={exclude}
-            onChange={(e) => setExclude(e.target.value)}
-            placeholder="逗号分隔，例如 temp/*,*.tmp"
-          />
-        </label>
-        <Button
-          size="sm"
-          disabled={!locationId || !node || busy}
-          onClick={() =>
-            void act(async (current) => {
-              const probe = await api.probe(locationId, node);
-              if (!current()) return;
-              if (!probe.ok) throw new Error(`扫描节点不可用：${probe.code}`);
-              const created = await api.create({
-                dataset_id: datasetId,
-                location_id: locationId,
-                name: directory.split("/").filter(Boolean).pop()?.slice(0, 100) || "目录根",
-                relative_path: directory,
-                node_id: node,
-                recursive,
-                ownership_mode: ownership,
-                cache_policy: cache,
-                include_globs: include
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-                exclude_globs: exclude
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-              });
-              if (current()) {
-                setSourceId(created.id);
-                syncFocus(created.id);
-                setSelectedScanId("");
-                syncFocus(source!.id);
-                setHistoryOffset(0);
-                setOffset(0);
-                setMessage("来源已配置，请运行只读预扫描");
-              }
-            })
-          }
-        >
-          配置目录来源
-        </Button>
-        <a className="text-brand underline" href="/storage">
-          配置存储位置
-        </a>
-      </div>
-      {locations.data?.items.find((l) => l.id === locationId)?.kind === "s3" && (
-        <p className="mt-2 text-muted-foreground">
-          S3
-          前缀按原始字符匹配，保留空格、连续斜线和点段。版本或条件读取固定原件；每次使用仍核验完整摘要。
-        </p>
-      )}
-      {locations.data?.items.find((l) => l.id === locationId)?.kind === "sftp" && (
-        <p className="mt-2 text-muted-foreground">
-          此位置由运维配置为只读隔离根。填写根内相对目录；不跟随发现的符号链接，每次读取仍核验完整摘要。
-        </p>
-      )}
-      {browsePath !== null && (
-        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md bg-muted p-2">
-          <span>目录：{browsePath || "根目录"}</span>
-          {dirs.data?.entries.map((d) => (
-            <Button
-              size="sm"
-              key={d.relative_path}
-              onClick={() => {
-                setDirectory(d.relative_path);
-                setBrowsePath(d.relative_path);
-                setBrowseCursor(undefined);
-              }}
-            >
-              {d.name}
-            </Button>
-          ))}
-          {dirs.data?.next_cursor && (
-            <Button size="sm" onClick={() => setBrowseCursor(dirs.data!.next_cursor!)}>
-              下一页目录
-            </Button>
-          )}
           <Button
             size="sm"
-            onClick={() => {
-              setDirectory("");
-              setBrowsePath("");
-              setBrowseCursor(undefined);
-            }}
+            variant="primary"
+            disabled={
+              !writable ||
+              busy ||
+              !!activeRun ||
+              active.isPending ||
+              active.isError ||
+              registration.isPending ||
+              registration.isError ||
+              !!activeRegistration
+            }
+            onClick={() =>
+              void act(async (current) => {
+                const probe = await api.probe(source!.location_id, source!.node_id);
+                if (!current()) return;
+                if (!probe.ok) throw new Error(`扫描节点不可用：${probe.code}`);
+                await api.start(source!.id);
+                if (current()) {
+                  setOffset(0);
+                  setSelectedScanId("");
+                  setHistoryOffset(0);
+                }
+              })
+            }
           >
-            返回位置根
+            只读预扫描
           </Button>
-          {dirs.error && <span role="alert">{verifiedContentError(dirs.error)}</span>}
-        </div>
-      )}
-      {source && (
-        <Link
-          className="mt-3 inline-block text-brand underline"
-          to={storageLocationLink(source.location_id, sourceReturnPath)}
-        >
-          查看来源存储位置
-        </Link>
-      )}
-      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
-        <select
-          aria-label="已有目录来源"
-          className={field}
-          value={activeSource ?? ""}
-          onChange={(e) => {
-            setSourceId(e.target.value);
-            syncFocus(e.target.value);
-            setIncompleteLink(false);
-            setSelectedScanId("");
-            setHistoryOffset(0);
-            setOffset(0);
-          }}
-        >
-          <option value="">选择来源</option>
-          {visibleSources.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-              {s.unregistered_at ? "（已注销）" : !s.enabled ? "（停用）" : ""}
-            </option>
-          ))}
-        </select>
-        <Button
-          size="sm"
-          disabled={
-            !writable ||
-            busy ||
-            !!activeRun ||
-            active.isPending ||
-            active.isError ||
-            registration.isPending ||
-            registration.isError ||
-            !!activeRegistration
-          }
-          onClick={() =>
-            void act(async (current) => {
-              const probe = await api.probe(source!.location_id, source!.node_id);
-              if (!current()) return;
-              if (!probe.ok) throw new Error(`扫描节点不可用：${probe.code}`);
-              await api.start(source!.id);
-              if (current()) {
-                setOffset(0);
-                setSelectedScanId("");
-                setHistoryOffset(0);
-              }
-            })
-          }
-        >
-          只读预扫描
-        </Button>
-        {run && (
-          <>
-            <span role="status">
-              {run.status === "completed" ? "扫描完整，登记与差异见下方" : `扫描 ${run.status}`} ·{" "}
-              {JSON.stringify(run.counts)}
-            </span>
-            <Button
-              size="sm"
-              onClick={() => {
-                void client.invalidateQueries({ queryKey: ["dataset-scans", owner, source?.id] });
-                void registration.refetch();
-                if (run.complete) void entries.refetch();
-              }}
-            >
-              刷新扫描
-            </Button>
-            {["failed", "cancelled"].includes(run.status) && (
+          {run && (
+            <>
+              <span role="status" className="text-sm text-muted-foreground">
+                {run.status === "completed"
+                  ? "扫描完成"
+                  : `扫描${scanStatus[run.status] ?? run.status}`}
+                {run.counts.observed_count != null
+                  ? ` · 已观测 ${run.counts.observed_count} 项`
+                  : ""}
+              </span>
               <Button
                 size="sm"
-                disabled={busy || readOnly || !!activeRun || !!activeRegistration}
-                onClick={() => void act(() => api.resume(run.id))}
+                onClick={() => {
+                  void client.invalidateQueries({ queryKey: ["dataset-scans", owner, source?.id] });
+                  void registration.refetch();
+                  if (run.complete) void entries.refetch();
+                }}
               >
-                恢复扫描
+                刷新扫描
               </Button>
-            )}
-          </>
-        )}
-      </div>
-      {source && (
-        <section aria-label="扫描历史" className="mt-3 rounded-md border border-border p-3">
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <h5 className="text-sm font-semibold">扫描历史</h5>
+              {["failed", "cancelled"].includes(run.status) && (
+                <Button
+                  size="sm"
+                  disabled={busy || readOnly || !!activeRun || !!activeRegistration}
+                  onClick={() => void act(() => api.resume(run.id))}
+                >
+                  恢复扫描
+                </Button>
+              )}
+            </>
+          )}
+        </div>
+        {source && (
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-border pt-3 text-xs leading-relaxed text-muted-foreground">
+            <span className="break-all">目录：{source.relative_path || "位置根目录"}</span>
             <span>
-              最近完整扫描：
-              {complete.data?.items[0]
-                ? new Date(
-                    complete.data.items[0].completed_at ?? complete.data.items[0].created_at,
-                  ).toLocaleString("zh-CN")
-                : "暂无"}
+              {source.ownership_mode === "reference" ? "原地引用" : "托管复制"} ·{" "}
+              {source.cache_policy === "preview" ? "预览缓存" : "无缓存"}
             </span>
-            {complete.data?.items[0] && (
-              <Button size="sm" onClick={() => selectRun(complete.data!.items[0].id)}>
-                查看最近完整扫描
-              </Button>
-            )}
-            <Button size="sm" onClick={() => selectRun("")}>
-              查看最新扫描
-            </Button>
+            <span>{source.unregistered_at ? "已注销" : source.enabled ? "已启用" : "已停用"}</span>
+          </div>
+        )}
+        {source && (
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span role="status">
               当前执行：
               {active.isError || registration.isError
@@ -591,186 +412,218 @@ function DirectoryReferencePanelOwner({
               </Button>
             )}
           </div>
-          <ul className="grid gap-1">
-            {scans.data?.items.map((item) => (
-              <li key={item.id} className="flex flex-wrap items-center gap-2">
-                <Button
-                  size="sm"
-                  aria-pressed={run?.id === item.id}
-                  onClick={() => selectRun(item.id)}
-                >
-                  {new Date(item.created_at).toLocaleString("zh-CN")} · {item.status} ·{" "}
-                  {item.id.slice(0, 8)}
-                </Button>
-                {item.async_job_id && (
-                  <Button size="sm" onClick={() => setJobId(item.async_job_id)}>
-                    查看扫描任务
-                  </Button>
-                )}
-              </li>
-            ))}
-          </ul>
-          <div className="mt-2 flex items-center gap-2">
-            <Button
-              size="sm"
-              disabled={!historyOffset || scans.isFetching}
-              onClick={() => setHistoryOffset((n) => Math.max(0, n - 20))}
-            >
-              上一页扫描
-            </Button>
-            <span>
-              第 {historyOffset / 20 + 1} 页 · 共 {scans.data?.total ?? 0} 次
+        )}
+        <details className="mt-3 border-t border-border pt-3" open={!source}>
+          <summary className={disclosure}>
+            新增来源{" "}
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
+              服务器目录、S3 或 SFTP
             </span>
-            <Button
-              size="sm"
-              disabled={scans.isFetching || historyOffset + 20 >= (scans.data?.total ?? 0)}
-              onClick={() => setHistoryOffset((n) => n + 20)}
-            >
-              下一页扫描
-            </Button>
+          </summary>
+          <p className="mb-4 mt-3 text-sm leading-relaxed text-muted-foreground">
+            选择已注册的存储位置，填写其下的相对路径。原图和预览缓存策略分别设置；本机文件夹请通过上传接入。
+          </p>
+          <div className="grid items-end gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <label className="grid gap-1">
+              存储位置
+              <select
+                aria-label="原地引用存储位置"
+                className={field}
+                value={locationId}
+                onChange={(e) => {
+                  setLocationId(e.target.value);
+                  setBrowsePath(null);
+                }}
+              >
+                <option value="">选择已登记位置</option>
+                {locations.data?.items
+                  .filter((l) => l.declared_capabilities.reference && l.enabled)
+                  .map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name}（{l.kind === "filesystem" ? "服务器目录" : l.kind.toUpperCase()}）
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <div className="flex min-w-0 flex-wrap items-end gap-2 sm:col-span-2">
+              <label className="grid min-w-0 flex-1 gap-1">
+                位置下相对目录 / S3 前缀
+                <input
+                  className={field}
+                  value={directory}
+                  onChange={(e) => setDirectory(e.target.value)}
+                  placeholder="例如 traffic/vehicle"
+                />
+              </label>
+              <Button
+                size="sm"
+                disabled={!locationId || busy}
+                onClick={() => {
+                  setBrowseCursor(undefined);
+                  setBrowsePath(directory);
+                }}
+              >
+                浏览目录
+              </Button>
+            </div>
+            <label className="grid gap-1">
+              扫描节点
+              <input
+                className={field}
+                value={node}
+                onChange={(e) => setNode(e.target.value)}
+                placeholder="worker 的完整 hostname"
+              />
+            </label>
+            <label className="grid gap-1">
+              原图策略
+              <select
+                aria-label="原图策略"
+                className={field}
+                value={ownership}
+                onChange={(e) => setOwnership(e.target.value as typeof ownership)}
+              >
+                <option value="reference">原地引用（不复制原图）</option>
+                <option value="managed_copy">托管复制</option>
+              </select>
+            </label>
+            <label className="grid gap-1">
+              预览策略
+              <select
+                aria-label="预览策略"
+                className={field}
+                value={cache}
+                onChange={(e) => setCache(e.target.value as typeof cache)}
+              >
+                <option value="preview">预览缓存</option>
+                <option value="none">无缓存</option>
+              </select>
+            </label>
+            <label className="grid min-w-0 gap-1 sm:col-span-2">
+              图片匹配规则
+              <input
+                aria-label="图片匹配规则"
+                className={field}
+                value={include}
+                onChange={(e) => setInclude(e.target.value)}
+              />
+            </label>
+            <label className="grid gap-1">
+              排除规则
+              <input
+                aria-label="排除规则"
+                className={field}
+                value={exclude}
+                onChange={(e) => setExclude(e.target.value)}
+                placeholder="逗号分隔，例如 temp/*,*.tmp"
+              />
+            </label>
+            <label className="flex items-center gap-1 py-1">
+              <input
+                type="checkbox"
+                checked={recursive}
+                onChange={(e) => setRecursive(e.target.checked)}
+              />
+              包含子目录
+            </label>
+            <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={!locationId || !node || busy}
+                onClick={() =>
+                  void act(async (current) => {
+                    const probe = await api.probe(locationId, node);
+                    if (!current()) return;
+                    if (!probe.ok) throw new Error(`扫描节点不可用：${probe.code}`);
+                    const created = await api.create({
+                      dataset_id: datasetId,
+                      location_id: locationId,
+                      name: directory.split("/").filter(Boolean).pop()?.slice(0, 100) || "目录根",
+                      relative_path: directory,
+                      node_id: node,
+                      recursive,
+                      ownership_mode: ownership,
+                      cache_policy: cache,
+                      include_globs: include
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                      exclude_globs: exclude
+                        .split(",")
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    });
+                    if (current()) {
+                      setSourceId(created.id);
+                      syncFocus(created.id);
+                      setSelectedScanId("");
+                      setHistoryOffset(0);
+                      setOffset(0);
+                      setMessage("来源已配置，请运行只读预扫描");
+                    }
+                  })
+                }
+              >
+                配置目录来源
+              </Button>
+              <a className="text-brand underline" href="/storage">
+                配置存储位置
+              </a>
+            </div>
           </div>
-          {run && (
-            <p className="mt-2 break-all">
-              当前查看扫描：{run.id}
-              {readOnly ? " · 历史只读" : ""}
+          {locations.data?.items.find((l) => l.id === locationId)?.kind === "s3" && (
+            <p className="mt-2 text-muted-foreground">
+              S3
+              前缀按原始字符匹配，保留空格、连续斜线和点段。版本或条件读取固定原件；每次使用仍核验完整摘要。
             </p>
           )}
-          {!writable && (
-            <p className="mt-2 text-muted-foreground">来源已停用或注销，仅查看保留历史。</p>
+          {locations.data?.items.find((l) => l.id === locationId)?.kind === "sftp" && (
+            <p className="mt-2 text-muted-foreground">
+              此位置由运维配置为只读隔离根。填写根内相对目录；不跟随发现的符号链接，每次读取仍核验完整摘要。
+            </p>
           )}
-        </section>
-      )}
+          {browsePath !== null && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md bg-muted p-2">
+              <span>目录：{browsePath || "根目录"}</span>
+              {dirs.data?.entries.map((d) => (
+                <Button
+                  size="sm"
+                  key={d.relative_path}
+                  onClick={() => {
+                    setDirectory(d.relative_path);
+                    setBrowsePath(d.relative_path);
+                    setBrowseCursor(undefined);
+                  }}
+                >
+                  {d.name}
+                </Button>
+              ))}
+              {dirs.data?.next_cursor && (
+                <Button size="sm" onClick={() => setBrowseCursor(dirs.data!.next_cursor!)}>
+                  下一页目录
+                </Button>
+              )}
+              <Button
+                size="sm"
+                onClick={() => {
+                  setDirectory("");
+                  setBrowsePath("");
+                  setBrowseCursor(undefined);
+                }}
+              >
+                返回位置根
+              </Button>
+              {dirs.error && <span role="alert">{verifiedContentError(dirs.error)}</span>}
+            </div>
+          )}
+        </details>
+      </div>
       {jobId && <AsyncJobDetailModal jobId={jobId} onClose={() => setJobId(null)} />}
       {(sourceMismatch || runMismatch || incompleteLink) && (
         <p role="alert" className="mt-2 text-status-danger">
           链接中的数据集、来源与扫描不匹配，请重新选择来源。
         </p>
-      )}
-      {source && (
-        <DirectorySourceControls
-          key={`${source.id}/${source.config_revision}`}
-          source={source}
-          act={act}
-        />
-      )}
-      {source?.enabled && !source.unregistered_at && (
-        <DirectorySyncSchedule
-          key={source.id}
-          sourceId={source.id}
-          owner={owner}
-          datasetId={datasetId}
-        />
-      )}
-      {run?.complete && source && (
-        <DirectoryRegistrationProgress
-          key={run.id}
-          scanId={run.id}
-          datasetId={datasetId}
-          owner={owner}
-          sourceRevision={source.config_revision}
-          readOnly={readOnly}
-        />
-      )}
-      {run?.complete && (
-        <div className="mt-2 overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="text-muted-foreground">
-                <th className="p-2">相对路径</th>
-                <th>观测字节</th>
-                <th>登记</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.data?.items.map((entry) => (
-                <tr key={entry.path_digest} className="border-t border-border">
-                  <td className="p-2">{entry.relative_path}</td>
-                  <td>{entry.size_bytes ?? "—"}</td>
-                  <td>
-                    {entry.registered_item_id ? (
-                      <span>
-                        已登记 ·{" "}
-                        {source?.ownership_mode === "managed_copy" ? "托管复制" : "原地引用"}
-                      </span>
-                    ) : entry.kind === "file" && entry.state === "observed" ? (
-                      <Button
-                        size="sm"
-                        disabled={busy || readOnly || !!activeRun || !!activeRegistration}
-                        onClick={() =>
-                          void act(async (current) => {
-                            const sample = samplePath(entry.relative_path);
-                            const probe = await api.probe(source!.location_id, "api", sample);
-                            if (!current()) return;
-                            if (!probe.ok) throw new Error(`API 原图不可读：${probe.code}`);
-                            await api.register(run.id, entry.path_digest);
-                            if (current())
-                              setMessage("已重新核验并登记，可在文件列表预览、关联项目后标注");
-                          })
-                        }
-                      >
-                        核验并登记
-                      </Button>
-                    ) : (
-                      entry.state
-                    )}
-                    {entry.preview_state === "ready" &&
-                      source?.enabled &&
-                      !source.unregistered_at &&
-                      source.cache_policy === "preview" && (
-                        <DirectoryCachedPreview
-                          key={`${source.id}/${source.config_revision}/${entry.path_digest}`}
-                          sourceId={source.id}
-                          digest={entry.path_digest}
-                        />
-                      )}
-                    {entry.preview_state === "failed" && (
-                      <span className="text-status-caution">预览生成失败；原图登记已保留</span>
-                    )}
-                    {entry.preview_state === "failed" &&
-                      source?.enabled &&
-                      !source.unregistered_at && (
-                        <Button
-                          size="sm"
-                          disabled={busy || readOnly || !!activeRun || !!activeRegistration}
-                          onClick={() =>
-                            void act(async (current) => {
-                              const sample = samplePath(entry.relative_path);
-                              const probe = await api.probe(source.location_id, "api", sample);
-                              if (!current()) return;
-                              if (!probe.ok) throw new Error(`API 原图不可读：${probe.code}`);
-                              await api.register(run.id, entry.path_digest);
-                            })
-                          }
-                        >
-                          重新核验并生成预览
-                        </Button>
-                      )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="mt-2 flex items-center gap-2">
-            <Button
-              size="sm"
-              disabled={!offset}
-              onClick={() => setOffset((n) => Math.max(0, n - 20))}
-            >
-              上一页条目
-            </Button>
-            <span>
-              {offset + 1}–{Math.min(offset + 20, entries.data?.total ?? 0)} /{" "}
-              {entries.data?.total ?? 0}
-            </span>
-            <Button
-              size="sm"
-              disabled={offset + 20 >= (entries.data?.total ?? 0)}
-              onClick={() => setOffset((n) => n + 20)}
-            >
-              下一页条目
-            </Button>
-          </div>
-        </div>
       )}
       {(error ||
         sources.error ||
@@ -803,6 +656,230 @@ function DirectoryReferencePanelOwner({
         <p role="status" className="mt-2 text-status-positive">
           {message}
         </p>
+      )}
+      {run?.complete && source && (
+        <DirectoryRegistrationProgress
+          key={run.id}
+          scanId={run.id}
+          datasetId={datasetId}
+          owner={owner}
+          sourceRevision={source.config_revision}
+          readOnly={readOnly}
+        />
+      )}
+      {source && (
+        <details
+          aria-label="扫描历史"
+          className="rounded-lg border border-border bg-card p-4"
+          open={!!initialScanId}
+        >
+          <summary className={disclosure}>扫描历史</summary>
+          <div className="mt-4">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span>
+                最近完整扫描：
+                {complete.data?.items[0]
+                  ? new Date(
+                      complete.data.items[0].completed_at ?? complete.data.items[0].created_at,
+                    ).toLocaleString("zh-CN")
+                  : "暂无"}
+              </span>
+              {complete.data?.items[0] && (
+                <Button size="sm" onClick={() => selectRun(complete.data!.items[0].id)}>
+                  查看最近完整扫描
+                </Button>
+              )}
+              <Button size="sm" onClick={() => selectRun("")}>
+                查看最新扫描
+              </Button>
+            </div>
+            <ul className="grid gap-1">
+              {scans.data?.items.map((item) => (
+                <li key={item.id} className="flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    aria-pressed={run?.id === item.id}
+                    onClick={() => selectRun(item.id)}
+                  >
+                    {new Date(item.created_at).toLocaleString("zh-CN")} · {item.status} ·{" "}
+                    {item.id.slice(0, 8)}
+                  </Button>
+                  {item.async_job_id && (
+                    <Button size="sm" onClick={() => setJobId(item.async_job_id)}>
+                      查看扫描任务
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-2 flex items-center gap-2">
+              <Button
+                size="sm"
+                disabled={!historyOffset || scans.isFetching}
+                onClick={() => setHistoryOffset((n) => Math.max(0, n - 20))}
+              >
+                上一页扫描
+              </Button>
+              <span>
+                第 {historyOffset / 20 + 1} 页 · 共 {scans.data?.total ?? 0} 次
+              </span>
+              <Button
+                size="sm"
+                disabled={scans.isFetching || historyOffset + 20 >= (scans.data?.total ?? 0)}
+                onClick={() => setHistoryOffset((n) => n + 20)}
+              >
+                下一页扫描
+              </Button>
+            </div>
+            {run && (
+              <p className="mt-2 break-all">
+                当前查看扫描：{run.id}
+                {readOnly ? " · 历史只读" : ""}
+              </p>
+            )}
+            {!writable && (
+              <p className="mt-2 text-muted-foreground">来源已停用或注销，仅查看保留历史。</p>
+            )}
+          </div>
+        </details>
+      )}
+      {run?.complete && (
+        <details className="rounded-lg border border-border bg-card p-4">
+          <summary className={disclosure}>
+            扫描条目{" "}
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
+              {entries.data?.total ?? 0} 项 · 逐条登记与缓存预览
+            </span>
+          </summary>
+          <div className="mt-4 overflow-x-auto">
+            <table className={listStyles.table}>
+              <thead>
+                <tr className="text-muted-foreground">
+                  <th className="p-2">相对路径</th>
+                  <th>观测字节</th>
+                  <th>登记</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.data?.items.map((entry) => (
+                  <tr key={entry.path_digest} className="border-t border-border">
+                    <td className="p-2">{entry.relative_path}</td>
+                    <td>{entry.size_bytes ?? "—"}</td>
+                    <td>
+                      {entry.registered_item_id ? (
+                        <span>
+                          已登记 ·{" "}
+                          {source?.ownership_mode === "managed_copy" ? "托管复制" : "原地引用"}
+                        </span>
+                      ) : entry.kind === "file" && entry.state === "observed" ? (
+                        <Button
+                          size="sm"
+                          disabled={busy || readOnly || !!activeRun || !!activeRegistration}
+                          onClick={() =>
+                            void act(async (current) => {
+                              const sample = samplePath(entry.relative_path);
+                              const probe = await api.probe(source!.location_id, "api", sample);
+                              if (!current()) return;
+                              if (!probe.ok) throw new Error(`API 原图不可读：${probe.code}`);
+                              await api.register(run.id, entry.path_digest);
+                              if (current())
+                                setMessage("已重新核验并登记，可在文件列表预览、关联项目后标注");
+                            })
+                          }
+                        >
+                          核验并登记
+                        </Button>
+                      ) : (
+                        entry.state
+                      )}
+                      {entry.preview_state === "ready" &&
+                        source?.enabled &&
+                        !source.unregistered_at &&
+                        source.cache_policy === "preview" && (
+                          <DirectoryCachedPreview
+                            key={`${source.id}/${source.config_revision}/${entry.path_digest}`}
+                            sourceId={source.id}
+                            digest={entry.path_digest}
+                          />
+                        )}
+                      {entry.preview_state === "failed" && (
+                        <span className="text-status-caution">预览生成失败；原图登记已保留</span>
+                      )}
+                      {entry.preview_state === "failed" &&
+                        source?.enabled &&
+                        !source.unregistered_at && (
+                          <Button
+                            size="sm"
+                            disabled={busy || readOnly || !!activeRun || !!activeRegistration}
+                            onClick={() =>
+                              void act(async (current) => {
+                                const sample = samplePath(entry.relative_path);
+                                const probe = await api.probe(source.location_id, "api", sample);
+                                if (!current()) return;
+                                if (!probe.ok) throw new Error(`API 原图不可读：${probe.code}`);
+                                await api.register(run.id, entry.path_digest);
+                              })
+                            }
+                          >
+                            重新核验并生成预览
+                          </Button>
+                        )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="mt-2 flex items-center gap-2">
+              <Button
+                size="sm"
+                disabled={!offset}
+                onClick={() => setOffset((n) => Math.max(0, n - 20))}
+              >
+                上一页条目
+              </Button>
+              <span>
+                {Math.min(offset + 1, entries.data?.total ?? 0)}–
+                {Math.min(offset + 20, entries.data?.total ?? 0)} / {entries.data?.total ?? 0}
+              </span>
+              <Button
+                size="sm"
+                disabled={offset + 20 >= (entries.data?.total ?? 0)}
+                onClick={() => setOffset((n) => n + 20)}
+              >
+                下一页条目
+              </Button>
+            </div>
+          </div>
+        </details>
+      )}
+      {source && (
+        <details className="rounded-lg border border-border bg-card p-4">
+          <summary className={disclosure}>
+            来源设置{" "}
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
+              缓存、扫描规则与停用管理
+            </span>
+          </summary>
+          <DirectorySourceControls
+            key={`${source.id}/${source.config_revision}`}
+            source={source}
+            act={act}
+          />
+        </details>
+      )}
+      {source?.enabled && !source.unregistered_at && (
+        <details className="rounded-lg border border-border bg-card p-4">
+          <summary className={disclosure}>
+            周期计划{" "}
+            <span className="ml-2 text-xs font-normal text-muted-foreground">自动扫描与预检</span>
+          </summary>
+          <DirectorySyncSchedule
+            key={source.id}
+            sourceId={source.id}
+            owner={owner}
+            datasetId={datasetId}
+          />
+        </details>
       )}
     </section>
   );

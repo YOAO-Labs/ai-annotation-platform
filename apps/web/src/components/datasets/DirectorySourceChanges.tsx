@@ -7,6 +7,7 @@ import type {
   DatasetSourceChangeList,
   SourceMoveCandidate,
 } from "@/api/generated/types.gen";
+import { listStyles } from "@/components/ui/listStyles";
 import { Button } from "@/components/ui/Button";
 import { verifiedContentError } from "@/hooks/useVerifiedImage";
 
@@ -67,10 +68,10 @@ export function DirectorySourceChanges({
   const [moving, setMoving] = useState<DatasetSourceChangeOut | null>(null);
   const capture = useSessionGuard();
   return (
-    <section aria-label="本轮增量差异" className="mt-3 rounded-md border border-border p-3">
-      <h6 className="text-sm font-semibold">本轮增量差异</h6>
-      <p className="mt-1 text-muted-foreground">
-        与预检开始时已接纳的样本比较。内容与身份观测均核验后才列为相同；本轮未见不代表删除，旧样本、任务和标注保留。差异是本轮记录，原图使用时仍须严格读取。
+    <section aria-label="本轮增量差异" className="mt-4 border-t border-border pt-4 text-sm">
+      <h3 className="text-sm font-semibold">本轮增量差异</h3>
+      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+        对比预检开始时已接纳的样本，内容与观测均核验后才列为相同。本轮未见不代表删除，旧样本、任务和标注保留；使用原图时仍会严格核验。
       </p>
       {!complete ? (
         <p role="status" className="mt-2">
@@ -78,11 +79,13 @@ export function DirectorySourceChanges({
         </p>
       ) : (
         <>
-          <dl className="my-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <dl className="my-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
             {Object.entries(labels).map(([key, label]) => (
-              <div key={key}>
-                <dt className="text-muted-foreground">{label}</dt>
-                <dd>{data?.counts[key] ?? "—"}</dd>
+              <div key={key} className="rounded-md bg-muted/50 p-3">
+                <dt className="text-xs leading-relaxed text-muted-foreground">{label}</dt>
+                <dd className="mt-1 text-md font-semibold tabular-nums">
+                  {data?.counts[key] ?? "—"}
+                </dd>
               </div>
             ))}
           </dl>
@@ -108,7 +111,7 @@ export function DirectorySourceChanges({
             </p>
           ) : null}
           <div className="mt-2 overflow-x-auto">
-            <table className="w-full text-left">
+            <table className={listStyles.table}>
               <thead>
                 <tr className="text-muted-foreground">
                   <th className="p-2">相对路径</th>
@@ -119,7 +122,7 @@ export function DirectorySourceChanges({
               <tbody>
                 {data?.items.map((entry) => (
                   <tr key={entry.path_digest} className="border-t border-border">
-                    <td className="p-2">{entry.relative_path}</td>
+                    <td className="max-w-64 break-words">{entry.relative_path}</td>
                     <td>{labels[entry.kind]}</td>
                     <td>
                       {entry.relocated_to_path
@@ -155,7 +158,7 @@ export function DirectorySourceChanges({
               </tbody>
             </table>
           </div>
-          <div className="mt-2 flex items-center gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <Button
               size="sm"
               disabled={pending || !offset}

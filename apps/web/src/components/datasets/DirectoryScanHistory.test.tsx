@@ -101,6 +101,10 @@ beforeEach(() => {
 });
 it("keeps last complete independent of newer failures and paginates retained history", async () => {
   mount();
+  const history = await screen.findByLabelText("扫描历史");
+  expect(history).not.toHaveAttribute("open");
+  fireEvent.click(history.querySelector("summary")!);
+  expect(history).toHaveAttribute("open");
   fireEvent.click(await screen.findByRole("button", { name: "查看最近完整扫描" }));
   expect(await screen.findByTestId("registration")).toHaveTextContent("complete/true");
   fireEvent.click(screen.getByRole("button", { name: "下一页扫描" }));
@@ -116,6 +120,7 @@ it("opens a linked source beyond the first200 list rows and its exact historical
   expect(await screen.findByRole("option", { name: "Source" })).toBeInTheDocument();
   expect(await screen.findByTestId("registration")).toHaveTextContent("complete/true");
   expect(api.source).toHaveBeenCalledWith("source", expect.any(AbortSignal));
+  expect(screen.getByLabelText("扫描历史")).toHaveAttribute("open");
 });
 it("shows resumed older active work while history is selected and blocks starting another scan", async () => {
   api.scans.mockImplementation(async (_id, _signal, options) =>
@@ -277,4 +282,12 @@ it("persists detail source/scan choices in URL without losing filters and clears
   expect(url.searchParams.get("source")).toBe("second");
   expect(url.searchParams.has("scan")).toBe(false);
   expect(url.searchParams.get("return")).toBe("/datasets?page=2");
+});
+
+it("opens source setup when no directory source has been configured", async () => {
+  api.sources.mockResolvedValue({ items: [], total: 0 });
+  mount();
+  await screen.findByRole("option", { name: "选择来源" });
+  expect(screen.getByText("新增来源", { exact: false }).closest("details")).toHaveAttribute("open");
+  expect(screen.queryByLabelText("扫描历史")).not.toBeInTheDocument();
 });

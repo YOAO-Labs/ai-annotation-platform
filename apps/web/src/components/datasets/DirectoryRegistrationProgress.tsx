@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { datasetSourcesApi as api } from "@/api/datasetSources";
 import { asyncJobsApi } from "@/api/asyncJobs";
+import { listStyles } from "@/components/ui/listStyles";
 import { Button } from "@/components/ui/Button";
 import { useSessionGuard } from "@/hooks/useSessionGuard";
 import { verifiedContentError } from "@/hooks/useVerifiedImage";
@@ -153,9 +154,12 @@ export function DirectoryRegistrationProgress({
     }
   };
   return (
-    <section aria-label="批量预检与登记" className="mt-3 rounded-md border border-border p-3">
+    <section
+      aria-label="批量预检与登记"
+      className="rounded-lg border border-border bg-card p-4 text-sm"
+    >
       <div className="flex flex-wrap items-center gap-2">
-        <h5 className="text-sm font-semibold">批量预检与登记</h5>
+        <h2 className="text-md font-semibold">预检与登记</h2>
         {!run && !registration.isPending && !registration.error && (
           <Button
             size="sm"
@@ -214,44 +218,65 @@ export function DirectoryRegistrationProgress({
         <p className="mt-2 text-muted-foreground">本轮历史仅供查看，不能继续或接纳变更。</p>
       )}
       {registration.isPending && <p role="status">正在读取登记进度…</p>}
-      <p className="mt-2 text-muted-foreground">
-        预检会读取图片、核验格式与内容，不创建样本。确认后逐项登记；关闭页面或取消会保留已提交结果，可在后台任务及本面板继续查看。
+      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+        预检只核验图片并比较差异，确认后才登记样本。关闭页面或取消会保留已提交结果。
       </p>
       {run && (
         <>
-          <dl className="my-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {[
-              ["已索引", run.counts.indexed_count],
-              ["待核验", run.counts.pending_count],
-              ["已核验待登记", run.counts.ready_count],
-              ["本轮登记与保留", registeredCount],
-              ["原已登记路径", run.counts.existing_count],
-              ["预计新增", run.counts.estimated_new_count],
-              ["异常", run.counts.error_count],
-              ["扫描排除", run.counts.skipped_count],
-            ].map(([label, value]) => (
-              <div key={label}>
-                <dt className="text-muted-foreground">{label}</dt>
-                <dd className="font-medium">{value ?? 0}</dd>
-              </div>
-            ))}
-          </dl>
-          <p>
-            扫描观测体量 {bytes(run.counts.indexed_bytes ?? 0)} ·{" "}
-            {run.ownership_mode === "managed_copy" ? "托管复制" : "原地引用"} /{" "}
-            {run.cache_policy === "preview" ? "预览缓存" : "无缓存"} · 原图复制预计{" "}
-            {bytes(run.counts.original_estimated_bytes ?? 0)} / 已新增{" "}
-            {bytes(run.counts.original_copy_bytes ?? 0)} · 预览预计{" "}
-            {bytes(run.counts.preview_estimated_bytes ?? 0)}（已测{" "}
-            {run.counts.preview_estimated_count ?? 0} 项，
-            {run.counts.preview_estimate_error_count ?? 0} 项未知）· 本轮路径已存预览{" "}
-            {bytes(run.counts.preview_retained_bytes ?? 0)}，失败{" "}
-            {run.counts.preview_failed_count ?? 0} 项
-          </p>
-          <p className="mt-1 text-muted-foreground">
-            观测时间 {new Date(run.created_at).toLocaleString()}
-            。体量与新增数是扫描估算，正式登记会重新读取；修复重试不会改写已有内容身份。
-          </p>
+          <details className="my-4 rounded-md bg-muted/50 p-3">
+            <summary className="cursor-pointer text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              预检统计与体量{" "}
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                已索引 {run.counts.indexed_count ?? 0} · 已核验 {run.counts.ready_count ?? 0} · 异常{" "}
+                {run.counts.error_count ?? 0}
+              </span>
+            </summary>
+            <dl className="my-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[
+                ["已索引", run.counts.indexed_count],
+                ["待核验", run.counts.pending_count],
+                ["已核验待登记", run.counts.ready_count],
+                ["本轮登记与保留", registeredCount],
+                ["原已登记路径", run.counts.existing_count],
+                ["预计新增", run.counts.estimated_new_count],
+                ["异常", run.counts.error_count],
+                ["扫描排除", run.counts.skipped_count],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <dt className="text-xs text-muted-foreground">{label}</dt>
+                  <dd className="font-medium">{value ?? 0}</dd>
+                </div>
+              ))}
+            </dl>
+            <dl className="grid gap-3 border-t border-border pt-3 sm:grid-cols-2 xl:grid-cols-4">
+              {[
+                ["扫描观测体量", bytes(run.counts.indexed_bytes ?? 0)],
+                [
+                  "原图复制 · 预计 / 已新增",
+                  `${bytes(run.counts.original_estimated_bytes ?? 0)} / ${bytes(run.counts.original_copy_bytes ?? 0)}`,
+                ],
+                [
+                  "预览 · 预计 / 已存",
+                  `${bytes(run.counts.preview_estimated_bytes ?? 0)} / ${bytes(run.counts.preview_retained_bytes ?? 0)}`,
+                ],
+                [
+                  "预览估算 · 已测 / 未知 / 失败",
+                  `${run.counts.preview_estimated_count ?? 0} / ${run.counts.preview_estimate_error_count ?? 0} / ${run.counts.preview_failed_count ?? 0}`,
+                ],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <dt className="text-xs text-muted-foreground">{label}</dt>
+                  <dd className="mt-1 font-medium tabular-nums">{value}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+              {run.ownership_mode === "managed_copy" ? "托管复制" : "原地引用"} ·{" "}
+              {run.cache_policy === "preview" ? "预览缓存" : "无缓存"} · 观测于{" "}
+              {new Date(run.created_at).toLocaleString()}
+              。体量与新增数为本轮估算，正式登记时重新读取；修复重试保留已有内容身份。
+            </p>
+          </details>
           {run.comparison_available && (
             <DirectorySourceChanges
               key={`${owner}:${run.id}:${run.generation}:${run.phase}:${run.status}`}
@@ -353,87 +378,97 @@ export function DirectoryRegistrationProgress({
               。已登记样本可关联项目并开始标注。
             </p>
           )}
-          <p className="mt-3 text-muted-foreground">
-            下方保留原预检与仅新增登记记录。新修订的接纳结果见上方差异表，不改写原差异和异常计数。
-          </p>
-          <div className="mt-3 flex items-center gap-2">
-            <label className="flex items-center gap-1">
-              <input
-                type="checkbox"
-                checked={errorsOnly}
-                onChange={(e) => {
-                  setErrorsOnly(e.target.checked);
-                  setOffset(0);
-                }}
-              />
-              只看异常
-            </label>
-            <span>{entries.isPending ? "正在加载结果…" : `${entries.data?.total ?? 0} 条`}</span>
-          </div>
-          <div className="mt-2 overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="text-muted-foreground">
-                  <th className="p-2">相对路径</th>
-                  <th>结果</th>
-                  <th>错误与处理</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entries.data?.items.map((entry) => (
-                  <tr key={entry.path_digest} className="border-t border-border">
-                    <td className="p-2">{entry.relative_path}</td>
-                    <td>{statusLabels[entry.state] ?? entry.state}</td>
-                    <td>
-                      {entry.error_code && (
-                        <>
-                          <span className="text-status-danger">
-                            {errorLabels[entry.error_code] ?? entry.error_code}
-                          </span>{" "}
-                          <Button
-                            size="sm"
-                            disabled={
-                              busy ||
-                              active ||
-                              stale ||
-                              entry.error_code === "reference_content_changed"
-                            }
-                            onClick={() =>
-                              void act(() => api.retryRegistrationEntry(run.id, entry.path_digest))
-                            }
-                          >
-                            修复后重试此项
-                          </Button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="mt-2 flex items-center gap-2">
-            <Button
-              size="sm"
-              disabled={entries.isPending || !offset}
-              onClick={() => setOffset((n) => Math.max(0, n - 20))}
-            >
-              上一页登记结果
-            </Button>
-            {!entries.isPending && (
-              <span>
-                {Math.min(offset + 1, entries.data?.total ?? 0)}–
-                {Math.min(offset + 20, entries.data?.total ?? 0)} / {entries.data?.total ?? 0}
+          <details className="mt-4 border-t border-border pt-4">
+            <summary className="cursor-pointer text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              预检与登记明细{" "}
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                逐项结果与异常重试
               </span>
-            )}
-            <Button
-              size="sm"
-              disabled={entries.isPending || offset + 20 >= (entries.data?.total ?? 0)}
-              onClick={() => setOffset((n) => n + 20)}
-            >
-              下一页登记结果
-            </Button>
-          </div>
+            </summary>
+            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+              保留原预检与登记记录；新修订的接纳结果见上方差异表，原记录和异常计数保留。
+            </p>
+            <div className="mt-3 flex items-center gap-2">
+              <label className="flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  checked={errorsOnly}
+                  onChange={(e) => {
+                    setErrorsOnly(e.target.checked);
+                    setOffset(0);
+                  }}
+                />
+                只看异常
+              </label>
+              <span>{entries.isPending ? "正在加载结果…" : `${entries.data?.total ?? 0} 条`}</span>
+            </div>
+            <div className="mt-2 overflow-x-auto">
+              <table className={listStyles.table}>
+                <thead>
+                  <tr className="text-muted-foreground">
+                    <th className="p-2">相对路径</th>
+                    <th>结果</th>
+                    <th>错误与处理</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {entries.data?.items.map((entry) => (
+                    <tr key={entry.path_digest} className="border-t border-border">
+                      <td className="p-2">{entry.relative_path}</td>
+                      <td>{statusLabels[entry.state] ?? entry.state}</td>
+                      <td>
+                        {entry.error_code && (
+                          <>
+                            <span className="text-status-danger">
+                              {errorLabels[entry.error_code] ?? entry.error_code}
+                            </span>{" "}
+                            <Button
+                              size="sm"
+                              disabled={
+                                busy ||
+                                active ||
+                                stale ||
+                                entry.error_code === "reference_content_changed"
+                              }
+                              onClick={() =>
+                                void act(() =>
+                                  api.retryRegistrationEntry(run.id, entry.path_digest),
+                                )
+                              }
+                            >
+                              修复后重试此项
+                            </Button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <Button
+                size="sm"
+                disabled={entries.isPending || !offset}
+                onClick={() => setOffset((n) => Math.max(0, n - 20))}
+              >
+                上一页登记结果
+              </Button>
+              {!entries.isPending && (
+                <span>
+                  {Math.min(offset + 1, entries.data?.total ?? 0)}–
+                  {Math.min(offset + 20, entries.data?.total ?? 0)} / {entries.data?.total ?? 0}
+                </span>
+              )}
+              <Button
+                size="sm"
+                disabled={entries.isPending || offset + 20 >= (entries.data?.total ?? 0)}
+                onClick={() => setOffset((n) => n + 20)}
+              >
+                下一页登记结果
+              </Button>
+            </div>
+          </details>
         </>
       )}
       {run?.error_code && (

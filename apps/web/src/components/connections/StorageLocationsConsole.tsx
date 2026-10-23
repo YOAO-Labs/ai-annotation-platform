@@ -11,6 +11,7 @@ import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
 import { verifiedContentError } from "@/hooks/useVerifiedImage";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { listStyles } from "@/components/ui/listStyles";
 import { Card } from "@/components/ui/Card";
 import { ListPagination, listPageSize } from "@/components/ui/ListPagination";
 import { FilesystemLocationsPanel } from "./FilesystemLocationsPanel";
@@ -178,7 +179,7 @@ function ConsoleOwner() {
                   </p>
                 )}
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
+                  <table className={listStyles.table}>
                     <thead>
                       <tr className="border-b border-border text-muted-foreground">
                         {["用途", "位置", "桶 / 前缀", "配置代次", "状态"].map((label) => (
@@ -195,7 +196,7 @@ function ConsoleOwner() {
                           <tr key={purpose} className="border-b border-border">
                             <td className="px-2 py-2">
                               <div>{label}</div>
-                              <div className="mt-1 text-muted-foreground">{purpose}</div>
+                              <div className="mt-1 text-xs text-muted-foreground">{purpose}</div>
                             </td>
                             <td className="px-2 py-2">
                               {binding?.location_id ? (
@@ -265,7 +266,7 @@ function ConsoleOwner() {
                 {locationData?.items.map((item) => (
                   <li key={item.id}>
                     <button
-                      className={`w-full rounded-md px-2 py-3 text-left text-xs hover:bg-muted focus-visible:outline focus-visible:outline-ring ${locationId === item.id ? "bg-muted" : ""}`}
+                      className={`w-full rounded-md px-2 py-3 text-left text-sm hover:bg-muted focus-visible:outline focus-visible:outline-ring ${locationId === item.id ? "bg-muted" : ""}`}
                       aria-current={locationId === item.id ? "true" : undefined}
                       onClick={() => {
                         setCreateKind(null);
@@ -273,7 +274,7 @@ function ConsoleOwner() {
                       }}
                     >
                       <span className="block font-semibold">{item.name}</span>
-                      <span className="mt-1 block text-muted-foreground">
+                      <span className="mt-1 block text-xs text-muted-foreground">
                         {KIND[item.kind] ?? item.kind} · {item.enabled ? "已启用" : "已停用"}
                       </span>
                     </button>
@@ -352,7 +353,7 @@ function ConsoleOwner() {
                       <div className="p-4">
                         <div className="mb-3 flex items-start justify-between gap-3">
                           <div>
-                            <h2 className="text-base font-semibold">{selected.name}</h2>
+                            <h2 className="text-md font-semibold">{selected.name}</h2>
                             <p className="mt-1 text-xs text-muted-foreground">
                               {KIND[selected.kind] ?? selected.kind} · 配置修订{" "}
                               {selected.config_revision}
@@ -362,7 +363,7 @@ function ConsoleOwner() {
                             {selected.enabled ? "已启用" : "已停用"}
                           </Badge>
                         </div>
-                        <p className="mb-2 text-xs font-medium">声明能力</p>
+                        <p className="mb-2 text-sm font-medium">声明能力</p>
                         <div className="flex flex-wrap gap-2">
                           {Object.entries(selected.declared_capabilities).map(([key, value]) => (
                             <Badge key={key} variant={value ? "outline" : "default"}>
@@ -379,14 +380,14 @@ function ConsoleOwner() {
                           ].map(([label, value]) => (
                             <div key={label}>
                               <dt className="text-muted-foreground">{label}</dt>
-                              <dd className="mt-1">{value}</dd>
+                              <dd className="mt-1 text-sm">{value}</dd>
                             </div>
                           ))}
                         </dl>
                         <p className="mt-3 text-xs text-muted-foreground">
                           当前未接入可信容量采样；对象字节不代表磁盘容量。
                         </p>
-                        <h3 className="mb-2 mt-4 text-xs font-semibold">节点能力探测</h3>
+                        <h3 className="mb-2 mt-4 text-sm font-semibold">节点能力探测</h3>
                         {selected.allowed_actions?.includes("probe") && (
                           <LocationProbeForm
                             key={`${selected.id}/${selected.config_revision}`}
@@ -416,7 +417,7 @@ function ConsoleOwner() {
                                 probe.code === "stale";
                               return (
                                 <li key={probe.node_id} className="rounded-md bg-muted p-2">
-                                  <div className="font-medium">
+                                  <div className="text-sm font-medium">
                                     {probe.node_id} ·{" "}
                                     {stale ? "已过期" : probe.ok ? "探测通过" : "探测未通过"} ·{" "}
                                     {probe.code}
@@ -489,9 +490,9 @@ function LocationProbeForm({ locationId, enabled }: { locationId: string; enable
       if (current()) setBusy(false);
     }
   };
-  const field = "rounded-md border border-input bg-background px-2 py-1.5 text-xs text-foreground";
+  const field = "rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground";
   return (
-    <div className="mb-3 text-xs">
+    <div className="mb-3 text-sm">
       <div className="flex flex-wrap items-end gap-2">
         <label className="grid gap-1">
           探测节点

@@ -106,9 +106,9 @@ export function DirectorySyncSchedule({
     }
   };
   return (
-    <section aria-label="周期扫描计划" className="mt-3 rounded-md border border-border p-3">
+    <section aria-label="周期扫描计划" className="mt-4 text-sm">
       <h5 className="text-sm font-semibold">周期扫描与预检</h5>
-      <p className="mt-1 text-muted-foreground">
+      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
         按本次启用账号的当前权限自动扫描、预检。默认人工登记；可选择仅在整轮均为新增或未变化、且无错误时自动登记新增。其他差异整轮等待核对。暂停停止后续触发，已确认的任务可在任务面板单独取消。
       </p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -237,7 +237,7 @@ export function DirectorySyncSchedule({
           {error || scheduleError(query.error)}
         </p>
       )}
-      <p className="mt-1 text-muted-foreground">
+      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
         使用 IANA
         时区名称；间隔按实际分钟计算（1440分钟为24小时），不按本地日历调整夏令时。策略变更只影响新轮次，已开始的人工轮次仍需人工核对。间隔范围15–10080分钟；由后台调度器按分钟检查，节点繁忙或离线时可能延后，不补跑错过的周期。权限或配置变化后需重新启用。
       </p>

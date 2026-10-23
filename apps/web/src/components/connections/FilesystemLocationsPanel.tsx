@@ -11,7 +11,7 @@ import { verifiedContentError } from "@/hooks/useVerifiedImage";
 import { Button } from "@/components/ui/Button";
 import type { StorageLocationOut, StorageProbeOut } from "@/api/generated/types.gen";
 
-const field = "rounded-md border border-input bg-background px-2 py-1.5 text-xs text-foreground";
+const field = "rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground";
 interface FilesystemLocationsPanelProps {
   locationId?: string;
   showProbe?: boolean;
@@ -173,7 +173,7 @@ function FilesystemLocationsPanelOwner({
         </>
       )}
       {locationId && showProbe && (
-        <div className="my-3 flex flex-wrap gap-2 text-xs">
+        <div className="my-3 flex flex-wrap gap-2 text-sm">
           <label className="grid gap-1">
             探测节点
             <input
@@ -194,13 +194,21 @@ function FilesystemLocationsPanelOwner({
           </label>
         </div>
       )}
-      <ul className="divide-y divide-border text-xs">
+      <ul className="divide-y divide-border text-sm">
         {(storageAccessDenied(locations.error) ? undefined : locations.data)?.items
           .filter((l) => l.kind === "filesystem")
           .map((l) => (
             <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
               <span>
-                {l.name} · {l.enabled ? "已启用" : "已停用"} · {l.root_handle}/{l.relative_path}
+                <span className="block font-medium">
+                  {l.name}{" "}
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    {l.enabled ? "已启用" : "已停用"}
+                  </span>
+                </span>
+                <span className="mt-1 block break-all text-xs text-muted-foreground">
+                  {l.root_handle}/{l.relative_path}
+                </span>
               </span>
               <Button
                 size="sm"

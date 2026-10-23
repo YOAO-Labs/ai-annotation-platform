@@ -86,7 +86,7 @@ function DatasetsList() {
       return next;
     });
   const rows = result.data?.items ?? [];
-  const cell = "border-b border-border px-4 py-3 text-left text-xs";
+  const cell = "border-b border-border px-4 py-3 text-left text-sm";
   return (
     <PageContainer>
       <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
@@ -132,11 +132,11 @@ function DatasetsList() {
       )}
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-3">
-          <label className="flex items-center gap-2 text-xs">
+          <label className="flex items-center gap-2 text-sm">
             数据类型
             <select
               aria-label="数据类型"
-              className="rounded-md border border-input bg-background p-2 text-xs"
+              className="rounded-md border border-input bg-background p-2 text-sm"
               value={state.data_type ?? ""}
               onChange={(e) =>
                 patch({

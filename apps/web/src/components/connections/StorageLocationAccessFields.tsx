@@ -4,7 +4,7 @@ import { usersApi } from "@/api/users";
 import { Button } from "@/components/ui/Button";
 import { verifiedContentError } from "@/hooks/useVerifiedImage";
 
-const field = "rounded-md border border-input bg-background px-2 py-1.5 text-xs text-foreground";
+const field = "rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground";
 
 export function StorageLocationAccessFields({
   session,
@@ -34,7 +34,7 @@ export function StorageLocationAccessFields({
   return (
     <fieldset
       disabled={disabled}
-      className="mt-3 min-w-0 rounded-md border border-border p-3 text-xs"
+      className="mt-3 min-w-0 rounded-md border border-border p-3 text-sm"
     >
       <legend className="px-1 font-medium">位置使用范围</legend>
       <label className="flex flex-wrap items-center gap-2">

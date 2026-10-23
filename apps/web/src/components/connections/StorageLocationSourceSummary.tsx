@@ -94,10 +94,10 @@ function SummaryOwner({ locationId: selectedLocationId, returnTo }: SummaryProps
   return (
     <section
       aria-label="存储位置关联来源"
-      className="mb-5 rounded-lg border border-border bg-card p-4 text-xs"
+      className="mb-5 rounded-lg border border-border bg-card p-4 text-sm"
     >
-      <h2 className="mb-1 text-sm font-semibold">位置关联来源与后台任务</h2>
-      <p className="mb-3 text-muted-foreground">
+      <h2 className="mb-1 text-md font-semibold">位置关联来源与后台任务</h2>
+      <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
         选择存储位置，查看当前账号可见的来源和任务；进入数据集查看同步差异与扫描历史。
       </p>
       {!selectedLocationId && (
@@ -141,8 +141,8 @@ function SummaryOwner({ locationId: selectedLocationId, returnTo }: SummaryProps
       {locationId && (
         <div className="mt-3 grid gap-4 lg:grid-cols-2">
           <div>
-            <h3 className="mb-2 font-semibold">关联来源 · {sourceData?.total ?? "…"}</h3>
-            <p className="mb-2 text-muted-foreground">
+            <h3 className="mb-2 text-sm font-semibold">关联来源 · {sourceData?.total ?? "…"}</h3>
+            <p className="mb-2 text-xs text-muted-foreground">
               受影响数据集 · {sourceData?.dataset_count ?? "待统计"}
             </p>
             {sourceData && (
@@ -154,7 +154,10 @@ function SummaryOwner({ locationId: selectedLocationId, returnTo }: SummaryProps
               </Link>
             )}
             {sourceData?.items.map((source) => (
-              <p key={source.source_id} className="mb-2">
+              <p
+                key={source.source_id}
+                className="mb-2 rounded-md border border-border p-3 leading-relaxed"
+              >
                 {source.dataset_id ? (
                   <Link
                     className="text-brand underline"
@@ -177,7 +180,9 @@ function SummaryOwner({ locationId: selectedLocationId, returnTo }: SummaryProps
             />
           </div>
           <div>
-            <h3 className="mb-2 font-semibold">关联后台任务 · {sourceData?.jobs.total ?? "…"}</h3>
+            <h3 className="mb-2 text-sm font-semibold">
+              关联后台任务 · {sourceData?.jobs.total ?? "…"}
+            </h3>
             {sourceData?.jobs.items.map((job) => (
               <p key={job.id} className="mb-2">
                 <Button size="sm" onClick={() => setJobId(job.id)}>

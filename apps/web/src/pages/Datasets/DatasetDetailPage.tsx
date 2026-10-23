@@ -50,8 +50,8 @@ import {
 } from "./datasetsUrlState";
 
 const inputClass =
-  "rounded-md border border-input bg-background px-2.5 py-2 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-const tdClass = "border-b border-border px-3 py-2.5 text-left text-xs";
+  "rounded-md border border-input bg-background px-2.5 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+const tdClass = "border-b border-border px-3 py-2.5 text-left text-sm";
 const tabs: { value: DatasetTab; label: string }[] = [
   { value: "data", label: "数据" },
   { value: "sources", label: "来源与同步" },
@@ -573,7 +573,7 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
               {files.data?.items.map((item) => (
                 <button
                   key={item.id}
-                  className="min-w-0 rounded-md border border-border p-2 text-left text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="min-w-0 rounded-md border border-border p-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={(e) => {
                     selectedTrigger.current = e.currentTarget;
                     patch({ item: item.id });
@@ -784,7 +784,7 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
           {versions.data?.items.map((version) => (
             <div
               key={version.id}
-              className="flex flex-wrap items-center justify-between gap-2 border-b border-border p-3 text-xs"
+              className="flex flex-wrap items-center justify-between gap-2 border-b border-border p-3 text-sm"
             >
               <div>
                 <Link
