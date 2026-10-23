@@ -118,7 +118,14 @@ async def test_directory_checkpoint_rejects_after_maintenance(
     run, _ = await scans.start_scan(db_session, source.id, actor)
     job = await db_session.get(AsyncJob, run.async_job_id)
     fence = await scans.claim(db_session, run.id, job.celery_task_id, "content@test")
-    work = await scans.next_directory(db_session, run.id, job.celery_task_id, fence)
+    for _ in range(3):
+        work = await scans.next_directory(db_session, run.id, job.celery_task_id, fence)
+        assert work is not None, "A fresh scan must enumerate its source directory"
+        if not work.get("transition"):
+            break
+    else:
+        pytest.fail("Fresh scan did not advance from lease validation to enumeration")
+    assert work["phase"] == "enumerating"
     assert work["location_id"] == location.id and work["maintenance_revision"] == 1
     manifest = fs.scan_directory(
         work["config"],
