@@ -60,6 +60,7 @@ from app.services.workspace_read_relations import (
     project_facts,
     project_search_scope,
 )
+from app.services.notification_read_relations import notification_rows
 from aap_notifications.preferences import NotificationPreferenceManager
 from aap_notifications.preferences_postgres import NotificationPreferencesPostgresData
 from aap_notifications.append import NotificationAppendManager
@@ -96,7 +97,7 @@ def _notification_project_id(row: Notification) -> uuid.UUID | None:
 _ACTUAL_TARGET_TYPES = ("export", "async_job")
 
 
-def _job_project_text_expr():
+def _job_project_text_expr(notification=Notification):
     return (
         select(
             func.cast(
@@ -104,31 +105,31 @@ def _job_project_text_expr():
                 String,
             )
         )
-        .where(AsyncJob.id == Notification.target_id)
-        .correlate(Notification)
+        .where(AsyncJob.id == notification.target_id)
+        .correlate(notification)
         .scalar_subquery()
     )
 
 
-def _job_kind_expr():
+def _job_kind_expr(notification=Notification):
     return (
         select(AsyncJob.kind)
-        .where(AsyncJob.id == Notification.target_id)
-        .correlate(Notification)
+        .where(AsyncJob.id == notification.target_id)
+        .correlate(notification)
         .scalar_subquery()
     )
 
 
-def _job_exists_expr():
+def _job_exists_expr(notification=Notification):
     return (
         select(AsyncJob.id)
-        .where(AsyncJob.id == Notification.target_id)
-        .correlate(Notification)
+        .where(AsyncJob.id == notification.target_id)
+        .correlate(notification)
         .exists()
     )
 
 
-def _job_project_exists_expr(user: IdentityActorStatus):
+def _job_project_exists_expr(user: IdentityActorStatus, notification=Notification):
     workspace_projects = project_search_scope(user)
     return (
         select(AsyncJob.id)
@@ -137,13 +138,13 @@ def _job_project_exists_expr(user: IdentityActorStatus):
             workspace_projects.c.project_id
             == func.coalesce(AsyncJob.project_id, AsyncJob.retained_project_id),
         )
-        .where(AsyncJob.id == Notification.target_id)
-        .correlate(Notification)
+        .where(AsyncJob.id == notification.target_id)
+        .correlate(notification)
         .exists()
     )
 
 
-def _effective_project_text_expr():
+def _effective_project_text_expr(notification=Notification):
     """SQL text expression for a notification's actual project scope.
 
     For an export/async-job target the owning ``AsyncJob`` row is the actual
@@ -154,14 +155,14 @@ def _effective_project_text_expr():
 
     return case(
         (
-            Notification.target_type.in_(_ACTUAL_TARGET_TYPES),
-            _job_project_text_expr(),
+            notification.target_type.in_(_ACTUAL_TARGET_TYPES),
+            _job_project_text_expr(notification),
         ),
-        else_=Notification.payload["project_id"].astext,
+        else_=notification.payload["project_id"].astext,
     )
 
 
-def _is_restricted_expr():
+def _is_restricted_expr(notification=Notification):
     """A notification is project-restricted when it names or targets a project.
 
     Export targets are always restricted. An async-job target is restricted
@@ -170,32 +171,32 @@ def _is_restricted_expr():
     authoritative scope. Only known global job kinds remain global.
     """
 
-    payload_project = Notification.payload["project_id"].astext
+    payload_project = notification.payload["project_id"].astext
     return or_(
-        Notification.target_type == "export",
+        notification.target_type == "export",
         and_(
-            Notification.target_type == "async_job",
+            notification.target_type == "async_job",
             or_(
-                _job_project_text_expr().is_not(None),
-                ~_job_exists_expr(),
-                _job_kind_expr().not_in(GLOBAL_ASYNC_JOB_KINDS),
+                _job_project_text_expr(notification).is_not(None),
+                ~_job_exists_expr(notification),
+                _job_kind_expr(notification).not_in(GLOBAL_ASYNC_JOB_KINDS),
             ),
         ),
         and_(
-            Notification.target_type.not_in(_ACTUAL_TARGET_TYPES),
+            notification.target_type.not_in(_ACTUAL_TARGET_TYPES),
             payload_project.is_not(None),
         ),
     )
 
 
-def _requires_export_capability_expr():
+def _requires_export_capability_expr(notification=Notification):
     """True for full-export notifications, including export-kind async jobs."""
 
     return or_(
-        Notification.target_type == "export",
+        notification.target_type == "export",
         and_(
-            Notification.target_type == "async_job",
-            _job_kind_expr() == "export",
+            notification.target_type == "async_job",
+            _job_kind_expr(notification) == "export",
         ),
     )
 
@@ -240,6 +241,50 @@ class NotificationService:
         return await NotificationPreferenceManager(
             NotificationPreferencesPostgresData(self.db)
         ).is_in_app_muted(user_id, type)
+
+    async def notification_by_id(
+        self, notification_id: uuid.UUID
+    ) -> Notification | None:
+        """Load one row through the Notifications relation, preserving its identity."""
+        session = self.db.sync_session
+        mapper = sa_inspect(Notification)
+        identity_key = mapper.identity_key_from_primary_key((notification_id,))
+        cached = session.identity_map.get(identity_key)
+        state = sa_inspect(cached) if cached is not None else None
+        if state is not None and not state.expired:
+            return cached
+
+        relation = notification_rows()
+        result = await self.db.execute(
+            select(relation).where(relation.id == notification_id)
+        )
+        row = result.scalar_one_or_none()
+        if row is not None:
+            return row
+        if state is not None:
+            if state.expired:
+                session._remove_newly_deleted([state])
+        return None
+
+    async def terminal_notification_exists(
+        self,
+        user_id: uuid.UUID,
+        type: str,
+        target_id: uuid.UUID,
+    ) -> bool:
+        """Preserve the terminal helper's ORM SELECT/autoflush semantics."""
+        relation = notification_rows()
+        result = await self.db.scalar(
+            select(relation.id)
+            .where(
+                relation.user_id == user_id,
+                relation.type == type,
+                relation.target_type == "async_job",
+                relation.target_id == target_id,
+            )
+            .limit(1)
+        )
+        return result is not None
 
     async def notify(
         self,
@@ -502,7 +547,7 @@ class NotificationService:
         disconnecting unrelated deliveries.
         """
 
-        row = await self.db.get(Notification, notification_id)
+        row = await self.notification_by_id(notification_id)
         if row is None or row.user_id != user_id:
             return False
         try:
@@ -584,7 +629,7 @@ class NotificationService:
         :meth:`publish_committed`, a Redis error is raised so a durable delivery
         lease is not acknowledged before publication is accepted.
         """
-        row = await self.db.get(Notification, notification_id)
+        row = await self.notification_by_id(notification_id)
         if row is None:
             return False
         scopes = await self._resolve_delivery_scopes([row])
@@ -633,7 +678,9 @@ class NotificationService:
                 e,
             )
 
-    def _scope_conditions(self, user: IdentityActorStatus) -> list:
+    def _scope_conditions(
+        self, user: IdentityActorStatus, notification=Notification
+    ) -> list:
         """SQL conditions hiding project-restricted rows the account cannot read.
 
         Mirrors the shared resolver: super administrators see everything; every
@@ -650,31 +697,31 @@ class NotificationService:
         """
 
         if user.role == PlatformRole.SUPER_ADMIN.value:
-            actual_target = Notification.target_type.in_(_ACTUAL_TARGET_TYPES)
+            actual_target = notification.target_type.in_(_ACTUAL_TARGET_TYPES)
             valid_global_scope = and_(
-                Notification.target_type == "async_job",
-                _job_project_text_expr().is_(None),
-                _job_kind_expr().in_(GLOBAL_ASYNC_JOB_KINDS),
+                notification.target_type == "async_job",
+                _job_project_text_expr(notification).is_(None),
+                _job_kind_expr(notification).in_(GLOBAL_ASYNC_JOB_KINDS),
             )
             valid_project_scope = and_(
-                _job_project_text_expr().is_not(None),
-                _job_project_exists_expr(user),
+                _job_project_text_expr(notification).is_not(None),
+                _job_project_exists_expr(user, notification),
             )
             return [
                 or_(
                     ~actual_target,
                     and_(
-                        _job_exists_expr(),
+                        _job_exists_expr(notification),
                         or_(valid_global_scope, valid_project_scope),
                     ),
                 )
             ]
-        project_text = _effective_project_text_expr()
-        restricted = _is_restricted_expr()
+        project_text = _effective_project_text_expr(notification)
+        restricted = _is_restricted_expr(notification)
         return [
             or_(~restricted, _accessible_project_clause(user, project_text)),
             or_(
-                ~_requires_export_capability_expr(),
+                ~_requires_export_capability_expr(notification),
                 _export_capable_project_clause(user, project_text),
             ),
         ]
@@ -690,21 +737,22 @@ class NotificationService:
         user = await IdentityAccountLockData(self.db).read_actor_status(user_id)
         if user is None:
             return [], 0, 0
-        scope = self._scope_conditions(user)
-        base = select(Notification).where(Notification.user_id == user_id, *scope)
-        count_q = select(func.count(Notification.id)).where(
-            Notification.user_id == user_id, *scope
+        notification = notification_rows()
+        scope = self._scope_conditions(user, notification)
+        base = select(notification).where(notification.user_id == user_id, *scope)
+        count_q = select(func.count(notification.id)).where(
+            notification.user_id == user_id, *scope
         )
-        unread_q = select(func.count(Notification.id)).where(
-            Notification.user_id == user_id,
-            Notification.read_at.is_(None),
+        unread_q = select(func.count(notification.id)).where(
+            notification.user_id == user_id,
+            notification.read_at.is_(None),
             *scope,
         )
 
         q = base
         if unread_only:
-            q = q.where(Notification.read_at.is_(None))
-        q = q.order_by(Notification.created_at.desc()).offset(offset).limit(limit)
+            q = q.where(notification.read_at.is_(None))
+        q = q.order_by(notification.created_at.desc()).offset(offset).limit(limit)
 
         items = list((await self.db.execute(q)).scalars().all())
         total = (await self.db.execute(count_q)).scalar() or 0
@@ -715,10 +763,11 @@ class NotificationService:
         user = await IdentityAccountLockData(self.db).read_actor_status(user_id)
         if user is None:
             return 0
-        scope = self._scope_conditions(user)
-        q = select(func.count(Notification.id)).where(
-            Notification.user_id == user_id,
-            Notification.read_at.is_(None),
+        notification = notification_rows()
+        scope = self._scope_conditions(user, notification)
+        q = select(func.count(notification.id)).where(
+            notification.user_id == user_id,
+            notification.read_at.is_(None),
             *scope,
         )
         return int((await self.db.execute(q)).scalar() or 0)

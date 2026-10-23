@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.deps import get_current_user_id, get_db
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_comment import AnnotationComment
-from app.db.models.audit_log import AuditLog
+from app.services.audit_read_relations import audit_event
 from app.schemas.annotation_history import (
     AnnotationHistoryResponse,
     HistoryEntry,
@@ -56,9 +56,9 @@ async def get_annotation_history(
     ann_audits = (
         (
             await db.execute(
-                select(AuditLog).where(
-                    AuditLog.target_type == "annotation",
-                    AuditLog.target_id == str(annotation_id),
+                select(audit_event).where(
+                    audit_event.target_type == "annotation",
+                    audit_event.target_id == str(annotation_id),
                 )
             )
         )
@@ -70,10 +70,10 @@ async def get_annotation_history(
     task_audits = (
         (
             await db.execute(
-                select(AuditLog).where(
-                    AuditLog.target_type == "task",
-                    AuditLog.target_id == str(ann.task_id),
-                    AuditLog.action.in_(_RELEVANT_TASK_ACTIONS),
+                select(audit_event).where(
+                    audit_event.target_type == "task",
+                    audit_event.target_id == str(ann.task_id),
+                    audit_event.action.in_(_RELEVANT_TASK_ACTIONS),
                 )
             )
         )
@@ -169,9 +169,9 @@ async def get_task_audit_history(
     task_audits = (
         (
             await db.execute(
-                select(AuditLog).where(
-                    AuditLog.target_type == "task",
-                    AuditLog.target_id == str(task_id),
+                select(audit_event).where(
+                    audit_event.target_type == "task",
+                    audit_event.target_id == str(task_id),
                 )
             )
         )
@@ -190,9 +190,9 @@ async def get_task_audit_history(
         ann_audits = (
             (
                 await db.execute(
-                    select(AuditLog).where(
-                        AuditLog.target_type == "annotation",
-                        AuditLog.target_id.in_([str(aid) for aid in ann_ids]),
+                    select(audit_event).where(
+                        audit_event.target_type == "annotation",
+                        audit_event.target_id.in_([str(aid) for aid in ann_ids]),
                     )
                 )
             )

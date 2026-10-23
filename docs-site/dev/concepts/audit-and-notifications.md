@@ -39,13 +39,15 @@ last_reviewed: 2026-10-24
 | `apps/audit/src/aap_audit/postgres.py`、`sql/0315_audit_append.sql`               | 同事务 PostgreSQL Audit owner 适配器与追加函数               |
 | `apps/audit/src/aap_audit/query_contract.py`、`query.schema.json`                 | `aap-audit-query/v1` 全局查询命令与响应合同                  |
 | `apps/audit/src/aap_audit/query_postgres.py`、`sql/0317_audit_query.sql`          | 借用调用方事务的固定 Audit 查询函数                          |
+| `apps/audit/src/aap_audit/read_relation_postgres.py`                              | 公开事件关系及原生类型；领域范围由消费者组合                 |
 | `apps/api/app/middleware/audit.py`                                                | HTTP 写请求响应后的 `http.*` 元数据审计                      |
 | `apps/api/app/workers/audit.py`                                                   | 异步持久化 HTTP 审计；投递失败时中间件同步回退               |
 | `apps/api/app/db/models/audit_log.py`                                             | `AuditLog` 数据模型                                          |
 | `apps/api/app/api/v1/audit_logs.py`                                               | audit 查询与导出                                             |
 | `apps/api/app/services/audit_summary.py`                                          | 正常月报的本地 Python 归并                                   |
 | `apps/audit-summary`、`apps/api/experiments`                                      | 显式隔离实验，不参与正常月报执行                             |
-| `apps/api/app/services/notification.py`                                           | 通知写表与 Redis PubSub                                      |
+| `apps/api/app/services/notification.py`                                           | 通知 owner 调用、公开事实读取与 Redis PubSub                 |
+| `apps/api/app/services/notification_read_relations.py`                            | 公开通知关系与原 Session identity 兼容绑定                   |
 | `apps/notifications/src/aap_notifications/preferences.policy.json`                | 跨语言共享的可配置类型与默认 toast 策略                      |
 | `apps/notifications/src/aap_notifications/preferences_contract.py`                | 版本化 GET／PATCH／mute JSON 合同与响应验证                  |
 | `apps/notifications/src/aap_notifications/sql/0311_notifications_preferences.sql` | 同事务读取、静音与 JSONB merge owner 函数                    |
@@ -74,9 +76,9 @@ last_reviewed: 2026-10-24
 PostgreSQL 事务；API 适配器在调用返回前恢复 `AuditLog` ORM identity。HTTP
 元数据仍在响应后 best-effort 写入，并保留 actor 外键失败后的匿名重试。超级管理员
 的全局列表和导出也通过 Audit 的固定查询函数读取；它保留现有筛选、游标、偏移、
-当前邮箱回退与 50,000 行导出上限。项目管理员范围仍由 API 组合 Workspace 与
-Labeling 事实，因此尚未移入本次查询合同。其他领域历史、月报、分区保留和冷归档
-也保持现有所有者。
+当前邮箱回退与 50,000 行导出上限。项目管理员范围由 API 通过公开 Audit 事件关系组合
+Workspace 与 Labeling 事实；标注历史、批次日志、管理看板及评审证据也读取同一关系。
+月报、DuckDB、绩效、分区保留和冷归档仍保持现有读取及维护路径。
 
 ## Audit：记录发生了什么
 
@@ -194,6 +196,8 @@ Labeling 事实，因此尚未移入本次查询合同。其他领域历史、�
 
 ### 审计查询与权限边界
 
+`aap_audit_v1.audit_events` 是 Audit owner 持有的 security-barrier 视图，保留 14 个原生字段及 INET 类型。物理行键为 `(id, created_at)`，全局查询合同允许同 ID、不同时间的合法记录；兼容 ORM 仍保持原有仅按 ID 的身份映射。公开关系只表达事实，受限服务 LOGIN 可以 SELECT，但不能据此绕过 API 的用户范围条件。领域消费者借用原事务并保留 autoflush；月报、绩效与维护的私表读取尚未全部迁移。
+
 HTTP 查询端点 `GET /api/v1/audit` 面向运营与排障，严格执行基于角色的管理范围隔离：
 
 - **超级管理员**：具备全平台全局可见性，可检索任意用户、实体与系统级别的动作，并独占按月聚合、冷归档（`POST /audit/archive`）与全量 CSV 导出功能。
@@ -226,6 +230,10 @@ HTTP 查询端点 `GET /api/v1/audit` 面向运营与排障，严格执行基于
 3. 按 `defer_publish` 约定发布到 Redis PubSub 频道 `notify:{user_id}`
 
 `append_notification` 是持久化能力，不重复执行业务静音策略，也不提交事务。API 保留既有偏好预检与事务协调，收到带有数据库 `now()` 时间戳的行快照后，把它合并进原 Session identity map，再按原有时序返回与发布。跨语言调用方同样先调用偏好 owner 的静音操作，再调用 append；两个调用继续借用同一 PostgreSQL 事务。
+
+### 收件箱与持久行读取
+
+通知服务、终态查重和 WebSocket 读取 `aap_notifications_v1.notification_facts`，保留八个原生字段及原 Session 的 identity／dirty／expired 行为。普通 API 只获该关系 SELECT，不能直接读写通知、偏好或投递 outbox 私表；更新仍经固定 owner 函数。视图不包含用户授权，收件箱、计数和逐条推送继续在 API 组合当前 Workspace／Jobs 权限，短暂缺失行重试和撤权后停止投递保持。通用终态的“查重后追加”尚非原子去重。
 
 ### 已读状态命令
 
@@ -297,7 +305,7 @@ ORM DELETE evaluator 同步身份缓存，因此已有、脏、过期对象及�
 
 `apps/notifications/src/aap_notifications/preferences.policy.json` 是「**用户可在设置页配置**」的类型与默认 toast 合同。API 使用此名单做公开请求校验，0311 Notifications owner 在 PostgreSQL 内保留同一有序策略，并自行计算新行默认值；PATCH 不接受调用方传入默认值。Python contract 测试逐项比较 JSON 与冻结 SQL，Node peer 则直接调用同一 owner 函数。新增类型时更新该策略、后续线性 Alembic owner SQL 与前端设置页标签：
 
-`infra/docker/notification-preferences-grants.sql` 会撤销指定 API LOGIN 与 `PUBLIC` 对 `notification_preferences` 的直接表／列权限。`infra/docker/notification-append-grants.sql` 另外撤销 API LOGIN 对 `notifications` 的直接 INSERT／UPDATE；API 仅获 append 和 read-state 函数，函数限定的 Node peer 可组合偏好检查、append 与 read-state 命令。通知查询和独立 dismiss 删除仍走原路径。先部署包含这些 owner 路径的 API/worker 工件并排空旧进程，再安装严格授权；旧工件仍直接写通知表时不能和撤权同时运行。
+`infra/docker/notification-preferences-grants.sql` 撤销指定 API LOGIN 与 `PUBLIC` 对偏好私表的直接权限；`notification-append-grants.sql` 安装偏好、追加、已读和删除四项固定能力。`notifications-read-grants.sql` 改授公开通知关系 SELECT；普通工作树和 LAN 授权源也关闭三张 Notifications 私表及列权限，publisher 仍使用专用固定函数。先部署匹配 API／worker 工件并排空旧私表消费者，再安装严格授权；回退也须同时匹配代码、关系和授权。
 
 - `bug_report.commented`
 - `bug_report.reopened`

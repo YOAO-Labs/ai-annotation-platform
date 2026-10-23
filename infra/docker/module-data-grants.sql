@@ -2616,6 +2616,7 @@ ALTER FUNCTION aap_audit_v1.record_dataset_source_deletion(
 ) OWNER TO :"audit_owner";
 ALTER FUNCTION aap_audit_v1.append_events(jsonb) OWNER TO :"audit_owner";
 ALTER FUNCTION aap_audit_v1.query_events(pg_catalog.jsonb) OWNER TO :"audit_owner";
+ALTER VIEW aap_audit_v1.audit_events OWNER TO :"audit_owner";
 REVOKE CREATE ON SCHEMA aap_audit_v1 FROM :"audit_owner";
 
 -- Import and spatial helpers stay with their schema owner; runtime roles gain no DDL.
@@ -2626,6 +2627,7 @@ GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
 GRANT CREATE ON SCHEMA aap_audit_v1 TO :"audit_owner";
 GRANT CREATE ON SCHEMA aap_settings_v1 TO :"settings_owner";
 GRANT CREATE ON SCHEMA aap_notifications_v1 TO :"notifications_owner";
+ALTER VIEW aap_notifications_v1.notification_facts OWNER TO :"notifications_owner";
 DO $$
 DECLARE
     capability record;

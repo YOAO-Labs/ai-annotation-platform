@@ -281,7 +281,8 @@ async def test_notification_publish_failure_propagates_for_retry(monkeypatch):
         payload={},
         created_at=None,
     )
-    service = NotificationService(SimpleNamespace(get=AsyncMock(return_value=row)))
+    service = NotificationService(SimpleNamespace())
+    monkeypatch.setattr(service, "notification_by_id", AsyncMock(return_value=row))
     service._resolve_delivery_scopes = AsyncMock(return_value=[(False, None, False)])
     service._allowed_delivery_indices = AsyncMock(return_value={0})
     monkeypatch.setattr(
@@ -295,8 +296,9 @@ async def test_notification_publish_failure_propagates_for_retry(monkeypatch):
 
 
 async def test_missing_notification_is_a_safe_ack(monkeypatch):
-    db = SimpleNamespace(get=AsyncMock(return_value=None))
+    db = SimpleNamespace()
     service = NotificationService(db)
+    monkeypatch.setattr(service, "notification_by_id", AsyncMock(return_value=None))
     publish = AsyncMock()
     monkeypatch.setattr(notification_module, "_publish", publish)
 
@@ -306,7 +308,8 @@ async def test_missing_notification_is_a_safe_ack(monkeypatch):
 
 async def test_revoked_notification_is_suppressed_and_ackable(monkeypatch):
     row = SimpleNamespace(id=uuid4(), user_id=uuid4(), type="dataset_import_completed")
-    service = NotificationService(SimpleNamespace(get=AsyncMock(return_value=row)))
+    service = NotificationService(SimpleNamespace())
+    monkeypatch.setattr(service, "notification_by_id", AsyncMock(return_value=row))
     service._resolve_delivery_scopes = AsyncMock(return_value=[(True, uuid4(), False)])
     service._allowed_delivery_indices = AsyncMock(return_value=set())
     publish = AsyncMock()

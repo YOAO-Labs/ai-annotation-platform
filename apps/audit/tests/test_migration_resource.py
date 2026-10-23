@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
+
+from aap_audit.read_relation_contract import audit_read_relations_schema
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -49,3 +52,29 @@ def test_query_migration_resources_follow_notifications_read_state():
         if isinstance(target, ast.Name) and target.id in {"revision", "down_revision"}
     }
     assert assignments == {"revision": "0317", "down_revision": "0316"}
+
+
+def test_read_relation_sql_and_schema_resources_match_the_owner_package():
+    package = ROOT / "apps/audit/src/aap_audit"
+    migration_sql = ROOT / "apps/api/alembic/sql/0320_audit_read_relations.sql"
+    package_sql = package / "sql/0320_audit_read_relations.sql"
+    migration_schema = (
+        ROOT / "apps/api/alembic/sql/0320_audit_read_relations.schema.json"
+    )
+    package_schema = package / "read_relations.schema.json"
+
+    assert migration_sql.read_bytes() == package_sql.read_bytes()
+    assert json.loads(package_schema.read_text()) == audit_read_relations_schema()
+    assert json.loads(migration_schema.read_text()) == audit_read_relations_schema()
+
+    migration = ast.parse(
+        (ROOT / "apps/api/alembic/versions/0320_audit_read_relations.py").read_text()
+    )
+    assignments = {
+        target.id: ast.literal_eval(node.value)
+        for node in migration.body
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name) and target.id in {"revision", "down_revision"}
+    }
+    assert assignments == {"revision": "0320", "down_revision": "0319"}

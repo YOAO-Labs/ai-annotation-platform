@@ -488,6 +488,12 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 先安装匹配迁移及 module-data grants，再使用 `infra/docker/audit-query-grants.sql` 为明确 API LOGIN 和独立查询账号授权。后者只有固定查询能力，无 Audit／Identity 私表、序列及追加权限；API 尚需其他读取权限，不能提前统一撤销。`apps/audit/conformance/node` 提供同合同的 query peer，验收器在创建资源前自检。操作级真实数据库／API、Node 及相邻迁移往返已通过；完整迁移、当前新镜像与完整 Audit 资格见[唯一台账](docs-site/dev/concepts/module-deployment.md#audit-global-query-owner)。
 
+### Audit 公开事件关系
+
+迁移 `0320` 发布 `aap_audit_v1.audit_events` 与 `aap-audit-read-relations/v1`。项目管理员查询、标注历史、批次日志、管理看板和评审贡献者快照通过该关系组合既有范围条件；授权仍由 API 持有。关系保留 14 个原生字段，包含 PostgreSQL INET，物理行键为 `(id, created_at)`；全局查询客户端同样允许 ID 相同、时间不同的合法记录。ORM 兼容绑定仍沿用现有仅按 ID 的 identity map，不改变调用方事务及 autoflush。
+
+先安装迁移和 `module-data-grants.sql`，再按 `infra/docker/audit-read-grants.sql` 文件头向预建 `LOGIN NOINHERIT` 只读账号授权。该账号不得有角色成员关系或数据库 TEMP 权限，只能 SELECT 公开关系，不能读取私表或调用追加函数。普通 API 另获关系 SELECT；月报、DuckDB、绩效和维护消费者尚需原有 Audit 读取权，不能提前全局撤销。该公开关系本身不按用户过滤，可信调用方必须继续组合授权范围。
+
 ### Notifications 偏好事务内能力
 
 `apps/notifications` 发布 `aap-notification-preferences/v1` 合同、类型与默认值策略，以及借用 API `AsyncSession` 的 PostgreSQL 客户端。迁移 `0311` 安装 `aap_notifications_v1.preference_command(jsonb)`；GET、局部更新和通知静音检查共用该能力。owner 计算新行默认值，JSONB 原子合并保留未提供的频道及扩展键，API 仍在成功提交之后发布 `notifications.sync`，没有新增 HTTP 服务或环境变量。
@@ -515,6 +521,14 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 迁移 `0318` 安装 `aap_notifications_v1.delete_command(jsonb)`，`aap-notification-delete/v1` 覆盖单条删除和清空当前用户已读行。API 保留原 boolean／数量、404、autoflush、事务及提交后同步，删除回执不携带全量 ID；本地缓存按锁定 ORM 的删除规则同步，升级 SQLAlchemy 前须重验。通知 outbox 仍随通知级联删除，业务目标保留。
 
 先部署匹配代码和迁移，排空旧直接 DELETE 消费者后，再应用 module-data、preferences 与 notification-append grants。普通 API 直接 DELETE 被撤销，函数客户端现在组合四项能力；回退时须匹配旧代码与授权。完整迁移和授权阶段与修复后的 Node 定点证据分别保留，原整轮失败记录不改写。详情见[删除台账](docs-site/dev/concepts/module-deployment.md#notification-delete-owner)；完整收件箱、WebSocket 与投递装配尚未完成。
+
+### Notifications 公开通知关系
+
+迁移 `0319` 发布 `aap_notifications_v1.notification_facts` 与 `aap-notification-read-relations/v1`，保留通知的八个原生字段。列表、计数、可见性、终态查重和 WebSocket 的持久行检查均读取该关系；API 继续组合 Workspace／Jobs 范围，保持原 Session identity、部分／完全过期对象和 autoflush 行为。关系不提供用户授权，不能直接暴露给不可信客户端。
+
+先部署匹配 API／worker 工件并排空旧私表读取者，再安装迁移、module-data grants 和 `infra/docker/notifications-read-grants.sql`。普通工作树和 LAN 授权源只授关系 SELECT，并撤销 `notifications`、`notification_preferences`、`notification_delivery_outbox` 三张私表及其列权限；偏好、追加、已读、删除和 publisher 仍通过既有固定函数。回退时须先匹配调用代码与旧授权，不能让仍读取新关系的进程遇到关系被移除。
+
+统一验收器分别验证只读 LOGIN、普通 API 与 LAN 授权，拒绝私表读取及关系写入，并记录四阶段 `pg_get_viewdef`、原生列类型和 owner 转移。源码 SQL 哈希与数据库反解析哈希分开保存；操作验收、当前冷工件和完整模块资格见[读取台账](docs-site/dev/concepts/module-deployment.md#support-read-relations)。
 
 ### 视频输入回收的保留前提
 

@@ -173,6 +173,29 @@ def test_reply_preserves_zero_and_signed_postgres_bigint_event_ids():
             decode_query_reply(_reply(events=[_event(invalid_id)]))
 
 
+def test_reply_uses_the_audit_composite_key_for_duplicate_detection():
+    request = AuditQueryRequest.list_page(_filters(), page=1, page_size=2)
+    first = _event()
+    second = {**first, "created_at": "2026-10-23T12:34:56.123457Z"}
+    reply = decode_query_reply(_reply(total="2", events=[first, second]))
+    assert validate_query_reply(request, reply) == reply
+
+    for same_instant in (
+        first["created_at"],
+        "2026-10-23T12:34:56.123456+00:00",
+        "2026-10-23T14:34:56.123456+02:00",
+    ):
+        with pytest.raises(AuditQueryUnavailable):
+            validate_query_reply(
+                request,
+                decode_query_reply(
+                    _reply(
+                        total="2", events=[first, {**first, "created_at": same_instant}]
+                    )
+                ),
+            )
+
+
 def test_query_schema_is_closed_and_has_local_definitions():
     schema = query_json_schema()
     assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"

@@ -57,6 +57,38 @@ async def test_owner_append_ignores_caller_temporary_type_shadowing(test_engine)
         await engine.dispose()
 
 
+async def test_owner_query_accepts_distinct_rows_with_the_same_id(db_session):
+    event_id = -(uuid4().int % (1 << 62)) - 1
+    action = f"audit.composite.{uuid4().hex}"
+    await db_session.execute(
+        text(
+            "INSERT INTO public.audit_logs (id, action, created_at) VALUES "
+            "(:id, :action, CURRENT_TIMESTAMP), "
+            "(:id, :action, CURRENT_TIMESTAMP + INTERVAL '1 microsecond')"
+        ),
+        {"id": event_id, "action": action},
+    )
+    request = AuditQueryRequest.list_page(
+        AuditQueryFilters(
+            action=action,
+            target_type=None,
+            target_id=None,
+            actor_id=None,
+            from_=None,
+            to=None,
+            business_only=False,
+            detail_key=None,
+            detail_value=None,
+        ),
+        page=1,
+        page_size=2,
+    )
+    reply = await AuditQueryPostgresData(db_session).query(request)
+    assert reply.data.total == "2"
+    assert [event.id for event in reply.data.events] == [str(event_id), str(event_id)]
+    assert len({event.created_at for event in reply.data.events}) == 2
+
+
 async def test_owner_query_ignores_caller_temporary_type_shadowing(test_engine):
     engine = create_async_engine(test_engine.url, poolclass=NullPool)
     filters = AuditQueryFilters(

@@ -16,7 +16,7 @@ from app.deps import (
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.annotation import Annotation
-from app.db.models.audit_log import AuditLog
+from app.services.audit_read_relations import audit_event
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_event import TaskEvent
 from app.db.enums import ProjectRole, UserRole
@@ -126,17 +126,17 @@ async def admin_dashboard(
     reg_rows = (
         await db.execute(
             select(
-                func.date_trunc("day", AuditLog.created_at).label("day"),
+                func.date_trunc("day", audit_event.created_at).label("day"),
                 func.count()
-                .filter(AuditLog.detail_json["method"].astext == "open_registration")
+                .filter(audit_event.detail_json["method"].astext == "open_registration")
                 .label("open_count"),
                 func.count()
-                .filter(AuditLog.detail_json.has_key("invitation_id"))  # noqa: W601
+                .filter(audit_event.detail_json.has_key("invitation_id"))  # noqa: W601
                 .label("invite_count"),
             )
             .where(
-                AuditLog.action == "user.register",
-                AuditLog.created_at >= cutoff_30d,
+                audit_event.action == "user.register",
+                audit_event.created_at >= cutoff_30d,
             )
             .group_by("day")
             .order_by("day")
@@ -783,13 +783,13 @@ async def admin_person_detail(
     timeline_rows = (
         (
             await db.execute(
-                select(AuditLog)
-                .where(AuditLog.actor_id == uid)
+                select(audit_event)
+                .where(audit_event.actor_id == uid)
                 .where(
                     _managed_audit_scope(current_user, project_id=pid) if pid else True
                 )
                 .where(
-                    AuditLog.action.in_(
+                    audit_event.action.in_(
                         [
                             "task.submit",
                             "task.approve",
@@ -799,7 +799,7 @@ async def admin_person_detail(
                         ]
                     )
                 )
-                .order_by(AuditLog.created_at.desc())
+                .order_by(audit_event.created_at.desc())
                 .limit(50)
             )
         )

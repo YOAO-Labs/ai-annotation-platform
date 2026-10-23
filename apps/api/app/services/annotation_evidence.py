@@ -53,9 +53,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_audit.read_relation_postgres import audit_events
 from app.db.models.annotation import Annotation
-from app.db.models.audit_log import AuditLog
 from app.db.models.task import Task
+from app.services.audit_read_relations import execute_audit_relation_read
 
 # Retryable PostgreSQL lock/transaction conflicts: lock_not_available (NOWAIT),
 # deadlock_detected, serialization_failure.
@@ -126,18 +127,19 @@ async def review_round_contributor_snapshot(db: AsyncSession, task: Task) -> lis
     if task.review_round_id is None:
         return []
     row = (
-        await db.execute(
-            select(AuditLog.detail_json)
+        await execute_audit_relation_read(
+            db,
+            select(audit_events.c.detail_json)
             .where(
-                AuditLog.action.in_(("task.submit", "task.skip")),
-                AuditLog.target_id == str(task.id),
-                AuditLog.status_code == 200,
-                AuditLog.detail_json["project_id"].astext == str(task.project_id),
-                AuditLog.detail_json["review_round_id"].astext
+                audit_events.c.action.in_(("task.submit", "task.skip")),
+                audit_events.c.target_id == str(task.id),
+                audit_events.c.status_code == 200,
+                audit_events.c.detail_json["project_id"].astext == str(task.project_id),
+                audit_events.c.detail_json["review_round_id"].astext
                 == str(task.review_round_id),
             )
-            .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
-            .limit(1)
+            .order_by(audit_events.c.created_at.desc(), audit_events.c.id.desc())
+            .limit(1),
         )
     ).scalar_one_or_none()
     values = row.get("contributor_ids") if isinstance(row, dict) else None

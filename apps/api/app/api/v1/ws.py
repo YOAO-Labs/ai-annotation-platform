@@ -111,7 +111,6 @@ async def _notification_message_allowed(token: str, data) -> bool:
     except (TypeError, ValueError):
         return False
     from app.db.base import async_session
-    from app.db.models.notification import Notification
     from app.services.notification import NotificationService
 
     async with async_session() as db:
@@ -123,7 +122,7 @@ async def _notification_message_allowed(token: str, data) -> bool:
         # visible the deliverability answer is authoritative and still fails
         # closed on revocation or bogus ids.
         for attempt in range(4):
-            if await db.get(Notification, notification_id) is not None:
+            if await service.notification_by_id(notification_id) is not None:
                 return await service.notification_deliverable(
                     notification_id, actor.actor_id
                 )

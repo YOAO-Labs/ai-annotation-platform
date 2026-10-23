@@ -43,6 +43,44 @@ NOTIFICATION_PREFERENCES_ROLE = "notification_preferences_client"
 NOTIFICATION_APPEND_ROLE = "notification_append_client"
 AUDIT_APPEND_ROLE = "audit_append_client"
 AUDIT_QUERY_ROLE = "audit_query_client"
+NOTIFICATION_READ_ROLE = "notification_read_client"
+AUDIT_READ_ROLE = "audit_read_client"
+READ_RELATION_SPECS = {
+    "aap_notifications_v1.notification_facts": {
+        "sql": "0319_notifications_read_relations.sql",
+        "owner": "notifications_code",
+        "columns": [
+            ("id", "uuid"),
+            ("user_id", "uuid"),
+            ("type", "character varying(60)"),
+            ("target_type", "character varying(30)"),
+            ("target_id", "uuid"),
+            ("payload", "jsonb"),
+            ("read_at", "timestamp with time zone"),
+            ("created_at", "timestamp with time zone"),
+        ],
+    },
+    "aap_audit_v1.audit_events": {
+        "sql": "0320_audit_read_relations.sql",
+        "owner": "audit_code",
+        "columns": [
+            ("id", "bigint"),
+            ("actor_id", "uuid"),
+            ("actor_email", "character varying(255)"),
+            ("actor_role", "character varying(32)"),
+            ("action", "character varying(64)"),
+            ("target_type", "character varying(32)"),
+            ("target_id", "character varying(64)"),
+            ("method", "character varying(8)"),
+            ("path", "character varying(256)"),
+            ("status_code", "smallint"),
+            ("ip", "inet"),
+            ("detail_json", "jsonb"),
+            ("request_id", "character varying(36)"),
+            ("created_at", "timestamp with time zone"),
+        ],
+    },
+}
 IDENTITY_CLIENT_ROLES = {
     "AUTH": "identity_auth_client",
     "COMMAND": "identity_command_client",
@@ -119,6 +157,8 @@ MODULE_ROLES = (
     NOTIFICATION_APPEND_ROLE,
     AUDIT_APPEND_ROLE,
     AUDIT_QUERY_ROLE,
+    NOTIFICATION_READ_ROLE,
+    AUDIT_READ_ROLE,
     *IDENTITY_CLIENT_ROLES.values(),
 )
 SQL_ARTIFACTS = (
@@ -294,6 +334,8 @@ SQL_ARTIFACTS = (
     "0316_notifications_read_state.sql",
     "0317_audit_query.sql",
     "0318_notifications_delete.sql",
+    "0319_notifications_read_relations.sql",
+    "0320_audit_read_relations.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -424,6 +466,8 @@ SCHEMA_ARTIFACTS = (
     "0316_notifications_read_state.schema.json",
     "0317_audit_query.schema.json",
     "0318_notifications_delete.schema.json",
+    "0319_notifications_read_relations.schema.json",
+    "0320_audit_read_relations.schema.json",
 )
 TEST_FILES = (
     "tests/test_scale_seed_workspace_native.py",
@@ -613,10 +657,16 @@ TEST_FILES = (
     "tests/test_notification_read_state_cache.py",
     "tests/test_notification_delete_cache.py",
     "tests/test_notifications_delete_baseline.py",
+    "tests/test_notification_read_relations.py",
+    "tests/test_dataset_import_delivery.py::test_notification_delivery_acks_after_publish_by_persisted_id",
+    "tests/test_ws_revalidation.py::test_notification_parser_resolves_stored_row",
     "tests/test_audit_append_adapter.py",
     "tests/test_audit_append_native.py",
     "tests/test_audit_logs.py",
     "tests/test_audit_query_routes.py",
+    "tests/test_audit_read_relations_native.py",
+    "tests/test_audit_project_scope.py::test_project_admin_audit_scope_and_superadmin_global_access",
+    "tests/test_audit_project_scope.py::test_project_admin_audit_relation_preserves_native_inet_dto_values",
     "tests/test_audit_metadata_append.py",
     "tests/test_notification_delivery_scope.py",
     "tests/test_pointcloud_box3d_annotation.py",
@@ -1911,6 +1961,35 @@ def _psql(
     return result.stdout
 
 
+def _assert_psql_permission_denied(
+    container_id: str,
+    container_name: str,
+    container_identity: str,
+    *,
+    username: str,
+    password: str,
+    database: str,
+    statement: str,
+) -> None:
+    escaped = statement.replace("'", "''")
+    _psql(
+        container_id,
+        container_name,
+        container_identity,
+        username=username,
+        password=password,
+        database=database,
+        sql=(
+            "DO $$ DECLARE denied boolean := false; BEGIN "
+            "BEGIN EXECUTE '"
+            f"{escaped}"
+            "'; EXCEPTION WHEN insufficient_privilege THEN denied := true; "
+            "END; IF NOT denied THEN RAISE EXCEPTION "
+            "'expected SQLSTATE 42501 for a restricted read role'; END IF; END $$;"
+        ),
+    )
+
+
 def _installed_function_body_sha256(
     container_id: str,
     container_name: str,
@@ -1950,6 +2029,161 @@ def _installed_function_body_sha256(
             f"installed function body differs from frozen SQL: {signature}"
         )
     return hashlib.sha256(actual.encode("utf-8")).hexdigest()
+
+
+def _read_relation_evidence_expression() -> str:
+    targets = ", ".join(f"('{relation_name}')" for relation_name in READ_RELATION_SPECS)
+    return f"""COALESCE((
+        SELECT pg_catalog.jsonb_agg(
+            pg_catalog.jsonb_build_object(
+                'relation', target.relation,
+                'deparser_hex', pg_catalog.encode(
+                    pg_catalog.convert_to(
+                        pg_catalog.pg_get_viewdef(relation.oid, true), 'UTF8'
+                    ),
+                    'hex'
+                ),
+                'relkind', relation.relkind::text,
+                'owner', pg_catalog.pg_get_userbyid(relation.relowner),
+                'reloptions', COALESCE(
+                    pg_catalog.to_jsonb(relation.reloptions), '[]'::pg_catalog.jsonb
+                ),
+                'columns', COALESCE((
+                    SELECT pg_catalog.jsonb_agg(
+                        pg_catalog.jsonb_build_object(
+                            'name', attribute.attname,
+                            'type', pg_catalog.format_type(
+                                attribute.atttypid, attribute.atttypmod
+                            )
+                        ) ORDER BY attribute.attnum
+                    )
+                    FROM pg_catalog.pg_attribute AS attribute
+                    WHERE attribute.attrelid = relation.oid
+                      AND attribute.attnum > 0
+                      AND NOT attribute.attisdropped
+                ), '[]'::pg_catalog.jsonb)
+            ) ORDER BY target.relation
+        )
+        FROM (VALUES {targets}) AS target(relation)
+        LEFT JOIN pg_catalog.pg_class AS relation
+          ON relation.oid = pg_catalog.to_regclass(target.relation)::oid
+    ), '[]'::pg_catalog.jsonb)"""
+
+
+def _normalize_read_relation_observations(
+    value: str, *, expected_owner: str | dict[str, str] | None = None
+) -> dict[str, dict]:
+    try:
+        observations = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        raise RuntimeError("read relation catalog evidence is malformed") from None
+    if not isinstance(observations, list):
+        raise RuntimeError("read relation catalog evidence is not an array")
+
+    normalized: dict[str, dict] = {}
+    for observation in observations:
+        if not isinstance(observation, dict):
+            raise RuntimeError("read relation catalog entry is malformed")
+        relation_name = observation.get("relation")
+        if relation_name not in READ_RELATION_SPECS or relation_name in normalized:
+            raise RuntimeError("read relation catalog returned an unknown relation")
+        definition_hex = observation.get("deparser_hex")
+        try:
+            definition = bytes.fromhex(definition_hex).decode("utf-8")
+        except (TypeError, ValueError, UnicodeError):
+            raise RuntimeError(
+                f"read relation deparser output is missing: {relation_name}"
+            ) from None
+
+        spec = READ_RELATION_SPECS[relation_name]
+        owner_expected = (
+            expected_owner.get(relation_name)
+            if isinstance(expected_owner, dict)
+            else expected_owner
+        )
+        columns = observation.get("columns")
+        expected_columns = [
+            {"name": name, "type": type_name} for name, type_name in spec["columns"]
+        ]
+        owner = observation.get("owner")
+        if (
+            observation.get("relkind") != "v"
+            or observation.get("reloptions") != ["security_barrier=true"]
+            or columns != expected_columns
+            or not isinstance(owner, str)
+            or (owner_expected is not None and owner != owner_expected)
+        ):
+            raise RuntimeError(
+                f"read relation metadata differs from its fixed contract: {relation_name}"
+            )
+        normalized[relation_name] = {
+            "pg_get_viewdef_sha256": hashlib.sha256(
+                definition.encode("utf-8")
+            ).hexdigest(),
+            "definition_source": "pg_catalog.pg_get_viewdef(oid, true)",
+            "metadata": {
+                "relkind": observation["relkind"],
+                "owner": owner,
+                "reloptions": observation["reloptions"],
+                "columns": columns,
+            },
+        }
+
+    if set(normalized) != set(READ_RELATION_SPECS):
+        raise RuntimeError("read relation catalog evidence is incomplete")
+    return normalized
+
+
+def _read_relation_structure(snapshot: dict[str, dict]) -> dict[str, dict]:
+    return {
+        relation_name: {
+            "pg_get_viewdef_sha256": evidence["pg_get_viewdef_sha256"],
+            "relkind": evidence["metadata"]["relkind"],
+            "reloptions": evidence["metadata"]["reloptions"],
+            "columns": evidence["metadata"]["columns"],
+        }
+        for relation_name, evidence in snapshot.items()
+    }
+
+
+def _assert_read_relation_structure_matches(
+    reference: dict[str, dict], observed: dict[str, dict], *, phase: str
+) -> None:
+    if _read_relation_structure(reference) != _read_relation_structure(observed):
+        raise RuntimeError(f"read relation deparser/metadata changed during {phase}")
+
+
+def _read_relation_sql_input_sha256() -> dict[str, dict[str, str]]:
+    return {
+        relation_name: {
+            "source": spec["sql"],
+            "sha256": hashlib.sha256(
+                (ROOT / "apps/api/alembic/sql" / spec["sql"]).read_bytes()
+            ).hexdigest(),
+        }
+        for relation_name, spec in READ_RELATION_SPECS.items()
+    }
+
+
+def _installed_read_relation_evidence(
+    container_id: str,
+    container_name: str,
+    container_identity: str,
+    *,
+    database: str,
+    owner_password: str,
+    expected_owner: str | dict[str, str],
+) -> dict[str, dict]:
+    raw = _psql(
+        container_id,
+        container_name,
+        container_identity,
+        username="owner",
+        password=owner_password,
+        database=database,
+        sql=f"SELECT {_read_relation_evidence_expression()}::text",
+    ).strip()
+    return _normalize_read_relation_observations(raw, expected_owner=expected_owner)
 
 
 def _wait_for_postgres(container_id: str, name: str, identity: str) -> None:
@@ -2030,6 +2264,8 @@ def _create_module_roles(
     notification_append_password: str,
     audit_append_password: str,
     audit_query_password: str,
+    notification_read_password: str,
+    audit_read_password: str,
 ) -> None:
     _psql(
         container_id,
@@ -2110,7 +2346,15 @@ def _create_module_roles(
             "CREATE ROLE audit_query_client LOGIN "
             f"PASSWORD '{audit_query_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE notification_read_client LOGIN "
+            f"PASSWORD '{notification_read_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE audit_read_client LOGIN "
+            f"PASSWORD '{audit_read_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             'REVOKE TEMPORARY ON DATABASE :"expected_database" FROM PUBLIC;\n'
+            'GRANT CONNECT ON DATABASE :"expected_database" TO '
+            f'"{NOTIFICATION_READ_ROLE}", "{AUDIT_READ_ROLE}";\n'
             'GRANT TEMPORARY ON DATABASE :"expected_database" TO '
             + ", ".join(
                 ("legacy_runtime",)
@@ -2129,6 +2373,8 @@ def _create_module_roles(
                         NOTIFICATION_APPEND_ROLE,
                         AUDIT_APPEND_ROLE,
                         AUDIT_QUERY_ROLE,
+                        NOTIFICATION_READ_ROLE,
+                        AUDIT_READ_ROLE,
                         VIDEO_EXECUTION_ROLE,
                         INFERENCE_REGISTRY_INGRESS_ROLE,
                         INFERENCE_ROUTING_ROLE,
@@ -2165,7 +2411,9 @@ def _install_and_rollback_frozen_sql(
     database: str,
     owner_password: str,
     artifacts: tuple[Path, ...],
-) -> None:
+    *,
+    migration_role: str,
+) -> dict[str, dict]:
     provisioning_id = str(uuid4())
     provisioning_email = f"module-data-{uuid4().hex}@example.invalid"
     provisioning_request = str(uuid4())
@@ -2290,6 +2538,9 @@ def _install_and_rollback_frozen_sql(
         "SELECT aap_labeling_v1.delete_project_owned_records(:'project_id'::uuid);\n"
         "SELECT aap_labeling_v1.append_dataset_items("
         ":'dataset_id'::uuid, ARRAY[]::uuid[], :'operation_id'::uuid);\n"
+        "SELECT 'AAP_READ_RELATIONS_FROZEN=' || ("
+        f"{_read_relation_evidence_expression()}"
+        ")::text;\n"
         "ROLLBACK;\n"
     )
     output = _psql(
@@ -2309,6 +2560,15 @@ def _install_and_rollback_frozen_sql(
             "provisioning_email": provisioning_email,
             "provisioning_request": provisioning_request,
         },
+    )
+    marker = "AAP_READ_RELATIONS_FROZEN="
+    relation_rows = [
+        line[len(marker) :] for line in output.splitlines() if line.startswith(marker)
+    ]
+    if len(relation_rows) != 1:
+        raise RuntimeError("frozen SQL read relation evidence is missing")
+    frozen_relations = _normalize_read_relation_observations(
+        relation_rows[0], expected_owner=migration_role
     )
     responses: dict[str, list[dict]] = {}
     for line in output.splitlines():
@@ -2636,6 +2896,7 @@ def _install_and_rollback_frozen_sql(
     )
     if rollback_state.strip() != "t":
         raise RuntimeError("native frozen-SQL transaction did not roll back cleanly")
+    return frozen_relations
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -2700,6 +2961,16 @@ def main(argv: list[str] | None = None) -> int:
             "function_only_role_grant": False,
             "node_contract_check": False,
         },
+        "notification_read_relations": {
+            "node_prerequisites": "not_checked",
+            "api_relation_grant": False,
+            "api_private_reads_revoked": False,
+            "api_fact_call": False,
+            "read_client_grant": False,
+            "read_client_function_denied": False,
+            "publisher_functions_remain_callable": False,
+            "node_relation_check": False,
+        },
         "audit_append": {
             "node_prerequisites": "not_checked",
             "api_function_grant": False,
@@ -2715,12 +2986,28 @@ def main(argv: list[str] | None = None) -> int:
             "function_only_role_grant": False,
             "node_contract_check": False,
         },
+        "audit_read_relations": {
+            "node_prerequisites": "not_checked",
+            "api_relation_grant": False,
+            "api_fact_call": False,
+            "read_client_grant": False,
+            "node_relation_check": False,
+        },
         "test_files": list(test_files),
         "junit_xml": str(junit),
         "test_exit_code": None,
         "migrations": {
             "head_before_downgrade": None,
             "installed_function_body_sha256": {},
+            "read_relation_hash_method": {
+                "view_definition": "SHA-256 of UTF-8 pg_catalog.pg_get_viewdef(oid, true) output",
+                "migration_sql": "SHA-256 of exact migration SQL file bytes; not compared to the deparser digest",
+            },
+            "read_relation_sql_input_sha256": {},
+            "read_relations_before_downgrade": None,
+            "read_relations_frozen_sql_transaction": None,
+            "read_relations_after_upgrade": None,
+            "read_relations_after_owner_grants": None,
             "downgraded_to_0189": False,
             "frozen_sql_installed_and_rolled_back": False,
             "upgraded_to_head": False,
@@ -2787,9 +3074,15 @@ def main(argv: list[str] | None = None) -> int:
         delete_node_provider = (
             ROOT / "apps/notifications/conformance/node/delete_provider.mjs"
         )
+        notification_read_node_provider = (
+            ROOT / "apps/notifications/conformance/node/read_relations_provider.mjs"
+        )
         audit_append_node_provider = ROOT / "apps/audit/conformance/node/provider.mjs"
         audit_query_node_provider = (
             ROOT / "apps/audit/conformance/node/query_provider.mjs"
+        )
+        audit_read_node_provider = (
+            ROOT / "apps/audit/conformance/node/read_provider.mjs"
         )
         if (
             node_bin is None
@@ -2797,15 +3090,21 @@ def main(argv: list[str] | None = None) -> int:
             or not append_node_provider.is_file()
             or not read_state_node_provider.is_file()
             or not delete_node_provider.is_file()
+            or not notification_read_node_provider.is_file()
             or not audit_append_node_provider.is_file()
             or not audit_query_node_provider.is_file()
+            or not audit_read_node_provider.is_file()
         ):
             evidence["notification_preferences"]["node_prerequisites"] = "unavailable"
             evidence["notification_append"]["node_prerequisites"] = "unavailable"
             evidence["notification_read_state"]["node_prerequisites"] = "unavailable"
             evidence["notification_delete"]["node_prerequisites"] = "unavailable"
+            evidence["notification_read_relations"]["node_prerequisites"] = (
+                "unavailable"
+            )
             evidence["audit_append"]["node_prerequisites"] = "unavailable"
             evidence["audit_query"]["node_prerequisites"] = "unavailable"
+            evidence["audit_read_relations"]["node_prerequisites"] = "unavailable"
             raise RuntimeError("Node Notifications contract peer is unavailable")
         phase = "preflight-node-notification-preferences"
         node_check = subprocess.run(
@@ -2871,6 +3170,25 @@ def main(argv: list[str] | None = None) -> int:
                 "Notifications deletion peer prerequisites failed; install its locked "
                 "dependencies using apps/notifications/conformance/node/README.md"
             )
+        phase = "preflight-node-notification-read-relations"
+        notification_read_node_check = subprocess.run(
+            [node_bin, str(notification_read_node_provider), "--self-check"],
+            cwd=notification_read_node_provider.parent,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if notification_read_node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(
+                phase, notification_read_node_check
+            )
+            evidence["notification_read_relations"]["node_prerequisites"] = (
+                "self_check_failed"
+            )
+            raise RuntimeError(
+                "Notifications read-relation peer prerequisites failed; install its locked "
+                "dependencies using apps/notifications/conformance/node/README.md"
+            )
         phase = "preflight-node-audit-append"
         audit_append_node_check = subprocess.run(
             [node_bin, str(audit_append_node_provider), "--self-check"],
@@ -2901,12 +3219,29 @@ def main(argv: list[str] | None = None) -> int:
                 "Audit query peer prerequisites failed; install its locked "
                 "dependencies using apps/audit/conformance/node/README.md"
             )
+        phase = "preflight-node-audit-read-relations"
+        audit_read_node_check = subprocess.run(
+            [node_bin, str(audit_read_node_provider), "--self-check"],
+            cwd=audit_read_node_provider.parent,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if audit_read_node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, audit_read_node_check)
+            evidence["audit_read_relations"]["node_prerequisites"] = "self_check_failed"
+            raise RuntimeError(
+                "Audit read-relation peer prerequisites failed; install its locked "
+                "dependencies using apps/audit/conformance/node/README.md"
+            )
         evidence["notification_preferences"]["node_prerequisites"] = "passed"
         evidence["notification_append"]["node_prerequisites"] = "passed"
         evidence["notification_read_state"]["node_prerequisites"] = "passed"
         evidence["notification_delete"]["node_prerequisites"] = "passed"
+        evidence["notification_read_relations"]["node_prerequisites"] = "passed"
         evidence["audit_append"]["node_prerequisites"] = "passed"
         evidence["audit_query"]["node_prerequisites"] = "passed"
+        evidence["audit_read_relations"]["node_prerequisites"] = "passed"
         grants_path = ROOT / "infra/docker/module-data-grants.sql"
         catalog_grants_path = ROOT / "infra/docker/assets-catalog-grants.sql"
         source_grants_path = ROOT / "infra/docker/assets-source-grants.sql"
@@ -3015,8 +3350,12 @@ def main(argv: list[str] | None = None) -> int:
         notification_append_grants_path = (
             ROOT / "infra/docker/notification-append-grants.sql"
         )
+        notification_read_grants_path = (
+            ROOT / "infra/docker/notifications-read-grants.sql"
+        )
         audit_append_grants_path = ROOT / "infra/docker/audit-append-grants.sql"
         audit_query_grants_path = ROOT / "infra/docker/audit-query-grants.sql"
+        audit_read_grants_path = ROOT / "infra/docker/audit-read-grants.sql"
         identity_recovery_grants_path = (
             ROOT / "infra/docker/identity-recovery-grants.sql"
         )
@@ -3046,8 +3385,10 @@ def main(argv: list[str] | None = None) -> int:
             or not identity_deactivation_grants_path.is_file()
             or not notification_preferences_grants_path.is_file()
             or not notification_append_grants_path.is_file()
+            or not notification_read_grants_path.is_file()
             or not audit_append_grants_path.is_file()
             or not audit_query_grants_path.is_file()
+            or not audit_read_grants_path.is_file()
             or not identity_group_grants_path.is_file()
             or not identity_invitation_grants_path.is_file()
             or not identity_directory_grants_path.is_file()
@@ -3094,7 +3435,7 @@ def main(argv: list[str] | None = None) -> int:
                 contract.get("$schema")
                 != "https://json-schema.org/draft/2020-12/schema"
                 or not isinstance(contract.get("$id"), str)
-                or not isinstance(contract.get("$defs"), dict)
+                or not isinstance(contract.get("$defs", {}), dict)
             ):
                 raise RuntimeError(f"invalid frozen module-data schema: {path.name}")
         grant_sql = grants_path.read_text(encoding="utf-8")
@@ -3208,8 +3549,12 @@ def main(argv: list[str] | None = None) -> int:
         notification_append_grant_sql = notification_append_grants_path.read_text(
             encoding="utf-8"
         )
+        notification_read_grant_sql = notification_read_grants_path.read_text(
+            encoding="utf-8"
+        )
         audit_append_grant_sql = audit_append_grants_path.read_text(encoding="utf-8")
         audit_query_grant_sql = audit_query_grants_path.read_text(encoding="utf-8")
+        audit_read_grant_sql = audit_read_grants_path.read_text(encoding="utf-8")
         identity_account_grant_sql = identity_account_grants_path.read_text(
             encoding="utf-8"
         )
@@ -3250,6 +3595,8 @@ def main(argv: list[str] | None = None) -> int:
         notification_append_password = f"notification-append-{secrets.token_hex(16)}"
         audit_append_password = f"audit-append-{secrets.token_hex(16)}"
         audit_query_password = f"audit-query-{secrets.token_hex(16)}"
+        notification_read_password = f"notification-read-{secrets.token_hex(16)}"
+        audit_read_password = f"audit-read-{secrets.token_hex(16)}"
         inference_registry_ingress_password = secrets.token_hex(24)
         inference_routing_password = secrets.token_hex(24)
         video_execution_password = secrets.token_hex(24)
@@ -3333,9 +3680,22 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0318"]:
-            raise RuntimeError("module-data acceptance requires migration head 0318")
+        if heads != ["0320"]:
+            raise RuntimeError("module-data acceptance requires migration head 0320")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
+        relation_sql_hashes = _read_relation_sql_input_sha256()
+        evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes
+        read_relations_before = _installed_read_relation_evidence(
+            container_id,
+            container_name,
+            container_identity,
+            database=database,
+            owner_password=owner_password,
+            expected_owner="owner",
+        )
+        evidence["migrations"]["read_relations_before_downgrade"] = (
+            read_relations_before
+        )
         installed_function_bodies = {
             "aap_audit_v1.query_events(pg_catalog.jsonb)": (
                 _installed_function_body_sha256(
@@ -3375,13 +3735,22 @@ def main(argv: list[str] | None = None) -> int:
         _container_details(
             container_id, container_name, container_identity, require_running=True
         )
-        _install_and_rollback_frozen_sql(
+        read_relations_frozen = _install_and_rollback_frozen_sql(
             container_id,
             container_name,
             container_identity,
             database,
             owner_password,
             artifacts,
+            migration_role="owner",
+        )
+        _assert_read_relation_structure_matches(
+            read_relations_before,
+            read_relations_frozen,
+            phase="frozen SQL reinstall/rollback",
+        )
+        evidence["migrations"]["read_relations_frozen_sql_transaction"] = (
+            read_relations_frozen
         )
         evidence["migrations"]["frozen_sql_installed_and_rolled_back"] = True
         phase = "upgrade-to-head"
@@ -3393,6 +3762,20 @@ def main(argv: list[str] | None = None) -> int:
             raise RuntimeError("disposable database did not return to migration head")
         evidence["migrations"]["upgraded_to_head"] = True
         evidence["migrations"]["head_after_upgrade"] = heads[0]
+        read_relations_after = _installed_read_relation_evidence(
+            container_id,
+            container_name,
+            container_identity,
+            database=database,
+            owner_password=owner_password,
+            expected_owner="owner",
+        )
+        _assert_read_relation_structure_matches(
+            read_relations_before,
+            read_relations_after,
+            phase="migration upgrade",
+        )
+        evidence["migrations"]["read_relations_after_upgrade"] = read_relations_after
         if {
             "aap_audit_v1.query_events(pg_catalog.jsonb)": (
                 _installed_function_body_sha256(
@@ -3529,6 +3912,22 @@ def main(argv: list[str] | None = None) -> int:
             port=port,
             database=database,
         ).render_as_string(hide_password=False)
+        notification_read_url = URL.create(
+            "postgresql",
+            username=NOTIFICATION_READ_ROLE,
+            password=notification_read_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
+        audit_read_url = URL.create(
+            "postgresql",
+            username=AUDIT_READ_ROLE,
+            password=audit_read_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
         role_create_password = append_password.replace("'", "''")
         phase = "create-scoped-roles"
         _create_module_roles(
@@ -3552,6 +3951,8 @@ def main(argv: list[str] | None = None) -> int:
             notification_append_password,
             audit_append_password,
             audit_query_password,
+            notification_read_password,
+            audit_read_password,
         )
         phase = "create-video-execution-client-role"
         _psql(
@@ -3644,6 +4045,25 @@ def main(argv: list[str] | None = None) -> int:
                 "inference_routing_role": INFERENCE_ROUTING_ROLE,
             },
         )
+        read_relations_after_owner_grants = _installed_read_relation_evidence(
+            container_id,
+            container_name,
+            container_identity,
+            database=database,
+            owner_password=owner_password,
+            expected_owner={
+                relation_name: spec["owner"]
+                for relation_name, spec in READ_RELATION_SPECS.items()
+            },
+        )
+        _assert_read_relation_structure_matches(
+            read_relations_after,
+            read_relations_after_owner_grants,
+            phase="module owner transfer",
+        )
+        evidence["migrations"]["read_relations_after_owner_grants"] = (
+            read_relations_after_owner_grants
+        )
 
         def apply_notification_preferences_grants() -> None:
             _psql(
@@ -3678,6 +4098,23 @@ def main(argv: list[str] | None = None) -> int:
                     "notifications_owner": "notifications_code",
                     "api_role": "legacy_runtime",
                     "append_role": NOTIFICATION_APPEND_ROLE,
+                },
+            )
+
+        def apply_notification_read_grants(api_role: str) -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=notification_read_grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "notifications_owner": "notifications_code",
+                    "api_role": api_role,
                 },
             )
 
@@ -3718,6 +4155,24 @@ def main(argv: list[str] | None = None) -> int:
                 },
             )
 
+        def apply_audit_read_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=audit_read_grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "audit_owner": "audit_code",
+                    "api_role": "legacy_runtime",
+                    "read_client": AUDIT_READ_ROLE,
+                },
+            )
+
         phase = "install-notification-preferences-grants"
         apply_notification_preferences_grants()
         evidence["notification_preferences"]["api_function_grant"] = True
@@ -3742,6 +4197,44 @@ def main(argv: list[str] | None = None) -> int:
         apply_audit_query_grants()
         evidence["audit_query"]["api_function_grant"] = True
         evidence["audit_query"]["function_only_role_grant"] = True
+        phase = "install-notification-read-relation-api-grants"
+        apply_notification_read_grants("legacy_runtime")
+        evidence["notification_read_relations"]["api_relation_grant"] = True
+        phase = "install-notification-read-relation-client-grants"
+        apply_notification_read_grants(NOTIFICATION_READ_ROLE)
+        evidence["notification_read_relations"]["read_client_grant"] = True
+        phase = "install-audit-read-relation-grants"
+        apply_audit_read_grants()
+        evidence["audit_read_relations"]["api_relation_grant"] = True
+        evidence["audit_read_relations"]["read_client_grant"] = True
+        read_role_contract = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=(
+                "SELECT pg_catalog.count(*)=2 AND pg_catalog.bool_and("
+                "role.rolcanlogin AND NOT role.rolinherit "
+                "AND NOT (role.rolsuper OR role.rolcreatedb OR role.rolcreaterole "
+                "OR role.rolreplication OR role.rolbypassrls) "
+                "AND pg_catalog.has_database_privilege("
+                "role.oid, pg_catalog.current_database(), 'CONNECT') "
+                "AND NOT pg_catalog.has_database_privilege("
+                "role.oid, pg_catalog.current_database(), 'CREATE') "
+                "AND NOT pg_catalog.has_database_privilege("
+                "role.oid, pg_catalog.current_database(), 'TEMP') "
+                "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members AS membership "
+                "WHERE membership.member=role.oid OR membership.roleid=role.oid)) "
+                "FROM pg_catalog.pg_roles AS role "
+                f"WHERE role.rolname IN ('{NOTIFICATION_READ_ROLE}','{AUDIT_READ_ROLE}');"
+            ),
+        )
+        if read_role_contract.strip() != "t":
+            raise RuntimeError(
+                "Read relation clients are not isolated NOINHERIT LOGINS"
+            )
         notification_preference_user_id = str(uuid4())
         _psql(
             container_id,
@@ -3797,6 +4290,64 @@ def main(argv: list[str] | None = None) -> int:
         else:
             raise RuntimeError("API LOGIN retained direct preference table access")
         evidence["notification_preferences"]["api_function_call"] = True
+        notification_private_statements = (
+            "SELECT * FROM public.notifications LIMIT 0",
+            "SELECT * FROM public.notification_preferences LIMIT 0",
+            "SELECT * FROM public.notification_delivery_outbox LIMIT 0",
+            "INSERT INTO public.notifications "
+            "(id,user_id,type,target_type,target_id,payload) "
+            "SELECT pg_catalog.gen_random_uuid(), pg_catalog.gen_random_uuid(), "
+            "'task.approved', 'task', pg_catalog.gen_random_uuid(), '{}'::jsonb "
+            "WHERE false",
+            "UPDATE public.notifications SET read_at=pg_catalog.now() WHERE false",
+            "DELETE FROM public.notifications WHERE false",
+            "INSERT INTO public.notification_preferences (user_id,type,channels) "
+            "SELECT pg_catalog.gen_random_uuid(), 'task.approved', '{}'::jsonb WHERE false",
+            "UPDATE public.notification_preferences SET channels='{}'::jsonb WHERE false",
+            "DELETE FROM public.notification_preferences WHERE false",
+            "INSERT INTO public.notification_delivery_outbox "
+            "(notification_id,operation_id,recipient_id,notification_type) "
+            "SELECT pg_catalog.gen_random_uuid(), pg_catalog.gen_random_uuid(), "
+            "pg_catalog.gen_random_uuid(), 'user.deactivation_requested' WHERE false",
+            "UPDATE public.notification_delivery_outbox SET attempt=attempt WHERE false",
+            "DELETE FROM public.notification_delivery_outbox WHERE false",
+        )
+        notification_fact_write_statements = (
+            "INSERT INTO aap_notifications_v1.notification_facts "
+            "(id,user_id,type,target_type,target_id,payload) "
+            "SELECT pg_catalog.gen_random_uuid(),pg_catalog.gen_random_uuid(),"
+            "'task.approved','task',pg_catalog.gen_random_uuid(),'{}'::jsonb WHERE false",
+            "UPDATE aap_notifications_v1.notification_facts "
+            "SET read_at=pg_catalog.now() WHERE false",
+            "DELETE FROM aap_notifications_v1.notification_facts WHERE false",
+        )
+        for statement in notification_private_statements:
+            _assert_psql_permission_denied(
+                container_id,
+                container_name,
+                container_identity,
+                username="legacy_runtime",
+                password=runtime_password,
+                database=database,
+                statement=statement,
+            )
+        preference_after_private_denials = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT aap_notifications_v1.preference_command("
+                f"'{api_get_request}'::jsonb) ->> 'ok';"
+            ),
+        )
+        if preference_after_private_denials.strip() != "true":
+            raise RuntimeError(
+                "Notifications preference owner failed without API table reads"
+            )
+        evidence["notification_read_relations"]["api_private_reads_revoked"] = True
         notification_append_id = str(uuid4())
         notification_append_request = json.dumps(
             {
@@ -3934,6 +4485,113 @@ def main(argv: list[str] | None = None) -> int:
         else:
             raise RuntimeError("API LOGIN retained direct notification DELETE access")
         evidence["notification_delete"]["api_function_call"] = True
+        read_relation_notification_id = str(uuid4())
+        read_relation_append_request = json.dumps(
+            {
+                "schema": "aap-notification-append/v1",
+                "operation": "append",
+                "id": read_relation_notification_id,
+                "user_id": notification_preference_user_id,
+                "type": "task.approved",
+                "target_type": "task",
+                "target_id": str(uuid4()),
+                "payload": {"read_relation": True},
+            },
+            separators=(",", ":"),
+        )
+        read_relation_seed_result = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT aap_notifications_v1.append_notification("
+                f"'{read_relation_append_request}'::jsonb) "
+                "-> 'data' -> 'notification' ->> 'id';"
+            ),
+        )
+        if read_relation_seed_result.strip() != read_relation_notification_id:
+            raise RuntimeError("Notifications read-relation seed was not committed")
+        api_notification_fact = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT count(*) FROM aap_notifications_v1.notification_facts "
+                f"WHERE user_id='{notification_preference_user_id}'::uuid "
+                f"AND id='{read_relation_notification_id}'::uuid "
+                "AND payload = '{\"read_relation\": true}'::jsonb;"
+            ),
+        )
+        if api_notification_fact.strip() != "1":
+            raise RuntimeError("API LOGIN could not read Notifications facts")
+        for statement in notification_fact_write_statements:
+            _assert_psql_permission_denied(
+                container_id,
+                container_name,
+                container_identity,
+                username="legacy_runtime",
+                password=runtime_password,
+                database=database,
+                statement=statement,
+            )
+        evidence["notification_read_relations"]["api_fact_call"] = True
+        for statement in (
+            "SELECT aap_notifications_v1.preference_command('{}'::jsonb)",
+            "SELECT aap_notifications_v1.append_notification('{}'::jsonb)",
+            "SELECT aap_notifications_v1.read_state_command('{}'::jsonb)",
+            "SELECT aap_notifications_v1.delete_command('{}'::jsonb)",
+            "SELECT aap_notifications_v1.identity_delivery_policy()",
+            "SELECT aap_notifications_v1.claim_identity_deliveries('{}'::jsonb)",
+            "SELECT aap_notifications_v1.finish_identity_delivery('{}'::jsonb)",
+            "SELECT aap_notifications_v1.create_identity_deactivation_notifications("
+            "NULL::uuid,NULL::text,NULL::jsonb,NULL::uuid[])",
+        ):
+            _assert_psql_permission_denied(
+                container_id,
+                container_name,
+                container_identity,
+                username=NOTIFICATION_READ_ROLE,
+                password=notification_read_password,
+                database=database,
+                statement=statement,
+            )
+        for statement in notification_private_statements:
+            _assert_psql_permission_denied(
+                container_id,
+                container_name,
+                container_identity,
+                username=NOTIFICATION_READ_ROLE,
+                password=notification_read_password,
+                database=database,
+                statement=statement,
+            )
+        notification_read_function_count = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=(
+                "SELECT count(*) FROM pg_catalog.pg_proc AS function "
+                "JOIN pg_catalog.pg_namespace AS namespace "
+                "ON namespace.oid=function.pronamespace "
+                "WHERE namespace.nspname='aap_notifications_v1' "
+                "AND pg_catalog.has_function_privilege("
+                f"'{NOTIFICATION_READ_ROLE}', function.oid, 'EXECUTE');"
+            ),
+        )
+        if notification_read_function_count.strip() != "0":
+            raise RuntimeError(
+                "Notifications read LOGIN has an owner function capability"
+            )
+        evidence["notification_read_relations"]["read_client_function_denied"] = True
         audit_append_request = json.dumps(
             {
                 "schema": "aap-audit-append/v1",
@@ -3970,6 +4628,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         if not api_audit_result.strip().isdigit():
             raise RuntimeError("API LOGIN could not call Audit append owner")
+        audit_append_id = api_audit_result.strip()
         try:
             _psql(
                 container_id,
@@ -4039,6 +4698,37 @@ def main(argv: list[str] | None = None) -> int:
         if api_audit_query_result.strip() != "list":
             raise RuntimeError("API LOGIN could not call Audit query owner")
         evidence["audit_query"]["api_function_call"] = True
+        api_audit_fact = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT count(*) FROM aap_audit_v1.audit_events "
+                f"WHERE id='{audit_append_id}'::bigint;"
+            ),
+        )
+        if api_audit_fact.strip() != "1":
+            raise RuntimeError("API LOGIN could not read Audit event facts")
+        audit_fact_write_statements = (
+            "INSERT INTO aap_audit_v1.audit_events (action) "
+            "SELECT 'audit.read_relation.denied' WHERE false",
+            "UPDATE aap_audit_v1.audit_events SET action='audit.denied' WHERE false",
+            "DELETE FROM aap_audit_v1.audit_events WHERE false",
+        )
+        for statement in audit_fact_write_statements:
+            _assert_psql_permission_denied(
+                container_id,
+                container_name,
+                container_identity,
+                username="legacy_runtime",
+                password=runtime_password,
+                database=database,
+                statement=statement,
+            )
+        evidence["audit_read_relations"]["api_fact_call"] = True
         audit_node_environment = os.environ.copy()
         audit_node_environment["AUDIT_APPEND_DATABASE_URL"] = audit_append_url
         phase = "verify-audit-append-node"
@@ -4071,6 +4761,22 @@ def main(argv: list[str] | None = None) -> int:
             node_diagnostic = _node_failure_diagnostic(phase, audit_query_node_result)
             raise RuntimeError("Node Audit query check failed")
         evidence["audit_query"]["node_contract_check"] = True
+        audit_read_node_environment = os.environ.copy()
+        audit_read_node_environment["AUDIT_READ_DATABASE_URL"] = audit_read_url
+        phase = "verify-audit-read-relation-node"
+        audit_read_node_result = subprocess.run(
+            [node_bin, str(audit_read_node_provider), "--live"],
+            cwd=audit_read_node_provider.parent,
+            env=audit_read_node_environment,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if audit_read_node_result.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, audit_read_node_result)
+            raise RuntimeError("Node Audit read-relation check failed")
+        evidence["audit_read_relations"]["node_relation_check"] = True
         node_environment = os.environ.copy()
         node_environment["NOTIFICATION_PREFERENCES_DATABASE_URL"] = (
             notification_preferences_url
@@ -4148,6 +4854,35 @@ def main(argv: list[str] | None = None) -> int:
             node_diagnostic = _node_failure_diagnostic(phase, delete_node_result)
             raise RuntimeError("Node Notifications deletion check failed")
         evidence["notification_delete"]["node_contract_check"] = True
+        notification_read_node_environment = os.environ.copy()
+        notification_read_node_environment[
+            "NOTIFICATION_READ_RELATIONS_DATABASE_URL"
+        ] = notification_read_url
+        notification_read_node_environment["NOTIFICATION_READ_RELATIONS_USER_ID"] = (
+            notification_preference_user_id
+        )
+        notification_read_node_environment[
+            "NOTIFICATION_READ_RELATIONS_NOTIFICATION_ID"
+        ] = read_relation_notification_id
+        notification_read_node_environment[
+            "NOTIFICATION_READ_RELATIONS_EXPECTED_ROLE"
+        ] = NOTIFICATION_READ_ROLE
+        phase = "verify-notification-read-relation-node"
+        notification_read_node_result = subprocess.run(
+            [node_bin, str(notification_read_node_provider)],
+            cwd=notification_read_node_provider.parent,
+            env=notification_read_node_environment,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if notification_read_node_result.returncode:
+            node_diagnostic = _node_failure_diagnostic(
+                phase, notification_read_node_result
+            )
+            raise RuntimeError("Node Notifications read-relation check failed")
+        evidence["notification_read_relations"]["node_relation_check"] = True
 
         phase = "install-mask-gc-grants"
         _psql(
@@ -4338,6 +5073,78 @@ def main(argv: list[str] | None = None) -> int:
                 "notification_publish_role": "notification_publish_client",
             },
         )
+        publisher_role = IDENTITY_CLIENT_ROLES["NOTIFICATION_PUBLISH"]
+        publisher_worker_id = str(uuid4())
+        publisher_finish_request = json.dumps(
+            {
+                "schema": "aap-notifications-delivery/v1",
+                "notification_id": str(uuid4()),
+                "worker_id": publisher_worker_id,
+                "lease_id": str(uuid4()),
+                "outcome": "delivered",
+                "reason": "published",
+            },
+            separators=(",", ":"),
+        )
+        publisher_policy = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username=publisher_role,
+            password=identity_passwords[publisher_role],
+            database=database,
+            sql=(
+                "SELECT aap_notifications_v1.identity_delivery_policy() ->> 'policy';"
+            ),
+        )
+        if publisher_policy.strip() != "aap-notifications-delivery/v1":
+            raise RuntimeError("Notifications publisher policy is unavailable")
+        publisher_claim = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username=publisher_role,
+            password=identity_passwords[publisher_role],
+            database=database,
+            sql=(
+                "BEGIN; SELECT aap_notifications_v1.claim_identity_deliveries("
+                "pg_catalog.jsonb_build_object("
+                "'schema','aap-notifications-delivery/v1',"
+                f"'worker_id','{publisher_worker_id}'::uuid,"
+                "'limit',1,'lease_seconds',60)) -> 'data' -> 'items'; ROLLBACK;"
+            ),
+        )
+        if publisher_claim.strip() != "[]":
+            raise RuntimeError(
+                "Notifications publisher claim probe changed outbox state"
+            )
+        publisher_finish = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username=publisher_role,
+            password=identity_passwords[publisher_role],
+            database=database,
+            sql=(
+                "SELECT aap_notifications_v1.finish_identity_delivery("
+                f"'{publisher_finish_request}'::jsonb) -> 'data' ->> 'accepted';"
+            ),
+        )
+        if publisher_finish.strip() != "false":
+            raise RuntimeError("Notifications publisher finish probe was not a no-op")
+        for statement in notification_private_statements:
+            _assert_psql_permission_denied(
+                container_id,
+                container_name,
+                container_identity,
+                username=publisher_role,
+                password=identity_passwords[publisher_role],
+                database=database,
+                statement=statement,
+            )
+        evidence["notification_read_relations"][
+            "publisher_functions_remain_callable"
+        ] = True
         phase = "install-identity-recovery-grants"
         _psql(
             container_id,
@@ -4944,6 +5751,61 @@ def main(argv: list[str] | None = None) -> int:
                 "consumer_role": IDENTITY_API_CONSUMER_ROLE,
             },
         )
+        identity_consumer_notification_fact = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username=IDENTITY_API_CONSUMER_ROLE,
+            password=identity_api_consumer_password,
+            database=database,
+            sql=(
+                "SELECT count(*) FROM aap_notifications_v1.notification_facts "
+                f"WHERE user_id='{notification_preference_user_id}'::uuid "
+                f"AND id='{read_relation_notification_id}'::uuid "
+                "AND payload = '{\"read_relation\": true}'::jsonb;"
+            ),
+        )
+        if identity_consumer_notification_fact.strip() != "1":
+            raise RuntimeError(
+                "LAN application role could not read Notifications facts"
+            )
+        identity_consumer_audit_fact = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username=IDENTITY_API_CONSUMER_ROLE,
+            password=identity_api_consumer_password,
+            database=database,
+            sql=(
+                "SELECT count(*) FROM aap_audit_v1.audit_events "
+                f"WHERE id='{audit_append_id}'::bigint;"
+            ),
+        )
+        if identity_consumer_audit_fact.strip() != "1":
+            raise RuntimeError("LAN application role could not read Audit facts")
+        for statement in notification_private_statements:
+            _assert_psql_permission_denied(
+                container_id,
+                container_name,
+                container_identity,
+                username=IDENTITY_API_CONSUMER_ROLE,
+                password=identity_api_consumer_password,
+                database=database,
+                statement=statement,
+            )
+        for statement in (
+            *notification_fact_write_statements,
+            *audit_fact_write_statements,
+        ):
+            _assert_psql_permission_denied(
+                container_id,
+                container_name,
+                container_identity,
+                username=IDENTITY_API_CONSUMER_ROLE,
+                password=identity_api_consumer_password,
+                database=database,
+                statement=statement,
+            )
         if (
             "tests/test_seed_parent_operator_native.py" in selected_test_paths
             or "tests/test_workspace_e2e_native.py" in selected_test_paths
@@ -5701,10 +6563,53 @@ SELECT pg_catalog.jsonb_build_object(
                 if workspace_import_cli_fence is not None:
                     workspace_import_cli_fence()
                 # The launcher reapplies legacy table grants while preparing.
-                # Reapply strict append boundaries after broad test grants.
+                # Reapply owner-bound reads and writes after broad test grants.
                 apply_notification_preferences_grants()
                 apply_notification_append_grants()
                 apply_audit_append_grants()
+                apply_notification_read_grants("legacy_runtime")
+                apply_notification_read_grants(NOTIFICATION_READ_ROLE)
+                apply_audit_read_grants()
+                for statement in notification_private_statements:
+                    _assert_psql_permission_denied(
+                        container_id,
+                        container_name,
+                        container_identity,
+                        username="legacy_runtime",
+                        password=runtime_password,
+                        database=database,
+                        statement=statement,
+                    )
+                notification_fact = _psql(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    username="legacy_runtime",
+                    password=runtime_password,
+                    database=database,
+                    sql=(
+                        "SELECT count(*) FROM "
+                        "aap_notifications_v1.notification_facts "
+                        f"WHERE id='{read_relation_notification_id}'::uuid "
+                        "AND payload = '{\"read_relation\": true}'::jsonb;"
+                    ),
+                )
+                audit_fact = _psql(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    username="legacy_runtime",
+                    password=runtime_password,
+                    database=database,
+                    sql=(
+                        "SELECT count(*) FROM aap_audit_v1.audit_events "
+                        f"WHERE id='{audit_append_id}'::bigint;"
+                    ),
+                )
+                if notification_fact.strip() != "1" or audit_fact.strip() != "1":
+                    raise RuntimeError(
+                        "module test preparation lost an owner read relation grant"
+                    )
 
             with patch.object(backend, "prepare", prepare_fenced_resources):
                 exit_code = run_processes(backend, options)

@@ -4,7 +4,7 @@
 --       -v migration_role=anno_prod_owner -v asset_cleanup_role=asset_cleanup_client
 --       -f lan-production-grants.sql
 -- application_role composes embedded owners through their published capabilities.
--- Identity private storage is denied; other legacy table access remains.
+-- Identity and Notifications private storage is denied; other legacy access remains.
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('aap.expected_database', :'expected_database', true);
@@ -192,6 +192,67 @@ GRANT EXECUTE ON FUNCTION
 
 GRANT SELECT ON aap_identity_v1.account_profiles,
     aap_identity_v1.invitation_audit_targets TO :"application_role";
+REVOKE ALL ON TABLE public.notifications, public.notification_preferences,
+    public.notification_delivery_outbox FROM :"application_role", PUBLIC;
+REVOKE ALL (id, user_id, type, target_type, target_id, payload, read_at, created_at)
+    ON TABLE public.notifications FROM :"application_role", PUBLIC;
+REVOKE ALL (user_id, type, channels, updated_at)
+    ON TABLE public.notification_preferences FROM :"application_role", PUBLIC;
+REVOKE ALL (notification_id, operation_id, recipient_id, notification_type,
+    state, attempt, available_at, worker_id, lease_id, lease_expires_at,
+    last_reason, created_at, delivered_at)
+    ON TABLE public.notification_delivery_outbox FROM :"application_role", PUBLIC;
+REVOKE ALL ON TABLE aap_notifications_v1.notification_facts
+    FROM :"application_role", PUBLIC;
+REVOKE ALL (id, user_id, type, target_type, target_id, payload, read_at, created_at)
+    ON TABLE aap_notifications_v1.notification_facts FROM :"application_role", PUBLIC;
+GRANT SELECT ON aap_notifications_v1.notification_facts TO :"application_role";
+REVOKE ALL ON TABLE aap_audit_v1.audit_events FROM :"application_role", PUBLIC;
+REVOKE ALL (id, actor_id, actor_email, actor_role, action, target_type, target_id,
+    method, path, status_code, ip, detail_json, request_id, created_at)
+    ON TABLE aap_audit_v1.audit_events FROM :"application_role", PUBLIC;
+GRANT SELECT ON aap_audit_v1.audit_events TO :"application_role";
+DO $notification_private_acl$
+DECLARE
+    v_runtime pg_catalog.name := current_setting('aap.application_role');
+    v_relation pg_catalog.regclass;
+BEGIN
+    FOREACH v_relation IN ARRAY ARRAY[
+        'public.notifications'::pg_catalog.regclass,
+        'public.notification_preferences'::pg_catalog.regclass,
+        'public.notification_delivery_outbox'::pg_catalog.regclass
+    ] LOOP
+        IF pg_catalog.has_table_privilege(v_runtime, v_relation,
+                'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+           OR pg_catalog.has_any_column_privilege(v_runtime, v_relation,
+                'SELECT,INSERT,UPDATE,REFERENCES') THEN
+            RAISE EXCEPTION 'The runtime role still has direct Notifications storage access';
+        END IF;
+    END LOOP;
+    IF NOT pg_catalog.has_table_privilege(v_runtime,
+            'aap_notifications_v1.notification_facts', 'SELECT')
+       OR pg_catalog.has_table_privilege(v_runtime,
+            'aap_notifications_v1.notification_facts',
+            'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR pg_catalog.has_any_column_privilege(v_runtime,
+            'aap_notifications_v1.notification_facts', 'INSERT,UPDATE,REFERENCES') THEN
+        RAISE EXCEPTION 'The runtime role is missing read-only Notifications facts';
+    END IF;
+END;
+$notification_private_acl$;
+DO $audit_read_acl$
+DECLARE
+    v_runtime pg_catalog.name := current_setting('aap.application_role');
+BEGIN
+    IF NOT pg_catalog.has_table_privilege(v_runtime, 'aap_audit_v1.audit_events', 'SELECT')
+       OR pg_catalog.has_table_privilege(v_runtime, 'aap_audit_v1.audit_events',
+            'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR pg_catalog.has_any_column_privilege(v_runtime, 'aap_audit_v1.audit_events',
+            'INSERT,UPDATE,REFERENCES') THEN
+        RAISE EXCEPTION 'The runtime role is missing read-only Audit facts';
+    END IF;
+END;
+$audit_read_acl$;
 GRANT SELECT ON aap_workspace_v1.project_member_facts TO :"application_role";
 GRANT SELECT ON aap_workspace_v1.project_facts,
     aap_labeling_v1.project_catalog_counters TO :"application_role";

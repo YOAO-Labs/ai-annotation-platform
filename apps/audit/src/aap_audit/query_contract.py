@@ -226,7 +226,11 @@ def validate_query_reply(
             raise AuditQueryUnavailable()
     elif len(events) != total:
         raise AuditQueryUnavailable()
-    if len({event.id for event in events}) != len(events):
+    keys = {
+        (event.id, datetime.fromisoformat(event.created_at.replace("Z", "+00:00")))
+        for event in events
+    }
+    if len(keys) != len(events):
         raise AuditQueryUnavailable()
     return reply
 

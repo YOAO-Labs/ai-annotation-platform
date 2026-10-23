@@ -945,15 +945,34 @@ class LocalResources:
                     f"GRANT USAGE ON SCHEMA public TO {role}",
                     *fixture_grants,
                     f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {role}",
-                    f"REVOKE UPDATE ON TABLE public.notifications FROM {role}, PUBLIC",
-                    "REVOKE UPDATE (id, user_id, type, target_type, target_id, payload, read_at, created_at) "
+                    f"REVOKE ALL ON TABLE public.notifications FROM {role}, PUBLIC",
+                    "REVOKE ALL (id, user_id, type, target_type, target_id, payload, read_at, created_at) "
                     f"ON TABLE public.notifications FROM {role}, PUBLIC",
+                    f"REVOKE ALL ON TABLE public.notification_preferences FROM {role}, PUBLIC",
+                    "REVOKE ALL (user_id, type, channels, updated_at) "
+                    f"ON TABLE public.notification_preferences FROM {role}, PUBLIC",
+                    f"REVOKE ALL ON TABLE public.notification_delivery_outbox FROM {role}, PUBLIC",
+                    "REVOKE ALL (notification_id, operation_id, recipient_id, notification_type, "
+                    "state, attempt, available_at, worker_id, lease_id, lease_expires_at, "
+                    "last_reason, created_at, delivered_at) "
+                    f"ON TABLE public.notification_delivery_outbox FROM {role}, PUBLIC",
                     f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}",
                     f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_membership_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_inference_pipelines_v1, aap_inference_backend_probe_v1, aap_inference_health_observation_v1, aap_inference_health_data_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, aap_assets_v1, aap_labeling_v1, aap_labeling_class_query_v1, aap_jobs_v1, aap_learning_v1, aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_briefs_v1, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_audit_v1, aap_notifications_v1, aap_settings_v1 TO {role}",
                     "GRANT SELECT ON aap_assets_v1.spatial_item_references, "
                     f"aap_assets_v1.spatial_scene_references TO {role}",
                     "GRANT SELECT ON aap_identity_v1.account_profiles, "
                     f"aap_identity_v1.invitation_audit_targets TO {role}",
+                    "REVOKE ALL ON TABLE aap_notifications_v1.notification_facts "
+                    f"FROM {role}, PUBLIC",
+                    "REVOKE ALL (id, user_id, type, target_type, target_id, payload, read_at, created_at) "
+                    "ON TABLE aap_notifications_v1.notification_facts "
+                    f"FROM {role}, PUBLIC",
+                    f"GRANT SELECT ON aap_notifications_v1.notification_facts TO {role}",
+                    f"REVOKE ALL ON TABLE aap_audit_v1.audit_events FROM {role}, PUBLIC",
+                    "REVOKE ALL (id, actor_id, actor_email, actor_role, action, target_type, "
+                    "target_id, method, path, status_code, ip, detail_json, request_id, created_at) "
+                    f"ON TABLE aap_audit_v1.audit_events FROM {role}, PUBLIC",
+                    f"GRANT SELECT ON aap_audit_v1.audit_events TO {role}",
                     f"GRANT SELECT ON aap_workspace_v1.project_member_facts TO {role}",
                     "GRANT SELECT ON aap_workspace_v1.project_facts, "
                     f"aap_labeling_v1.project_catalog_counters TO {role}",
@@ -1236,17 +1255,41 @@ class LocalResources:
                         "AS read_state, pg_catalog.has_function_privilege("
                         ":role, pg_catalog.to_regprocedure("
                         "'aap_notifications_v1.delete_command(pg_catalog.jsonb)'), 'EXECUTE') "
-                        "AS notification_delete, pg_catalog.has_table_privilege("
-                        ":role, 'public.notifications', 'UPDATE') "
-                        "AS notification_update, pg_catalog.has_any_column_privilege("
-                        ":role, 'public.notifications', 'UPDATE') "
-                        "AS notification_column_update, pg_catalog.has_function_privilege("
+                        "AS notification_delete, (pg_catalog.has_table_privilege("
+                        ":role, 'public.notifications', "
+                        "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR "
+                        "pg_catalog.has_table_privilege(:role, 'public.notification_preferences', "
+                        "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR "
+                        "pg_catalog.has_table_privilege(:role, 'public.notification_delivery_outbox', "
+                        "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) "
+                        "AS notification_private, (pg_catalog.has_any_column_privilege("
+                        ":role, 'public.notifications', 'SELECT,INSERT,UPDATE,REFERENCES') OR "
+                        "pg_catalog.has_any_column_privilege(:role, 'public.notification_preferences', "
+                        "'SELECT,INSERT,UPDATE,REFERENCES') OR "
+                        "pg_catalog.has_any_column_privilege(:role, 'public.notification_delivery_outbox', "
+                        "'SELECT,INSERT,UPDATE,REFERENCES')) "
+                        "AS notification_column_private, pg_catalog.has_table_privilege("
+                        ":role, 'aap_notifications_v1.notification_facts', 'SELECT') "
+                        "AS notification_facts, pg_catalog.has_table_privilege("
+                        ":role, 'aap_notifications_v1.notification_facts', "
+                        "'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') "
+                        "AS notification_facts_write, pg_catalog.has_any_column_privilege("
+                        ":role, 'aap_notifications_v1.notification_facts', "
+                        "'INSERT,UPDATE,REFERENCES') "
+                        "AS notification_facts_column_write, pg_catalog.has_function_privilege("
                         ":role, pg_catalog.to_regprocedure("
                         "'aap_audit_v1.append_events(jsonb)'), 'EXECUTE') "
                         "AS audit_append, pg_catalog.has_function_privilege("
                         ":role, pg_catalog.to_regprocedure("
                         "'aap_audit_v1.query_events(pg_catalog.jsonb)'), 'EXECUTE') "
-                        "AS audit_query"
+                        "AS audit_query, pg_catalog.has_table_privilege("
+                        ":role, 'aap_audit_v1.audit_events', 'SELECT') AS audit_read, "
+                        "pg_catalog.has_table_privilege("
+                        ":role, 'aap_audit_v1.audit_events', "
+                        "'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS audit_read_write, "
+                        "pg_catalog.has_any_column_privilege("
+                        ":role, 'aap_audit_v1.audit_events', "
+                        "'INSERT,UPDATE,REFERENCES') AS audit_read_column_write"
                     ),
                     {"role": runtime.username},
                 )
@@ -1256,14 +1299,21 @@ class LocalResources:
                     or notification_grants["append"] is not True
                     or notification_grants["read_state"] is not True
                     or notification_grants["notification_delete"] is not True
-                    or notification_grants["notification_update"] is not False
-                    or notification_grants["notification_column_update"] is not False
+                    or notification_grants["notification_private"] is not False
+                    or notification_grants["notification_column_private"] is not False
+                    or notification_grants["notification_facts"] is not True
+                    or notification_grants["notification_facts_write"] is not False
+                    or notification_grants["notification_facts_column_write"]
+                    is not False
                     or notification_grants["audit_append"] is not True
                     or notification_grants["audit_query"] is not True
+                    or notification_grants["audit_read"] is not True
+                    or notification_grants["audit_read_write"] is not False
+                    or notification_grants["audit_read_column_write"] is not False
                 ):
                     raise WorktreeError(
-                        "Notifications read-state/deletion and Audit "
-                        "capabilities were not granted"
+                        "Notifications read/write boundary and Audit "
+                        f"capabilities were not granted: {notification_grants}"
                     )
         finally:
             await engine.dispose()

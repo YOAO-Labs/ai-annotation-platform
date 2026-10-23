@@ -4,12 +4,14 @@ from datetime import datetime, timezone
 import uuid
 
 import pytest
+from sqlalchemy import select
 
 from app.core.security import create_access_token
 from app.db.models.annotation import Annotation
 from app.db.models.audit_log import AuditLog
 from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.user_invitation import UserInvitation
+from app.schemas.audit import AuditLogOut
 from tests.test_video_chapters_api import _video_item_with_task
 from tests.factory import create_batch, create_project, create_task, create_user
 
@@ -141,6 +143,68 @@ async def test_project_admin_with_no_owned_projects_has_no_global_audit(
     )
     assert response.status_code == 200
     assert response.json()["total"] == 0 and response.json()["items"] == []
+
+
+async def test_project_admin_audit_relation_preserves_native_inet_dto_values(
+    db_session, httpx_client
+):
+    owner = await create_user(
+        db_session,
+        "project_admin",
+        f"inet-owner-{uuid.uuid4()}@test.local",
+        "INET owner",
+    )
+    project = await create_project(db_session, owner_id=owner.id)
+    action_prefix = f"inet.{uuid.uuid4().hex[:8]}"
+    ip_values = {
+        "ipv4_host": "127.0.0.1",
+        "ipv6_host": "2001:db8::1",
+        "ipv4_masked": "192.0.2.13/24",
+        "ipv6_masked": "2001:db8::2/64",
+        "ipv4_mapped_host": "::ffff:192.0.2.1",
+        "ipv4_mapped_masked": "::ffff:192.0.2.1/120",
+    }
+    db_session.add_all(
+        [
+            AuditLog(
+                actor_id=owner.id,
+                action=f"{action_prefix}.{name}",
+                target_type="project",
+                target_id=str(project.id),
+                ip=ip_value,
+                created_at=datetime.now(timezone.utc),
+            )
+            for name, ip_value in ip_values.items()
+        ]
+    )
+    await db_session.flush()
+
+    statement = select(AuditLog).where(AuditLog.action.like(f"{action_prefix}.%"))
+    loaded = (await db_session.scalars(statement)).all()
+    for row in loaded:
+        db_session.sync_session.expire(row, ["ip"])
+    old_rows = (await db_session.scalars(statement)).all()
+    expected = {row.action: AuditLogOut.model_validate(row).ip for row in old_rows}
+    for row in old_rows:
+        db_session.sync_session.expire(row, ["ip", "actor_email"])
+
+    headers = {
+        "Authorization": "Bearer "
+        + create_access_token(subject=str(owner.id), role=owner.role)
+    }
+    for name in ip_values:
+        action = f"{action_prefix}.{name}"
+        response = await httpx_client.get(
+            "/api/v1/audit-logs",
+            params={"action": action, "page_size": 20},
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+        items = response.json()["items"]
+        assert len(items) == 1
+        assert items[0]["action"] == action
+        assert items[0]["ip"] == expected[action]
+        assert items[0]["actor_email"] == owner.email
 
 
 async def test_project_related_history_uses_canonical_relations_and_deletion_context(

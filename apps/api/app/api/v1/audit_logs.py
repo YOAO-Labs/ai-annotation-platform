@@ -23,7 +23,7 @@ from aap_audit.query_postgres import AuditQueryPostgresData
 
 from app.deps import get_db, require_roles
 from app.db.enums import UserRole
-from app.db.models.audit_log import AuditLog
+from app.services.audit_read_relations import audit_event
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
@@ -159,36 +159,38 @@ def _build_base_query(
     例如 `?detail_key=role&detail_value=super_admin` 等价 `WHERE detail_json @> '{"role":"super_admin"}'`。
     """
     actor_profile = account_profiles.alias("audit_actor_profile")
-    j = outerjoin(AuditLog, actor_profile, AuditLog.actor_id == actor_profile.c.id)
-    base = select(AuditLog, actor_profile.c.email.label("_u_email")).select_from(j)
-    count_base = select(func.count()).select_from(AuditLog)
+    j = outerjoin(
+        audit_event, actor_profile, audit_event.actor_id == actor_profile.c.id
+    )
+    base = select(audit_event, actor_profile.c.email.label("_u_email")).select_from(j)
+    count_base = select(func.count()).select_from(audit_event)
 
     if action:
-        base = base.where(AuditLog.action == action)
-        count_base = count_base.where(AuditLog.action == action)
+        base = base.where(audit_event.action == action)
+        count_base = count_base.where(audit_event.action == action)
     if target_type:
-        base = base.where(AuditLog.target_type == target_type)
-        count_base = count_base.where(AuditLog.target_type == target_type)
+        base = base.where(audit_event.target_type == target_type)
+        count_base = count_base.where(audit_event.target_type == target_type)
     if target_id:
-        base = base.where(AuditLog.target_id == target_id)
-        count_base = count_base.where(AuditLog.target_id == target_id)
+        base = base.where(audit_event.target_id == target_id)
+        count_base = count_base.where(audit_event.target_id == target_id)
     if actor_id:
-        base = base.where(AuditLog.actor_id == actor_id)
-        count_base = count_base.where(AuditLog.actor_id == actor_id)
+        base = base.where(audit_event.actor_id == actor_id)
+        count_base = count_base.where(audit_event.actor_id == actor_id)
     if from_:
-        base = base.where(AuditLog.created_at >= from_)
-        count_base = count_base.where(AuditLog.created_at >= from_)
+        base = base.where(audit_event.created_at >= from_)
+        count_base = count_base.where(audit_event.created_at >= from_)
     if to:
-        base = base.where(AuditLog.created_at <= to)
-        count_base = count_base.where(AuditLog.created_at <= to)
+        base = base.where(audit_event.created_at <= to)
+        count_base = count_base.where(audit_event.created_at <= to)
     if business_only:
-        base = base.where(~AuditLog.action.like("http.%"))
-        count_base = count_base.where(~AuditLog.action.like("http.%"))
+        base = base.where(~audit_event.action.like("http.%"))
+        count_base = count_base.where(~audit_event.action.like("http.%"))
     if detail_key and detail_value is not None:
         # JSONB 子集匹配 —— 走 GIN 索引（仅 PG）；测试态 SQLite 走通用 contains
         match = {detail_key: detail_value}
-        base = base.where(AuditLog.detail_json.contains(match))
-        count_base = count_base.where(AuditLog.detail_json.contains(match))
+        base = base.where(audit_event.detail_json.contains(match))
+        count_base = count_base.where(audit_event.detail_json.contains(match))
 
     return base, count_base
 
@@ -302,54 +304,64 @@ def _managed_audit_scope(actor: IdentityActorFacts, *, project_id: UUID | None =
     )
     path_scope = or_(
         and_(
-            AuditLog.path.like("/api/v1/projects/%"),
-            func.split_part(AuditLog.path, "/", 5).in_(projects),
+            audit_event.path.like("/api/v1/projects/%"),
+            func.split_part(audit_event.path, "/", 5).in_(projects),
         ),
         and_(
-            AuditLog.path.like("/api/v1/tasks/%"),
-            func.split_part(AuditLog.path, "/", 5).in_(tasks),
+            audit_event.path.like("/api/v1/tasks/%"),
+            func.split_part(audit_event.path, "/", 5).in_(tasks),
         ),
         and_(
-            AuditLog.path.like("/api/v1/annotations/%"),
-            func.split_part(AuditLog.path, "/", 5).in_(annotations),
+            audit_event.path.like("/api/v1/annotations/%"),
+            func.split_part(audit_event.path, "/", 5).in_(annotations),
         ),
         and_(
-            AuditLog.path.like("/api/v1/admin/projects/%"),
-            func.split_part(AuditLog.path, "/", 6).in_(projects),
+            audit_event.path.like("/api/v1/admin/projects/%"),
+            func.split_part(audit_event.path, "/", 6).in_(projects),
         ),
     )
     return or_(
-        and_(AuditLog.target_type == "project", AuditLog.target_id.in_(projects)),
-        and_(AuditLog.target_type == "task", AuditLog.target_id.in_(tasks)),
-        and_(AuditLog.target_type == "batch", AuditLog.target_id.in_(batches)),
-        and_(AuditLog.target_type == "annotation", AuditLog.target_id.in_(annotations)),
-        and_(AuditLog.target_type == "feedback", AuditLog.target_id.in_(feedbacks)),
-        and_(AuditLog.target_type == "invitation", AuditLog.target_id.in_(invitations)),
+        and_(audit_event.target_type == "project", audit_event.target_id.in_(projects)),
+        and_(audit_event.target_type == "task", audit_event.target_id.in_(tasks)),
+        and_(audit_event.target_type == "batch", audit_event.target_id.in_(batches)),
         and_(
-            AuditLog.target_type == "invitation",
-            AuditLog.target_id.is_(None),
-            AuditLog.action == "invitation.export",
-            AuditLog.detail_json["project_id"].astext.in_(projects),
+            audit_event.target_type == "annotation",
+            audit_event.target_id.in_(annotations),
         ),
         and_(
-            AuditLog.target_type == "video_chapter",
-            AuditLog.detail_json["dataset_item_id"].astext.in_(video_items),
+            audit_event.target_type == "feedback", audit_event.target_id.in_(feedbacks)
         ),
         and_(
-            AuditLog.target_type == "batch",
-            AuditLog.action == "batch.deleted",
-            ~AuditLog.target_id.in_(select(cast(TaskBatch.id, String))),
-            or_(AuditLog.detail_json["project_id"].astext.in_(projects), path_scope),
+            audit_event.target_type == "invitation",
+            audit_event.target_id.in_(invitations),
         ),
         and_(
-            AuditLog.target_type.in_(contexts),
+            audit_event.target_type == "invitation",
+            audit_event.target_id.is_(None),
+            audit_event.action == "invitation.export",
+            audit_event.detail_json["project_id"].astext.in_(projects),
+        ),
+        and_(
+            audit_event.target_type == "video_chapter",
+            audit_event.detail_json["dataset_item_id"].astext.in_(video_items),
+        ),
+        and_(
+            audit_event.target_type == "batch",
+            audit_event.action == "batch.deleted",
+            ~audit_event.target_id.in_(select(cast(TaskBatch.id, String))),
+            or_(audit_event.detail_json["project_id"].astext.in_(projects), path_scope),
+        ),
+        and_(
+            audit_event.target_type.in_(contexts),
             or_(
-                AuditLog.detail_json["project_id"].astext.in_(projects),
-                AuditLog.detail_json["task_id"].astext.in_(tasks),
+                audit_event.detail_json["project_id"].astext.in_(projects),
+                audit_event.detail_json["task_id"].astext.in_(tasks),
             ),
         ),
         and_(
-            or_(AuditLog.target_type.is_(None), ~AuditLog.target_type.in_(primary)),
+            or_(
+                audit_event.target_type.is_(None), ~audit_event.target_type.in_(primary)
+            ),
             path_scope,
         ),
     )
@@ -450,15 +462,15 @@ async def list_audit_logs(
     if cursor:
         cur_ts, cur_id = _decode_cursor(cursor)
         paged = base.where(
-            (AuditLog.created_at < cur_ts)
-            | ((AuditLog.created_at == cur_ts) & (AuditLog.id < cur_id))
+            (audit_event.created_at < cur_ts)
+            | ((audit_event.created_at == cur_ts) & (audit_event.id < cur_id))
         )
     else:
         paged = base.offset((page - 1) * page_size)
 
     rows = (
         await db.execute(
-            paged.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(
+            paged.order_by(audit_event.created_at.desc(), audit_event.id.desc()).limit(
                 page_size
             )
         )

@@ -53,7 +53,7 @@ from app.services.management import preview_batch_distribution
 from app.services.audit import AuditAction, AuditService, audit_origin_from_request
 from app.services.notification import NotificationService
 from app.services.user_brief import resolve_briefs_with_project_role
-from app.db.models.audit_log import AuditLog
+from app.services.audit_read_relations import audit_event
 from sqlalchemy import select as sa_select
 
 from app.application.task_submission import TaskSubmissionWorkflow
@@ -1048,26 +1048,28 @@ async def list_batch_audit_logs(
         AuditAction.BULK_BATCH_REASSIGN.value,
         AuditAction.BULK_BATCH_ACTIVATE.value,
     )
-    direct = (AuditLog.target_type == "batch") & (AuditLog.target_id == str(batch_id))
+    direct = (audit_event.target_type == "batch") & (
+        audit_event.target_id == str(batch_id)
+    )
     if batch is None:
         path = f"/api/v1/projects/{project_id}/batches/{batch_id}"
         direct &= or_(
-            AuditLog.detail_json["project_id"].astext == str(project_id),
-            AuditLog.path == path,
-            AuditLog.path.startswith(path + "/", autoescape=True),
+            audit_event.detail_json["project_id"].astext == str(project_id),
+            audit_event.path == path,
+            audit_event.path.startswith(path + "/", autoescape=True),
         )
     bulk_match = (
-        (AuditLog.target_type == "project")
-        & (AuditLog.target_id == str(project_id))
-        & (AuditLog.action.in_(bulk_actions))
-        & (AuditLog.detail_json.contains({"batch_ids": [str(batch_id)]}))
+        (audit_event.target_type == "project")
+        & (audit_event.target_id == str(project_id))
+        & (audit_event.action.in_(bulk_actions))
+        & (audit_event.detail_json.contains({"batch_ids": [str(batch_id)]}))
     )
     rows = (
         (
             await db.execute(
-                sa_select(AuditLog)
+                sa_select(audit_event)
                 .where(or_(direct, bulk_match))
-                .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+                .order_by(audit_event.created_at.desc(), audit_event.id.desc())
                 .limit(limit)
             )
         )

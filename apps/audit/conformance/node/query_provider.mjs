@@ -46,6 +46,12 @@ function checkReferences(schema) {
   visit(schema);
 }
 
+function timestampMicroseconds(value) {
+  // Date normalizes offsets but drops the submillisecond digits PostgreSQL keeps.
+  const fraction = value.match(/\.(\d+)/)?.[1] ?? "";
+  return BigInt(Date.parse(value)) * 1000n + BigInt(fraction.padEnd(6, "0").slice(3, 6));
+}
+
 function assertQueryReply(reply, operation, pageSize) {
   assert.deepEqual(Object.keys(reply).sort(), ["data", "ok", "schema"]);
   assert.equal(reply.schema, protocol);
@@ -93,7 +99,14 @@ function assertQueryReply(reply, operation, pageSize) {
     assert.equal(typeof event.created_at, "string");
     assert.ok(Number.isFinite(Date.parse(event.created_at)));
   }
-  assert.equal(new Set(reply.data.events.map((event) => event.id)).size, reply.data.events.length);
+  assert.equal(
+    new Set(
+      reply.data.events.map((event) =>
+        JSON.stringify([event.id, timestampMicroseconds(event.created_at).toString()]),
+      ),
+    ).size,
+    reply.data.events.length,
+  );
 }
 
 function request(operation = "list") {
@@ -184,6 +197,52 @@ export async function selfCheck() {
     },
   };
   assertQueryReply(signedIdReply, "list", 2);
+  const sameIdReply = {
+    ...largeIdReply,
+    data: {
+      ...largeIdReply.data,
+      total: "2",
+      events: [
+        largeIdReply.data.events[0],
+        { ...largeIdReply.data.events[0], created_at: "2026-10-23T12:34:56.123457Z" },
+      ],
+    },
+  };
+  assertQueryReply(sameIdReply, "list", 2);
+  for (const createdAt of [
+    "2026-10-23T12:34:56.123456+00:00",
+    "2026-10-23T14:34:56.123456+02:00",
+  ]) {
+    assert.throws(() =>
+      assertQueryReply(
+        {
+          ...sameIdReply,
+          data: {
+            ...sameIdReply.data,
+            events: [
+              sameIdReply.data.events[0],
+              { ...sameIdReply.data.events[1], created_at: createdAt },
+            ],
+          },
+        },
+        "list",
+        2,
+      ),
+    );
+  }
+  assert.throws(() =>
+    assertQueryReply(
+      {
+        ...sameIdReply,
+        data: {
+          ...sameIdReply.data,
+          events: [sameIdReply.data.events[0], sameIdReply.data.events[0]],
+        },
+      },
+      "list",
+      2,
+    ),
+  );
   assert.throws(() =>
     assertQueryReply({ ...largeIdReply, data: { ...largeIdReply.data, total: "0" } }, "list", 2),
   );

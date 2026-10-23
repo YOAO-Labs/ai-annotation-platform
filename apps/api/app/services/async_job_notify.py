@@ -6,11 +6,9 @@ import logging
 import uuid
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
-from app.db.models.notification import Notification
 from app.services.notification import NotificationService
 
 
@@ -150,19 +148,8 @@ async def notify_job_terminal(db: AsyncSession, *, job_id: uuid.UUID) -> None:
         if notif_type is None:
             return
 
-        existing = (
-            await db.execute(
-                select(Notification.id)
-                .where(
-                    Notification.user_id == job.user_id,
-                    Notification.type == notif_type,
-                    Notification.target_type == "async_job",
-                    Notification.target_id == job.id,
-                )
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        if existing is not None:
+        service = NotificationService(db)
+        if await service.terminal_notification_exists(job.user_id, notif_type, job.id):
             return
 
         # This helper's documented contract is "write + publish before the
@@ -171,7 +158,7 @@ async def notify_job_terminal(db: AsyncSession, *, job_id: uuid.UUID) -> None:
         # the message is delivered once the caller's commit lands instead of
         # being dropped; publish only after commit is not possible here without
         # touching every caller.
-        await NotificationService(db).notify(
+        await service.notify(
             user_id=job.user_id,
             type=notif_type,
             target_type="async_job",

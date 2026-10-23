@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 from sqlalchemy.engine import make_url
 
-from worktree_env import atomic_json, load_identity, read_state, topology
+from worktree_env import WorktreeError, atomic_json, load_identity, read_state, topology
 from worktree_resources import (
     AUDIT_RUNTIME_CAPABILITIES,
     IDENTITY_RUNTIME_CAPABILITIES,
@@ -560,21 +560,29 @@ class BucketUpgradeTests(unittest.TestCase):
                 assert parameters == {"role": "app", "database": "aap_test"}
                 statements.append(str(sql))
 
+        privileges = {
+            "preferences": True,
+            "append": True,
+            "read_state": True,
+            "notification_delete": True,
+            "notification_private": False,
+            "notification_column_private": False,
+            "notification_facts": True,
+            "notification_facts_write": False,
+            "notification_facts_column_write": False,
+            "audit_append": True,
+            "audit_query": True,
+            "audit_read": True,
+            "audit_read_write": False,
+            "audit_read_column_write": False,
+        }
+
         class FunctionPrivileges:
             def mappings(self):
                 return self
 
             def one(self):
-                return {
-                    "preferences": True,
-                    "append": True,
-                    "read_state": True,
-                    "notification_delete": True,
-                    "notification_update": False,
-                    "notification_column_update": False,
-                    "audit_append": True,
-                    "audit_query": True,
-                }
+                return privileges
 
         class Preparer:
             @staticmethod
@@ -601,9 +609,18 @@ class BucketUpgradeTests(unittest.TestCase):
         )
         self.assertIn(expected, statements)
         self.assertIn(
-            'REVOKE UPDATE ON TABLE public.notifications FROM "app", PUBLIC',
+            'REVOKE ALL ON TABLE public.notifications FROM "app", PUBLIC',
             statements,
         )
+        for table in ("notification_preferences", "notification_delivery_outbox"):
+            self.assertIn(
+                f'REVOKE ALL ON TABLE public.{table} FROM "app", PUBLIC', statements
+            )
+        self.assertIn(
+            'GRANT SELECT ON aap_notifications_v1.notification_facts TO "app"',
+            statements,
+        )
+        self.assertIn('GRANT SELECT ON aap_audit_v1.audit_events TO "app"', statements)
         self.assertIn(
             "GRANT EXECUTE ON FUNCTION "
             + ", ".join(AUDIT_RUNTIME_CAPABILITIES)
@@ -661,6 +678,33 @@ class BucketUpgradeTests(unittest.TestCase):
             "aap_assets_v1._lock_accepted_image_input_pin(uuid,uuid,text)",
         ):
             self.assertNotIn(excluded, " ".join(statements))
+
+        for key in (
+            "notification_private",
+            "notification_column_private",
+            "notification_facts",
+            "notification_facts_write",
+            "notification_facts_column_write",
+            "audit_read",
+            "audit_read_write",
+            "audit_read_column_write",
+        ):
+            with self.subTest(unsafe_owner_privilege=key):
+                original = privileges[key]
+                privileges[key] = not original
+                try:
+                    with (
+                        patch(
+                            "worktree_resources.create_async_engine",
+                            return_value=Engine(),
+                        ),
+                        self.assertRaisesRegex(
+                            WorktreeError, "Notifications read/write boundary"
+                        ),
+                    ):
+                        asyncio.run(backend.grant_runtime())
+                finally:
+                    privileges[key] = original
 
 
 if __name__ == "__main__":
