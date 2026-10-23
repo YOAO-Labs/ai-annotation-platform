@@ -44,6 +44,7 @@ class WorkspaceCeleryWorker:
         self.result_dsn_file = self.secret_directory / "preannotation-results-dsn"
         self.backend_token = backend_token
         self.object_store_endpoint = self._docker_http_endpoint(object_store_endpoint)
+        self.object_store_public_url = object_store_endpoint.rstrip("/")
         self.object_store_bucket = object_store_bucket
         self.object_store_use_ssl = object_store_use_ssl
         self.object_store_access_key = object_store_access_key
@@ -303,6 +304,7 @@ class WorkspaceCeleryWorker:
             raise RuntimeError("Worker unexpectedly selects remote Identity")
         if (
             env.get("MINIO_ENDPOINT") != self.object_store_endpoint
+            or env.get("MINIO_PUBLIC_URL") != self.object_store_public_url
             or env.get("MINIO_BUCKET") != self.object_store_bucket
             or env.get("MINIO_ACCESS_KEY") != self.object_store_access_key
             or env.get("MINIO_SECRET_KEY") != self.object_store_secret_key
@@ -454,6 +456,7 @@ class WorkspaceCeleryWorker:
             "IDENTITY_URL": "",
             "IDENTITY_TOKEN": "",
             "MINIO_ENDPOINT": self.object_store_endpoint,
+            "MINIO_PUBLIC_URL": self.object_store_public_url,
             "MINIO_ACCESS_KEY": self.object_store_access_key,
             "MINIO_SECRET_KEY": self.object_store_secret_key,
             "MINIO_BUCKET": self.object_store_bucket,
