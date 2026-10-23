@@ -478,7 +478,12 @@ async def test_audit_failure_rolls_back_entire_change(
 
 
 @pytest.fixture
-async def committed_group(test_engine):
+async def committed_group(test_engine, monkeypatch):
+    # This fixture isolates real cross-session group serialization. Transaction-
+    # scoped cases above exercise successful audit writes and audit rollback.
+    # Keep immutable audit rows untouched: even deleting their actor would issue
+    # an audit UPDATE through its SET NULL FK during committed cleanup.
+    monkeypatch.setattr(service.AuditService, "log", AsyncMock(return_value=None))
     factory = async_sessionmaker(test_engine, expire_on_commit=False)
     async with factory() as db:
         actor = await create_user(
@@ -493,9 +498,6 @@ async def committed_group(test_engine):
         async with factory() as db:
             ids = [row.id, peer.id]
             await db.execute(delete(Hold).where(Hold.retirement_id.in_(ids)))
-            await db.execute(
-                delete(AuditLog).where(AuditLog.target_id.in_([str(i) for i in ids]))
-            )
             await db.execute(delete(Retirement).where(Retirement.id.in_(ids)))
             await db.execute(delete(User).where(User.id == actor.id))
             await db.commit()
