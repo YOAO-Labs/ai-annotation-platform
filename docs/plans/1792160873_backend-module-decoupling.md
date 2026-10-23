@@ -7936,3 +7936,29 @@ the restricted API role before rolling back the candidate. The latest focused
 case passed Spatial reads, token/current-context admission, candidate creation,
 work handover and preserved annotation authorship. The earlier prerequisite
 attempt without ProjectAccess correctly failed closed and is retained.
+
+Final cross-frame cold acceptance passed at source 709ff1b34 in 62.935 seconds.
+One integrated case contains seven actual acknowledged deliveries: success/skip,
+duplicate after restart without extra annotations, member revocation after valid
+handover, membership contention, real retry dispatch, stale source, and pending
+API cancellation before delivery. The retry/cancel ASGI routes use the ordinary
+business credential and separate verified Identity admission datasource; only
+the task's queue is bridged to the private broker. No worker code is patched.
+
+There are 17 unique native/prerequisite cases (16 original regressions plus the
+latest one-case admission/read/handover check), and 21 local resource unit cases.
+The API artifact was rebuilt for copied fixture changes and matches 1,336 app,
+package and CLI files plus four fixture files. The other four image COPY input
+sets remain unchanged and are reused. Earlier failed native/cold attempts are
+retained and not counted as passing qualification. Full module closure, export
+worker-loss recovery, video-tracker cold acceptance and genuine old retirement
+proof remain governed only by the sole current ledger.
+
+Final evidence review caught an acceptance wiring omission: the database gate
+helper was defined but the positive case still called the ordinary dispatcher.
+Earlier wording about an observed worker database wait described the intended
+gate, not an executed observation. The first five cold attempts prove only their
+actual recorded stages and configured runtime identity. The positive dispatch
+now invokes the gate and records sanitized PID, user, database, private client
+address, wait event and matched Workspace capability. The complete seven-delivery
+case must pass again before that observed-session claim is qualified.

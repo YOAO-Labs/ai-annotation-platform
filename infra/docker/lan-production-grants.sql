@@ -377,9 +377,6 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
     aap_assets_v1.pending_storage_deletions(uuid, integer),
     aap_assets_v1.complete_storage_deletion(uuid, uuid)
     TO :"application_role";
--- The monolithic API/Celery runtime composes retained video input capabilities
--- locally. Keep this bounded to workflow, control, worker and labeling calls;
--- system sweep and video-input garbage operations stay with their owners.
 -- Compose the existing Spatial native contract for default API/worker calls.
 GRANT SELECT ON aap_assets_v1.spatial_item_references,
     aap_assets_v1.spatial_scene_references TO :"application_role";
@@ -408,6 +405,9 @@ GRANT EXECUTE ON FUNCTION
     aap_assets_v1.set_spatial_dataset_axis(uuid,uuid,text)
     TO :"application_role";
 
+-- The monolithic API/Celery runtime composes retained video input capabilities
+-- locally. Keep this bounded to workflow, control, worker and labeling calls;
+-- system sweep and video-input garbage operations stay with their owners.
 GRANT EXECUTE ON FUNCTION
     aap_assets_v1.capture_accepted_video_manifest(uuid, uuid, uuid, jsonb),
     aap_assets_v1.read_accepted_video_manifest(uuid, uuid, uuid),

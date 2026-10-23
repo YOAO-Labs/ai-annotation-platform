@@ -594,8 +594,23 @@ async def test_real_cross_frame_worker_uses_workspace_fence_and_retry(
             test_engine, success_world["target_task_ids"]
         )
         assert initial_target_annotations == 1
-        first_result, first_ack = await _dispatch_and_ack(
-            sender, worker, success_world["job_id"], deliveries, "cross-frame-success"
+        (
+            first_result,
+            first_ack,
+            database_identity,
+        ) = await _dispatch_while_workspace_read_is_blocked(
+            test_engine, sender, worker, success_world["job_id"], deliveries
+        )
+        record_property(
+            "cross_frame_worker_database_identity",
+            {
+                **{
+                    key: value
+                    for key, value in database_identity.items()
+                    if key != "query"
+                },
+                "capability": "aap_workspace_v1.lock_project_reference_nowait",
+            },
         )
         assert first_result is None
         status, result, _error = await _job_state(test_engine, success_world["job_id"])
