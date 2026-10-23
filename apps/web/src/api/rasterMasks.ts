@@ -28,6 +28,16 @@ export const rasterMasksApi = {
     apiClient.get<CocoRle>(
       `/tasks/${taskId}/predictions/${predictionId}/mask-content/${shapeIndex}/${frameIndex}`,
     ),
+  predictionRasterMaskContent: (
+    taskId: string,
+    predictionId: string,
+    shapeIndex: number,
+    init?: RequestInit,
+  ) =>
+    apiClient.get<CocoRle>(
+      `/tasks/${taskId}/predictions/${predictionId}/mask-content/${shapeIndex}`,
+      { cache: "no-cache", ...init },
+    ),
   uploadTaskContent: async (taskId: string, rle: CocoRle) => {
     const gzip = await prepareCocoRleGzipUpload(rle);
     if (!gzip) {

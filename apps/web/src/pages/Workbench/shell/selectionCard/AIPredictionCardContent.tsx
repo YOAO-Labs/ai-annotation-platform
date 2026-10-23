@@ -8,6 +8,8 @@ import { ConfidenceBar } from "./ConfidenceBar";
 import { MetricGrid } from "./MetricGrid";
 import { ActionBar } from "./ActionBar";
 import { geometryMetrics } from "./geometryMetrics";
+import { CopyableError } from "@/components/ui/CopyableError";
+import type { RasterMaskRecordStatus } from "../../stage/shared/useRasterMaskRecords";
 
 const BODY_CLASS = "flex min-h-0 flex-col gap-2.5 overflow-x-hidden overflow-y-auto px-3 pt-2.5";
 const SOURCE_ROW_CLASS =
@@ -28,6 +30,8 @@ export interface AIPredictionCardContentProps {
   onReject: (b: AiBox) => void;
   /** 仅 polygon 几何时由调用方注入(开 Mask 笔刷);非 polygon 不渲染精修。 */
   onRefine: (b: AiBox) => void;
+  rasterMaskStatus?: RasterMaskRecordStatus;
+  onRetryRasterMask?: (id: string) => void;
 }
 
 /** OCR / doc_layout 候选携带的识别文本摘要(单行截断),无文本返回 null。 */
@@ -62,6 +66,8 @@ export function AIPredictionCardContent({
   onAccept,
   onReject,
   onRefine,
+  rasterMaskStatus,
+  onRetryRasterMask,
 }: AIPredictionCardContentProps) {
   const metrics = box.geometry ? geometryMetrics(box.geometry, imageWidth, imageHeight) : [];
   const isPolygon = box.geometry?.type === "polygon";
@@ -97,6 +103,30 @@ export function AIPredictionCardContent({
       )}
 
       <MetricGrid metrics={metrics} />
+
+      {box.geometry?.type === "raster_mask" && (
+        <div
+          role="status"
+          className="rounded-md border border-border bg-muted px-2.5 py-2 text-xs leading-5 text-muted-foreground"
+        >
+          {!rasterMaskStatus ? (
+            "Mask 内容尚未加载"
+          ) : rasterMaskStatus.state === "loading" ? (
+            "Mask 内容加载中…"
+          ) : rasterMaskStatus.state === "ready" ? (
+            `${rasterMaskStatus.preview ? "受限预览 · 精确像素命中" : "已按真实像素渲染"} · ${rasterMaskStatus.area} px · ${rasterMaskStatus.componentCount} 个组件 · ${rasterMaskStatus.holeCount} 个孔洞`
+          ) : (
+            <>
+              <CopyableError message={rasterMaskStatus.message} />
+              {rasterMaskStatus.retryable && onRetryRasterMask && (
+                <Button size="xs" variant="ghost" onClick={() => onRetryRasterMask(box.id)}>
+                  重试加载
+                </Button>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {showAttrPreview && (
         <div className={ATTR_BLOCK_CLASS} data-floating-panel-no-drag>

@@ -103,7 +103,10 @@ import {
 import type { VideoSamPrompt } from "../stage/videoStageTypes";
 import { isSamCandidateNavTool } from "../stage/videoKonvaInteraction";
 import { tightenBboxFromPolygon } from "../stage/shared/geometry/bbox";
-import { buildImageRasterMaskDescriptors } from "./imageRasterMaskDescriptors";
+import {
+  buildImageRasterMaskDescriptors,
+  buildImagePredictionMaskDescriptors,
+} from "./imageRasterMaskDescriptors";
 import { useRasterMaskRecords } from "../stage/shared/useRasterMaskRecords";
 import { useRasterMaskWorkerPool } from "../stage/shared/useRasterMaskWorkerPool";
 import { useRasterResourceCoordinator } from "../stage/shared/useRasterResourceCoordinator";
@@ -1523,23 +1526,6 @@ export function useWorkbenchShellModel({
   );
   const rasterResources = useRasterResourceCoordinator({ taskId });
   const rasterMaskWorkerPool = useRasterMaskWorkerPool(taskId, rasterResources);
-  const imageRasterMaskDescriptors = useMemo(() => {
-    if (isVideoTask || maskCapabilities.data?.read_enabled !== true) return [];
-    return buildImageRasterMaskDescriptors(visibleAnnotationsData, rasterMaskSelectedIds);
-  }, [
-    isVideoTask,
-    maskCapabilities.data?.read_enabled,
-    rasterMaskSelectedIds,
-    visibleAnnotationsData,
-  ]);
-  const imageRasterMasks = useRasterMaskRecords({
-    scopeKey:
-      !isVideoTask && maskCapabilities.data?.read_enabled === true ? (taskId ?? null) : null,
-    descriptors: imageRasterMaskDescriptors,
-    workerPool: rasterMaskWorkerPool,
-    resourceCoordinator: rasterResources,
-    resourceOwner: "mask-render:annotation",
-  });
 
   const taskAiMeta = useMemo(() => {
     if (predictionsData.length === 0)
@@ -4422,6 +4408,49 @@ export function useWorkbenchShellModel({
     resumeTaskLock,
   });
   const modeState = mode === "review" ? reviewModeState : annotateModeState;
+  const imageRasterMaskDescriptors = useMemo(() => {
+    if (isVideoTask || !taskId || maskCapabilities.data?.read_enabled !== true) return [];
+    return [
+      ...buildImageRasterMaskDescriptors(visibleAnnotationsData, rasterMaskSelectedIds),
+      ...buildImagePredictionMaskDescriptors(
+        taskId,
+        modeState.diffMode === "final" ? [] : aiBoxes,
+        rasterMaskSelectedIds,
+      ),
+    ];
+  }, [
+    aiBoxes,
+    isVideoTask,
+    maskCapabilities.data?.read_enabled,
+    modeState.diffMode,
+    rasterMaskSelectedIds,
+    taskId,
+    visibleAnnotationsData,
+  ]);
+  const imageRasterMasks = useRasterMaskRecords({
+    scopeKey:
+      !isVideoTask && maskCapabilities.data?.read_enabled === true ? (taskId ?? null) : null,
+    descriptors: imageRasterMaskDescriptors,
+    workerPool: rasterMaskWorkerPool,
+    resourceCoordinator: rasterResources,
+    resourceOwner: "mask-render:image",
+  });
+  const imageAnnotationMaskRecords = useMemo(
+    () =>
+      imageRasterMasks.records.filter(
+        (record): record is typeof record & { source: "annotation" } =>
+          record.source === "annotation",
+      ),
+    [imageRasterMasks.records],
+  );
+  const imagePredictionMaskRecords = useMemo(
+    () =>
+      imageRasterMasks.records.filter(
+        (record): record is typeof record & { source: "prediction" } =>
+          record.source === "prediction",
+      ),
+    [imageRasterMasks.records],
+  );
   const { topbarActions, bannerActions } = modeState;
   const isLocked = modeState.isLocked || sceneWriteBlocked || !!contentBlockedReason;
   // 章节 × 时间轴联动控制器 (状态/handler 声明在前, 此处 isLocked 就绪后组装并 gate 编辑)。
@@ -4910,8 +4939,8 @@ export function useWorkbenchShellModel({
         hiddenVideoTrackIds={hiddenVideoTrackIds}
         lockedVideoTrackIds={lockedVideoTrackIds}
         rasterMaskStatus={
-          selectedAnnotationForPanel
-            ? imageRasterMasks.statusById.get(selectedAnnotationForPanel.id)
+          selectedAnnotationForPanel || selectedAiBox
+            ? imageRasterMasks.statusById.get((selectedAnnotationForPanel ?? selectedAiBox)!.id)
             : undefined
         }
         rasterMaskRetry={imageRasterMasks.retry}
@@ -6099,7 +6128,8 @@ export function useWorkbenchShellModel({
         bboxCreationMode: s.bboxCreationMode,
         continuousCreation: !!continuousCreation,
         resourceCoordinator: rasterResources,
-        rasterMaskRecords: imageRasterMasks.records,
+        rasterMaskRecords: imageAnnotationMaskRecords,
+        predictionRasterMaskRecords: imagePredictionMaskRecords,
         rasterMaskStatusById: imageRasterMasks.statusById,
         onRetryRasterMask: imageRasterMasks.retry,
         editingRasterMaskId: editingImageRasterMaskId,

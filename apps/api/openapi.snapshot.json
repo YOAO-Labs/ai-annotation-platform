@@ -32596,6 +32596,26 @@
             ],
             "title": "Shape Index"
           },
+          "tool_unit_id": {
+            "anyOf": [
+              {
+                "enum": [
+                  "bbox",
+                  "polyline",
+                  "region",
+                  "lidar_box_3d",
+                  "rotated_bbox",
+                  "keypoint",
+                  "point_mask_3d"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Unit Id"
+          },
           "type": {
             "title": "Type",
             "type": "string"
@@ -93032,6 +93052,84 @@
           }
         ],
         "summary": "Accept Prediction",
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}": {
+      "get": {
+        "description": "Read original image-candidate pixels after current task and shape checks.",
+        "operationId": "get_prediction_raster_mask_content_api_v1_tasks__task_id__predictions__prediction_id__mask_content__shape_index__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "prediction_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Prediction Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "shape_index",
+            "required": true,
+            "schema": {
+              "minimum": 0,
+              "title": "Shape Index",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CocoRleContent"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "304": {
+            "description": "Not Modified"
+          },
+          "409": {
+            "description": "Mask reference or task context is invalid"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Mask object storage is unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Prediction Raster Mask Content",
         "tags": [
           "tasks"
         ]

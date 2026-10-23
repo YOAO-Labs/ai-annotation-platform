@@ -239,6 +239,7 @@ interface ImageStageProps {
   resourceCoordinator?: RasterResourceCoordinator;
   maskCompareStore?: MaskCompareTileStore | null;
   rasterMaskRecords?: readonly RasterMaskRenderRecord<"annotation">[];
+  predictionRasterMaskRecords?: readonly RasterMaskRenderRecord<"prediction">[];
   tiledMaskOverviewRecord?: RasterMaskRenderRecord<"annotation"> | null;
   rasterMaskStatusById?: ReadonlyMap<string, RasterMaskRecordStatus>;
   onRetryRasterMask?: (id: string) => void;
@@ -542,6 +543,7 @@ export function ImageStage({
   resourceCoordinator,
   maskCompareStore,
   rasterMaskRecords = [],
+  predictionRasterMaskRecords = [],
   rasterMaskStatusById = new Map(),
   onRetryRasterMask,
   maskReadOnly = false,
@@ -863,6 +865,11 @@ export function ImageStage({
   })
     ? samMaskRecords
     : [];
+  const displayedPredictionMaskRecords = useMemo(() => {
+    if (!maskCompareCompanionVisible(maskCompareStore?.display, { source: "ai" })) return [];
+    const visible = new Set(aiBoxes.map((box) => box.id));
+    return predictionRasterMaskRecords.filter((record) => visible.has(record.id));
+  }, [aiBoxes, maskCompareStore, predictionRasterMaskRecords]);
   const maskCompareActive = !!maskCompareStore?.display;
   const rasterMaskIssues = useMemo(
     () =>
@@ -1630,7 +1637,9 @@ export function ImageStage({
       }
     }
     if (tool === "select" && !spacePan) {
-      const hit = pickTopRasterMaskAt(displayedRasterMaskRecords, pt);
+      const hit =
+        pickTopRasterMaskAt(displayedRasterMaskRecords, pt) ??
+        pickTopRasterMaskAt(displayedPredictionMaskRecords, pt);
       if (hit) {
         onSelectBox(hit.id, { shift: e.evt.shiftKey });
         return;
@@ -2154,8 +2163,38 @@ export function ImageStage({
             </Layer>
           )}
 
-          {/* committed Mask 独立于背景与 AI/vector 之间，不参与 Konva hit-test。 */}
-          <Layer name="image-mask" listening={false}>
+          <Layer name="image-mask" listening={false} imageSmoothingEnabled={false}>
+            {displayedPredictionMaskRecords.map((record) => {
+              const candidate = aiBoxes.find((box) => box.id === record.id);
+              if (!candidate) return null;
+              const color = classColorForCanvas(candidate.cls);
+              return (
+                <RasterMaskVisual
+                  key={record.cacheKey}
+                  id={record.id}
+                  source="prediction"
+                  image={record.image}
+                  bounds={record.bounds}
+                  sourceWidth={imgW}
+                  sourceHeight={imgH}
+                  scale={vp.scale}
+                  color={color}
+                  selected={record.selected}
+                  opacityScale={fadedAiIds?.has(record.id) ? workbenchConfig.image.fadedOpacity : 1}
+                  visual={annotationVisual}
+                  labelText={buildLabelText(
+                    {
+                      className: displayClassName(candidate.cls),
+                      confidence: candidate.conf,
+                      attributes: candidate.attributes,
+                    },
+                    annotationVisual.labelContent.single,
+                  )}
+                  showLabel={shouldShowLabel(record.selected, annotationVisual.labelVisibility)}
+                />
+              );
+            })}
+            {/* Saved masks stay above candidate pixels and use exact pixel picking. */}
             {displayedRasterMaskRecords.map((record) => {
               const annotation = visibleUserBoxById.get(record.id);
               const color = classColorForCanvas(annotation?.cls ?? "mask");
@@ -2206,55 +2245,57 @@ export function ImageStage({
           {/* ai 层：AI 预测框（虚线 + 浅填充）。严格分离：仅「选择工具」下可点选采纳，
             与 user 层一致；绘制工具下不响应 hit-test，避免预标注被任意工具误选。 */}
           <Layer name="ai" listening={selectActive && !polygonSlice.session}>
-            {aiBoxes.map((b) =>
-              b.polyline && b.polyline.length >= 2 ? (
-                <KonvaPolyline
-                  key={b.id}
-                  b={b}
-                  isAi
-                  selected={selSet.has(b.id)}
-                  faded={fadedAiIds?.has(b.id) ?? false}
-                  fadedOpacity={workbenchConfig.image.fadedOpacity}
-                  visual={annotationVisual}
-                  imgW={imgW}
-                  imgH={imgH}
-                  scale={vp.scale}
-                  points={b.polyline as Pt[]}
-                  onClick={(evt) => onSelectBox(b.id, { shift: !!evt?.evt?.shiftKey })}
-                />
-              ) : b.polygon && b.polygon.length >= 3 ? (
-                <KonvaPolygon
-                  key={b.id}
-                  b={b}
-                  isAi
-                  selected={selSet.has(b.id)}
-                  faded={fadedAiIds?.has(b.id) ?? false}
-                  fadedOpacity={workbenchConfig.image.fadedOpacity}
-                  visual={annotationVisual}
-                  imgW={imgW}
-                  imgH={imgH}
-                  scale={vp.scale}
-                  onClick={(evt) => onSelectBox(b.id, { shift: !!evt?.evt?.shiftKey })}
-                />
-              ) : (
-                <KonvaBox
-                  key={b.id}
-                  b={b}
-                  isAi
-                  selected={selSet.has(b.id)}
-                  faded={fadedAiIds?.has(b.id) ?? false}
-                  fadedOpacity={workbenchConfig.image.fadedOpacity}
-                  visual={annotationVisual}
-                  editable={!readOnly}
-                  imgW={imgW}
-                  imgH={imgH}
-                  scale={vp.scale}
-                  onClick={(evt) => onSelectBox(b.id, { shift: !!evt?.evt?.shiftKey })}
-                  onMoveStart={null}
-                  onResizeStart={null}
-                />
-              ),
-            )}
+            {aiBoxes
+              .filter((box) => box.geometry?.type !== "raster_mask")
+              .map((b) =>
+                b.polyline && b.polyline.length >= 2 ? (
+                  <KonvaPolyline
+                    key={b.id}
+                    b={b}
+                    isAi
+                    selected={selSet.has(b.id)}
+                    faded={fadedAiIds?.has(b.id) ?? false}
+                    fadedOpacity={workbenchConfig.image.fadedOpacity}
+                    visual={annotationVisual}
+                    imgW={imgW}
+                    imgH={imgH}
+                    scale={vp.scale}
+                    points={b.polyline as Pt[]}
+                    onClick={(evt) => onSelectBox(b.id, { shift: !!evt?.evt?.shiftKey })}
+                  />
+                ) : b.polygon && b.polygon.length >= 3 ? (
+                  <KonvaPolygon
+                    key={b.id}
+                    b={b}
+                    isAi
+                    selected={selSet.has(b.id)}
+                    faded={fadedAiIds?.has(b.id) ?? false}
+                    fadedOpacity={workbenchConfig.image.fadedOpacity}
+                    visual={annotationVisual}
+                    imgW={imgW}
+                    imgH={imgH}
+                    scale={vp.scale}
+                    onClick={(evt) => onSelectBox(b.id, { shift: !!evt?.evt?.shiftKey })}
+                  />
+                ) : (
+                  <KonvaBox
+                    key={b.id}
+                    b={b}
+                    isAi
+                    selected={selSet.has(b.id)}
+                    faded={fadedAiIds?.has(b.id) ?? false}
+                    fadedOpacity={workbenchConfig.image.fadedOpacity}
+                    visual={annotationVisual}
+                    editable={!readOnly}
+                    imgW={imgW}
+                    imgH={imgH}
+                    scale={vp.scale}
+                    onClick={(evt) => onSelectBox(b.id, { shift: !!evt?.evt?.shiftKey })}
+                    onMoveStart={null}
+                    onResizeStart={null}
+                  />
+                ),
+              )}
           </Layer>
 
           {/* user 层：人工框 + 选中态 + resize handle */}
@@ -3230,7 +3271,10 @@ export function ImageStage({
             {rasterMaskIssues.map(({ id, status }) => (
               <div key={id} className="flex items-center gap-2">
                 <span className="min-w-0 flex-1 truncate">
-                  {userBoxes.find((annotation) => annotation.id === id)?.cls ?? id}：
+                  {userBoxes.find((annotation) => annotation.id === id)?.cls ??
+                    aiBoxes.find((box) => box.id === id)?.cls ??
+                    "Mask"}
+                  ：
                   <CopyableError message={status.message} truncate />
                 </span>
                 {status.retryable && (

@@ -789,6 +789,7 @@
 | Method | Path |
 |---|---|
 | GET | `/{task_id}/predictions` |
+| GET | `/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}` |
 | GET | `/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}/{frame_index}` |
 | POST | `/{task_id}/predictions/{prediction_id}/accept` |
 | POST | `/{task_id}/predictions/{prediction_id}/reject` |
@@ -1002,4 +1003,4 @@
 
 ---
 
-_共 89 模块 / 580 路由_
+_共 90 模块 / 581 路由_

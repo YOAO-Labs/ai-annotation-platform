@@ -366,6 +366,8 @@ GET /api/v1/tasks/:id/video/frame-timetable?from=0&to=120
 
 每个 task 最多保留 256 个尚未被 annotation POST/PATCH 认领的匿名上传；重复上传相同内容不重复占额度。达到上限返回 `422 mask_quota_exceeded`。图片和视频单帧 Mask 使用 `GET /api/v1/annotations/{annotation_id}/mask-content`；视频 Mask 轨迹的当前解析帧使用带 `{frame_index}` 的路径，兼容客户端也可以用带帧路径读取单态 Mask。对象或帧路径会随编辑及恢复指向新内容，因此返回 `Cache-Control: private, no-cache`，每次按当前摘要重新校验；`If-None-Match` 命中返回 304，摘要变化返回完整 RLE。对象损坏或尺寸失配返回 409，存储暂时不可用返回可重试 503。部署可以分别控制读取和创建；创建关闭时仍允许安全读取存量 geometry。
 
+图片 Prediction 候选使用 `GET /api/v1/tasks/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}` 读取，支持相同的 RLE、ETag 和结构化错误合同；`shape_index` 必须取原始候选下标。完整权限和审阅状态规则见[图片原生候选内容](./predictions.md#图片原生候选内容)。
+
 ## Mask 实例原子操作
 
 切割、拆分、复制、合并和严格非重叠会在一个任务级事务内提交：

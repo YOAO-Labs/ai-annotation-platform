@@ -1,8 +1,19 @@
 import uuid
 from typing import Any
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Request
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    Response,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.api.v1._mask_content import MASK_CONTENT_RESPONSES, mask_content_response
+from app.config import settings
 
 from app.deps import (
     get_db,
@@ -149,6 +160,74 @@ async def get_predictions(
         if idx in grouped:
             result.append(_build_out(p, grouped[idx]))
     return result
+
+
+@router.get(
+    "/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}",
+    response_model=CocoRleContent,
+    responses=MASK_CONTENT_RESPONSES,
+    dependencies=[Depends(require_scopes("annotations:read"))],
+)
+async def get_prediction_raster_mask_content(
+    task_id: uuid.UUID,
+    prediction_id: uuid.UUID,
+    request: Request,
+    shape_index: int = Path(ge=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Read original image-candidate pixels after current task and shape checks."""
+    task = await _load_task_or_404(db, task_id)
+    await _assert_task_visible(db, task, current_user)
+    prediction = await db.scalar(
+        select(Prediction).where(Prediction.id == prediction_id)
+    )
+    if (
+        prediction is None
+        or prediction.task_id != task.id
+        or prediction.project_id != task.project_id
+        or prediction.source == INTERACTIVE_ACCEPT_PREDICTION_SOURCE
+    ):
+        raise HTTPException(status_code=404, detail="Prediction not found")
+    shapes = prediction.result or []
+    if shape_index in set(
+        prediction.rejected_shape_indexes or []
+    ) or not 0 <= shape_index < len(shapes):
+        raise HTTPException(status_code=404, detail="Prediction shape not found")
+    from app.services.prediction import to_internal_shape
+
+    geometry = to_internal_shape(shapes[shape_index]).get("geometry") or {}
+    if geometry.get("type") != "raster_mask":
+        raise HTTPException(
+            status_code=422, detail="Prediction shape is not an image mask"
+        )
+    if not settings.raster_mask_read_enabled:
+        raise HTTPException(
+            status_code=404, detail={"reason": "raster_mask_read_disabled"}
+        )
+    if task.file_type != "image":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": "raster_mask_image_required",
+                "message": "image mask requires an image task",
+            },
+        )
+    try:
+        await validate_mask_geometry_for_task(db, task, geometry)
+    except RasterMaskContractError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"reason": "mask_task_context_invalid", "message": str(exc)},
+        ) from exc
+    return await mask_content_response(
+        owner_id=prediction.id,
+        mask_ref=geometry["mask"],
+        request=request,
+        loader=load_coco_rle,
+    )
 
 
 @router.get(

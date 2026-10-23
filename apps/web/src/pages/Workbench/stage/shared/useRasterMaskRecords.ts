@@ -882,6 +882,13 @@ export function useRasterMaskRecords<TSource extends string = string>(
       if (!activeDescriptors.has(cacheKey)) deferredRef.current.delete(cacheKey);
     }
 
+    // Filtered records can stay warm, but no longer own selected/editing pins.
+    for (const [cacheKey, cached] of cacheRef.current) {
+      if (!activeDescriptors.has(cacheKey)) {
+        cached.resource?.update({ priority: 5, pinned: false });
+      }
+    }
+
     for (const [cacheKey] of descriptorEntries) {
       const cached = cacheRef.current.get(cacheKey);
       if (cached?.scopeKey === scopeKey) {

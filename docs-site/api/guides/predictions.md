@@ -47,6 +47,20 @@ POST /api/v1/projects/:id/preannotate
 
 引用图片的 `mask_repair` SAM 候选经[批量修复独立资格](./tasks-and-annotations.md#mask-质检批量修复)采纳：必须匹配已提交单元、生成时结果/元信息摘要、源标注及当前原图，不放宽普通后台原生掩码门禁。重复或已驳回候选返回 `409`。`POST /tasks/{task_id}/predictions/{prediction_id}/reject` 对引用候选按当前任务编辑和 Key 权限写入驳回状态；来源离线或 native mask 开关关闭不阻止驳回。
 
+## 图片原生候选内容
+
+```http
+GET /api/v1/tasks/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}
+```
+
+返回 `CocoRleContent`（`encoding: "coco_rle"`、`size`、`counts`），支持普通 JSON 与 gzip 存储引用。下标使用查询预测响应的原始 `shape_index`，不按过滤、排序或分页后的数组位置重新编号；每个 shape 还返回自身 `tool_unit_id`，混合阶段不能只使用 Prediction 的根工具单位。
+
+要求当前 Task 可见、API Key 具备 `annotations:read`，且 Prediction 同时属于该 Task 和项目。不存在、已驳回、已被替代或交互采纳审计候选返回 `404`，非图片原生 Mask shape 返回 `422`。全局读取开关关闭返回 `404 raster_mask_read_disabled`；AI、创建与项目原生编辑开关不限制存量内容读取。
+
+响应含 `ETag` 和 `Cache-Control: private, no-cache`；支持弱、多值及通配 `If-None-Match`。每次返回 `304` 前仍复核权限、状态、读取开关、Task/Item 图片类型与尺寸。内容损坏或尺寸失配返回结构化 `409`，存储不可用返回可重试 `503 mask_storage_unavailable`。
+
+普通已采纳候选仍可读取生成时的原始像素，之后修改 Annotation 不改变该内容。读取原地引用图片已保存的 RLE 不访问原图，来源离线时仍可读；生成和采纳继续采用各自的严格原图资格。客户端应保留 `(predictionId, shapeIndex)` 身份，切题、过滤或审阅后清理对应资源。
+
 ## 查询 jobs
 
 ```http

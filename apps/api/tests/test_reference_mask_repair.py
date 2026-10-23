@@ -4,6 +4,7 @@ from copy import deepcopy
 import asyncio
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from urllib.parse import urlsplit
 import uuid
 
@@ -798,7 +799,7 @@ async def test_sam_candidate_acceptance_rejects_changed_or_unowned_input(
 
 
 async def test_reference_candidate_rejects_offline_then_cannot_accept(
-    reference_repair, repair_client
+    reference_repair, repair_client, monkeypatch
 ):
     w = reference_repair
     await plan(w, sam=True)
@@ -812,10 +813,24 @@ async def test_reference_candidate_rejects_offline_then_cannot_accept(
         (await db.get(Project, w.project_id)).raster_mask_native_editing_enabled = False
         await db.commit()
     prediction_id = predictions[0].id
+    load = AsyncMock(return_value=w.source)
+    monkeypatch.setattr("app.api.v1.tasks.predictions.load_coco_rle", load)
+    content_url = (
+        f"/api/v1/tasks/{w.task_id}/predictions/{prediction_id}/mask-content/0"
+    )
+    readable = await repair_client.get(content_url)
+    assert readable.status_code == 200, readable.text
+    load.assert_awaited_once()
+    blocked_accept = await repair_client.post(
+        f"/api/v1/tasks/{w.task_id}/predictions/{prediction_id}/accept"
+    )
+    assert blocked_accept.status_code in {404, 409}, blocked_accept.text
     rejected = await repair_client.post(
         f"/api/v1/tasks/{w.task_id}/predictions/{prediction_id}/reject"
     )
     assert rejected.status_code == 204, rejected.text
+    hidden = await repair_client.get(content_url, headers={"If-None-Match": "*"})
+    assert hidden.status_code == 404
     async with w.factory() as db:
         prediction = await db.scalar(
             select(Prediction).where(Prediction.id == prediction_id)

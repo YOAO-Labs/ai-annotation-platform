@@ -240,6 +240,8 @@ export function SelectionCardContent(props: SelectionCardContentProps): ReactNod
         imageHeight={imageHeight}
         attributeSchema={attributeSchema}
         readOnly={isLocked}
+        rasterMaskStatus={rasterMaskStatus}
+        onRetryRasterMask={rasterMaskRetry}
         onAccept={acceptPrediction}
         onReject={rejectPrediction}
         onRefine={refinePrediction}

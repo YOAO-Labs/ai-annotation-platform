@@ -261,9 +261,8 @@ def to_internal_shape(s: dict) -> dict:
     if not isinstance(s, dict):
         return {}
     if "geometry" in s:
-        # 老路径已经是内部 schema; v0.10.17 在缺 tool_unit_id 时按 type 反推**就地**回填,
-        # 保留原 dict identity (`is raw`) 以保兼容历史调用方依赖.
-        if "tool_unit_id" not in s:
+        # Normalize missing/retired tool IDs from geometry while preserving dict identity.
+        if s.get("tool_unit_id") not in TOOL_UNIT_IDS:
             s["tool_unit_id"] = _tool_unit_from_internal_geometry(
                 s.get("geometry")
             ) or derive_tool_unit_from_ls_type(s.get("type"))

@@ -41,6 +41,8 @@ class PredictionShape(BaseModel):
     # 原始 predictions.result 数组下标。GET /predictions 可能过滤/重排 shape,
     # 采纳时必须把这个原始下标传回 /accept?shape_index=...
     shape_index: int | None = None
+    # Mixed-stage candidates retain each shape's geometry-derived tool binding.
+    tool_unit_id: ToolUnitId | None = None
 
 
 class PredictionOut(BaseModel):

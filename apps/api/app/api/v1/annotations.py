@@ -25,7 +25,6 @@ from fastapi import (
     Response,
     UploadFile,
 )
-from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,6 +34,10 @@ from app.api.v1.tasks._shared import (
     _assert_task_visible,
     _resolve_task_access,
     assert_annotation_write_allowed,
+)
+from app.api.v1._mask_content import (
+    MASK_CONTENT_RESPONSES as _MASK_CONTENT_RESPONSES,
+    mask_content_response,
 )
 from app.config import settings
 from app.db.models.annotation import Annotation
@@ -65,7 +68,6 @@ from app.services.raster_mask_storage import (
     assert_raster_mask_write_enabled,
     build_rle_gzip_reference,
     build_rle_reference,
-    classify_raster_mask_content_error,
     load_coco_rle,
     lock_raster_mask_references,
     reserve_raster_mask_upload,
@@ -112,24 +114,6 @@ async def _count_task_mask_references(db: AsyncSession, task_id: uuid.UUID) -> i
     )
 
 
-_MASK_CONTENT_RESPONSES = {
-    304: {"description": "Not Modified"},
-    409: {"description": "Mask reference or task context is invalid"},
-    503: {"description": "Mask object storage is unavailable"},
-}
-
-
-def _mask_etag_matches(request: Request, etag: str) -> bool:
-    raw = request.headers.get("if-none-match")
-    if not raw:
-        return False
-    normalized = etag.removeprefix("W/")
-    return any(
-        candidate == "*" or candidate.removeprefix("W/") == normalized
-        for candidate in (part.strip() for part in raw.split(","))
-    )
-
-
 async def _load_visible_mask_annotation(
     annotation_id: uuid.UUID,
     db: AsyncSession,
@@ -165,36 +149,9 @@ async def _mask_content_response(
     mask_ref: dict,
     request: Request,
 ) -> Response:
-    etag = f'"{mask_ref.get("sha256")}"'
-    # Annotation and frame URLs are mutable aliases, including slice restore.
-    # Revalidate the current reference before reusing an earlier response body.
-    headers = {"Cache-Control": "private, no-cache", "ETag": etag}
-    if _mask_etag_matches(request, etag):
-        return Response(status_code=304, headers=headers)
-    try:
-        payload = await load_coco_rle(mask_ref)
-    except (KeyError, ValueError) as exc:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "reason": classify_raster_mask_content_error(exc),
-                "retryable": True,
-                "message": f"mask object is invalid: {exc}",
-            },
-        ) from exc
-    except Exception as exc:
-        logger.warning(
-            "mask object read failed for annotation %s", annotation_id, exc_info=True
-        )
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "reason": "mask_storage_unavailable",
-                "retryable": True,
-                "message": "Mask object storage is unavailable",
-            },
-        ) from exc
-    return JSONResponse(payload, headers=headers)
+    return await mask_content_response(
+        owner_id=annotation_id, mask_ref=mask_ref, request=request, loader=load_coco_rle
+    )
 
 
 @router.get(

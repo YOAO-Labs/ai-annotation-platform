@@ -172,6 +172,39 @@ describe("collectOccludedKeys", () => {
 });
 
 describe("predictionsToBoxes", () => {
+  it("keeps each stage's tool unit and already-bound native class", () => {
+    const boxes = predictionsToBoxes(
+      [
+        {
+          id: "mixed",
+          tool_unit_id: "region",
+          result: [
+            {
+              tool_unit_id: "region",
+              class_name: "car",
+              confidence: 0.9,
+              geometry: { type: "raster_mask", mask: {} },
+            },
+            {
+              tool_unit_id: "bbox",
+              class_name: "Car",
+              confidence: 0.8,
+              geometry: { type: "bbox", x: 0, y: 0, w: 1, h: 1 },
+            },
+          ],
+        },
+      ] as any,
+      {
+        region: { enabled: true, classes: [{ name: "car" }, { name: "wrong", alias: "car" }] },
+        bbox: { enabled: true, classes: [{ name: "车辆", alias: "Car" }] },
+      } as any,
+    );
+    expect(boxes.map((box) => [box.tool_unit_id, box.cls])).toEqual([
+      ["region", "car"],
+      ["bbox", "车辆"],
+    ]);
+  });
+
   it("flatten predictions.result 到 AiBox 列表", () => {
     const preds = [
       {

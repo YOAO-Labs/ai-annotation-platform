@@ -1495,6 +1495,10 @@ function BoxesList({
                   <BoxListItem
                     b={r.box}
                     isAi
+                    rasterMaskStatus={rasterMaskStatusById?.get(r.box.id)}
+                    onRetryRasterMask={
+                      onRetryRasterMask ? () => onRetryRasterMask(r.box.id) : undefined
+                    }
                     selected={selSet.has(r.box.id)}
                     dimmed={dimmedAiIds?.has(r.box.id) ?? false}
                     imageWidth={imageWidth}

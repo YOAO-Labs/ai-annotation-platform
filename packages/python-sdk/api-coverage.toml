@@ -85,6 +85,7 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "GET /api/v1/tasks/{task_id}/point-cloud/manifest" = { status = "excluded", reason = "workbench-internal" }
 "GET /api/v1/tasks/{task_id}/predictions" = { status = "excluded", reason = "workbench-internal" }
 "GET /api/v1/tasks/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}/{frame_index}" = { status = "excluded", reason = "workbench-internal" }
+"GET /api/v1/tasks/{task_id}/predictions/{prediction_id}/mask-content/{shape_index}" = { status = "excluded", reason = "workbench-internal" }
 "GET /api/v1/tasks/{task_id}/scene-timeline" = { status = "excluded", reason = "workbench-internal" }
 "GET /api/v1/tasks/{task_id}/scene-track-commands" = { status = "excluded", reason = "workbench-internal" }
 "GET /api/v1/tasks/{task_id}/scene-track-diagnostics" = { status = "excluded", reason = "workbench-internal" }

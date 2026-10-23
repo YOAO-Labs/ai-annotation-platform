@@ -61,7 +61,7 @@ WorkBench 请求要求项目 `annotation.write` 和当前题有效编辑／分�
 
 最终结果可以混合原生 Mask 与后续矢量几何，不能再次套用原生类别和连续实例索引校验。删框后逐结果包裁剪 `mask_objects`，相同 SHA 仍被其它 shape 引用时保留；不跨结果合并对象包。持久化在任何 PUT 前复核全部 native gate、任务尺寸、精确对象集合、摘要、非空及预算，再按 Task → 排序内容锁物化；回滚遗留的共享 SHA 对象由既有 GC 处理。预测正文与内联对象不复制到元数据。按 snapshot shape lineage 采纳时，每个 shape 使用自身工具单位及阶段模型的类别策略；旧无阶段来源记录保留行级合同。人工接受、修正及审核后才能进入下一轮训练，见[实例分割闭环](./instance-segmentation-learning)。
 
-下游原生掩码仍缺少经过资格核验的像素回映与对象归属合同，不能通过丢 shape 或丢对象降级：运行时在属性合并、geometry 收集及 crop 回映前以 `NativeMaskChildOutputUnsupported` 记录明确阶段失败，按阶段策略保留或丢弃父对象。引用后台原生结果及画布候选加载仍待专用接入；本执行基座不放开普通引用 receipt。
+下游原生掩码仍缺少经过资格核验的像素回映与对象归属合同，不能通过丢 shape 或丢对象降级：运行时在属性合并、geometry 收集及 crop 回映前以 `NativeMaskChildOutputUnsupported` 记录明确阶段失败，按阶段策略保留或丢弃父对象。图片原生候选复用受预算管理的像素层、Worker 和缓存，按 Task/Prediction/原始 shape 下标读取并按真实像素拾取；来源、置信度或审阅状态变化后移除相应可见记录，缓存按预算回收，切题隔离迟到结果。引用后台原生生成仍需专用接入，普通引用 receipt 不因此放开。
 
 详细决策见 [模型目录与冻结管线](../adr/archive/0088-model-catalog-and-frozen-pipelines)。
 
