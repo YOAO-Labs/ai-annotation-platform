@@ -13,6 +13,14 @@ from sqlalchemy import String, and_, cast, func, or_, outerjoin, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from aap_audit import (
+    EXPORT_MAX_ROWS,
+    AuditQueryAfter,
+    AuditQueryFilters,
+    AuditQueryRequest,
+)
+from aap_audit.query_postgres import AuditQueryPostgresData
+
 from app.deps import get_db, require_roles
 from app.db.enums import UserRole
 from app.db.models.audit_log import AuditLog
@@ -193,6 +201,55 @@ def _row_to_out(row) -> AuditLogOut:
     return result
 
 
+def _query_event_to_out(event) -> AuditLogOut:
+    values = event.model_dump()
+    values["id"] = int(event.id)
+    return AuditLogOut.model_validate(values)
+
+
+def _legacy_query_datetime(value: datetime | None) -> datetime | None:
+    if value is not None and value.utcoffset() is None:
+        return value.astimezone()
+    return value
+
+
+def _legacy_query_actor_id(value: str | None) -> str | None:
+    if value is None or value == "":
+        return value
+    if re.fullmatch(
+        r"(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})",
+        value,
+        re.IGNORECASE,
+    ):
+        return str(UUID(value))
+    return value
+
+
+def _query_filters(
+    *,
+    action: str | None,
+    target_type: str | None,
+    target_id: str | None,
+    actor_id: str | None,
+    from_: datetime | None,
+    to: datetime | None,
+    business_only: bool,
+    detail_key: str | None,
+    detail_value: str | None,
+) -> AuditQueryFilters:
+    return AuditQueryFilters(
+        action=action,
+        target_type=target_type,
+        target_id=target_id,
+        actor_id=_legacy_query_actor_id(actor_id),
+        from_=_legacy_query_datetime(from_),
+        to=_legacy_query_datetime(to),
+        business_only=business_only,
+        detail_key=detail_key,
+        detail_value=detail_value,
+    )
+
+
 def _managed_audit_scope(actor: IdentityActorFacts, *, project_id: UUID | None = None):
     project = aliased(Project, project_facts(), adapt_on_names=True)
     conditions = (
@@ -334,6 +391,43 @@ async def list_audit_logs(
         require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
     ),
 ):
+    if actor.role == UserRole.SUPER_ADMIN:
+        after = None
+        if cursor:
+            cur_ts, cur_id = _decode_cursor(cursor)
+            cur_ts = _legacy_query_datetime(cur_ts)
+            after = AuditQueryAfter(created_at=cur_ts.isoformat(), id=str(cur_id))
+        reply = await AuditQueryPostgresData(db).query(
+            AuditQueryRequest.list_page(
+                _query_filters(
+                    action=action,
+                    target_type=target_type,
+                    target_id=target_id,
+                    actor_id=actor_id,
+                    from_=from_,
+                    to=to,
+                    business_only=business_only,
+                    detail_key=detail_key,
+                    detail_value=detail_value,
+                ),
+                page=page,
+                page_size=page_size,
+                after=after,
+            )
+        )
+        items = [_query_event_to_out(event) for event in reply.data.events]
+        next_cursor = None
+        if len(items) == page_size and items:
+            last = items[-1]
+            next_cursor = _encode_cursor(last.created_at, last.id)
+        return AuditLogList(
+            items=items,
+            total=int(reply.data.total),
+            page=page,
+            page_size=page_size,
+            next_cursor=next_cursor,
+        )
+
     base, count_q = _build_base_query(
         action,
         target_type,
@@ -474,35 +568,28 @@ async def export_audit_logs(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
-    _MAX_ROWS = 50_000
-    base, count_q = _build_base_query(
-        action,
-        target_type,
-        target_id,
-        actor_id,
-        from_,
-        to,
-        business_only,
-        detail_key,
-        detail_value,
+    _MAX_ROWS = EXPORT_MAX_ROWS
+    reply = await AuditQueryPostgresData(db).query(
+        AuditQueryRequest.export(
+            _query_filters(
+                action=action,
+                target_type=target_type,
+                target_id=target_id,
+                actor_id=actor_id,
+                from_=from_,
+                to=to,
+                business_only=business_only,
+                detail_key=detail_key,
+                detail_value=detail_value,
+            )
+        )
     )
-
-    total = (await db.execute(count_q)).scalar_one()
+    total = int(reply.data.total)
     if total > _MAX_ROWS:
-        from fastapi import HTTPException
-
         raise HTTPException(
             status_code=413, detail=f"导出条数超过 {_MAX_ROWS}，请缩小筛选范围"
         )
-
-    rows = (
-        await db.execute(
-            base.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(
-                _MAX_ROWS
-            )
-        )
-    ).all()
-    items = [_row_to_out(r) for r in rows]
+    items = [_query_event_to_out(event) for event in reply.data.events]
 
     # 记录自身的导出操作
     from app.services.audit import AuditService, export_detail, export_metadata_header

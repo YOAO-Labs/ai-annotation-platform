@@ -569,6 +569,7 @@ class BucketUpgradeTests(unittest.TestCase):
                     "notification_update": False,
                     "notification_column_update": False,
                     "audit_append": True,
+                    "audit_query": True,
                 }
 
         class Preparer:

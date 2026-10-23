@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "aap-audit"
 version = "0.1.0"
-description = "Portable same-transaction audit append contract and PostgreSQL client"
+description = "Portable Audit append and global query contracts with PostgreSQL clients"
 requires-python = ">=3.11"
 dependencies = ["pydantic>=2.10.0"]
 
@@ -18,7 +18,9 @@ packages = ["src/aap_audit"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/aap_audit/append.schema.json" = "aap_audit/append.schema.json"
+"src/aap_audit/query.schema.json" = "aap_audit/query.schema.json"
 "src/aap_audit/sql/0315_audit_append.sql" = "aap_audit/sql/0315_audit_append.sql"
+"src/aap_audit/sql/0317_audit_query.sql" = "aap_audit/sql/0317_audit_query.sql"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

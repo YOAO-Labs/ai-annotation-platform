@@ -3,7 +3,7 @@ audience: [dev]
 type: explanation
 since: v0.9.14
 status: stable
-last_reviewed: 2026-10-20
+last_reviewed: 2026-10-24
 ---
 
 # 审计与通知
@@ -37,6 +37,8 @@ last_reviewed: 2026-10-20
 | `apps/api/app/services/audit.py`                                                  | `AuditAction` 与兼容 `AuditService.log()`／`log_many()` 门面 |
 | `apps/audit/src/aap_audit/append_contract.py`、`append.schema.json`               | `aap-audit-append/v1` 追加命令与回执合同                     |
 | `apps/audit/src/aap_audit/postgres.py`、`sql/0315_audit_append.sql`               | 同事务 PostgreSQL Audit owner 适配器与追加函数               |
+| `apps/audit/src/aap_audit/query_contract.py`、`query.schema.json`                 | `aap-audit-query/v1` 全局查询命令与响应合同                  |
+| `apps/audit/src/aap_audit/query_postgres.py`、`sql/0317_audit_query.sql`          | 借用调用方事务的固定 Audit 查询函数                          |
 | `apps/api/app/middleware/audit.py`                                                | HTTP 写请求响应后的 `http.*` 元数据审计                      |
 | `apps/api/app/workers/audit.py`                                                   | 异步持久化 HTTP 审计；投递失败时中间件同步回退               |
 | `apps/api/app/db/models/audit_log.py`                                             | `AuditLog` 数据模型                                          |
@@ -70,8 +72,11 @@ last_reviewed: 2026-10-20
 
 显式业务事件通过 `apps/audit` 的版本化追加函数写入，并保留调用方的
 PostgreSQL 事务；API 适配器在调用返回前恢复 `AuditLog` ORM identity。HTTP
-元数据仍在响应后 best-effort 写入，并保留 actor 外键失败后的匿名重试。此追加
-边界尚未迁移审计查询、领域事实读取、分析投影、分区保留或冷归档运行时。
+元数据仍在响应后 best-effort 写入，并保留 actor 外键失败后的匿名重试。超级管理员
+的全局列表和导出也通过 Audit 的固定查询函数读取；它保留现有筛选、游标、偏移、
+当前邮箱回退与 50,000 行导出上限。项目管理员范围仍由 API 组合 Workspace 与
+Labeling 事实，因此尚未移入本次查询合同。其他领域历史、月报、分区保留和冷归档
+也保持现有所有者。
 
 ## Audit：记录发生了什么
 

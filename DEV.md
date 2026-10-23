@@ -482,6 +482,12 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 模块 Node peer 的锁定依赖按 `apps/audit/conformance/node/README.md` 安装到该目录，验收器在创建资源前检查三项 Node peer。组合冷验收复用同一 API 镜像执行真实 Audit task，覆盖相同载荷的两次投递和孤儿 actor 的匿名保存；该三次真实投递已通过组合验收；它只证明功能路径，冷 worker 的旧 Audit 分区所有权尚未收口。查询／领域事实、分析投影、分区归档及整模块资格按[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)分别跟踪。
 
+### Audit 全局查询能力
+
+迁移 `0317` 安装 `aap_audit_v1.query_events(jsonb)`，`apps/audit` 发布 `aap-audit-query/v1`。super-admin 的全局列表及 CSV／JSON 导出使用原 Session 调用固定 owner；项目管理员范围和其他历史事实读取继续使用原入口。总数在游标／分页前计算，导出保留 50,000 行上限以及审计提交后才返回流的顺序。公开 HTTP 参数和响应不变。
+
+先安装匹配迁移及 module-data grants，再使用 `infra/docker/audit-query-grants.sql` 为明确 API LOGIN 和独立查询账号授权。后者只有固定查询能力，无 Audit／Identity 私表、序列及追加权限；API 尚需其他读取权限，不能提前统一撤销。`apps/audit/conformance/node` 提供同合同的 query peer，验收器在创建资源前自检。操作级真实数据库／API、Node 及相邻迁移往返已通过；完整迁移、当前新镜像与完整 Audit 资格见[唯一台账](docs-site/dev/concepts/module-deployment.md#audit-global-query-owner)。
+
 ### Notifications 偏好事务内能力
 
 `apps/notifications` 发布 `aap-notification-preferences/v1` 合同、类型与默认值策略，以及借用 API `AsyncSession` 的 PostgreSQL 客户端。迁移 `0311` 安装 `aap_notifications_v1.preference_command(jsonb)`；GET、局部更新和通知静音检查共用该能力。owner 计算新行默认值，JSONB 原子合并保留未提供的频道及扩展键，API 仍在成功提交之后发布 `notifications.sync`，没有新增 HTTP 服务或环境变量。

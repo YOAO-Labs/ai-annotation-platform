@@ -151,6 +151,7 @@ GRANT USAGE ON SCHEMA aap_identity_v1, aap_identity_keys_v1,
 -- Existing API bindings call these owner functions inside the business transaction.
 GRANT USAGE ON SCHEMA aap_audit_v1 TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_audit_v1.append_events(jsonb),
+    aap_audit_v1.query_events(pg_catalog.jsonb),
     aap_notifications_v1.preference_command(jsonb),
     aap_notifications_v1.append_notification(jsonb),
     aap_notifications_v1.read_state_command(jsonb)

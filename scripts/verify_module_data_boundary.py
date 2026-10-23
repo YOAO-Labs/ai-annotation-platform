@@ -42,6 +42,7 @@ IDENTITY_API_CONSUMER_ROLE = "identity_api_consumer"
 NOTIFICATION_PREFERENCES_ROLE = "notification_preferences_client"
 NOTIFICATION_APPEND_ROLE = "notification_append_client"
 AUDIT_APPEND_ROLE = "audit_append_client"
+AUDIT_QUERY_ROLE = "audit_query_client"
 IDENTITY_CLIENT_ROLES = {
     "AUTH": "identity_auth_client",
     "COMMAND": "identity_command_client",
@@ -117,6 +118,7 @@ MODULE_ROLES = (
     NOTIFICATION_PREFERENCES_ROLE,
     NOTIFICATION_APPEND_ROLE,
     AUDIT_APPEND_ROLE,
+    AUDIT_QUERY_ROLE,
     *IDENTITY_CLIENT_ROLES.values(),
 )
 SQL_ARTIFACTS = (
@@ -290,6 +292,7 @@ SQL_ARTIFACTS = (
     "0314_notifications_append.sql",
     "0315_audit_append.sql",
     "0316_notifications_read_state.sql",
+    "0317_audit_query.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -418,6 +421,7 @@ SCHEMA_ARTIFACTS = (
     "0314_notifications_append.schema.json",
     "0315_audit_append.schema.json",
     "0316_notifications_read_state.schema.json",
+    "0317_audit_query.schema.json",
 )
 TEST_FILES = (
     "tests/test_scale_seed_workspace_native.py",
@@ -607,6 +611,8 @@ TEST_FILES = (
     "tests/test_notification_read_state_cache.py",
     "tests/test_audit_append_adapter.py",
     "tests/test_audit_append_native.py",
+    "tests/test_audit_logs.py",
+    "tests/test_audit_query_routes.py",
     "tests/test_audit_metadata_append.py",
     "tests/test_notification_delivery_scope.py",
     "tests/test_pointcloud_box3d_annotation.py",
@@ -1969,6 +1975,7 @@ def _create_module_roles(
     preference_password: str,
     notification_append_password: str,
     audit_append_password: str,
+    audit_query_password: str,
 ) -> None:
     _psql(
         container_id,
@@ -2046,6 +2053,9 @@ def _create_module_roles(
             "CREATE ROLE audit_append_client LOGIN "
             f"PASSWORD '{audit_append_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            "CREATE ROLE audit_query_client LOGIN "
+            f"PASSWORD '{audit_query_password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             'REVOKE TEMPORARY ON DATABASE :"expected_database" FROM PUBLIC;\n'
             'GRANT TEMPORARY ON DATABASE :"expected_database" TO '
             + ", ".join(
@@ -2064,6 +2074,7 @@ def _create_module_roles(
                         NOTIFICATION_PREFERENCES_ROLE,
                         NOTIFICATION_APPEND_ROLE,
                         AUDIT_APPEND_ROLE,
+                        AUDIT_QUERY_ROLE,
                         VIDEO_EXECUTION_ROLE,
                         INFERENCE_REGISTRY_INGRESS_ROLE,
                         INFERENCE_ROUTING_ROLE,
@@ -2632,6 +2643,13 @@ def main(argv: list[str] | None = None) -> int:
             "function_only_role_grant": False,
             "node_contract_check": False,
         },
+        "audit_query": {
+            "node_prerequisites": "not_checked",
+            "api_function_grant": False,
+            "api_function_call": False,
+            "function_only_role_grant": False,
+            "node_contract_check": False,
+        },
         "test_files": list(test_files),
         "junit_xml": str(junit),
         "test_exit_code": None,
@@ -2701,17 +2719,22 @@ def main(argv: list[str] | None = None) -> int:
             ROOT / "apps/notifications/conformance/node/read_state_provider.mjs"
         )
         audit_append_node_provider = ROOT / "apps/audit/conformance/node/provider.mjs"
+        audit_query_node_provider = (
+            ROOT / "apps/audit/conformance/node/query_provider.mjs"
+        )
         if (
             node_bin is None
             or not node_provider.is_file()
             or not append_node_provider.is_file()
             or not read_state_node_provider.is_file()
             or not audit_append_node_provider.is_file()
+            or not audit_query_node_provider.is_file()
         ):
             evidence["notification_preferences"]["node_prerequisites"] = "unavailable"
             evidence["notification_append"]["node_prerequisites"] = "unavailable"
             evidence["notification_read_state"]["node_prerequisites"] = "unavailable"
             evidence["audit_append"]["node_prerequisites"] = "unavailable"
+            evidence["audit_query"]["node_prerequisites"] = "unavailable"
             raise RuntimeError("Node Notifications contract peer is unavailable")
         phase = "preflight-node-notification-preferences"
         node_check = subprocess.run(
@@ -2777,10 +2800,26 @@ def main(argv: list[str] | None = None) -> int:
                 "Audit append peer prerequisites failed; install its locked "
                 "dependencies using apps/audit/conformance/node/README.md"
             )
+        phase = "preflight-node-audit-query"
+        audit_query_node_check = subprocess.run(
+            [node_bin, str(audit_query_node_provider), "--self-check"],
+            cwd=audit_query_node_provider.parent,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if audit_query_node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, audit_query_node_check)
+            evidence["audit_query"]["node_prerequisites"] = "self_check_failed"
+            raise RuntimeError(
+                "Audit query peer prerequisites failed; install its locked "
+                "dependencies using apps/audit/conformance/node/README.md"
+            )
         evidence["notification_preferences"]["node_prerequisites"] = "passed"
         evidence["notification_append"]["node_prerequisites"] = "passed"
         evidence["notification_read_state"]["node_prerequisites"] = "passed"
         evidence["audit_append"]["node_prerequisites"] = "passed"
+        evidence["audit_query"]["node_prerequisites"] = "passed"
         grants_path = ROOT / "infra/docker/module-data-grants.sql"
         catalog_grants_path = ROOT / "infra/docker/assets-catalog-grants.sql"
         source_grants_path = ROOT / "infra/docker/assets-source-grants.sql"
@@ -2890,6 +2929,7 @@ def main(argv: list[str] | None = None) -> int:
             ROOT / "infra/docker/notification-append-grants.sql"
         )
         audit_append_grants_path = ROOT / "infra/docker/audit-append-grants.sql"
+        audit_query_grants_path = ROOT / "infra/docker/audit-query-grants.sql"
         identity_recovery_grants_path = (
             ROOT / "infra/docker/identity-recovery-grants.sql"
         )
@@ -2920,6 +2960,7 @@ def main(argv: list[str] | None = None) -> int:
             or not notification_preferences_grants_path.is_file()
             or not notification_append_grants_path.is_file()
             or not audit_append_grants_path.is_file()
+            or not audit_query_grants_path.is_file()
             or not identity_group_grants_path.is_file()
             or not identity_invitation_grants_path.is_file()
             or not identity_directory_grants_path.is_file()
@@ -3081,6 +3122,7 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8"
         )
         audit_append_grant_sql = audit_append_grants_path.read_text(encoding="utf-8")
+        audit_query_grant_sql = audit_query_grants_path.read_text(encoding="utf-8")
         identity_account_grant_sql = identity_account_grants_path.read_text(
             encoding="utf-8"
         )
@@ -3120,6 +3162,7 @@ def main(argv: list[str] | None = None) -> int:
         preference_password = f"notification-preference-{secrets.token_hex(16)}"
         notification_append_password = f"notification-append-{secrets.token_hex(16)}"
         audit_append_password = f"audit-append-{secrets.token_hex(16)}"
+        audit_query_password = f"audit-query-{secrets.token_hex(16)}"
         inference_registry_ingress_password = secrets.token_hex(24)
         inference_routing_password = secrets.token_hex(24)
         video_execution_password = secrets.token_hex(24)
@@ -3203,8 +3246,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0316"]:
-            raise RuntimeError("module-data acceptance requires migration head 0316")
+        if heads != ["0317"]:
+            raise RuntimeError("module-data acceptance requires migration head 0317")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -3337,6 +3380,14 @@ def main(argv: list[str] | None = None) -> int:
             port=port,
             database=database,
         ).render_as_string(hide_password=False)
+        audit_query_url = URL.create(
+            "postgresql",
+            username=AUDIT_QUERY_ROLE,
+            password=audit_query_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
         role_create_password = append_password.replace("'", "''")
         phase = "create-scoped-roles"
         _create_module_roles(
@@ -3359,6 +3410,7 @@ def main(argv: list[str] | None = None) -> int:
             preference_password,
             notification_append_password,
             audit_append_password,
+            audit_query_password,
         )
         phase = "create-video-execution-client-role"
         _psql(
@@ -3506,6 +3558,25 @@ def main(argv: list[str] | None = None) -> int:
                 },
             )
 
+        def apply_audit_query_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=audit_query_grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "audit_owner": "audit_code",
+                    "identity_owner": "identity_code",
+                    "api_role": "legacy_runtime",
+                    "query_client": AUDIT_QUERY_ROLE,
+                },
+            )
+
         phase = "install-notification-preferences-grants"
         apply_notification_preferences_grants()
         evidence["notification_preferences"]["api_function_grant"] = True
@@ -3523,6 +3594,10 @@ def main(argv: list[str] | None = None) -> int:
         evidence["audit_append"]["api_function_grant"] = True
         evidence["audit_append"]["api_insert_revoked"] = True
         evidence["audit_append"]["function_only_role_grant"] = True
+        phase = "install-audit-query-grants"
+        apply_audit_query_grants()
+        evidence["audit_query"]["api_function_grant"] = True
+        evidence["audit_query"]["function_only_role_grant"] = True
         notification_preference_user_id = str(uuid4())
         _psql(
             container_id,
@@ -3741,6 +3816,43 @@ def main(argv: list[str] | None = None) -> int:
         else:
             raise RuntimeError("API LOGIN retained direct Audit sequence writes")
         evidence["audit_append"]["api_function_call"] = True
+        audit_query_request = json.dumps(
+            {
+                "schema": "aap-audit-query/v1",
+                "operation": "list",
+                "filters": {
+                    "action": None,
+                    "target_type": None,
+                    "target_id": None,
+                    "actor_id": None,
+                    "from": None,
+                    "to": None,
+                    "business_only": False,
+                    "detail_key": None,
+                    "detail_value": None,
+                },
+                "page": 1,
+                "page_size": 1,
+                "after": None,
+            },
+            separators=(",", ":"),
+        )
+        api_audit_query_result = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT aap_audit_v1.query_events("
+                f"CAST('{audit_query_request}' AS pg_catalog.jsonb)) "
+                "-> 'data' ->> 'operation';"
+            ),
+        )
+        if api_audit_query_result.strip() != "list":
+            raise RuntimeError("API LOGIN could not call Audit query owner")
+        evidence["audit_query"]["api_function_call"] = True
         audit_node_environment = os.environ.copy()
         audit_node_environment["AUDIT_APPEND_DATABASE_URL"] = audit_append_url
         phase = "verify-audit-append-node"
@@ -3757,6 +3869,22 @@ def main(argv: list[str] | None = None) -> int:
             node_diagnostic = _node_failure_diagnostic(phase, audit_node_result)
             raise RuntimeError("Node Audit append check failed")
         evidence["audit_append"]["node_contract_check"] = True
+        audit_query_node_environment = os.environ.copy()
+        audit_query_node_environment["AUDIT_QUERY_DATABASE_URL"] = audit_query_url
+        phase = "verify-audit-query-node"
+        audit_query_node_result = subprocess.run(
+            [node_bin, str(audit_query_node_provider), "--live"],
+            cwd=audit_query_node_provider.parent,
+            env=audit_query_node_environment,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if audit_query_node_result.returncode:
+            node_diagnostic = _node_failure_diagnostic(phase, audit_query_node_result)
+            raise RuntimeError("Node Audit query check failed")
+        evidence["audit_query"]["node_contract_check"] = True
         node_environment = os.environ.copy()
         node_environment["NOTIFICATION_PREFERENCES_DATABASE_URL"] = (
             notification_preferences_url

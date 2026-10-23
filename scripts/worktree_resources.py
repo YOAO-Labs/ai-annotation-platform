@@ -121,7 +121,10 @@ NOTIFICATION_RUNTIME_CAPABILITIES = (
     "aap_notifications_v1.append_notification(jsonb)",
     "aap_notifications_v1.read_state_command(jsonb)",
 )
-AUDIT_RUNTIME_CAPABILITIES = ("aap_audit_v1.append_events(jsonb)",)
+AUDIT_RUNTIME_CAPABILITIES = (
+    "aap_audit_v1.append_events(jsonb)",
+    "aap_audit_v1.query_events(pg_catalog.jsonb)",
+)
 _IDENTITY_PRIVATE_RUNTIME_ACL = """
 -- Preserve embedded command capabilities while denying direct Identity storage.
 DO $identity_private_acl$
@@ -1236,7 +1239,10 @@ class LocalResources:
                         "AS notification_column_update, pg_catalog.has_function_privilege("
                         ":role, pg_catalog.to_regprocedure("
                         "'aap_audit_v1.append_events(jsonb)'), 'EXECUTE') "
-                        "AS audit_append"
+                        "AS audit_append, pg_catalog.has_function_privilege("
+                        ":role, pg_catalog.to_regprocedure("
+                        "'aap_audit_v1.query_events(pg_catalog.jsonb)'), 'EXECUTE') "
+                        "AS audit_query"
                     ),
                     {"role": runtime.username},
                 )
@@ -1248,9 +1254,10 @@ class LocalResources:
                     or notification_grants["notification_update"] is not False
                     or notification_grants["notification_column_update"] is not False
                     or notification_grants["audit_append"] is not True
+                    or notification_grants["audit_query"] is not True
                 ):
                     raise WorktreeError(
-                        "Notifications read-state and Audit append "
+                        "Notifications read-state and Audit "
                         "capabilities were not granted"
                     )
         finally:

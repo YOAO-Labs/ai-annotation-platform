@@ -3,13 +3,22 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import event, text
+from sqlalchemy import event, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from aap_audit.append_contract import AppendEvent, AppendRequest
 from aap_audit.postgres import AuditAppendPostgresData
+from aap_audit.query_contract import (
+    AuditQueryAfter,
+    AuditQueryFilters,
+    AuditQueryRequest,
+    decode_query_reply,
+    validate_query_reply,
+)
+from aap_audit.query_postgres import AuditQueryPostgresData
+from app.api.v1.audit_logs import _legacy_query_datetime, _query_filters
 from app.db.models.audit_log import AuditLog
 from app.db.models.user import User
 from app.schemas.audit import AuditLogOut
@@ -44,6 +53,277 @@ async def test_owner_append_ignores_caller_temporary_type_shadowing(test_engine)
             assert reply.ok is True
             assert len(reply.data.events) == 1
             await connection.rollback()
+    finally:
+        await engine.dispose()
+
+
+async def test_owner_query_ignores_caller_temporary_type_shadowing(test_engine):
+    engine = create_async_engine(test_engine.url, poolclass=NullPool)
+    filters = AuditQueryFilters(
+        action=None,
+        target_type=None,
+        target_id=None,
+        actor_id=None,
+        from_=None,
+        to=None,
+        business_only=False,
+        detail_key=None,
+        detail_value=None,
+    )
+    request = AuditQueryRequest.list_page(filters, page=1, page_size=1)
+    try:
+        async with engine.connect() as connection:
+            await connection.execute(text("CREATE TYPE pg_temp.jsonb AS (value text)"))
+            raw_reply = await connection.scalar(
+                text(
+                    "SELECT aap_audit_v1.query_events("
+                    "CAST(:request AS pg_catalog.jsonb))"
+                ),
+                {"request": request.model_dump_json(by_alias=True)},
+            )
+            reply = validate_query_reply(request, decode_query_reply(raw_reply))
+            assert reply.data.operation == "list"
+            assert len(reply.data.events) <= 1
+            await connection.rollback()
+    finally:
+        await engine.dispose()
+
+
+async def test_owner_query_time_bounds_match_legacy_asyncpg_binding(test_engine):
+    engine = create_async_engine(test_engine.url, poolclass=NullPool)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    target_type = "audit_query_time_parity"
+    target_id = str(uuid4())
+    lower = datetime.fromisoformat("2026-10-20T12:00:00+00:00")
+    upper = datetime.fromisoformat("2026-10-20T13:00:00+00:00")
+    rows = [
+        ("audit.query.time.before", lower.replace(hour=11)),
+        ("audit.query.time.lower", lower),
+        ("audit.query.time.upper", upper),
+        ("audit.query.time.after", upper.replace(hour=14)),
+    ]
+
+    def error_result(error):
+        original = getattr(error, "orig", error)
+        return (
+            "error",
+            type(error).__name__,
+            getattr(original, "sqlstate", None),
+        )
+
+    async def legacy_result(db, *, from_, to):
+        statement = select(AuditLog.id).where(
+            AuditLog.target_type == target_type,
+            AuditLog.target_id == target_id,
+        )
+        if from_ is not None:
+            statement = statement.where(AuditLog.created_at >= from_)
+        if to is not None:
+            statement = statement.where(AuditLog.created_at <= to)
+        statement = statement.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        savepoint = await db.begin_nested()
+        try:
+            ids = (await db.scalars(statement)).all()
+        except Exception as error:
+            await savepoint.rollback()
+            return error_result(error)
+        await savepoint.commit()
+        return "ok", [str(id_) for id_ in ids]
+
+    async def owner_result(db, *, from_, to):
+        filters = _query_filters(
+            action=None,
+            target_type=target_type,
+            target_id=target_id,
+            actor_id=None,
+            from_=from_,
+            to=to,
+            business_only=False,
+            detail_key=None,
+            detail_value=None,
+        )
+        request = AuditQueryRequest.list_page(filters, page=1, page_size=200)
+        savepoint = await db.begin_nested()
+        try:
+            reply = await AuditQueryPostgresData(db).query(request)
+        except Exception as error:
+            await savepoint.rollback()
+            return error_result(error)
+        await savepoint.commit()
+        return "ok", [event.id for event in reply.data.events]
+
+    async def legacy_cursor_result(db, *, created_at, id_):
+        statement = select(AuditLog.id).where(
+            AuditLog.target_type == target_type,
+            AuditLog.target_id == target_id,
+            (AuditLog.created_at < created_at)
+            | ((AuditLog.created_at == created_at) & (AuditLog.id < id_)),
+        )
+        statement = statement.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        savepoint = await db.begin_nested()
+        try:
+            ids = (await db.scalars(statement)).all()
+        except Exception as error:
+            await savepoint.rollback()
+            return error_result(error)
+        await savepoint.commit()
+        return "ok", [str(id_) for id_ in ids]
+
+    async def owner_cursor_result(db, *, created_at, id_):
+        filters = _query_filters(
+            action=None,
+            target_type=target_type,
+            target_id=target_id,
+            actor_id=None,
+            from_=None,
+            to=None,
+            business_only=False,
+            detail_key=None,
+            detail_value=None,
+        )
+        request = AuditQueryRequest.list_page(
+            filters,
+            page=99,
+            page_size=200,
+            after=AuditQueryAfter(
+                created_at=_legacy_query_datetime(created_at).isoformat(),
+                id=str(id_),
+            ),
+        )
+        savepoint = await db.begin_nested()
+        try:
+            reply = await AuditQueryPostgresData(db).query(request)
+        except Exception as error:
+            await savepoint.rollback()
+            return error_result(error)
+        await savepoint.commit()
+        return "ok", [event.id for event in reply.data.events]
+
+    try:
+        entries = [
+            AuditLog(
+                action=action,
+                target_type=target_type,
+                target_id=target_id,
+                created_at=created_at,
+            )
+            for action, created_at in rows
+        ]
+        async with session_factory() as db:
+            db.add_all(entries)
+            await db.flush()
+            expected_ids = [str(entry.id) for entry in (entries[2], entries[1])]
+            legacy_aware = await legacy_result(db, from_=lower, to=upper)
+            owner_aware = await owner_result(db, from_=lower, to=upper)
+            assert owner_aware == legacy_aware == ("ok", expected_ids)
+
+            naive_lower = lower.replace(tzinfo=None)
+            naive_upper = upper.replace(tzinfo=None)
+            for from_, to in ((naive_lower, None), (None, naive_upper)):
+                owner_naive = await owner_result(db, from_=from_, to=to)
+                legacy_naive = await legacy_result(db, from_=from_, to=to)
+                assert owner_naive[0] == legacy_naive[0], (
+                    owner_naive,
+                    legacy_naive,
+                )
+                if owner_naive[0] == "ok":
+                    assert owner_naive[1] == legacy_naive[1]
+
+            naive_cursor = upper.astimezone().replace(tzinfo=None)
+            owner_cursor = await owner_cursor_result(
+                db, created_at=naive_cursor, id_=entries[2].id
+            )
+            legacy_cursor = await legacy_cursor_result(
+                db, created_at=naive_cursor, id_=entries[2].id
+            )
+            assert owner_cursor == legacy_cursor
+            await db.rollback()
+    finally:
+        await engine.dispose()
+
+
+async def test_owner_query_actor_uuid_forms_match_legacy_asyncpg_binding(test_engine):
+    engine = create_async_engine(test_engine.url, poolclass=NullPool)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    actor_id = uuid4()
+    target_type = "audit_query_actor_parity"
+    target_id = str(uuid4())
+
+    def error_result(error):
+        original = getattr(error, "orig", error)
+        return (
+            "error",
+            type(error).__name__,
+            getattr(original, "sqlstate", None),
+        )
+
+    async def legacy_result(db, actor_value):
+        statement = select(AuditLog.id).where(
+            AuditLog.target_type == target_type,
+            AuditLog.target_id == target_id,
+            AuditLog.actor_id == actor_value,
+        )
+        savepoint = await db.begin_nested()
+        try:
+            ids = (await db.scalars(statement)).all()
+        except Exception as error:
+            await savepoint.rollback()
+            return error_result(error)
+        await savepoint.commit()
+        return "ok", [str(id_) for id_ in ids]
+
+    async def owner_result(db, actor_value):
+        filters = _query_filters(
+            action=None,
+            target_type=target_type,
+            target_id=target_id,
+            actor_id=actor_value,
+            from_=None,
+            to=None,
+            business_only=False,
+            detail_key=None,
+            detail_value=None,
+        )
+        request = AuditQueryRequest.list_page(filters, page=1, page_size=20)
+        savepoint = await db.begin_nested()
+        try:
+            reply = await AuditQueryPostgresData(db).query(request)
+        except Exception as error:
+            await savepoint.rollback()
+            return error_result(error)
+        await savepoint.commit()
+        return "ok", [event.id for event in reply.data.events]
+
+    try:
+        async with session_factory() as db:
+            user = _user(actor_id)
+            db.add(user)
+            await db.flush()
+            db.add(
+                AuditLog(
+                    actor_id=actor_id,
+                    actor_email=user.email,
+                    actor_role=user.role,
+                    action="audit.query.actor.parity",
+                    target_type=target_type,
+                    target_id=target_id,
+                )
+            )
+            await db.flush()
+            entry_id = await db.scalar(
+                select(AuditLog.id).where(AuditLog.target_id == target_id)
+            )
+            for actor_value in (
+                str(actor_id),
+                actor_id.hex,
+                "{" + str(actor_id) + "}",
+            ):
+                legacy = await legacy_result(db, actor_value)
+                owner = await owner_result(db, actor_value)
+                assert owner[0] == legacy[0], (actor_value, owner, legacy)
+                if legacy[0] == "ok":
+                    assert owner[1] == legacy[1] == [str(entry_id)]
+            await db.rollback()
     finally:
         await engine.dispose()
 
