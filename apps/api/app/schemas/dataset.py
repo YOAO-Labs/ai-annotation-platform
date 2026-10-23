@@ -43,6 +43,22 @@ class DatasetOut(BaseModel):
         from_attributes = True
 
 
+DatasetAvailabilityState = Literal[
+    "verified", "missing", "changed", "preview_only", "unavailable", "unverified"
+]
+
+
+class DatasetItemAvailability(BaseModel):
+    state: DatasetAvailabilityState = "unverified"
+    reason_code: str = "not_verified"
+    observed_at: datetime | None = None
+    preview_available: bool = False
+    source_id: UUID | None = None
+    source_name: str | None = None
+    location_id: UUID | None = None
+    allowed_actions: list[str] = Field(default_factory=list)
+
+
 class DatasetItemOut(BaseModel):
     id: UUID
     dataset_id: UUID
@@ -59,6 +75,9 @@ class DatasetItemOut(BaseModel):
     thumbnail_url: str | None = None
     blurhash: str | None = None
     created_at: datetime
+    availability: DatasetItemAvailability = Field(
+        default_factory=DatasetItemAvailability
+    )
 
     class Config:
         from_attributes = True
@@ -73,6 +92,49 @@ class DatasetListResponse(BaseModel):
 
 class DatasetItemListResponse(BaseModel):
     items: list[DatasetItemOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class DatasetWorkbenchSource(BaseModel):
+    id: UUID
+    name: str
+    location_id: UUID
+    enabled: bool
+    unregistered_at: datetime | None
+
+
+class DatasetProjectUsage(BaseModel):
+    id: UUID
+    name: str
+    display_id: str
+    type_label: str
+    total_tasks: int
+    labeled_tasks: int
+    completed_tasks: int
+    review_tasks: int
+    can_manage: bool
+
+
+class DatasetWorkbench(BaseModel):
+    dataset_id: UUID
+    availability_counts: dict[str, int]
+    sources: list[DatasetWorkbenchSource]
+    projects: list[DatasetProjectUsage]
+
+
+class DatasetTrainingVersion(BaseModel):
+    id: UUID
+    project_id: UUID
+    project_name: str
+    name: str
+    status: str
+    created_at: datetime
+
+
+class DatasetTrainingVersionList(BaseModel):
+    items: list[DatasetTrainingVersion]
     total: int
     limit: int
     offset: int

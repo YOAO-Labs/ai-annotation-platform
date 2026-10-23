@@ -82,6 +82,8 @@ SFTP 连接 base_path 须为 `/`，整个账号命名空间为位置授权范围
 
 ## 来源与任务摘要
 
-`GET /{location_id}/source-summary` 返回 `location_id / items / total / jobs:{items,total}`。来源行只有 source_id/source_name、可空的 dataset_id/dataset_name、enabled/unregistered_at；任务行只有 id/kind/status/created_at/completed_at。不返回凭据、执行证明或内部配置，不探测或遍历外部存储。
+`GET /{location_id}/source-summary` 返回 `location_id / items / total / dataset_count / jobs:{items,total}`。来源行只有 source_id/source_name、可空的 dataset_id/dataset_name、enabled/unregistered_at；任务行只有 id/kind/status/created_at/completed_at。不返回凭据、执行证明或内部配置，不探测或遍历外部存储。
 
 来源使用 limit/offset，任务使用 jobs_limit/jobs_offset，各自默认20、最多200。任务范围覆盖该位置全部可见来源，独立于当前来源页，并包括恢复前的历史尝试。项目管理员仍需拥有数据集管理权和位置使用权；全局位置不公开其他人的来源数量。停用、注销历史保留；原数据集已删除的来源仅超管可见，dataset 字段为空。任务详情、取消和恢复沿用原任务及来源接口。
+
+位置输出增加 `allowed_actions`：read、probe、browse、manage_location、manage_connection，按当前账号及实际端点权限裁剪；全局连接仍仅超管可管理。它不代替服务端操作时复查。source-summary 的 `total` 为可见来源数，`dataset_count` 为所有这些来源关联的非空数据集 ID 去重数，与来源分页无关。

@@ -20,6 +20,9 @@ async def summary(db, location_id, actor, *, limit, offset, jobs_limit, jobs_off
     total = await db.scalar(
         select(func.count()).select_from(DatasetSource).where(*scope)
     )
+    dataset_count = await db.scalar(
+        select(func.count(func.distinct(DatasetSource.dataset_id))).where(*scope)
+    )
     rows = await db.execute(
         select(DatasetSource, Dataset.name)
         .outerjoin(Dataset, Dataset.id == DatasetSource.dataset_id)
@@ -49,5 +52,6 @@ async def summary(db, location_id, actor, *, limit, offset, jobs_limit, jobs_off
             for source, name in rows
         ],
         "total": total,
+        "dataset_count": dataset_count,
         "jobs": {"items": list(job_rows), "total": job_total},
     }

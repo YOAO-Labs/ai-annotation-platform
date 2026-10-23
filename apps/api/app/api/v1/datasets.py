@@ -5,7 +5,16 @@ import mimetypes
 import uuid
 from pathlib import PurePosixPath
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +32,10 @@ from app.db.models.dataset import Dataset
 from app.db.models.user import User
 from app.services.project_access import resolve_project_access_by_id
 from app.schemas.dataset import (
+    DatasetAvailabilityState,
+    DatasetItemOut,
+    DatasetWorkbench,
+    DatasetTrainingVersionList,
     DatasetCreate,
     DatasetUpdate,
     DatasetOut,
@@ -48,6 +61,7 @@ from app.services.mask_formats.safe_archive import (
     SafeZipArchive,
 )
 from app.services.storage import storage_service
+from app.services.content_snapshot import IMAGE_RESPONSES
 from app.services.system_settings_service import SystemSettingsService
 
 
@@ -102,11 +116,18 @@ async def list_datasets(
     search: str | None = None,
     data_type: str | None = None,
     has_scenes: bool | None = None,
+    location_id: uuid.UUID | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    actor: User = Depends(get_current_user),
 ):
+    if location_id is not None:
+        from app.services.dataset_source_access import require_manager
+        from app.services.storage_location import get_visible
+
+        actor = await require_manager(db, actor.id)
+        await get_visible(db, location_id, actor)
     svc = DatasetService(db)
     items, total = await svc.list(
         search=search,
@@ -114,6 +135,8 @@ async def list_datasets(
         has_scenes=has_scenes,
         limit=limit,
         offset=offset,
+        location_id=location_id,
+        actor=actor,
     )
     return DatasetListResponse(items=items, total=total, limit=limit, offset=offset)
 
@@ -232,20 +255,130 @@ async def delete_dataset(
 # ── Items ───────────────────────────────────────────────────────────────────
 
 
-@router.get("/{dataset_id}/items", response_model=DatasetItemListResponse)
+@router.get(
+    "/{dataset_id}/items",
+    response_model=DatasetItemListResponse,
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
 async def list_dataset_items(
     dataset_id: uuid.UUID,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    source_id: uuid.UUID | None = None,
+    availability: DatasetAvailabilityState | None = None,
+    search: str | None = None,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    actor: User = Depends(get_current_user),
 ):
-    svc = DatasetService(db)
-    ds = await svc.get(dataset_id)
-    if not ds:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    items, total = await svc.list_items(dataset_id, limit=limit, offset=offset)
+    from app.services.dataset_workbench import item_page
+
+    items, total = await item_page(
+        db,
+        dataset_id,
+        actor,
+        limit=limit,
+        offset=offset,
+        source_id=source_id,
+        state=availability,
+        search=search,
+    )
     return DatasetItemListResponse(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.get(
+    "/{dataset_id}/items/{item_id}",
+    response_model=DatasetItemOut,
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
+async def get_dataset_item(
+    dataset_id: uuid.UUID,
+    item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    from app.services.dataset_workbench import item_page
+
+    items, _ = await item_page(
+        db, dataset_id, actor, limit=1, offset=0, item_id=item_id
+    )
+    if not items:
+        raise HTTPException(404, "Dataset item not found")
+    return items[0]
+
+
+@router.get(
+    "/{dataset_id}/items/{item_id}/preview",
+    response_class=Response,
+    responses=IMAGE_RESPONSES,
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
+async def get_dataset_item_preview(
+    dataset_id: uuid.UUID,
+    item_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_roles(*_MANAGERS)),
+):
+    from app.db.models.dataset import DatasetItem
+    from app.db.models.dataset_source import DatasetSourceItem
+    from app.services.content_snapshot import SnapshotResponse
+    from app.services.dataset_content import content_http_error
+    from app.services.directory_previews import read_preview
+    from app.services.dataset_workbench import visible_mapping_query
+
+    if request.headers.get("range") is not None:
+        raise HTTPException(416, "Range is not supported for previews")
+    mapping = await db.scalar(
+        visible_mapping_query(item_id, actor)
+        .join(DatasetItem, DatasetItem.id == DatasetSourceItem.dataset_item_id)
+        .where(DatasetItem.id == item_id, DatasetItem.dataset_id == dataset_id)
+        .limit(1)
+    )
+    if mapping is None:
+        raise HTTPException(404, "Dataset item preview not found")
+    try:
+        snapshot = await read_preview(
+            db,
+            mapping.source_id,
+            mapping.path_digest,
+            actor,
+            getattr(request.state, "api_key_id", None),
+        )
+    except Exception as exc:
+        raise content_http_error(exc) from None
+    return SnapshotResponse(snapshot)
+
+
+@router.get(
+    "/{dataset_id}/workbench",
+    response_model=DatasetWorkbench,
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
+async def get_dataset_workbench(
+    dataset_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    from app.services.dataset_workbench import workbench
+
+    return await workbench(db, dataset_id, actor)
+
+
+@router.get(
+    "/{dataset_id}/training-versions",
+    response_model=DatasetTrainingVersionList,
+    dependencies=[Depends(require_scopes("datasets:read"))],
+)
+async def get_dataset_training_versions(
+    dataset_id: uuid.UUID,
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(get_current_user),
+):
+    from app.services.dataset_workbench import training_versions
+
+    return await training_versions(db, dataset_id, actor, limit=limit, offset=offset)
 
 
 @router.post(
@@ -1170,10 +1303,21 @@ async def unlink_project(
 async def get_linked_projects(
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    actor: User = Depends(get_current_user),
 ):
+    from app.services.project_aggregates import project_scope_clause
+
     svc = DatasetService(db)
-    return await svc.get_linked_projects(dataset_id)
+    projects = await svc.get_linked_projects(dataset_id)
+    scope = project_scope_clause(actor, Project.id)
+    if scope is None:
+        return projects
+    ids = set(
+        await db.scalars(
+            select(Project.id).where(Project.id.in_([p.id for p in projects]), scope)
+        )
+    )
+    return [p for p in projects if p.id in ids]
 
 
 def _infer_file_type(content_type: str) -> str:

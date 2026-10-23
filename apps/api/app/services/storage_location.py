@@ -157,6 +157,18 @@ async def to_out(db, location, actor):
             reference = True
         except fs.FilesystemStorageError:
             pass
+    actions = ["read"]
+    if location.enabled and reference:
+        actions.extend(["probe", "browse"])
+    if actor.role == UserRole.SUPER_ADMIN and (
+        location.kind == "filesystem" or connection is not None
+    ):
+        actions.append("manage_location")
+    if connection is not None and (
+        actor.role == UserRole.SUPER_ADMIN
+        or (connection.scope != "global" and connection.created_by == actor.id)
+    ):
+        actions.append("manage_connection")
     return {
         "id": location.id,
         "name": connection.name if connection else location.name,
@@ -186,6 +198,7 @@ async def to_out(db, location, actor):
             "delete": False,
             "presign": False,
         },
+        "allowed_actions": actions,
     }
 
 

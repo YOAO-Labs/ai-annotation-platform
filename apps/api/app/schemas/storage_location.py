@@ -40,6 +40,7 @@ class StorageLocationOut(BaseModel):
     use_user_ids: list[uuid.UUID] = Field(default_factory=list)
     declared_capabilities: dict[str, bool]
     cache_policy: Literal["none", "preview"] = "preview"
+    allowed_actions: list[str] = Field(default_factory=list)
 
 
 class StorageLocationList(BaseModel):
@@ -74,6 +75,7 @@ class StorageSourceSummary(BaseModel):
     location_id: uuid.UUID
     items: list[StorageSourceSummaryItem]
     total: int
+    dataset_count: int = 0
     jobs: StorageSourceJobs
 
 

@@ -95,6 +95,7 @@ async def list_tasks(
     status: str | None = None,
     assignee_id: uuid.UUID | None = None,
     batch_id: uuid.UUID | None = None,
+    dataset_id: uuid.UUID | None = None,
     unbatched: bool = False,
     reject_reason_type: str | None = None,
     class_name: str | None = None,
@@ -118,6 +119,14 @@ async def list_tasks(
         reject_reason_type=reject_reason_type,
         class_name=class_name,
     )
+    if dataset_id is not None:
+        from app.db.models.dataset import DatasetItem
+
+        filtered = filtered.where(
+            Task.dataset_item_id.in_(
+                select(DatasetItem.id).where(DatasetItem.dataset_id == dataset_id)
+            )
+        )
     count_q = select(func.count()).select_from(filtered.order_by(None).subquery())
 
     # v0.6.8 B-15：首屏与游标分支统一排序，并都产出 next_cursor，修前端 useInfiniteQuery

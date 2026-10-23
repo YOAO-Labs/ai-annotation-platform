@@ -26,6 +26,7 @@ class TrainingDatasetSelection(BaseModel):
         | None
     ) = None
     batch_id: uuid.UUID | None = None
+    dataset_id: uuid.UUID | None = None
     task_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20000)
     mode: Literal["reviewed", "manager_confirmed"] = "reviewed"
     confirmed_negative_ids: list[uuid.UUID] = Field(
@@ -42,6 +43,8 @@ class TrainingDatasetSelection(BaseModel):
 
     def canonical_payload(self):
         payload = self.model_dump(mode="json")
+        if payload.get("dataset_id") is None:
+            payload.pop("dataset_id")
         if payload.get("bridge") is None:
             payload.pop("bridge")
         if self.task == DETECTION:

@@ -250,6 +250,19 @@ async def freeze_selection(
     )
     if selection.batch_id:
         stmt = stmt.where(Task.batch_id == selection.batch_id)
+    if selection.dataset_id:
+        from app.db.models.dataset import ProjectDataset
+
+        if not await db.scalar(
+            select(ProjectDataset.project_id).where(
+                ProjectDataset.project_id == project.id,
+                ProjectDataset.dataset_id == selection.dataset_id,
+            )
+        ):
+            raise TrainingDatasetError(
+                "dataset_not_linked", "数据集未关联当前项目", status_code=404
+            )
+        stmt = stmt.where(DatasetItem.dataset_id == selection.dataset_id)
     if selection.task_ids:
         stmt = stmt.where(Task.id.in_(selection.task_ids))
     rows = (await db.execute(stmt.execution_options(populate_existing=True))).all()
@@ -282,6 +295,8 @@ async def freeze_selection(
         "media_type": project.data_type or "image",
         "tool_bindings": {tool_unit_id: binding},
     }
+    if selection.dataset_id:
+        source["dataset_id"] = str(selection.dataset_id)
     samples, excluded, issues = [], [], []
     excluded_annotations = 0
     negatives = {str(value) for value in selection.confirmed_negative_ids}

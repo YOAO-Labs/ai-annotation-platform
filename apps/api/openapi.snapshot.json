@@ -11918,6 +11918,89 @@
         "title": "DatasetImportFromConnectionResponse",
         "type": "object"
       },
+      "DatasetItemAvailability": {
+        "properties": {
+          "allowed_actions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Actions",
+            "type": "array"
+          },
+          "location_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id"
+          },
+          "observed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed At"
+          },
+          "preview_available": {
+            "default": false,
+            "title": "Preview Available",
+            "type": "boolean"
+          },
+          "reason_code": {
+            "default": "not_verified",
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "source_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Name"
+          },
+          "state": {
+            "default": "unverified",
+            "enum": [
+              "verified",
+              "missing",
+              "changed",
+              "preview_only",
+              "unavailable",
+              "unverified"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "DatasetItemAvailability",
+        "type": "object"
+      },
       "DatasetItemListResponse": {
         "properties": {
           "items": {
@@ -11969,6 +12052,9 @@
       },
       "DatasetItemOut": {
         "properties": {
+          "availability": {
+            "$ref": "#/components/schemas/DatasetItemAvailability"
+          },
           "blurhash": {
             "anyOf": [
               {
@@ -12229,6 +12315,60 @@
           "updated_at"
         ],
         "title": "DatasetOut",
+        "type": "object"
+      },
+      "DatasetProjectUsage": {
+        "properties": {
+          "can_manage": {
+            "title": "Can Manage",
+            "type": "boolean"
+          },
+          "completed_tasks": {
+            "title": "Completed Tasks",
+            "type": "integer"
+          },
+          "display_id": {
+            "title": "Display Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "labeled_tasks": {
+            "title": "Labeled Tasks",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "review_tasks": {
+            "title": "Review Tasks",
+            "type": "integer"
+          },
+          "total_tasks": {
+            "title": "Total Tasks",
+            "type": "integer"
+          },
+          "type_label": {
+            "title": "Type Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "display_id",
+          "type_label",
+          "total_tasks",
+          "labeled_tasks",
+          "completed_tasks",
+          "review_tasks",
+          "can_manage"
+        ],
+        "title": "DatasetProjectUsage",
         "type": "object"
       },
       "DatasetRegistrationConfirm": {
@@ -13211,6 +13351,78 @@
         "title": "DatasetSourceUpdate",
         "type": "object"
       },
+      "DatasetTrainingVersion": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "project_name": {
+            "title": "Project Name",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "project_name",
+          "name",
+          "status",
+          "created_at"
+        ],
+        "title": "DatasetTrainingVersion",
+        "type": "object"
+      },
+      "DatasetTrainingVersionList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetTrainingVersion"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "DatasetTrainingVersionList",
+        "type": "object"
+      },
       "DatasetUpdate": {
         "properties": {
           "axis_convention": {
@@ -13300,6 +13512,87 @@
           "expires_in"
         ],
         "title": "DatasetUploadInitResponse",
+        "type": "object"
+      },
+      "DatasetWorkbench": {
+        "properties": {
+          "availability_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Availability Counts",
+            "type": "object"
+          },
+          "dataset_id": {
+            "format": "uuid",
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetProjectUsage"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetWorkbenchSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "availability_counts",
+          "sources",
+          "projects"
+        ],
+        "title": "DatasetWorkbench",
+        "type": "object"
+      },
+      "DatasetWorkbenchSource": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "location_id": {
+            "format": "uuid",
+            "title": "Location Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "unregistered_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unregistered At"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "location_id",
+          "enabled",
+          "unregistered_at"
+        ],
+        "title": "DatasetWorkbenchSource",
         "type": "object"
       },
       "DeactivationRequest": {
@@ -40991,6 +41284,13 @@
       },
       "StorageLocationOut": {
         "properties": {
+          "allowed_actions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Actions",
+            "type": "array"
+          },
           "cache_policy": {
             "default": "preview",
             "enum": [
@@ -41345,6 +41645,11 @@
       },
       "StorageSourceSummary": {
         "properties": {
+          "dataset_count": {
+            "default": 0,
+            "title": "Dataset Count",
+            "type": "integer"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/StorageSourceSummaryItem"
@@ -45136,6 +45441,18 @@
             "title": "Confirmed Negative Ids",
             "type": "array"
           },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
+          },
           "mode": {
             "default": "reviewed",
             "enum": [
@@ -46574,6 +46891,18 @@
             "maxItems": 20000,
             "title": "Confirmed Negative Ids",
             "type": "array"
+          },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
           },
           "mode": {
             "default": "reviewed",
@@ -63698,6 +64027,23 @@
           },
           {
             "in": "query",
+            "name": "location_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Location Id"
+            }
+          },
+          {
+            "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
@@ -64140,6 +64486,63 @@
               "title": "Offset",
               "type": "integer"
             }
+          },
+          {
+            "in": "query",
+            "name": "source_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "availability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "verified",
+                    "missing",
+                    "changed",
+                    "preview_only",
+                    "unavailable",
+                    "unverified"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Availability"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
           }
         ],
         "responses": {
@@ -64438,6 +64841,133 @@
           }
         ],
         "summary": "Delete Item",
+        "tags": [
+          "datasets"
+        ]
+      },
+      "get": {
+        "operationId": "get_dataset_item_api_v1_datasets__dataset_id__items__item_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetItemOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Dataset Item",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
+    "/api/v1/datasets/{dataset_id}/items/{item_id}/preview": {
+      "get": {
+        "operationId": "get_dataset_item_preview_api_v1_datasets__dataset_id__items__item_id__preview_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Verified full image snapshot"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Dataset Item Preview",
         "tags": [
           "datasets"
         ]
@@ -64777,6 +65307,125 @@
           }
         ],
         "summary": "Sniff Axis Convention",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
+    "/api/v1/datasets/{dataset_id}/training-versions": {
+      "get": {
+        "operationId": "get_dataset_training_versions_api_v1_datasets__dataset_id__training_versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetTrainingVersionList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Dataset Training Versions",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
+    "/api/v1/datasets/{dataset_id}/workbench": {
+      "get": {
+        "operationId": "get_dataset_workbench_api_v1_datasets__dataset_id__workbench_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetWorkbench"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Dataset Workbench",
         "tags": [
           "datasets"
         ]
@@ -86096,6 +86745,23 @@
                 }
               ],
               "title": "Batch Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dataset_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dataset Id"
             }
           },
           {

@@ -250,9 +250,19 @@ class DatasetService:
         has_scenes: bool | None = None,
         limit: int = 50,
         offset: int = 0,
+        location_id: uuid.UUID | None = None,
+        actor=None,
     ) -> tuple[list[dict], int]:
         q = select(Dataset)
         count_q = select(func.count()).select_from(Dataset)
+        if location_id is not None:
+            from app.services.dataset_workbench import location_dataset_scope
+
+            if actor is None:
+                raise HTTPException(403, "Location filtering requires an actor")
+            clause = location_dataset_scope(location_id, actor)
+            q = q.where(clause)
+            count_q = count_q.where(clause)
 
         if search:
             q = q.where(Dataset.name.ilike(f"%{search}%"))
@@ -498,6 +508,7 @@ class DatasetService:
         dataset_id: uuid.UUID,
         limit: int = 50,
         offset: int = 0,
+        item_ids: list[uuid.UUID] | None = None,
     ) -> tuple[list[dict], int]:
         count_q = (
             select(func.count())
@@ -513,6 +524,8 @@ class DatasetService:
             .limit(limit)
             .offset(offset)
         )
+        if item_ids is not None:
+            q = q.where(DatasetItem.id.in_(item_ids))
         result = await self.db.execute(q)
         items = result.scalars().all()
 

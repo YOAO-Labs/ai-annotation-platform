@@ -310,6 +310,10 @@
 | POST | `/{dataset_id}/sniff-axis-convention` |
 | DELETE | `/{dataset_id}` |
 | GET | `/{dataset_id}/items` |
+| GET | `/{dataset_id}/items/{item_id}` |
+| GET | `/{dataset_id}/items/{item_id}/preview` |
+| GET | `/{dataset_id}/workbench` |
+| GET | `/{dataset_id}/training-versions` |
 | POST | `/{dataset_id}/import-from-connection` |
 | POST | `/{dataset_id}/items/upload-init` |
 | POST | `/{dataset_id}/items/upload-complete/{item_id}` |
@@ -970,4 +974,4 @@
 
 ---
 
-_共 86 模块 / 563 路由_
+_共 86 模块 / 567 路由_

@@ -65,8 +65,8 @@ mc mirror --remove-source annotations/audit-archive/  audit-archive/
 
 ## 容量监控与日常巡检
 
-- **前端入口**：超级管理员 →「存储管理」页面，按卡片展示全部 9 个存储桶的对象数量、总体积与健康状态（卡片列表由 `GET /api/v1/storage/buckets` 返回的桶清单驱动）。
-- **API 端点**：`GET /api/v1/storage/buckets`、`GET /api/v1/admin/ml-integrations/overview`。容量统计与存储健康检查运行在独立后台线程池中，避免大桶扫描阻塞常规 API 请求。
+- **前端入口**：存储管理展示真实位置、分节点探测和九用途只读映射，不再重复数据集目录。用途映射来自 `GET /api/v1/storage-locations/bindings`；共享桶不合并用途行。
+- **统计边界**：物理容量、配额、已索引源规模和平台对象字节没有可靠测量时显示未提供/待统计。旧 `GET /api/v1/storage/buckets` 在线程中逐桶列举，只是旧同步逻辑统计，不提供磁盘容量或异步采样合同；存储页刷新不调用它。分项、去重、时间及过期合同由后续运维统计提供。
 - **巡检要点**：
   - `media-cache` 体积主要受 `videos/` 前缀的 30 天 Lifecycle 约束；若出现异常增长，通常意味着大量长视频被高频随机寻帧，可结合 `video_frame_service` 缓存命中率排查。
   - `avatars` 单对象不超过约 40 KB（`256×256` WebP），总体积随注册用户数线性增长；若对象数显著多于用户数，可排查是否存在 `users.avatar_ref` 未引用的孤儿对象。

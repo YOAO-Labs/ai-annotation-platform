@@ -449,3 +449,5 @@ LibreYOLO 注册仅接受已核验的 YOLO9 t/s/m/c 原生检测最佳权重，�
 新冻结的 `model_ref` 和 backend 的 `frozen_model_ref` 携带这份 `inference_runtime`，参与引用及逐样本请求摘要。预测响应 `meta.trained_model` 仍为版本 ID、权重 SHA 和类别摘要三项，`meta.inference_runtime` 单独记录并与请求核对，预标来源保留两种版本。旧引用没有该字段时维持原摘要，只允许按原训练版本推理，不会自动改用新版环境。
 
 共享样本评估接受已登记的 profile 修订 1 和 2，并核对各自运行时版本。未知修订返回 `502 evaluation_protocol_unqualified`；部署已记录的推理版本与实际 profile 不同返回 `409 deployment_runtime_changed`，需重新加载试用。重新提交就绪部署时，若实际推理身份变化会重新试用，成功后才更新部署身份。
+
+数据集详情的冻结入口仍使用本接口。选择合同新增可选 `dataset_id`，必须已关联当前项目，服务端在同一快照查询中限定 DatasetItem；与 batch_id/task_ids 同时使用时取交集，显式选中范围外任务返回404。`GET /tasks` 同样支持 project_id 与 dataset_id 组合分页，避免浏览器为确认范围拉取全部任务。未提供 dataset_id 的旧快照合同保持原样；进入页面只预选范围，创建仍须通过既有预检摘要确认。
