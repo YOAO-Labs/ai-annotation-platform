@@ -7905,3 +7905,14 @@ or business implementation changed. A focused actual-role item/pose read passed
 before repeating cold execution. The original failed receipt and redacted worker
 diagnostics are retained, and all owned resources were removed. Existing local
 resource/deployment-grant unit checks also passed.
+
+The second cold attempt proved ordinary-member propagation, existing-track skip,
+real Workspace DB identity, restart and duplicate delivery without extra labels.
+Its revocation fixture was correctly rejected by member_removal_blocked because
+unfinished assigned work had no receiver. The fixture now uses the real member
+add/role-preview/confirmed-handover/remove commands, transferring tasks to an
+eligible annotator before removing membership. A focused actual-database check
+passed with both assignments transferred and the historical annotation author
+preserved. The preview's requires_handoff flag describes unresolved blockers;
+assertions now verify concrete task scope and successful handover instead.
+Owned Celery result handles are explicitly forgotten during final cleanup.

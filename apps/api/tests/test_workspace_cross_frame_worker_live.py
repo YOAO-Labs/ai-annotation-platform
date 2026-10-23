@@ -356,6 +356,63 @@ async def _dispatch_while_workspace_read_is_blocked(
     return result, ack, evidence
 
 
+async def _remove_member_after_handover(maker, world):
+    from app.services.workspace_membership import (
+        add_member,
+        change_role,
+        preview_role_change,
+        remove_member,
+    )
+
+    async with maker.begin() as db:
+        receiver = await create_user(
+            db,
+            "employee",
+            f"cross-frame-receiver-{uuid.uuid4().hex}@worker.test",
+            "Cross-frame receiver",
+        )
+        receiver_id = receiver.id
+    async with maker() as db:
+        await add_member(
+            db,
+            project_id=world["project_id"],
+            actor_id=world["owner_id"],
+            target_user_id=receiver_id,
+            project_role="annotator",
+        )
+        preview = await preview_role_change(
+            db,
+            project_id=world["project_id"],
+            actor_id=world["owner_id"],
+            member_id=world["membership_id"],
+            target_role="viewer",
+            replacement_annotator_id=receiver_id,
+        )
+        assert preview["blockers"] == [], preview
+        assert set(preview["resource_snapshot"]["annotation_task_ids"]) == {
+            str(world["source_task_id"]),
+            *map(str, world["target_task_ids"]),
+        }
+        await change_role(
+            db,
+            project_id=world["project_id"],
+            actor_id=world["owner_id"],
+            member_id=world["membership_id"],
+            target_role="viewer",
+            expected_version=preview["current_version"],
+            preview_token=preview["preview_token"],
+            reason="Cold worker queued-authority revocation after explicit handover",
+            replacement_annotator_id=receiver_id,
+        )
+        await remove_member(
+            db,
+            project_id=world["project_id"],
+            actor_id=world["owner_id"],
+            member_id=world["membership_id"],
+        )
+    return receiver_id
+
+
 async def test_cross_frame_prerequisite_spatial_reads_use_closed_api_role(test_engine):
     from app.services.assets_spatial import AssetsSpatialGateway
     from app.services.labeling_scene import read_spatial_item_facts
@@ -377,6 +434,17 @@ async def test_cross_frame_prerequisite_spatial_reads_use_closed_api_role(test_e
             )
     finally:
         await engine.dispose()
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    receiver_id = await _remove_member_after_handover(maker, world)
+    from app.db.models.task import Task
+
+    async with maker() as db:
+        assert await db.get(ProjectMember, world["membership_id"]) is None
+        for task_id in [world["source_task_id"], *world["target_task_ids"]]:
+            assert (await db.get(Task, task_id)).assignee_id == receiver_id
+        assert (
+            await db.get(Annotation, world["source_annotation_id"])
+        ).user_id == world["actor_id"]
 
 
 async def test_real_cross_frame_worker_uses_workspace_fence_and_retry(
@@ -513,15 +581,7 @@ async def test_real_cross_frame_worker_uses_workspace_fence_and_retry(
         )
         record_property("cross_frame_duplicate_ack", duplicate_ack)
 
-        from app.services.workspace_membership import remove_member
-
-        async with maker() as owner_db:
-            await remove_member(
-                owner_db,
-                project_id=revoked_world["project_id"],
-                actor_id=revoked_world["owner_id"],
-                member_id=revoked_world["membership_id"],
-            )
+        await _remove_member_after_handover(maker, revoked_world)
         revoked_result, revoked_ack = await _dispatch_and_ack(
             sender, worker, revoked_world["job_id"], deliveries, "cross-frame-revoked"
         )
@@ -720,10 +780,14 @@ async def test_real_cross_frame_worker_uses_workspace_fence_and_retry(
             try:
                 if sender is not None:
                     try:
-                        await asyncio.to_thread(
-                            _delete_owned_queue, sender, worker.queue
-                        )
+                        for delivery in deliveries:
+                            await asyncio.to_thread(delivery.forget)
                     finally:
-                        sender.close()
+                        try:
+                            await asyncio.to_thread(
+                                _delete_owned_queue, sender, worker.queue
+                            )
+                        finally:
+                            sender.close()
             finally:
                 destroy_guide_scope(guide_scope)
