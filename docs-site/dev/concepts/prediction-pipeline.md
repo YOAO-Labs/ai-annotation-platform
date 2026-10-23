@@ -154,16 +154,19 @@ if params:
 
 `PreannotateRequest.predict_mode`（`apps/api/app/api/v1/projects.py`）是 `Literal["skip_predicted", "overwrite", "append"]`，默认 `skip_predicted`，由 worker（`apps/api/app/workers/tasks.py::batch_predict` / `_run_batch`）透传决定 task 选取与旧预测处理：
 
-| 模式                     | task 选取                                                            | 旧预测处理                                                                                          | 用途                                      |
-| ------------------------ | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| `skip_predicted`（默认） | task 选取追加 `.where(Task.total_predictions == 0)`，跳过已预标 task | 不动                                                                                                | 重复点"批量预标"时幂等，只补没跑过的 task |
-| `overwrite`              | 不过滤已预标 task                                                    | 预标前先 `BatchService(db).clean_task_predictions([t.id])` + flush 清旧预测（**不重置 task 状态**） | 改了 prompt / 阈值想重跑                  |
-| `append`                 | 不过滤                                                               | 不清，无脑追加                                                                                      | 兼容旧行为，仅特殊场景                    |
+| 模式                     | task 选取                                                            | 旧预测处理                                                                             | 用途                                      |
+| ------------------------ | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `skip_predicted`（默认） | task 选取追加 `.where(Task.total_predictions == 0)`，跳过已预标 task | 不动                                                                                   | 重复点"批量预标"时幂等，只补没跑过的 task |
+| `overwrite`              | 不过滤已预标 task                                                    | 图片推理成功且最终守卫通过后，逐题清理旧预测并与新候选一起提交（**不重置 task 状态**） | 改了 prompt / 阈值想重跑                  |
+| `append`                 | 不过滤                                                               | 不清，无脑追加                                                                         | 兼容旧行为，仅特殊场景                    |
 
 注意：
 
 - `skip_predicted` 模式下，进度条分母（`projects.py` 触发处）也排除已预标 task，避免"跳过的 task"虚增分母让进度显示卡住。
 - `overwrite` 只清 AI 预标产物（复用 [`clean_task_predictions`](./batch-module#clean-task-predictions)），手工标注 `source="manual"` 不受影响，task 状态不回退；与删批次/`reset_to_draft` 的级联清理是同一套清理逻辑。
+- 图片执行每题保留原子事务：全部 `Prediction` / `PredictionMeta`、覆盖清理及显式 partial 的 `FailedPrediction` 一起提交。异常先回滚，再单独保存失败记录；成功数和费用只统计已提交结果。清理中的原始 SQL 更新后，预测写入在 Task 锁下刷新物化计数，避免复用旧 ORM 计数。
+- 图片 worker 在结果提交前锁定并刷新 `AsyncJob`；取消 API 使用同一行锁。取消先获得锁则丢弃当前推理结果，结果事务先获得锁则保留该题已提交结果，再跳过后续题目。下一题开始前也通过短作业锁观察已经排队的取消，随后提交释放锁，推理期间不持有作业锁。作业元信息合并前刷新取消标记，最终批次状态与作业终态在同一事务提交；取消 API 先提交数据库标记，再向 broker 发尽力撤销。
+- `execution_unit="frame"` 在独立 owner 中执行，保留派发前清理的既有合同；其分布式逐帧写入不属于上述图片逐题原子替换合同。
 
 ## 多阶段预标注（pipeline_stages，路径 B）
 

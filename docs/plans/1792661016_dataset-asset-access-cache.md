@@ -21,6 +21,8 @@ C2 最终合同：入队固定实际任务、任务版本、原发起 Key proof�
 
 本轮先实施 C2-A 共用输入资源所有者，并实际接入现有多阶段预标及 snapshot retry 的 ROI 上传。上传前独立提交回收记录，使用服务生成的 attempt UUID 前缀；正常结束主动清理，删除失败持久重试，过期/失联尝试持续扫除可能迟到的写入。记录不随 job/task/project 删除级联消失，固定存储身份不匹配时拒绝访问新后端。原图快照转移所有权及同字节 image loader 也由该 owner 提供，后续 C2-B 接入引用、receipt、取消事务与重试/采纳；C2-A 不宣称已开放引用预标。
 
+C2-B 首个前置增量处理既有结果事务缺口（基线 `5b012036f`）：图片覆盖删除后移，与全部候选、元信息和显式 partial 失败记录同事务；写入异常先完整回滚，再记录失败。成功数和费用在提交后累加，回滚后的下一题按固定 UUID 刷新状态，路由客户端按 registry ID 重新解析。取消 API、逐题写入、最终批次/作业完成及迟到失败回调共用 fresh AsyncJob 行锁；作业元信息合并保留已提交取消标记，broker revoke 在数据库提交后执行。视频逐帧仍由独立 owner 负责，保留原派发前清理合同。该增量不开放引用门禁，Task/内容/Key 冻结、同快照投递、专有 receipt 和重试/采纳仍是 C2-B 的后续必要部分。
+
 范围超过 8 个文件：新增 `db/models/prediction_input.py`、迁移 `0212_prediction_input_leases.py`、`services/prediction_inputs.py`、`workers/prediction_input_cleanup.py` 及专项测试；修改模型注册、`StorageService` 可选有界客户端配置、`workers/{tasks,predictions_retry,roi,celery_app}.py` 和适用现有测试。同步 `docs-site/dev/concepts/prediction-pipeline.md`、存储架构/桶用途文档、运维清理说明、CHANGELOG、本计划与执行队列。没有新公开接口、依赖或环境变量。
 
 验证使用已核验的 disposable test DB/Redis/九桶：覆盖上传前跨连接持久化、attempt 隔离、正常/异常/取消关闭、删除失败重试、过期恢复与迟到 PUT、存储身份变化、资源预算、同快照 ROI、不误删源原件和其他前缀，以及旧管线/模型快照/失败重试回归。真实 MinIO 对象与实际 worker 清理任务单独验收。迁移升级与有记录降级拒绝均验证；刷新本 checkout worker 与 beat 后检查任务注册/队列，保留人工数据。最终检查 diff、文档及提交 hooks，清理任务所属测试资源再提交。完整 C2/E05 继续执行中。
@@ -293,3 +295,13 @@ M1 严格方案：对需要与标注绑定的可变原图，读取到受限临�
 - 正式文档：`docs-site/dev/concepts/{prediction-pipeline,storage-connections}.md`、`docs-site/dev/reference/storage-buckets.md`、`docs-site/ops/deploy/docker-compose.md`、`docs-site/user-guide/projects/ai-preannotate.md` 与 CHANGELOG Unreleased。没有新公共接口、依赖或环境变量。
 - 清理：独立验收 worker 已退出，任务所属对象与账本已清除；test 数据库、Redis 和九桶由环境所有者销毁。临时脚本、SDK 测试 HTTP 服务、日志/XML、pytest 中间文件与本 checkout 测试缓存均已清理；人工环境、身份文件和业务数据保留。
 - 剩余工作：C2-B 入队固定 Task/内容/Key、严格引用投递、服务器 receipt、取消与候选写入原子边界、两个重试入口及采纳仍需实施，交互/predict-test/mask repair 逐入口资格验证。输入账本不是授权证明，也不完成全局配额或持久原图缓存；本计划继续执行，不归档。
+
+### E05-C2-B 结果事务前置 Outcome
+
+- 图片覆盖删除与全部候选、元信息和显式 partial 失败记录同题提交；异常先完整回滚再保存失败，成功数和费用只计已提交结果。刷新 Task 物化计数避免覆盖后沿用旧值；回滚后后续 Task 和路由 backend 继续从稳定 UUID 解析。
+- fresh AsyncJob 行锁覆盖取消、题目开始/结果提交、作业元信息合并、最终批次/作业完成和迟到失败回调。推理前释放作业锁；取消标记先入库，broker revoke 随后尽力执行。视频逐帧保留既有独立清理/取消合同，没有将其误报为图片逐题原子替换。
+- 本地 177 个不同 API 用例通过：主批 176 个，新增元信息合并前已终态取消的专项补测通过、不重复计算原用例。覆盖真实独立连接的取消先赢、单题结果先赢、最终完成先赢；第二结果普通/SQL 异常、旧候选/采纳标注/证据回滚、费用/计数、partial 成功/记录失败、draft 生命周期、后续题 ORM 恢复、frame 分派及既有 pipeline/模型快照/工作台范围。
+- 真实 Celery 临时 worker 消费三条作业，真实 HTTP 协议夹具拉取独立 MinIO 图片并逐次校验 SHA：正常覆盖提交两候选、第二结果坏数据整题回滚且保留旧候选、在途取消丢弃新结果。该夹具验证执行协议及事务，不代表真实模型质量或引用消费者已获得资格。
+- 正式 API/用户/架构说明、README、CHANGELOG 和 OpenAPI 取消描述同步；Ruff、OpenAPI 核对、196 页 frontmatter、198 页导航和 diff 检查通过。只读复核发现并修复 frame overwrite 回归，最终无阻断结论。没有前端样式或控件改动，不申报新增 UI 浏览器验收。
+- 人工环境无运行中业务任务时刷新当前 checkout API、普通/维护 worker 与 beat；3100/8100 healthy，两个 worker 注册 batch_predict/输入清理任务，订阅数量分别 8/2（含节点直达队列）。不重建镜像，不修改共享 .env、依赖、凭据、endpoint 或业务原件。任务所属测试资源在提交前由环境所有者销毁，临时脚本、HTTP 服务、worker、日志/XML 和测试缓存清理。
+- 完整 C2-B 继续实施：入队固定 Task/内容/Key、同快照引用投递、专有 receipt、两个失败重试入口和采纳仍未开放；交互/predict-test/mask repair 保留独立资格门禁。本计划与整套 Epic 目标均未完成，不归档。

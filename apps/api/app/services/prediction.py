@@ -481,7 +481,10 @@ class PredictionService:
         await reject_reference_scope(self.db, task_ids=[task_id])
         result = _remap_track_ids(result)
         task = await self.db.scalar(
-            select(Task).where(Task.id == task_id).with_for_update()
+            select(Task)
+            .where(Task.id == task_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if (token_meta or {}).get("mask_objects") is not None:
             from app.services.controlled_segmentation import materialize_masks

@@ -303,8 +303,9 @@ async def test_run_batch_all_failed_marks_job_failed(
     monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
     monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
 
+    project_uuid = proj.id
     await worker_tasks._run_batch(
-        project_id=str(proj.id),
+        project_id=str(project_uuid),
         ml_backend_id=str(backend.id),
         task_ids=[str(t.id) for t in tasks],
         prompt="x",
@@ -312,7 +313,7 @@ async def test_run_batch_all_failed_marks_job_failed(
 
     res = await db_session.execute(
         select(AsyncJob).where(
-            AsyncJob.kind == "batch_predict", AsyncJob.project_id == proj.id
+            AsyncJob.kind == "batch_predict", AsyncJob.project_id == project_uuid
         )
     )
     job = res.scalar_one()
@@ -325,7 +326,9 @@ async def test_run_batch_all_failed_marks_job_failed(
     failed_rows = (
         (
             await db_session.execute(
-                select(FailedPrediction).where(FailedPrediction.project_id == proj.id)
+                select(FailedPrediction).where(
+                    FailedPrediction.project_id == project_uuid
+                )
             )
         )
         .scalars()
@@ -388,8 +391,9 @@ async def test_run_batch_persists_stable_gpu_arbiter_failures(
     monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
     monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
 
+    project_uuid = proj.id
     await worker_tasks._run_batch(
-        project_id=str(proj.id),
+        project_id=str(project_uuid),
         ml_backend_id=str(backend.id),
         task_ids=[str(task.id) for task in tasks],
         prompt="x",
@@ -398,7 +402,9 @@ async def test_run_batch_persists_stable_gpu_arbiter_failures(
     failures = list(
         (
             await db_session.execute(
-                select(FailedPrediction).where(FailedPrediction.project_id == proj.id)
+                select(FailedPrediction).where(
+                    FailedPrediction.project_id == project_uuid
+                )
             )
         ).scalars()
     )
@@ -421,7 +427,8 @@ async def test_run_batch_persists_stable_gpu_arbiter_failures(
         (
             await db_session.execute(
                 select(AsyncJob).where(
-                    AsyncJob.kind == "batch_predict", AsyncJob.project_id == proj.id
+                    AsyncJob.kind == "batch_predict",
+                    AsyncJob.project_id == project_uuid,
                 )
             )
         )
@@ -482,7 +489,8 @@ async def test_run_batch_stops_on_cooperative_cancel(
                 )
                 job = res.scalar_one()
                 job.payload = {**(job.payload or {}), "cancel_requested": True}
-                await db_session.flush()
+                # Cancellation is a separately committed API operation.
+                await db_session.commit()
             return [
                 PredictionResult(
                     task_id=tasks_payload[0]["id"],
@@ -520,13 +528,13 @@ async def test_run_batch_stops_on_cooperative_cancel(
     job = res.scalar_one()
     assert _StubClient.calls == 1
     assert job.status == AsyncJobStatus.CANCELLED.value
-    assert job.progress_pct == 33
-    assert job.result["success_count"] == 1
+    assert job.progress_pct == 0
+    assert job.result["success_count"] == 0
     assert job.result["failed_count"] == 0
-    assert job.result["done_count"] == 1
-    assert job.result["skipped_count"] == 2
-    assert job.result["cancelled_at_index"] == 1
-    assert job.result["total_cost"] == "0.0012"
+    assert job.result["done_count"] == 0
+    assert job.result["skipped_count"] == 3
+    assert job.result["cancelled_at_index"] == 0
+    assert job.result["total_cost"] == "0.0000"
 
     rows = (
         (
@@ -538,8 +546,8 @@ async def test_run_batch_stops_on_cooperative_cancel(
         .all()
     )
     assert [row.type for row in rows] == ["job.cancelled"]
-    assert rows[0].payload["done_count"] == 1
-    assert rows[0].payload["skipped_count"] == 2
+    assert rows[0].payload["done_count"] == 0
+    assert rows[0].payload["skipped_count"] == 3
 
 
 @pytest.mark.asyncio
@@ -671,10 +679,18 @@ async def test_cancelled_batch_keeps_prior_gpu_arbiter_failure_summary(
     await db_session.flush()
 
     class _RejectedClient:
+        calls = 0
+
         def __init__(self, _backend, **_kwargs):
             pass
 
         async def predict(self, tasks_payload, context=None):
+            self.__class__.calls += 1
+            if self.__class__.calls == 1:
+                raise GPUArbiterDispatchError(
+                    GPUArbiterErrorCode.NOT_READY,
+                    message="ledger rebuilding",
+                )
             job = (
                 (
                     await db_session.execute(
@@ -688,11 +704,8 @@ async def test_cancelled_batch_keeps_prior_gpu_arbiter_failure_summary(
                 .one()
             )
             job.payload = {**(job.payload or {}), "cancel_requested": True}
-            await db_session.flush()
-            raise GPUArbiterDispatchError(
-                GPUArbiterErrorCode.NOT_READY,
-                message="ledger rebuilding",
-            )
+            await db_session.commit()
+            return []
 
     monkeypatch.setattr(
         "app.services.ml_client.MLBackendClient", _RejectedClient, raising=True

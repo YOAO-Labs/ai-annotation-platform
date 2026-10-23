@@ -60441,7 +60441,7 @@
     },
     "/api/v1/async-jobs/{job_id}/cancel": {
       "post": {
-        "description": "v0.10.51 · 软取消。\n\nbatch_predict 走协作取消：写 cancel_requested 标记并 revoke(terminate=False)，\nworker 在下一条预测边界落 cancelled 终态；video_tracker 仍走自身取消路径。",
+        "description": "软取消。\n\nbatch_predict 走协作取消：写 cancel_requested 标记并 revoke(terminate=False)，\nworker 在结果提交前或下一题边界落 cancelled 终态；video_tracker 仍走自身取消路径。",
         "operationId": "cancel_async_job_api_v1_async_jobs__job_id__cancel_post",
         "parameters": [
           {

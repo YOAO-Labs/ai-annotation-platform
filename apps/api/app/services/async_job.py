@@ -22,6 +22,20 @@ from app.db.models.async_job import AsyncJob, AsyncJobStatus
 logger = logging.getLogger(__name__)
 
 
+async def lock_job(db: AsyncSession, job_id: uuid.UUID) -> AsyncJob | None:
+    """Serialize a short terminal/result transaction against cancellation.
+
+    Always refresh an already loaded row after acquiring the lock. Callers own
+    the status policy and commit; never hold this lock during inference or I/O.
+    """
+    return await db.scalar(
+        select(AsyncJob)
+        .where(AsyncJob.id == job_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
 async def create_job(
     db: AsyncSession,
     *,

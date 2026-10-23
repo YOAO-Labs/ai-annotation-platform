@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: reference
-since: v0.9.0
 status: stable
-last_reviewed: 2026-05-27
+last_reviewed: 2026-10-23
 ---
 
 # Predictions / Async Jobs
@@ -30,7 +29,7 @@ POST /api/v1/projects/:id/preannotate
 }
 ```
 
-返回 `202` + `job_id`。任务进 Celery，状态机见 [预标注流水线](../../dev/concepts/prediction-pipeline)。
+返回 `200` + `job_id`。任务进 Celery，状态机见 [预标注流水线](../../dev/concepts/prediction-pipeline)。
 
 ## 查询 jobs
 
@@ -41,7 +40,7 @@ POST /api/v1/async-jobs/{job_id}/cancel
 POST /api/v1/async-jobs/{job_id}/retry-failed
 ```
 
-`kind` 支持重复 query 参数过滤多种任务。批量预标取消是协作式取消：pending job 会直接置 cancelled；running job 写 `payload.cancel_requested=true` 并 revoke Celery task，worker 在下一条预测边界收敛终态。
+`kind` 支持重复 query 参数过滤多种任务。批量预标取消是协作式取消：pending job 会直接置 cancelled；running job 先提交 `payload.cancel_requested=true`，再尽力 revoke Celery task。图片 worker 在结果提交前与取消共锁，取消先提交则丢弃该题在途结果，已提交题目保留；具体统计与视频逐帧边界见[异步任务取消](./async-jobs)。图片 `predict_mode="overwrite"` 在推理成功和最终权限检查后逐题替换旧结果，任一结果写入异常整题回滚，不留下半题候选或清空旧内容。
 
 ## 查询当前快照
 

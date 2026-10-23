@@ -1,9 +1,8 @@
 ---
 audience: [project_admin, super_admin, developer]
 type: reference
-since: v0.10.16
 status: stable
-last_reviewed: 2026-09-10
+last_reviewed: 2026-10-23
 ---
 
 # 异步任务（async_jobs）
@@ -87,12 +86,15 @@ owner-scoped；非 owner（且非 super_admin）→ `403`，记录不存在返�
 
 ### `POST /api/v1/async-jobs/{id}/cancel`
 
-软取消。支持 `predictions_import` / `dataset_import` / `audit_archive` / `batch_predict`；其他 kind 调用返回
-`400 not cancellable`。已终态（`completed` / `failed` / `cancelled`）调用返回 `409`。
+软取消。可取消的 kind 包括 `predictions_import` / `dataset_import` / `audit_archive` / `batch_predict`；
+不支持取消的 kind 返回 `400 not cancellable`。已终态（`completed` / `failed` / `cancelled`）调用返回 `409`。
 
 `batch_predict` 使用协作取消：API 对 `pending` job 直接写 `cancelled`；对 `running` job 写
-`payload.cancel_requested=true`，并对 Celery task 执行 `revoke(..., terminate=False)`。worker 不会强杀
-进程，而是在下一条预测边界停止并写入取消结果：
+`payload.cancel_requested=true`，提交后再对 Celery task 尽力执行 `revoke(..., terminate=False)`。worker 不会强杀进程。
+
+图片预标的取消与单题结果提交使用同一作业行锁：取消先提交时丢弃当前在途结果；结果事务先获得锁时保留该题已提交结果，随后跳过未处理题目。已完成作业在锁下重新检查后返回 `409`，不会再被改成取消。图片覆盖模式的旧候选、已采纳 AI 标注与新结果同事务替换，写入失败或提交前取消时保留旧内容。视频逐帧由独立 owner 处理，保留原派发前清理和段边界取消规则。
+
+取消结果仅统计已经提交的题目：
 
 ```json
 {

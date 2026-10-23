@@ -341,10 +341,10 @@ async def cancel_async_job(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """v0.10.51 · 软取消。
+    """软取消。
 
     batch_predict 走协作取消：写 cancel_requested 标记并 revoke(terminate=False)，
-    worker 在下一条预测边界落 cancelled 终态；video_tracker 仍走自身取消路径。
+    worker 在结果提交前或下一题边界落 cancelled 终态；video_tracker 仍走自身取消路径。
     """
     job = await db.get(AsyncJob, job_id)
     if job is None:
@@ -581,14 +581,16 @@ async def cancel_async_job(
         return {"status": "cancel_requested", "id": str(job_id)}
 
     if job.kind == "batch_predict":
-        if job.celery_task_id:
-            try:
-                from app.workers.celery_app import celery_app
-
-                celery_app.control.revoke(job.celery_task_id, terminate=False)
-            except Exception:
-                log.exception("batch_predict revoke failed job=%s", job.id)
-
+        # Use the worker's result/terminal lock, then recheck fresh state. A
+        # cancellation that wins this lock prevents the in-flight result write.
+        job = await async_job_svc.lock_job(db, job_id)
+        if job is None:
+            raise HTTPException(404, detail="async_job not found")
+        if job.status not in {"pending", "running"}:
+            raise HTTPException(409, detail="batch prediction is no longer cancellable")
+        if not await _can_access_job(db, job=job, user=current_user):
+            raise HTTPException(403, detail="not your job")
+        celery_task_id = job.celery_task_id
         total_tasks = _payload_int(job.payload or {}, "total_tasks") or 0
         if job.status == AsyncJobStatus.PENDING.value:
             await async_job_svc.mark_cancelled(
@@ -603,12 +605,21 @@ async def cancel_async_job(
                 },
             )
             await notify_job_terminal(db, job_id=job.id)
-            await db.commit()
-            return {"status": "cancelled", "id": str(job_id)}
-
-        await async_job_svc.request_cancel(db, job.id)
+            response_status = "cancelled"
+        else:
+            await async_job_svc.request_cancel(db, job.id)
+            response_status = "cancel_requested"
         await db.commit()
-        return {"status": "cancel_requested", "id": str(job_id)}
+        # Broker I/O must not hold the result lock. The durable cancellation is
+        # authoritative even when the best-effort revoke cannot reach Celery.
+        if celery_task_id:
+            try:
+                from app.workers.celery_app import celery_app
+
+                celery_app.control.revoke(celery_task_id, terminate=False)
+            except Exception:
+                log.exception("batch_predict revoke failed job=%s", job_id)
+        return {"status": response_status, "id": str(job_id)}
 
     if job.kind == "point_cloud_cross_frame":
         if job.celery_task_id:

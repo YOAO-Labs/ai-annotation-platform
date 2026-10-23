@@ -1098,7 +1098,7 @@ async def _run_batch(
                 Task.project_id == uuid.UUID(project_id),
                 Task.status == "pending",
             ]
-        sel = select(Task).where(*base_conds)
+        sel = select(Task).where(*base_conds).order_by(Task.id)
         if skip_predicted:
             sel = sel.where(Task.total_predictions == 0)
         result = await db.execute(sel)
@@ -1108,16 +1108,16 @@ async def _run_batch(
         if controlled and any(task.file_type != "image" for task in tasks):
             raise ValueError("Controlled detection task is not an image")
 
-        # v0.11.24 · overwrite：预标前清掉这批 task 的旧预测（保留人工标注），避免叠加。
-        # 不重置 task 状态（与删批次不同）——预标只换预测内容、不动流程。
-        if predict_mode == "overwrite" and tasks:
+        # Frame fan-out delegates its writes to a separate owner and never
+        # enters the per-task result loop below. Preserve its existing reset
+        # contract until that owner implements atomic frame replacement.
+        if execution_unit == "frame" and predict_mode == "overwrite" and tasks:
             from app.services.batch import BatchService
 
-            overwrite_actor_id = uuid.UUID(user_id) if user_id else None
             await BatchService(db).clean_task_predictions(
-                [t.id for t in tasks], actor_id=overwrite_actor_id
+                [row.id for row in tasks],
+                actor_id=uuid.UUID(user_id) if user_id else None,
             )
-            await db.flush()
 
         # v0.10.49 · async_jobs 单一真值：建 batch_predict 行 (status=running)。
         # domain 字段（batch_id / ml_backend / prompt / total_tasks）进 payload。
@@ -1168,7 +1168,14 @@ async def _run_batch(
             )
             await async_job_svc.mark_running(db, aj.id, celery_task_id=celery_task_id)
         else:
-            aj = precreated_job
+            # Cancellation may commit after the initial pending-job claim.
+            # Refresh its payload under the same lock before merging metadata,
+            # otherwise the identity-map copy can erase cancel_requested.
+            aj = await async_job_svc.lock_job(db, precreated_job.id)
+            if aj is None or aj.status != AsyncJobStatus.RUNNING.value:
+                await db.rollback()
+                await engine.dispose()
+                return
             aj.payload = {**(aj.payload or {}), **job_payload}
         await db.commit()
         async_job_id = aj.id
@@ -1187,16 +1194,28 @@ async def _run_batch(
             job_meta=job_meta_base,
         )
 
-        async def _cancel_requested() -> bool:
-            job_for_cancel = await db.get(AsyncJob, async_job_id)
+        async def _cancel_requested(*, lock=False) -> bool:
+            job_for_cancel = (
+                await async_job_svc.lock_job(db, async_job_id)
+                if lock
+                else await db.get(AsyncJob, async_job_id, populate_existing=True)
+            )
             if job_for_cancel is None:
-                return False
-            await db.refresh(job_for_cancel)
+                raise ValueError("preannotation async job is unavailable")
             if job_for_cancel.status == AsyncJobStatus.CANCELLED.value:
                 return True
+            if job_for_cancel.status not in {"pending", "running"}:
+                raise ValueError("preannotation async job is no longer active")
             return bool((job_for_cancel.payload or {}).get("cancel_requested"))
 
         async def _finish_cancelled(cancelled_at_index: int) -> None:
+            job_for_cancel = await async_job_svc.lock_job(db, async_job_id)
+            if job_for_cancel is None or job_for_cancel.status not in {
+                "pending",
+                "running",
+            }:
+                await db.rollback()
+                return
             processed_count = success_count + failed_count
             skipped_count = max(0, total - processed_count)
             duration_ms = int((time.perf_counter() - started_perf) * 1000)
@@ -1241,6 +1260,10 @@ async def _run_batch(
             )
 
         if total == 0:
+            if await _cancel_requested(lock=True):
+                await _finish_cancelled(cancelled_at_index=0)
+                await engine.dispose()
+                return
             duration_ms = int((time.perf_counter() - started_perf) * 1000)
             result_payload: dict = {
                 "success_count": 0,
@@ -1373,7 +1396,7 @@ async def _run_batch(
                 stage_clients.append(
                     RoutedMLBackendClient(
                         db,
-                        backend,
+                        uuid.UUID(ml_backend_id),
                         project_id=uuid.UUID(project_id),
                         owner=f"batch:{async_job_id}:stage:{s['stage']}",
                         operation="batch_predict",
@@ -1384,11 +1407,10 @@ async def _run_batch(
                 stage_contexts.append(context)
                 stage_modes.append("crop")
             else:
-                s_backend = await db.get(MLBackend, uuid.UUID(s["ml_backend_id"]))
                 stage_clients.append(
                     RoutedMLBackendClient(
                         db,
-                        s_backend,
+                        uuid.UUID(s["ml_backend_id"]),
                         project_id=uuid.UUID(project_id),
                         owner=f"batch:{async_job_id}:stage:{s['stage']}",
                         operation="batch_predict",
@@ -1441,19 +1463,44 @@ async def _run_batch(
                 for k, v in s.items():
                     bucket[k] = bucket.get(k, 0) + v
 
-        for i, task in enumerate(tasks):
-            if await _cancel_requested():
+        # Rollback expires ORM instances, including unprocessed tasks and cached
+        # backend rows. Keep selection identities independent of that session
+        # state and reload the next task/authority before every attempt. Routed
+        # clients also resolve backend IDs afresh before reusing their transport.
+        selected_ids = [row.id for row in tasks]
+        actor_uuid = uuid.UUID(user_id) if user_id else None
+        backend_uuid = uuid.UUID(ml_backend_id)
+        for i, task_uuid in enumerate(selected_ids):
+            if await _cancel_requested(lock=True):
                 await _finish_cancelled(cancelled_at_index=i)
                 await engine.dispose()
                 return
+            # Also respect a cancellation already waiting for the preceding
+            # task's commit, then release this short lock before any inference.
+            await db.commit()
 
+            project = await db.get(Project, project_uuid, populate_existing=True)
+            actor = (
+                await db.get(User, actor_uuid, populate_existing=True)
+                if actor_uuid
+                else None
+            )
+            task = await db.get(Task, task_uuid, populate_existing=True)
             # Reauthorize the initiating actor against fresh state before each
             # final write: a long inference must not keep writing after the
             # actor's account or project authority was revoked.  A bounded
             # system job (actor is None) keeps its own explicit authority.
-            if actor is not None and await _preannotation_actor_revoked(
-                db, actor, project_uuid, execution_scope
+            if actor_uuid and (
+                actor is None
+                or project is None
+                or await _preannotation_actor_revoked(
+                    db, actor, project_uuid, execution_scope
+                )
             ):
+                if await _cancel_requested(lock=True):
+                    await _finish_cancelled(cancelled_at_index=i)
+                    await engine.dispose()
+                    return
                 await async_job_svc.mark_failed(
                     db, async_job_id, error="preannotation_actor_revoked"
                 )
@@ -1471,6 +1518,8 @@ async def _run_batch(
                 return
 
             try:
+                if task is None:
+                    raise ValueError("preannotation task is unavailable")
                 if actor is not None:
                     from app.services.prediction_execution import validate_task_scope
 
@@ -1492,8 +1541,14 @@ async def _run_batch(
                     .get("pipeline", {})
                     .get("gpu_arbiter_failures", [])
                 )
-                executed_backend_id = stage_clients[0].last_instance_id or backend.id
+                executed_backend_id = stage_clients[0].last_instance_id or backend_uuid
                 executed_pool_id = stage_clients[0].pool_id or source_pool_id
+                # This lock is deliberately acquired after inference. Cancel and
+                # every result for this task share the same commit boundary.
+                if await _cancel_requested(lock=True):
+                    await _finish_cancelled(cancelled_at_index=i)
+                    await engine.dispose()
+                    return
                 # Re-check under locks after inference: a revocation landing
                 # mid-run must not let this write commit.  The account/project
                 # share locks are held until the commit below, so a concurrent
@@ -1502,6 +1557,10 @@ async def _run_batch(
                     db, actor, project_uuid, execution_scope
                 ):
                     await db.rollback()
+                    if await _cancel_requested(lock=True):
+                        await _finish_cancelled(cancelled_at_index=i)
+                        await engine.dispose()
+                        return
                     await async_job_svc.mark_failed(
                         db, async_job_id, error="preannotation_actor_revoked"
                     )
@@ -1531,8 +1590,19 @@ async def _run_batch(
                         },
                     }
                 partial_prediction_ids = []
-                if snapshot_id and not results:
+                if not results:
                     raise ValueError("管线未返回任务结果")
+                # Replace only a successfully qualified task, in the same
+                # transaction as *all* its new candidates and metadata. Any
+                # subsequent error restores old predictions and accepted AI
+                # annotations together with their counters and evidence.
+                if predict_mode == "overwrite":
+                    from app.services.batch import BatchService
+
+                    await BatchService(db).clean_task_predictions(
+                        [task_uuid], actor_id=actor_uuid
+                    )
+                task_cost = 0.0
                 for pred_result in results:
                     created_prediction = await pred_svc.create_from_ml_result(
                         task_id=task.id,
@@ -1556,10 +1626,11 @@ async def _run_batch(
                     if pred_result.meta:
                         cost = pred_result.meta.get("total_cost")
                         if cost is not None:
-                            running_total_cost += float(cost)
-                if snapshot_id and (pipeline_extra or {}).get("pipeline", {}).get(
-                    "partial"
-                ):
+                            task_cost += float(cost)
+                partial = snapshot_id and (pipeline_extra or {}).get(
+                    "pipeline", {}
+                ).get("partial")
+                if partial:
                     partial_failure = await pred_svc.create_failed(
                         task_id=task.id,
                         project_id=project_uuid,
@@ -1580,15 +1651,25 @@ async def _run_batch(
                         },
                     )
                     partial_failure.execution_snapshot_id = snapshot_id
-                    failed_prediction_ids.append(str(partial_failure.id))
+                    partial_failure_id = str(partial_failure.id)
+                await db.commit()
+                running_total_cost += task_cost
+                if partial:
+                    failed_prediction_ids.append(partial_failure_id)
                     failed_count += 1
                 else:
                     success_count += 1
-                await db.commit()
             except Exception as exc:
+                # In particular, never commit the first candidate (or an
+                # overwrite deletion) together with a later write's failure.
+                await db.rollback()
                 gpu_arbiter_error = gpu_arbiter_failure_record(exc)
                 if gpu_arbiter_error is not None:
                     gpu_arbiter_failures.append(gpu_arbiter_error)
+                if await _cancel_requested(lock=True):
+                    await _finish_cancelled(cancelled_at_index=i)
+                    await engine.dispose()
+                    return
                 failure_extra: dict = {"execution_scope": execution_scope}
                 if snapshot_id:
                     failure_extra["execution_snapshot"] = {
@@ -1600,9 +1681,9 @@ async def _run_batch(
                 if gpu_arbiter_error is not None:
                     failure_extra["gpu_arbiter_error"] = gpu_arbiter_error
                 failed = await pred_svc.create_failed(
-                    task_id=task.id,
+                    task_id=task_uuid,
                     project_id=uuid.UUID(project_id),
-                    ml_backend_id=stage_clients[0].last_instance_id or backend.id,
+                    ml_backend_id=stage_clients[0].last_instance_id or backend_uuid,
                     error_type=(
                         gpu_arbiter_error["error_code"]
                         if gpu_arbiter_error is not None
@@ -1645,7 +1726,7 @@ async def _run_batch(
                     except Exception:
                         await db.rollback()
 
-        if await _cancel_requested():
+        if await _cancel_requested(lock=True):
             await _finish_cancelled(cancelled_at_index=success_count + failed_count)
             await engine.dispose()
             return
@@ -1659,10 +1740,14 @@ async def _run_batch(
         # 不隐式分派人员；预测挂在 task 上保留，管理员随后正常分派并 draft → active
         # 激活即可进入人工流程（激活不清预测）。all_failed 时任何状态都不推进。
         if batch_id and not all_failed:
-            batch = await db.get(TaskBatch, uuid.UUID(batch_id))
+            batch = await db.scalar(
+                select(TaskBatch)
+                .where(TaskBatch.id == uuid.UUID(batch_id))
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
             if batch and batch.status == BatchStatus.ACTIVE:
                 batch.status = BatchStatus.PRE_ANNOTATED
-                await db.commit()
 
         # v0.10.49 · 结束时点 → 写 async_job final stats (result JSONB)
         duration_ms = int((time.perf_counter() - started_perf) * 1000)
@@ -1739,7 +1824,15 @@ async def _mark_job_failed(celery_task_id: str, error_message: str) -> None:
             aj = await async_job_svc.find_by_celery_task_id(db, celery_task_id)
             if aj is None:
                 return
-            await async_job_svc.mark_failed(db, aj.id, error=error_message)
+            aj = await async_job_svc.lock_job(db, aj.id)
+            if aj is None or aj.status not in {"pending", "running"}:
+                return
+            if (aj.payload or {}).get("cancel_requested"):
+                await async_job_svc.mark_cancelled(
+                    db, aj.id, result={"reason": "cancelled_by_user"}
+                )
+            else:
+                await async_job_svc.mark_failed(db, aj.id, error=error_message)
             await notify_job_terminal(db, job_id=aj.id)
             await db.commit()
     finally:
