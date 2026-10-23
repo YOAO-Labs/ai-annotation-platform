@@ -608,11 +608,12 @@ async def test_real_video_tracker_cold_worker_uses_workspace_acl_and_genuine_ret
                     peer_specs["success"].entered[index].wait(),
                     timeout=60,
                 )
+                if index == 0:
+                    await _assert_worker_database_identity(test_engine, worker)
                 gate.set()
             _, success_result, success_ack = await _wait_delivery(
                 sender, worker, success_delivery, worlds["success"]["job_id"]
             )
-            await _assert_worker_database_identity(test_engine, worker)
             async with media.sessions() as db:
                 success_job = await db.get(VideoTrackerJob, worlds["success"]["job_id"])
                 assert (
