@@ -50,6 +50,7 @@ from app.api.v1 import (
     storage_connections,
     storage_locations,
     storage_maintenance,
+    storage_reclamation,
     dataset_sources,
     system_settings,
     tasks,
@@ -166,6 +167,9 @@ api_router.include_router(dataset_quality.router, tags=["datasets"])
 api_router.include_router(dataset_quality_review.router, tags=["datasets"])
 api_router.include_router(scenes.router, prefix="/scenes", tags=["scenes"])
 api_router.include_router(storage.router, prefix="/storage", tags=["storage"])
+api_router.include_router(
+    storage_reclamation.router, prefix="/storage", tags=["storage"]
+)
 api_router.include_router(
     storage_locations.router, prefix="/storage-locations", tags=["storage-locations"]
 )
