@@ -131,7 +131,7 @@ async def _refresh_mv_async() -> dict:
 
 @celery_app.task(name="app.workers.cleanup.refresh_audit_bi_mv")
 def refresh_audit_bi_mv() -> dict:
-    """Refresh completed UTC audit days without blocking BI readers."""
+    """Refresh completed UTC audit days through Audit's owner capability."""
     return asyncio.run(_refresh_audit_bi_mv_async())
 
 
@@ -140,9 +140,7 @@ async def _refresh_audit_bi_mv_async() -> dict:
 
     async with task_session() as db:
         try:
-            await db.execute(
-                text("REFRESH MATERIALIZED VIEW CONCURRENTLY mv_audit_bi_daily")
-            )
+            await db.execute(text("SELECT aap_audit_v1.refresh_audit_bi_mv()"))
             await db.commit()
         except Exception as exc:
             await db.rollback()

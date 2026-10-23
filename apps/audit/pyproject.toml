@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "aap-audit"
 version = "0.1.0"
-description = "Portable Audit write, query, and read-relation contracts with PostgreSQL clients"
+description = "Portable Audit write, query, relation, and daily-projection contracts"
 requires-python = ">=3.11"
 dependencies = ["pydantic>=2.10.0"]
 
@@ -20,9 +20,11 @@ packages = ["src/aap_audit"]
 "src/aap_audit/append.schema.json" = "aap_audit/append.schema.json"
 "src/aap_audit/query.schema.json" = "aap_audit/query.schema.json"
 "src/aap_audit/read_relations.schema.json" = "aap_audit/read_relations.schema.json"
+"src/aap_audit/daily_projection.schema.json" = "aap_audit/daily_projection.schema.json"
 "src/aap_audit/sql/0315_audit_append.sql" = "aap_audit/sql/0315_audit_append.sql"
 "src/aap_audit/sql/0317_audit_query.sql" = "aap_audit/sql/0317_audit_query.sql"
 "src/aap_audit/sql/0320_audit_read_relations.sql" = "aap_audit/sql/0320_audit_read_relations.sql"
+"src/aap_audit/sql/0322_audit_daily_projection.sql" = "aap_audit/sql/0322_audit_daily_projection.sql"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

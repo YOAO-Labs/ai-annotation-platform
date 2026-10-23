@@ -1,9 +1,10 @@
-# Audit append, query, and read-relation capabilities
+# Audit append, query, and read capabilities
 
 This package defines the `aap-audit-append/v1` event/receipt contract,
 `aap-audit-query/v1` global list/export contract, and
-`aap-audit-read-relations/v1` event-row layout. It does not start an HTTP
-service. Transactional clients borrow the caller's PostgreSQL session; the
+`aap-audit-read-relations/v1` event-row and
+`aap-audit-daily-projection/v1` daily aggregate contracts. It does not start an
+HTTP service. Transactional clients borrow the caller's PostgreSQL session; the
 caller remains responsible for commit or rollback. The contracts are usable
 without SQLAlchemy; PostgreSQL table metadata is imported explicitly from the
 optional `read_relation_postgres` module.
@@ -56,16 +57,32 @@ registration/person activity, and review-round contributor snapshot. The
 super-admin global list/export remains on `query_events(jsonb)`.
 
 The monthly summary's raw tail, DuckDB sync, and project-performance event
-reads use `audit_events`. The summary's completed-day aggregates and refresh
-still use `mv_audit_bi_daily`. Learning/active-learning evidence, partition
+reads use `audit_events`. The summary's completed-day aggregates use
+`audit_daily_facts`; only the owner capability refreshes the underlying
+`mv_audit_bi_daily`. Learning/active-learning evidence, partition
 retention/archive maintenance, and append/hydration consumers still read or
 write the base table, so the API retains its existing private-table privileges.
-This reader migration does not change materialized-view ownership or refresh
-authority.
+
+`aap_audit_v1.audit_daily_facts` publishes the existing six-dimension daily
+materialization through a read-only security-barrier view. Its row key matches
+the materialized view's unique index, and PostgreSQL `date`, `smallint`, and
+`bigint` types are preserved. The monthly summary reads completed days through
+this relation and continues to merge the current UTC raw tail from
+`audit_events`.
+
+The maintenance task refreshes the materialized view through the fixed,
+no-argument `aap_audit_v1.refresh_audit_bi_mv()` owner capability. The caller
+still commits its transaction; the function does not change refresh mode or
+swallow errors. Its restricted `NOLOGIN` owner needs database `TEMPORARY`
+because PostgreSQL's concurrent refresh creates a temporary relation. The
+caller receives only function `EXECUTE`; the read-only Audit client may select
+`audit_daily_facts` but cannot refresh the view or select the private
+materialization.
 
 Migration `0315` adds append and `0317` adds global query after Notifications
-read-state `0316`; `0320` adds the read relation after Notifications deletion
-`0319`. `infra/docker/module-data-grants.sql` keeps direct append writes with
+read-state `0316`; `0320` adds the event read relation after Notifications
+deletion `0319`; `0322` adds the daily projection after `0321`.
+`infra/docker/module-data-grants.sql` keeps direct append writes with
 the non-login Audit owner and transfers the read view to that owner. The
 focused `audit-append-grants.sql` profile grants the existing
 API LOGIN the append function, retains its current table `SELECT`, revokes
@@ -76,11 +93,13 @@ writer ownership. Apply a compatible append profile only after all API/worker
 consumers use the owner path and old processes are drained.
 
 The `audit-query-grants.sql` profile gives one LOGIN only `query_events(jsonb)`;
-the separate `audit-read-grants.sql` profile gives another LOGIN only
-`SELECT` on `audit_events`. Neither profile grants direct base-table reads,
-sequences, or write functions. The API LOGIN gains SELECT on the view while
-retaining current base-table access for Learning, retention, and test/seed
-consumers; the monthly summary also still reads its materialized view directly.
+the separate `audit-read-grants.sql` profile gives another LOGIN `SELECT` on
+`audit_events` and `audit_daily_facts`. Neither read profile grants direct
+base-table or materialized-view reads, sequences, or write functions. The API
+LOGIN gains SELECT on both views while retaining current base-table access for
+Learning, retention, and test/seed consumers. Only the dedicated maintenance
+caller receives `EXECUTE` on the fixed refresh capability; it and the
+read/query clients do not share database `TEMPORARY`.
 Focused checks cover the row contract,
 native INET parity, identity-map/autoflush behavior, API scope, and the Node
 read-only peer. This relation slice does not close full Audit assembly,

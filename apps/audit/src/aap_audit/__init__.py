@@ -1,4 +1,4 @@
-"""Portable Audit append, query, and read-relation contracts."""
+"""Portable Audit append, query, relation, and daily-projection contracts."""
 
 from .append_contract import (
     APPEND_PROTOCOL,
@@ -30,6 +30,15 @@ from .read_relation_contract import (
     audit_read_relations_schema,
     read_relation_json_schema,
 )
+from .daily_projection_contract import (
+    AUDIT_DAILY_FACTS_COLUMNS,
+    AUDIT_DAILY_FACTS_RELATION,
+    AUDIT_DAILY_FACTS_ROW_KEY,
+    AUDIT_DAILY_REFRESH_FUNCTION,
+    DAILY_PROJECTION_PROTOCOL,
+    AuditDailyFact,
+    audit_daily_projection_schema,
+)
 
 __all__ = [
     "APPEND_PROTOCOL",
@@ -56,4 +65,11 @@ __all__ = [
     "AuditReadEvent",
     "audit_read_relations_schema",
     "read_relation_json_schema",
+    "DAILY_PROJECTION_PROTOCOL",
+    "AUDIT_DAILY_FACTS_RELATION",
+    "AUDIT_DAILY_FACTS_COLUMNS",
+    "AUDIT_DAILY_FACTS_ROW_KEY",
+    "AUDIT_DAILY_REFRESH_FUNCTION",
+    "AuditDailyFact",
+    "audit_daily_projection_schema",
 ]

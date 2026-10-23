@@ -73,7 +73,7 @@ async def _load_monthly_summary_rows(
     db: AsyncSession, *, month_start: date, month_end: date, business_only: bool
 ) -> tuple[date | None, list[tuple]]:
     materialized_through = (
-        await db.execute(text("SELECT MAX(day) FROM mv_audit_bi_daily"))
+        await db.execute(text("SELECT MAX(day) FROM aap_audit_v1.audit_daily_facts"))
     ).scalar_one_or_none()
     mv_end = month_start
     if materialized_through is not None:
@@ -89,7 +89,7 @@ async def _load_monthly_summary_rows(
                     text(
                         """
                         SELECT day, action, target_type, actor_role, status_family, event_count
-                        FROM mv_audit_bi_daily
+                        FROM aap_audit_v1.audit_daily_facts
                         WHERE day >= :month_start AND day < :mv_end
                           AND (:business_only = false OR action NOT LIKE 'http.%')
                         """
