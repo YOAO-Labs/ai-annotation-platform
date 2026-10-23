@@ -125,8 +125,8 @@ export function DatasetQualityBulkReview({
   const trigger = useRef<HTMLElement | null>(null);
   const alive = useRef(true);
   const operation = useRef(0);
-  const contextRef = useRef(context);
-  contextRef.current = context;
+  const contextRef = useRef(`${context}/${batchId ?? ""}`);
+  contextRef.current = `${context}/${batchId ?? ""}`;
   useEffect(() => {
     alive.current = true;
     return () => {
