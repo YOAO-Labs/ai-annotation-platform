@@ -1,0 +1,343 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-identity-role-audit/v1",
+  "$defs": {
+    "RoleAuditAccount": {
+      "additionalProperties": false,
+      "description": "One account row, retaining unknown and nullable diagnostic values.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "maxLength": 50,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Role"
+        },
+        "is_active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Is Active"
+        }
+      },
+      "required": ["id", "role", "is_active"],
+      "title": "RoleAuditAccount",
+      "type": "object"
+    },
+    "RoleAuditInvitation": {
+      "additionalProperties": false,
+      "description": "Invitation fields used by the audit, with legacy role absence as NULL.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "role": {
+          "maxLength": 32,
+          "title": "Role",
+          "type": "string"
+        },
+        "project_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Role"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "accepted_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Accepted At"
+        },
+        "revoked_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Revoked At"
+        },
+        "invited_by": {
+          "format": "uuid",
+          "title": "Invited By",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "project_id",
+        "role",
+        "project_role",
+        "expires_at",
+        "accepted_at",
+        "revoked_at",
+        "invited_by"
+      ],
+      "title": "RoleAuditInvitation",
+      "type": "object"
+    },
+    "RoleAuditSchemaCapabilities": {
+      "additionalProperties": false,
+      "description": "Whether the optional project-role column exists in this schema.",
+      "properties": {
+        "invitation_project_role": {
+          "title": "Invitation Project Role",
+          "type": "boolean"
+        }
+      },
+      "required": ["invitation_project_role"],
+      "title": "RoleAuditSchemaCapabilities",
+      "type": "object"
+    }
+  },
+  "title": "Identity project-role audit relation rows",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/RoleAuditAccount"
+    },
+    {
+      "$ref": "#/$defs/RoleAuditInvitation"
+    },
+    {
+      "$ref": "#/$defs/RoleAuditSchemaCapabilities"
+    }
+  ],
+  "x-postgres-read-relations": {
+    "protocol": "aap-identity-role-audit/v1",
+    "relations": [
+      {
+        "name": "account_roles",
+        "qualified_name": "aap_identity_audit_v1.account_roles",
+        "kind": "security_barrier_view",
+        "columns": [
+          {
+            "name": "id",
+            "postgres_type": "uuid",
+            "nullable": false,
+            "json_schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          },
+          {
+            "name": "role",
+            "postgres_type": "character varying(50)",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "maxLength": 50,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Role"
+            }
+          },
+          {
+            "name": "is_active",
+            "postgres_type": "boolean",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Is Active"
+            }
+          }
+        ],
+        "semantics": "One row for every public.users account, with no filtering, role mapping, sorting, deduplication, or join. Unknown role strings and nullable role/activity diagnostics are preserved. The caller joins this relation inside its existing SQL statements and owns the transaction snapshot."
+      },
+      {
+        "name": "invitation_facts",
+        "qualified_name": "aap_identity_audit_v1.invitation_facts",
+        "kind": "security_barrier_view",
+        "columns": [
+          {
+            "name": "id",
+            "postgres_type": "uuid",
+            "nullable": false,
+            "json_schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_id",
+            "postgres_type": "uuid",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "role",
+            "postgres_type": "character varying(32)",
+            "nullable": false,
+            "json_schema": {
+              "maxLength": 32,
+              "title": "Role",
+              "type": "string"
+            }
+          },
+          {
+            "name": "project_role",
+            "postgres_type": "text",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Role"
+            }
+          },
+          {
+            "name": "expires_at",
+            "postgres_type": "timestamp with time zone",
+            "nullable": false,
+            "json_schema": {
+              "format": "date-time",
+              "title": "Expires At",
+              "type": "string"
+            }
+          },
+          {
+            "name": "accepted_at",
+            "postgres_type": "timestamp with time zone",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Accepted At"
+            }
+          },
+          {
+            "name": "revoked_at",
+            "postgres_type": "timestamp with time zone",
+            "nullable": true,
+            "json_schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Revoked At"
+            }
+          },
+          {
+            "name": "invited_by",
+            "postgres_type": "uuid",
+            "nullable": false,
+            "json_schema": {
+              "format": "uuid",
+              "title": "Invited By",
+              "type": "string"
+            }
+          }
+        ],
+        "semantics": "One row for every public.user_invitations row, without filters or ordering. project_role is extracted from the whole-row JSON value, so a column absent on legacy schemas reads as NULL and becomes visible after its additive column is installed without reapplying this installer. The relation never returns email, token, inviter profile, or accepted-user fields; it returns only the invited_by UUID required by the historical report."
+      },
+      {
+        "name": "schema_capabilities",
+        "qualified_name": "aap_identity_audit_v1.schema_capabilities",
+        "kind": "security_barrier_view",
+        "columns": [
+          {
+            "name": "invitation_project_role",
+            "postgres_type": "boolean",
+            "nullable": false,
+            "json_schema": {
+              "title": "Invitation Project Role",
+              "type": "boolean"
+            }
+          }
+        ],
+        "semantics": "Exactly one row reporting whether the optional user_invitations.project_role column exists. The value is computed from pg_catalog.pg_attribute and changes after the additive migration without reinstalling this relation."
+      }
+    ],
+    "authorization_boundary": "Only a trusted audit LOGIN receives SELECT on this relation. The ordinary Identity API consumer keeps its existing five-function, two-view allowlist.",
+    "transaction_boundary": "The caller owns the read-only transaction and snapshot; this relation does not commit, filter, or authorize rows."
+  }
+}

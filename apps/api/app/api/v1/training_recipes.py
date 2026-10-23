@@ -4,7 +4,6 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from app.db.models.project import Project
-from app.db.models.user import User
 from app.db.models.training_recipe import TrainingRecipe, TrainingRecipeRevision
 from app.deps import get_current_user, get_db, require_project_owner, require_scopes
 from app.schemas.training_recipe import (
@@ -15,6 +14,7 @@ from app.schemas.training_recipe import (
     TrainingReuseCandidate,
 )
 from app.services import training_recipes as service
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter(
     prefix="/projects/{project_id}/training-recipes",
@@ -64,7 +64,7 @@ async def list_recipes(
 async def create_recipe(
     body: TrainingRecipeWrite,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db=Depends(get_db),
 ):
     return await service.write_revision(body, project, user, db)
@@ -80,7 +80,7 @@ async def create_revision(
     recipe_id: uuid.UUID,
     body: TrainingRecipeWrite,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db=Depends(get_db),
 ):
     return await service.write_revision(body, project, user, db, recipe_id)
@@ -136,7 +136,7 @@ async def archive_recipe(
     recipe_id: uuid.UUID,
     expected_head_revision: int = Query(ge=1),
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db=Depends(get_db),
 ):
     recipe, revision = await service.archive_recipe(

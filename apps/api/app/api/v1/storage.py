@@ -18,10 +18,10 @@ from app.deps import (
     require_roles,
 )
 from app.db.enums import PlatformRole
-from app.db.models.user import User
 from app.services.storage import storage_service
 from app.services.assets_media import media_gateway, media_http_error
 from app.schemas.storage import BucketSummary, BucketsResponse
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -35,7 +35,7 @@ VideoAssetKind = Literal["probe", "poster", "frame_timetable", "chunk", "frame"]
 
 
 @router.get("/health")
-async def storage_health(_: User = Depends(get_current_user)):
+async def storage_health(_: IdentityActorFacts = Depends(get_current_user)):
     try:
         storage_service.client.head_bucket(Bucket=storage_service.bucket)
         return {"status": "ok", "bucket": storage_service.bucket}
@@ -44,7 +44,7 @@ async def storage_health(_: User = Depends(get_current_user)):
 
 
 @router.get("/buckets", response_model=BucketsResponse)
-async def storage_buckets(_: User = Depends(get_current_user)):
+async def storage_buckets(_: IdentityActorFacts = Depends(get_current_user)):
     bucket_roles = {
         storage_service.bucket: "annotations",
         storage_service.datasets_bucket: "datasets",
@@ -109,7 +109,7 @@ async def list_video_asset_failures(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_MEDIA_MANAGERS)),
+    current_user: IdentityActorFacts = Depends(require_roles(*_MEDIA_MANAGERS)),
 ):
     try:
         async with media_gateway(db) as gateway:
@@ -138,7 +138,7 @@ async def list_video_asset_failures(
 async def retry_video_asset(
     payload: VideoAssetRetryRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*_MEDIA_MANAGERS)),
+    current_user: IdentityActorFacts = Depends(require_roles(*_MEDIA_MANAGERS)),
 ):
     if payload.asset_type == "chunk":
         if payload.chunk_id is None:

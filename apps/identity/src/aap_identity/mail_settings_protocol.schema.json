@@ -1,0 +1,32 @@
+{
+  "$id": "aap-identity-mail-settings/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "smtp_from": {
+      "title": "Smtp From",
+      "type": "string"
+    },
+    "smtp_host": {
+      "title": "Smtp Host",
+      "type": "string"
+    },
+    "smtp_password": {
+      "title": "Smtp Password",
+      "type": "string"
+    },
+    "smtp_port": {
+      "maximum": 65535,
+      "minimum": 0,
+      "title": "Smtp Port",
+      "type": "integer"
+    },
+    "smtp_user": {
+      "title": "Smtp User",
+      "type": "string"
+    }
+  },
+  "required": ["smtp_host", "smtp_port", "smtp_user", "smtp_password", "smtp_from"],
+  "title": "MailDeliveryPolicy",
+  "type": "object"
+}

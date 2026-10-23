@@ -34,7 +34,7 @@ from app.db.models.prediction import (  # noqa: E402
 )
 from app.db.models.task import Task  # noqa: E402
 from app.db.models.project import Project  # noqa: E402
-from app.db.models.user import User  # noqa: E402
+from app.services.identity_commands import IdentityCommandService  # noqa: E402
 from app.services.prediction import PredictionService  # noqa: E402
 from app.workers.celery_app import celery_app  # noqa: E402
 from scripts.cleanup_screenshot_ocr_flow import assert_screenshot_scope  # noqa: E402
@@ -234,8 +234,8 @@ async def seed(
     project = await db.get(Project, project_id)
     if task is None or project is None or task.project_id != project.id:
         raise RuntimeError("screenshot OCR task or project disappeared")
-    user = await db.scalar(select(User).where(User.email == user_email))
-    if user is None:
+    user_id = await IdentityCommandService(db).lookup_seed_account_id(user_email)
+    if user_id is None:
         raise RuntimeError(f"recording user not found: {user_email}")
 
     stages = project.preannotate_pipeline or []
@@ -266,7 +266,7 @@ async def seed(
     job = AsyncJob(
         kind="batch_predict",
         project_id=project_id,
-        user_id=user.id,
+        user_id=user_id,
         status=AsyncJobStatus.FAILED.value,
         progress_pct=100,
         payload={

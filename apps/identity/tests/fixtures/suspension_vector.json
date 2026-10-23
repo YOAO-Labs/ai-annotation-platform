@@ -1,0 +1,9 @@
+{
+  "signing_secret": "identity-suspension-vector-secret",
+  "operation_id": "01234567-89ab-4cde-8fab-0123456789ab",
+  "target_user_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "reason": " \u00a0交接　 ",
+  "canonical_request": "{\"operation\":\"reactivate_account\",\"payload\":{\"reason\":\" \\u00a0\\u4ea4\\u63a5\\u3000 \",\"target_user_id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\"}}",
+  "request_fingerprint": "f96284878916bb309a6787c8852494a12b151878939957c167e1177c14df07ce",
+  "derivation_id": "6ffb10d98d9af2a5d985d04b4f4132f333c1e4ba7e97c6afd0fb273f08855c7e"
+}

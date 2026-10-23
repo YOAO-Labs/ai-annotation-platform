@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import UserRole
 from app.db.models.project_pipeline import ProjectPipeline
-from app.db.models.user import User
 from app.schemas.preannotate import PreannotateRequest
 from app.schemas.project_pipeline import (
     ProjectPipelineCreate,
@@ -21,6 +20,7 @@ from app.schemas.project_pipeline import (
 )
 from app.services.project_access import resolve_project_access_by_id
 from app.services.project_template import list_user_org_ids
+from app.services.identity_contracts import IdentityActorFacts
 
 
 def validate_saved_pipeline(stages) -> list[dict] | None:
@@ -56,13 +56,13 @@ def validate_saved_pipeline(stages) -> list[dict] | None:
 
 
 async def _assert_project_visible(
-    db: AsyncSession, project_id: uuid.UUID, user: User
+    db: AsyncSession, project_id: uuid.UUID, user: IdentityActorFacts
 ) -> None:
     await resolve_project_access_by_id(db, actor_id=user.id, project_id=project_id)
 
 
 async def assert_pipeline_visible(
-    db: AsyncSession, pipeline: ProjectPipeline, user: User
+    db: AsyncSession, pipeline: ProjectPipeline, user: IdentityActorFacts
 ) -> None:
     """看不到则 404 隐藏存在性."""
     if user.role == UserRole.SUPER_ADMIN:
@@ -79,7 +79,7 @@ async def assert_pipeline_visible(
 
 
 async def can_edit_pipeline(
-    db: AsyncSession, pipeline: ProjectPipeline, user: User
+    db: AsyncSession, pipeline: ProjectPipeline, user: IdentityActorFacts
 ) -> bool:
     if user.role == UserRole.SUPER_ADMIN:
         return True
@@ -92,7 +92,10 @@ async def can_edit_pipeline(
 
 
 async def assert_can_create_pipeline_scope(
-    db: AsyncSession, scope: str, organization_id: uuid.UUID | None, user: User
+    db: AsyncSession,
+    scope: str,
+    organization_id: uuid.UUID | None,
+    user: IdentityActorFacts,
 ) -> None:
     if scope == "public" and user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="仅超级管理员可创建公共编排")
@@ -157,7 +160,7 @@ async def unenabled_backend_ids(
 
 
 async def create_pipeline(
-    db: AsyncSession, data: ProjectPipelineCreate, user: User
+    db: AsyncSession, data: ProjectPipelineCreate, user: IdentityActorFacts
 ) -> ProjectPipeline:
     if user.role not in (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN):
         raise HTTPException(
@@ -198,7 +201,7 @@ async def update_pipeline(
     db: AsyncSession,
     pipeline_id: uuid.UUID,
     data: ProjectPipelineUpdate,
-    user: User,
+    user: IdentityActorFacts,
 ) -> ProjectPipeline:
     pipeline = await _load_pipeline_or_404(db, pipeline_id)
     await assert_pipeline_visible(db, pipeline, user)
@@ -242,7 +245,9 @@ async def update_pipeline(
     return pipeline
 
 
-async def delete_pipeline(db: AsyncSession, pipeline_id: uuid.UUID, user: User) -> None:
+async def delete_pipeline(
+    db: AsyncSession, pipeline_id: uuid.UUID, user: IdentityActorFacts
+) -> None:
     pipeline = await _load_pipeline_or_404(db, pipeline_id)
     await assert_pipeline_visible(db, pipeline, user)
     if not await can_edit_pipeline(db, pipeline, user):

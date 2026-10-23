@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.services.identity_contracts import IdentityActorFacts
+
 import copy
 import re
 import uuid
@@ -17,7 +19,6 @@ from app.db.enums import UserRole
 from app.db.models.dataset import Dataset, ProjectDataset
 from app.db.models.project import Project
 from app.db.models.project_template import ProjectTemplate
-from app.db.models.user import User
 from app.services.guide_asset_contracts import (
     ALLOWED_GUIDE_ASSET_TYPES,
     MAX_GUIDE_ASSET_SIZE_BYTES,
@@ -515,7 +516,7 @@ def apply_project_update(project: Project, payload: dict[str, Any]) -> None:
 async def create_template(
     db: AsyncSession,
     *,
-    actor: User,
+    actor: IdentityActorFacts,
     payload: dict[str, Any],
     source_project: Any | None = None,
 ) -> ProjectTemplate:
@@ -581,7 +582,7 @@ async def update_template(
     db: AsyncSession,
     *,
     template: ProjectTemplate,
-    actor: User,
+    actor: IdentityActorFacts,
     payload: dict[str, Any],
 ) -> ProjectTemplate:
 
@@ -611,7 +612,7 @@ async def update_template(
 
 
 async def delete_template(
-    db: AsyncSession, *, template: ProjectTemplate, actor: User
+    db: AsyncSession, *, template: ProjectTemplate, actor: IdentityActorFacts
 ) -> None:
     await assert_template_visible(db, template, actor)
     if not can_edit_template(template, actor):
@@ -623,7 +624,7 @@ async def duplicate_template(
     db: AsyncSession,
     *,
     source: ProjectTemplate,
-    actor: User,
+    actor: IdentityActorFacts,
 ) -> ProjectTemplate:
     from app.services.display_id import next_display_id
 

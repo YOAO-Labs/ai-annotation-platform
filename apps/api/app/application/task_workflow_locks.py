@@ -11,7 +11,6 @@ from app.application.task_workflow_errors import TaskWorkflowError
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
-from app.db.models.user import User
 from app.services import task_access
 from app.services.workspace_contract import ProjectAccess
 from app.services.project_access import lock_current_project_access
@@ -20,15 +19,9 @@ from app.services.identity_contracts import IdentityActorFacts
 _LOCK_FAILURE_SQLSTATES = {"55P03", "40001", "40P01"}
 
 
-def _identity_actor_facts(user: User) -> IdentityActorFacts:
-    """Project the already locked current account into its read-only facts."""
-    return IdentityActorFacts(
-        id=user.id,
-        name=user.name,
-        email=user.email,
-        role=user.role,
-        is_active=user.is_active,
-    )
+def _identity_actor_facts(user: IdentityActorFacts) -> IdentityActorFacts:
+    """Keep the Identity value obtained under the current account lock."""
+    return user
 
 
 async def lock_row_nowait(db: AsyncSession, statement: Any, *, reason: str):

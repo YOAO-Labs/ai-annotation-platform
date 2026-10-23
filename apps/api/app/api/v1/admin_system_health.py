@@ -11,8 +11,8 @@ from pydantic import BaseModel
 from app.api import health
 from app.config import settings
 from app.db.enums import UserRole
-from app.db.models.user import User
 from app.deps import require_roles
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -101,7 +101,7 @@ def _worst_status(statuses: list[HealthStatus]) -> HealthStatus:
 
 @router.get("", response_model=SystemHealthResponse)
 async def get_system_health(
-    _: User = Depends(require_roles(UserRole.SUPER_ADMIN.value)),
+    _: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN.value)),
 ) -> SystemHealthResponse:
     db_r, redis_r = await asyncio.gather(health._check_db(), health._check_redis())
     minio_r, celery_r = await asyncio.gather(

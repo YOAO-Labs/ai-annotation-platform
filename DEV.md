@@ -516,6 +516,37 @@ UUID `Idempotency-Key`，结果不确定时以原内容和原键重放；回执�
 真实目录容器、公开 API 消费、响应丢失、重启和本地/远程切换；不修改日常角色，不提供
 生产容量或完整 Assets 语言替换资格。Go 月报仍是单独实验，不参与默认运行。
 
+## 独立 Identity 运行时
+
+`apps/identity` 与 `apps/_shared/mail_transport` 提供独立运行包。复用
+`docker-compose.identity.yml` 配置独立 owner、邮件和通知投递；公开 API 通过
+`IDENTITY_URL`、`IDENTITY_TOKEN` 选择远程入口，所需的签名密钥和各项能力 DSN 留在
+owner 进程。未配置远程入口时，原有调用方事务绑定继续可用。
+
+先在隔离数据库验证迁移与凭据，再采用到日常环境。完整 Identity 消费者所需的线性
+迁移链从 `0234` 到 `0306`，不能挑选其中部分 Identity 迁移安装。密码恢复／邮箱验证
+的旧令牌在升级中转为 SHA-256，并绑定签发邮箱；有状态时应使用验证过的快照恢复
+路径回退，不能仅修改 Alembic revision。
+
+`infra/docker/identity-consumer-grants.sql` 应在 owner 和普通应用授权之后执行。普通 API
+只读取两张公开关系，执行六项固定能力，包括旧模板／编排所需的组织 ID 读取；不能
+直接读取 Users、Groups、Organizations、凭据、邀请或回执表。该兼容读取复用已有
+Identity 函数，不要求切换 Workspace 实现。
+
+重复的环境变量和 file selector 会失败关闭。新增 API 设置见 `.env.example` 和
+[Identity 协议](docs-site/api/guides/identity-runtime.md)。受限 API 的兼容检查使用
+独占验收器，Node 调用也不需要 Python 提供方运行时：
+
+```bash
+AAP_MODULE_DATA_ROLE_ACCEPTANCE=1 apps/api/.venv/bin/python \
+  scripts/verify_module_data_boundary.py \
+  --output .worktree/identity-primary-compatibility.json \
+  --test-file tests/test_identity_primary_compatibility.py
+```
+
+API 的冷镜像与完整 owner 装配另行验收。上述定向检查不证明主环境已切换、完整
+Workspace 已完成或生产容量达标，Go 保持实验性质。
+
 ## 技术栈
 
 | 层        | 技术                                                 |

@@ -1,0 +1,597 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-video-restore/v1",
+  "$defs": {
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backup_sha256",
+        "fence_sha256",
+        "restore_id",
+        "schema",
+        "source_jobs_realm",
+        "source_jobs_secret_sha256",
+        "source_routing_realm",
+        "source_routing_secret_sha256",
+        "target_jobs_realm",
+        "target_routing_realm"
+      ],
+      "properties": {
+        "schema": {
+          "const": "aap-video-restore/v1"
+        },
+        "restore_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "backup_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "fence_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "source_jobs_realm": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*:[^\\u0000-\\u001f\\u007f]+:[1-9][0-9]*$"
+        },
+        "target_jobs_realm": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*:[^\\u0000-\\u001f\\u007f]+:[1-9][0-9]*$"
+        },
+        "source_routing_realm": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*:[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "target_routing_realm": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*:[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "source_jobs_secret_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "source_routing_secret_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempts_reconciled",
+        "executions_invalidated",
+        "registries_rebound",
+        "route_intents_rewrapped",
+        "scopes_retired"
+      ],
+      "properties": {
+        "attempts_reconciled": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "executions_invalidated": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "registries_rebound": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "route_intents_rewrapped": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "scopes_retired": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        }
+      }
+    },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backup_sha256",
+        "command_sha256",
+        "completed_at",
+        "counts",
+        "fence_sha256",
+        "phase",
+        "restore_id",
+        "source_jobs_realm",
+        "source_routing_realm",
+        "started_at",
+        "target_jobs_realm",
+        "target_routing_realm"
+      ],
+      "properties": {
+        "restore_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "phase": {
+          "enum": ["prepared", "completed"]
+        },
+        "command_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "backup_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "fence_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "source_jobs_realm": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*:[^\\u0000-\\u001f\\u007f]+:[1-9][0-9]*$"
+        },
+        "target_jobs_realm": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*:[^\\u0000-\\u001f\\u007f]+:[1-9][0-9]*$"
+        },
+        "source_routing_realm": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*:[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "target_routing_realm": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*:[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"
+        },
+        "completed_at": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"
+            }
+          ]
+        },
+        "counts": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/counts"
+            }
+          ]
+        }
+      }
+    },
+    "private_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backend_incarnation",
+        "challenge",
+        "control_id",
+        "endpoint",
+        "new_epoch",
+        "phase",
+        "registry_id",
+        "retired_epoch",
+        "signing_key"
+      ],
+      "properties": {
+        "control_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "registry_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "phase": {
+          "enum": ["prepared", "bound"]
+        },
+        "new_epoch": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "challenge": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "retired_epoch": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          ]
+        },
+        "backend_incarnation": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "endpoint": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["auth_method", "auth_token", "url"],
+          "properties": {
+            "url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "auth_method": {
+              "const": "token"
+            },
+            "auth_token": {
+              "type": "string"
+            }
+          }
+        },
+        "signing_key": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        }
+      }
+    },
+    "backend_control_reply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "command_id",
+        "registry_id",
+        "authority_epoch",
+        "backend_incarnation",
+        "challenge",
+        "phase",
+        "active_requests"
+      ],
+      "properties": {
+        "schema": {
+          "const": "aap-backend-route-control-reply/v1"
+        },
+        "command_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "registry_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "authority_epoch": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "backend_incarnation": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "challenge": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "phase": {
+          "enum": ["draining", "drained", "bound"]
+        },
+        "active_requests": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "native_step": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/native_policy_step"
+        },
+        {
+          "$ref": "#/$defs/native_inspect_step"
+        },
+        {
+          "$ref": "#/$defs/native_prepare_step"
+        },
+        {
+          "$ref": "#/$defs/native_status_step"
+        },
+        {
+          "$ref": "#/$defs/native_observe_step"
+        },
+        {
+          "$ref": "#/$defs/native_record_bound_step"
+        },
+        {
+          "$ref": "#/$defs/native_finish_step"
+        }
+      ]
+    },
+    "native_policy_step": {
+      "$ref": "#/$defs/native_step_shape",
+      "properties": {
+        "action": {
+          "const": "policy"
+        },
+        "arguments": {
+          "type": "object",
+          "maxProperties": 0
+        }
+      }
+    },
+    "native_inspect_step": {
+      "$ref": "#/$defs/native_step_shape",
+      "properties": {
+        "action": {
+          "const": "inspect"
+        },
+        "arguments": {
+          "type": "object",
+          "maxProperties": 0
+        }
+      }
+    },
+    "native_prepare_step": {
+      "$ref": "#/$defs/native_step_shape",
+      "properties": {
+        "action": {
+          "const": "prepare"
+        },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["command"],
+          "properties": {
+            "command": {
+              "$ref": "#/$defs/command"
+            }
+          }
+        }
+      }
+    },
+    "native_status_step": {
+      "$ref": "#/$defs/native_step_shape",
+      "properties": {
+        "action": {
+          "const": "status"
+        },
+        "arguments": {
+          "$ref": "#/$defs/restore_id_arguments"
+        }
+      }
+    },
+    "native_observe_step": {
+      "$ref": "#/$defs/native_step_shape",
+      "properties": {
+        "action": {
+          "const": "observe"
+        },
+        "arguments": {
+          "$ref": "#/$defs/reply_arguments"
+        }
+      }
+    },
+    "native_record_bound_step": {
+      "$ref": "#/$defs/native_step_shape",
+      "properties": {
+        "action": {
+          "const": "record_bound"
+        },
+        "arguments": {
+          "$ref": "#/$defs/reply_arguments"
+        }
+      }
+    },
+    "native_finish_step": {
+      "$ref": "#/$defs/native_step_shape",
+      "properties": {
+        "action": {
+          "const": "finish"
+        },
+        "arguments": {
+          "$ref": "#/$defs/restore_id_arguments"
+        }
+      }
+    },
+    "native_step_shape": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "arguments"],
+      "properties": {
+        "action": {
+          "enum": ["finish", "inspect", "observe", "policy", "prepare", "record_bound", "status"]
+        },
+        "arguments": {
+          "type": "object"
+        }
+      }
+    },
+    "restore_id_arguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["restore_id"],
+      "properties": {
+        "restore_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        }
+      }
+    },
+    "reply_arguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["restore_id", "registry_id", "reply"],
+      "properties": {
+        "restore_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "registry_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "reply": {
+          "$ref": "#/$defs/backend_control_reply"
+        }
+      }
+    },
+    "native_success": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "status", "restore", "contexts"],
+      "properties": {
+        "schema": {
+          "const": "aap-video-restore-data/v1"
+        },
+        "status": {
+          "const": "ok"
+        },
+        "restore": {
+          "$ref": "#/$defs/record"
+        },
+        "contexts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/private_context"
+          }
+        }
+      }
+    },
+    "inspect_success": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "status", "identity"],
+      "properties": {
+        "schema": {
+          "const": "aap-video-restore-data/v1"
+        },
+        "status": {
+          "const": "ok"
+        },
+        "identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source_jobs_realm",
+            "source_jobs_secret_sha256",
+            "source_routing_realm",
+            "source_routing_secret_sha256",
+            "target_jobs_realm",
+            "target_routing_realm"
+          ],
+          "properties": {
+            "source_jobs_realm": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*:[^\\u0000-\\u001f\\u007f]+:[1-9][0-9]*$"
+            },
+            "target_jobs_realm": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*:[^\\u0000-\\u001f\\u007f]+:[1-9][0-9]*$"
+            },
+            "source_routing_realm": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*:[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "target_routing_realm": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*:[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "source_jobs_secret_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "source_routing_secret_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        }
+      }
+    },
+    "native_rejected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "status", "reason"],
+      "properties": {
+        "schema": {
+          "const": "aap-video-restore-data/v1"
+        },
+        "status": {
+          "const": "rejected"
+        },
+        "reason": {
+          "enum": [
+            "authority_unavailable",
+            "backend_reply_invalid",
+            "execution_busy",
+            "invalid_command",
+            "invalid_request",
+            "realm_mismatch",
+            "registry_unavailable",
+            "restore_busy",
+            "restore_conflict",
+            "restore_missing",
+            "retirement_incomplete",
+            "route_snapshot_invalid",
+            "source_mismatch",
+            "storage_unavailable",
+            "transport_changed",
+            "unsupported_isolation"
+          ]
+        }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/command"
+    },
+    {
+      "$ref": "#/$defs/record"
+    },
+    {
+      "$ref": "#/$defs/private_context"
+    },
+    {
+      "$ref": "#/$defs/native_step"
+    },
+    {
+      "$ref": "#/$defs/native_success"
+    },
+    {
+      "$ref": "#/$defs/inspect_success"
+    },
+    {
+      "$ref": "#/$defs/native_rejected"
+    }
+  ]
+}

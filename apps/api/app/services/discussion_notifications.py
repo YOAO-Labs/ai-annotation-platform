@@ -19,8 +19,8 @@ from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.notification import Notification
 from app.db.models.task import Task
-from app.db.models.user import User
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.identity_read_relations import account_profiles
 from app.services.project_access import resolve_project_access_by_id
 from app.services.feedback import FeedbackService
 from app.services.notification import NotificationService
@@ -69,35 +69,35 @@ async def _accessible_active_user_ids(
     ordered_ids = _ordered_unique(user_ids)
     if not ordered_ids:
         return []
-    users = list(
+    if db.autoflush:
+        await db.flush()
+    active_ids = set(
         (
             await db.execute(
-                select(User).where(
-                    User.id.in_(ordered_ids),
-                    User.is_active.is_(True),
+                select(account_profiles.c.id).where(
+                    account_profiles.c.id.in_(ordered_ids),
+                    account_profiles.c.is_active.is_(True),
                 )
             )
         )
         .scalars()
         .all()
     )
-    by_id = {user.id: user for user in users}
 
     visible: list[uuid.UUID] = []
     for user_id in ordered_ids:
-        candidate = by_id.get(user_id)
-        if candidate is None:
+        if user_id not in active_ids:
             continue
         try:
             await resolve_project_access_by_id(
-                db, actor_id=candidate.id, project_id=task.project_id
+                db, actor_id=user_id, project_id=task.project_id
             )
-            await task_access.assert_task_visible(db, task, candidate.id)
+            await task_access.assert_task_visible(db, task, user_id)
         except HTTPException:
             # A transferred/hidden task is not a notification destination.  Keep
             # the same 404-hiding behavior as the regular discussion read routes.
             continue
-        visible.append(candidate.id)
+        visible.append(user_id)
     return visible
 
 
@@ -126,7 +126,7 @@ async def _active_descendant_author_ids(
 def _feedback_payload(
     *,
     root: AnnotationFeedback,
-    actor: User,
+    actor: IdentityActorFacts,
     reply_id: uuid.UUID | None = None,
     from_status: str | None = None,
     to_status: str | None = None,
@@ -151,7 +151,7 @@ async def prepare_feedback_reply_notifications(
     *,
     root: AnnotationFeedback,
     reply: AnnotationFeedback,
-    actor: User,
+    actor: IdentityActorFacts,
 ) -> list[Notification]:
     """Persist deferred reply notifications for an Issue root.
 
@@ -188,7 +188,7 @@ async def prepare_feedback_status_notifications(
     db: AsyncSession,
     *,
     root: AnnotationFeedback,
-    actor: User,
+    actor: IdentityActorFacts,
     from_status: str,
     to_status: str,
 ) -> list[Notification]:
@@ -262,7 +262,7 @@ async def prepare_feedback_comment_mention_notifications(
     *,
     comment: AnnotationFeedback,
     task: Task,
-    actor: User,
+    actor: IdentityActorFacts,
     mentioned_user_ids: list[uuid.UUID],
 ) -> list[Notification]:
     """Persist deferred notifications for a native task-comment mention."""

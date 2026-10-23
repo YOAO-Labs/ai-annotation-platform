@@ -1,0 +1,284 @@
+{
+  "$defs": {
+    "BriefsFailureDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "invalid_request",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "BriefsFailureDetail",
+      "type": "object"
+    },
+    "BriefsFailureReply": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/BriefsFailureDetail"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-briefs/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "title": "BriefsFailureReply",
+      "type": "object"
+    },
+    "BriefsReplyData": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "users": {
+          "items": {
+            "$ref": "#/$defs/BriefsUserRecord"
+          },
+          "title": "Users",
+          "type": "array"
+        }
+      },
+      "required": ["project_id", "users"],
+      "title": "BriefsReplyData",
+      "type": "object"
+    },
+    "BriefsUserRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "avatar_initial": {
+          "title": "Avatar Initial",
+          "type": "string"
+        },
+        "avatar_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Avatar Ref"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Role"
+        }
+      },
+      "required": ["id", "name", "email", "role", "avatar_initial", "avatar_ref"],
+      "title": "BriefsUserRecord",
+      "type": "object"
+    },
+    "GetProjectUserBriefsPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "user_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "User Ids",
+          "type": "array"
+        }
+      },
+      "required": ["project_id", "user_ids"],
+      "title": "GetProjectUserBriefsPayload",
+      "type": "object"
+    },
+    "GetProjectUserBriefsReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/BriefsReplyData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "get_project_user_briefs",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-briefs/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation", "data"],
+      "title": "GetProjectUserBriefsReply",
+      "type": "object"
+    },
+    "GetProjectUserBriefsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "get_project_user_briefs",
+          "title": "Operation",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/GetProjectUserBriefsPayload"
+        },
+        "schema": {
+          "const": "aap-identity-briefs/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "payload"],
+      "title": "GetProjectUserBriefsRequest",
+      "type": "object"
+    },
+    "GetUserBriefsPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "user_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "User Ids",
+          "type": "array"
+        }
+      },
+      "required": ["user_ids"],
+      "title": "GetUserBriefsPayload",
+      "type": "object"
+    },
+    "GetUserBriefsReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/BriefsReplyData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "get_user_briefs",
+          "title": "Operation",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-briefs/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation", "data"],
+      "title": "GetUserBriefsReply",
+      "type": "object"
+    },
+    "GetUserBriefsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "get_user_briefs",
+          "title": "Operation",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/GetUserBriefsPayload"
+        },
+        "schema": {
+          "const": "aap-identity-briefs/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation", "payload"],
+      "title": "GetUserBriefsRequest",
+      "type": "object"
+    }
+  },
+  "$id": "aap-identity-briefs/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "discriminator": {
+        "mapping": {
+          "get_project_user_briefs": "#/$defs/GetProjectUserBriefsRequest",
+          "get_user_briefs": "#/$defs/GetUserBriefsRequest"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/GetUserBriefsRequest"
+        },
+        {
+          "$ref": "#/$defs/GetProjectUserBriefsRequest"
+        }
+      ]
+    },
+    {
+      "discriminator": {
+        "mapping": {
+          "get_project_user_briefs": "#/$defs/GetProjectUserBriefsReply",
+          "get_user_briefs": "#/$defs/GetUserBriefsReply"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/GetUserBriefsReply"
+        },
+        {
+          "$ref": "#/$defs/GetProjectUserBriefsReply"
+        }
+      ]
+    },
+    {
+      "$ref": "#/$defs/BriefsFailureReply"
+    }
+  ]
+}

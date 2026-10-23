@@ -1,0 +1,140 @@
+{
+  "$defs": {
+    "ActorContext": {
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_active": {
+          "const": true,
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Role",
+          "type": "string"
+        },
+        "weekly_target_default": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Weekly Target Default"
+        }
+      },
+      "required": ["id", "name", "email", "role", "is_active", "weekly_target_default"],
+      "title": "ActorContext",
+      "type": "object"
+    },
+    "ActorContextFailureDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": ["invalid_request", "credential_invalid"],
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "ActorContextFailureDetail",
+      "type": "object"
+    },
+    "ActorContextFailureReply": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/ActorContextFailureDetail"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-actor/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "title": "ActorContextFailureReply",
+      "type": "object"
+    },
+    "ActorContextRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "admitted_role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Admitted Role",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-actor/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "actor_id", "admitted_role"],
+      "title": "ActorContextRequest",
+      "type": "object"
+    },
+    "ActorContextSuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/ActorContext"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-actor/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "title": "ActorContextSuccess",
+      "type": "object"
+    }
+  },
+  "$id": "aap-identity-actor/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/ActorContextRequest"
+    },
+    {
+      "$ref": "#/$defs/ActorContextSuccess"
+    },
+    {
+      "$ref": "#/$defs/ActorContextFailureReply"
+    }
+  ],
+  "x-postgresql-functions": ["aap_identity_v1.read_actor_context(uuid, text)"]
+}

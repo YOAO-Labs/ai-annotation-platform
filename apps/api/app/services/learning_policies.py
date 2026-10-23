@@ -21,6 +21,7 @@ from app.services import training_datasets as datasets, training_runs as runs
 from app.services import training_adapters as adapters
 from app.services import training_claims as claims
 from app.services import async_job as jobs
+from app.services.identity_contracts import IdentityActorFacts
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
     content_digest,
@@ -43,7 +44,7 @@ log = logging.getLogger(__name__)
 async def save(
     db,
     project: Project,
-    user: User,
+    user: User | IdentityActorFacts,
     body: LearningPolicySave,
     *,
     api_key_id=None,
@@ -229,7 +230,9 @@ async def cancel_unstarted(db, policy):
     trigger.message = "策略关闭或已变化，未启动的自动实验已取消"
 
 
-async def disable(db, project_id, user: User, expected_revision: int):
+async def disable(
+    db, project_id, user: User | IdentityActorFacts, expected_revision: int
+):
     await claims.project_lock(db, project_id)
     await lock_project_manager(db, user.id, project_id)
     policy = await db.scalar(
@@ -250,7 +253,7 @@ async def disable(db, project_id, user: User, expected_revision: int):
     return policy
 
 
-async def delete(db, project_id, user: User) -> bool:
+async def delete(db, project_id, user: User | IdentityActorFacts) -> bool:
     await claims.project_lock(db, project_id)
     await lock_project_manager(db, user.id, project_id)
     policy = await db.scalar(
@@ -608,7 +611,7 @@ async def check_policy(
 async def check_project(
     db: AsyncSession,
     project: Project,
-    user: User,
+    user: User | IdentityActorFacts,
     *,
     source_reader: ProjectTaskSourceReader,
     training_authority: TrainingAuthorityPort,

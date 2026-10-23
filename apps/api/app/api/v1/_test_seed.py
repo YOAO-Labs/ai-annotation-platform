@@ -415,7 +415,10 @@ async def _cleanup_e2e_fixtures(
 
     fixture_user_rows = (
         await db.execute(
-            text(f"SELECT id FROM users WHERE {user_selector}"), user_params
+            text(
+                f"SELECT id FROM aap_identity_fixture_v1.account_profiles WHERE {user_selector}"
+            ),
+            user_params,
         )
     ).fetchall()
     fixture_user_ids = [r[0] for r in fixture_user_rows]
@@ -432,12 +435,14 @@ async def _cleanup_e2e_fixtures(
             async with db.begin_nested():
                 await db.execute(text(sql), params or {})
         except Exception as exc:
+            parts = sql.split()
+            label = parts[2] if len(parts) > 2 else sql
             if _is_transaction_abort(exc):
                 # Fail fast: in the P9 repro an absorbed deadlock left the later
                 # cleanup statements skipped and surfaced as a misleading residual.
-                log.warning("seed_cleanup abort · %s · %s", sql.split()[2], exc)
+                log.warning("seed_cleanup abort · %s · %s", label, exc)
                 raise
-            log.warning("seed_cleanup skip · %s · %s", sql.split()[2], exc)
+            log.warning("seed_cleanup skip · %s · %s", label, exc)
 
     fixture_annotation_ids: list = []
     if fixture_project_ids:
@@ -624,13 +629,36 @@ async def _cleanup_e2e_fixtures(
             ("user_invitations", "invited_by"),
             ("organization_members", "user_id"),
         ]:
-            await _try_delete(
-                f"DELETE FROM {tbl} WHERE {col} = ANY(:uids)",
-                {"uids": fixture_user_ids},
-            )
+            if tbl == "password_reset_tokens":
+                await _try_delete(
+                    "SELECT aap_identity_fixture_v1.delete_reset_tokens(:uids)",
+                    {"uids": fixture_user_ids},
+                )
+            elif tbl == "user_invitations":
+                await _try_delete(
+                    "SELECT aap_identity_fixture_v1.delete_invitations(:uids)",
+                    {"uids": fixture_user_ids},
+                )
+            elif tbl == "organization_members":
+                await _try_delete(
+                    "SELECT aap_identity_fixture_v1.delete_organization_members(:uids)",
+                    {"uids": fixture_user_ids},
+                )
+            else:
+                await _try_delete(
+                    f"DELETE FROM {tbl} WHERE {col} = ANY(:uids)",
+                    {"uids": fixture_user_ids},
+                )
         # 用户最后删（前面所有反向引用清干净后，仅靠 ON DELETE SET NULL FK 的字段
         # 会被 PG 自动置 NULL，无 ondelete 的字段需我们已手动删完）。
-        await _try_delete(f"DELETE FROM users WHERE {user_selector}", user_params)
+        await _try_delete(
+            "SELECT aap_identity_fixture_v1.delete_accounts("
+            "CAST(:shared AS boolean),CAST(:emails AS text[]))",
+            {
+                "shared": owned is None,
+                "emails": owned.all_user_emails if owned is not None else [],
+            },
+        )
 
     # v0.23.3 ADR-0050 · mock registry 已有 singleton pool，且 pool 的
     # legacy_instance_id / member 都以 RESTRICT 引用 registry。先删除 mock pool
@@ -679,7 +707,7 @@ async def _cleanup_e2e_fixtures(
     if owned is None:
         residual_query = (
             "SELECT "
-            "(SELECT count(*) FROM users "
+            "(SELECT count(*) FROM aap_identity_fixture_v1.account_profiles "
             " WHERE email LIKE '%@e2e.test') AS users, "
             "(SELECT count(*) FROM projects "
             " WHERE name = 'E2E Demo Project' "
@@ -691,7 +719,8 @@ async def _cleanup_e2e_fixtures(
     else:
         residual_query = (
             "SELECT "
-            "(SELECT count(*) FROM users WHERE email = ANY(:owned_emails)) AS users, "
+            "(SELECT count(*) FROM aap_identity_fixture_v1.account_profiles "
+            " WHERE email = ANY(:owned_emails)) AS users, "
             "(SELECT count(*) FROM projects WHERE name = ANY(:owned_project_names)) AS projects, "
             "(SELECT count(*) FROM ml_backend_registry "
             " WHERE url = :owned_registry_url) AS ml_backends"
@@ -787,11 +816,17 @@ async def _build_image_workbench_fixture(
     Shared by the destructive shared `seed/reset` and the per-test owned
     route; both differ only in the identifiers below.
     """
-    from tests.factory import create_user, create_project, create_task
+    from app.services.identity_e2e_fixtures import IdentityE2EFixtures
+    from tests.factory import create_project, create_task
 
-    admin = await create_user(db, "super_admin", ids.admin_email, "E2E Admin")
-    annotator = await create_user(db, "employee", ids.annotator_email, "E2E Annotator")
-    reviewer = await create_user(db, "employee", ids.reviewer_email, "E2E Reviewer")
+    identity = IdentityE2EFixtures(db)
+    admin = await identity.create_user("super_admin", ids.admin_email, "E2E Admin")
+    annotator = await identity.create_user(
+        "employee", ids.annotator_email, "E2E Annotator"
+    )
+    reviewer = await identity.create_user(
+        "employee", ids.reviewer_email, "E2E Reviewer"
+    )
     project = await create_project(db, owner_id=admin.id, name=ids.project_name)
     # Mask E2E 走兼容 polygon 提交；能力握手要求项目显式开启
     # region 工具。保留 bbox 绑定，避免改变其他工作台 E2E 的基础数据。
@@ -1220,7 +1255,7 @@ async def seed_project_roles(
     """
     from app.db.models.project_member import ProjectMember
     from app.db.models.task_batch import TaskBatch
-    from tests.factory import create_user
+    from app.services.identity_e2e_fixtures import IdentityE2EFixtures
 
     namespace = payload.namespace if payload is not None else None
     scope = _parse_owned_namespace(namespace) if namespace is not None else None
@@ -1272,25 +1307,28 @@ async def seed_project_roles(
         def image_key_prefix(key: str) -> str:
             return f"{scope.pr_storage_prefix}{key.lower()}/"
 
-    owner_a = await create_user(
-        db, "project_admin", user_email("owner-a"), "E2E Owner A"
+    identity = IdentityE2EFixtures(db)
+    owner_a = await identity.create_user(
+        "project_admin", user_email("owner-a"), "E2E Owner A"
     )
-    owner_b = await create_user(
-        db, "project_admin", user_email("owner-b"), "E2E Owner B"
+    owner_b = await identity.create_user(
+        "project_admin", user_email("owner-b"), "E2E Owner B"
     )
-    owner_c = await create_user(
-        db, "project_admin", user_email("owner-c"), "E2E Owner C"
+    owner_c = await identity.create_user(
+        "project_admin", user_email("owner-c"), "E2E Owner C"
     )
-    employee = await create_user(db, "employee", user_email("employee"), "E2E Employee")
-    peer = await create_user(db, "employee", user_email("peer"), "E2E Peer")
-    spare = await create_user(db, "employee", user_email("spare"), "E2E Spare")
-    viewer = await create_user(db, "viewer", user_email("viewer"), "E2E Viewer")
-    viewer_unassigned = await create_user(
-        db, "viewer", user_email("viewer-unassigned"), "E2E Viewer Unassigned"
+    employee = await identity.create_user(
+        "employee", user_email("employee"), "E2E Employee"
+    )
+    peer = await identity.create_user("employee", user_email("peer"), "E2E Peer")
+    spare = await identity.create_user("employee", user_email("spare"), "E2E Spare")
+    viewer = await identity.create_user("viewer", user_email("viewer"), "E2E Viewer")
+    viewer_unassigned = await identity.create_user(
+        "viewer", user_email("viewer-unassigned"), "E2E Viewer Unassigned"
     )
     # Platform employee with no project membership: exercises the no-project
     # employee empty state without a new production endpoint.
-    solo = await create_user(db, "employee", user_email("solo"), "E2E Solo")
+    solo = await identity.create_user("employee", user_email("solo"), "E2E Solo")
 
     project_a, tasks_a = await _build_project_roles_image_project(
         db,
@@ -1650,18 +1688,15 @@ async def seed_lidar(
     共享固定 fixture。
     """
     scope = _parse_owned_namespace(payload.namespace)
-    from sqlalchemy import select
-
     from app.db.models.annotation import Annotation
     from app.db.models.dataset import Dataset, DatasetItem, Scene
     from app.db.models.project import Project
     from app.db.models.project_member import ProjectMember
     from app.db.models.task import Task
     from app.db.models.task_batch import TaskBatch
-    from app.db.models.user import User
     from app.services.storage import storage_service
     from app.services.task_dataset_link import link_items
-    from tests.factory import create_user
+    from app.services.identity_e2e_fixtures import IdentityE2EFixtures
 
     await db.execute(text("SET LOCAL \"app.allow_audit_update\" = 'true'"))
 
@@ -1673,11 +1708,11 @@ async def seed_lidar(
                 await sp.rollback()
 
     # 复用本命名空间 owned fixture 的 admin/annotator 用户;缺则补建。
-    async def _user(role: str, email: str, name: str) -> User:
-        existing = (
-            await db.execute(select(User).where(User.email == email))
-        ).scalar_one_or_none()
-        return existing or await create_user(db, role, email, name)
+    identity = IdentityE2EFixtures(db)
+
+    async def _user(role: str, email: str, name: str):
+        existing = await identity.find(email)
+        return existing or await identity.create_user(role, email, name)
 
     admin = await _user("super_admin", scope.admin_email, "E2E Admin")
     annotator = await _user("employee", scope.annotator_email, "E2E Annotator")
@@ -1967,11 +2002,9 @@ async def seed_login(
     db: AsyncSession = Depends(get_db),
 ) -> SeedLoginResponse:
     """跳过密码验证发 JWT（仅 E2E 测试用）。"""
-    from sqlalchemy import select
-    from app.db.models.user import User
+    from app.services.identity_e2e_fixtures import IdentityE2EFixtures
 
-    res = await db.execute(select(User).where(User.email == payload.email))
-    user = res.scalar_one_or_none()
+    user = await IdentityE2EFixtures(db).find(payload.email)
     if not user:
         raise HTTPException(status_code=404, detail=f"user {payload.email} not found")
 
@@ -2036,18 +2069,11 @@ async def seed_peek(db: AsyncSession = Depends(get_db)) -> SeedPeekResponse:
     from sqlalchemy import select
     from app.db.models.project import Project
     from app.db.models.task import Task
-    from app.db.models.user import User
+    from app.services.identity_e2e_fixtures import IdentityE2EFixtures
 
     # 优先选「不像 E2E fixture」的 admin（@e2e.test 邮箱排到末尾），让截图脚本
     # 优先用开发者真实账号（如 seed.py 的 admin）。
-    admin = (
-        await db.execute(
-            select(User)
-            .where(User.role == "super_admin")
-            .order_by(User.email.like("%@e2e.test").asc(), User.created_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    admin = await IdentityE2EFixtures(db).peek_admin()
     # 项目 / 任务同样按 created_at desc，优先最新（开发者刚操作过的）。
     project = (
         await db.execute(select(Project).order_by(Project.created_at.desc()).limit(1))
@@ -2621,17 +2647,13 @@ async def seed_tracker_review(
     """Create a deterministic two-target staged tracker review for browser E2E."""
     from uuid import UUID
 
-    from sqlalchemy import select
-
     from app.db.models.annotation import Annotation
     from app.db.models.task import Task
-    from app.db.models.user import User
     from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
+    from app.services.identity_e2e_fixtures import IdentityE2EFixtures
 
     task = await db.get(Task, UUID(payload.task_id))
-    user = (
-        await db.execute(select(User).where(User.email == payload.user_email))
-    ).scalar_one_or_none()
+    user = await IdentityE2EFixtures(db).find(payload.user_email)
     if task is None or task.file_type != "video" or user is None:
         raise HTTPException(status_code=404, detail="video task or user not found")
 
@@ -3125,12 +3147,10 @@ async def seed_inject_raster_mask(
     """
     from uuid import UUID
 
-    from sqlalchemy import select
-
     from app.db.models.annotation import Annotation
     from app.db.models.dataset import DatasetItem
     from app.db.models.task import Task
-    from app.db.models.user import User
+    from app.services.identity_e2e_fixtures import IdentityE2EFixtures
     from app.services.raster_mask_storage import (
         build_rle_reference,
         rle_object_key,
@@ -3139,9 +3159,7 @@ async def seed_inject_raster_mask(
     from app.utils.raster_mask_rle import encode_coco_rle
 
     task = await db.get(Task, UUID(payload.task_id))
-    user = (
-        await db.execute(select(User).where(User.email == payload.user_email))
-    ).scalar_one_or_none()
+    user = await IdentityE2EFixtures(db).find(payload.user_email)
     if task is None or user is None:
         raise HTTPException(status_code=404, detail="task or user not found")
 
@@ -3296,7 +3314,7 @@ async def seed_advance_task(
     from uuid import UUID
     from sqlalchemy import select
     from app.db.models.task import Task
-    from app.db.models.user import User
+    from app.services.identity_e2e_fixtures import IdentityE2EFixtures
 
     res = await db.execute(select(Task).where(Task.id == UUID(payload.task_id)))
     task = res.scalar_one_or_none()
@@ -3305,20 +3323,15 @@ async def seed_advance_task(
 
     now = datetime.now(timezone.utc)
     task.status = payload.to_status
+    identity = IdentityE2EFixtures(db)
 
     if payload.annotator_email:
-        anno_res = await db.execute(
-            select(User).where(User.email == payload.annotator_email)
-        )
-        anno = anno_res.scalar_one_or_none()
+        anno = await identity.find(payload.annotator_email)
         if anno:
             task.assignee_id = anno.id
             task.assigned_at = task.assigned_at or now
     if payload.reviewer_email:
-        rev_res = await db.execute(
-            select(User).where(User.email == payload.reviewer_email)
-        )
-        rev = rev_res.scalar_one_or_none()
+        rev = await identity.find(payload.reviewer_email)
         if rev:
             task.reviewer_id = rev.id
             task.reviewer_claimed_at = task.reviewer_claimed_at or now

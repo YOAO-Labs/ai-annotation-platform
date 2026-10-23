@@ -17,7 +17,7 @@ from app.db.enums import ProjectRole
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.db.models.task import Task
-from app.db.models.user import User
+from app.services.identity_contracts import IdentityActorFacts
 from app.services import task_access
 from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
@@ -30,10 +30,9 @@ log = logging.getLogger(__name__)
 
 
 async def _resolve_task_access(
-    db: AsyncSession, task: Task, actor: User, *, lock: bool = False
+    db: AsyncSession, task: Task, actor: IdentityActorFacts, *, lock: bool = False
 ):
     """Resolve current project access for a task's actual project, fail closed."""
-
     from app.db.models.project import Project
     from app.services.project_access import resolve_project_access
 
@@ -48,7 +47,9 @@ async def _resolve_task_access(
         raise HTTPException(status_code=403, detail="permission_changed") from exc
 
 
-async def _review_task_authority(db: AsyncSession, task: Task, actor: User) -> None:
+async def _review_task_authority(
+    db: AsyncSession, task: Task, actor: IdentityActorFacts
+) -> None:
     """Assert current project manager/reviewer authority for review-state work."""
 
     access = await _resolve_task_access(db, task, actor)
@@ -184,8 +185,13 @@ async def execute_cross_frame_job(
         uuid.UUID(str(source["annotation_id"])): int(source["version"])
         for source in sources
     }
-    actor = await db.get(User, job.user_id) if job.user_id else None
-    if actor is None or not actor.is_active:
+    actor_user_id = job.user_id
+    if actor_user_id is None:
+        raise ValueError("cross-frame job actor not found")
+    from app.services.identity_account_lock_data import IdentityAccountLockData
+
+    actor_status = await IdentityAccountLockData(db).read_actor_status(actor_user_id)
+    if actor_status is None or not actor_status.is_active:
         raise ValueError("cross-frame job actor not found")
 
     completed_by_frame: dict[int, dict[str, Any]] = {}
@@ -204,9 +210,8 @@ async def execute_cross_frame_job(
         )
 
     source_stale = False
-    # Stable actor id: a per-frame rollback expires the ORM instance, so the
-    # bounded account lock must use a captured id rather than actor.id.
-    actor_user_id = actor.id
+    # Keep only the durable job identity across per-frame transaction rollbacks;
+    # every eligible frame reads fresh account facts under its write fence.
     cross_frame_batch_stager = bind_cross_frame_batch_stager(db)
     for target_index, target in enumerate(targets):
         frame_index = int(target["frame_index"])
@@ -247,22 +252,25 @@ async def execute_cross_frame_job(
 
         target_task_id = uuid.UUID(str(target["task_id"]))
         try:
-            # 每帧进入写事务前恢复 actor：上一帧 rollback 会过期
-            # Session 内对象，同时这也让运行中被停用的账号不再继续写入。
+            # Re-read current account facts after each rollback so a disabled
+            # or role-changed actor cannot keep using a cached frame snapshot.
             # Account-first: bounded FOR SHARE NOWAIT on the acting account
             # before membership/Task locks so a concurrent global disable cannot
             # race the frame commit.  A busy account rolls back to a terminal
             # item via the outer handler instead of a wait cycle.
             from app.services.project_write_guard import (
-                lock_actor_account,
+                lock_actor_account_facts,
                 lock_actor_scope,
             )
 
             try:
-                await lock_actor_account(db, actor_user_id)
+                actor = await lock_actor_account_facts(db, actor_user_id)
             except HTTPException as exc:
-                raise RuntimeError("permission_changed") from exc
-            await db.refresh(actor)
+                if exc.status_code == 409 and exc.detail == {"reason": "account_busy"}:
+                    raise RuntimeError("permission_changed") from exc
+                raise
+            if actor is None:
+                raise ValueError("cross-frame job actor not found")
             if not actor.is_active:
                 raise RuntimeError("permission_changed")
             lock_ids = sorted({source_task_id, target_task_id}, key=str)

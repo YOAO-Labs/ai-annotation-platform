@@ -16,6 +16,7 @@ from app.db.models.project import Project
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
 from app.services.project_access import is_privileged_for_project
+from app.services.identity_contracts import IdentityActorFacts
 
 # v0.7.3：owner-only 逆向迁移白名单。命中时必须传 reason（1-500 字），写入 audit_log.detail_json.reason。
 REVERSE_TRANSITIONS: set[tuple[str, str]] = {
@@ -62,7 +63,7 @@ def bulk_preannotation_eligible_condition():
 # 'owner' = super_admin 或项目 owner（require_project_owner 等价）
 # 'reviewer' = super_admin / project_admin(owner) / reviewer
 # 'annotator_assigned' = 标注员且 user_id == batch.annotator_id（v0.7.2 单值语义）
-def _is_owner(user: User, project: Project) -> bool:
+def _is_owner(user: User | IdentityActorFacts, project: Project) -> bool:
     """Privileged owner for the batch state machine.
 
     Kept as the batch-domain name (re-exported through ``services/batch.py``
@@ -75,7 +76,9 @@ def _is_owner(user: User, project: Project) -> bool:
     return is_privileged_for_project(user, project)
 
 
-def _is_reviewer(user: User, project: Project, project_role: str | None = None) -> bool:
+def _is_reviewer(
+    user: User | IdentityActorFacts, project: Project, project_role: str | None = None
+) -> bool:
     """Reviewer authority comes solely from the resolved project role.
 
     A missing ``project_role`` fails closed; the legacy global staff role is
@@ -89,7 +92,7 @@ def _is_reviewer(user: User, project: Project, project_role: str | None = None) 
 
 
 def _is_annotator_assigned(
-    user: User, batch: TaskBatch, project_role: str | None = None
+    user: User | IdentityActorFacts, batch: TaskBatch, project_role: str | None = None
 ) -> bool:
     """v0.7.2：单值语义 — batch.annotator_id == user.id。"""
 
@@ -99,7 +102,7 @@ def _is_annotator_assigned(
 
 
 def assert_can_transition(
-    user: User,
+    user: User | IdentityActorFacts,
     project: Project,
     batch: TaskBatch,
     target_status: str,

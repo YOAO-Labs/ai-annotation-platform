@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -24,6 +25,7 @@ from unittest.mock import patch
 from uuid import uuid4
 import shutil
 from urllib.parse import quote, urlsplit
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/api"))
@@ -32,6 +34,54 @@ CONTAINER_LABEL = "org.aap.acceptance"
 CONTAINER_LABEL_VALUE = "module-data-boundary"
 CONTAINER_ID_LABEL = "org.aap.acceptance-id"
 POSTGRES_IMAGE = "postgres:16-alpine"
+INFERENCE_REGISTRY_INGRESS_ROLE = "inference_registry_ingress_client"
+INFERENCE_ROUTING_ROLE = "inference_routing_client"
+VIDEO_EXECUTION_ROLE = "video_execution_client"
+IDENTITY_API_CONSUMER_ROLE = "identity_api_consumer"
+IDENTITY_CLIENT_ROLES = {
+    "AUTH": "identity_auth_client",
+    "COMMAND": "identity_command_client",
+    "FENCE": "identity_fence_client",
+    "OPERATOR": "identity_session_operator",
+    "KEYS": "identity_key_client",
+    "SESSIONS": "identity_session_client",
+    "ACCOUNTS": "identity_account_client",
+    "GROUP": "identity_group_client",
+    "INVITATION": "identity_invitation_client",
+    "DEACTIVATION": "identity_deactivation_client",
+    "DEACTIVATION_OPERATOR": "identity_deactivation_operator",
+    "NOTIFICATION_PUBLISH": "notification_publish_client",
+    "PRESENCE": "identity_presence_client",
+    "RECOVERY": "identity_recovery_client",
+    "MAIL": "identity_mail_client",
+    "MAIL_V2": "identity_mail_v2_client",
+    "MAIL_SETTINGS": "identity_mail_settings_client",
+    "ADMIN_PASSWORD": "identity_admin_password_client",
+    "PLATFORM_ROLE": "identity_platform_role_client",
+    "SUSPENSION": "identity_suspension_client",
+    "DELETION": "identity_deletion_client",
+    "OFFBOARDING": "identity_offboarding_client",
+    "DIRECTORY": "identity_directory_client",
+    "BRIEFS": "identity_briefs_client",
+    "PROVISIONING": "identity_provisioning_client",
+    "WORKSPACE_MEMBERSHIP": "workspace_membership_client",
+    "WORKSPACE_OWNER_TRANSFER": "workspace_owner_transfer_client",
+    "WORKSPACE_PROJECT_MAINTENANCE": "workspace_project_maintenance_client",
+    "WORKSPACE_PROJECT_DELETION": "workspace_project_deletion_client",
+    "WORKSPACE_DATASET_UNLINK": "workspace_dataset_unlink_client",
+    "WORKSPACE_CONFIGURATION": "workspace_configuration_client",
+    "WORKSPACE_TEMPLATE_QUERY": "workspace_template_query_client",
+    "WORKSPACE_PROJECT_QUERY": "workspace_project_query_client",
+    "WORKSPACE_DIRECTORY_QUERY": "workspace_directory_query_client",
+    "LABELING_CLASS_QUERY": "labeling_class_query_client",
+    "LABELING_VIDEO_WRITER": "labeling_video_writer_client",
+    "VIDEO_RESTORE": "video_restore_operator_client",
+    "INFERENCE_PIPELINES": "inference_pipelines_client",
+    "INFERENCE_BACKEND_PROBE": "inference_backend_probe_client",
+    "INFERENCE_HEALTH_OBSERVATION": "inference_health_observation_client",
+    "INFERENCE_HEALTH_ORIGIN": "inference_health_origin_client",
+    "INFERENCE_HEALTH_DATA": "inference_health_data_client",
+}
 MODULE_ROLES = (
     "identity_code",
     "workspace_code",
@@ -48,6 +98,8 @@ MODULE_ROLES = (
     "notifications_code",
     "append_client",
     "asset_cleanup_client",
+    INFERENCE_REGISTRY_INGRESS_ROLE,
+    INFERENCE_ROUTING_ROLE,
     "asset_catalog_client",
     "asset_source_client",
     "asset_import_client",
@@ -57,6 +109,8 @@ MODULE_ROLES = (
     "asset_image_worker_client",
     "labeling_mask_gc_client",
     "preannotation_result_client",
+    VIDEO_EXECUTION_ROLE,
+    *IDENTITY_CLIENT_ROLES.values(),
 )
 SQL_ARTIFACTS = (
     "0190_workspace_data_contract.sql",
@@ -133,6 +187,92 @@ SQL_ARTIFACTS = (
     "0233_prediction_retry_result_scope.sql",
     "0233_prediction_retry_finalization.sql",
     "0234_mask_gc_preview.sql",
+    "0235_identity_admission.sql",
+    "0236_identity_api_keys.sql",
+    "0237_identity_sessions.sql",
+    "0238_identity_accounts.sql",
+    "0239_identity_recovery.sql",
+    "0240_identity_groups.sql",
+    "0241_deactivation_notifications.sql",
+    "0241_identity_deactivation.sql",
+    "0242_identity_invitations_support.sql",
+    "0242_invitation_mail.sql",
+    "0242_identity_invitations.sql",
+    "0243_identity_directory_support.sql",
+    "0243_identity_directory.sql",
+    "0244_identity_admin_passwords_support.sql",
+    "0244_identity_admin_passwords.sql",
+    "0245_identity_platform_roles_support.sql",
+    "0245_identity_platform_roles.sql",
+    "0246_identity_suspensions_support.sql",
+    "0246_identity_suspensions.sql",
+    "0247_identity_deletions_support.sql",
+    "0247_identity_deletions.sql",
+    "0248_identity_offboarding_support.sql",
+    "0248_identity_offboarding.sql",
+    "0249_identity_briefs_support.sql",
+    "0249_identity_briefs.sql",
+    "0250_identity_actor_context.sql",
+    "0251_identity_account_locks.sql",
+    "0252_identity_provisioning_support.sql",
+    "0252_identity_provisioning.sql",
+    "0253_workspace_membership_labeling.sql",
+    "0253_workspace_membership_support.sql",
+    "0253_workspace_membership.sql",
+    "0254_workspace_owner_transfer.sql",
+    "0255_workspace_configuration_dependencies.sql",
+    "0256_workspace_configuration_support.sql",
+    "0257_workspace_configuration.sql",
+    "0258_workspace_template_query_support.sql",
+    "0259_workspace_template_queries.sql",
+    "0260_workspace_project_query_support.sql",
+    "0261_workspace_project_queries.sql",
+    "0262_workspace_member_authority_temporals.sql",
+    "0263_workspace_directory_queries.sql",
+    "0264_workspace_access_queries.sql",
+    "0265_workspace_manager_queries.sql",
+    "0266_labeling_class_query.sql",
+    "0267_labeling_class_rename.sql",
+    "0268_workspace_class_rename.sql",
+    "0269_workspace_guide_assets.sql",
+    "0270_workspace_project_access_step.sql",
+    "0271_inference_pipelines.sql",
+    "0272_workspace_backend_bindings.sql",
+    "0273_inference_backend_dependency_reads.sql",
+    "0274_inference_backend_probe.sql",
+    "0275_workspace_binding_lock_guard.sql",
+    "0276_inference_health_observation.sql",
+    "0277_inference_health_data.sql",
+    "0278_inference_registry_ingress.sql",
+    "0279_inference_routing.sql",
+    "0280_inference_scope_retirement.sql",
+    "0281_video_execution.sql",
+    "0282_video_execution_checkpoints.sql",
+    "0283_labeling_video_writer.sql",
+    "0284_video_restore.sql",
+    "0285_identity_accepted_api_key.sql",
+    "0286_identity_read_relations.sql",
+    "0287_identity_registration_status.sql",
+    "0288_workspace_project_maintenance.sql",
+    "0289_workspace_access_read.sql",
+    "0290_workspace_project_lock.sql",
+    "0291_workspace_reference_nowait.sql",
+    "0292_workspace_member_locks.sql",
+    "0293_workspace_project_read.sql",
+    "0294_workspace_project_set_lock.sql",
+    "0295_labeling_project_counter_write.sql",
+    "0296_workspace_actor_membership.sql",
+    "0297_workspace_member_facts.sql",
+    "0298_workspace_project_facts.sql",
+    "0299_labeling_project_counter_deltas.sql",
+    "0300_video_deletion_retirement.sql",
+    "0301_workspace_seed_project.sql",
+    "0302_identity_seed_persona.sql",
+    "0302_workspace_seed_members.sql",
+    "0303_identity_scale_seed_actors.sql",
+    "0304_identity_fixture_preferences.sql",
+    "0305_identity_e2e_fixtures.sql",
+    "0306_gpu_registry_delete_noop.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -177,8 +317,239 @@ SCHEMA_ARTIFACTS = (
     "0233_prediction_retries.schema.json",
     "0233_preannotation_result_scope.schema.json",
     "0234_mask_gc.schema.json",
+    "0235_identity_admission.schema.json",
+    "0236_identity_api_keys.schema.json",
+    "0237_identity_sessions.schema.json",
+    "0238_identity_accounts.schema.json",
+    "0239_identity_recovery.schema.json",
+    "0240_identity_groups.schema.json",
+    "0241_identity_deactivation.schema.json",
+    "0242_identity_invitations.schema.json",
+    "0243_identity_directory.schema.json",
+    "0244_identity_admin_passwords.schema.json",
+    "0245_identity_platform_roles.schema.json",
+    "0245_platform_role_workspace_facts.schema.json",
+    "0245_platform_role_labeling_facts.schema.json",
+    "0246_identity_suspensions.schema.json",
+    "0247_identity_deletions.schema.json",
+    "0248_identity_offboarding.schema.json",
+    "0249_identity_briefs.schema.json",
+    "0250_identity_actor_context.schema.json",
+    "0251_identity_account_locks.schema.json",
+    "0252_identity_provisioning.schema.json",
+    "0253_workspace_membership.schema.json",
+    "0254_workspace_owner_transfer.schema.json",
+    "0255_workspace_configuration_dependencies.schema.json",
+    "0256_workspace_configuration_support.schema.json",
+    "0257_workspace_configuration.schema.json",
+    "0258_workspace_template_query_support.schema.json",
+    "0259_workspace_template_queries.schema.json",
+    "0260_workspace_project_query_support.schema.json",
+    "0261_workspace_project_queries.schema.json",
+    "0262_workspace_member_authority_temporals.schema.json",
+    "0263_workspace_directory_queries.schema.json",
+    "0264_workspace_access_queries.schema.json",
+    "0265_workspace_manager_queries.schema.json",
+    "0266_labeling_class_query.schema.json",
+    "0267_labeling_class_rename.schema.json",
+    "0268_workspace_class_rename.schema.json",
+    "0269_workspace_guide_assets.schema.json",
+    "0270_workspace_project_access_step.schema.json",
+    "0271_inference_pipelines.schema.json",
+    "0272_workspace_backend_bindings.schema.json",
+    "0273_inference_backend_dependency_reads.schema.json",
+    "0274_inference_backend_probe.schema.json",
+    "0275_workspace_binding_lock_guard.schema.json",
+    "0276_inference_health_observation.schema.json",
+    "0277_inference_health_data.schema.json",
+    "0278_inference_registry_ingress.schema.json",
+    "0279_inference_routing.schema.json",
+    "0280_inference_scope_retirement.schema.json",
+    "0281_video_execution.schema.json",
+    "0282_video_execution_checkpoints.schema.json",
+    "0283_labeling_video_writer.schema.json",
+    "0284_video_restore.schema.json",
+    "0285_identity_accepted_api_key.schema.json",
+    "0286_identity_read_relations.schema.json",
+    "0287_identity_registration_status.schema.json",
+    "0288_workspace_project_maintenance.schema.json",
+    "0289_workspace_access_read.schema.json",
+    "0290_workspace_project_lock.schema.json",
+    "0291_workspace_reference_nowait.schema.json",
+    "0292_workspace_member_locks.schema.json",
+    "0293_workspace_project_read.schema.json",
+    "0294_workspace_project_set_lock.schema.json",
+    "0295_labeling_project_counter_write.schema.json",
+    "0296_workspace_actor_membership.schema.json",
+    "0297_workspace_member_facts.schema.json",
+    "0298_workspace_project_facts.schema.json",
+    "0299_labeling_project_counter_deltas.schema.json",
+    "0300_video_deletion_retirement.schema.json",
+    "0301_workspace_seed_project.schema.json",
+    "0302_identity_seed_persona.schema.json",
+    "0302_workspace_seed_members.schema.json",
+    "0303_identity_scale_seed_actors.schema.json",
+    "0304_identity_fixture_preferences.schema.json",
+    "0305_identity_e2e_fixtures.schema.json",
 )
 TEST_FILES = (
+    "tests/test_gpu_registry_delete_noop_native.py",
+    "tests/test_identity_e2e_replay.py",
+    "tests/test_identity_e2e_native.py",
+    "tests/test_identity_e2e_live.py",
+    "tests/test_identity_fixture_preferences_native.py",
+    "tests/test_identity_recording_native.py",
+    "tests/test_identity_recording_live.py",
+    "tests/test_identity_role_audit_native.py",
+    "tests/test_identity_role_audit_live.py",
+    "tests/test_identity_seed_selection_live.py",
+    "tests/test_identity_seed_selection_native.py",
+    "tests/test_media_seed_identity_live.py",
+    "tests/test_media_seed_identity_native.py",
+    "tests/test_seed_parent_operator_live.py",
+    "tests/test_seed_parent_operator_native.py",
+    "tests/test_workspace_seed_operator_live.py",
+    "tests/test_workspace_seed_operator_native.py",
+    "tests/test_workspace_capacity_live.py",
+    "tests/test_workspace_import_cli_live.py",
+    "tests/test_workspace_worker_assembly_live.py",
+    "tests/test_workspace_module_assembly_live.py",
+    "tests/test_workspace_module_healthcheck.py",
+    "tests/test_workspace_consumer_profile_native.py",
+    "tests/test_video_deletion_retirement_native.py",
+    "tests/test_video_deletion_retirement_bindings.py",
+    "tests/test_video_deletion_retirement_http_native.py",
+    "tests/test_workspace_dataset_unlink_native.py",
+    "tests/test_labeling_counter_deltas_legacy.py",
+    "tests/test_labeling_counter_deltas_native.py",
+    "tests/test_labeling_counter_deltas_workflows_native.py",
+    "tests/test_workspace_project_facts_legacy.py",
+    "tests/test_workspace_project_facts_native.py",
+    "tests/test_workspace_project_facts_consumers_native.py",
+    "tests/test_workspace_member_facts_legacy.py",
+    "tests/test_workspace_member_facts_native.py",
+    "tests/test_workspace_actor_scope_legacy.py",
+    "tests/test_workspace_actor_scope_native.py",
+    "tests/test_project_owner_persistence_native.py",
+    "tests/test_labeling_project_counter_owner_native.py",
+    "tests/test_workspace_actorless_project_read_native.py",
+    "tests/test_workspace_member_locks_native.py",
+    "tests/test_workspace_project_get_native.py",
+    "tests/test_workspace_project_reference_native.py",
+    "tests/test_workspace_project_exclusive_native.py",
+    "tests/test_workspace_project_access_unlocked_native.py",
+    "tests/test_workspace_project_deletion_native.py",
+    "tests/test_workspace_project_maintenance_native.py",
+    "tests/test_identity_registration_status_native.py",
+    "tests/test_identity_read_relations_native.py",
+    "tests/test_identity_accepted_api_key_native.py",
+    "tests/test_training_authority_contract.py",
+    "tests/test_video_restore_native.py",
+    "tests/test_video_restore_live.py",
+    "tests/test_video_restore_worker_live.py",
+    "tests/test_labeling_video_writer_native.py",
+    "tests/test_labeling_video_writer_live.py",
+    "tests/test_labeling_video_writer_containers.py",
+    "tests/test_labeling_video_writer_restore.py",
+    "tests/test_labeling_video_writer_capacity.py",
+    "tests/test_video_execution_checkpoints_native.py",
+    "tests/test_video_window_journal_native.py",
+    "tests/test_video_execution_plan_native_validation.py",
+    "tests/test_video_window_recovery_live.py",
+    "tests/test_video_window_delivery_live.py",
+    "tests/test_video_window_journal.py",
+    "tests/test_inference_scope_retirement_native.py",
+    "tests/test_video_execution_native.py",
+    "tests/test_video_execution_fences.py",
+    "tests/test_video_execution_summary.py",
+    "tests/test_video_execution_bindings.py",
+    "tests/test_inference_scope_retirement_live.py",
+    "tests/test_inference_scope_retirement_bindings.py",
+    "tests/test_inference_routing_native.py",
+    "tests/test_inference_registry_ingress_native.py",
+    "tests/test_inference_registry_ingress_binding.py",
+    "tests/test_inference_registry_ingress_postgres.py",
+    "tests/test_inference_registry_ingress_selection.py",
+    "tests/test_inference_registry_ingress_bindings.py",
+    "tests/test_inference_registry_ingress_uow.py",
+    "tests/test_inference_registry_ingress_restore.py",
+    "tests/test_inference_registry_ingress_migrations.py",
+    "tests/test_inference_health_data_native.py",
+    "tests/test_inference_health_data_binding.py",
+    "tests/test_inference_health_data_postgres.py",
+    "tests/test_inference_backend_probe_native.py",
+    "tests/test_inference_backend_probe_bindings.py",
+    "tests/test_inference_backend_probe_restore.py",
+    "tests/test_inference_backend_dependency_reads_native.py",
+    "tests/test_inference_backend_dependency_reads_restore.py",
+    "tests/test_workspace_backend_bindings_native.py",
+    "tests/test_workspace_backend_bindings_restore.py",
+    "tests/test_inference_pipeline_native.py",
+    "tests/test_workspace_project_access_step_native.py",
+    "tests/test_workspace_project_authority_locking.py",
+    "tests/test_workspace_project_access_step_restore.py",
+    "tests/test_workspace_class_rename_native.py",
+    "tests/test_project_class_rename_owner.py",
+    "tests/test_project_class_rename_owner_fences.py",
+    "tests/test_labeling_class_rename_effect.py",
+    "tests/test_labeling_class_query_native.py",
+    "tests/test_workspace_project_access_queries_native.py",
+    "tests/test_workspace_project_access_migration.py",
+    "tests/test_workspace_project_access_read_phases.py",
+    "tests/test_workspace_directory_queries_native.py",
+    "tests/test_workspace_member_authority_migration.py",
+    "tests/test_workspace_member_authority_temporals.py",
+    "tests/test_identity_admin_passwords_native.py",
+    "tests/test_identity_admin_passwords_roles.py",
+    "tests/test_identity_admin_passwords_restore.py",
+    "tests/test_identity_platform_roles_native.py",
+    "tests/test_identity_platform_roles_roles.py",
+    "tests/test_identity_platform_roles_restore.py",
+    "tests/test_identity_suspensions_native.py",
+    "tests/test_identity_suspensions_roles.py",
+    "tests/test_identity_suspensions_restore.py",
+    "tests/test_identity_deletions_native.py",
+    "tests/test_identity_deletions_roles.py",
+    "tests/test_identity_deletions_restore.py",
+    "tests/test_identity_offboarding_native.py",
+    "tests/test_identity_offboarding_roles.py",
+    "tests/test_identity_offboarding_restore.py",
+    "tests/test_identity_briefs_native.py",
+    "tests/test_identity_briefs_roles.py",
+    "tests/test_identity_briefs_restore.py",
+    "tests/test_identity_provisioning_native.py",
+    "tests/test_workspace_membership_native.py",
+    "tests/test_workspace_membership_roles.py",
+    "tests/test_workspace_membership_restore.py",
+    "tests/test_workspace_owner_transfer_native.py",
+    "tests/test_workspace_owner_transfer_roles.py",
+    "tests/test_workspace_owner_transfer_restore.py",
+    "tests/test_workspace_configuration_dependencies_native.py",
+    "tests/test_workspace_configuration_dependencies_roles.py",
+    "tests/test_workspace_project_query_support_native.py",
+    "tests/test_identity_actor_context_native.py",
+    "tests/test_identity_account_locks_native.py",
+    "tests/test_users_role_matrix.py::TestRoleMatrix::test_sa_cannot_demote_last_super_admin",
+    "tests/test_identity_directory_native.py",
+    "tests/test_identity_directory_roles.py",
+    "tests/test_identity_invitations_native.py",
+    "tests/test_identity_invitations_roles.py",
+    "tests/test_identity_invitation_gateway.py",
+    "tests/test_identity_mail_v2_gateway.py",
+    "tests/test_identity_deactivation_native.py",
+    "tests/test_identity_deactivation_roles.py",
+    "tests/test_identity_groups_native.py",
+    "tests/test_identity_groups_roles.py",
+    "tests/test_identity_challenges_native.py",
+    "tests/test_identity_challenges_roles.py",
+    "tests/test_identity_credential_mail_native.py",
+    "tests/test_identity_recovery_gateway.py",
+    "tests/test_identity_accounts_native.py",
+    "tests/test_identity_accounts_roles.py",
+    "tests/test_identity_sessions_native.py",
+    "tests/test_identity_sessions_roles.py",
+    "tests/test_identity_auth_native.py",
+    "tests/test_identity_auth_roles.py",
     "tests/test_workspace_data_contract.py",
     "tests/test_task_append_data_contract.py",
     "tests/test_task_append_consumer.py",
@@ -206,6 +577,7 @@ TEST_FILES = (
     "tests/test_pointcloud_manifest.py",
     "tests/test_pointcloud_scene_e2e.py",
     "tests/test_module_data_roles.py",
+    "tests/test_identity_primary_compatibility.py",
     "tests/test_datasets_upload_zip.py",
     "tests/test_scene_inference.py",
     "tests/test_mask_formats_m6.py",
@@ -228,6 +600,7 @@ TEST_FILES = (
     "tests/test_dataset_source_http.py",
     "tests/test_dataset_source_guards.py",
     "tests/test_dataset_source_aux_retention.py",
+    "tests/test_dataset_source_auxiliary_references.py",
     "tests/test_dataset_source_support.py",
     "tests/test_dataset_upload_data.py",
     "tests/test_dataset_upload_native.py",
@@ -367,6 +740,19 @@ TEST_FILES = (
 )
 
 
+def _test_file(value: str) -> str:
+    relative = Path(value.split("::", 1)[0])
+    path = (ROOT / "apps/api" / relative).resolve()
+    if (
+        relative.is_absolute()
+        or not path.is_relative_to(ROOT / "apps/api/tests")
+        or path.suffix != ".py"
+        or not path.is_file()
+    ):
+        raise argparse.ArgumentTypeError("Select an existing file under apps/api/tests")
+    return value
+
+
 def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -385,6 +771,14 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
         type=Path,
         help="explicit JUnit XML path (defaults beside --output)",
     )
+    parser.add_argument(
+        "--test-file",
+        dest="test_files",
+        action="append",
+        type=_test_file,
+        metavar="TEST_NODEID",
+        help="select an apps/api test file or node ID; repeat to replace the default suite",
+    )
     return parser.parse_args(argv)
 
 
@@ -393,6 +787,13 @@ def _write_evidence(path: Path, document: dict) -> None:
     path.write_text(
         json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
+    )
+
+
+def _passed_test_count(junit: Path) -> int:
+    return sum(
+        all(case.find(state) is None for state in ("skipped", "failure", "error"))
+        for case in ET.parse(junit).findall(".//testcase")
     )
 
 
@@ -885,7 +1286,9 @@ def _destroy_cleanup_storage_scope(scope: dict) -> None:
     docker("exec", scope["container"], "rm", "-rf", "--", scope["config"])
 
 
-def _create_api_bootstrap_storage_scope(scope: dict) -> None:
+def _create_api_bootstrap_storage_scope(
+    scope: dict, *, e2e_fixtures: bool = False
+) -> None:
     """Allow legacy API startup metadata checks on only this run's ten buckets."""
     buckets = scope["buckets"]
     policy = {
@@ -920,6 +1323,28 @@ def _create_api_bootstrap_storage_scope(scope: dict) -> None:
             },
         ],
     }
+    if e2e_fixtures:
+        policy["Statement"].append(
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:GetObject",
+                    "s3:PutObject",
+                    "s3:DeleteObject",
+                    "s3:AbortMultipartUpload",
+                ],
+                "Resource": [
+                    f"arn:aws:s3:::{buckets['MINIO_DATASETS_BUCKET']}/{prefix}"
+                    for prefix in (
+                        "e2e/owned/*/image/*",
+                        "e2e/owned/*/filtering/*",
+                        "e2e/owned/*/project-roles/*",
+                        "e2e/lidar/*",
+                    )
+                ]
+                + [f"arn:aws:s3:::{buckets['MINIO_BUCKET']}/raster-masks/sha256/*"],
+            }
+        )
     _cleanup_mc(
         scope,
         ["admin", "user", "add", "scoped", scope["access_key"], scope["secret_key"]],
@@ -1439,6 +1864,7 @@ def _create_runtime_role(
     container_name: str,
     container_identity: str,
     password: str,
+    identity_api_consumer_password: str,
     owner_password: str,
 ) -> None:
     _psql(
@@ -1452,6 +1878,10 @@ def _create_runtime_role(
             "CREATE ROLE legacy_runtime LOGIN "
             f"PASSWORD '{password}' NOSUPERUSER NOCREATEDB NOCREATEROLE "
             "NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            f"CREATE ROLE {IDENTITY_API_CONSUMER_ROLE} LOGIN "
+            f"PASSWORD '{identity_api_consumer_password}' "
+            "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT "
+            "NOREPLICATION NOBYPASSRLS;\n"
         ),
     )
 
@@ -1556,6 +1986,10 @@ def _create_module_roles(
                         "asset_image_worker_client",
                         "labeling_mask_gc_client",
                         "preannotation_result_client",
+                        VIDEO_EXECUTION_ROLE,
+                        INFERENCE_REGISTRY_INGRESS_ROLE,
+                        INFERENCE_ROUTING_ROLE,
+                        *IDENTITY_CLIENT_ROLES.values(),
                     }
                 )
             )
@@ -1589,12 +2023,58 @@ def _install_and_rollback_frozen_sql(
     owner_password: str,
     artifacts: tuple[Path, ...],
 ) -> None:
+    provisioning_id = str(uuid4())
+    provisioning_email = f"module-data-{uuid4().hex}@example.invalid"
+    provisioning_request = str(uuid4())
     install_sql = "\n".join(path.read_text(encoding="utf-8") for path in artifacts)
     sql = (
         "\\set ON_ERROR_STOP on\n"
         "BEGIN;\n"
         "SELECT 1 / (current_database() = :'expected_database')::integer;\n"
         f"{install_sql}\n"
+        "SELECT aap_identity_accounts_v1.account_policy();\n"
+        "SELECT aap_identity_accounts_v1.prepare_account_command(NULL::jsonb);\n"
+        "SELECT aap_identity_accounts_v1.apply_account_command(NULL::jsonb);\n"
+        "SELECT aap_identity_accounts_v1.mark_inactive_accounts_offline('2000-01-01T00:00:00Z'::timestamptz);\n"
+        "SELECT aap_identity_recovery_v1.recovery_policy();\n"
+        "SELECT aap_identity_recovery_v1.prepare_recovery_command(NULL::jsonb);\n"
+        "SELECT aap_identity_recovery_v1.apply_recovery_command(NULL::jsonb);\n"
+        "SELECT aap_identity_recovery_v1.mail_policy();\n"
+        "SELECT aap_identity_invitations_v1.prepare_invitation_command('{}'::jsonb);\n"
+        "SELECT aap_identity_directory_v1.directory_policy();\n"
+        "SELECT aap_identity_directory_v1.execute_directory_command('{}'::jsonb);\n"
+        "SELECT aap_identity_admin_passwords_v1.admin_password_policy();\n"
+        "SELECT aap_identity_admin_passwords_v1.execute_admin_password_command('{}'::jsonb);\n"
+        "SELECT aap_identity_platform_roles_v1.platform_role_policy();\n"
+        "SELECT aap_identity_platform_roles_v1.execute_platform_role_command('{}'::jsonb);\n"
+        "SELECT aap_identity_suspensions_v1.suspension_policy();\n"
+        "SELECT aap_identity_suspensions_v1.execute_suspension_command('{}'::jsonb);\n"
+        "SELECT aap_identity_deletions_v1.deletion_policy();\n"
+        "SELECT aap_identity_deletions_v1.execute_deletion_command('{}'::jsonb);\n"
+        "SELECT aap_identity_offboarding_v1.offboarding_policy();\n"
+        "SELECT aap_identity_offboarding_v1.prepare_offboarding_command('{}'::jsonb);\n"
+        "SELECT aap_identity_offboarding_v1.apply_offboarding_command('{}'::jsonb);\n"
+        "SELECT aap_identity_v1.read_actor_context(NULL::uuid,NULL::text);\n"
+        "SELECT aap_identity_v1.read_provisioning_account(:'provisioning_email');\n"
+        "SELECT aap_identity_v1.create_provisioning_account(jsonb_build_object("
+        "'schema','aap-identity-provisioning/v1',"
+        "'mode','bootstrap_admin','account_id',:'provisioning_id',"
+        "'email',:'provisioning_email','name','Provisioning probe',"
+        "'password_hash','probe-only-hash','now','2026-10-21T00:00:00+00:00',"
+        "'request_id',:'provisioning_request'));\n"
+        "SELECT aap_identity_v1.read_provisioning_account(:'provisioning_email');\n"
+        "SELECT aap_identity_v1.lock_accounts_share(ARRAY[]::uuid[], TRUE);\n"
+        "SELECT aap_identity_v1.lock_accounts_update(ARRAY[]::uuid[], FALSE);\n"
+        "SELECT aap_identity_v1.lock_accounts_key_share(ARRAY[]::uuid[], TRUE);\n"
+        "SELECT aap_identity_briefs_v1.briefs_policy();\n"
+        "SELECT aap_identity_briefs_v1.execute_briefs_command('{}'::jsonb);\n"
+        "SELECT aap_identity_deactivation_v1.deactivation_policy();\n"
+        "SELECT aap_identity_deactivation_v1.execute_deactivation_command(NULL::jsonb);\n"
+        "SELECT aap_identity_deactivation_v1.due_policy();\n"
+        "SELECT aap_identity_deactivation_v1.process_due_deactivations(NULL::jsonb);\n"
+        "SELECT aap_notifications_v1.identity_delivery_policy();\n"
+        "SELECT aap_identity_groups_v1.group_policy();\n"
+        "SELECT aap_identity_groups_v1.execute_group_command(NULL::jsonb);\n"
         "SELECT aap_identity_v1.lock_active_actor(NULL::uuid);\n"
         "SELECT aap_workspace_v1.lock_project_manager(NULL::uuid, NULL::uuid);\n"
         "SELECT aap_assets_v1.associate_project(NULL::uuid, NULL::uuid, NULL::uuid);\n"
@@ -1681,6 +2161,9 @@ def _install_and_rollback_frozen_sql(
             "dataset_id": str(uuid4()),
             "operation_id": str(uuid4()),
             "project_id": str(uuid4()),
+            "provisioning_id": provisioning_id,
+            "provisioning_email": provisioning_email,
+            "provisioning_request": provisioning_request,
         },
     )
     responses: dict[str, list[dict]] = {}
@@ -1722,6 +2205,18 @@ def _install_and_rollback_frozen_sql(
         "aap-dataset-source-ingest/v1": "invalid_request",
         "aap-dataset-source-ingest-delivery/v1": "invalid_request",
         "aap-assets-spatial/v1": "invalid_request",
+        "aap-identity-accounts-native/v1": "invalid_request",
+        "aap-identity-deactivation-native/v1": "invalid_request",
+        "aap-identity-deactivation-due-native/v1": "invalid_request",
+        "aap-identity-invitations-native/v1": "invalid_request",
+        "aap-identity-directory-native/v1": "invalid_request",
+        "aap-identity-admin-passwords-native/v1": "invalid_request",
+        "aap-identity-platform-roles-native/v1": "invalid_request",
+        "aap-identity-suspensions-native/v1": "invalid_request",
+        "aap-identity-deletions-native/v1": "invalid_request",
+        "aap-identity-offboarding-native/v1": "invalid_request",
+        "aap-identity-briefs-native/v1": "invalid_request",
+        "aap-identity-actor/v1": "invalid_request",
     }
     if any(
         not any(
@@ -1745,6 +2240,70 @@ def _install_and_rollback_frozen_sql(
         for response in responses.get("aap-project-labeling-delete/v1", [])
     ):
         raise RuntimeError("native Labeling project-delete probe did not succeed")
+    if not any(
+        response.get("schema") == "aap-identity-directory-policy/v1"
+        and response.get("policy") == "aap-identity-directory/v1"
+        for response in responses.get("aap-identity-directory-policy/v1", [])
+    ):
+        raise RuntimeError("native Identity directory policy probe did not succeed")
+    if not any(
+        response.get("schema") == "aap-identity-admin-passwords-policy/v1"
+        and response.get("policy") == "aap-identity-admin-passwords/v1"
+        for response in responses.get("aap-identity-admin-passwords-policy/v1", [])
+    ):
+        raise RuntimeError(
+            "native Identity admin-password policy probe did not succeed"
+        )
+    if not any(
+        response.get("schema") == "aap-identity-platform-roles-policy/v1"
+        and response.get("policy") == "aap-identity-platform-roles/v1"
+        for response in responses.get("aap-identity-platform-roles-policy/v1", [])
+    ):
+        raise RuntimeError("native Identity platform-role policy probe did not succeed")
+    if not any(
+        response.get("schema") == "aap-identity-suspensions-policy/v1"
+        and response.get("policy") == "aap-identity-suspensions/v1"
+        for response in responses.get("aap-identity-suspensions-policy/v1", [])
+    ):
+        raise RuntimeError("native Identity suspension policy probe did not succeed")
+    if not any(
+        response.get("schema") == "aap-identity-deletions-policy/v1"
+        and response.get("policy") == "aap-identity-deletions/v1"
+        for response in responses.get("aap-identity-deletions-policy/v1", [])
+    ):
+        raise RuntimeError("native Identity deletion policy probe did not succeed")
+    if not any(
+        response.get("schema") == "aap-identity-offboarding-policy/v1"
+        and response.get("policy") == "aap-identity-offboarding/v1"
+        for response in responses.get("aap-identity-offboarding-policy/v1", [])
+    ):
+        raise RuntimeError("native Identity offboarding policy probe did not succeed")
+    if not any(
+        response.get("schema") == "aap-identity-briefs-policy/v1"
+        and response.get("policy") == "aap-identity-briefs/v1"
+        for response in responses.get("aap-identity-briefs-policy/v1", [])
+    ):
+        raise RuntimeError("native Identity briefs policy probe did not succeed")
+    account_lock_replies = responses.get("aap-identity-account-locks/v1", [])
+    if len(account_lock_replies) != 3 or any(
+        response.get("accounts") != [] or set(response) != {"schema", "accounts"}
+        for response in account_lock_replies
+    ):
+        raise RuntimeError("native Identity account-lock probes did not succeed")
+    provisioning_replies = [
+        response
+        for response in responses.get("aap-identity-provisioning/v1", [])
+        if response.get("email") == provisioning_email
+    ]
+    if (
+        len(provisioning_replies) != 3
+        or provisioning_replies[0].get("account_id") is not None
+        or provisioning_replies[1].get("account_id") != provisioning_id
+        or provisioning_replies[2].get("account_id") != provisioning_id
+    ):
+        raise RuntimeError(
+            "native Identity provisioning lookup/create probes did not succeed"
+        )
 
     rollback_state = _psql(
         container_id,
@@ -1756,6 +2315,110 @@ def _install_and_rollback_frozen_sql(
         sql=(
             "SELECT current_database() = :'expected_database' "
             "AND to_regnamespace('aap_identity_v1') IS NULL "
+            "AND to_regnamespace('aap_identity_accounts_v1') IS NULL "
+            "AND to_regnamespace('aap_identity_recovery_v1') IS NULL "
+            "AND to_regnamespace('aap_identity_groups_v1') IS NULL "
+            "AND to_regnamespace('aap_identity_deactivation_v1') IS NULL "
+            "AND to_regnamespace('aap_identity_invitations_v1') IS NULL "
+            "AND to_regnamespace('aap_identity_directory_v1') IS NULL "
+            "AND to_regnamespace('aap_identity_admin_passwords_v1') IS NULL "
+            "AND to_regnamespace('aap_identity_platform_roles_v1') IS NULL "
+            "AND to_regnamespace('aap_identity_suspensions_v1') IS NULL "
+            "AND to_regnamespace('aap_identity_deletions_v1') IS NULL "
+            "AND to_regnamespace('aap_identity_offboarding_v1') IS NULL "
+            "AND to_regnamespace('aap_identity_briefs_v1') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.read_provisioning_account(text)') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.create_provisioning_account(jsonb)') IS NULL "
+            "AND to_regprocedure('aap_audit_v1.record_identity_bootstrap_admin(uuid,text,text)') IS NULL "
+            "AND NOT EXISTS (SELECT 1 FROM public.users WHERE id=:'provisioning_id'::uuid) "
+            "AND NOT EXISTS (SELECT 1 FROM public.audit_logs "
+            "WHERE actor_id=:'provisioning_id'::uuid "
+            "AND action='system.bootstrap_admin' "
+            "AND request_id=:'provisioning_request') "
+            "AND to_regprocedure('aap_workspace_v1.identity_brief_project_roles(uuid,uuid[])') IS NULL "
+            "AND to_regnamespace('aap_workspace_membership_v1') IS NULL "
+            "AND to_regnamespace('aap_workspace_owner_transfer_v1') IS NULL "
+            "AND to_regnamespace('aap_workspace_template_query_v1') IS NULL "
+            "AND to_regnamespace('aap_workspace_project_query_v1') IS NULL "
+            "AND to_regnamespace('aap_inference_pipelines_v1') IS NULL "
+            "AND to_regnamespace('aap_inference_health_observation_v1') IS NULL "
+            "AND to_regnamespace('aap_inference_health_data_v1') IS NULL "
+            "AND to_regnamespace('aap_inference_registry_ingress_v1') IS NULL "
+            "AND to_regnamespace('aap_inference_routing_v1') IS NULL "
+            "AND to_regclass('aap_inference_routing_v1.authority_secret') IS NULL "
+            "AND to_regclass('aap_inference_routing_v1.registry_state') IS NULL "
+            "AND to_regclass('aap_inference_routing_v1.scopes') IS NULL "
+            "AND to_regclass('aap_inference_routing_v1.attempts') IS NULL "
+            "AND to_regclass('aap_inference_routing_v1.weights') IS NULL "
+            "AND to_regclass('aap_inference_routing_v1.controls') IS NULL "
+            "AND to_regclass('aap_inference_routing_v1.control_attempts') IS NULL "
+            "AND to_regclass('aap_inference_routing_v1.command_receipts') IS NULL "
+            "AND to_regprocedure('aap_inference_routing_v1.routing_policy()') IS NULL "
+            "AND to_regprocedure('aap_inference_routing_v1.routing_step(text,text)') IS NULL "
+            "AND to_regprocedure('aap_inference_routing_v1.scope_retirement_step(text,text)') IS NULL "
+            "AND to_regprocedure('aap_inference_routing_v1.video_execution_scope_step(text,text)') IS NULL "
+            "AND to_regprocedure('aap_jobs_v1.video_execution_step(text,text)') IS NULL "
+            "AND to_regclass('aap_jobs_v1.video_executions') IS NULL "
+            "AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger "
+            "WHERE tgname IN ('aap_route_registry_after_insert', 'aap_route_registry_before_change', "
+            "'aap_route_pool_before_change', 'aap_route_pool_after_generation', "
+            "'aap_route_member_before_change', 'aap_route_project_pool_before_change') "
+            "AND NOT tgisinternal) "
+            "AND to_regclass('aap_inference_registry_ingress_v1.env_sync_receipts') IS NULL "
+            "AND to_regprocedure('aap_inference_registry_ingress_v1.registry_ingress_policy()') IS NULL "
+            "AND to_regprocedure('aap_inference_registry_ingress_v1.registry_by_url(text)') IS NULL "
+            "AND to_regprocedure('aap_inference_registry_ingress_v1.registry_candidates(text)') IS NULL "
+            "AND to_regprocedure('aap_inference_registry_ingress_v1.create_registry(uuid,text,text,text,boolean,text)') IS NULL "
+            "AND to_regprocedure('aap_inference_registry_ingress_v1.singleton_pool(uuid)') IS NULL "
+            "AND to_regprocedure('aap_inference_registry_ingress_v1.create_singleton_pool(uuid,uuid,uuid,text,text,text)') IS NULL "
+            "AND to_regprocedure('aap_inference_registry_ingress_v1.apply_observation(uuid,text,text,text,boolean,text,timestamptz,text,boolean,text)') IS NULL "
+            "AND to_regprocedure('aap_inference_registry_ingress_v1.disconnect_env_registry(uuid,text)') IS NULL "
+            "AND to_regprocedure('aap_inference_registry_ingress_v1.tag_seed_registry(uuid,text)') IS NULL "
+            "AND to_regprocedure('aap_inference_registry_ingress_v1.sync_result(uuid,text)') IS NULL "
+            "AND to_regprocedure('aap_inference_registry_ingress_v1.record_sync_result(uuid,text,integer)') IS NULL "
+            "AND to_regnamespace('aap_inference_backend_probe_v1') IS NULL "
+            "AND to_regclass('aap_inference_backend_probe_v1.probe_secret') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.clear_primary_backend_bindings(uuid)') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.read_import_project(text)') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb)') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.write_seed_members(jsonb)') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.create_seed_persona_account(jsonb)') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.replace_fixture_preferences(uuid,jsonb)') IS NULL "
+            "AND to_regnamespace('aap_identity_fixture_v1') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.read_scale_seed_super_admin()') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.read_scale_seed_annotator(uuid[])') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)') IS NULL "
+            "AND to_regprocedure('aap_learning_v1.registry_evaluation_reference_exists(uuid)') IS NULL "
+            "AND to_regprocedure('aap_jobs_v1.count_running_registry_predictions(uuid)') IS NULL "
+            "AND to_regnamespace('aap_workspace_directory_query_v1') IS NULL "
+            "AND to_regprocedure('aap_labeling_v1.workspace_project_query_counters(uuid[])') IS NULL "
+            "AND to_regprocedure('aap_assets_v1.workspace_project_query_dataset_ids(uuid)') IS NULL "
+            "AND to_regprocedure('aap_jobs_v1.workspace_project_query_latest_job_status(uuid)') IS NULL "
+            "AND to_regprocedure('aap_inference_v1.workspace_project_query_pool(uuid)') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.workspace_configuration_org_scope(uuid,uuid)') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.workspace_template_query_org_ids(uuid)') IS NULL "
+            "AND to_regprocedure('aap_assets_v1.workspace_configuration_datasets(uuid)') IS NULL "
+            "AND to_regprocedure('aap_labeling_v1.workspace_configuration_video_facts(uuid)') IS NULL "
+            "AND to_regprocedure('aap_inference_v1.enable_workspace_project_backend(uuid,uuid)') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.read_workspace_membership_accounts(uuid[])') IS NULL "
+            "AND to_regprocedure('aap_audit_v1.record_workspace_membership_event(text,jsonb,uuid,jsonb,jsonb)') IS NULL "
+            "AND to_regprocedure('aap_labeling_v1.read_membership_work(uuid,uuid,uuid,uuid)') IS NULL "
+            "AND to_regprocedure('aap_labeling_v1.lock_membership_work(uuid,uuid,text,boolean)') IS NULL "
+            "AND to_regprocedure('aap_labeling_v1.handoff_membership_annotation(uuid,uuid,uuid)') IS NULL "
+            "AND to_regprocedure('aap_labeling_v1._membership_python_repr(jsonb)') IS NULL "
+            "AND to_regprocedure('aap_labeling_v1.handoff_membership_reviewer(uuid,uuid,uuid)') IS NULL "
+            "AND to_regprocedure('aap_labeling_v1.release_membership_task_locks(uuid,uuid)') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.read_actor_context(uuid,text)') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.lock_accounts_share(uuid[],boolean)') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.lock_accounts_update(uuid[],boolean)') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.lock_accounts_key_share(uuid[],boolean)') IS NULL "
+            "AND to_regprocedure('aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])') IS NULL "
+            "AND to_regclass('aap_identity_v1.account_profiles') IS NULL "
+            "AND to_regclass('aap_identity_v1.invitation_audit_targets') IS NULL "
+            "AND to_regprocedure('aap_identity_recovery_v1.read_registration_status(jsonb)') IS NULL "
+            "AND to_regnamespace('aap_identity_mail_v2') IS NULL "
             "AND to_regnamespace('aap_workspace_v1') IS NULL "
             "AND to_regnamespace('aap_assets_v1') IS NULL "
             "AND to_regnamespace('aap_labeling_v1') IS NULL "
@@ -1769,6 +2432,23 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_settings_v1') IS NULL "
             "AND to_regnamespace('aap_notifications_v1') IS NULL "
             "AND to_regclass('public.task_append_operations') IS NULL "
+            "AND to_regclass('public.identity_account_operation_receipts') IS NULL "
+            "AND to_regclass('public.identity_recovery_operation_receipts') IS NULL "
+            "AND to_regclass('public.identity_group_operation_receipts') IS NULL "
+            "AND to_regclass('public.identity_deactivation_operation_receipts') IS NULL "
+            "AND to_regclass('public.identity_deactivation_due_receipts') IS NULL "
+            "AND to_regclass('public.identity_invitation_operation_receipts') IS NULL "
+            "AND to_regclass('public.identity_directory_export_receipts') IS NULL "
+            "AND to_regclass('public.identity_admin_password_reset_receipts') IS NULL "
+            "AND to_regclass('public.identity_platform_role_operation_receipts') IS NULL "
+            "AND to_regclass('public.identity_suspension_operation_receipts') IS NULL "
+            "AND to_regclass('public.identity_deletion_operation_receipts') IS NULL "
+            "AND to_regclass('public.identity_offboarding_operation_receipts') IS NULL "
+            "AND to_regclass('public.workspace_membership_operation_receipts') IS NULL "
+            "AND to_regclass('public.workspace_owner_transfer_operation_receipts') IS NULL "
+            "AND to_regclass('public.identity_deactivation_requests') IS NULL "
+            "AND to_regclass('public.notification_delivery_outbox') IS NULL "
+            "AND to_regclass('public.identity_credential_mail_outbox') IS NULL "
             "AND to_regclass('public.task_creation_operations') IS NULL "
             "AND to_regclass('public.task_creation_chunks') IS NULL "
             "AND to_regclass('public.project_deletion_operations') IS NULL "
@@ -1793,7 +2473,11 @@ def _install_and_rollback_frozen_sql(
             "WHERE tgrelid = 'public.async_jobs'::pg_catalog.regclass "
             "AND tgname = 'async_jobs_retain_project_scope' AND NOT tgisinternal);\n"
         ),
-        variables={"expected_database": database},
+        variables={
+            "expected_database": database,
+            "provisioning_id": provisioning_id,
+            "provisioning_request": provisioning_request,
+        },
     )
     if rollback_state.strip() != "t":
         raise RuntimeError("native frozen-SQL transaction did not roll back cleanly")
@@ -1801,6 +2485,7 @@ def _install_and_rollback_frozen_sql(
 
 def main(argv: list[str] | None = None) -> int:
     args = _arguments(argv)
+    test_files = tuple(dict.fromkeys(args.test_files or TEST_FILES))
     output = args.output.resolve()
     junit = (
         args.junit_xml.resolve()
@@ -1828,7 +2513,8 @@ def main(argv: list[str] | None = None) -> int:
         },
         "database": None,
         "roles": list(MODULE_ROLES),
-        "test_files": list(TEST_FILES),
+        "identity_api_consumer": None,
+        "test_files": list(test_files),
         "junit_xml": str(junit),
         "test_exit_code": None,
         "migrations": {
@@ -1879,7 +2565,7 @@ def main(argv: list[str] | None = None) -> int:
     ).resolve()
 
     try:
-        selected_test_paths = {name.split("::", 1)[0] for name in TEST_FILES}
+        selected_test_paths = {name.split("::", 1)[0] for name in test_files}
         missing_tests = [
             name
             for name in selected_test_paths
@@ -1896,6 +2582,106 @@ def main(argv: list[str] | None = None) -> int:
         image_grants_path = ROOT / "infra/docker/assets-image-grants.sql"
         mask_gc_grants_path = ROOT / "infra/docker/labeling-mask-gc-data-grants.sql"
         result_grants_path = ROOT / "infra/docker/preannotation-result-data-grants.sql"
+        identity_grants_path = ROOT / "infra/docker/identity-auth-grants.sql"
+        identity_key_grants_path = ROOT / "infra/docker/identity-keys-grants.sql"
+        identity_session_grants_path = (
+            ROOT / "infra/docker/identity-sessions-grants.sql"
+        )
+        identity_account_grants_path = (
+            ROOT / "infra/docker/identity-accounts-grants.sql"
+        )
+        identity_group_grants_path = ROOT / "infra/docker/identity-groups-grants.sql"
+        identity_invitation_grants_path = (
+            ROOT / "infra/docker/identity-invitations-grants.sql"
+        )
+        identity_directory_grants_path = (
+            ROOT / "infra/docker/identity-directory-grants.sql"
+        )
+        identity_admin_password_grants_path = (
+            ROOT / "infra/docker/identity-admin-passwords-grants.sql"
+        )
+        identity_platform_role_grants_path = (
+            ROOT / "infra/docker/identity-platform-roles-grants.sql"
+        )
+        identity_suspension_grants_path = (
+            ROOT / "infra/docker/identity-suspensions-grants.sql"
+        )
+        identity_deletion_grants_path = (
+            ROOT / "infra/docker/identity-deletions-grants.sql"
+        )
+        identity_offboarding_grants_path = (
+            ROOT / "infra/docker/identity-offboarding-grants.sql"
+        )
+        identity_briefs_grants_path = ROOT / "infra/docker/identity-briefs-grants.sql"
+        identity_provisioning_grants_path = (
+            ROOT / "infra/docker/identity-provisioning-grants.sql"
+        )
+        workspace_membership_grants_path = (
+            ROOT / "infra/docker/workspace-membership-grants.sql"
+        )
+        workspace_owner_transfer_grants_path = (
+            ROOT / "infra/docker/workspace-owner-transfer-grants.sql"
+        )
+        workspace_project_maintenance_grants_path = (
+            ROOT / "infra/docker/workspace-project-maintenance-grants.sql"
+        )
+        workspace_project_deletion_grants_path = (
+            ROOT / "infra/docker/workspace-project-deletion-grants.sql"
+        )
+        workspace_dataset_unlink_grants_path = (
+            ROOT / "infra/docker/workspace-dataset-unlink-grants.sql"
+        )
+        workspace_configuration_grants_path = (
+            ROOT / "infra/docker/workspace-configuration-grants.sql"
+        )
+        workspace_template_query_grants_path = (
+            ROOT / "infra/docker/workspace-template-query-grants.sql"
+        )
+        workspace_project_query_grants_path = (
+            ROOT / "infra/docker/workspace-project-query-grants.sql"
+        )
+        workspace_directory_query_grants_path = (
+            ROOT / "infra/docker/workspace-directory-query-grants.sql"
+        )
+        labeling_class_query_grants_path = (
+            ROOT / "infra/docker/labeling-class-query-grants.sql"
+        )
+        labeling_video_writer_grants_path = (
+            ROOT / "infra/docker/labeling-video-writer-grants.sql"
+        )
+        video_restore_grants_path = ROOT / "infra/docker/video-restore-grants.sql"
+        inference_pipelines_grants_path = (
+            ROOT / "infra/docker/inference-pipelines-grants.sql"
+        )
+        inference_backend_probe_grants_path = (
+            ROOT / "infra/docker/inference-backend-probe-grants.sql"
+        )
+        inference_health_observation_grants_path = (
+            ROOT / "infra/docker/inference-health-observation-grants.sql"
+        )
+        inference_health_origin_grants_path = (
+            ROOT / "infra/docker/inference-health-origin-grants.sql"
+        )
+        inference_health_data_grants_path = (
+            ROOT / "infra/docker/inference-health-data-grants.sql"
+        )
+        inference_registry_ingress_grants_path = (
+            ROOT / "infra/docker/inference-registry-ingress-grants.sql"
+        )
+        inference_routing_grants_path = (
+            ROOT / "infra/docker/inference-routing-grants.sql"
+        )
+        video_execution_grants_path = ROOT / "infra/docker/video-execution-grants.sql"
+        identity_deactivation_grants_path = (
+            ROOT / "infra/docker/identity-deactivation-grants.sql"
+        )
+        identity_recovery_grants_path = (
+            ROOT / "infra/docker/identity-recovery-grants.sql"
+        )
+        lan_production_grants_path = ROOT / "infra/docker/lan-production-grants.sql"
+        identity_consumer_grants_path = (
+            ROOT / "infra/docker/identity-consumer-grants.sql"
+        )
         artifacts = tuple(
             ROOT / "apps/api/alembic/sql" / name for name in SQL_ARTIFACTS
         )
@@ -1912,6 +2698,44 @@ def main(argv: list[str] | None = None) -> int:
             or not image_grants_path.is_file()
             or not mask_gc_grants_path.is_file()
             or not result_grants_path.is_file()
+            or not identity_grants_path.is_file()
+            or not identity_key_grants_path.is_file()
+            or not identity_session_grants_path.is_file()
+            or not identity_deactivation_grants_path.is_file()
+            or not identity_group_grants_path.is_file()
+            or not identity_invitation_grants_path.is_file()
+            or not identity_directory_grants_path.is_file()
+            or not identity_admin_password_grants_path.is_file()
+            or not identity_platform_role_grants_path.is_file()
+            or not identity_suspension_grants_path.is_file()
+            or not identity_deletion_grants_path.is_file()
+            or not identity_offboarding_grants_path.is_file()
+            or not identity_briefs_grants_path.is_file()
+            or not identity_provisioning_grants_path.is_file()
+            or not workspace_membership_grants_path.is_file()
+            or not workspace_owner_transfer_grants_path.is_file()
+            or not workspace_project_maintenance_grants_path.is_file()
+            or not workspace_project_deletion_grants_path.is_file()
+            or not workspace_dataset_unlink_grants_path.is_file()
+            or not workspace_configuration_grants_path.is_file()
+            or not workspace_template_query_grants_path.is_file()
+            or not workspace_project_query_grants_path.is_file()
+            or not workspace_directory_query_grants_path.is_file()
+            or not labeling_class_query_grants_path.is_file()
+            or not labeling_video_writer_grants_path.is_file()
+            or not video_restore_grants_path.is_file()
+            or not inference_pipelines_grants_path.is_file()
+            or not inference_backend_probe_grants_path.is_file()
+            or not inference_health_observation_grants_path.is_file()
+            or not inference_health_origin_grants_path.is_file()
+            or not inference_health_data_grants_path.is_file()
+            or not inference_registry_ingress_grants_path.is_file()
+            or not inference_routing_grants_path.is_file()
+            or not video_execution_grants_path.is_file()
+            or not identity_account_grants_path.is_file()
+            or not identity_recovery_grants_path.is_file()
+            or not lan_production_grants_path.is_file()
+            or not identity_consumer_grants_path.is_file()
             or any(not path.is_file() for path in artifacts)
             or any(not path.is_file() for path in schema_paths)
         ):
@@ -1936,6 +2760,114 @@ def main(argv: list[str] | None = None) -> int:
         image_grant_sql = image_grants_path.read_text(encoding="utf-8")
         mask_gc_grant_sql = mask_gc_grants_path.read_text(encoding="utf-8")
         result_grant_sql = result_grants_path.read_text(encoding="utf-8")
+        identity_grant_sql = identity_grants_path.read_text(encoding="utf-8")
+        identity_key_grant_sql = identity_key_grants_path.read_text(encoding="utf-8")
+        identity_session_grant_sql = identity_session_grants_path.read_text(
+            encoding="utf-8"
+        )
+        identity_invitation_grant_sql = identity_invitation_grants_path.read_text(
+            encoding="utf-8"
+        )
+        identity_directory_grant_sql = identity_directory_grants_path.read_text(
+            encoding="utf-8"
+        )
+        identity_admin_password_grant_sql = (
+            identity_admin_password_grants_path.read_text(encoding="utf-8")
+        )
+        identity_platform_role_grant_sql = identity_platform_role_grants_path.read_text(
+            encoding="utf-8"
+        )
+        identity_suspension_grant_sql = identity_suspension_grants_path.read_text(
+            encoding="utf-8"
+        )
+        identity_deletion_grant_sql = identity_deletion_grants_path.read_text(
+            encoding="utf-8"
+        )
+        identity_offboarding_grant_sql = identity_offboarding_grants_path.read_text(
+            encoding="utf-8"
+        )
+        identity_briefs_grant_sql = identity_briefs_grants_path.read_text(
+            encoding="utf-8"
+        )
+        identity_provisioning_grant_sql = identity_provisioning_grants_path.read_text(
+            encoding="utf-8"
+        )
+        workspace_membership_grant_sql = workspace_membership_grants_path.read_text(
+            encoding="utf-8"
+        )
+        workspace_owner_transfer_grant_sql = (
+            workspace_owner_transfer_grants_path.read_text(encoding="utf-8")
+        )
+        workspace_project_maintenance_grant_sql = (
+            workspace_project_maintenance_grants_path.read_text(encoding="utf-8")
+        )
+        workspace_project_deletion_grant_sql = (
+            workspace_project_deletion_grants_path.read_text(encoding="utf-8")
+        )
+        workspace_dataset_unlink_grant_sql = (
+            workspace_dataset_unlink_grants_path.read_text(encoding="utf-8")
+        )
+        workspace_configuration_grant_sql = (
+            workspace_configuration_grants_path.read_text(encoding="utf-8")
+        )
+        workspace_template_query_grant_sql = (
+            workspace_template_query_grants_path.read_text(encoding="utf-8")
+        )
+        workspace_directory_query_grant_sql = (
+            workspace_directory_query_grants_path.read_text(encoding="utf-8")
+        )
+        labeling_class_query_grant_sql = labeling_class_query_grants_path.read_text(
+            encoding="utf-8"
+        )
+        labeling_video_writer_grant_sql = labeling_video_writer_grants_path.read_text(
+            encoding="utf-8"
+        )
+        video_restore_grant_sql = video_restore_grants_path.read_text(encoding="utf-8")
+        inference_pipelines_grant_sql = inference_pipelines_grants_path.read_text(
+            encoding="utf-8"
+        )
+        inference_backend_probe_grant_sql = (
+            inference_backend_probe_grants_path.read_text(encoding="utf-8")
+        )
+        inference_health_observation_grant_sql = (
+            inference_health_observation_grants_path.read_text(encoding="utf-8")
+        )
+        inference_health_origin_grant_sql = (
+            inference_health_origin_grants_path.read_text(encoding="utf-8")
+        )
+        inference_health_data_grant_sql = inference_health_data_grants_path.read_text(
+            encoding="utf-8"
+        )
+        inference_registry_ingress_grant_sql = (
+            inference_registry_ingress_grants_path.read_text(encoding="utf-8")
+        )
+        inference_routing_grant_sql = inference_routing_grants_path.read_text(
+            encoding="utf-8"
+        )
+        video_execution_grant_sql = video_execution_grants_path.read_text(
+            encoding="utf-8"
+        )
+        workspace_project_query_grant_sql = (
+            workspace_project_query_grants_path.read_text(encoding="utf-8")
+        )
+        identity_group_grant_sql = identity_group_grants_path.read_text(
+            encoding="utf-8"
+        )
+        identity_deactivation_grant_sql = identity_deactivation_grants_path.read_text(
+            encoding="utf-8"
+        )
+        identity_account_grant_sql = identity_account_grants_path.read_text(
+            encoding="utf-8"
+        )
+        identity_recovery_grant_sql = identity_recovery_grants_path.read_text(
+            encoding="utf-8"
+        )
+        lan_production_grant_sql = lan_production_grants_path.read_text(
+            encoding="utf-8"
+        )
+        identity_consumer_grant_sql = identity_consumer_grants_path.read_text(
+            encoding="utf-8"
+        )
 
         from sqlalchemy.engine import URL
 
@@ -1948,6 +2880,7 @@ def main(argv: list[str] | None = None) -> int:
             raise RuntimeError("module-data acceptance requires development settings")
         owner_password = f"owner-{secrets.token_hex(16)}"
         runtime_password = f"runtime-{secrets.token_hex(16)}"
+        identity_api_consumer_password = secrets.token_hex(24)
         append_password = f"append-{secrets.token_hex(16)}"
         cleanup_password = f"cleanup-{secrets.token_hex(16)}"
         catalog_password = f"catalog-{secrets.token_hex(16)}"
@@ -1959,6 +2892,12 @@ def main(argv: list[str] | None = None) -> int:
         image_worker_password = f"image-worker-{secrets.token_hex(16)}"
         mask_gc_password = f"mask-gc-{secrets.token_hex(16)}"
         result_password = f"batch-result-{secrets.token_hex(16)}"
+        inference_registry_ingress_password = secrets.token_hex(24)
+        inference_routing_password = secrets.token_hex(24)
+        video_execution_password = secrets.token_hex(24)
+        identity_passwords = {
+            role: secrets.token_hex(24) for role in IDENTITY_CLIENT_ROLES.values()
+        }
         container_id = docker(
             "run",
             "-d",
@@ -2011,6 +2950,7 @@ def main(argv: list[str] | None = None) -> int:
             container_name,
             container_identity,
             runtime_password,
+            identity_api_consumer_password,
             owner_password,
         )
 
@@ -2035,8 +2975,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0234"]:
-            raise RuntimeError("module-data acceptance requires migration head 0234")
+        if heads != ["0306"]:
+            raise RuntimeError("module-data acceptance requires migration head 0306")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -2165,6 +3105,65 @@ def main(argv: list[str] | None = None) -> int:
             mask_gc_password,
             result_password,
         )
+        phase = "create-video-execution-client-role"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=(
+                f"CREATE ROLE {VIDEO_EXECUTION_ROLE} LOGIN "
+                f"PASSWORD '{video_execution_password}' "
+                "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT "
+                "NOREPLICATION NOBYPASSRLS;"
+            ),
+        )
+        phase = "create-identity-client-roles"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql="\n".join(
+                f"CREATE ROLE {role} LOGIN PASSWORD '{password}' NOSUPERUSER "
+                "NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;"
+                for role, password in identity_passwords.items()
+            ),
+        )
+        phase = "create-inference-registry-ingress-client"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=(
+                "CREATE ROLE inference_registry_ingress_client LOGIN "
+                f"PASSWORD '{inference_registry_ingress_password}' "
+                "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT "
+                "NOREPLICATION NOBYPASSRLS;\n"
+            ),
+        )
+        phase = "create-inference-routing-client"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=(
+                "CREATE ROLE inference_routing_client LOGIN "
+                f"PASSWORD '{inference_routing_password}' "
+                "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT "
+                "NOREPLICATION NOBYPASSRLS;\n"
+            ),
+        )
         phase = "install-module-grants"
         _psql(
             container_id,
@@ -2193,6 +3192,8 @@ def main(argv: list[str] | None = None) -> int:
                 "workflow_role": "append_client",
                 "asset_cleanup_role": "asset_cleanup_client",
                 "mask_gc_role": "labeling_mask_gc_client",
+                "inference_registry_ingress_role": INFERENCE_REGISTRY_INGRESS_ROLE,
+                "inference_routing_role": INFERENCE_ROUTING_ROLE,
             },
         )
 
@@ -2231,7 +3232,637 @@ def main(argv: list[str] | None = None) -> int:
             },
         )
 
+        phase = "install-video-execution-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=video_execution_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "jobs_owner": "jobs_code",
+                "video_execution_role": VIDEO_EXECUTION_ROLE,
+            },
+        )
+        phase = "install-labeling-video-writer-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_video_writer_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "labeling_video_writer_role": "labeling_video_writer_client",
+            },
+        )
+        phase = "install-video-restore-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=video_restore_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "inference_owner": "inference_code",
+                "video_restore_operator_role": "video_restore_operator_client",
+            },
+        )
+        phase = "install-identity-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                **{
+                    f"identity_{kind.lower()}_role": role
+                    for kind, role in IDENTITY_CLIENT_ROLES.items()
+                },
+            },
+        )
+        phase = "install-identity-key-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_key_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "identity_key_role": "identity_key_client",
+            },
+        )
+        phase = "install-identity-session-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_session_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "identity_session_role": "identity_session_client",
+            },
+        )
+        phase = "install-identity-account-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_account_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "identity_account_role": "identity_account_client",
+                "identity_presence_role": "identity_presence_client",
+            },
+        )
+        phase = "install-identity-group-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_group_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "audit_owner": "audit_code",
+                "identity_group_role": "identity_group_client",
+            },
+        )
+        phase = "install-identity-deactivation-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_deactivation_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "audit_owner": "audit_code",
+                "notifications_owner": "notifications_code",
+                "identity_deactivation_role": "identity_deactivation_client",
+                "identity_deactivation_operator_role": "identity_deactivation_operator",
+                "notification_publish_role": "notification_publish_client",
+            },
+        )
+        phase = "install-identity-recovery-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_recovery_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "audit_owner": "audit_code",
+                "settings_owner": "settings_code",
+                "identity_recovery_role": "identity_recovery_client",
+                "identity_mail_role": "identity_mail_client",
+                "identity_mail_settings_role": "identity_mail_settings_client",
+            },
+        )
+        phase = "install-identity-invitation-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_invitation_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "labeling_owner": "labeling_code",
+                "settings_owner": "settings_code",
+                "audit_owner": "audit_code",
+                "identity_invitation_role": "identity_invitation_client",
+                "identity_mail_v2_role": "identity_mail_v2_client",
+            },
+        )
+        phase = "install-identity-directory-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_directory_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "labeling_owner": "labeling_code",
+                "audit_owner": "audit_code",
+                "identity_directory_role": "identity_directory_client",
+            },
+        )
+        phase = "install-identity-admin-password-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_admin_password_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "audit_owner": "audit_code",
+                "identity_admin_password_role": "identity_admin_password_client",
+            },
+        )
+        phase = "install-identity-platform-role-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_platform_role_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "labeling_owner": "labeling_code",
+                "audit_owner": "audit_code",
+                "identity_platform_role_role": "identity_platform_role_client",
+            },
+        )
+        phase = "install-identity-suspension-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_suspension_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "audit_owner": "audit_code",
+                "identity_suspension_role": "identity_suspension_client",
+            },
+        )
+        phase = "install-identity-deletion-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_deletion_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "labeling_owner": "labeling_code",
+                "audit_owner": "audit_code",
+                "identity_deletion_role": "identity_deletion_client",
+            },
+        )
+        phase = "install-identity-offboarding-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_offboarding_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "labeling_owner": "labeling_code",
+                "audit_owner": "audit_code",
+                "identity_offboarding_role": "identity_offboarding_client",
+            },
+        )
+        phase = "install-identity-briefs-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_briefs_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "identity_briefs_role": "identity_briefs_client",
+            },
+        )
+        phase = "install-identity-provisioning-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_provisioning_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "audit_owner": "audit_code",
+                "identity_provisioning_role": "identity_provisioning_client",
+            },
+        )
+        phase = "install-workspace-membership-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=workspace_membership_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "labeling_owner": "labeling_code",
+                "audit_owner": "audit_code",
+                "workspace_membership_role": "workspace_membership_client",
+            },
+        )
+        phase = "install-workspace-owner-transfer-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=workspace_owner_transfer_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "workspace_owner_transfer_role": "workspace_owner_transfer_client",
+            },
+        )
+        phase = "install-workspace-project-maintenance-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=workspace_project_maintenance_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "workspace_owner": "workspace_code",
+                "workspace_project_maintenance_role": "workspace_project_maintenance_client",
+            },
+        )
+        phase = "install-workspace-project-deletion-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=workspace_project_deletion_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "workspace_owner": "workspace_code",
+                "workspace_project_deletion_role": "workspace_project_deletion_client",
+            },
+        )
+        phase = "install-workspace-dataset-unlink-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=workspace_dataset_unlink_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "workspace_owner": "workspace_code",
+                "workspace_dataset_unlink_role": "workspace_dataset_unlink_client",
+            },
+        )
+        phase = "install-workspace-configuration-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=workspace_configuration_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "workspace_configuration_role": "workspace_configuration_client",
+            },
+        )
+        phase = "install-inference-pipelines-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=inference_pipelines_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "inference_owner": "inference_code",
+                "inference_pipelines_role": "inference_pipelines_client",
+            },
+        )
+        phase = "install-inference-backend-probe-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=inference_backend_probe_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "inference_owner": "inference_code",
+                "inference_backend_probe_role": "inference_backend_probe_client",
+            },
+        )
+        for label, grant_sql, variable, role in (
+            (
+                "observation",
+                inference_health_observation_grant_sql,
+                "inference_health_observation_role",
+                "inference_health_observation_client",
+            ),
+            (
+                "origin",
+                inference_health_origin_grant_sql,
+                "inference_health_origin_role",
+                "inference_health_origin_client",
+            ),
+            (
+                "data",
+                inference_health_data_grant_sql,
+                "inference_health_data_role",
+                "inference_health_data_client",
+            ),
+        ):
+            phase = "install-inference-health-" + label + "-grants"
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=grant_sql,
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "inference_owner": "inference_code",
+                    variable: role,
+                },
+            )
+        phase = "install-inference-registry-ingress-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=inference_registry_ingress_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "inference_owner": "inference_code",
+                "inference_registry_ingress_role": INFERENCE_REGISTRY_INGRESS_ROLE,
+            },
+        )
+        phase = "install-inference-routing-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=inference_routing_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "inference_owner": "inference_code",
+                "inference_routing_role": INFERENCE_ROUTING_ROLE,
+            },
+        )
+        phase = "install-workspace-template-query-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=workspace_template_query_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "workspace_template_query_role": "workspace_template_query_client",
+            },
+        )
+        phase = "install-workspace-project-query-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=workspace_project_query_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "workspace_project_query_role": "workspace_project_query_client",
+            },
+        )
+        phase = "install-workspace-directory-query-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=workspace_directory_query_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "workspace_owner": "workspace_code",
+                "workspace_directory_query_role": "workspace_directory_query_client",
+            },
+        )
+        phase = "install-labeling-class-query-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=labeling_class_query_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "labeling_owner": "labeling_code",
+                "labeling_class_query_role": "labeling_class_query_client",
+            },
+        )
         resource_environment = backend.environment()
+        resource_environment.update(
+            {
+                (
+                    f"AAP_MODULE_DATA_{kind}_URL"
+                    if kind.startswith(
+                        ("WORKSPACE_", "LABELING_", "INFERENCE_", "VIDEO_")
+                    )
+                    else f"AAP_MODULE_DATA_IDENTITY_{kind}_URL"
+                ): URL.create(
+                    "postgresql+asyncpg",
+                    username=role,
+                    password=identity_passwords[role],
+                    host="127.0.0.1",
+                    port=port,
+                    database=database,
+                ).render_as_string(hide_password=False)
+                for kind, role in IDENTITY_CLIENT_ROLES.items()
+            }
+        )
         phase = "install-catalog-grants"
         _psql(
             container_id,
@@ -2329,6 +3960,397 @@ def main(argv: list[str] | None = None) -> int:
                 "asset_image_worker_role": "asset_image_worker_client",
             },
         )
+        phase = "install-identity-api-consumer-broad-grants"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=lan_production_grant_sql,
+            variables={
+                "expected_database": database,
+                "application_role": IDENTITY_API_CONSUMER_ROLE,
+                "migration_role": "owner",
+                "asset_cleanup_role": "asset_cleanup_client",
+            },
+        )
+        phase = "install-identity-api-consumer-fence-last"
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=identity_consumer_grant_sql,
+            variables={
+                "expected_database": database,
+                "migration_role": "owner",
+                "identity_owner": "identity_code",
+                "consumer_role": IDENTITY_API_CONSUMER_ROLE,
+            },
+        )
+        if (
+            "tests/test_seed_parent_operator_native.py" in selected_test_paths
+            or "tests/test_seed_parent_operator_live.py" in selected_test_paths
+            or "tests/test_workspace_seed_operator_native.py" in selected_test_paths
+            or "tests/test_workspace_seed_operator_live.py" in selected_test_paths
+            or (
+                "tests/test_workspace_module_assembly_live.py" in selected_test_paths
+                and os.environ.get("AAP_WORKSPACE_MODULE_ASSEMBLY_LIVE") == "1"
+            )
+            or (
+                "tests/test_workspace_worker_assembly_live.py" in selected_test_paths
+                and os.environ.get("AAP_WORKSPACE_WORKER_ASSEMBLY_LIVE") == "1"
+            )
+            or (
+                "tests/test_workspace_capacity_live.py" in selected_test_paths
+                and os.environ.get("AAP_WORKSPACE_CAPACITY_LIVE") == "1"
+            )
+        ):
+            phase = "install-workspace-api-consumer-fence-last"
+            workspace_consumer_path = (
+                ROOT / "infra/docker/workspace-consumer-grants.sql"
+            )
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=workspace_consumer_path.read_text(),
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "workspace_owner": "workspace_code",
+                    "consumer_role": IDENTITY_API_CONSUMER_ROLE,
+                },
+            )
+            evidence["workspace_api_consumer"] = {
+                "role": IDENTITY_API_CONSUMER_ROLE,
+                "grant_path": str(workspace_consumer_path.relative_to(ROOT)),
+                "sha256": hashlib.sha256(
+                    workspace_consumer_path.read_bytes()
+                ).hexdigest(),
+            }
+        workspace_import_cli_fence = None
+        seed_parent_live = (
+            "tests/test_seed_parent_operator_live.py" in selected_test_paths
+            and os.environ.get("AAP_SEED_PARENT_OPERATOR_LIVE") == "1"
+        )
+        seed_operator_live = seed_parent_live or (
+            "tests/test_workspace_seed_operator_live.py" in selected_test_paths
+            and os.environ.get("AAP_WORKSPACE_SEED_OPERATOR_LIVE") == "1"
+        )
+        media_seed_identity_live = (
+            "tests/test_media_seed_identity_live.py" in selected_test_paths
+            and os.environ.get("AAP_MEDIA_SEED_IDENTITY_LIVE") == "1"
+        )
+        identity_seed_selection_live = (
+            "tests/test_identity_seed_selection_live.py" in selected_test_paths
+            and os.environ.get("AAP_IDENTITY_SEED_SELECTION_LIVE") == "1"
+        )
+        identity_recording_live = (
+            "tests/test_identity_recording_live.py" in selected_test_paths
+            and os.environ.get("AAP_IDENTITY_RECORDING_FIXTURE_LIVE") == "1"
+        )
+        identity_e2e_live = (
+            "tests/test_identity_e2e_live.py" in selected_test_paths
+            and os.environ.get("AAP_IDENTITY_E2E_FIXTURE_LIVE") == "1"
+        )
+        if (
+            media_seed_identity_live
+            or identity_seed_selection_live
+            or identity_recording_live
+            or identity_e2e_live
+        ):
+
+            def workspace_import_cli_fence():
+                nonlocal phase
+                phase = "install-seed-identity-operator"
+                persona_grants = (
+                    ROOT
+                    / "infra/docker"
+                    / (
+                        "identity-e2e-fixture-grants.sql"
+                        if identity_e2e_live
+                        else "identity-recording-fixture-grants.sql"
+                        if identity_recording_live
+                        else "identity-scale-seed-grants.sql"
+                        if identity_seed_selection_live
+                        else "identity-seed-operator-grants.sql"
+                    )
+                )
+                for sql in (identity_consumer_grant_sql, persona_grants.read_text()):
+                    _psql(
+                        container_id,
+                        container_name,
+                        container_identity,
+                        username="owner",
+                        password=owner_password,
+                        database=database,
+                        sql=sql,
+                        variables={
+                            "expected_database": database,
+                            "migration_role": "owner",
+                            "identity_owner": "identity_code",
+                            "consumer_role": "legacy_runtime",
+                        },
+                    )
+                evidence[
+                    "identity_e2e_fixture_operator"
+                    if identity_e2e_live
+                    else "identity_recording_fixture_operator"
+                    if identity_recording_live
+                    else "identity_seed_selection_operator"
+                    if identity_seed_selection_live
+                    else "media_seed_identity_operator"
+                ] = {
+                    "role": "legacy_runtime",
+                    "grant_path": str(persona_grants.relative_to(ROOT)),
+                    "sha256": hashlib.sha256(persona_grants.read_bytes()).hexdigest(),
+                    "identity_private_tables_denied": True,
+                    "ordinary_api_unchanged": True,
+                    "other_domains": "existing trusted operator runtime grants retained",
+                }
+
+        elif seed_operator_live or (
+            "tests/test_workspace_import_cli_live.py" in selected_test_paths
+            and os.environ.get("AAP_WORKSPACE_IMPORT_CLI_LIVE") == "1"
+        ):
+
+            def workspace_import_cli_fence():
+                nonlocal phase
+                phase = "install-workspace-import-cli-identity-fence"
+                _psql(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    username="owner",
+                    password=owner_password,
+                    database=database,
+                    sql=identity_consumer_grant_sql,
+                    variables={
+                        "expected_database": database,
+                        "migration_role": "owner",
+                        "identity_owner": "identity_code",
+                        "consumer_role": "legacy_runtime",
+                    },
+                )
+                phase = "install-workspace-import-cli-workspace-fence"
+                workspace_import_grants = (
+                    ROOT / "infra/docker/workspace-consumer-grants.sql"
+                )
+                _psql(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    username="owner",
+                    password=owner_password,
+                    database=database,
+                    sql=workspace_import_grants.read_text(),
+                    variables={
+                        "expected_database": database,
+                        "migration_role": "owner",
+                        "workspace_owner": "workspace_code",
+                        "consumer_role": "legacy_runtime",
+                    },
+                )
+                phase = "restore-workspace-import-cli-provisioning-capabilities"
+                # The existing CLI provisions its operator in the same transaction.
+                # The ordinary API role does not receive these trusted capabilities.
+                provisioning_grants = """
+    GRANT EXECUTE ON FUNCTION
+        aap_identity_v1.read_provisioning_account(text),
+        aap_identity_v1.create_provisioning_account(jsonb)
+        TO legacy_runtime;
+    """
+                _psql(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    username="owner",
+                    password=owner_password,
+                    database=database,
+                    sql=provisioning_grants,
+                )
+                evidence["workspace_import_cli_consumer"] = {
+                    "role": "legacy_runtime",
+                    "identity_fence": {
+                        "path": "infra/docker/identity-consumer-grants.sql",
+                        "sha256": hashlib.sha256(
+                            identity_consumer_grant_sql.encode()
+                        ).hexdigest(),
+                    },
+                    "workspace_fence": {
+                        "path": str(workspace_import_grants.relative_to(ROOT)),
+                        "sha256": hashlib.sha256(
+                            workspace_import_grants.read_bytes()
+                        ).hexdigest(),
+                    },
+                    "provisioning_capabilities": [
+                        "aap_identity_v1.read_provisioning_account(text)",
+                        "aap_identity_v1.create_provisioning_account(jsonb)",
+                    ],
+                    "provisioning_grants_sha256": hashlib.sha256(
+                        provisioning_grants.encode()
+                    ).hexdigest(),
+                    "other_domains": "existing trusted operator runtime grants retained",
+                    "ordinary_api_unchanged": True,
+                }
+                if seed_operator_live:
+                    phase = "install-workspace-seed-operator-capabilities"
+                    seed_grants = (
+                        ROOT / "infra/docker/workspace-seed-operator-grants.sql"
+                    )
+                    _psql(
+                        container_id,
+                        container_name,
+                        container_identity,
+                        username="owner",
+                        password=owner_password,
+                        database=database,
+                        sql=seed_grants.read_text(),
+                        variables={
+                            "expected_database": database,
+                            "migration_role": "owner",
+                            "workspace_owner": "workspace_code",
+                            "consumer_role": "legacy_runtime",
+                        },
+                    )
+                    evidence["workspace_seed_operator_consumer"] = {
+                        "role": "legacy_runtime",
+                        "grant_path": str(seed_grants.relative_to(ROOT)),
+                        "sha256": hashlib.sha256(seed_grants.read_bytes()).hexdigest(),
+                        "ordinary_api_unchanged": True,
+                        "project_private_tables_denied": True,
+                        "other_domains": "existing trusted operator runtime grants retained",
+                    }
+                if seed_parent_live:
+                    phase = "install-identity-seed-operator-capabilities"
+                    persona_grants = (
+                        ROOT / "infra/docker/identity-seed-operator-grants.sql"
+                    )
+                    _psql(
+                        container_id,
+                        container_name,
+                        container_identity,
+                        username="owner",
+                        password=owner_password,
+                        database=database,
+                        sql=persona_grants.read_text(),
+                        variables={
+                            "expected_database": database,
+                            "migration_role": "owner",
+                            "identity_owner": "identity_code",
+                            "consumer_role": "legacy_runtime",
+                        },
+                    )
+                    evidence["identity_seed_operator_consumer"] = {
+                        "role": "legacy_runtime",
+                        "grant_path": str(persona_grants.relative_to(ROOT)),
+                        "sha256": hashlib.sha256(
+                            persona_grants.read_bytes()
+                        ).hexdigest(),
+                        "ordinary_api_unchanged": True,
+                    }
+
+        phase = "verify-identity-api-consumer-acl"
+        identity_consumer_acl = json.loads(
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=f"""
+SELECT pg_catalog.jsonb_build_object(
+    'views', pg_catalog.jsonb_build_object(
+        'account_profiles', pg_catalog.has_table_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}',
+            'aap_identity_v1.account_profiles', 'SELECT'),
+        'invitation_audit_targets', pg_catalog.has_table_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}',
+            'aap_identity_v1.invitation_audit_targets', 'SELECT')),
+    'functions', pg_catalog.jsonb_build_object(
+        'read_actor_facts', pg_catalog.has_function_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}',
+            'aap_identity_v1.read_actor_facts(uuid)', 'EXECUTE'),
+        'lock_accounts_share', pg_catalog.has_function_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}',
+            'aap_identity_v1.lock_accounts_share(uuid[],boolean)', 'EXECUTE'),
+        'lock_accounts_update', pg_catalog.has_function_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}',
+            'aap_identity_v1.lock_accounts_update(uuid[],boolean)', 'EXECUTE'),
+        'lock_accounts_key_share', pg_catalog.has_function_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}',
+            'aap_identity_v1.lock_accounts_key_share(uuid[],boolean)', 'EXECUTE'),
+        'check_accepted_api_key', pg_catalog.has_function_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}',
+            'aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])', 'EXECUTE'),
+        'workspace_template_query_org_ids', pg_catalog.has_function_privilege(
+            '{IDENTITY_API_CONSUMER_ROLE}',
+            'aap_identity_v1.workspace_template_query_org_ids(uuid)', 'EXECUTE'))
+)::text;
+""",
+            ).strip()
+        )
+        if identity_consumer_acl["views"] != {
+            "account_profiles": True,
+            "invitation_audit_targets": True,
+        } or identity_consumer_acl["functions"] != {
+            "read_actor_facts": True,
+            "lock_accounts_share": True,
+            "lock_accounts_update": True,
+            "lock_accounts_key_share": True,
+            "check_accepted_api_key": True,
+            "workspace_template_query_org_ids": True,
+        }:
+            raise RuntimeError(
+                "Identity API consumer is missing an approved read capability"
+            )
+        evidence["identity_api_consumer"] = {
+            "role": IDENTITY_API_CONSUMER_ROLE,
+            "grant_order": [
+                {
+                    "path": "infra/docker/lan-production-grants.sql",
+                    "sha256": hashlib.sha256(
+                        lan_production_grants_path.read_bytes()
+                    ).hexdigest(),
+                },
+                {
+                    "path": "infra/docker/identity-consumer-grants.sql",
+                    "sha256": hashlib.sha256(
+                        identity_consumer_grants_path.read_bytes()
+                    ).hexdigest(),
+                },
+            ],
+            "effective_access": identity_consumer_acl,
+        }
+        resource_environment.update(
+            {
+                "AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL": URL.create(
+                    "postgresql+asyncpg",
+                    username=IDENTITY_API_CONSUMER_ROLE,
+                    password=identity_api_consumer_password,
+                    host="127.0.0.1",
+                    port=port,
+                    database=database,
+                ).render_as_string(hide_password=False),
+                "AAP_MODULE_DATA_IDENTITY_API_CONSUMER_CONTAINER_URL": URL.create(
+                    "postgresql+asyncpg",
+                    username=IDENTITY_API_CONSUMER_ROLE,
+                    password=identity_api_consumer_password,
+                    host="host.docker.internal",
+                    port=port,
+                    database=database,
+                ).render_as_string(hide_password=False),
+            }
+        )
         phase = "create-scoped-storage-identity"
         for bucket in {
             resources["buckets"]["MINIO_DATASETS_BUCKET"],
@@ -2388,6 +4410,8 @@ def main(argv: list[str] | None = None) -> int:
         image_worker_storage["policy"] = "aap-images-worker-" + secrets.token_hex(8)
         _create_image_storage_scope(image_worker_storage)
         if selected_test_paths & {
+            "tests/test_labeling_video_writer_live.py",
+            "tests/test_labeling_video_writer_containers.py",
             "tests/test_mask_content_live.py",
             "tests/test_mask_content_containers.py",
             "tests/test_mask_gc_live.py",
@@ -2408,13 +4432,23 @@ def main(argv: list[str] | None = None) -> int:
                 "prefix": "raster-masks/sha256/",
                 "content_and_cleanup_identities_created": True,
             }
-        if "tests/test_video_consumers_containers.py" in selected_test_paths:
+        if selected_test_paths & {
+            "tests/test_video_consumers_containers.py",
+            "tests/test_identity_module_assembly_live.py",
+            "tests/test_workspace_module_assembly_live.py",
+            "tests/test_workspace_capacity_live.py",
+            "tests/test_identity_e2e_live.py",
+            "tests/test_identity_embedded_acl_live.py",
+            "tests/test_worktree_identity_runtime_role_live.py",
+        }:
             api_bootstrap_storage = _cleanup_storage_scope(backend)
             api_bootstrap_storage["buckets"] = resources["buckets"]
             api_bootstrap_storage["policy"] = "aap-api-bootstrap-" + secrets.token_hex(
                 8
             )
-            _create_api_bootstrap_storage_scope(api_bootstrap_storage)
+            _create_api_bootstrap_storage_scope(
+                api_bootstrap_storage, e2e_fixtures=identity_e2e_live
+            )
             api_storage = _restricted_s3_client(backend, api_bootstrap_storage)
             probe_bucket = resources["buckets"]["MINIO_DATASETS_BUCKET"]
             probe_key = f"api-bootstrap-probe/{uuid4()}"
@@ -2462,6 +4496,7 @@ def main(argv: list[str] | None = None) -> int:
         resource_environment.update(
             {
                 "AAP_MODULE_DATA_ROLE_ACCEPTANCE": "1",
+                "AAP_IDENTITY_BRIEFS_LIVE_ACCEPTANCE": "1",
                 "RUN_NATIVE_IMPORT_DELIVERY_LEASE_TEST": "1",
                 "AAP_MODULE_DATA_APPEND_URL": append_url,
                 "AAP_MODULE_DATA_ASSET_CLEANUP_URL": cleanup_url,
@@ -2472,10 +4507,34 @@ def main(argv: list[str] | None = None) -> int:
                 "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL": media_control_url,
                 "AAP_MODULE_DATA_ASSET_MEDIA_WORKER_URL": media_worker_url,
                 "AAP_MODULE_DATA_ASSET_IMAGE_WORKER_URL": image_worker_url,
+                "AAP_MODULE_DATA_INFERENCE_REGISTRY_INGRESS_URL": URL.create(
+                    "postgresql+asyncpg",
+                    username=INFERENCE_REGISTRY_INGRESS_ROLE,
+                    password=inference_registry_ingress_password,
+                    host="127.0.0.1",
+                    port=port,
+                    database=database,
+                ).render_as_string(hide_password=False),
+                "AAP_MODULE_DATA_INFERENCE_ROUTING_URL": URL.create(
+                    "postgresql+asyncpg",
+                    username=INFERENCE_ROUTING_ROLE,
+                    password=inference_routing_password,
+                    host="127.0.0.1",
+                    port=port,
+                    database=database,
+                ).render_as_string(hide_password=False),
                 "AAP_MODULE_DATA_PREANNOTATION_RESULT_URL": URL.create(
                     "postgresql+asyncpg",
                     username="preannotation_result_client",
                     password=result_password,
+                    host="127.0.0.1",
+                    port=port,
+                    database=database,
+                ).render_as_string(hide_password=False),
+                "AAP_MODULE_DATA_VIDEO_EXECUTION_URL": URL.create(
+                    "postgresql+asyncpg",
+                    username=VIDEO_EXECUTION_ROLE,
+                    password=video_execution_password,
                     host="127.0.0.1",
                     port=port,
                     database=database,
@@ -2541,6 +4600,8 @@ def main(argv: list[str] | None = None) -> int:
                     database=database,
                 ).render_as_string(hide_password=False),
                 "AAP_MODULE_DATA_PG_CONTAINER_ID": container_id,
+                "AAP_MODULE_DATA_REDIS_CONTAINER_NAME": resources["redis_name"],
+                "AAP_MODULE_DATA_REDIS_OWNER": resources["owner"],
                 "AAP_MODULE_DATA_PG_CONTAINER_NAME": container_name,
                 "AAP_MODULE_DATA_PG_CONTAINER_IDENTITY": container_identity,
             }
@@ -2583,7 +4644,7 @@ def main(argv: list[str] | None = None) -> int:
             "--tb=short",
             "--maxfail=3",
             f"--junitxml={junit}",
-            *TEST_FILES,
+            *test_files,
         ]
         options = parse_arguments(["exec", "--mode", "test", "--", *command])
         phase = "pytest"
@@ -2591,8 +4652,23 @@ def main(argv: list[str] | None = None) -> int:
             container_id, container_name, container_identity, require_running=True
         )
         with patch.dict(os.environ, resource_environment, clear=False):
-            exit_code = run_processes(backend, options)
+            if workspace_import_cli_fence is None:
+                exit_code = run_processes(backend, options)
+            else:
+                prepare_owned_resources = backend.prepare
+
+                def prepare_fenced_import_resources(*, skip_migrations=False):
+                    prepare_owned_resources(skip_migrations=skip_migrations)
+                    workspace_import_cli_fence()
+
+                # The launcher reapplies compatibility grants while preparing.
+                # Fence its actual final credentials before it starts pytest.
+                with patch.object(backend, "prepare", prepare_fenced_import_resources):
+                    exit_code = run_processes(backend, options)
         evidence["test_exit_code"] = exit_code
+        evidence["passed_test_count"] = _passed_test_count(junit)
+        if exit_code == 0 and evidence["passed_test_count"] == 0:
+            raise RuntimeError("Acceptance ran no passing test cases")
         evidence["status"] = "passed" if exit_code == 0 else "failed"
     except Exception as error:
         evidence["status"] = "failed"

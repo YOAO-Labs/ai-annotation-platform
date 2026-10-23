@@ -16,7 +16,6 @@ from app.db.models.active_learning import (
     ActiveLearningRound as Round,
 )
 from app.db.models.project import Project
-from app.db.models.user import User
 from app.deps import (
     get_current_user,
     get_db,
@@ -46,6 +45,7 @@ from app.services.labeling_active_learning_sources import (
 from app.services.storage import storage_service
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
 from app.services.training_authority_contract import TrainingAuthorityPort
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter(
     prefix="/projects/{project_id}/active-learning-rounds",
@@ -83,7 +83,7 @@ async def preview(
     body: Selection,
     request: Request,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ) -> dict:
@@ -131,7 +131,7 @@ async def create(
     body: RoundCreate,
     request: Request,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ):
@@ -221,7 +221,7 @@ async def detail(
 async def cancel(
     round_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await lock_project_manager(db, user.id, project.id)
@@ -237,7 +237,7 @@ async def cancel(
 async def retry(
     round_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ):
@@ -372,7 +372,7 @@ async def decide(
     body: DecisionCreate,
     request: Request,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ) -> dict:
@@ -427,7 +427,7 @@ async def record_feedback(
     body: FeedbackCreate,
     request: Request,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ) -> dict:

@@ -1,14 +1,14 @@
-from fastapi import APIRouter, Depends, Request
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+"""Public invitation proof and authenticated acceptance HTTP presentation."""
 
-from app.application.invitation_acceptance import (
-    accept_existing_project_invitation,
-    register_account_from_invitation,
+from fastapi import APIRouter, Depends, Request
+from fastapi.security import HTTPAuthorizationCredentials
+
+from app.api.v1.invitation_commands import (
+    execute_invitation,
+    get_authenticated_invitation_commands,
+    get_invitation_commands,
 )
-from app.core.security import create_access_token
-from app.db.models.user import User
-from app.deps import get_db, get_current_user
+from app.deps import bearer_scheme
 from app.schemas.invitation import (
     AcceptInvitationRequest,
     AcceptInvitationResponse,
@@ -16,36 +16,19 @@ from app.schemas.invitation import (
     RegisterRequest,
     RegisterResponse,
 )
-from app.schemas.user import UserOut
-from app.services.audit import AuditService, AuditAction
-from app.services.invitation import InvitationService, invitation_project_role
+from app.services.identity_invitation_commands import InvitationCommandsPort
 
 router = APIRouter()
 
 
 @router.get("/invitations/{token}", response_model=InvitationResolve)
-async def resolve_invitation(token: str, db: AsyncSession = Depends(get_db)):
-    inv = await InvitationService.resolve(db, token)
-    inviter_name: str | None = None
-    inviter = await db.get(User, inv.invited_by)
-    if inviter is not None:
-        inviter_name = inviter.name
-    project_name = None
-    if inv.project_id:
-        from app.db.models.project import Project
-
-        project_name = await db.scalar(
-            select(Project.name).where(Project.id == inv.project_id)
-        )
-    return InvitationResolve(
-        email=inv.email,
-        role=inv.role,
-        group_name=inv.group_name,
-        project_id=inv.project_id,
-        project_name=project_name,
-        project_member_role=invitation_project_role(inv),
-        expires_at=inv.expires_at,
-        invited_by_name=inviter_name,
+async def resolve_invitation(
+    token: str,
+    request: Request,
+    commands: InvitationCommandsPort = Depends(get_invitation_commands),
+):
+    return await execute_invitation(
+        request, None, commands, "resolve_invitation", {"invitation_token": token}
     )
 
 
@@ -53,78 +36,33 @@ async def resolve_invitation(token: str, db: AsyncSession = Depends(get_db)):
 async def register_via_invitation(
     payload: RegisterRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    commands: InvitationCommandsPort = Depends(get_invitation_commands),
 ):
-    user, inv, acceptance = await register_account_from_invitation(
-        db,
-        token=payload.token,
-        name=payload.name,
-        password=payload.password,
-    )
-    await AuditService.log(
-        db,
-        actor=user,
-        action=AuditAction.USER_REGISTER,
-        target_type="user",
-        target_id=str(user.id),
-        request=request,
-        status_code=201,
-        detail={
-            "email": user.email,
-            "role": user.role,
-            "invitation_id": str(inv.id),
-            "project_id": str(inv.project_id) if inv.project_id else None,
+    return await execute_invitation(
+        request,
+        None,
+        commands,
+        "register_invitation",
+        {
+            "invitation_token": payload.token,
+            "name": payload.name,
+            "password": payload.password,
         },
     )
-    await db.commit()
-    await db.refresh(user)
-
-    token = create_access_token(subject=str(user.id), role=user.role)
-    return RegisterResponse(
-        access_token=token,
-        token_type="bearer",
-        user=UserOut.model_validate(user),
-        acceptance=acceptance,
-    )
 
 
-@router.post(
-    "/invitations/accept",
-    response_model=AcceptInvitationResponse,
-)
+@router.post("/invitations/accept", response_model=AcceptInvitationResponse)
 async def accept_invitation_for_existing_user(
     payload: AcceptInvitationRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: InvitationCommandsPort = Depends(get_authenticated_invitation_commands),
 ):
-    """Explicitly attach an existing, matching account to an invitation project."""
-
-    return await _accept_existing_invitation(db, payload.token, request, user)
-
-
-async def _accept_existing_invitation(
-    db: AsyncSession, token: str, request: Request, user: User
-) -> AcceptInvitationResponse:
-    accepted_user, inv, acceptance = await accept_existing_project_invitation(
-        db, token=token, user=user
-    )
-    await AuditService.log(
-        db,
-        actor=accepted_user,
-        action="user.invite_accept_existing",
-        target_type="invitation",
-        target_id=str(inv.id),
-        request=request,
-        status_code=200,
-        detail={
-            "email": accepted_user.email,
-            "project_id": str(inv.project_id) if inv.project_id else None,
-        },
-    )
-    await db.commit()
-    await db.refresh(accepted_user)
-    return AcceptInvitationResponse(
-        user=UserOut.model_validate(accepted_user),
-        acceptance=acceptance,
+    """Explicitly attach the matching account without changing its platform role."""
+    return await execute_invitation(
+        request,
+        credentials,
+        commands,
+        "accept_invitation",
+        {"invitation_token": payload.token},
     )

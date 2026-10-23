@@ -3,8 +3,8 @@
 -- psql -v expected_database=annotation_production -v application_role=anno_prod_app
 --       -v migration_role=anno_prod_owner -v asset_cleanup_role=asset_cleanup_client
 --       -f lan-production-grants.sql
--- application_role retains broad legacy table access; module-data-grants.sql
--- defines the isolated workflow and Assets cleanup LOGIN boundaries.
+-- application_role composes embedded owners through their published capabilities.
+-- Identity private storage is denied; other legacy table access remains.
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('aap.expected_database', :'expected_database', true);
@@ -66,10 +66,229 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE, CREATE ON SCHEMA public TO :"application_role";
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO :"application_role";
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO :"application_role";
-GRANT USAGE ON SCHEMA aap_workspace_v1, aap_assets_v1, aap_labeling_v1,
-    aap_jobs_v1 TO :"application_role";
+GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_membership_v1,
+    aap_workspace_owner_transfer_v1, aap_inference_pipelines_v1,
+    aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1 TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_inference_pipelines_v1.pipeline_policy(),
+    aap_inference_pipelines_v1.pipeline_step(jsonb, text, jsonb, text[], text[])
+    TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_workspace_v1.clear_primary_backend_bindings(uuid)
+    TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_workspace_v1.read_import_project(text),
+    aap_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb),
+    aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb),
+    aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb),
+    aap_workspace_v1.write_seed_members(jsonb),
+    aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)
+    TO :"application_role";
+GRANT USAGE ON SCHEMA aap_inference_backend_probe_v1 TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_inference_backend_probe_v1.backend_probe_policy(),
+    aap_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)
+    TO :"application_role";
+GRANT USAGE ON SCHEMA aap_inference_health_observation_v1 TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_inference_health_observation_v1.health_observation_policy(),
+    aap_inference_health_observation_v1.capture_health_observation_subject(uuid,uuid,text,text,double precision),
+    aap_inference_health_observation_v1.open_health_observation_subject(text,uuid,uuid),
+    aap_inference_health_observation_v1.seal_health_observation(text,uuid,uuid,text),
+    aap_inference_health_observation_v1.verify_health_observation(text,uuid,uuid,text)
+    TO :"application_role";
+GRANT USAGE ON SCHEMA aap_inference_health_data_v1 TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_inference_health_data_v1.health_data_policy(),
+    aap_inference_health_data_v1.backend_row(uuid,boolean),
+    aap_inference_health_data_v1.membership_row(uuid,text,boolean),
+    aap_inference_health_data_v1.observation_clock(),
+    aap_inference_health_data_v1.lock_resource(text),
+    aap_inference_health_data_v1.try_promotion(),
+    aap_inference_health_data_v1.write_backend(uuid,text,timestamp with time zone,text,boolean,boolean),
+    aap_inference_health_data_v1.member_pool(uuid),
+    aap_inference_health_data_v1.pool_row(uuid,uuid),
+    aap_inference_health_data_v1.member_row(uuid),
+    aap_inference_health_data_v1.apply_reconciliation(uuid,uuid,text,text,text,bigint,text,text)
+    TO :"application_role";
+GRANT USAGE ON SCHEMA aap_inference_registry_ingress_v1 TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_inference_registry_ingress_v1.registry_ingress_policy(),
+    aap_inference_registry_ingress_v1.registry_by_url(text),
+    aap_inference_registry_ingress_v1.registry_candidates(text),
+    aap_inference_registry_ingress_v1.create_registry(uuid,text,text,text,boolean,text),
+    aap_inference_registry_ingress_v1.singleton_pool(uuid),
+    aap_inference_registry_ingress_v1.create_singleton_pool(uuid,uuid,uuid,text,text,text),
+    aap_inference_registry_ingress_v1.apply_observation(uuid,text,text,text,boolean,text,timestamp with time zone,text,boolean,text),
+    aap_inference_registry_ingress_v1.disconnect_env_registry(uuid,text),
+    aap_inference_registry_ingress_v1.tag_seed_registry(uuid,text),
+    aap_inference_registry_ingress_v1.sync_result(uuid,text),
+    aap_inference_registry_ingress_v1.record_sync_result(uuid,text,integer)
+    TO :"application_role";
+GRANT USAGE ON SCHEMA aap_inference_routing_v1 TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_inference_routing_v1.routing_policy(),
+    aap_inference_routing_v1.routing_step(text,text),
+    aap_inference_routing_v1.scope_retirement_step(text,text),
+    aap_inference_routing_v1.video_execution_scope_step(text,text)
+    TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_learning_v1.registry_evaluation_reference_exists(uuid),
+    aap_jobs_v1.count_running_registry_predictions(uuid),
+    aap_jobs_v1.video_execution_step(text,text),
+    aap_jobs_v1.video_execution_checkpoint_step(text,text) TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_labeling_v1.video_writer_step(text,text)
+    TO :"application_role";
+-- Embedded Identity adapters use the same owner capabilities as isolated clients.
+GRANT USAGE ON SCHEMA aap_identity_v1, aap_identity_keys_v1,
+    aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1,
+    aap_identity_groups_v1, aap_identity_deactivation_v1,
+    aap_identity_invitations_v1, aap_identity_mail_v2,
+    aap_identity_directory_v1, aap_identity_admin_passwords_v1,
+    aap_identity_platform_roles_v1, aap_identity_suspensions_v1,
+    aap_identity_deletions_v1, aap_identity_offboarding_v1,
+    aap_identity_briefs_v1,
+    aap_settings_v1, aap_notifications_v1 TO :"application_role";
+SELECT right(current_database(),5)='_test' OR right(current_database(),4)='_e2e'
+    AS identity_fixture_database \gset
+\if :identity_fixture_database
+GRANT EXECUTE ON FUNCTION aap_identity_v1.replace_fixture_preferences(uuid,jsonb)
+    TO :"application_role";
+\endif
+
+SELECT right(lower(current_database()),5)='_test' OR right(lower(current_database()),4)='_e2e'
+    AS identity_e2e_fixture_database \gset
+\if :identity_e2e_fixture_database
+GRANT USAGE ON SCHEMA aap_identity_fixture_v1 TO :"application_role";
+GRANT SELECT ON aap_identity_fixture_v1.account_profiles TO :"application_role";
+GRANT EXECUTE ON FUNCTION
+    aap_identity_fixture_v1.create_account(uuid,text,text,text,text),
+    aap_identity_fixture_v1.mark_manual_inactive(uuid,timestamptz,uuid),
+    aap_identity_fixture_v1.create_invitations(jsonb),
+    aap_identity_fixture_v1.delete_accounts(boolean,text[]),
+    aap_identity_fixture_v1.delete_reset_tokens(uuid[]),
+    aap_identity_fixture_v1.delete_invitations(uuid[]),
+    aap_identity_fixture_v1.delete_organization_members(uuid[])
+    TO :"application_role";
+\endif
+
+GRANT SELECT ON aap_identity_v1.account_profiles,
+    aap_identity_v1.invitation_audit_targets TO :"application_role";
+GRANT SELECT ON aap_workspace_v1.project_member_facts TO :"application_role";
+GRANT SELECT ON aap_workspace_v1.project_facts,
+    aap_labeling_v1.project_catalog_counters TO :"application_role";
+GRANT EXECUTE ON FUNCTION
+    aap_identity_v1.authentication_policy(),
+    aap_identity_v1.read_provisioning_account(text),
+    aap_identity_v1.create_provisioning_account(jsonb),
+    aap_identity_v1.create_seed_persona_account(jsonb),
+    aap_identity_v1.read_scale_seed_super_admin(),
+    aap_identity_v1.read_scale_seed_annotator(uuid[]),
+    aap_identity_v1.read_actor_context(uuid,text),
+    aap_identity_v1.read_actor_facts(uuid),
+    aap_identity_v1.lock_accounts_share(uuid[],boolean),
+    aap_identity_v1.check_accepted_api_key(uuid,uuid,text[]),
+    aap_identity_v1.lock_accounts_update(uuid[],boolean),
+    aap_identity_v1.lock_accounts_key_share(uuid[],boolean),
+    aap_identity_v1.lock_super_admin_invariant(),
+    aap_identity_v1.super_admin_status(uuid),
+    aap_identity_v1.read_jwt_principal(uuid,uuid,bigint,timestamptz,boolean),
+    aap_identity_v1.read_api_key_candidates(text,uuid,integer),
+    aap_identity_v1.confirm_api_key_principal(uuid,text),
+    aap_identity_v1.get_credential_generation(uuid),
+    aap_identity_v1.advance_credential_generation(uuid),
+    aap_identity_v1.revoke_jti(uuid,timestamptz),
+    aap_identity_v1.is_jti_revoked(uuid),
+    aap_identity_v1.retire_account_credentials(uuid),
+    aap_identity_v1.lock_current_principal(uuid,text,uuid,bigint,timestamptz,text[]),
+    aap_identity_keys_v1.key_policy(),
+    aap_identity_keys_v1.execute_key_command(jsonb),
+    aap_identity_sessions_v1.session_policy(),
+    aap_identity_sessions_v1.read_login_candidate(text),
+    aap_identity_sessions_v1.execute_session_command(jsonb),
+    aap_identity_accounts_v1.account_policy(),
+    aap_identity_accounts_v1.prepare_account_command(jsonb),
+    aap_identity_accounts_v1.apply_account_command(jsonb),
+    aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz),
+    aap_identity_recovery_v1.recovery_policy(),
+    aap_identity_recovery_v1.prepare_recovery_command(jsonb),
+    aap_identity_recovery_v1.apply_recovery_command(jsonb),
+    aap_identity_recovery_v1.read_registration_status(jsonb),
+    aap_identity_recovery_v1.mail_policy(),
+    aap_identity_recovery_v1.claim_mail(jsonb),
+    aap_identity_recovery_v1.renew_mail(jsonb),
+    aap_identity_recovery_v1.finish_mail(jsonb),
+    aap_identity_groups_v1.group_policy(),
+    aap_identity_groups_v1.execute_group_command(jsonb),
+    aap_identity_deactivation_v1.deactivation_policy(),
+    aap_identity_deactivation_v1.execute_deactivation_command(jsonb),
+    aap_identity_deactivation_v1.due_policy(),
+    aap_identity_deactivation_v1.process_due_deactivations(jsonb),
+    aap_identity_invitations_v1.invitation_policy(),
+    aap_identity_invitations_v1.prepare_invitation_command(jsonb),
+    aap_identity_invitations_v1.apply_invitation_command(jsonb),
+    aap_identity_directory_v1.directory_policy(),
+    aap_identity_directory_v1.execute_directory_command(jsonb),
+    aap_identity_admin_passwords_v1.admin_password_policy(),
+    aap_identity_admin_passwords_v1.execute_admin_password_command(jsonb),
+    aap_identity_platform_roles_v1.platform_role_policy(),
+    aap_identity_platform_roles_v1.execute_platform_role_command(jsonb),
+    aap_identity_suspensions_v1.suspension_policy(),
+    aap_identity_suspensions_v1.execute_suspension_command(jsonb),
+    aap_identity_deletions_v1.deletion_policy(),
+    aap_identity_deletions_v1.execute_deletion_command(jsonb),
+    aap_identity_offboarding_v1.offboarding_policy(),
+    aap_identity_offboarding_v1.prepare_offboarding_command(jsonb),
+    aap_identity_offboarding_v1.apply_offboarding_command(jsonb),
+    aap_identity_briefs_v1.briefs_policy(),
+    aap_identity_briefs_v1.execute_briefs_command(jsonb),
+    aap_identity_mail_v2.mail_policy(),
+    aap_identity_mail_v2.claim_mail(jsonb),
+    aap_identity_mail_v2.renew_mail(jsonb),
+    aap_identity_mail_v2.finish_mail(jsonb),
+    aap_notifications_v1.identity_delivery_policy(),
+    aap_notifications_v1.claim_identity_deliveries(jsonb),
+    aap_notifications_v1.finish_identity_delivery(jsonb),
+    aap_settings_v1.mail_delivery_policy(jsonb)
+    TO :"application_role";
+GRANT EXECUTE ON FUNCTION
+    aap_workspace_membership_v1.membership_policy(),
+    aap_workspace_membership_v1.prepare_membership_command(jsonb),
+    aap_workspace_membership_v1.apply_membership_command(jsonb)
+    TO :"application_role";
+GRANT EXECUTE ON FUNCTION
+    aap_workspace_owner_transfer_v1.owner_transfer_policy(),
+    aap_workspace_owner_transfer_v1.transfer_project_owner(jsonb)
+    TO :"application_role";
+GRANT USAGE ON SCHEMA aap_workspace_configuration_v1,
+    aap_workspace_template_query_v1, aap_workspace_directory_query_v1
+    TO :"application_role";
+GRANT EXECUTE ON FUNCTION
+    aap_workspace_configuration_v1.configuration_policy(),
+    aap_workspace_configuration_v1.configuration_step(jsonb,text,jsonb,text[],text[]),
+    aap_workspace_template_query_v1.template_query_policy(),
+    aap_workspace_template_query_v1.template_query_step(jsonb,text,jsonb,text,text[],text),
+    aap_workspace_directory_query_v1.directory_query_policy(),
+    aap_workspace_directory_query_v1.directory_query_step(jsonb,text,jsonb)
+    TO :"application_role";
+GRANT USAGE ON SCHEMA aap_workspace_project_query_v1 TO :"application_role";
+GRANT EXECUTE ON FUNCTION
+    aap_workspace_project_query_v1.project_query_policy(),
+    aap_workspace_project_query_v1.project_query_step(
+        jsonb, text, jsonb, text, text, text[], text[], uuid, text,
+        timestamptz, timestamptz, bigint, integer
+    )
+    TO :"application_role";
+-- These cross-owner dependencies are called only by Workspace SECURITY DEFINER code.
+REVOKE ALL ON FUNCTION
+    aap_identity_v1.workspace_configuration_org_scope(uuid, uuid),
+    aap_assets_v1.workspace_configuration_datasets(uuid),
+    aap_labeling_v1.workspace_configuration_video_facts(uuid),
+    aap_inference_v1.enable_workspace_project_backend(uuid, uuid)
+    FROM :"application_role";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
+    aap_workspace_v1.lock_project_reference_nowait(uuid),
+    aap_workspace_v1.read_project_row(uuid),
+    aap_workspace_v1.actor_project_memberships(uuid),
+    aap_workspace_project_query_v1.project_search_scope(uuid, text),
+    aap_workspace_project_query_v1.project_search_member_ids(uuid, text),
+    aap_workspace_v1.lock_project_references_for_update(uuid[]),
+    aap_workspace_v1.lock_project_member_reference(uuid, uuid, boolean),
+    aap_workspace_v1.project_member_rows(uuid, uuid[], boolean),
     aap_workspace_v1.lock_project_manager(uuid, uuid),
+    aap_workspace_v1.project_access_step(uuid, uuid, text),
+    aap_workspace_v1.lock_project_row(uuid, boolean),
     aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb),
     aap_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid),
     aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb),
@@ -85,10 +304,19 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
     aap_assets_v1.complete_dataset_upload(uuid, uuid, uuid, uuid, bigint, text, integer, integer),
     aap_assets_v1.discard_dataset_upload(uuid, uuid, uuid, text),
     aap_labeling_v1.append_dataset_items(uuid, uuid[], uuid),
+    aap_labeling_v1.write_project_counter_projection(uuid, jsonb),
+    aap_labeling_v1.decrement_project_review_count(uuid),
+    aap_labeling_v1.decrement_project_completed_count(uuid),
+    aap_labeling_v1.record_project_review_approval(uuid),
     aap_labeling_v1.read_mask_write_epochs(jsonb),
     aap_labeling_v1.begin_mask_content_write(jsonb),
     aap_labeling_v1.lock_mask_write_epochs(jsonb),
     aap_labeling_v1.register_tracker_running_mask_root(jsonb),
+    aap_labeling_v1.capture_video_tracker_input(uuid,uuid,integer),
+    aap_labeling_v1.lock_video_tracker_input_for_stage(uuid,uuid,uuid,uuid,text,text),
+    aap_labeling_v1.lock_video_tracker_input_for_accept(uuid,uuid,uuid,uuid,text,text),
+    aap_labeling_v1.attach_annotation_video_tracker_input_source(uuid,uuid,uuid,jsonb),
+    aap_labeling_v1.copy_annotation_video_tracker_input_sources(uuid,uuid,uuid),
     aap_labeling_v1.claim_mask_gc_sweep(jsonb),
     aap_labeling_v1.stage_mask_gc_page(jsonb),
     aap_labeling_v1.claim_mask_gc_deletes(jsonb),
@@ -222,11 +450,13 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions_v2(
 ),
     aap_assets_v1.complete_storage_deletion(uuid, uuid)
     TO :"asset_cleanup_role";
-REVOKE ALL ON SCHEMA public, aap_identity_v1, aap_workspace_v1,
+REVOKE ALL ON SCHEMA public, aap_identity_v1, aap_identity_directory_v1,
+    aap_workspace_v1,
     aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
     aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1
     FROM :"asset_cleanup_role";
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_v1,
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_identity_directory_v1,
+    aap_workspace_v1,
     aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
     aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1
     FROM :"asset_cleanup_role";
@@ -236,7 +466,13 @@ GRANT USAGE ON SCHEMA aap_assets_v1 TO :"asset_cleanup_role";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions_v2(
     text, timestamptz, uuid, uuid, integer
 ),
-    aap_assets_v1.complete_storage_deletion(uuid, uuid)
+    aap_assets_v1.complete_storage_deletion(uuid, uuid),
+    aap_assets_v1.claim_image_garbage(uuid,integer,integer),
+    aap_assets_v1.complete_image_garbage(uuid,uuid),
+    aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer),
+    aap_assets_v1.complete_accepted_input_garbage(uuid,uuid),
+    aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer),
+    aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)
     TO :"asset_cleanup_role";
 ALTER DEFAULT PRIVILEGES FOR ROLE :"migration_role" IN SCHEMA public
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"application_role";
@@ -281,6 +517,16 @@ END $$;
 DO $$
 DECLARE
     relation oid;
+    cleanup_functions oid[] := ARRAY[
+        'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)'::regprocedure::oid,
+        'aap_assets_v1.complete_storage_deletion(uuid,uuid)'::regprocedure::oid,
+        'aap_assets_v1.claim_image_garbage(uuid,integer,integer)'::regprocedure::oid,
+        'aap_assets_v1.complete_image_garbage(uuid,uuid)'::regprocedure::oid,
+        'aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)'::regprocedure::oid,
+        'aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)'::regprocedure::oid,
+        'aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)'::regprocedure::oid,
+        'aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)'::regprocedure::oid
+    ];
 BEGIN
     FOR relation IN
         SELECT catalog.oid
@@ -339,6 +585,11 @@ BEGIN
         RAISE EXCEPTION 'The Assets cleanup role has access outside Assets';
     END IF;
 
+    IF (SELECT count(*) FROM unnest(cleanup_functions) AS function(oid)
+        WHERE has_function_privilege(current_setting('aap.asset_cleanup_role'),function.oid,'EXECUTE')) <> 8 THEN
+        RAISE EXCEPTION 'The Assets cleanup role is missing an approved cleanup function';
+    END IF;
+
     IF EXISTS (
         SELECT 1
         FROM pg_catalog.pg_proc AS proc
@@ -346,15 +597,67 @@ BEGIN
           ON namespace.oid = proc.pronamespace
         WHERE pg_catalog.left(namespace.nspname, 4) = 'aap_'
           AND pg_catalog.right(namespace.nspname, 3) = '_v1'
-          AND proc.oid NOT IN (
-              'aap_assets_v1.pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)'::pg_catalog.regprocedure,
-              'aap_assets_v1.complete_storage_deletion(uuid,uuid)'::pg_catalog.regprocedure
-          )
+          AND NOT proc.oid = ANY(cleanup_functions)
           AND pg_catalog.has_function_privilege(
               current_setting('aap.asset_cleanup_role'), proc.oid, 'EXECUTE'
           )
     ) THEN
-        RAISE EXCEPTION 'The Assets cleanup role can execute outside its two outbox functions';
+        RAISE EXCEPTION 'The Assets cleanup role can execute outside its eight cleanup functions';
     END IF;
 END $$;
+-- Preserve embedded command capabilities while denying direct Identity storage.
+DO $identity_private_acl$
+DECLARE
+    v_runtime name := current_setting('aap.application_role');
+    v_relation record;
+    v_columns text;
+BEGIN
+    IF current_database() <> current_setting('aap.expected_database')
+       OR v_runtime=current_user
+       OR pg_catalog.pg_has_role(v_runtime,current_user,'MEMBER')
+       OR EXISTS (
+           SELECT 1 FROM pg_catalog.pg_auth_members
+           WHERE member=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=v_runtime)
+       )
+       OR NOT EXISTS (
+           SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=v_runtime AND rolcanlogin
+             AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)
+       ) THEN
+        RAISE EXCEPTION 'Invalid embedded Identity runtime ownership';
+    END IF;
+    FOR v_relation IN
+        SELECT c.oid,n.nspname,c.relname
+        FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE c.relkind IN ('r','p','v','m','f') AND (
+            (n.nspname='public' AND (
+                c.relname IN ('users','api_keys','groups','organizations',
+                    'organization_members','user_invitations',
+                    'password_reset_tokens','email_verification_tokens')
+                OR pg_catalog.left(c.relname,9)='identity_'
+            )) OR (
+                n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$'
+                AND c.relkind <> 'v'
+            )
+        )
+    LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %I.%I FROM %I',
+            v_relation.nspname,v_relation.relname,v_runtime);
+        SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attname),',' ORDER BY attnum)
+        INTO v_columns FROM pg_catalog.pg_attribute
+        WHERE attrelid=v_relation.oid AND attnum>0 AND NOT attisdropped;
+        IF v_columns IS NOT NULL THEN
+            EXECUTE pg_catalog.format('REVOKE ALL (%s) ON TABLE %I.%I FROM %I',
+                v_columns,v_relation.nspname,v_relation.relname,v_runtime);
+        END IF;
+        IF pg_catalog.has_table_privilege(v_runtime,v_relation.oid,
+                'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+           OR pg_catalog.has_any_column_privilege(v_runtime,v_relation.oid,
+                'SELECT,INSERT,UPDATE,REFERENCES') THEN
+            RAISE EXCEPTION 'Embedded runtime retains private Identity access: %.%',
+                v_relation.nspname,v_relation.relname;
+        END IF;
+    END LOOP;
+END;
+$identity_private_acl$;
 COMMIT;

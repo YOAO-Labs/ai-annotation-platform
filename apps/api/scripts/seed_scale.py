@@ -70,28 +70,14 @@ async def _purge(db: AsyncSession) -> None:
 
 
 async def seed(n_tasks: int, n_batches: int, n_annotated: int) -> None:
+    from app.services.identity_commands import IdentityCommandService
+
     async with Session() as db:
         await _purge(db)
 
-        owner_id = (
-            await db.execute(
-                text(
-                    "SELECT id FROM users WHERE role = 'super_admin' ORDER BY created_at LIMIT 1"
-                )
-            )
-        ).scalar()
-        # Project duties live on project_members; the account platform role is
-        # no longer an annotator/reviewer value after the 0174 employee cutover.
-        annotator_id = (
-            await db.execute(
-                text(
-                    "SELECT u.id FROM users u "
-                    "JOIN project_members pm ON pm.user_id = u.id "
-                    "WHERE pm.role = 'annotator' AND u.is_active "
-                    "ORDER BY u.created_at LIMIT 1"
-                )
-            )
-        ).scalar()
+        owner_id, annotator_id = await IdentityCommandService(
+            db
+        ).resolve_scale_seed_actors()
         if not owner_id or not annotator_id:
             print(
                 "[seed_scale] need at least 1 super_admin and 1 user with the "

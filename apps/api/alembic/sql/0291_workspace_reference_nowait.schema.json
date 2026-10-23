@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:workspace-project-reference-lock-nowait",
+  "title": "Workspace Project reference lock NOWAIT",
+  "description": "Caller-transactional Project KEY SHARE lock companion. It returns the matching Project UUID, or null for a null or missing Project. Lock contention propagates the original PostgreSQL SQLSTATE. The caller owns authorization and commit.",
+  "$defs": {
+    "ProjectReferenceId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "x-postgresql-functions": ["aap_workspace_v1.lock_project_reference_nowait(uuid)"],
+  "x-postgresql-errors": {
+    "lock_contention": {
+      "sqlstates": ["55P03", "40001", "40P01"],
+      "translation": "None; the caller retains the existing SQLSTATE handling."
+    }
+  },
+  "x-native-capabilities": {
+    "authorization_boundary": "The caller owns authorization and workflow decisions; this function only takes a Project KEY SHARE NOWAIT lock.",
+    "functions": [
+      {
+        "arguments": [
+          {
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "name": "p_project_id",
+            "postgres_type": "uuid"
+          }
+        ],
+        "name": "lock_project_reference_nowait",
+        "result_model": "ProjectReferenceId",
+        "result_postgres_type": "uuid",
+        "result_schema_ref": "#/$defs/ProjectReferenceId",
+        "signature": "aap_workspace_v1.lock_project_reference_nowait(uuid)",
+        "transaction_semantics": "Acquire FOR KEY SHARE NOWAIT on an existing Project in the caller's transaction. Return the Project UUID, or null when the input is null or no row matches. Do not commit or translate lock SQLSTATEs."
+      }
+    ],
+    "postgres_schema": "aap_workspace_v1",
+    "transaction_boundary": "The caller owns the surrounding transaction and commit."
+  }
+}

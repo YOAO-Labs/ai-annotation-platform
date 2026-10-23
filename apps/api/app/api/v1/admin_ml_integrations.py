@@ -36,7 +36,6 @@ from app.db.models.gpu_backend_membership import GPUBackendMembership
 from app.db.models.ml_backend_pool import MLBackendPoolMember
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
 from app.db.models.project import Project
-from app.db.models.user import User
 from app.deps import (
     get_db,
     get_gpu_dispatch_context_factory,
@@ -109,6 +108,7 @@ from app.services.ml_backend import (
 )
 from app.services.ml_client import MLBackendClient
 from app.services.storage import storage_service
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -147,7 +147,7 @@ class MLIntegrationsOverview(BaseModel):
 @router.get("/overview", response_model=MLIntegrationsOverview)
 async def get_overview(
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    _admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
     bucket_roles = {
         storage_service.bucket: "annotations",
@@ -298,7 +298,9 @@ class ProbeResponse(BaseModel):
 @router.post("/probe", response_model=ProbeResponse)
 async def probe_backend(
     payload: ProbeRequest,
-    _admin: User = Depends(require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)),
+    _admin: IdentityActorFacts = Depends(
+        require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)
+    ),
 ):
     """探测一个 ML backend URL 的 /health 端点; 不写 DB."""
     _validate_probe_base_url(payload.url)
@@ -360,7 +362,9 @@ class RuntimeHints(BaseModel):
 
 @router.get("/runtime-hints", response_model=RuntimeHints)
 async def runtime_hints(
-    _admin: User = Depends(require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)),
+    _admin: IdentityActorFacts = Depends(
+        require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)
+    ),
 ):
     return RuntimeHints(
         ml_backend_default_url=settings.ml_backend_default_url or None,
@@ -486,7 +490,9 @@ def _apply_backend_rollout_status(
 @router.get("/all", response_model=GlobalBackendListResponse)
 async def list_all_backends(
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)),
+    admin: IdentityActorFacts = Depends(
+        require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)
+    ),
 ) -> GlobalBackendListResponse:
     """v0.19.0 ADR-0044 · 列全局注册表所有 backend。
 
@@ -653,7 +659,7 @@ class GPUArbiterResourcesResponse(BaseModel):
 @router.get("/gpu-resources", response_model=GPUArbiterResourcesResponse)
 async def list_gpu_resources(
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    _admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> GPUArbiterResourcesResponse:
     """Return typed physical resources and static claim diagnostics; no side effects."""
 
@@ -898,7 +904,7 @@ async def create_registry(
     data: MLBackendRegistryCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> MLBackendOut:
     """注册一个全局 backend (source=manual)。同 url 已存在则 409。"""
     svc = MLBackendService(db)
@@ -963,7 +969,7 @@ async def update_registry(
     data: MLBackendRegistryUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> MLBackendOut:
     """编辑全局 backend 的端点固有属性 (name/url/auth/extra_params/is_interactive)。"""
     svc = MLBackendService(db)
@@ -1019,7 +1025,7 @@ async def delete_registry(
     registry_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> None:
     """删除全局 backend。running prediction job 仍在跑则 409; 否则级联解绑
     projects.ml_backend_pool_id / project_ml_backend_pool (CASCADE) / 历史 prediction (SET NULL)。
@@ -1069,7 +1075,7 @@ async def delete_registry(
 async def check_registry_health(
     registry_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    _admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> MLBackendHealthResponse:
     """对全局 backend 探活 + 落能力快照 (与项目作用域 health 同逻辑, 无项目启用前置)。"""
     svc = MLBackendService(db)
@@ -1099,7 +1105,7 @@ async def unload_registry_backend(
     dispatch_context_factory: GPUDispatchContextFactory = Depends(
         get_gpu_dispatch_context_factory
     ),
-    admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> MLBackendUnloadResponse:
     """全局卸载 backend，不要求它已被任一项目启用。"""
 
@@ -1306,7 +1312,7 @@ async def _probe_one(client: httpx.AsyncClient, base: str) -> ObserveTarget:
 @router.get("/observe", response_model=ObserveResponse)
 async def observe_backends(
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    _admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> ObserveResponse:
     """直连观测 env 配的后端容器: 并发探测各 URL 的 /health + /setup, 标注是否已被注册。"""
     urls = _observe_urls()
@@ -1358,7 +1364,7 @@ async def smoke_test_backend(
     dispatch_context_factory: GPUDispatchContextFactory = Depends(
         get_gpu_dispatch_context_factory
     ),
-    admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> SmokeTestResponse:
     """试启动: 空池时 warm 指定变体验证可加载性, 成功后自动 /unload 还原现场。
 
@@ -1770,7 +1776,7 @@ async def _pool_to_admin_item(db: AsyncSession, pool) -> ServicePoolAdminItem:
 )
 async def list_service_pools(
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    _admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> list[ServicePoolAdminItem]:
     pools = await MLBackendService(db).list_pools()
     return [await _pool_to_admin_item(db, p) for p in pools]
@@ -1781,7 +1787,7 @@ async def create_service_pool(
     data: ServicePoolCreateRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> ServicePoolAdminItem:
     svc = MLBackendService(db)
     try:
@@ -1809,7 +1815,7 @@ async def create_service_pool(
 async def get_service_pool(
     pool_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    _admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> ServicePoolAdminItem:
     pool = await MLBackendService(db).get_pool(pool_id)
     if pool is None:
@@ -1823,7 +1829,7 @@ async def patch_service_pool(
     data: ServicePoolPatchRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> ServicePoolAdminItem:
     svc = MLBackendService(db)
     try:
@@ -1852,7 +1858,7 @@ async def delete_service_pool(
     pool_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> None:
     svc = MLBackendService(db)
     try:
@@ -1884,7 +1890,7 @@ async def add_or_update_pool_member(
     data: ServicePoolMemberPutRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> ServicePoolAdminItem:
     from app.services.ml_routing.contracts import CapabilityMismatchError
 
@@ -1936,7 +1942,7 @@ async def remove_pool_member(
     registry_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> ServicePoolAdminItem:
     from app.services.ml_routing.safety import (
         MLBackendQuiescenceError,
@@ -1977,7 +1983,7 @@ async def drain_pool_member(
     registry_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> ServicePoolAdminItem:
     svc = MLBackendService(db)
     member = await svc.drain_pool_member(pool_id, registry_id)
@@ -2007,7 +2013,7 @@ async def resume_pool_member(
     registry_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> ServicePoolAdminItem:
     svc = MLBackendService(db)
     try:
@@ -2039,7 +2045,7 @@ async def preview_pool_member_capability_drift(
     pool_id: uuid.UUID,
     registry_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    _admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> CapabilityDriftPreviewResponse:
     preview = await MLBackendService(db).preview_capability_drift(pool_id, registry_id)
     if preview is None:
@@ -2068,7 +2074,7 @@ async def accept_pool_member_capability_drift(
     data: CapabilityDriftAcceptRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> ServicePoolAdminItem:
     svc = MLBackendService(db)
     if await svc.preview_capability_drift(pool_id, registry_id) is None:
@@ -2128,7 +2134,9 @@ async def accept_pool_member_capability_drift(
 @router.get("/topology", response_model=TopologyResponse)
 async def get_topology(
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)),
+    admin: IdentityActorFacts = Depends(
+        require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)
+    ),
 ) -> TopologyResponse:
     """Pool/member topology, role-scoped (§12.3). Super Admin sees full member detail
     + health + GPU; Project Admin sees a trimmed summary (routing_policy/weight/state
@@ -2145,7 +2153,7 @@ async def get_topology(
 @router.get("/runtime-snapshot", response_model=RuntimeSnapshotResponse)
 async def get_runtime_snapshot(
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    _admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> RuntimeSnapshotResponse:
     """Full runtime snapshot (Super Admin only): router mode + per-pool inflight /
     circuit / health + a freshness envelope (§12.3 + plan §6.3). Best-effort Redis

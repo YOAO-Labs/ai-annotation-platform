@@ -36,6 +36,7 @@ from app.services.labeling_scene import (
     get_scene_frame_task_map,
     resolve_task_scene_frames,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 
 router = APIRouter()
@@ -71,7 +72,7 @@ async def _create_job(
     db: AsyncSession,
     *,
     source_task: Task,
-    current_user: User,
+    current_user: User | IdentityActorFacts,
     data: CrossFrameJobCreate,
     access: ProjectAccess | None = None,
     target_frame_override: list[int] | None = None,
@@ -241,7 +242,7 @@ async def create_cross_frame_job(
     task_id: uuid.UUID,
     data: CrossFrameJobCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     source_task = await _load_task_or_404(db, task_id)
@@ -269,7 +270,7 @@ async def list_cross_frame_jobs(
     task_id: uuid.UUID,
     limit: int = Query(20, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
@@ -307,7 +308,7 @@ async def retry_cross_frame_job(
     task_id: uuid.UUID,
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     anchor_task = await _load_task_or_404(db, task_id)

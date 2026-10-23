@@ -21,7 +21,7 @@ from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
-from app.db.models.user import User
+from app.services.identity_commands import IdentityCommandService
 from app.services.annotation_evidence import (
     clear_review_contributor_evidence,
     freeze_review_contributor_evidence,
@@ -245,17 +245,15 @@ def _seed_marker(dataset: Dataset) -> dict:
     return marker if isinstance(marker, dict) else {}
 
 
-async def _seed_users(db: AsyncSession) -> dict[str, User]:
-    users: dict[str, User] = {}
+async def _seed_users(db: AsyncSession) -> dict[str, uuid.UUID]:
+    users: dict[str, uuid.UUID] = {}
     for key, (email, role) in USER_SPECS.items():
-        rows = list(
-            (await db.execute(select(User).where(User.email == email))).scalars()
-        )
-        if len(rows) != 1 or rows[0].role != role:
+        rows = await IdentityCommandService(db).lookup_seed_account_facts(email)
+        if len(rows) != 1 or rows[0][2] != role:
             raise ScreenshotSeedReconcileError(
                 f"seed user {email} with role {role} is required"
             )
-        users[key] = rows[0]
+        users[key] = rows[0][0]
     return users
 
 
@@ -264,7 +262,7 @@ async def _assert_rebuild_ownership(
     logical_key: str,
     project: Project | None,
     dataset: Dataset | None,
-    users: dict[str, User],
+    users: dict[str, uuid.UUID],
 ) -> None:
     spec = PROJECT_SPECS[logical_key]
     marker = _seed_marker(dataset) if dataset is not None else {}
@@ -279,7 +277,7 @@ async def _assert_rebuild_ownership(
         owner = users[state["owner"]]
         if (
             project.name not in LEGACY_PROJECT_NAMES[logical_key]
-            or project.owner_id != owner.id
+            or project.owner_id != owner
         ):
             raise ScreenshotSeedReconcileError(
                 f"{spec.display_id}: fixed id is not an owned screenshot/demo seed project"
@@ -301,7 +299,7 @@ async def _assert_rebuild_ownership(
 
     if dataset is not None:
         state = DATASET_STATE[logical_key]
-        allowed_creators = {users["project_admin"].id, users["admin"].id}
+        allowed_creators = {users["project_admin"], users["admin"]}
         if (
             dataset.name not in LEGACY_DATASET_NAMES[logical_key]
             or dataset.created_by not in allowed_creators
@@ -385,7 +383,7 @@ async def prepare_screenshot_seed(
                     storage_keys.add(file_path)
         if project is not None:
             await delete_project_transaction(
-                db, project.id, actor_id=users[PROJECT_STATE[logical_key]["owner"]].id
+                db, project.id, actor_id=users[PROJECT_STATE[logical_key]["owner"]]
             )
             purged_projects += 1
         if dataset is not None:
@@ -548,21 +546,21 @@ async def _resolve_owned_resources(
 
 
 async def _reconcile_members(
-    db: AsyncSession, project: Project, users: dict[str, User]
+    db: AsyncSession, project: Project, users: dict[str, uuid.UUID]
 ) -> None:
-    assigned_by = users["project_admin"].id
+    assigned_by = users["project_admin"]
     for user_key, role in (("annotator", "annotator"), ("reviewer", "reviewer")):
         user = users[user_key]
         member = await db.scalar(
             select(ProjectMember).where(
                 ProjectMember.project_id == project.id,
-                ProjectMember.user_id == user.id,
+                ProjectMember.user_id == user,
             )
         )
         if member is None:
             member = ProjectMember(
                 project_id=project.id,
-                user_id=user.id,
+                user_id=user,
                 role=role,
                 assigned_by=assigned_by,
                 assigned_at=FIXED_TIME,
@@ -579,7 +577,7 @@ async def _reconcile_batches(
     project: Project,
     dataset: Dataset,
     tasks: dict[str, Task],
-    users: dict[str, User],
+    users: dict[str, uuid.UUID],
 ) -> dict[str, TaskBatch]:
     spec = PROJECT_SPECS["image_demo"]
     expected_display_ids = {batch_spec.display_id for batch_spec in spec.batches}
@@ -627,12 +625,12 @@ async def _reconcile_batches(
         batch.description = "screenshots seed managed batch"
         batch.status = batch_spec.status
         batch.priority = 50
-        batch.annotator_id = annotator.id if annotator else None
-        batch.reviewer_id = reviewer.id if reviewer else None
+        batch.annotator_id = annotator
+        batch.reviewer_id = reviewer
         batch.assigned_user_ids = [
-            str(user.id) for user in (annotator, reviewer) if user is not None
+            str(user) for user in (annotator, reviewer) if user is not None
         ]
-        batch.created_by = users["project_admin"].id
+        batch.created_by = users["project_admin"]
         batch.created_at = FIXED_TIME
         batch.updated_at = FIXED_TIME
         if not rows:
@@ -721,7 +719,10 @@ async def _reconcile_predictions(
 
 
 async def _reconcile_annotations(
-    db: AsyncSession, project: Project, tasks: dict[str, Task], users: dict[str, User]
+    db: AsyncSession,
+    project: Project,
+    tasks: dict[str, Task],
+    users: dict[str, uuid.UUID],
 ) -> None:
     managed_ids = {
         key: uuid.uuid5(ANNOTATION_NAMESPACE, f"{project.display_id}:{key}")
@@ -751,7 +752,7 @@ async def _reconcile_annotations(
             db.add(annotation)
         annotation.task_id = task.id
         annotation.project_id = project.id
-        annotation.user_id = users["annotator"].id
+        annotation.user_id = users["annotator"]
         annotation.source = "manual"
         annotation.annotation_type = "bbox"
         annotation.tool_unit_id = "bbox"
@@ -777,17 +778,17 @@ async def _reconcile_annotations(
         # Every surviving annotation was reconciled above to its declared author;
         # this complete owned fixture is not a legacy task with unknown history.
         task.annotation_contributor_ids = (
-            [str(users["annotator"].id)] if has_annotation else []
+            [str(users["annotator"])] if has_annotation else []
         )
         if task.status in {"review", "completed"}:
             task.review_round_id = uuid.uuid5(task.id, "screenshot-review-round")
-            freeze_review_contributor_evidence(task, submitter_id=users["annotator"].id)
+            freeze_review_contributor_evidence(task, submitter_id=users["annotator"])
         else:
             task.review_round_id = None
             clear_review_contributor_evidence(task)
 
 
-def _set_task_state(tasks: dict[str, Task], users: dict[str, User]) -> None:
+def _set_task_state(tasks: dict[str, Task], users: dict[str, uuid.UUID]) -> None:
     specs = PROJECT_SPECS["image_demo"].tasks
     for index, task_spec in enumerate(specs):
         task = tasks[task_spec.key]
@@ -797,10 +798,10 @@ def _set_task_state(tasks: dict[str, Task], users: dict[str, User]) -> None:
         task.sequence_order = index
         task.status = task_spec.status
         task.assignee_id = (
-            users[task_spec.assignee_key].id if task_spec.assignee_key else None
+            users[task_spec.assignee_key] if task_spec.assignee_key else None
         )
         task.reviewer_id = (
-            users[task_spec.reviewer_key].id if task_spec.reviewer_key else None
+            users[task_spec.reviewer_key] if task_spec.reviewer_key else None
         )
         task.assigned_at = assigned_at if task.assignee_id else None
         task.submitted_at = (
@@ -1137,14 +1138,14 @@ async def reconcile_screenshot_seed(
             project.raster_mask_native_editing_enabled = project_state[
                 "raster_mask_native_editing_enabled"
             ]
-        project.owner_id = users[project_state["owner"]].id
+        project.owner_id = users[project_state["owner"]]
         project.status = "in_progress"
         project.tool_bindings = copy.deepcopy(project_state["tool_bindings"])
 
         dataset.name = dataset_state["name"]
         dataset.description = dataset_state["description"]
         dataset.data_type = dataset_state["data_type"]
-        dataset.created_by = users[project_state["owner"]].id
+        dataset.created_by = users[project_state["owner"]]
         if "axis_convention" in dataset_state:
             axis_updates.append((dataset.id, dataset_state["axis_convention"]))
         dataset.file_count = (

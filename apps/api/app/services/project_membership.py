@@ -34,7 +34,9 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_lock import TaskLock
-from app.db.models.user import User
+from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.identity_contracts import IdentityActorStatus
+from app.services.identity_read_relations import account_profiles
 from app.services.audit import AuditAction, AuditService
 from app.services.project_access import is_privileged_for_project
 from app.services.workspace_contract import membership_role_compatible
@@ -44,6 +46,7 @@ from app.services.scheduler import (
     effective_task_reviewer_expr,
 )
 from app.services.user_lifecycle import UserLifecycleService
+from app.services.identity_contracts import IdentityActorFacts
 
 _BUSY_SQLSTATES = {"55P03", "40P01", "40001"}
 
@@ -122,7 +125,7 @@ async def _conflict_rollback(
 
 async def _lock_accounts_nowait(
     db: AsyncSession, user_ids: Iterable[uuid.UUID | None]
-) -> dict[uuid.UUID, User]:
+) -> dict[uuid.UUID, IdentityActorFacts]:
     """Reuse the lifecycle account lock so every writer shares one lock order."""
 
     ids = sorted({uid for uid in user_ids if uid is not None})
@@ -502,12 +505,12 @@ async def _eligible_reviewer_ids(
     excluded = {uid for uid in exclude_user_ids if uid is not None}
     rows = await db.execute(
         select(ProjectMember.user_id)
-        .join(User, User.id == ProjectMember.user_id)
+        .join(account_profiles, account_profiles.c.id == ProjectMember.user_id)
         .where(
             ProjectMember.project_id == project_id,
             ProjectMember.role == ProjectRole.REVIEWER.value,
-            User.is_active.is_(True),
-            User.role == PlatformRole.EMPLOYEE.value,
+            account_profiles.c.is_active.is_(True),
+            account_profiles.c.role == PlatformRole.EMPLOYEE.value,
         )
         .order_by(ProjectMember.user_id)
     )
@@ -586,7 +589,7 @@ async def _receiver_state(
 
     if replacement_id is None:
         return None
-    user = await db.get(User, replacement_id)
+    user = await IdentityAccountLockData(db).read_actor_status(replacement_id)
     if user is None:
         return {"user_id": str(replacement_id), "exists": False}
     membership = await db.scalar(
@@ -680,7 +683,7 @@ async def build_member_resource_snapshot(
         | set(unassigned_review_task_ids)
     )
     tasks = await _load_tasks_with_batch(db, task_ids=affected_task_ids)
-    member_user = await db.get(User, user_id, populate_existing=True)
+    member_user = await IdentityAccountLockData(db).read_actor_status(user_id)
     batches = (
         await db.scalars(
             select(TaskBatch)
@@ -762,7 +765,7 @@ async def _resolve_receiver(
     member_user_id: uuid.UUID,
     replacement_id: uuid.UUID | None,
     project_role: str,
-) -> tuple[User | None, dict[str, Any] | None]:
+) -> tuple[IdentityActorStatus | None, dict[str, Any] | None]:
     """Validate a supplied handoff receiver; invalid is always reported.
 
     An invalid or self receiver is rejected even when the member has no counted
@@ -773,7 +776,7 @@ async def _resolve_receiver(
         return None, None
     if replacement_id == member_user_id:
         return None, _blocker("self_replacement", project_role=project_role)
-    target = await db.get(User, replacement_id)
+    target = await IdentityAccountLockData(db).read_actor_status(replacement_id)
     if target is None or not target.is_active:
         return None, _blocker(f"invalid_replacement_{project_role}")
     if not membership_role_compatible(target.role, project_role):
@@ -1118,7 +1121,9 @@ _REMOVAL_IGNORED_BLOCKER_CODES = frozenset({"same_role", "target_role_incompatib
 # ---------------------------------------------------------------------------
 
 
-async def _assert_actor_can_manage(*, actor: User | None, project: Project) -> None:
+async def _assert_actor_can_manage(
+    *, actor: IdentityActorStatus | IdentityActorFacts | None, project: Project
+) -> None:
     """Recheck actor activity and manager authority *after* locks are held."""
 
     if actor is None or not actor.is_active:
@@ -1163,7 +1168,7 @@ async def add_member(
     db: AsyncSession,
     *,
     project: Project,
-    actor: User,
+    actor: IdentityActorStatus | IdentityActorFacts,
     target_user_id: uuid.UUID,
     project_role: str,
 ) -> ProjectMember:
@@ -1230,7 +1235,7 @@ async def preview_role_change(
     db: AsyncSession,
     *,
     project: Project,
-    actor: User,
+    actor: IdentityActorStatus | IdentityActorFacts,
     member_id: uuid.UUID,
     target_role: str,
     replacement_annotator_id: uuid.UUID | None,

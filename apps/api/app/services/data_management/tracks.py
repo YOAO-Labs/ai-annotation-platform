@@ -28,6 +28,7 @@ from app.schemas.data_manager import (
     DataManagerTrackQueryResponse,
     DataManagerTrackSourceSummary,
 )
+from app.services.identity_contracts import IdentityActorFacts
 from app.services.data_management.cursor import (
     decode_cursor,
     encode_cursor,
@@ -394,7 +395,7 @@ class DataManagerTrackService:
     def _visible(
         self,
         project_id: uuid.UUID,
-        user: User,
+        user: User | IdentityActorFacts,
         project: Project,
         name: str,
         *,
@@ -417,7 +418,7 @@ class DataManagerTrackService:
         *,
         project_id: uuid.UUID,
         payload: DataManagerEntityQueryRequest,
-        user: User,
+        user: User | IdentityActorFacts,
         project: Project,
         project_role: str | None = None,
     ) -> DataManagerTrackQueryResponse:
@@ -884,7 +885,7 @@ class DataManagerTrackService:
         *,
         project_id: uuid.UUID,
         track_ref: str,
-        user: User,
+        user: User | IdentityActorFacts,
         project: Project,
         project_role: str | None = None,
     ) -> DataManagerTrackDetailResponse:

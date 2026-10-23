@@ -1,0 +1,160 @@
+{
+  "$defs": {
+    "SeedPersonaReply": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-identity-seed-persona/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "account_id": {
+          "format": "uuid",
+          "title": "Account Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "email", "account_id"],
+      "title": "SeedPersonaReply",
+      "type": "object"
+    },
+    "SeedPersonaRequest": {
+      "additionalProperties": false,
+      "description": "Insert-only command preserving the parent seed's User constructor.",
+      "properties": {
+        "schema": {
+          "const": "aap-identity-seed-persona/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "account_id": {
+          "format": "uuid",
+          "title": "Account Id",
+          "type": "string"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "password_hash": {
+          "title": "Password Hash",
+          "type": "string"
+        },
+        "role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Role",
+          "type": "string"
+        },
+        "group_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Group Name"
+        }
+      },
+      "required": ["schema", "account_id", "email", "name", "password_hash", "role", "group_name"],
+      "title": "SeedPersonaRequest",
+      "type": "object"
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/SeedPersonaRequest"
+    },
+    {
+      "$ref": "#/$defs/SeedPersonaReply"
+    }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-identity-seed-persona/v1",
+  "x-native-capabilities": {
+    "protocol": "aap-identity-seed-persona/v1",
+    "postgres_schema": "aap_identity_v1",
+    "functions": [
+      {
+        "name": "create_seed_persona_account",
+        "signature": "aap_identity_v1.create_seed_persona_account(jsonb)",
+        "arguments": [
+          {
+            "name": "p_request",
+            "postgres_type": "jsonb",
+            "json_schema": {
+              "additionalProperties": false,
+              "description": "Insert-only command preserving the parent seed's User constructor.",
+              "properties": {
+                "schema": {
+                  "const": "aap-identity-seed-persona/v1",
+                  "title": "Schema",
+                  "type": "string"
+                },
+                "account_id": {
+                  "format": "uuid",
+                  "title": "Account Id",
+                  "type": "string"
+                },
+                "email": {
+                  "title": "Email",
+                  "type": "string"
+                },
+                "name": {
+                  "title": "Name",
+                  "type": "string"
+                },
+                "password_hash": {
+                  "title": "Password Hash",
+                  "type": "string"
+                },
+                "role": {
+                  "enum": ["super_admin", "project_admin", "employee", "viewer"],
+                  "title": "Role",
+                  "type": "string"
+                },
+                "group_name": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Group Name"
+                }
+              },
+              "required": [
+                "schema",
+                "account_id",
+                "email",
+                "name",
+                "password_hash",
+                "role",
+                "group_name"
+              ],
+              "title": "SeedPersonaRequest",
+              "type": "object"
+            }
+          }
+        ],
+        "result_postgres_type": "jsonb",
+        "result_model": "SeedPersonaReply",
+        "result_schema_ref": "#/$defs/SeedPersonaReply",
+        "transaction_semantics": "Insert one seed persona with the supplied account UUID. This is an insert-only capability and does not authorize the caller, create a Group, write Audit, commit, retry, or upsert. The trusted caller owns persona lookup and the surrounding workflow transaction. Native uniqueness, foreign-key, and length errors propagate."
+      }
+    ],
+    "authorization_boundary": "Trusted seed callers retain the production guard and persona lookup; this fixed function adds no application authorization.",
+    "transaction_boundary": "The caller owns the surrounding transaction and commit."
+  }
+}

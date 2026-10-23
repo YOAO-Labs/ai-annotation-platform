@@ -3,7 +3,6 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_db, get_current_user
-from app.db.models.user import User
 from app.db.models.task import Task
 from app.schemas.task import UploadInitRequest, UploadInitResponse, TaskFileUrlResponse
 from app.application.legacy_file_upload import (
@@ -18,6 +17,7 @@ from app.services.storage import storage_service
 from app.schemas.task import TaskImageBackfillResponse
 from app.services.assets_media import browser_media_url, media_gateway, media_http_error
 from aap_assets_media.contract import MediaFailure, ReadSourceRequest
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -26,7 +26,7 @@ router = APIRouter()
 async def upload_init(
     data: UploadInitRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     result = await LegacyFileUploadWorkflow(
         db, storage=storage_service
@@ -48,7 +48,7 @@ async def upload_init(
 async def upload_complete(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     workflow = LegacyFileUploadWorkflow(db, storage=storage_service)
     try:
@@ -72,7 +72,7 @@ async def upload_complete(
 async def get_file_url(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await db.get(Task, task_id, populate_existing=True)
     if not task:
@@ -123,7 +123,7 @@ async def backfill_project_thumbnails(
     project_id: uuid.UUID,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     operation_id = idempotency_key or uuid.uuid4()

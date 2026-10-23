@@ -13,7 +13,6 @@ from app.deps import (
     get_gpu_shadow_session_factory,
     require_scopes,
 )
-from app.db.models.user import User
 from app.db.models.annotation import Annotation
 from app.db.models.task import Task
 from app.schemas.annotation import (
@@ -104,6 +103,7 @@ from app.api.v1.tasks._shared import (
 )
 from app.services.workspace_contract import ProjectAccess
 from app.services.labeling_write_scope import capture_labeling_write_scope
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -121,7 +121,7 @@ async def dry_run_annotation_conversion(
     task_id: uuid.UUID,
     data: AnnotationConversionDryRunRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
@@ -152,7 +152,7 @@ async def execute_annotation_conversion(
     data: AnnotationConversionExecuteRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
@@ -187,7 +187,7 @@ async def get_neighbor_annotations(
         description="给定则服务端只回该 track(scope=selected);省略回全部(scope=all)",
     ),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """v0.15.17 · 中心 task 前后 k 帧的邻帧标注,一次性返回。
 
@@ -270,7 +270,7 @@ async def get_annotations(
     task_id: uuid.UUID,
     video_segment_id: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
@@ -294,7 +294,7 @@ async def get_annotations_paged(
     cursor: str | None = None,
     video_segment_id: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """v0.7.6 · keyset 分页变体。单 task 1000+ 框场景下避免一次性大列表阻塞。
 
@@ -351,7 +351,7 @@ async def create_annotation(
     data: AnnotationCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     idempotency_key: str | None = Header(
         default=None,
         alias="Idempotency-Key",
@@ -479,7 +479,7 @@ async def secondary_inference(
     dispatch_context_factory: GPUDispatchContextFactory = Depends(
         get_gpu_dispatch_context_factory
     ),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write_strict),
 ):
     """选中框单框二次推理: 在选中框 ROI 上同步跑一个能力, 产物落库。
@@ -606,7 +606,7 @@ async def propagate_annotation_to_task(
     data: PropagateRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     """v0.14.1 · 跨帧目标延续: 把源 annotation 复制到 target_task(同 project 同 scene)。
@@ -652,7 +652,7 @@ async def propagate_annotations_batch(
     data: PropagateBatchRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     """v0.15.1 · 多目标批量跨帧延续: 把源 task 的多个(或全部)box_3d 一次
@@ -694,7 +694,7 @@ async def interpolate_annotations_range(
     data: InterpolateRangeRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     """v0.15.1 · 关键帧区间插值: 路径 task = 区间起点帧,body.to_task_id =
@@ -738,7 +738,7 @@ async def update_annotation(
     request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     _task = await _load_task_or_404(db, task_id)
     if _task is None:
@@ -832,7 +832,7 @@ async def compose_video_tracks(
     data: VideoTrackCompositionRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
@@ -920,7 +920,7 @@ async def convert_video_track_to_bboxes(
     data: VideoTrackConvertToBboxesRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
@@ -1014,7 +1014,7 @@ async def delete_annotation(
     annotation_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     # Keep the same Task -> Annotation lock order as task-scoped atomic Mask

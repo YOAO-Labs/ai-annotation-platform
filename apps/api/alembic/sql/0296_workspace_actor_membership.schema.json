@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-workspace-actor-project-memberships/v1",
+  "title": "Workspace actor Project membership facts",
+  "$comment": "Fixed raw Workspace membership facts for a caller-owned actor ID. Authorization and Identity account checks remain with the caller.",
+  "$defs": {},
+  "type": "object",
+  "function_defaults": {
+    "volatility": "STABLE",
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"]
+  },
+  "functions": [
+    {
+      "signature": "aap_workspace_v1.actor_project_memberships(uuid)",
+      "language": "sql",
+      "volatility": "STABLE",
+      "strict": true,
+      "arguments": [
+        {
+          "name": "p_user_id",
+          "type": "uuid",
+          "nullable": true
+        }
+      ],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          {
+            "name": "project_id",
+            "type": "uuid",
+            "nullable": false
+          },
+          {
+            "name": "member_role",
+            "type": "text",
+            "nullable": false
+          }
+        ]
+      },
+      "semantics": "Return each raw ProjectMember project ID and role text for p_user_id, including legacy or unknown role values, without ordering or account/project joins. The caller retains Identity activity, platform-role, project-role, viewer-pairing and requested-role checks. SQL NULL returns no rows because the function is STRICT, matching an equality predicate against the original NOT NULL user_id column. No row locks, writes, or transaction ownership are added."
+    }
+  ],
+  "x-postgresql-functions": ["aap_workspace_v1.actor_project_memberships(uuid)"]
+}

@@ -1,0 +1,83 @@
+{
+  "$defs": {
+    "LabelingPlatformRoleProjectCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "annotator_batch_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Annotator Batch Count",
+          "type": "integer"
+        },
+        "assigned_task_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Assigned Task Count",
+          "type": "integer"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "review_task_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Review Task Count",
+          "type": "integer"
+        },
+        "reviewer_batch_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Reviewer Batch Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "project_id",
+        "annotator_batch_count",
+        "reviewer_batch_count",
+        "assigned_task_count",
+        "review_task_count"
+      ],
+      "title": "LabelingPlatformRoleProjectCounts",
+      "type": "object"
+    }
+  },
+  "$id": "aap-labeling-identity-platform-role-facts/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "membership_projects": {
+      "items": {
+        "$ref": "#/$defs/LabelingPlatformRoleProjectCounts"
+      },
+      "title": "Membership Projects",
+      "type": "array"
+    },
+    "schema": {
+      "const": "aap-labeling-identity-platform-role-facts/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "target_user_id": {
+      "format": "uuid",
+      "title": "Target User Id",
+      "type": "string"
+    },
+    "unfinished_effective_work_count": {
+      "maximum": 9223372036854775807,
+      "minimum": 0,
+      "title": "Unfinished Effective Work Count",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema",
+    "target_user_id",
+    "unfinished_effective_work_count",
+    "membership_projects"
+  ],
+  "title": "LabelingPlatformRoleFactsReply",
+  "type": "object"
+}

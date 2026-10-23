@@ -16,7 +16,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 _API_ROOT = Path(__file__).resolve().parent.parent
@@ -27,7 +27,7 @@ from app.config import settings  # noqa: E402
 from app.db.models.annotation_feedback import AnnotationFeedback  # noqa: E402
 from app.db.models.notification import Notification  # noqa: E402
 from app.db.models.task import Task  # noqa: E402
-from app.db.models.user import User  # noqa: E402
+from app.services.identity_commands import IdentityCommandService  # noqa: E402
 from app.services.annotation_evidence import (  # noqa: E402
     freeze_review_contributor_evidence,
     known_annotation_contributor_ids,
@@ -71,12 +71,12 @@ async def restore(args: argparse.Namespace) -> dict[str, int | str]:
                 )
 
             task = await db.get(Task, args.task_id)
-            reviewer = await db.scalar(
-                select(User).where(User.email == args.reviewer_email)
+            reviewer_id = await IdentityCommandService(db).lookup_seed_account_id(
+                args.reviewer_email
             )
             if task is None or task.project_id != args.project_id:
                 raise RuntimeError("review-reject task escaped screenshot project")
-            if reviewer is None or task.reviewer_id != reviewer.id:
+            if reviewer_id is None or task.reviewer_id != reviewer_id:
                 raise RuntimeError(
                     "review-reject task is not assigned to the recording reviewer"
                 )
@@ -85,7 +85,7 @@ async def restore(args: argparse.Namespace) -> dict[str, int | str]:
                 contributors is None
                 or task.assignee_id is None
                 or str(task.assignee_id) not in contributors
-                or str(reviewer.id) in contributors
+                or str(reviewer_id) in contributors
             ):
                 raise RuntimeError(
                     "review-reject fixture needs complete seeded author evidence; "
@@ -96,7 +96,7 @@ async def restore(args: argparse.Namespace) -> dict[str, int | str]:
                 delete(AnnotationFeedback).where(
                     AnnotationFeedback.task_id == task.id,
                     AnnotationFeedback.kind == "reject",
-                    AnnotationFeedback.author_id == reviewer.id,
+                    AnnotationFeedback.author_id == reviewer_id,
                     AnnotationFeedback.body.in_(OWNED_REASONS),
                 )
             )

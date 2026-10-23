@@ -1,0 +1,313 @@
+{
+  "$id": "aap-video-execution-native/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Video execution Native authority",
+  "$comment": "Migration 0281 adds durable, realm-bound video tracker claims and immutable route intents. Claim takeover and route reservation serialize on the Labeling Job followed by the Jobs execution row. A tracker routing scope is admitted only when its exact claim is atomically bound in the same transaction.",
+  "$defs": {},
+  "type": "object",
+  "function_defaults": {
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"],
+    "time_zone": "UTC",
+    "date_style": "ISO, YMD",
+    "extra_float_digits": 3
+  },
+  "public_functions": [
+    {
+      "signature": "aap_jobs_v1.video_execution_step(text,text)",
+      "volatility": "VOLATILE",
+      "arguments": [
+        {
+          "name": "p_action",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "p_arguments",
+          "type": "text",
+          "nullable": false
+        }
+      ],
+      "returns": {
+        "kind": "jsonb",
+        "data_schema": "aap-video-execution-data/v1",
+        "status": ["ok", "rejected"],
+        "rejected_fields": ["schema", "status", "reason"],
+        "reasons": [
+          "invalid_request",
+          "job_missing",
+          "job_not_writable",
+          "scope_mismatch",
+          "execution_busy",
+          "lease_lost",
+          "recovery_required",
+          "legacy_execution_unbound",
+          "storage_unavailable",
+          "realm_mismatch",
+          "job_cancelled",
+          "job_not_active"
+        ],
+        "ok_shapes": {
+          "policy": ["schema", "status", "ready", "functions"],
+          "claim": ["schema", "status", "execution"],
+          "renew": ["schema", "status", "execution"],
+          "guard": ["schema", "status", "guarded"],
+          "release": ["schema", "status", "released"]
+        }
+      }
+    },
+    {
+      "signature": "aap_inference_routing_v1.video_execution_scope_step(text,text)",
+      "volatility": "VOLATILE",
+      "arguments": [
+        {
+          "name": "p_action",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "p_arguments",
+          "type": "text",
+          "nullable": false
+        }
+      ],
+      "returns": {
+        "kind": "jsonb",
+        "data_schema": "aap-video-execution-data/v1",
+        "status": ["ok", "rejected"],
+        "rejected_fields": ["schema", "status", "reason"],
+        "ok_shapes": {
+          "policy": ["schema", "status", "ready", "functions"],
+          "prepare": ["schema", "status", "intent", "scope"],
+          "reserve": ["schema", "status", "intent", "scope"],
+          "status": ["schema", "status", "intent", "scope"],
+          "record": ["schema", "status", "receipt"]
+        }
+      }
+    },
+    {
+      "signature": "aap_inference_routing_v1.routing_step(text,text)",
+      "volatility": "VOLATILE",
+      "semantics": "The existing 19 actions are delegated unchanged to the frozen 0279 dispatcher; successful begin_attempt replays for tracker scopes are returned only while their exact current claim binding remains live."
+    },
+    {
+      "signature": "aap_inference_routing_v1.scope_retirement_step(text,text)",
+      "volatility": "VOLATILE",
+      "semantics": "Migration 0281 wraps the frozen 0280 RPC and advertises the fourth exact Inference function in policy; prepare, status and finish behavior remain delegated unchanged."
+    }
+  ],
+  "private_functions": [
+    "aap_jobs_v1._video_execution_reply(jsonb,text)",
+    "aap_jobs_v1._video_execution_uuid(jsonb)",
+    "aap_jobs_v1._video_execution_exact_keys(jsonb,text[])",
+    "aap_jobs_v1._video_execution_realm()",
+    "aap_jobs_v1._video_execution_secret()",
+    "aap_jobs_v1._video_execution_claim_view(uuid,uuid)",
+    "aap_jobs_v1._video_execution_route_step(text,text)",
+    "aap_jobs_v1._video_execution_scope_is_current(uuid,boolean)",
+    "aap_inference_routing_v1._routing_step_0279(text,text)",
+    "aap_inference_routing_v1._scope_retirement_step_0280(text,text)",
+    "aap_inference_routing_v1._video_execution_canonical_json(jsonb)",
+    "aap_inference_routing_v1._video_execution_scope_uuid(uuid)",
+    "aap_inference_routing_v1._video_execution_result(jsonb,text)",
+    "aap_inference_routing_v1._video_execution_permit_scope()",
+    "aap_inference_routing_v1._video_execution_attempt_gate()",
+    "aap_inference_routing_v1._video_execution_heartbeat_gate()",
+    "aap_inference_routing_v1._video_execution_no_scope_rejection(uuid,uuid,text)"
+  ],
+  "actions": {
+    "jobs": [
+      {
+        "name": "policy",
+        "keys": [],
+        "success": ["ready", "functions"],
+        "functions": ["aap_jobs_v1.video_execution_step(text,text)"]
+      },
+      {
+        "name": "claim",
+        "keys": ["job_id", "worker_id", "lease_seconds"],
+        "success": ["execution"],
+        "semantics": "Locks video_tracker_jobs then the private execution row. QUEUED jobs may create generation 1; legacy RUNNING jobs without a durable row are refused. Expired claims rotate generation, worker and token while keeping the logical run_id stable. Terminal jobs enter recovery_required only when an existing bound route intent still needs scope cleanup; missing canonical Jobs with retained execution authority can only rotate into recovery_required cleanup. Neither cleanup path can acquire a scope or write."
+      },
+      {
+        "name": "renew",
+        "keys": ["job_id", "run_id", "worker_id", "generation", "lease_token", "lease_seconds"],
+        "success": ["execution"],
+        "semantics": "Only the current unexpired proof may renew. A cancellation marker or CANCELLED state does not invalidate the current claim while it finishes partial cancellation handling. Missing, cancelled or other terminal Jobs may renew an exact recovery_required cleanup claim, with no business-write authority restored."
+      },
+      {
+        "name": "guard",
+        "keys": ["job_id", "run_id", "worker_id", "generation", "lease_token", "purpose"],
+        "purposes": ["start", "progress", "mask_root", "stage", "cancel", "fail"],
+        "success": ["guarded"],
+        "semantics": "Holds the canonical Job and execution locks through the caller's transaction. Progress and partial stage/cancel/fail may finish under the current claim after cancellation; start and mask-root writes may not."
+      },
+      {
+        "name": "release",
+        "keys": ["job_id", "run_id", "worker_id", "generation", "lease_token"],
+        "success": ["released"],
+        "semantics": "Expires the exact current claim only when no intent could have admitted: no intent, or every run intent is prepared with an exact immutable rejection receipt and no Native scope/permit. Unknown and bound intents remain recovery_required; history is retained."
+      }
+    ],
+    "inference": [
+      {
+        "name": "prepare",
+        "keys": [
+          "job_id",
+          "run_id",
+          "worker_id",
+          "generation",
+          "lease_token",
+          "request_id",
+          "command",
+          "command_sha256",
+          "scope_id"
+        ],
+        "success": ["intent", "scope"],
+        "semantics": "Stores the complete canonical video_acquire command before any backend request. The exact claim and route intent locks remain held through the transaction. A previous bound scope is superseded only when 0280 contains a completed same-realm retirement and its scope is reconciled."
+      },
+      {
+        "name": "reserve",
+        "keys": [
+          "job_id",
+          "run_id",
+          "worker_id",
+          "generation",
+          "lease_token",
+          "request_id",
+          "command_sha256",
+          "snapshot",
+          "candidate_ids",
+          "scope_id",
+          "ttl_ms"
+        ],
+        "success": ["intent", "scope"],
+        "semantics": "Uses the existing Python candidate set. A one-use transaction permit allows only this fixed RPC to insert operation=tracker; Native scope reservation and Jobs execution binding commit atomically."
+      },
+      {
+        "name": "status",
+        "keys": ["job_id", "run_id", "worker_id", "generation", "lease_token"],
+        "success": ["intent", "scope"],
+        "semantics": "Returns the latest immutable route intent for the exact current claim and its scope view if bound; it does not mutate intent or infer recovery."
+      },
+      {
+        "name": "record",
+        "keys": [
+          "job_id",
+          "run_id",
+          "worker_id",
+          "generation",
+          "lease_token",
+          "request_id",
+          "command_sha256",
+          "result"
+        ],
+        "success": ["receipt"],
+        "semantics": "Writes or verifies the immutable video_acquire command receipt in the same caller-owned transaction. It covers both a bound scope result and a pre-reservation policy rejection without changing the frozen 0279 action set."
+      }
+    ]
+  },
+  "private_tables": [
+    {
+      "name": "aap_jobs_v1.video_execution_authority",
+      "columns": [
+        "singleton boolean",
+        "secret 32-byte random",
+        "database_oid oid",
+        "database_name text",
+        "cluster_identifier bigint"
+      ],
+      "semantics": "The authority secret is private to Jobs code and usable only in the original database OID/name and PostgreSQL cluster system-identifier realm."
+    },
+    {
+      "name": "aap_jobs_v1.video_executions",
+      "columns": [
+        "job_id uuid primary key",
+        "run_id uuid",
+        "worker_id uuid",
+        "generation positive bigint",
+        "lease_token_hash bytea",
+        "lease_expires_at timestamptz",
+        "state ready|recovery_required",
+        "route_request_id uuid nullable",
+        "realm text"
+      ],
+      "semantics": "One durable execution generation per canonical video tracker job. It intentionally has no FK back to the deletable public Job, preserving existing deletion behavior while retaining private recovery evidence; missing Jobs are never admitted or writable. Raw bearer token is never stored."
+    },
+    {
+      "name": "aap_jobs_v1.video_execution_route_intents",
+      "columns": [
+        "request_id uuid primary key",
+        "job_id uuid",
+        "run_id uuid",
+        "generation positive bigint",
+        "command_sha256 lowercase hex64",
+        "command_ciphertext encrypted complete canonical json",
+        "scope_id uuid v5 from request_id unique",
+        "state prepared|bound",
+        "realm text"
+      ],
+      "semantics": "Private durable command authority; the complete command contains the lease proof but is encrypted using the database-local Jobs authority secret and never returned or logged. Prepared intents without a scope can be safely superseded on a later generation; bound intents cannot be replaced before exact 0280 retirement."
+    },
+    {
+      "name": "aap_inference_routing_v1.video_execution_scope_permits",
+      "columns": [
+        "scope_id uuid primary key",
+        "job_id uuid",
+        "run_id uuid",
+        "generation positive bigint",
+        "request_id uuid",
+        "command_sha256 lowercase hex64",
+        "transaction_id xid8"
+      ],
+      "semantics": "A private one-use transaction-scoped insert permit consumed by the scope trigger; no routing LOGIN table access."
+    }
+  ],
+  "triggers": [
+    "aap_route_video_execution_scope_permit",
+    "aap_route_video_execution_attempt_gate",
+    "aap_route_video_execution_heartbeat_gate"
+  ],
+  "guards": [
+    "All claim and intent operations lock Labeling video_tracker_jobs before Jobs video_executions.",
+    "Route scope insertion and Jobs route binding happen in one transaction; the permit expires with that transaction and is consumed once.",
+    "A stale generation cannot bind or reserve a scope, start or replay a backend attempt to mint a fresh admission token, or extend its scope heartbeat after takeover.",
+    "At most one prepared intent exists per job and generation; reserve, bind and receipt recording compare-and-set the current execution pointer.",
+    "Already-admitted requests remain tracked by Native routing and exact 0280 scope retirement; claim expiry is not proof of request completion.",
+    "The fixed video execution LOGIN gets one function and no raw table or sequence privileges. The Inference routing LOGIN keeps four fixed functions and no raw table rights.",
+    "Window checkpoint/restart is not enabled by this migration; recovery-required claims fail closed.",
+    "Successful video_acquire command_status receipts recheck the current binding and live scope, preventing ambiguous-commit fallback from returning stale execution success."
+  ],
+  "x-postgresql-functions": [
+    "aap_jobs_v1.video_execution_step(text,text)",
+    "aap_inference_routing_v1.routing_step(text,text)",
+    "aap_inference_routing_v1.scope_retirement_step(text,text)",
+    "aap_inference_routing_v1.video_execution_scope_step(text,text)"
+  ],
+  "x-postgresql-private-functions": [
+    "aap_jobs_v1._video_execution_reply(jsonb,text)",
+    "aap_jobs_v1._video_execution_uuid(jsonb)",
+    "aap_jobs_v1._video_execution_exact_keys(jsonb,text[])",
+    "aap_jobs_v1._video_execution_realm()",
+    "aap_jobs_v1._video_execution_secret()",
+    "aap_jobs_v1._video_execution_claim_view(uuid,uuid)",
+    "aap_jobs_v1._video_execution_route_step(text,text)",
+    "aap_jobs_v1._video_execution_scope_is_current(uuid,boolean)",
+    "aap_inference_routing_v1._routing_step_0279(text,text)",
+    "aap_inference_routing_v1._scope_retirement_step_0280(text,text)",
+    "aap_inference_routing_v1._video_execution_canonical_json(jsonb)",
+    "aap_inference_routing_v1._video_execution_scope_uuid(uuid)",
+    "aap_inference_routing_v1._video_execution_result(jsonb,text)",
+    "aap_inference_routing_v1._video_execution_permit_scope()",
+    "aap_inference_routing_v1._video_execution_attempt_gate()",
+    "aap_inference_routing_v1._video_execution_heartbeat_gate()",
+    "aap_inference_routing_v1._video_execution_no_scope_rejection(uuid,uuid,text)"
+  ],
+  "x-postgresql-private-tables": [
+    "aap_jobs_v1.video_execution_authority",
+    "aap_jobs_v1.video_executions",
+    "aap_jobs_v1.video_execution_route_intents",
+    "aap_inference_routing_v1.video_execution_scope_permits"
+  ]
+}

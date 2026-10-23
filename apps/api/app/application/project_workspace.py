@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import UserRole
 from app.db.models.project import Project
-from app.db.models.user import User
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.workspace_contract import ProjectAccess
 from app.services.project_access import (
     lock_current_project_access,
@@ -29,7 +29,7 @@ def _assert_project_manager(access: ProjectAccess) -> None:
 async def read_managed_project(
     db: AsyncSession, *, actor_id: uuid.UUID, project_id: uuid.UUID
 ) -> Project:
-    actor = await db.get(User, actor_id)
+    actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
     if actor is None:
         raise HTTPException(
             status_code=401,

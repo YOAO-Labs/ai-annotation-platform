@@ -10,7 +10,6 @@ from app.api.v1.tasks._shared import (
 )
 from app.db.models.project import Project
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
-from app.db.models.user import User
 from app.deps import get_current_user, get_db
 from app.schemas.scene import (
     SceneTimelineFrameSummary,
@@ -21,6 +20,7 @@ from app.services.labeling_scene import (
     get_scene_timeline_annotation_summaries,
     get_scene_timeline_window,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 
 router = APIRouter()
@@ -37,7 +37,7 @@ async def get_task_scene_timeline(
     end_frame: int = Query(..., ge=0),
     track_id: str | None = Query(default=None, min_length=1, max_length=64),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """返回当前 task 所属 3D Scene 的只读窗口摘要。"""
     if end_frame < start_frame:

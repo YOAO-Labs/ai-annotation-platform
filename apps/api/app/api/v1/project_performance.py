@@ -5,7 +5,6 @@ from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_current_user, get_db
-from app.db.models.user import User
 from app.schemas.project_performance import (
     PerformanceEventsResponse,
     PerformanceMemberDetailResponse,
@@ -17,6 +16,7 @@ from app.services.project_performance import (
     member_performance_detail,
     member_performance_events,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 
 router = APIRouter()
@@ -56,7 +56,7 @@ async def get_members_performance(
     project_id: UUID,
     params: dict = Depends(_common_query),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> PerformanceMembersResponse:
     return await list_members_performance(db, project_id, current_user, **params)
 
@@ -70,7 +70,7 @@ async def get_member_performance_events(
     member_id: UUID,
     params: dict = Depends(_common_query),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> PerformanceEventsResponse:
     return await member_performance_events(
         db,
@@ -90,7 +90,7 @@ async def get_member_performance_detail(
     member_id: UUID,
     params: dict = Depends(_common_query),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> PerformanceMemberDetailResponse:
     return await member_performance_detail(
         db,
@@ -109,7 +109,7 @@ async def export_project_members_performance(
     project_id: UUID,
     params: dict = Depends(_common_query),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> Response:
     payload = await export_members_csv(db, project_id, current_user, **params)
     return Response(

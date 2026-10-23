@@ -15,9 +15,10 @@ class PasswordResetToken(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), index=True
     )
-    token: Mapped[str] = mapped_column(
+    token_hash: Mapped[str] = mapped_column(
         String(64), nullable=False, unique=True, index=True
     )
+    issued_email: Mapped[str] = mapped_column(String(255), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

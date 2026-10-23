@@ -31,6 +31,7 @@ from app.db.models.training_run import (
 from app.schemas.training_run import ExecutorFence, ExecutorRecovery, TrainingRunCreate
 from app.db.models.user import User
 from app.services import async_job as jobs
+from app.services.identity_contracts import IdentityActorFacts
 from app.services.async_job_notify import notify_job_terminal
 from app.services.project_write_guard import lock_project_manager
 from app.services.storage import storage_service as storage
@@ -278,7 +279,7 @@ async def frozen_config(db, project_id, body: TrainingRunCreate):
 async def admit(
     db,
     project_id,
-    user: User,
+    user: User | IdentityActorFacts,
     body: TrainingRunCreate,
     *,
     api_key_id=None,
@@ -510,7 +511,7 @@ async def mark_terminal(db, run, attempt, status, error=None):
     await notify_job_terminal(db, job_id=run.async_job_id)
 
 
-async def cancel(db, project_id, run_id, user: User):
+async def cancel(db, project_id, run_id, user: User | IdentityActorFacts):
     await lock_project_manager(db, user.id, project_id)
     run = await load_run(db, project_id, run_id, lock=True)
     attempt = await db.get(TrainingAttempt, run.current_attempt_id)

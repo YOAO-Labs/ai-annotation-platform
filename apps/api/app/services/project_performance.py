@@ -33,6 +33,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aap_identity.read_relation_contract import AccountProfile
+
 from app.db.models.annotation import Annotation
 from app.db.models.audit_log import AuditLog
 from app.db.models.project import Project
@@ -40,7 +42,6 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.task_event import TaskEvent
-from app.db.models.user import User
 from app.services.scheduler import (
     effective_task_assignee_expr,
     effective_task_reviewer_expr,
@@ -63,6 +64,12 @@ from app.schemas.project_performance import (
 )
 from app.services.audit import AuditAction
 from app.services.csv_export import csv_literal
+from app.services.identity_contracts import IdentityActorFacts
+from app.services.identity_read_relations import (
+    account_profiles,
+    read_account_profile,
+    read_account_profiles,
+)
 
 
 _WORKFLOW_ACTIONS = (
@@ -117,7 +124,7 @@ class ResolvedScope:
 
 @dataclass(frozen=True)
 class RosterEntry:
-    user: User
+    user: AccountProfile
     project_role: str | None
     is_owner: bool
     is_current_member: bool
@@ -235,7 +242,7 @@ def _project_audit_filter(project_id: UUID):
 async def resolve_performance_access(
     db: AsyncSession,
     project_id: UUID,
-    user: User,
+    user: IdentityActorFacts,
 ) -> Project:
     project = await db.get(Project, project_id)
     if project is None:
@@ -679,15 +686,30 @@ async def _build_roster(
     query: str | None,
     scope: ResolvedScope,
 ) -> list[RosterEntry]:
+    profile = account_profiles.alias("roster_account_profile")
+    profile_fields = (
+        "id",
+        "name",
+        "email",
+        "role",
+        "is_active",
+        "status",
+        "avatar_ref",
+    )
+    profile_columns = [profile.c[field].label(field) for field in profile_fields]
     rows = (
         await db.execute(
-            select(ProjectMember, User)
-            .join(User, User.id == ProjectMember.user_id)
+            select(ProjectMember, *profile_columns)
+            .join(profile, profile.c.id == ProjectMember.user_id)
             .where(ProjectMember.project_id == project.id)
         )
     ).all()
     by_id: dict[UUID, RosterEntry] = {}
-    for membership, user in rows:
+    for row in rows:
+        membership = row[0]
+        user = AccountProfile.model_validate(
+            {field: row._mapping[field] for field in profile_fields}
+        )
         by_id[user.id] = RosterEntry(
             user=user,
             project_role="owner" if user.id == project.owner_id else membership.role,
@@ -698,7 +720,7 @@ async def _build_roster(
 
     owner = by_id.get(project.owner_id)
     if owner is None:
-        owner_user = await db.get(User, project.owner_id)
+        owner_user = await read_account_profile(db, project.owner_id)
         if owner_user is not None:
             by_id[owner_user.id] = RosterEntry(
                 user=owner_user,
@@ -778,9 +800,9 @@ async def _build_roster(
         historical_ids.update(value for (value,) in event_ids if value is not None)
         missing = historical_ids.difference(by_id)
         if missing:
-            users = (
-                await db.execute(select(User).where(User.id.in_(missing)))
-            ).scalars()
+            users = await read_account_profiles(
+                db, select(account_profiles).where(account_profiles.c.id.in_(missing))
+            )
             for user in users:
                 by_id[user.id] = RosterEntry(
                     user=user,
@@ -1665,7 +1687,7 @@ async def _load_evidence_page(
 async def _prepare_aggregate(
     db: AsyncSession,
     project_id: UUID,
-    user: User,
+    user: IdentityActorFacts,
     scope: ResolvedScope,
     *,
     target_user_id: UUID | None,
@@ -1706,7 +1728,7 @@ async def _prepare_aggregate(
 async def list_members_performance(
     db: AsyncSession,
     project_id: UUID,
-    user: User,
+    user: IdentityActorFacts,
     *,
     from_: str | None = None,
     to: str | None = None,
@@ -1755,7 +1777,7 @@ async def member_performance_detail(
     db: AsyncSession,
     project_id: UUID,
     member_id: UUID,
-    user: User,
+    user: IdentityActorFacts,
     *,
     from_: str | None = None,
     to: str | None = None,
@@ -1816,7 +1838,7 @@ async def member_performance_events(
     db: AsyncSession,
     project_id: UUID,
     member_id: UUID,
-    user: User,
+    user: IdentityActorFacts,
     *,
     from_: str | None = None,
     to: str | None = None,
@@ -1877,7 +1899,7 @@ _CSV_METRICS = (
 async def export_members_csv(
     db: AsyncSession,
     project_id: UUID,
-    user: User,
+    user: IdentityActorFacts,
     **kwargs: Any,
 ) -> bytes:
     response = await list_members_performance(

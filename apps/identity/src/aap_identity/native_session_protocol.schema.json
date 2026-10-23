@@ -1,0 +1,941 @@
+{
+  "$defs": {
+    "LoginCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "password_hash": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Password Hash",
+          "type": "string"
+        }
+      },
+      "required": ["actor_id", "password_hash"],
+      "title": "LoginCandidate",
+      "type": "object"
+    },
+    "LoginCandidateReply": {
+      "additionalProperties": false,
+      "properties": {
+        "item": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LoginCandidate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "schema": {
+          "const": "aap-identity-login-candidate/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "item"],
+      "title": "LoginCandidateReply",
+      "type": "object"
+    },
+    "NativeIssuedData": {
+      "additionalProperties": false,
+      "properties": {
+        "claims": {
+          "$ref": "#/$defs/SessionClaims"
+        }
+      },
+      "required": ["claims"],
+      "title": "NativeIssuedData",
+      "type": "object"
+    },
+    "NativeLogin": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actor Id"
+        },
+        "email": {
+          "maxLength": 16384,
+          "title": "Email",
+          "type": "string"
+        },
+        "expected_password_hash": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Password Hash"
+        },
+        "failed_count": {
+          "minimum": 0,
+          "title": "Failed Count",
+          "type": "integer"
+        },
+        "password_matches": {
+          "title": "Password Matches",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "email",
+        "actor_id",
+        "expected_password_hash",
+        "password_matches",
+        "failed_count"
+      ],
+      "title": "NativeLogin",
+      "type": "object"
+    },
+    "NativeLoginCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "title": "Actor",
+          "type": "null"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "expected_key_hash": {
+          "title": "Expected Key Hash",
+          "type": "null"
+        },
+        "login": {
+          "$ref": "#/$defs/NativeLogin"
+        },
+        "operation": {
+          "const": "login",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "policy": {
+          "$ref": "#/$defs/SessionPolicy"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-sessions-native/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "user_agent": {
+          "maxLength": 256,
+          "title": "User Agent",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "policy",
+        "audit_context",
+        "user_agent",
+        "operation",
+        "actor",
+        "expected_key_hash",
+        "login",
+        "request_fingerprint"
+      ],
+      "title": "NativeLoginCommand",
+      "type": "object"
+    },
+    "NativeLoginReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/NativeIssuedData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "login",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
+        },
+        "schema": {
+          "const": "aap-identity-sessions-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "principal", "operation", "data"],
+      "title": "NativeLoginReply",
+      "type": "object"
+    },
+    "NativeLogoutAllCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Key Hash"
+        },
+        "login": {
+          "title": "Login",
+          "type": "null"
+        },
+        "operation": {
+          "const": "logout_all",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "policy": {
+          "$ref": "#/$defs/SessionPolicy"
+        },
+        "request_fingerprint": {
+          "title": "Request Fingerprint",
+          "type": "null"
+        },
+        "schema": {
+          "const": "aap-identity-sessions-native/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "user_agent": {
+          "maxLength": 256,
+          "title": "User Agent",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "policy",
+        "audit_context",
+        "user_agent",
+        "actor",
+        "expected_key_hash",
+        "login",
+        "request_fingerprint",
+        "operation"
+      ],
+      "title": "NativeLogoutAllCommand",
+      "type": "object"
+    },
+    "NativeLogoutAllReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/NativeIssuedData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "logout_all",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
+        },
+        "schema": {
+          "const": "aap-identity-sessions-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "principal", "operation", "data"],
+      "title": "NativeLogoutAllReply",
+      "type": "object"
+    },
+    "NativeLogoutCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Key Hash"
+        },
+        "login": {
+          "title": "Login",
+          "type": "null"
+        },
+        "operation": {
+          "const": "logout",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "policy": {
+          "$ref": "#/$defs/SessionPolicy"
+        },
+        "request_fingerprint": {
+          "title": "Request Fingerprint",
+          "type": "null"
+        },
+        "schema": {
+          "const": "aap-identity-sessions-native/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "user_agent": {
+          "maxLength": 256,
+          "title": "User Agent",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "policy",
+        "audit_context",
+        "user_agent",
+        "actor",
+        "expected_key_hash",
+        "login",
+        "request_fingerprint",
+        "operation"
+      ],
+      "title": "NativeLogoutCommand",
+      "type": "object"
+    },
+    "NativeLogoutData": {
+      "additionalProperties": false,
+      "properties": {
+        "claims": {
+          "title": "Claims",
+          "type": "null"
+        }
+      },
+      "required": ["claims"],
+      "title": "NativeLogoutData",
+      "type": "object"
+    },
+    "NativeLogoutReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/NativeLogoutData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "logout",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
+        },
+        "schema": {
+          "const": "aap-identity-sessions-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "principal", "operation", "data"],
+      "title": "NativeLogoutReply",
+      "type": "object"
+    },
+    "NativeRefreshCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Key Hash"
+        },
+        "login": {
+          "title": "Login",
+          "type": "null"
+        },
+        "operation": {
+          "const": "refresh",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "policy": {
+          "$ref": "#/$defs/SessionPolicy"
+        },
+        "request_fingerprint": {
+          "title": "Request Fingerprint",
+          "type": "null"
+        },
+        "schema": {
+          "const": "aap-identity-sessions-native/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "user_agent": {
+          "maxLength": 256,
+          "title": "User Agent",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "policy",
+        "audit_context",
+        "user_agent",
+        "actor",
+        "expected_key_hash",
+        "login",
+        "request_fingerprint",
+        "operation"
+      ],
+      "title": "NativeRefreshCommand",
+      "type": "object"
+    },
+    "NativeRefreshReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/NativeIssuedData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "refresh",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
+        },
+        "schema": {
+          "const": "aap-identity-sessions-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "principal", "operation", "data"],
+      "title": "NativeRefreshReply",
+      "type": "object"
+    },
+    "NativeSessionFailureReply": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/SessionFailureDetail"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-sessions-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "title": "NativeSessionFailureReply",
+      "type": "object"
+    },
+    "Principal": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "credential_type": {
+                  "const": "jwt"
+                },
+                "expires_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "generation": {
+                  "exclusiveMaximum": 9223372036854775808,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "scopes": {
+                  "type": "null"
+                }
+              }
+            },
+            {
+              "properties": {
+                "credential_type": {
+                  "const": "api_key"
+                },
+                "generation": {
+                  "type": "null"
+                },
+                "scopes": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "credential_id": {
+          "format": "uuid",
+          "title": "Credential Id",
+          "type": "string"
+        },
+        "credential_type": {
+          "enum": ["jwt", "api_key"],
+          "title": "Credential Type",
+          "type": "string"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 9223372036854775808,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Generation"
+        },
+        "is_active": {
+          "const": true,
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Role",
+          "type": "string"
+        },
+        "scopes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scopes"
+        }
+      },
+      "required": [
+        "actor_id",
+        "name",
+        "email",
+        "role",
+        "is_active",
+        "credential_type",
+        "credential_id",
+        "generation",
+        "scopes",
+        "expires_at"
+      ],
+      "title": "Principal",
+      "type": "object"
+    },
+    "SessionAuditContext": {
+      "additionalProperties": false,
+      "properties": {
+        "ip": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ip"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "maxLength": 8,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Method"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Path"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "maxLength": 36,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Request Id"
+        }
+      },
+      "required": ["method", "path", "ip", "request_id"],
+      "title": "SessionAuditContext",
+      "type": "object"
+    },
+    "SessionClaims": {
+      "additionalProperties": false,
+      "properties": {
+        "exp": {
+          "exclusiveMinimum": 0,
+          "title": "Exp",
+          "type": "integer"
+        },
+        "gen": {
+          "exclusiveMaximum": 9223372036854775808,
+          "minimum": 0,
+          "title": "Gen",
+          "type": "integer"
+        },
+        "iss": {
+          "const": "aap-identity/v1",
+          "title": "Iss",
+          "type": "string"
+        },
+        "jti": {
+          "format": "uuid",
+          "title": "Jti",
+          "type": "string"
+        },
+        "role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Role",
+          "type": "string"
+        },
+        "sub": {
+          "format": "uuid",
+          "title": "Sub",
+          "type": "string"
+        }
+      },
+      "required": ["sub", "role", "exp", "jti", "gen", "iss"],
+      "title": "SessionClaims",
+      "type": "object"
+    },
+    "SessionFailureDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "enum": [
+                "invalid_request",
+                "credential_invalid",
+                "credential_revoked",
+                "generation_outdated",
+                "token_expired",
+                "user_inactive",
+                "invalid_account_role",
+                "credential_busy"
+              ],
+              "type": "string"
+            },
+            {
+              "enum": [
+                "invalid_credentials",
+                "email_not_verified",
+                "captcha_required",
+                "invalid_token",
+                "malformed_token",
+                "operation_conflict",
+                "account_busy"
+              ],
+              "type": "string"
+            }
+          ],
+          "title": "Code"
+        },
+        "failed_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Failed Count"
+        }
+      },
+      "required": ["code", "failed_count"],
+      "title": "SessionFailureDetail",
+      "type": "object"
+    },
+    "SessionPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "email_verification_required": {
+          "title": "Email Verification Required",
+          "type": "boolean"
+        },
+        "expire_minutes": {
+          "maximum": 525600,
+          "minimum": 1,
+          "title": "Expire Minutes",
+          "type": "integer"
+        }
+      },
+      "required": ["expire_minutes", "email_verification_required", "derivation_id"],
+      "title": "SessionPolicy",
+      "type": "object"
+    },
+    "SessionPolicyReply": {
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": {
+          "const": "HS256",
+          "title": "Algorithm",
+          "type": "string"
+        },
+        "issuer": {
+          "const": "aap-identity/v1",
+          "title": "Issuer",
+          "type": "string"
+        },
+        "refresh_grace_seconds": {
+          "minimum": 0,
+          "title": "Refresh Grace Seconds",
+          "type": "integer"
+        },
+        "schema": {
+          "const": "aap-identity-sessions-policy/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "issuer", "algorithm", "refresh_grace_seconds"],
+      "title": "SessionPolicyReply",
+      "type": "object"
+    }
+  },
+  "$id": "aap-identity-sessions-native/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "discriminator": {
+        "mapping": {
+          "login": "#/$defs/NativeLoginCommand",
+          "logout": "#/$defs/NativeLogoutCommand",
+          "logout_all": "#/$defs/NativeLogoutAllCommand",
+          "refresh": "#/$defs/NativeRefreshCommand"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/NativeLoginCommand"
+        },
+        {
+          "$ref": "#/$defs/NativeRefreshCommand"
+        },
+        {
+          "$ref": "#/$defs/NativeLogoutCommand"
+        },
+        {
+          "$ref": "#/$defs/NativeLogoutAllCommand"
+        }
+      ]
+    },
+    {
+      "discriminator": {
+        "mapping": {
+          "login": "#/$defs/NativeLoginReply",
+          "logout": "#/$defs/NativeLogoutReply",
+          "logout_all": "#/$defs/NativeLogoutAllReply",
+          "refresh": "#/$defs/NativeRefreshReply"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/NativeLoginReply"
+        },
+        {
+          "$ref": "#/$defs/NativeRefreshReply"
+        },
+        {
+          "$ref": "#/$defs/NativeLogoutReply"
+        },
+        {
+          "$ref": "#/$defs/NativeLogoutAllReply"
+        }
+      ]
+    },
+    {
+      "$ref": "#/$defs/NativeSessionFailureReply"
+    },
+    {
+      "$ref": "#/$defs/SessionPolicy"
+    },
+    {
+      "$ref": "#/$defs/SessionPolicyReply"
+    },
+    {
+      "$ref": "#/$defs/LoginCandidateReply"
+    }
+  ]
+}

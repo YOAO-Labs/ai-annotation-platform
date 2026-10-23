@@ -9,14 +9,18 @@ from redis.asyncio.connection import ConnectionPool
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 
 from app.config import settings
-from app.core.security import decode_access_token
-from app.core.token_blacklist import get_user_generation, is_blacklisted
 from app.db.enums import PlatformRole
-from app.services.identity_contracts import IdentityActorFacts
+from app.services.identity_contracts import (
+    IdentityActorStatus,
+    IdentityCredentialRejected,
+    IdentityGatewayUnavailable,
+)
+from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.identity_gateway import get_identity_gateway
 from app.services.notification import channel_for
 
 if TYPE_CHECKING:
-    from app.db.models.user import User
+    from aap_identity.contract import Principal
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -33,7 +37,7 @@ _ADMIN_SOCKET_ROLES = (
 _NOTIFICATION_GATE_RETRY_SECONDS = 0.15
 
 
-async def _load_active_user(user_id: str | None) -> IdentityActorFacts | None:
+async def _load_active_user(user_id: str | None) -> IdentityActorStatus | None:
     """Resolve the current database account for a socket handshake.
 
     Socket tokens are long-lived: a JWT ``role`` claim can outlive a role
@@ -45,75 +49,36 @@ async def _load_active_user(user_id: str | None) -> IdentityActorFacts | None:
     if not user_id:
         return None
     from app.db.base import async_session
-    from app.db.models.user import User
 
     try:
         user_uuid = uuid.UUID(str(user_id))
     except (TypeError, ValueError):
         return None
     async with async_session() as db:
-        user = await db.get(User, user_uuid)
+        user = await IdentityAccountLockData(db).read_actor_status(user_uuid)
         if user is None or not user.is_active:
             return None
-        return _identity_actor_facts(user)
+        return user
 
 
-def _identity_actor_facts(user: "User") -> IdentityActorFacts:
-    """Project only stable account facts while the owning Session is open."""
-    return IdentityActorFacts(
-        id=user.id,
-        name=user.name,
-        email=user.email,
-        role=user.role,
-        is_active=user.is_active,
-    )
+async def _authenticate_socket_token(
+    token: str, *, allow_api_key: bool = True
+) -> "Principal | None":
+    """Resolve socket credentials through the shared Identity admission gateway."""
 
-
-async def _authenticate_socket_token(token: str) -> IdentityActorFacts | None:
-    """Resolve a socket token (JWT or ``ak_`` API key) to an active account."""
-
-    from app.services import api_key_service
-
-    if api_key_service.is_api_key_token(token):
-        from app.db.base import async_session
-
-        async with async_session() as db:
-            resolved = await api_key_service.resolve_token(db, token)
-            if resolved is None:
-                return None
-            _key, user = resolved
-            await db.commit()  # 持久化 last_used_at
-            return _identity_actor_facts(user) if user.is_active else None
+    if not allow_api_key and token.startswith("ak_"):
+        return None
     try:
-        payload = decode_access_token(token)
-    except Exception:
+        return await get_identity_gateway().authenticate(token)
+    except (IdentityCredentialRejected, IdentityGatewayUnavailable):
         return None
-    user_id = payload.get("sub")
-    if not user_id:
-        return None
-    # Mirror get_current_user: a blacklisted jti or a bumped account generation
-    # invalidates the credential even though the user row is still active.
-    jti: str | None = payload.get("jti")
-    token_gen: int = payload.get("gen", 0)
-    if jti:
-        try:
-            if await is_blacklisted(jti):
-                return None
-        except Exception:
-            pass
-        try:
-            if await get_user_generation(user_id) > token_gen:
-                return None
-        except Exception:
-            pass
-    return await _load_active_user(user_id)
 
 
 async def _revalidate_project_stream(token: str, project_id: uuid.UUID) -> bool:
     actor = await _authenticate_socket_token(token)
     if actor is None:
         return False
-    return await _revalidate_project_access(project_id, str(actor.id))
+    return await _revalidate_project_access(project_id, str(actor.actor_id))
 
 
 async def _notification_message_allowed(token: str, data) -> bool:
@@ -126,7 +91,7 @@ async def _notification_message_allowed(token: str, data) -> bool:
     payloads fail closed.
     """
 
-    actor = await _authenticate_socket_token(token)
+    actor = await _authenticate_socket_token(token, allow_api_key=False)
     if actor is None:
         return False
     try:
@@ -159,21 +124,23 @@ async def _notification_message_allowed(token: str, data) -> bool:
         # closed on revocation or bogus ids.
         for attempt in range(4):
             if await db.get(Notification, notification_id) is not None:
-                return await service.notification_deliverable(notification_id, actor.id)
+                return await service.notification_deliverable(
+                    notification_id, actor.actor_id
+                )
             if attempt < 3:
                 await asyncio.sleep(_NOTIFICATION_GATE_RETRY_SECONDS)
         return False
 
 
 async def _revalidate_task_stream(token: str, task_id: uuid.UUID) -> bool:
-    actor = await _authenticate_socket_token(token)
+    actor = await _authenticate_socket_token(token, allow_api_key=False)
     if actor is None:
         return False
-    return await _revalidate_task_visible(task_id, str(actor.id))
+    return await _revalidate_task_visible(task_id, str(actor.actor_id))
 
 
-async def _revalidate_admin_stream(token: str) -> bool:
-    actor = await _authenticate_socket_token(token)
+async def _revalidate_admin_stream(token: str, *, allow_api_key: bool = False) -> bool:
+    actor = await _authenticate_socket_token(token, allow_api_key=allow_api_key)
     return actor is not None and actor.role in _ADMIN_SOCKET_ROLES
 
 
@@ -186,12 +153,13 @@ async def _revalidate_project_access(project_id: uuid.UUID, user_id: str) -> boo
 
     from app.db.base import async_session
     from app.db.models.project import Project
-    from app.db.models.user import User
     from app.services.project_access import resolve_project_access
 
     async with async_session() as db:
         project = await db.get(Project, project_id)
-        user = await db.get(User, uuid.UUID(str(user_id)))
+        user = await IdentityAccountLockData(db).read_actor_status(
+            uuid.UUID(str(user_id))
+        )
         if project is None or user is None:
             return False
         try:
@@ -360,7 +328,9 @@ async def preannotate_progress(
     """
 
     actor = await _authenticate_socket_token(token)
-    if actor is None or not await _revalidate_project_access(project_id, str(actor.id)):
+    if actor is None or not await _revalidate_project_access(
+        project_id, str(actor.actor_id)
+    ):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
@@ -405,7 +375,9 @@ async def batch_events_socket(
     """
 
     actor = await _authenticate_socket_token(token)
-    if actor is None or not await _revalidate_project_access(project_id, str(actor.id)):
+    if actor is None or not await _revalidate_project_access(
+        project_id, str(actor.actor_id)
+    ):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
@@ -449,13 +421,10 @@ async def prediction_jobs_socket(
     includes `job_meta` on this channel).
     """
     try:
-        payload = decode_access_token(token)
-        user_id = payload.get("sub")
-        if not user_id:
-            raise ValueError("missing sub")
-        actor = await _load_active_user(user_id)
+        actor = await _authenticate_socket_token(token, allow_api_key=False)
         if actor is None or actor.role not in _ADMIN_SOCKET_ROLES:
             raise PermissionError("not admin")
+        user_id = str(actor.actor_id)
     except Exception:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
@@ -469,7 +438,7 @@ async def prediction_jobs_socket(
         await _run_pubsub_ws(
             websocket,
             pubsub,
-            revalidate=lambda: _revalidate_admin_stream(token),
+            revalidate=lambda: _revalidate_admin_stream(token, allow_api_key=False),
         )
     except WebSocketDisconnect:
         pass
@@ -491,19 +460,17 @@ async def video_tracker_job_socket(
 ):
     task_id_for_revalidate: uuid.UUID | None = None
     try:
-        payload = decode_access_token(token)
-        user_id = payload.get("sub")
-        if not user_id:
-            raise ValueError("missing sub")
-        user_uuid = uuid.UUID(user_id)
+        actor = await _authenticate_socket_token(token, allow_api_key=False)
+        if actor is None:
+            raise PermissionError("invalid credential")
+        user_uuid = actor.actor_id
         from app.services import task_access
         from app.db.base import async_session
         from app.db.models.task import Task
-        from app.db.models.user import User
         from app.db.models.video_tracker_job import VideoTrackerJob
 
         async with async_session() as db:
-            user = await db.get(User, user_uuid)
+            user = await IdentityAccountLockData(db).read_actor_status(user_uuid)
             job = await db.get(VideoTrackerJob, job_id)
             task = await db.get(Task, job.task_id) if job is not None else None
             if user is None or not user.is_active or job is None or task is None:
@@ -555,31 +522,11 @@ async def ml_backend_stats_socket(
     v0.15.12 · 除 JWT 外也接受 ak_ api_key (SDK/TUI 用), role 校验不变.
     """
     user_id: str | None = None
-    actor: IdentityActorFacts | None = None
     try:
-        from app.services import api_key_service
-
-        if api_key_service.is_api_key_token(token):
-            # ak_ 路径: 解析 api_key → 以当前数据库账号状态/角色为准
-            from app.db.base import async_session
-
-            async with async_session() as db:
-                resolved = await api_key_service.resolve_token(db, token)
-                if resolved is None:
-                    raise PermissionError("invalid api key")
-                _key, user = resolved
-                user_id = str(user.id)
-                was_active = user.is_active
-                await db.commit()  # 持久化 last_used_at
-                actor = _identity_actor_facts(user) if was_active else None
-        else:
-            payload = decode_access_token(token)
-            user_id = payload.get("sub")
-            if not user_id:
-                raise ValueError("missing sub")
-            actor = await _load_active_user(user_id)
+        actor = await _authenticate_socket_token(token, allow_api_key=True)
         if actor is None or actor.role not in _ADMIN_SOCKET_ROLES:
             raise PermissionError("not admin")
+        user_id = str(actor.actor_id)
     except Exception:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
@@ -598,7 +545,7 @@ async def ml_backend_stats_socket(
         await _run_pubsub_ws(
             websocket,
             pubsub,
-            revalidate=lambda: _revalidate_admin_stream(token),
+            revalidate=lambda: _revalidate_admin_stream(token, allow_api_key=True),
         )
     except WebSocketDisconnect:
         pass
@@ -630,10 +577,10 @@ async def notifications_socket(
     v0.7.0：使用共享 Redis ConnectionPool + 30s 心跳。
     """
     try:
-        payload = decode_access_token(token)
-        user_id = payload.get("sub")
-        if not user_id:
-            raise ValueError("missing sub")
+        actor = await _authenticate_socket_token(token, allow_api_key=False)
+        if actor is None:
+            raise PermissionError("invalid credential")
+        user_id = str(actor.actor_id)
         # Re-resolve the account: a disabled account with an unexpired token must
         # not keep receiving restricted per-user deliveries.
         if await _load_active_user(user_id) is None:

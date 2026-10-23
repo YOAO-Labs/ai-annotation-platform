@@ -6,14 +6,13 @@ import copy
 import uuid
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import UserRole
-from app.db.models.organization import OrganizationMember
+from app.services.identity_organization_scope import list_actor_organization_ids
 from app.db.models.project_template import ProjectTemplate
-from app.db.models.user import User
 from app.services.project_clone import CLONEABLE_PROJECT_FIELDS
+from app.services.identity_contracts import IdentityActorFacts
 
 
 # 与模板 model 列对齐的模板载荷字段名 (在 ProjectTemplate 与 Project 之间复制 / 应用).
@@ -21,21 +20,14 @@ from app.services.project_clone import CLONEABLE_PROJECT_FIELDS
 TEMPLATE_PAYLOAD_FIELDS: tuple[str, ...] = CLONEABLE_PROJECT_FIELDS
 
 
-async def list_user_org_ids(db: AsyncSession, user: User) -> list[uuid.UUID]:
-    """v0.10.14 · 取出 user 当前所属的全部 organization id (软删未过滤; 与
-    OrganizationMember 当前没有 active 字段, 用 deleted_at IS NULL 兼容).
-    """
-    rows = await db.execute(
-        select(OrganizationMember.organization_id).where(
-            OrganizationMember.user_id == user.id,
-            OrganizationMember.deleted_at.is_(None),
-        )
-    )
-    return [r[0] for r in rows.all()]
+async def list_user_org_ids(
+    db: AsyncSession, user: IdentityActorFacts
+) -> list[uuid.UUID]:
+    return await list_actor_organization_ids(db, user.id)
 
 
 async def assert_template_visible(
-    db: AsyncSession, template: ProjectTemplate, user: User
+    db: AsyncSession, template: ProjectTemplate, user: IdentityActorFacts
 ) -> None:
     """看不到则 404 隐藏存在性 (与 require_project_visible 风格一致)."""
     from fastapi import HTTPException
@@ -56,13 +48,13 @@ async def assert_template_visible(
     raise HTTPException(status_code=404, detail="模板不存在")
 
 
-def can_edit_template(template: ProjectTemplate, user: User) -> bool:
+def can_edit_template(template: ProjectTemplate, user: IdentityActorFacts) -> bool:
     if user.role == UserRole.SUPER_ADMIN:
         return True
     return template.created_by == user.id
 
 
-def assert_can_create_scope(scope: str, user: User) -> None:
+def assert_can_create_scope(scope: str, user: IdentityActorFacts) -> None:
     """v0.10.14 · scope=public 必须 super_admin; 其它角色可建 private / organization.
 
     organization scope 要求 organization_id 由 caller 显式给出; 不在这里校验 user
@@ -75,7 +67,7 @@ def assert_can_create_scope(scope: str, user: User) -> None:
 
 
 def assert_template_creation_scope(
-    scope: str, organization_id: uuid.UUID | None, actor: User
+    scope: str, organization_id: uuid.UUID | None, actor: IdentityActorFacts
 ) -> None:
     assert_can_create_scope(scope, actor)
     if scope == "organization" and organization_id is None:

@@ -1,0 +1,425 @@
+{
+  "kind": "actual-legacy-workflow",
+  "samples": [
+    {
+      "canonical": "{\"api_keys\": [{\"id\": \"1e4e1a1d-c7c4-4b9f-a043-74fb50d6b8f2\", \"name\": \"\\u6d4b\\u8bd5 Key \\ud83d\\ude00\", \"prefix\": \"ak_9QJNmfxm2\", \"revoked_at\": null}], \"batches\": [{\"annotator_id\": \"76a0f523-7244-4ec3-bae2-1326b45d4761\", \"assigned_user_ids\": [\"76a0f523-7244-4ec3-bae2-1326b45d4761\", \"82651db2-95e6-4077-a75a-b2071c7171e7\"], \"id\": \"8f06b404-16f2-4dd6-bfa2-1f5dfb5b8b7a\", \"project_id\": \"a28afbc7-fc9b-4979-90f6-7b0b6ef31340\", \"reviewer_id\": \"82651db2-95e6-4077-a75a-b2071c7171e7\", \"status\": \"active\"}], \"locks\": [{\"expire_at\": \"2027-01-02 03:04:05.246912+00:00\", \"id\": \"6da26024-314d-44e3-b065-c0981cf3c251\", \"task_id\": \"2d457612-ba94-4554-9c0c-2964d045aac0\"}, {\"expire_at\": \"2027-01-02 03:04:05+00:00\", \"id\": \"e4f95c77-fa09-4bef-a16d-fe8cb1c37e14\", \"task_id\": \"ad6171e1-4d23-418b-8b4e-fe94d40de667\"}], \"members\": [{\"id\": \"b4905c47-79fa-43d0-a4b3-88df1b87d8d4\", \"project_id\": \"a28afbc7-fc9b-4979-90f6-7b0b6ef31340\", \"role\": \"annotator\"}], \"projects\": [{\"id\": \"a28afbc7-fc9b-4979-90f6-7b0b6ef31340\", \"owner_id\": \"76a0f523-7244-4ec3-bae2-1326b45d4761\"}], \"receivers\": {\"a28afbc7-fc9b-4979-90f6-7b0b6ef31340\": {\"annotator\": [{\"email\": \"ann-73921890c61b4c549c0f9bbff8588a59@baseline.test\", \"id\": \"bf931609-dd07-48d2-bb51-02b6f073d1ce\", \"name\": \"\\u6807\\u6ce8\\n\\u63a5\\u6536\\u8005\", \"project_member_role\": \"annotator\", \"role\": \"employee\"}], \"owner\": [{\"email\": \"owner-73921890c61b4c549c0f9bbff8588a59@baseline.test\", \"id\": \"1bd7e8cb-1ad5-4006-940d-ab5d6d8356c8\", \"name\": \"\\u8d1f\\u8d23\\u4eba\", \"project_member_role\": null, \"role\": \"project_admin\"}], \"reviewer\": [{\"email\": \"rev-73921890c61b4c549c0f9bbff8588a59@baseline.test\", \"id\": \"82651db2-95e6-4077-a75a-b2071c7171e7\", \"name\": \"\\u5ba1\\u6838\\u63a5\\u6536\\u8005\", \"project_member_role\": \"reviewer\", \"role\": \"employee\"}]}}, \"target\": {\"disabled_at\": null, \"disabled_by\": null, \"disabled_kind\": null, \"disabled_reason\": null, \"id\": \"76a0f523-7244-4ec3-bae2-1326b45d4761\", \"is_active\": true, \"role\": \"employee\"}, \"tasks\": [{\"assignee_id\": \"76a0f523-7244-4ec3-bae2-1326b45d4761\", \"batch_id\": \"8f06b404-16f2-4dd6-bfa2-1f5dfb5b8b7a\", \"id\": \"2d457612-ba94-4554-9c0c-2964d045aac0\", \"project_id\": \"a28afbc7-fc9b-4979-90f6-7b0b6ef31340\", \"reviewer_id\": \"82651db2-95e6-4077-a75a-b2071c7171e7\", \"status\": \"completed\", \"version\": 1}, {\"assignee_id\": \"76a0f523-7244-4ec3-bae2-1326b45d4761\", \"batch_id\": \"8f06b404-16f2-4dd6-bfa2-1f5dfb5b8b7a\", \"id\": \"3c5d1ac0-d976-4802-9dea-5f8185c179da\", \"project_id\": \"a28afbc7-fc9b-4979-90f6-7b0b6ef31340\", \"reviewer_id\": \"82651db2-95e6-4077-a75a-b2071c7171e7\", \"status\": \"rejected\", \"version\": 1}, {\"assignee_id\": \"76a0f523-7244-4ec3-bae2-1326b45d4761\", \"batch_id\": \"8f06b404-16f2-4dd6-bfa2-1f5dfb5b8b7a\", \"id\": \"ad6171e1-4d23-418b-8b4e-fe94d40de667\", \"project_id\": \"a28afbc7-fc9b-4979-90f6-7b0b6ef31340\", \"reviewer_id\": \"82651db2-95e6-4077-a75a-b2071c7171e7\", \"status\": \"in_progress\", \"version\": 1}]}",
+      "preview_version": "22377e1b9f071a85ada1364c91aaf3d2e70ff94de723d93574a6c29754f47d28",
+      "preview": {
+        "user": {
+          "id": "76a0f523-7244-4ec3-bae2-1326b45d4761",
+          "email": "leaving-73921890c61b4c549c0f9bbff8588a59@baseline.test",
+          "name": "离职 😀",
+          "role": "employee",
+          "group_name": null,
+          "group_id": null,
+          "status": "offline",
+          "is_active": true,
+          "disabled_kind": null,
+          "disabled_at": null,
+          "disabled_by": null,
+          "disabled_reason": null,
+          "email_verified_at": null,
+          "last_login_at": null,
+          "last_seen_at": null,
+          "password_admin_reset_at": null,
+          "deactivation_requested_at": null,
+          "deactivation_scheduled_at": null,
+          "preferences": {},
+          "avatar_ref": null,
+          "created_at": "2026-10-20T11:29:42.510773Z"
+        },
+        "projects": [
+          {
+            "project_id": "a28afbc7-fc9b-4979-90f6-7b0b6ef31340",
+            "project_name": "交接项目 0",
+            "roles": {
+              "owner": {
+                "present": true,
+                "batches": [],
+                "receiver_options": [
+                  {
+                    "id": "1bd7e8cb-1ad5-4006-940d-ab5d6d8356c8",
+                    "name": "负责人",
+                    "email": "owner-73921890c61b4c549c0f9bbff8588a59@baseline.test",
+                    "role": "project_admin",
+                    "project_member_role": null
+                  }
+                ]
+              },
+              "annotator": {
+                "present": true,
+                "batches": [
+                  {
+                    "batch_id": "8f06b404-16f2-4dd6-bfa2-1f5dfb5b8b7a",
+                    "batch_name": "批次 0"
+                  }
+                ],
+                "receiver_options": [
+                  {
+                    "id": "bf931609-dd07-48d2-bb51-02b6f073d1ce",
+                    "name": "标注\n接收者",
+                    "email": "ann-73921890c61b4c549c0f9bbff8588a59@baseline.test",
+                    "role": "employee",
+                    "project_member_role": "annotator"
+                  }
+                ]
+              },
+              "reviewer": {
+                "present": false,
+                "batches": [],
+                "receiver_options": [
+                  {
+                    "id": "82651db2-95e6-4077-a75a-b2071c7171e7",
+                    "name": "审核接收者",
+                    "email": "rev-73921890c61b4c549c0f9bbff8588a59@baseline.test",
+                    "role": "employee",
+                    "project_member_role": "reviewer"
+                  }
+                ]
+              }
+            },
+            "tasks": {
+              "annotator": {
+                "pending": 0,
+                "in_progress": 1,
+                "review": 0,
+                "rejected": 1,
+                "locked": 1
+              },
+              "reviewer": {
+                "pending": 0,
+                "in_progress": 0,
+                "review": 0,
+                "rejected": 0,
+                "locked": 0
+              }
+            },
+            "locked_task_count": 2,
+            "blockers": []
+          }
+        ],
+        "api_keys": [
+          {
+            "id": "1e4e1a1d-c7c4-4b9f-a043-74fb50d6b8f2",
+            "name": "测试 Key 😀",
+            "key_prefix": "ak_9QJNmfxm2",
+            "last_used_at": null,
+            "revoked_at": null
+          }
+        ]
+      }
+    },
+    {
+      "canonical": "{\"api_keys\": [{\"id\": \"2a3d8d8f-0212-4e53-84fd-fc1ca9a32349\", \"name\": \"\\u6d4b\\u8bd5 Key \\ud83d\\ude00\", \"prefix\": \"ak_k1Hl179iN\", \"revoked_at\": null}], \"batches\": [{\"annotator_id\": \"e7806b91-d141-466b-8c2b-5cdef329868f\", \"assigned_user_ids\": [\"e7806b91-d141-466b-8c2b-5cdef329868f\", \"7dfe4ca2-c329-4f61-b988-2951e59fd82c\"], \"id\": \"6f1c1916-89f9-474e-bec6-3f7693bcf4f0\", \"project_id\": \"1e4b6193-5935-4935-aaa9-24e2cd64d789\", \"reviewer_id\": \"7dfe4ca2-c329-4f61-b988-2951e59fd82c\", \"status\": \"active\"}, {\"annotator_id\": \"d786560d-3dce-4051-9b37-f9146bbe5d52\", \"assigned_user_ids\": [\"d786560d-3dce-4051-9b37-f9146bbe5d52\", \"e7806b91-d141-466b-8c2b-5cdef329868f\"], \"id\": \"c32a5a41-46d0-428b-afe8-936b145ba0e3\", \"project_id\": \"6f3ba49d-862e-41cb-8802-6192bf1539ec\", \"reviewer_id\": \"e7806b91-d141-466b-8c2b-5cdef329868f\", \"status\": \"active\"}, {\"annotator_id\": \"d786560d-3dce-4051-9b37-f9146bbe5d52\", \"assigned_user_ids\": [\"d786560d-3dce-4051-9b37-f9146bbe5d52\", \"e7806b91-d141-466b-8c2b-5cdef329868f\"], \"id\": \"61fbbe9e-ac4b-41d1-9617-20936772204e\", \"project_id\": \"89ae4036-73e5-4b5d-9d22-3a1f7131a3aa\", \"reviewer_id\": \"e7806b91-d141-466b-8c2b-5cdef329868f\", \"status\": \"active\"}, {\"annotator_id\": \"e7806b91-d141-466b-8c2b-5cdef329868f\", \"assigned_user_ids\": [\"e7806b91-d141-466b-8c2b-5cdef329868f\", \"7dfe4ca2-c329-4f61-b988-2951e59fd82c\"], \"id\": \"52e0437a-aa16-4708-be8c-c78dac2038e4\", \"project_id\": \"96bdfc95-d233-4404-b35b-fbad2c0926ec\", \"reviewer_id\": \"7dfe4ca2-c329-4f61-b988-2951e59fd82c\", \"status\": \"active\"}], \"locks\": [{\"expire_at\": \"2027-01-02 03:04:05+00:00\", \"id\": \"90c9172b-c5e0-407e-a58a-10864dda2b9f\", \"task_id\": \"2b9f89da-0faf-41b9-ab9b-794ffa866714\"}, {\"expire_at\": \"2027-01-02 03:04:05+00:00\", \"id\": \"8905b0c3-bdcd-49c4-bbdf-bf61ef9553b5\", \"task_id\": \"65311013-e980-4132-97cb-34b4f203d16a\"}, {\"expire_at\": \"2027-01-02 03:04:05.246912+00:00\", \"id\": \"346cc38e-50fb-461c-99c1-ce51b057b1f3\", \"task_id\": \"703eb5bf-d909-41a9-a620-ca3f66f1f307\"}, {\"expire_at\": \"2027-01-02 03:04:05+00:00\", \"id\": \"d3480d7b-5d03-4dbb-9a4e-cd5e53fc84e0\", \"task_id\": \"720f442b-2e69-405d-9a3d-78d5f67a7eb1\"}, {\"expire_at\": \"2027-01-02 03:04:05.246912+00:00\", \"id\": \"90388b83-ea2b-4ec6-97e9-3431f290cc22\", \"task_id\": \"8230a2c0-44b8-45b7-b434-9a53544c60fb\"}, {\"expire_at\": \"2027-01-02 03:04:05.246912+00:00\", \"id\": \"2b24a4d9-320a-41a8-8359-08a53384fb3f\", \"task_id\": \"adf969a9-588b-4b84-92a5-78a955564a4a\"}, {\"expire_at\": \"2027-01-02 03:04:05.246912+00:00\", \"id\": \"6e943f68-3c21-44ee-ac37-195e3067ae0e\", \"task_id\": \"ca9d784d-2dc2-4ef1-90a4-c3593cf54e76\"}, {\"expire_at\": \"2027-01-02 03:04:05+00:00\", \"id\": \"038e6f55-268a-4005-978a-a27733d8bddb\", \"task_id\": \"fbfa4121-f302-4d9b-b87b-b25e0d8be435\"}], \"members\": [{\"id\": \"e9c00f11-0c05-4038-bf44-deb4d7417336\", \"project_id\": \"1e4b6193-5935-4935-aaa9-24e2cd64d789\", \"role\": \"annotator\"}, {\"id\": \"2d63ad4b-cc4f-4eec-a275-614c28e041d9\", \"project_id\": \"6f3ba49d-862e-41cb-8802-6192bf1539ec\", \"role\": \"reviewer\"}, {\"id\": \"4e753263-5e62-40fc-8bbc-774384dd0c94\", \"project_id\": \"89ae4036-73e5-4b5d-9d22-3a1f7131a3aa\", \"role\": \"reviewer\"}, {\"id\": \"c5ad7d40-0fd8-4007-991f-adf19f27412f\", \"project_id\": \"96bdfc95-d233-4404-b35b-fbad2c0926ec\", \"role\": \"annotator\"}], \"projects\": [{\"id\": \"1e4b6193-5935-4935-aaa9-24e2cd64d789\", \"owner_id\": \"e7806b91-d141-466b-8c2b-5cdef329868f\"}, {\"id\": \"6f3ba49d-862e-41cb-8802-6192bf1539ec\", \"owner_id\": \"e7806b91-d141-466b-8c2b-5cdef329868f\"}, {\"id\": \"89ae4036-73e5-4b5d-9d22-3a1f7131a3aa\", \"owner_id\": \"e7806b91-d141-466b-8c2b-5cdef329868f\"}, {\"id\": \"96bdfc95-d233-4404-b35b-fbad2c0926ec\", \"owner_id\": \"e7806b91-d141-466b-8c2b-5cdef329868f\"}], \"receivers\": {\"1e4b6193-5935-4935-aaa9-24e2cd64d789\": {\"annotator\": [{\"email\": \"ann-465565a8a4a44552afbb568823c94152@baseline.test\", \"id\": \"d786560d-3dce-4051-9b37-f9146bbe5d52\", \"name\": \"\\u6807\\u6ce8\\n\\u63a5\\u6536\\u8005\", \"project_member_role\": \"annotator\", \"role\": \"employee\"}], \"owner\": [{\"email\": \"owner-465565a8a4a44552afbb568823c94152@baseline.test\", \"id\": \"8c422e85-3823-4f98-a0c3-218f702ea98a\", \"name\": \"\\u8d1f\\u8d23\\u4eba\", \"project_member_role\": null, \"role\": \"project_admin\"}], \"reviewer\": [{\"email\": \"rev-465565a8a4a44552afbb568823c94152@baseline.test\", \"id\": \"7dfe4ca2-c329-4f61-b988-2951e59fd82c\", \"name\": \"\\u5ba1\\u6838\\u63a5\\u6536\\u8005\", \"project_member_role\": \"reviewer\", \"role\": \"employee\"}]}, \"6f3ba49d-862e-41cb-8802-6192bf1539ec\": {\"annotator\": [{\"email\": \"ann-465565a8a4a44552afbb568823c94152@baseline.test\", \"id\": \"d786560d-3dce-4051-9b37-f9146bbe5d52\", \"name\": \"\\u6807\\u6ce8\\n\\u63a5\\u6536\\u8005\", \"project_member_role\": \"annotator\", \"role\": \"employee\"}], \"owner\": [{\"email\": \"owner-465565a8a4a44552afbb568823c94152@baseline.test\", \"id\": \"8c422e85-3823-4f98-a0c3-218f702ea98a\", \"name\": \"\\u8d1f\\u8d23\\u4eba\", \"project_member_role\": null, \"role\": \"project_admin\"}], \"reviewer\": [{\"email\": \"rev-465565a8a4a44552afbb568823c94152@baseline.test\", \"id\": \"7dfe4ca2-c329-4f61-b988-2951e59fd82c\", \"name\": \"\\u5ba1\\u6838\\u63a5\\u6536\\u8005\", \"project_member_role\": \"reviewer\", \"role\": \"employee\"}]}, \"89ae4036-73e5-4b5d-9d22-3a1f7131a3aa\": {\"annotator\": [{\"email\": \"ann-465565a8a4a44552afbb568823c94152@baseline.test\", \"id\": \"d786560d-3dce-4051-9b37-f9146bbe5d52\", \"name\": \"\\u6807\\u6ce8\\n\\u63a5\\u6536\\u8005\", \"project_member_role\": \"annotator\", \"role\": \"employee\"}], \"owner\": [{\"email\": \"owner-465565a8a4a44552afbb568823c94152@baseline.test\", \"id\": \"8c422e85-3823-4f98-a0c3-218f702ea98a\", \"name\": \"\\u8d1f\\u8d23\\u4eba\", \"project_member_role\": null, \"role\": \"project_admin\"}], \"reviewer\": [{\"email\": \"rev-465565a8a4a44552afbb568823c94152@baseline.test\", \"id\": \"7dfe4ca2-c329-4f61-b988-2951e59fd82c\", \"name\": \"\\u5ba1\\u6838\\u63a5\\u6536\\u8005\", \"project_member_role\": \"reviewer\", \"role\": \"employee\"}]}, \"96bdfc95-d233-4404-b35b-fbad2c0926ec\": {\"annotator\": [{\"email\": \"ann-465565a8a4a44552afbb568823c94152@baseline.test\", \"id\": \"d786560d-3dce-4051-9b37-f9146bbe5d52\", \"name\": \"\\u6807\\u6ce8\\n\\u63a5\\u6536\\u8005\", \"project_member_role\": \"annotator\", \"role\": \"employee\"}], \"owner\": [{\"email\": \"owner-465565a8a4a44552afbb568823c94152@baseline.test\", \"id\": \"8c422e85-3823-4f98-a0c3-218f702ea98a\", \"name\": \"\\u8d1f\\u8d23\\u4eba\", \"project_member_role\": null, \"role\": \"project_admin\"}], \"reviewer\": [{\"email\": \"rev-465565a8a4a44552afbb568823c94152@baseline.test\", \"id\": \"7dfe4ca2-c329-4f61-b988-2951e59fd82c\", \"name\": \"\\u5ba1\\u6838\\u63a5\\u6536\\u8005\", \"project_member_role\": \"reviewer\", \"role\": \"employee\"}]}}, \"target\": {\"disabled_at\": null, \"disabled_by\": null, \"disabled_kind\": null, \"disabled_reason\": null, \"id\": \"e7806b91-d141-466b-8c2b-5cdef329868f\", \"is_active\": true, \"role\": \"employee\"}, \"tasks\": [{\"assignee_id\": \"e7806b91-d141-466b-8c2b-5cdef329868f\", \"batch_id\": \"6f1c1916-89f9-474e-bec6-3f7693bcf4f0\", \"id\": \"5e4a2e88-d001-4c9e-a8f6-71620ad190fb\", \"project_id\": \"1e4b6193-5935-4935-aaa9-24e2cd64d789\", \"reviewer_id\": \"7dfe4ca2-c329-4f61-b988-2951e59fd82c\", \"status\": \"rejected\", \"version\": 1}, {\"assignee_id\": \"e7806b91-d141-466b-8c2b-5cdef329868f\", \"batch_id\": \"6f1c1916-89f9-474e-bec6-3f7693bcf4f0\", \"id\": \"8230a2c0-44b8-45b7-b434-9a53544c60fb\", \"project_id\": \"1e4b6193-5935-4935-aaa9-24e2cd64d789\", \"reviewer_id\": \"7dfe4ca2-c329-4f61-b988-2951e59fd82c\", \"status\": \"completed\", \"version\": 1}, {\"assignee_id\": \"e7806b91-d141-466b-8c2b-5cdef329868f\", \"batch_id\": \"6f1c1916-89f9-474e-bec6-3f7693bcf4f0\", \"id\": \"fbfa4121-f302-4d9b-b87b-b25e0d8be435\", \"project_id\": \"1e4b6193-5935-4935-aaa9-24e2cd64d789\", \"reviewer_id\": \"7dfe4ca2-c329-4f61-b988-2951e59fd82c\", \"status\": \"in_progress\", \"version\": 1}, {\"assignee_id\": \"d786560d-3dce-4051-9b37-f9146bbe5d52\", \"batch_id\": \"c32a5a41-46d0-428b-afe8-936b145ba0e3\", \"id\": \"65311013-e980-4132-97cb-34b4f203d16a\", \"project_id\": \"6f3ba49d-862e-41cb-8802-6192bf1539ec\", \"reviewer_id\": \"e7806b91-d141-466b-8c2b-5cdef329868f\", \"status\": \"in_progress\", \"version\": 1}, {\"assignee_id\": \"d786560d-3dce-4051-9b37-f9146bbe5d52\", \"batch_id\": \"c32a5a41-46d0-428b-afe8-936b145ba0e3\", \"id\": \"703eb5bf-d909-41a9-a620-ca3f66f1f307\", \"project_id\": \"6f3ba49d-862e-41cb-8802-6192bf1539ec\", \"reviewer_id\": \"e7806b91-d141-466b-8c2b-5cdef329868f\", \"status\": \"completed\", \"version\": 1}, {\"assignee_id\": \"d786560d-3dce-4051-9b37-f9146bbe5d52\", \"batch_id\": \"c32a5a41-46d0-428b-afe8-936b145ba0e3\", \"id\": \"dead3da4-6eec-48de-a5d0-db7c60650696\", \"project_id\": \"6f3ba49d-862e-41cb-8802-6192bf1539ec\", \"reviewer_id\": \"e7806b91-d141-466b-8c2b-5cdef329868f\", \"status\": \"rejected\", \"version\": 1}, {\"assignee_id\": \"d786560d-3dce-4051-9b37-f9146bbe5d52\", \"batch_id\": \"61fbbe9e-ac4b-41d1-9617-20936772204e\", \"id\": \"720f442b-2e69-405d-9a3d-78d5f67a7eb1\", \"project_id\": \"89ae4036-73e5-4b5d-9d22-3a1f7131a3aa\", \"reviewer_id\": \"e7806b91-d141-466b-8c2b-5cdef329868f\", \"status\": \"in_progress\", \"version\": 1}, {\"assignee_id\": \"d786560d-3dce-4051-9b37-f9146bbe5d52\", \"batch_id\": \"61fbbe9e-ac4b-41d1-9617-20936772204e\", \"id\": \"9c6ac930-c5e3-48f0-af36-94032c4b4506\", \"project_id\": \"89ae4036-73e5-4b5d-9d22-3a1f7131a3aa\", \"reviewer_id\": \"e7806b91-d141-466b-8c2b-5cdef329868f\", \"status\": \"rejected\", \"version\": 1}, {\"assignee_id\": \"d786560d-3dce-4051-9b37-f9146bbe5d52\", \"batch_id\": \"61fbbe9e-ac4b-41d1-9617-20936772204e\", \"id\": \"ca9d784d-2dc2-4ef1-90a4-c3593cf54e76\", \"project_id\": \"89ae4036-73e5-4b5d-9d22-3a1f7131a3aa\", \"reviewer_id\": \"e7806b91-d141-466b-8c2b-5cdef329868f\", \"status\": \"completed\", \"version\": 1}, {\"assignee_id\": \"e7806b91-d141-466b-8c2b-5cdef329868f\", \"batch_id\": \"52e0437a-aa16-4708-be8c-c78dac2038e4\", \"id\": \"11cb2d51-e2c0-4530-a365-b5aa619ba1e4\", \"project_id\": \"96bdfc95-d233-4404-b35b-fbad2c0926ec\", \"reviewer_id\": \"7dfe4ca2-c329-4f61-b988-2951e59fd82c\", \"status\": \"rejected\", \"version\": 1}, {\"assignee_id\": \"e7806b91-d141-466b-8c2b-5cdef329868f\", \"batch_id\": \"52e0437a-aa16-4708-be8c-c78dac2038e4\", \"id\": \"2b9f89da-0faf-41b9-ab9b-794ffa866714\", \"project_id\": \"96bdfc95-d233-4404-b35b-fbad2c0926ec\", \"reviewer_id\": \"7dfe4ca2-c329-4f61-b988-2951e59fd82c\", \"status\": \"in_progress\", \"version\": 1}, {\"assignee_id\": \"e7806b91-d141-466b-8c2b-5cdef329868f\", \"batch_id\": \"52e0437a-aa16-4708-be8c-c78dac2038e4\", \"id\": \"adf969a9-588b-4b84-92a5-78a955564a4a\", \"project_id\": \"96bdfc95-d233-4404-b35b-fbad2c0926ec\", \"reviewer_id\": \"7dfe4ca2-c329-4f61-b988-2951e59fd82c\", \"status\": \"completed\", \"version\": 1}]}",
+      "preview_version": "48b16b7c7558d05990a779d8ea10fb88e2c5f2f42db5057f573c07d299043497",
+      "preview": {
+        "user": {
+          "id": "e7806b91-d141-466b-8c2b-5cdef329868f",
+          "email": "leaving-465565a8a4a44552afbb568823c94152@baseline.test",
+          "name": "离职 😀",
+          "role": "employee",
+          "group_name": null,
+          "group_id": null,
+          "status": "offline",
+          "is_active": true,
+          "disabled_kind": null,
+          "disabled_at": null,
+          "disabled_by": null,
+          "disabled_reason": null,
+          "email_verified_at": null,
+          "last_login_at": null,
+          "last_seen_at": null,
+          "password_admin_reset_at": null,
+          "deactivation_requested_at": null,
+          "deactivation_scheduled_at": null,
+          "preferences": {},
+          "avatar_ref": null,
+          "created_at": "2026-10-20T11:29:43.033880Z"
+        },
+        "projects": [
+          {
+            "project_id": "1e4b6193-5935-4935-aaa9-24e2cd64d789",
+            "project_name": "交接项目 0",
+            "roles": {
+              "owner": {
+                "present": true,
+                "batches": [],
+                "receiver_options": [
+                  {
+                    "id": "8c422e85-3823-4f98-a0c3-218f702ea98a",
+                    "name": "负责人",
+                    "email": "owner-465565a8a4a44552afbb568823c94152@baseline.test",
+                    "role": "project_admin",
+                    "project_member_role": null
+                  }
+                ]
+              },
+              "annotator": {
+                "present": true,
+                "batches": [
+                  {
+                    "batch_id": "6f1c1916-89f9-474e-bec6-3f7693bcf4f0",
+                    "batch_name": "批次 0"
+                  }
+                ],
+                "receiver_options": [
+                  {
+                    "id": "d786560d-3dce-4051-9b37-f9146bbe5d52",
+                    "name": "标注\n接收者",
+                    "email": "ann-465565a8a4a44552afbb568823c94152@baseline.test",
+                    "role": "employee",
+                    "project_member_role": "annotator"
+                  }
+                ]
+              },
+              "reviewer": {
+                "present": false,
+                "batches": [],
+                "receiver_options": [
+                  {
+                    "id": "7dfe4ca2-c329-4f61-b988-2951e59fd82c",
+                    "name": "审核接收者",
+                    "email": "rev-465565a8a4a44552afbb568823c94152@baseline.test",
+                    "role": "employee",
+                    "project_member_role": "reviewer"
+                  }
+                ]
+              }
+            },
+            "tasks": {
+              "annotator": {
+                "pending": 0,
+                "in_progress": 1,
+                "review": 0,
+                "rejected": 1,
+                "locked": 1
+              },
+              "reviewer": {
+                "pending": 0,
+                "in_progress": 0,
+                "review": 0,
+                "rejected": 0,
+                "locked": 0
+              }
+            },
+            "locked_task_count": 2,
+            "blockers": []
+          },
+          {
+            "project_id": "6f3ba49d-862e-41cb-8802-6192bf1539ec",
+            "project_name": "交接项目 3",
+            "roles": {
+              "owner": {
+                "present": true,
+                "batches": [],
+                "receiver_options": [
+                  {
+                    "id": "8c422e85-3823-4f98-a0c3-218f702ea98a",
+                    "name": "负责人",
+                    "email": "owner-465565a8a4a44552afbb568823c94152@baseline.test",
+                    "role": "project_admin",
+                    "project_member_role": null
+                  }
+                ]
+              },
+              "annotator": {
+                "present": false,
+                "batches": [],
+                "receiver_options": [
+                  {
+                    "id": "d786560d-3dce-4051-9b37-f9146bbe5d52",
+                    "name": "标注\n接收者",
+                    "email": "ann-465565a8a4a44552afbb568823c94152@baseline.test",
+                    "role": "employee",
+                    "project_member_role": "annotator"
+                  }
+                ]
+              },
+              "reviewer": {
+                "present": true,
+                "batches": [
+                  {
+                    "batch_id": "c32a5a41-46d0-428b-afe8-936b145ba0e3",
+                    "batch_name": "批次 3"
+                  }
+                ],
+                "receiver_options": [
+                  {
+                    "id": "7dfe4ca2-c329-4f61-b988-2951e59fd82c",
+                    "name": "审核接收者",
+                    "email": "rev-465565a8a4a44552afbb568823c94152@baseline.test",
+                    "role": "employee",
+                    "project_member_role": "reviewer"
+                  }
+                ]
+              }
+            },
+            "tasks": {
+              "annotator": {
+                "pending": 0,
+                "in_progress": 0,
+                "review": 0,
+                "rejected": 0,
+                "locked": 0
+              },
+              "reviewer": {
+                "pending": 0,
+                "in_progress": 1,
+                "review": 0,
+                "rejected": 1,
+                "locked": 1
+              }
+            },
+            "locked_task_count": 2,
+            "blockers": []
+          },
+          {
+            "project_id": "89ae4036-73e5-4b5d-9d22-3a1f7131a3aa",
+            "project_name": "交接项目 1",
+            "roles": {
+              "owner": {
+                "present": true,
+                "batches": [],
+                "receiver_options": [
+                  {
+                    "id": "8c422e85-3823-4f98-a0c3-218f702ea98a",
+                    "name": "负责人",
+                    "email": "owner-465565a8a4a44552afbb568823c94152@baseline.test",
+                    "role": "project_admin",
+                    "project_member_role": null
+                  }
+                ]
+              },
+              "annotator": {
+                "present": false,
+                "batches": [],
+                "receiver_options": [
+                  {
+                    "id": "d786560d-3dce-4051-9b37-f9146bbe5d52",
+                    "name": "标注\n接收者",
+                    "email": "ann-465565a8a4a44552afbb568823c94152@baseline.test",
+                    "role": "employee",
+                    "project_member_role": "annotator"
+                  }
+                ]
+              },
+              "reviewer": {
+                "present": true,
+                "batches": [
+                  {
+                    "batch_id": "61fbbe9e-ac4b-41d1-9617-20936772204e",
+                    "batch_name": "批次 1"
+                  }
+                ],
+                "receiver_options": [
+                  {
+                    "id": "7dfe4ca2-c329-4f61-b988-2951e59fd82c",
+                    "name": "审核接收者",
+                    "email": "rev-465565a8a4a44552afbb568823c94152@baseline.test",
+                    "role": "employee",
+                    "project_member_role": "reviewer"
+                  }
+                ]
+              }
+            },
+            "tasks": {
+              "annotator": {
+                "pending": 0,
+                "in_progress": 0,
+                "review": 0,
+                "rejected": 0,
+                "locked": 0
+              },
+              "reviewer": {
+                "pending": 0,
+                "in_progress": 1,
+                "review": 0,
+                "rejected": 1,
+                "locked": 1
+              }
+            },
+            "locked_task_count": 2,
+            "blockers": []
+          },
+          {
+            "project_id": "96bdfc95-d233-4404-b35b-fbad2c0926ec",
+            "project_name": "交接项目 2",
+            "roles": {
+              "owner": {
+                "present": true,
+                "batches": [],
+                "receiver_options": [
+                  {
+                    "id": "8c422e85-3823-4f98-a0c3-218f702ea98a",
+                    "name": "负责人",
+                    "email": "owner-465565a8a4a44552afbb568823c94152@baseline.test",
+                    "role": "project_admin",
+                    "project_member_role": null
+                  }
+                ]
+              },
+              "annotator": {
+                "present": true,
+                "batches": [
+                  {
+                    "batch_id": "52e0437a-aa16-4708-be8c-c78dac2038e4",
+                    "batch_name": "批次 2"
+                  }
+                ],
+                "receiver_options": [
+                  {
+                    "id": "d786560d-3dce-4051-9b37-f9146bbe5d52",
+                    "name": "标注\n接收者",
+                    "email": "ann-465565a8a4a44552afbb568823c94152@baseline.test",
+                    "role": "employee",
+                    "project_member_role": "annotator"
+                  }
+                ]
+              },
+              "reviewer": {
+                "present": false,
+                "batches": [],
+                "receiver_options": [
+                  {
+                    "id": "7dfe4ca2-c329-4f61-b988-2951e59fd82c",
+                    "name": "审核接收者",
+                    "email": "rev-465565a8a4a44552afbb568823c94152@baseline.test",
+                    "role": "employee",
+                    "project_member_role": "reviewer"
+                  }
+                ]
+              }
+            },
+            "tasks": {
+              "annotator": {
+                "pending": 0,
+                "in_progress": 1,
+                "review": 0,
+                "rejected": 1,
+                "locked": 1
+              },
+              "reviewer": {
+                "pending": 0,
+                "in_progress": 0,
+                "review": 0,
+                "rejected": 0,
+                "locked": 0
+              }
+            },
+            "locked_task_count": 2,
+            "blockers": []
+          }
+        ],
+        "api_keys": [
+          {
+            "id": "2a3d8d8f-0212-4e53-84fd-fc1ca9a32349",
+            "name": "测试 Key 😀",
+            "key_prefix": "ak_k1Hl179iN",
+            "last_used_at": null,
+            "revoked_at": null
+          }
+        ]
+      }
+    }
+  ]
+}

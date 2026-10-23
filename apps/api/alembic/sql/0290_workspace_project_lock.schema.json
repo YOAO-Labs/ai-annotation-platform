@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-workspace-project-lock/v1",
+  "title": "Workspace Project row lock",
+  "description": "Caller-transactional exclusive Project row lock. The caller owns authorization, transaction ordering, and commit. nowait selects the existing busy-fail-fast lock behavior; false waits for the Project lock. A missing Project returns row_json null.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ProjectRowLockRequest"
+    },
+    {
+      "$ref": "#/$defs/ProjectRowLockReply"
+    }
+  ],
+  "$defs": {
+    "ProjectRowLockRequest": {
+      "type": "object",
+      "required": ["project_id", "nowait"],
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "nowait": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProjectRowLockReply": {
+      "type": "object",
+      "required": ["schema", "project_id", "nowait", "row_json"],
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-project-lock/v1"
+        },
+        "project_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "nowait": {
+          "type": "boolean"
+        },
+        "row_json": {
+          "type": ["string", "null"],
+          "description": "Null when the Project does not exist; otherwise a lossless text JSON object containing the full 43-column Project row with counters supplied by the typed Labeling capability."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "x-postgresql-functions": ["aap_workspace_v1.lock_project_row(uuid, boolean)"],
+  "x-postgresql-errors": {
+    "invalid_arguments": {
+      "sqlstate": "22023"
+    },
+    "nowait_lock_contention": {
+      "when": "nowait is true",
+      "sqlstates": ["55P03", "40001", "40P01"],
+      "hint": "aap.workspace.configuration.project_busy"
+    },
+    "waiting_mode_errors": {
+      "when": "nowait is false",
+      "description": "Database lock and transaction errors propagate without translation."
+    }
+  },
+  "x-native-capabilities": {
+    "authorization_boundary": "The caller retains authorization and surrounding workflow checks; this function does not inspect actors or decide permissions.",
+    "functions": [
+      {
+        "arguments": [
+          {
+            "json_schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "name": "p_project_id",
+            "postgres_type": "uuid"
+          },
+          {
+            "json_schema": {
+              "type": "boolean"
+            },
+            "name": "p_nowait",
+            "postgres_type": "boolean"
+          }
+        ],
+        "name": "lock_project_row",
+        "result_model": "ProjectRowLockReply",
+        "result_postgres_type": "jsonb",
+        "result_schema_ref": "#/$defs/ProjectRowLockReply",
+        "signature": "aap_workspace_v1.lock_project_row(uuid, boolean)",
+        "transaction_semantics": "Acquire FOR UPDATE on the Project in the caller's existing transaction and return the full row snapshot. nowait=true fails immediately on contention using the Workspace project_busy hint; false waits. The caller owns permission checks, autoflush behavior, identity-map refresh, and commit."
+      }
+    ],
+    "postgres_schema": "aap_workspace_v1",
+    "protocol": "aap-workspace-project-lock/v1",
+    "transaction_boundary": "The caller owns the surrounding transaction and commit."
+  }
+}

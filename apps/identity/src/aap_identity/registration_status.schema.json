@@ -1,0 +1,91 @@
+{
+  "$defs": {
+    "RegistrationStatusFallbacks": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_open_registration": {
+          "title": "Allow Open Registration",
+          "type": "boolean"
+        },
+        "frontend_base_url": {
+          "title": "Frontend Base Url",
+          "type": "string"
+        }
+      },
+      "required": ["allow_open_registration", "frontend_base_url"],
+      "title": "RegistrationStatusFallbacks",
+      "type": "object"
+    },
+    "RegistrationStatusReply": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-identity-registration-status/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "enum": ["read_status", "read_deployment_default"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "data": {
+          "$ref": "#/$defs/RegistrationStatusValue"
+        }
+      },
+      "required": ["schema", "operation", "ok", "data"],
+      "title": "RegistrationStatusReply",
+      "type": "object"
+    },
+    "RegistrationStatusRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-identity-registration-status/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "enum": ["read_status", "read_deployment_default"],
+          "title": "Operation",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation"],
+      "title": "RegistrationStatusRequest",
+      "type": "object"
+    },
+    "RegistrationStatusValue": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_open_registration": {
+          "title": "Allow Open Registration",
+          "type": "boolean"
+        }
+      },
+      "required": ["allow_open_registration"],
+      "title": "RegistrationStatusValue",
+      "type": "object"
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/RegistrationStatusRequest"
+    },
+    {
+      "$ref": "#/$defs/RegistrationStatusReply"
+    },
+    {
+      "$ref": "#/$defs/RegistrationStatusFallbacks"
+    }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-identity-registration-status/v1",
+  "$comment": "The Recovery owner supplies deployment defaults. read_status resolves the existing Settings policy in a bounded read transaction; read_deployment_default does not read overrides. Neither operation creates accounts, mail, audit events or receipts.",
+  "x-postgresql-functions": ["aap_identity_recovery_v1.read_registration_status(jsonb)"]
+}

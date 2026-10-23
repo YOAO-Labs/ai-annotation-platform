@@ -1,0 +1,50 @@
+{
+  "$defs": {
+    "AcceptedApiKeyRequest": {
+      "additionalProperties": false,
+      "description": "Current key authority for accepted work, inside its caller transaction.",
+      "properties": {
+        "schema": {
+          "const": "aap-identity-accepted-api-key/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "api_key_id": {
+          "format": "uuid",
+          "title": "Api Key Id",
+          "type": "string"
+        },
+        "required_scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Scopes",
+          "type": "array"
+        }
+      },
+      "required": ["schema", "actor_id", "api_key_id", "required_scopes"],
+      "title": "AcceptedApiKeyRequest",
+      "type": "object"
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/AcceptedApiKeyRequest"
+    },
+    {
+      "type": "boolean"
+    }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-identity-accepted-api-key/v1",
+  "$comment": "Confirms an already accepted key ID, not credential possession. The caller retains account/project authority locks. The key FOR SHARE lock waits and remains in the caller transaction. Expiry is checked against the real clock after any lock wait. Invalid arguments raise SQLSTATE 22023; database errors propagate.",
+  "x-postgresql-functions": ["aap_identity_v1.check_accepted_api_key(uuid, uuid, text[])"],
+  "x-postgresql-result": {
+    "type": "boolean"
+  }
+}

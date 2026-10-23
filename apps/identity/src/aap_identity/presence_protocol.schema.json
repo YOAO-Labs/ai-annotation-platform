@@ -1,0 +1,51 @@
+{
+  "$defs": {
+    "PresenceReply": {
+      "additionalProperties": false,
+      "properties": {
+        "affected": {
+          "exclusiveMaximum": 9223372036854775808,
+          "minimum": 0,
+          "title": "Affected",
+          "type": "integer"
+        },
+        "schema": {
+          "const": "aap-identity-presence/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "affected"],
+      "title": "PresenceReply",
+      "type": "object"
+    },
+    "PresenceRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "cutoff": {
+          "format": "date-time",
+          "title": "Cutoff",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-presence/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "cutoff"],
+      "title": "PresenceRequest",
+      "type": "object"
+    }
+  },
+  "$id": "aap-identity-presence/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/PresenceRequest"
+    },
+    {
+      "$ref": "#/$defs/PresenceReply"
+    }
+  ]
+}

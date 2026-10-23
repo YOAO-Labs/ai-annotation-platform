@@ -68,12 +68,61 @@ class TestRoleMatrix:
         )
         assert r.status_code == 400
 
-    async def test_sa_cannot_demote_last_super_admin(self, httpx_client, super_admin):
-        """不能降级最后一名 super_admin。"""
-        _, token = super_admin
-        # 尝试降级自己以外的唯一超管（只有自己）会报 400（不能改自己）
-        # 此用例验证：当系统中只有 1 个 super_admin 时，其他 manager 无法降级
-        pass  # 依赖多用户场景，当前单 fixture 无法完整覆盖
+    async def test_sa_cannot_demote_last_super_admin(
+        self, httpx_client, super_admin, db_session
+    ):
+        """只有已接受撤销请求的另一位 SA 时，不能降级最后一名未预留 SA。"""
+        from datetime import UTC, datetime, timedelta
+
+        from sqlalchemy import func, select, text
+
+        from app.db.models.audit_log import AuditLog
+
+        actor, token = super_admin
+        actor_id = actor.id
+        target = await create_user(
+            db_session,
+            "super_admin",
+            f"last-unreserved-{actor_id.hex}@example.test",
+            "Last unreserved admin",
+        )
+        target_id = target.id
+        now = datetime.now(UTC)
+        actor.deactivation_requested_at = now
+        actor.deactivation_scheduled_at = now + timedelta(days=7)
+        await db_session.flush()
+        # Persist the fixture inside the outer test savepoint. The denied owner
+        # command can roll back its nested transaction without deleting it.
+        await db_session.commit()
+
+        response = await httpx_client.patch(
+            f"/api/v1/users/{target_id}/role",
+            json={"role": "employee"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 400, response.text
+        assert response.json() == {"detail": "不能降级最后一名超级管理员"}
+
+        target_state = await db_session.execute(
+            text("SELECT role FROM public.users WHERE id=:id"),
+            {"id": target_id},
+        )
+        assert target_state.scalar_one() == "super_admin"
+        audit_count = await db_session.scalar(
+            select(func.count(AuditLog.id)).where(
+                AuditLog.action == "user.role_change",
+                AuditLog.target_id == str(target_id),
+            )
+        )
+        assert audit_count == 0
+        receipt_count = await db_session.scalar(
+            text(
+                "SELECT count(*) FROM public.identity_platform_role_operation_receipts "
+                "WHERE target_user_id=:id"
+            ),
+            {"id": target_id},
+        )
+        assert receipt_count == 0
 
     async def test_pa_cannot_promote_to_pa(
         self, httpx_client, project_admin, annotator

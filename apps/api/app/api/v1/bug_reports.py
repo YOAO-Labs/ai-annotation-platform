@@ -13,7 +13,6 @@ from app.core.ratelimit import limiter
 from app.deps import get_db, get_current_user, require_roles
 from app.db.enums import UserRole
 from app.db.models.notification import Notification
-from app.db.models.user import User
 from app.schemas.bug_report import (
     BugReportCreate,
     BugReportUpdate,
@@ -29,8 +28,10 @@ from app.services.bug_report import BugReportService
 from app.services.audit import AuditService
 from app.services.notification import NotificationService
 from app.services.storage import storage_service
+from app.services.identity_read_relations import account_profiles
 from sqlalchemy import select
 from pydantic import BaseModel, Field, field_validator
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -95,7 +96,7 @@ class ScreenshotInitResponse(BaseModel):
 )
 async def init_bug_screenshot_upload(
     data: ScreenshotInitRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """v0.6.6 · 给 BugReportDrawer 截图签发 PUT 预签名 URL。
 
@@ -126,7 +127,7 @@ async def init_bug_screenshot_upload(
     )
 
 
-def _bug_is_visible_to_user(report, current_user: User) -> bool:
+def _bug_is_visible_to_user(report, current_user: IdentityActorFacts) -> bool:
     is_admin = current_user.role in (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
     return bool(is_admin or report.reporter_id == current_user.id)
 
@@ -148,7 +149,7 @@ async def create_bug_report(
     data: BugReportCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = BugReportService(db)
     create_fields = data.model_dump(exclude_unset=True)
@@ -194,7 +195,7 @@ async def list_bug_reports(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
+    current_user: IdentityActorFacts = Depends(
         require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
     ),
 ):
@@ -216,7 +217,7 @@ async def list_my_bug_reports(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = BugReportService(db)
     items, total = await svc.list(
@@ -229,7 +230,7 @@ async def list_my_bug_reports(
 async def get_bug_report(
     report_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = BugReportService(db)
     report, comment_rows = await svc.get_with_comments(report_id)
@@ -257,7 +258,7 @@ async def download_bug_attachment(
     report_id: uuid.UUID,
     key: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = BugReportService(db)
     report = await svc.get(report_id)
@@ -281,7 +282,7 @@ async def update_bug_report(
     data: BugReportUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = BugReportService(db)
     report = await svc.get(report_id)
@@ -340,7 +341,7 @@ async def delete_bug_report(
     report_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = BugReportService(db)
     report = await svc.get(report_id)
@@ -375,7 +376,7 @@ async def add_bug_comment(
     data: BugCommentCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = BugReportService(db)
     report = await svc.get(report_id)
@@ -449,12 +450,15 @@ async def add_bug_comment(
         if report.assigned_to_id:
             recipient_ids = [report.assigned_to_id]
         else:
+            if db.autoflush:
+                await db.flush()
             admin_rows = await db.execute(
-                select(User.id).where(
-                    User.role == UserRole.SUPER_ADMIN.value, User.is_active.is_(True)
+                select(account_profiles.c.id).where(
+                    account_profiles.c.role == UserRole.SUPER_ADMIN.value,
+                    account_profiles.c.is_active.is_(True),
                 )
             )
-            recipient_ids = [r[0] for r in admin_rows.all()]
+            recipient_ids = list(admin_rows.scalars().all())
         recipient_ids = [uid for uid in recipient_ids if uid != current_user.id]
         if recipient_ids:
             pending_notifications = await notif_svc.notify_many(
@@ -510,7 +514,7 @@ async def add_bug_comment(
 @router.post("/bug_reports/cluster")
 async def cluster_bug_reports(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
+    current_user: IdentityActorFacts = Depends(
         require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
     ),
 ):

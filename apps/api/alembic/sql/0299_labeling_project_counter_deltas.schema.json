@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-project-counter-deltas/v1",
+  "title": "Labeling Project counter deltas",
+  "$comment": "Fixed caller-transactional counter updates. Functions perform only the corresponding Labeling counter fields and updated_at write; actor policy and commit remain with the caller.",
+  "$defs": {},
+  "type": "object",
+  "function_defaults": {
+    "volatility": "VOLATILE",
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"]
+  },
+  "functions": [
+    {
+      "signature": "aap_labeling_v1.decrement_project_review_count(uuid)",
+      "language": "sql",
+      "strict": false,
+      "arguments": [
+        {
+          "name": "p_project_id",
+          "type": "string",
+          "format": "uuid",
+          "nullable": true
+        }
+      ],
+      "returns": {
+        "kind": "scalar",
+        "type": "integer",
+        "minimum": -2147483648,
+        "maximum": 2147483647,
+        "nullable": true
+      },
+      "write_columns": ["review_tasks", "updated_at"],
+      "semantics": "Execute one UPDATE of review_tasks = GREATEST(COALESCE(review_tasks, 0) - 1, 0) and updated_at = now() for the matching Project. A matched row is updated even when the counter is already at zero. SQL NULL input executes the UPDATE and matches zero rows, returning SQL NULL like a missing Project. The attempted UPDATE is still rejected in a read-only transaction. Native int32 overflow propagates as PostgreSQL SQLSTATE 22003. The UPDATE uses normal row-update waiting. No actor checks, extra locks, other writes, or commit are added; the caller owns the surrounding transaction."
+    },
+    {
+      "signature": "aap_labeling_v1.decrement_project_completed_count(uuid)",
+      "language": "sql",
+      "strict": false,
+      "arguments": [
+        {
+          "name": "p_project_id",
+          "type": "string",
+          "format": "uuid",
+          "nullable": true
+        }
+      ],
+      "returns": {
+        "kind": "scalar",
+        "type": "integer",
+        "minimum": -2147483648,
+        "maximum": 2147483647,
+        "nullable": true
+      },
+      "write_columns": ["completed_tasks", "updated_at"],
+      "semantics": "Execute one UPDATE of completed_tasks = GREATEST(COALESCE(completed_tasks, 0) - 1, 0) and updated_at = now() for the matching Project. A matched row is updated even when the counter is already at zero. SQL NULL input executes the UPDATE and matches zero rows, returning SQL NULL like a missing Project. The attempted UPDATE is still rejected in a read-only transaction. Native int32 overflow propagates as PostgreSQL SQLSTATE 22003. The UPDATE uses normal row-update waiting. No actor checks, extra locks, other writes, or commit are added; the caller owns the surrounding transaction."
+    },
+    {
+      "signature": "aap_labeling_v1.record_project_review_approval(uuid)",
+      "language": "sql",
+      "strict": false,
+      "arguments": [
+        {
+          "name": "p_project_id",
+          "type": "string",
+          "format": "uuid",
+          "nullable": true
+        }
+      ],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          {
+            "name": "completed_tasks",
+            "type": "integer",
+            "minimum": -2147483648,
+            "maximum": 2147483647,
+            "nullable": false
+          },
+          {
+            "name": "review_tasks",
+            "type": "integer",
+            "minimum": -2147483648,
+            "maximum": 2147483647,
+            "nullable": false
+          }
+        ]
+      },
+      "write_columns": ["completed_tasks", "review_tasks", "updated_at"],
+      "semantics": "Execute one UPDATE of completed_tasks = COALESCE(completed_tasks, 0) + 1, review_tasks = GREATEST(COALESCE(review_tasks, 0) - 1, 0), and updated_at = now() for the matching Project. SQL NULL input executes the UPDATE and matches zero rows, like a missing Project. The attempted UPDATE is still rejected in a read-only transaction. Native int32 overflow propagates as PostgreSQL SQLSTATE 22003. The UPDATE uses normal row-update waiting. No actor checks, extra locks, other writes, or commit are added; the caller owns the surrounding transaction."
+    }
+  ],
+  "x-postgresql-functions": [
+    "aap_labeling_v1.decrement_project_review_count(uuid)",
+    "aap_labeling_v1.decrement_project_completed_count(uuid)",
+    "aap_labeling_v1.record_project_review_approval(uuid)"
+  ],
+  "x-postgresql-errors": {
+    "native_integer_overflow": {
+      "sqlstate": "22003",
+      "translation": "None; PostgreSQL integer overflow propagates to the caller."
+    }
+  }
+}

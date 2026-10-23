@@ -14,7 +14,6 @@ from app.api.v1.tasks._shared import (
     require_task_annotation_write_strict,
 )
 from app.db.models.project import Project
-from app.db.models.user import User
 from app.deps import get_current_user, get_db, require_scopes
 from app.schemas.multicamera_annotation import (
     CameraAnnotationMemberCreate,
@@ -46,6 +45,7 @@ from aap_assets_catalog.spatial_contract import (
 from aap_audit_contract import ProjectDeletionAuditContext
 from app.middleware.request_id import request_id_var
 from app.services.audit import audit_origin_from_request
+from app.services.identity_contracts import IdentityActorFacts
 
 
 router = APIRouter()
@@ -76,7 +76,7 @@ async def get_camera_members(
     projection_camera_role: str | None = Query(default=None, pattern=r"^camera_"),
     include_inactive: bool = Query(False),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
@@ -110,7 +110,7 @@ async def post_camera_member(
     payload: CameraAnnotationMemberCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
@@ -163,7 +163,7 @@ async def patch_camera_member(
     payload: CameraAnnotationMemberUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
@@ -212,7 +212,7 @@ async def remove_camera_member(
     payload: CameraAnnotationMemberDelete,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
@@ -257,7 +257,7 @@ async def restore_deleted_camera_member(
     payload: CameraAnnotationMemberRestore,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
@@ -305,7 +305,7 @@ async def get_camera_calibration_history(
     task_id: uuid.UUID,
     camera_role: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
@@ -363,7 +363,7 @@ async def patch_camera_calibration(
     request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write_strict),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):

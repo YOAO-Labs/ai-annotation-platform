@@ -579,5 +579,52 @@ class Settings(BaseSettings):
         # 为 "forbid"，会让本地 dev 启动失败。这里显式忽略，让前后端共用一份 .env。
         extra = "ignore"
 
+    identity_url: str = ""
+    identity_token: str = Field(default="", repr=False)
+    identity_timeout_seconds: float = Field(default=20, gt=0, le=120)
+    identity_auth_database_url: str = Field(default="", repr=False)
+    identity_auth_database_url_file: str = ""
+    identity_key_database_url: str = Field(default="", repr=False)
+    identity_key_database_url_file: str = ""
+    identity_session_database_url: str = Field(default="", repr=False)
+    identity_session_database_url_file: str = ""
+    identity_account_database_url: str = Field(default="", repr=False)
+    identity_account_database_url_file: str = ""
+    identity_group_database_url: str = Field(default="", repr=False)
+    identity_group_database_url_file: str = ""
+    identity_directory_database_url: str = Field(default="", repr=False)
+    identity_directory_database_url_file: str = ""
+    identity_admin_password_database_url: str = Field(default="", repr=False)
+    identity_admin_password_database_url_file: str = ""
+    identity_platform_role_database_url: str = Field(default="", repr=False)
+    identity_platform_role_database_url_file: str = ""
+    identity_suspension_database_url: str = Field(default="", repr=False)
+    identity_suspension_database_url_file: str = ""
+    identity_deletion_database_url: str = Field(default="", repr=False)
+    identity_deletion_database_url_file: str = ""
+    identity_offboarding_database_url: str = Field(default="", repr=False)
+    identity_offboarding_database_url_file: str = ""
+    identity_briefs_database_url: str = Field(default="", repr=False)
+    identity_briefs_database_url_file: str = ""
+    identity_invitation_database_url: str = Field(default="", repr=False)
+    identity_invitation_database_url_file: str = ""
+    identity_invitation_mail_timeout_seconds: float = Field(default=60, gt=0, le=120)
+    identity_deactivation_database_url: str = Field(default="", repr=False)
+    identity_deactivation_database_url_file: str = ""
+    identity_deactivation_operator_database_url: str = Field(default="", repr=False)
+    identity_deactivation_operator_database_url_file: str = ""
+    identity_presence_database_url: str = Field(default="", repr=False)
+    identity_presence_database_url_file: str = ""
+    identity_recovery_database_url: str = Field(default="", repr=False)
+    identity_recovery_database_url_file: str = ""
+    identity_recovery_mail_key: str = Field(default="", repr=False)
+    identity_recovery_mail_key_file: str = ""
+    identity_mail_database_url: str = Field(default="", repr=False)
+    identity_mail_database_url_file: str = ""
+    identity_mail_v2_database_url: str = Field(default="", repr=False)
+    identity_mail_v2_database_url_file: str = ""
+    identity_mail_settings_database_url: str = Field(default="", repr=False)
+    identity_mail_settings_database_url_file: str = ""
+
 
 settings = Settings()

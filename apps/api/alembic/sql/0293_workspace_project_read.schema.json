@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:workspace-project-read",
+  "title": "Workspace actor-free Project row read",
+  "description": "Caller-transactional, unlocked read of the complete Project snapshot and typed Labeling counters. It does not inspect an actor, decide permissions, or acquire row or advisory locks.",
+  "$defs": {
+    "ProjectRowJson": {
+      "type": ["string", "null"],
+      "description": "Null when no Project matches; otherwise a lossless text JSON object containing the full 43-column Project row with counters supplied by the typed Labeling capability."
+    }
+  },
+  "x-postgresql-functions": ["aap_workspace_v1.read_project_row(uuid)"],
+  "x-native-capabilities": {
+    "authorization_boundary": "The caller owns authorization and workflow decisions; this function performs no actor or permission checks.",
+    "functions": [
+      {
+        "arguments": [
+          {
+            "json_schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "name": "p_project_id",
+            "postgres_type": "uuid"
+          }
+        ],
+        "name": "read_project_row",
+        "result_model": "ProjectRowJson",
+        "result_postgres_type": "text",
+        "result_schema_ref": "#/$defs/ProjectRowJson",
+        "signature": "aap_workspace_v1.read_project_row(uuid)",
+        "transaction_semantics": "Read the complete Project row and typed Labeling counters in the caller's existing transaction. A missing Project returns null. The function acquires no locks and does not commit."
+      }
+    ],
+    "postgres_schema": "aap_workspace_v1",
+    "transaction_boundary": "The caller owns the surrounding transaction and commit."
+  }
+}

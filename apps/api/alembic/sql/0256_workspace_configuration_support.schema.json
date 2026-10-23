@@ -1,0 +1,296 @@
+{
+  "$defs": {
+    "AssetsWorkspaceConfigurationDatasetRows": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-assets-workspace-configuration/v1",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "datasets": {
+          "items": {
+            "$ref": "#/$defs/AssetsWorkspaceConfigurationDatasetRow"
+          },
+          "type": "array"
+        }
+      },
+      "required": ["schema", "project_id", "datasets"],
+      "type": "object"
+    },
+    "AssetsWorkspaceConfigurationDatasetRow": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "display_id": {
+          "type": "string"
+        },
+        "data_type": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "display_id", "data_type"],
+      "type": "object"
+    },
+    "AssetsWorkspaceConfigurationDatasetScenes": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-assets-workspace-configuration/v1",
+          "type": "string"
+        },
+        "dataset_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "has_scenes": {
+          "type": "boolean"
+        }
+      },
+      "required": ["schema", "dataset_id", "has_scenes"],
+      "type": "object"
+    },
+    "AssetsWorkspaceConfigurationExistingItemIds": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-assets-workspace-configuration/v1",
+          "type": "string"
+        },
+        "item_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "type": "array"
+        }
+      },
+      "required": ["schema", "item_ids"],
+      "type": "object"
+    },
+    "LabelingWorkspaceConfigurationTaskCount": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-workspace-configuration/v1",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "total_tasks": {
+          "minimum": 0,
+          "maximum": 9223372036854775807,
+          "type": "integer"
+        }
+      },
+      "required": ["schema", "project_id", "total_tasks"],
+      "type": "object"
+    },
+    "LabelingWorkspaceConfigurationAnnotationCount": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-workspace-configuration/v1",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "annotation_count": {
+          "minimum": 0,
+          "maximum": 9223372036854775807,
+          "type": "integer"
+        }
+      },
+      "required": ["schema", "project_id", "annotation_count"],
+      "type": "object"
+    },
+    "LabelingWorkspaceConfigurationTrackerCount": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-workspace-configuration/v1",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "active_tracker_count": {
+          "minimum": 0,
+          "maximum": 9223372036854775807,
+          "type": "integer"
+        }
+      },
+      "required": ["schema", "project_id", "active_tracker_count"],
+      "type": "object"
+    },
+    "LabelingWorkspaceConfigurationVideoItems": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-workspace-configuration/v1",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "dataset_item_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "type": "array"
+        }
+      },
+      "required": ["schema", "project_id", "dataset_item_ids"],
+      "type": "object"
+    },
+    "InferenceWorkspaceConfigurationSourcePool": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-inference-workspace-configuration/v1",
+          "type": "string"
+        },
+        "pool_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "legacy_registry_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "found": {
+          "type": "boolean"
+        }
+      },
+      "required": ["schema", "pool_id", "legacy_registry_id", "found"],
+      "type": "object"
+    },
+    "InferenceWorkspaceConfigurationBackend": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-inference-workspace-configuration/v1",
+          "type": "string"
+        },
+        "registry_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "backend": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InferenceWorkspaceConfigurationBackendValue"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["schema", "registry_id", "backend"],
+      "type": "object"
+    },
+    "InferenceWorkspaceConfigurationBackendValue": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "auth_method": {
+          "type": "string"
+        },
+        "auth_token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "extra_params": {
+          "anyOf": [
+            {
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["id", "url", "auth_method", "auth_token", "extra_params"],
+      "type": "object"
+    }
+  },
+  "$id": "aap-workspace-configuration-support/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/AssetsWorkspaceConfigurationDatasetRows"
+    },
+    {
+      "$ref": "#/$defs/AssetsWorkspaceConfigurationDatasetScenes"
+    },
+    {
+      "$ref": "#/$defs/AssetsWorkspaceConfigurationExistingItemIds"
+    },
+    {
+      "$ref": "#/$defs/LabelingWorkspaceConfigurationTaskCount"
+    },
+    {
+      "$ref": "#/$defs/LabelingWorkspaceConfigurationAnnotationCount"
+    },
+    {
+      "$ref": "#/$defs/LabelingWorkspaceConfigurationTrackerCount"
+    },
+    {
+      "$ref": "#/$defs/LabelingWorkspaceConfigurationVideoItems"
+    },
+    {
+      "$ref": "#/$defs/InferenceWorkspaceConfigurationSourcePool"
+    },
+    {
+      "$ref": "#/$defs/InferenceWorkspaceConfigurationBackend"
+    }
+  ],
+  "$comment": "Task count and existing-item filtering are STABLE so callers can embed them in a Project snapshot or Task join and share that statement snapshot. The other staged reads are VOLATILE to retain fresh READ COMMITTED snapshots between phases. Credentials are returned only by the private Inference capability response. Output arrays do not promise ordering.",
+  "x-postgresql-functions": [
+    "aap_assets_v1.workspace_configuration_dataset_rows(uuid)",
+    "aap_assets_v1.workspace_configuration_dataset_scenes(uuid)",
+    "aap_assets_v1.workspace_configuration_existing_item_ids(uuid[])",
+    "aap_labeling_v1.workspace_configuration_task_count(uuid)",
+    "aap_labeling_v1.workspace_configuration_annotation_count(uuid)",
+    "aap_labeling_v1.workspace_configuration_tracker_count(uuid)",
+    "aap_labeling_v1.workspace_configuration_video_items(uuid)",
+    "aap_inference_v1.workspace_configuration_source_pool(uuid)",
+    "aap_inference_v1.workspace_configuration_backend(uuid)"
+  ]
+}

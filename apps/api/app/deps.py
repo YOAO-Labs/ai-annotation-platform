@@ -2,16 +2,21 @@ import uuid
 from typing import AsyncGenerator, Callable
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
+from aap_identity.contract import Principal
 from app.db.base import async_session
-from app.db.models.user import User
 from app.db.models.project import Project
-from app.core.security import decode_access_token
-from app.core.token_blacklist import is_blacklisted, get_user_generation
 from app.services.workspace_contract import ProjectAccess
+from app.services.identity_contracts import (
+    IdentityActorFacts,
+    IdentityCredentialRejected,
+    IdentityGatewayUnavailable,
+)
+from app.services.identity_gateway import (
+    IdentityGateway,
+    get_identity_gateway,
+)
 from app.services.project_access import resolve_project_access_by_id
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.services.media_job_dispatch import MediaJobDispatcher
@@ -162,74 +167,64 @@ def get_video_tracker_job_dispatcher() -> VideoTrackerJobDispatcher:
     return CeleryVideoTrackerJobDispatcher()
 
 
-async def get_current_user(
+async def get_current_principal(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),
-) -> User:
+    identity: IdentityGateway = Depends(get_identity_gateway),
+) -> Principal:
     exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="无效的认证凭据",
         headers={"WWW-Authenticate": "Bearer"},
     )
     token = credentials.credentials
-
-    # v0.15.11 · None = JWT/密码登录 principal（视为 full-access，不受 require_scopes 约束）；
-    # 非 None = api_key principal 的 scopes 列表，供 require_scopes 校验。
-    request.state.api_key_scopes = None
-    request.state.api_key_id = None
-
-    # v0.9.3 · ak_ 前缀走 api_key 路径；不走 JWT 解码（避免 jose 抛形错日志）
-    from app.services import api_key_service
-
-    if api_key_service.is_api_key_token(token):
-        resolved = await api_key_service.resolve_token(db, token)
-        if resolved is None:
-            raise exc
-        key, user = resolved
-        request.state.api_key_scopes = list(key.scopes or [])
-        request.state.api_key_id = str(key.id)
-        await db.commit()  # 持久化 last_used_at
-        return user
-
     try:
-        payload = decode_access_token(token)
-        user_id: str | None = payload.get("sub")
-        if user_id is None:
-            raise exc
-    except JWTError:
+        principal = await identity.authenticate(token, db=db)
+    except IdentityCredentialRejected:
         raise exc
+    except IdentityGatewayUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="身份认证服务暂不可用",
+        ) from None
 
-    jti: str | None = payload.get("jti")
-    token_gen: int = payload.get("gen", 0)
+    request.state.identity_principal = principal
+    is_api_key = principal.credential_type == "api_key"
+    request.state.api_key_scopes = list(principal.scopes or []) if is_api_key else None
+    request.state.api_key_id = str(principal.credential_id) if is_api_key else None
+    if is_api_key and identity.uses_caller_session(db):
+        await db.commit()
+    return principal
 
-    if jti:
-        try:
-            if await is_blacklisted(jti):
-                raise exc
-        except HTTPException:
-            raise
-        except Exception:
-            pass
 
-        try:
-            current_gen = await get_user_generation(user_id)
-            if current_gen > token_gen:
-                raise exc
-        except HTTPException:
-            raise
-        except Exception:
-            pass
-
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if user is None or not user.is_active:
-        raise exc
-    return user
+async def get_current_user(
+    request: Request,
+    principal: Principal = Depends(get_current_principal),
+    db: AsyncSession = Depends(get_db),
+    identity: IdentityGateway = Depends(get_identity_gateway),
+) -> IdentityActorFacts:
+    try:
+        actor = await identity.actor_context(principal, db=db)
+    except IdentityCredentialRejected:
+        for field in ("identity_principal", "api_key_scopes", "api_key_id"):
+            if hasattr(request.state, field):
+                delattr(request.state, field)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的认证凭据",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from None
+    except IdentityGatewayUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="身份认证服务暂不可用",
+        ) from None
+    return IdentityActorFacts(**actor.model_dump())
 
 
 async def get_current_user_id(
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ) -> uuid.UUID:
     """Return the authenticated account ID from the shared request resolution."""
     return current_user.id
@@ -238,8 +233,13 @@ async def get_current_user_id(
 def require_roles(*roles: str) -> Callable:
     """工厂函数：返回一个依赖，要求当前用户持有指定角色之一。"""
 
-    async def checker(current_user: User = Depends(get_current_user)) -> User:
-        if current_user.role not in roles:
+    async def checker(
+        request: Request,
+        current_user: IdentityActorFacts = Depends(get_current_user),
+    ) -> IdentityActorFacts:
+        principal = getattr(request.state, "identity_principal", None)
+        role = principal.role if principal is not None else current_user.role
+        if role not in roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"需要角色权限: {'或'.join(roles)}",
@@ -250,9 +250,9 @@ def require_roles(*roles: str) -> Callable:
 
 
 async def require_active_task_actor(
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> User:
+) -> IdentityActorFacts:
     """Recheck account state before a task handler takes any resource locks."""
 
     from app.services.task_lock import assert_task_user_active
@@ -295,8 +295,8 @@ def require_scopes(*needed: str) -> Callable:
 
     async def checker(
         request: Request,
-        current_user: User = Depends(get_current_user),
-    ) -> User:
+        current_user: IdentityActorFacts = Depends(get_current_user),
+    ) -> IdentityActorFacts:
         assert_request_scopes(request, *needed)
         return current_user
 

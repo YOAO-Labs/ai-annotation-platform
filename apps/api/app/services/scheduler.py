@@ -13,8 +13,8 @@ from app.db.models.task_lock import TaskLock
 from app.db.models.annotation import Annotation
 from app.db.models.prediction import Prediction
 from app.db.models.project import Project
-from app.db.models.user import User
 from app.services.project_access import is_privileged_for_project
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.labeling_scene import read_spatial_item_facts, resolve_primary_item_id
 from app.services.task_lock import TaskLockService, assert_task_user_active
 
@@ -289,7 +289,7 @@ async def _filter_assignable_task_ids(
     )
     if batch_id:
         q = q.where(Task.batch_id == batch_id)
-    actor = await db.get(User, actor_id)
+    actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
     if actor is None or not is_privileged_for_project(actor, project):
         q = q.where(task_visibility_clause(actor_id, project_role=project_role))
     if project.maximum_annotations > 1:
@@ -417,7 +417,7 @@ async def get_next_task(
 ) -> Task | None:
     user_id = actor_id
     # Authentication may have completed before an administrator suspended the
-    # account. Take the same User share lock used by TaskLockService before
+    # account. Keep the same account share lock as TaskLockService before
     # returning an already-held lock or attempting to claim a new task.
     if not await assert_task_user_active(db, user_id):
         return None
@@ -501,7 +501,7 @@ async def get_next_task(
 
     # Assignment filtering: super_admin / 项目 owner 越权放行（可代标注员补刀），
     # 其他角色无论是否显式指定 batch_id，都必须命中 assigned_user_ids（或批次未分派）。
-    actor = await db.get(User, actor_id)
+    actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
     if actor is None or not is_privileged_for_project(actor, project):
         candidates = candidates.where(
             task_visibility_clause(actor_id, project_role=project_role)

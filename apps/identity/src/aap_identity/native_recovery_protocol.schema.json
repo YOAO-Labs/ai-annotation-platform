@@ -1,0 +1,1683 @@
+{
+  "$defs": {
+    "AccountRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "avatar_ref": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Avatar Ref"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "deactivation_requested_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deactivation Requested At"
+        },
+        "deactivation_scheduled_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deactivation Scheduled At"
+        },
+        "disabled_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled At"
+        },
+        "disabled_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled By"
+        },
+        "disabled_kind": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled Kind"
+        },
+        "disabled_reason": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled Reason"
+        },
+        "email": {
+          "maxLength": 255,
+          "title": "Email",
+          "type": "string"
+        },
+        "email_verified_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Email Verified At"
+        },
+        "group_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Group Id"
+        },
+        "group_name": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Group Name"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "last_login_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Login At"
+        },
+        "last_seen_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Seen At"
+        },
+        "name": {
+          "maxLength": 100,
+          "title": "Name",
+          "type": "string"
+        },
+        "password_admin_reset_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Password Admin Reset At"
+        },
+        "preferences": {
+          "additionalProperties": true,
+          "title": "Preferences",
+          "type": "object"
+        },
+        "role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Role",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 20,
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "name",
+        "role",
+        "group_name",
+        "group_id",
+        "status",
+        "is_active",
+        "disabled_kind",
+        "disabled_at",
+        "disabled_by",
+        "disabled_reason",
+        "email_verified_at",
+        "last_login_at",
+        "last_seen_at",
+        "password_admin_reset_at",
+        "deactivation_requested_at",
+        "deactivation_scheduled_at",
+        "preferences",
+        "avatar_ref",
+        "created_at"
+      ],
+      "title": "AccountRecord",
+      "type": "object"
+    },
+    "NativeConsumeArgs": {
+      "additionalProperties": false,
+      "properties": {
+        "token_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Token Hash",
+          "type": "string"
+        }
+      },
+      "required": ["token_hash"],
+      "title": "NativeConsumeArgs",
+      "type": "object"
+    },
+    "NativeRecoveryApplyData": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RecoveryActor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "email_verified_changed": {
+          "title": "Email Verified Changed",
+          "type": "boolean"
+        },
+        "password_changed": {
+          "title": "Password Changed",
+          "type": "boolean"
+        },
+        "replayed": {
+          "title": "Replayed",
+          "type": "boolean"
+        },
+        "result": {
+          "$ref": "#/$defs/NativeRecoveryResult"
+        }
+      },
+      "required": ["result", "actor", "replayed", "password_changed", "email_verified_changed"],
+      "title": "NativeRecoveryApplyData",
+      "type": "object"
+    },
+    "NativeRecoveryApplyReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/NativeRecoveryApplyData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "enum": [
+            "register_open",
+            "request_password_reset",
+            "resend_email_verification",
+            "consume_password_reset",
+            "consume_email_verification"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-recovery-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation", "operation_id", "data"],
+      "title": "NativeRecoveryApplyReply",
+      "type": "object"
+    },
+    "NativeRecoveryConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_open_registration": {
+          "title": "Allow Open Registration",
+          "type": "boolean"
+        },
+        "email_verification_required": {
+          "title": "Email Verification Required",
+          "type": "boolean"
+        },
+        "expire_minutes": {
+          "maximum": 525600,
+          "minimum": 1,
+          "title": "Expire Minutes",
+          "type": "integer"
+        },
+        "frontend_base_url": {
+          "minLength": 1,
+          "title": "Frontend Base Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "allow_open_registration",
+        "email_verification_required",
+        "frontend_base_url",
+        "expire_minutes"
+      ],
+      "title": "NativeRecoveryConfig",
+      "type": "object"
+    },
+    "NativeRecoveryFailureDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "registration_disabled",
+            "email_exists",
+            "captcha_required",
+            "operation_conflict",
+            "invalid_request",
+            "unavailable"
+          ],
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "NativeRecoveryFailureDetail",
+      "type": "object"
+    },
+    "NativeRecoveryFailureReply": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/NativeRecoveryFailureDetail"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-recovery-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "title": "NativeRecoveryFailureReply",
+      "type": "object"
+    },
+    "NativeRecoveryPolicyReply": {
+      "additionalProperties": false,
+      "properties": {
+        "policy": {
+          "const": "aap-identity-recovery/v1",
+          "title": "Policy",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-recovery-policy/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "policy"],
+      "title": "NativeRecoveryPolicyReply",
+      "type": "object"
+    },
+    "NativeRecoveryPrepareData": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RecoveryActor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "eligible": {
+          "title": "Eligible",
+          "type": "boolean"
+        },
+        "password_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Password Hash"
+        },
+        "policy": {
+          "$ref": "#/$defs/RecoveryPolicy"
+        },
+        "replay": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NativeRecoveryResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "token": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RecoveryTokenRecord"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["actor", "password_hash", "token", "eligible", "replay", "policy"],
+      "title": "NativeRecoveryPrepareData",
+      "type": "object"
+    },
+    "NativeRecoveryPrepareReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/NativeRecoveryPrepareData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "enum": [
+            "register_open",
+            "request_password_reset",
+            "resend_email_verification",
+            "consume_password_reset",
+            "consume_email_verification"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-recovery-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation", "operation_id", "data"],
+      "title": "NativeRecoveryPrepareReply",
+      "type": "object"
+    },
+    "NativeRecoveryResult": {
+      "additionalProperties": false,
+      "properties": {
+        "account": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AccountRecord"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "claims": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionClaims"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "completed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Completed"
+        },
+        "email_verification_required": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Email Verification Required"
+        }
+      },
+      "required": ["account", "claims", "email_verification_required", "completed"],
+      "title": "NativeRecoveryResult",
+      "type": "object"
+    },
+    "NativeRegisterApplyCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "$ref": "#/$defs/NativeRegisterArgs"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeRecoveryConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "encryption_id": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Encryption Id"
+        },
+        "operation": {
+          "const": "register_open",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "password_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Password Hash"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-recovery-native/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "token_ciphertext": {
+          "anyOf": [
+            {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token Ciphertext"
+        },
+        "token_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token Hash"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativeRegisterApplyCommand",
+      "type": "object"
+    },
+    "NativeRegisterArgs": {
+      "additionalProperties": false,
+      "properties": {
+        "captcha_verified": {
+          "title": "Captcha Verified",
+          "type": "boolean"
+        },
+        "email": {
+          "maxLength": 255,
+          "minLength": 3,
+          "title": "Email",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": ["email", "name", "captcha_verified"],
+      "title": "NativeRegisterArgs",
+      "type": "object"
+    },
+    "NativeRegisterPrepareCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "$ref": "#/$defs/NativeRegisterArgs"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeRecoveryConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "register_open",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-recovery-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativeRegisterPrepareCommand",
+      "type": "object"
+    },
+    "NativeRequestApplyCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "$ref": "#/$defs/NativeRequestPasswordResetArgs"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeRecoveryConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "encryption_id": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Encryption Id"
+        },
+        "operation": {
+          "const": "request_password_reset",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "password_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Password Hash"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-recovery-native/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "token_ciphertext": {
+          "anyOf": [
+            {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token Ciphertext"
+        },
+        "token_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token Hash"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativeRequestApplyCommand",
+      "type": "object"
+    },
+    "NativeRequestPasswordResetArgs": {
+      "additionalProperties": false,
+      "properties": {
+        "captcha_verified": {
+          "title": "Captcha Verified",
+          "type": "boolean"
+        },
+        "email": {
+          "maxLength": 255,
+          "minLength": 3,
+          "title": "Email",
+          "type": "string"
+        }
+      },
+      "required": ["email", "captcha_verified"],
+      "title": "NativeRequestPasswordResetArgs",
+      "type": "object"
+    },
+    "NativeRequestPrepareCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "$ref": "#/$defs/NativeRequestPasswordResetArgs"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeRecoveryConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "request_password_reset",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-recovery-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativeRequestPrepareCommand",
+      "type": "object"
+    },
+    "NativeResendApplyCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "$ref": "#/$defs/NativeResendVerificationArgs"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeRecoveryConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "encryption_id": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Encryption Id"
+        },
+        "operation": {
+          "const": "resend_email_verification",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "password_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Password Hash"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-recovery-native/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "token_ciphertext": {
+          "anyOf": [
+            {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token Ciphertext"
+        },
+        "token_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token Hash"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativeResendApplyCommand",
+      "type": "object"
+    },
+    "NativeResendPrepareCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "$ref": "#/$defs/NativeResendVerificationArgs"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeRecoveryConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "resend_email_verification",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-recovery-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativeResendPrepareCommand",
+      "type": "object"
+    },
+    "NativeResendVerificationArgs": {
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "maxLength": 255,
+          "minLength": 3,
+          "title": "Email",
+          "type": "string"
+        }
+      },
+      "required": ["email"],
+      "title": "NativeResendVerificationArgs",
+      "type": "object"
+    },
+    "NativeResetApplyCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "$ref": "#/$defs/NativeConsumeArgs"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeRecoveryConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "encryption_id": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Encryption Id"
+        },
+        "operation": {
+          "const": "consume_password_reset",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "password_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Password Hash"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-recovery-native/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "token_ciphertext": {
+          "anyOf": [
+            {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token Ciphertext"
+        },
+        "token_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token Hash"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativeResetApplyCommand",
+      "type": "object"
+    },
+    "NativeResetPrepareCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "$ref": "#/$defs/NativeConsumeArgs"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeRecoveryConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "consume_password_reset",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-recovery-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativeResetPrepareCommand",
+      "type": "object"
+    },
+    "NativeVerifyApplyCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "$ref": "#/$defs/NativeConsumeArgs"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeRecoveryConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "encryption_id": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Encryption Id"
+        },
+        "operation": {
+          "const": "consume_email_verification",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "password_hash": {
+          "anyOf": [
+            {
+              "pattern": "^\\$2[aby]\\$12\\$[./A-Za-z0-9]{53}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Password Hash"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-recovery-native/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "token_ciphertext": {
+          "anyOf": [
+            {
+              "maxLength": 8192,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token Ciphertext"
+        },
+        "token_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token Hash"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativeVerifyApplyCommand",
+      "type": "object"
+    },
+    "NativeVerifyPrepareCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "$ref": "#/$defs/NativeConsumeArgs"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "config": {
+          "$ref": "#/$defs/NativeRecoveryConfig"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "operation": {
+          "const": "consume_email_verification",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-recovery-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "config",
+        "operation",
+        "args"
+      ],
+      "title": "NativeVerifyPrepareCommand",
+      "type": "object"
+    },
+    "RecoveryActor": {
+      "additionalProperties": false,
+      "properties": {
+        "credential_generation": {
+          "exclusiveMaximum": 9223372036854775808,
+          "minimum": 0,
+          "title": "Credential Generation",
+          "type": "integer"
+        },
+        "email": {
+          "maxLength": 255,
+          "title": "Email",
+          "type": "string"
+        },
+        "email_verified_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Email Verified At"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "role",
+        "is_active",
+        "credential_generation",
+        "email_verified_at"
+      ],
+      "title": "RecoveryActor",
+      "type": "object"
+    },
+    "RecoveryPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_open_registration": {
+          "title": "Allow Open Registration",
+          "type": "boolean"
+        },
+        "email_verification_required": {
+          "title": "Email Verification Required",
+          "type": "boolean"
+        },
+        "email_verification_ttl_seconds": {
+          "const": 86400,
+          "title": "Email Verification Ttl Seconds",
+          "type": "integer"
+        },
+        "expire_minutes": {
+          "maximum": 525600,
+          "minimum": 1,
+          "title": "Expire Minutes",
+          "type": "integer"
+        },
+        "frontend_base_url": {
+          "minLength": 1,
+          "title": "Frontend Base Url",
+          "type": "string"
+        },
+        "password_reset_ttl_seconds": {
+          "const": 3600,
+          "title": "Password Reset Ttl Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "allow_open_registration",
+        "email_verification_required",
+        "frontend_base_url",
+        "expire_minutes",
+        "password_reset_ttl_seconds",
+        "email_verification_ttl_seconds"
+      ],
+      "title": "RecoveryPolicy",
+      "type": "object"
+    },
+    "RecoveryTokenRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "issued_email": {
+          "maxLength": 255,
+          "title": "Issued Email",
+          "type": "string"
+        },
+        "token_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Token Hash",
+          "type": "string"
+        },
+        "used_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Used At"
+        }
+      },
+      "required": ["id", "token_hash", "issued_email", "expires_at", "used_at"],
+      "title": "RecoveryTokenRecord",
+      "type": "object"
+    },
+    "SessionAuditContext": {
+      "additionalProperties": false,
+      "properties": {
+        "ip": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ip"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "maxLength": 8,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Method"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Path"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "maxLength": 36,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Request Id"
+        }
+      },
+      "required": ["method", "path", "ip", "request_id"],
+      "title": "SessionAuditContext",
+      "type": "object"
+    },
+    "SessionClaims": {
+      "additionalProperties": false,
+      "properties": {
+        "exp": {
+          "exclusiveMinimum": 0,
+          "title": "Exp",
+          "type": "integer"
+        },
+        "gen": {
+          "exclusiveMaximum": 9223372036854775808,
+          "minimum": 0,
+          "title": "Gen",
+          "type": "integer"
+        },
+        "iss": {
+          "const": "aap-identity/v1",
+          "title": "Iss",
+          "type": "string"
+        },
+        "jti": {
+          "format": "uuid",
+          "title": "Jti",
+          "type": "string"
+        },
+        "role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Role",
+          "type": "string"
+        },
+        "sub": {
+          "format": "uuid",
+          "title": "Sub",
+          "type": "string"
+        }
+      },
+      "required": ["sub", "role", "exp", "jti", "gen", "iss"],
+      "title": "SessionClaims",
+      "type": "object"
+    }
+  },
+  "$id": "aap-identity-recovery-native/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "discriminator": {
+        "mapping": {
+          "consume_email_verification": "#/$defs/NativeVerifyPrepareCommand",
+          "consume_password_reset": "#/$defs/NativeResetPrepareCommand",
+          "register_open": "#/$defs/NativeRegisterPrepareCommand",
+          "request_password_reset": "#/$defs/NativeRequestPrepareCommand",
+          "resend_email_verification": "#/$defs/NativeResendPrepareCommand"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/NativeRegisterPrepareCommand"
+        },
+        {
+          "$ref": "#/$defs/NativeRequestPrepareCommand"
+        },
+        {
+          "$ref": "#/$defs/NativeResendPrepareCommand"
+        },
+        {
+          "$ref": "#/$defs/NativeResetPrepareCommand"
+        },
+        {
+          "$ref": "#/$defs/NativeVerifyPrepareCommand"
+        }
+      ]
+    },
+    {
+      "discriminator": {
+        "mapping": {
+          "consume_email_verification": "#/$defs/NativeVerifyApplyCommand",
+          "consume_password_reset": "#/$defs/NativeResetApplyCommand",
+          "register_open": "#/$defs/NativeRegisterApplyCommand",
+          "request_password_reset": "#/$defs/NativeRequestApplyCommand",
+          "resend_email_verification": "#/$defs/NativeResendApplyCommand"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/NativeRegisterApplyCommand"
+        },
+        {
+          "$ref": "#/$defs/NativeRequestApplyCommand"
+        },
+        {
+          "$ref": "#/$defs/NativeResendApplyCommand"
+        },
+        {
+          "$ref": "#/$defs/NativeResetApplyCommand"
+        },
+        {
+          "$ref": "#/$defs/NativeVerifyApplyCommand"
+        }
+      ]
+    },
+    {
+      "$ref": "#/$defs/NativeRecoveryPrepareReply"
+    },
+    {
+      "$ref": "#/$defs/NativeRecoveryApplyReply"
+    },
+    {
+      "$ref": "#/$defs/NativeRecoveryFailureReply"
+    },
+    {
+      "$ref": "#/$defs/NativeRecoveryPolicyReply"
+    }
+  ]
+}

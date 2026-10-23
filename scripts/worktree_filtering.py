@@ -106,7 +106,7 @@ async def prepare_filtering(resources: dict, manifest_path: Path) -> dict:
     from app.db.models.dataset import Dataset
     from app.db.models.prediction import Prediction
     from app.db.models.project import Project
-    from app.db.models.user import User
+    from app.services.identity_read_relations import account_profiles
     from app.services.predictions_import import internal_geometry_to_ls_shape
 
     if os.environ.get("AAP_WORKTREE_MODE") != "e2e" or resources["mode"] != "e2e":
@@ -157,12 +157,12 @@ async def prepare_filtering(resources: dict, manifest_path: Path) -> dict:
                     )
                 print("[dev:worktree] 复用筛选验收数据，保留已有操作", flush=True)
             else:
-                for model in (User, Project, Dataset):
+                for model in (account_profiles, Project, Dataset):
                     if await db.scalar(select(func.count()).select_from(model)):
                         raise WorktreeError(
                             "e2e 库已有数据但没有手动验收记录；请先确认并 reset --mode e2e"
                         )
-                manifest = await seed_filtering(db)
+                manifest = await seed_filtering(db=db)
                 # Supply renderable geometry without changing the fixture's literal
                 # memberships/counts. The automatic tests keep their metric-only data.
                 for key, frame in (("low", 0), ("at", 0), ("above", 10)):

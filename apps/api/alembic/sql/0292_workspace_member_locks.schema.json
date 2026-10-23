@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:workspace-project-member-locks",
+  "title": "Workspace ProjectMember lock capabilities",
+  "description": "Caller-transactional Workspace-owned ProjectMember row reads and locks. The caller owns authorization, transaction ordering, and commit.",
+  "$defs": {
+    "ProjectMemberReference": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ProjectMemberRowsJson": {
+      "type": "string",
+      "description": "Text JSON array of ordered complete nine-column ProjectMember rows; an empty match returns []."
+    }
+  },
+  "x-postgresql-functions": [
+    "aap_workspace_v1.lock_project_member_reference(uuid, uuid, boolean)",
+    "aap_workspace_v1.project_member_rows(uuid, uuid[], boolean)"
+  ],
+  "x-postgresql-errors": {
+    "invalid_rows_arguments": {
+      "sqlstate": "22023"
+    },
+    "lock_contention": {
+      "sqlstates": ["55P03", "40001", "40P01"],
+      "translation": "None; the caller retains its existing SQLSTATE handling."
+    }
+  },
+  "x-native-capabilities": {
+    "authorization_boundary": "Neither function checks actors or decides permissions; callers provide the authorization workflow.",
+    "functions": [
+      {
+        "arguments": [
+          {
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "name": "p_project_id",
+            "postgres_type": "uuid"
+          },
+          {
+            "json_schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "name": "p_user_id",
+            "postgres_type": "uuid"
+          },
+          {
+            "json_schema": {
+              "type": "boolean"
+            },
+            "name": "p_nowait",
+            "postgres_type": "boolean"
+          }
+        ],
+        "name": "lock_project_member_reference",
+        "result_model": "ProjectMemberReference",
+        "result_postgres_type": "uuid",
+        "result_schema_ref": "#/$defs/ProjectMemberReference",
+        "signature": "aap_workspace_v1.lock_project_member_reference(uuid, uuid, boolean)",
+        "transaction_semantics": "Acquire FOR SHARE on the matching ProjectMember in the caller's transaction, with NOWAIT selected by p_nowait. Return its user UUID or null for null/missing references. Lock SQLSTATEs propagate unchanged."
+      },
+      {
+        "arguments": [
+          {
+            "json_schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "name": "p_project_id",
+            "postgres_type": "uuid"
+          },
+          {
+            "json_schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "name": "p_user_ids",
+            "postgres_type": "uuid[]"
+          },
+          {
+            "json_schema": {
+              "type": "boolean"
+            },
+            "name": "p_lock_members",
+            "postgres_type": "boolean"
+          }
+        ],
+        "name": "project_member_rows",
+        "result_model": "ProjectMemberRowsJson",
+        "result_postgres_type": "text",
+        "result_schema_ref": "#/$defs/ProjectMemberRowsJson",
+        "signature": "aap_workspace_v1.project_member_rows(uuid, uuid[], boolean)",
+        "transaction_semantics": "With p_lock_members=true, acquire FOR SHARE on all matching ProjectMember rows in one ordered set query; false performs the same ordered row read without locks. Return complete nine-column JSON snapshots ordered by user_id; no rows return []. The caller owns identity-map merging and commit."
+      }
+    ],
+    "postgres_schema": "aap_workspace_v1",
+    "transaction_boundary": "The caller owns the surrounding transaction and commit."
+  }
+}

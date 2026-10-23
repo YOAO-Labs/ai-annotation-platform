@@ -19,7 +19,6 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.user import User
 from app.deps import get_current_user, get_db
 from app.schemas.ml_capabilities import (
     CapabilityInstanceItem,
@@ -43,6 +42,7 @@ from app.services.capability_registry import (
     PROMPTS,
     TASKS,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -123,7 +123,7 @@ _ETAG: str = (
 async def get_protocol_capabilities(
     request: Request,
     response: Response,
-    _: User = Depends(get_current_user),
+    _: IdentityActorFacts = Depends(get_current_user),
 ) -> ProtocolCapabilitiesResponse | Response:
     """协议级能力目录 (静态 SSOT, 与 backend 注册无关)。
 
@@ -142,7 +142,7 @@ async def get_protocol_capabilities(
 @router.get("/instances", response_model=CapabilityInstancesResponse)
 async def get_capability_instances(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: IdentityActorFacts = Depends(get_current_user),
 ) -> CapabilityInstancesResponse:
     """平台已知 backend 实例的能力清单 (与项目级注册解耦).
 

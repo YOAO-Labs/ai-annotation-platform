@@ -1,0 +1,378 @@
+{
+  "$defs": {
+    "NotificationClaimData": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "user.deactivation_completed": "#/$defs/NotificationCompletedLease",
+                "user.deactivation_requested": "#/$defs/NotificationRequestedLease"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/NotificationRequestedLease"
+              },
+              {
+                "$ref": "#/$defs/NotificationCompletedLease"
+              }
+            ]
+          },
+          "maxItems": 100,
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": ["items"],
+      "title": "NotificationClaimData",
+      "type": "object"
+    },
+    "NotificationClaimReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/NotificationClaimData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-notifications-delivery/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "title": "NotificationClaimReply",
+      "type": "object"
+    },
+    "NotificationClaimRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "lease_seconds": {
+          "maximum": 300,
+          "minimum": 1,
+          "title": "Lease Seconds",
+          "type": "integer"
+        },
+        "limit": {
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "schema": {
+          "const": "aap-notifications-delivery/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "worker_id", "limit", "lease_seconds"],
+      "title": "NotificationClaimRequest",
+      "type": "object"
+    },
+    "NotificationCompletedLease": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "lease_expires_at": {
+          "format": "date-time",
+          "title": "Lease Expires At",
+          "type": "string"
+        },
+        "lease_id": {
+          "format": "uuid",
+          "title": "Lease Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/NotificationCompletedPayload"
+        },
+        "target_id": {
+          "format": "uuid",
+          "title": "Target Id",
+          "type": "string"
+        },
+        "target_type": {
+          "const": "user",
+          "title": "Target Type",
+          "type": "string"
+        },
+        "type": {
+          "const": "user.deactivation_completed",
+          "title": "Type",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "user_id",
+        "target_type",
+        "target_id",
+        "created_at",
+        "worker_id",
+        "lease_id",
+        "lease_expires_at",
+        "type",
+        "payload"
+      ],
+      "title": "NotificationCompletedLease",
+      "type": "object"
+    },
+    "NotificationCompletedPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "auto": {
+          "const": true,
+          "title": "Auto",
+          "type": "boolean"
+        },
+        "email": {
+          "maxLength": 255,
+          "title": "Email",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 100,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": ["email", "name", "auto"],
+      "title": "NotificationCompletedPayload",
+      "type": "object"
+    },
+    "NotificationDeliveryPolicyReply": {
+      "additionalProperties": false,
+      "properties": {
+        "policy": {
+          "const": "aap-notifications-delivery/v1",
+          "title": "Policy",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-notifications-delivery-policy/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "policy"],
+      "title": "NotificationDeliveryPolicyReply",
+      "type": "object"
+    },
+    "NotificationFinishData": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted": {
+          "title": "Accepted",
+          "type": "boolean"
+        }
+      },
+      "required": ["accepted"],
+      "title": "NotificationFinishData",
+      "type": "object"
+    },
+    "NotificationFinishReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/NotificationFinishData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-notifications-delivery/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "data"],
+      "title": "NotificationFinishReply",
+      "type": "object"
+    },
+    "NotificationFinishRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "lease_id": {
+          "format": "uuid",
+          "title": "Lease Id",
+          "type": "string"
+        },
+        "notification_id": {
+          "format": "uuid",
+          "title": "Notification Id",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": ["delivered", "retry"],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "reason": {
+          "enum": ["published", "redis_error"],
+          "title": "Reason",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-notifications-delivery/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "notification_id", "worker_id", "lease_id", "outcome", "reason"],
+      "title": "NotificationFinishRequest",
+      "type": "object"
+    },
+    "NotificationRequestedLease": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "lease_expires_at": {
+          "format": "date-time",
+          "title": "Lease Expires At",
+          "type": "string"
+        },
+        "lease_id": {
+          "format": "uuid",
+          "title": "Lease Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/NotificationRequestedPayload"
+        },
+        "target_id": {
+          "format": "uuid",
+          "title": "Target Id",
+          "type": "string"
+        },
+        "target_type": {
+          "const": "user",
+          "title": "Target Type",
+          "type": "string"
+        },
+        "type": {
+          "const": "user.deactivation_requested",
+          "title": "Type",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "worker_id": {
+          "format": "uuid",
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "user_id",
+        "target_type",
+        "target_id",
+        "created_at",
+        "worker_id",
+        "lease_id",
+        "lease_expires_at",
+        "type",
+        "payload"
+      ],
+      "title": "NotificationRequestedLease",
+      "type": "object"
+    },
+    "NotificationRequestedPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "maxLength": 255,
+          "title": "Email",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 100,
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Role",
+          "type": "string"
+        },
+        "scheduled_at": {
+          "format": "date-time",
+          "title": "Scheduled At",
+          "type": "string"
+        }
+      },
+      "required": ["email", "name", "role", "scheduled_at"],
+      "title": "NotificationRequestedPayload",
+      "type": "object"
+    }
+  },
+  "$id": "aap-notifications-delivery/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/NotificationDeliveryPolicyReply"
+    },
+    {
+      "$ref": "#/$defs/NotificationClaimRequest"
+    },
+    {
+      "$ref": "#/$defs/NotificationClaimReply"
+    },
+    {
+      "$ref": "#/$defs/NotificationFinishRequest"
+    },
+    {
+      "$ref": "#/$defs/NotificationFinishReply"
+    }
+  ]
+}

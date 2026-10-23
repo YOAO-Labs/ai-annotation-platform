@@ -1206,7 +1206,7 @@ async def main() -> None:
     from app.services.identity_commands import IdentityCommandService
 
     async with async_session() as db:
-        owner = await IdentityCommandService(db).ensure_import_admin(
+        owner_id = await IdentityCommandService(db).ensure_import_admin(
             environment=settings.environment
         )
         info = await import_nuscenes(
@@ -1214,7 +1214,7 @@ async def main() -> None:
             nuscenes_root=Path(args.nuscenes_root),
             scene_names=scene_names,
             dataset_name=args.dataset_name,
-            owner_id=owner.id,
+            owner_id=owner_id,
             version=args.version,
             frame=args.frame,
         )

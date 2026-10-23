@@ -14,8 +14,8 @@ from app.application.job_terminal import reconcile_domain_terminal
 from app.application.task_creation_errors import raise_task_creation_http_failure
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.db.models.project import Project
-from app.db.models.user import User
 from app.services import async_job as jobs, async_job_access
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services import cross_frame_job, mask_repair, prediction, sample_evaluations
 from app.services import training_datasets
 from app.services.async_job_notify import notify_job_terminal
@@ -85,7 +85,7 @@ class SqlJobCancellation(JobCancellationPort):
             if not await async_job_access._can_access_job(
                 db, job=job, actor_id=actor_id
             ):
-                actor = await db.get(User, actor_id)
+                actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
                 if actor is None or not actor.is_active:
                     raise HTTPException(
                         status_code=401,

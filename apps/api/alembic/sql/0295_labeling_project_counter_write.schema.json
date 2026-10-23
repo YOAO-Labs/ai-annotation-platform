@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-labeling-project-counter-write/v1",
+  "title": "Labeling Project counter projection write",
+  "$comment": "This SQL function is a bounded bridge for caller-owned ORM flushes. It writes only the changed Labeling-owned counter columns and does not recalculate, authorize, take extra read locks, or commit.",
+  "$defs": {},
+  "type": "object",
+  "function_defaults": {
+    "volatility": "VOLATILE",
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"],
+    "time_zone": "UTC",
+    "date_style": "ISO, YMD",
+    "extra_float_digits": 3
+  },
+  "functions": [
+    {
+      "signature": "aap_labeling_v1.write_project_counter_projection(uuid,jsonb)",
+      "arguments": [
+        {
+          "name": "p_project_id",
+          "type": "string",
+          "format": "uuid"
+        },
+        {
+          "name": "p_patch",
+          "type": "object",
+          "properties": {
+            "total_tasks": {
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            },
+            "completed_tasks": {
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            },
+            "review_tasks": {
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            },
+            "in_progress_tasks": {
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            },
+            "batch_summary": {},
+            "updated_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "additionalProperties": false,
+          "anyOf": [
+            { "required": ["total_tasks"] },
+            { "required": ["completed_tasks"] },
+            { "required": ["review_tasks"] },
+            { "required": ["in_progress_tasks"] },
+            { "required": ["batch_summary"] }
+          ]
+        }
+      ],
+      "returns": {
+        "kind": "scalar",
+        "type": "string",
+        "format": "uuid",
+        "nullable": true
+      },
+      "semantics": "Apply only supplied counter columns in the caller's transaction. Unknown fields and patches without a counter column raise 22023. PostgreSQL column types retain int32 and JSONB validation. updated_at becomes now() unless explicitly supplied. Return the target Project UUID or null when the row no longer exists. The caller owns authorization, flush ordering, rollback, and commit."
+    }
+  ]
+}

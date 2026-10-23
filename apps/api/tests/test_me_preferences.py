@@ -2153,7 +2153,7 @@ async def test_workspace_concurrent_context_writes_refresh_locked_identity(test_
     from fastapi import HTTPException
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
-    from app.api.v1.me import update_preferences
+    from tests.identity_account_helpers import preauthenticated_preferences_writer
     from app.db.models.user import User
 
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
@@ -2171,31 +2171,21 @@ async def test_workspace_concurrent_context_writes_refresh_locked_identity(test_
     try:
         async with maker() as first, maker() as second:
             user_a = await first.get(User, user_id)
-            user_b = await second.get(User, user_id)
+            _user_b = await second.get(User, user_id)
+            write_a = await preauthenticated_preferences_writer(first, user_id)
+            write_b = await preauthenticated_preferences_writer(second, user_id)
             await asyncio.gather(
-                update_preferences(
-                    _workspace_patch(_workspace_envelope(), "annotate:image"),
-                    first,
-                    user_a,
-                ),
-                update_preferences(
-                    _workspace_patch(_workspace_envelope(), "review:video"),
-                    second,
-                    user_b,
-                ),
+                write_a(_workspace_patch(_workspace_envelope(), "annotate:image")),
+                write_b(_workspace_patch(_workspace_envelope(), "review:video")),
             )
             await first.refresh(user_a)
             assert set(
                 user_a.preferences["workbench"]["layout"]["workspace"]["contexts"]
             ) == {"annotate:image", "review:video"}
             # The second identity remains stale while the first upgrades a context.
-            await update_preferences(
-                _workspace_patch(_workspace_envelope(3)), first, user_a
-            )
+            await write_a(_workspace_patch(_workspace_envelope(3)))
             with pytest.raises(HTTPException) as caught:
-                await update_preferences(
-                    _workspace_patch(_workspace_envelope()), second, user_b
-                )
+                await write_b(_workspace_patch(_workspace_envelope()))
             assert caught.value.status_code == 409
             await second.rollback()
     finally:
@@ -2212,7 +2202,7 @@ async def test_named_presets_concurrent_writes_allow_only_one_stale_map(test_eng
     from fastapi import HTTPException
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
-    from app.api.v1.me import update_preferences
+    from tests.identity_account_helpers import preauthenticated_preferences_writer
     from app.db.models.user import User
 
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
@@ -2232,13 +2222,13 @@ async def test_named_presets_concurrent_writes_allow_only_one_stale_map(test_eng
     second_map = {"second": _named_preset("设备 B")}
     try:
         async with maker() as first, maker() as second:
-            user_a = await first.get(User, user_id)
-            user_b = await second.get(User, user_id)
+            _user_a = await first.get(User, user_id)
+            _user_b = await second.get(User, user_id)
+            write_a = await preauthenticated_preferences_writer(first, user_id)
+            write_b = await preauthenticated_preferences_writer(second, user_id)
             results = await asyncio.gather(
-                update_preferences(_named_presets_only_patch(first_map), first, user_a),
-                update_preferences(
-                    _named_presets_only_patch(second_map), second, user_b
-                ),
+                write_a(_named_presets_only_patch(first_map)),
+                write_b(_named_presets_only_patch(second_map)),
                 return_exceptions=True,
             )
             conflicts = [
@@ -2269,30 +2259,10 @@ async def test_named_presets_concurrent_writes_allow_only_one_stale_map(test_eng
 
 @pytest.fixture
 def shortcut_preferences_writer():
-    """Exercise the complete preference handler without a database connection."""
-    from types import SimpleNamespace
-    from unittest.mock import AsyncMock
-    from uuid import uuid4
+    """Exercise the owner manager and HTTP composition without a database."""
+    from tests.identity_account_helpers import memory_preferences_writer
 
-    from app.api.v1.me import update_preferences
-
-    def create(existing):
-        user = SimpleNamespace(
-            id=uuid4(), preferences=copy.deepcopy(existing), is_active=True
-        )
-        session = SimpleNamespace(
-            scalars=AsyncMock(return_value=[user]),
-            commit=AsyncMock(),
-        )
-
-        async def write(shortcuts):
-            return await update_preferences(
-                {"workbench": {"shortcuts": shortcuts}}, session, user
-            )
-
-        return write, user, session
-
-    return create
+    return memory_preferences_writer
 
 
 @pytest.mark.parametrize("opaque_bucket", ["future-format", ["opaque"], None])
@@ -2336,16 +2306,16 @@ async def test_shortcut_validation_preserves_omitted_buckets(
 async def test_shortcut_validation_rejects_invalid_submitted_fields(
     shortcut_preferences_writer, shortcuts, field
 ):
-    from fastapi.exceptions import RequestValidationError
+    from fastapi import HTTPException
 
     existing = {"workbench": {"shortcuts": {"image": {"image.tool.box": []}}}}
     write, user, session = shortcut_preferences_writer(existing)
 
-    with pytest.raises(RequestValidationError) as caught:
+    with pytest.raises(HTTPException) as caught:
         await write(shortcuts)
 
     assert ("body", "workbench", "shortcuts", field) in {
-        error["loc"] for error in caught.value.errors()
+        tuple(error["loc"]) for error in caught.value.detail
     }
     assert user.preferences == existing
     session.commit.assert_not_awaited()
@@ -2372,7 +2342,7 @@ async def test_shortcut_validation_preserves_explicit_schema_version(
 async def test_shortcut_validation_preserves_only_unchanged_invalid_entries(
     shortcut_preferences_writer, command_id, value
 ):
-    from fastapi.exceptions import RequestValidationError
+    from fastapi import HTTPException
 
     existing = {"workbench": {"shortcuts": {"image": {command_id: value}}}}
     write, user, _ = shortcut_preferences_writer(existing)
@@ -2382,13 +2352,13 @@ async def test_shortcut_validation_preserves_only_unchanged_invalid_entries(
     assert user.preferences == existing
 
     new_write, new_user, new_session = shortcut_preferences_writer({})
-    with pytest.raises(RequestValidationError):
+    with pytest.raises(HTTPException):
         await new_write({"image": {command_id: copy.deepcopy(value)}})
     assert new_user.preferences == {}
     new_session.commit.assert_not_awaited()
 
 
-@pytest.mark.parametrize("stored_value", [{"future": True}, float("inf")])
+@pytest.mark.parametrize("stored_value", [{"future": True}])
 async def test_shortcut_validation_resets_invalid_entry_explicitly(
     shortcut_preferences_writer, stored_value
 ):
@@ -2403,18 +2373,30 @@ async def test_shortcut_validation_resets_invalid_entry_explicitly(
     assert json.loads(response.body)["workbench"]["shortcuts"]["image"] == {}
 
 
+def test_portable_policy_can_clear_a_nonfinite_legacy_shortcut_value():
+    """Nonfinite legacy objects cannot cross the JSONB/owner wire boundary."""
+    from aap_identity.preferences import patch_preferences
+
+    existing = {"workbench": {"shortcuts": {"image": {"legacy.command": float("inf")}}}}
+    merged, response = patch_preferences(
+        existing, {"workbench": {"shortcuts": {"image": {"legacy.command": None}}}}
+    )
+    assert merged["workbench"]["shortcuts"]["image"] == {}
+    assert response["workbench"]["shortcuts"]["image"] == {}
+
+
 async def test_shortcut_validation_rejects_command_from_another_domain(
     shortcut_preferences_writer,
 ):
-    from fastapi.exceptions import RequestValidationError
+    from fastapi import HTTPException
 
     write, user, session = shortcut_preferences_writer({})
 
-    with pytest.raises(RequestValidationError) as caught:
+    with pytest.raises(HTTPException) as caught:
         await write({"image": {"video.frame.next": [{"key": "j"}]}})
 
     assert ("body", "workbench", "shortcuts", "image") in {
-        error["loc"] for error in caught.value.errors()
+        tuple(error["loc"]) for error in caught.value.detail
     }
     assert user.preferences == {}
     session.commit.assert_not_awaited()

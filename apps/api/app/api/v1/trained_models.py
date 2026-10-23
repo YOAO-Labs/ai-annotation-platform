@@ -16,7 +16,6 @@ from app.db.models.trained_model import (
     ProjectModelSelection,
     TrainedModelVersion,
 )
-from app.db.models.user import User
 from app.deps import (
     get_current_user,
     get_current_user_id,
@@ -36,6 +35,7 @@ from app.application import trained_model_deployment
 from app.services import trained_models as service
 from app.services import model_lineage as lineage
 from app.schemas.model_lineage import ArchiveFilter
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter(
     prefix="/projects/{project_id}",
@@ -52,7 +52,7 @@ router = APIRouter(
 async def register_model(
     body: TrainedModelCreate,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await project_lock(db, project.id)
@@ -108,7 +108,7 @@ async def model_detail(
     version_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ) -> dict:
     await lock_project_manager(db, user.id, project.id)
     version = await service.load_version(db, project.id, version_id)
@@ -166,7 +166,7 @@ async def deploy_model(
 async def download_model(
     version_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     await lock_project_manager(db, user.id, project.id)
@@ -239,7 +239,7 @@ async def list_releases(
 async def publish_model(
     body: ModelReleaseCreate,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await project_lock(db, project.id)

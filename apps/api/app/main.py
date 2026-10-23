@@ -24,6 +24,7 @@ from app.middleware.upload_body_limits import UploadBodyLimitMiddleware
 from app.services.storage import storage_service
 from app.services.ml_routing.contracts import RoutingError
 from app.services.labeling_prediction_contract import ApplyPredictionResultError
+from app.services.identity_contracts import IdentityBriefsUnavailable
 from app.deps import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -129,6 +130,15 @@ async def _mask_content_error_handler(_request: Request, _exc: MaskContentFailur
 app.add_exception_handler(MaskContentFailure, _mask_content_error_handler)
 
 
+async def _identity_briefs_error_handler(
+    _request: Request, _exc: IdentityBriefsUnavailable
+):
+    return JSONResponse(status_code=503, content={"detail": "身份资料服务暂不可用"})
+
+
+app.add_exception_handler(IdentityBriefsUnavailable, _identity_briefs_error_handler)
+
+
 async def _apply_prediction_result_error_handler(
     _request: Request, exc: ApplyPredictionResultError
 ):
@@ -144,12 +154,27 @@ app.add_exception_handler(
 )
 
 
-async def _registry_validation_error_handler(
+async def _request_validation_error_handler(
     request: Request, exc: RequestValidationError
 ):
-    """Keep the ADR-0049 GPU config 422 envelope stable after Pydantic validation."""
+    """Keep specialized 422 envelopes stable and omit credential input/context."""
 
     path = request.url.path
+    if path in {
+        "/api/v1/auth/me/password",
+        "/api/v1/auth/reset-password",
+        "/api/v1/auth/verify-email",
+        "/api/v1/auth/register-open",
+    }:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": [
+                    {"type": error["type"], "loc": error["loc"], "msg": error["msg"]}
+                    for error in exc.errors()
+                ]
+            },
+        )
     is_registry_write = request.method in {"POST", "PUT"} and path.startswith(
         "/api/v1/admin/ml-integrations/registry"
     )
@@ -207,7 +232,7 @@ async def _registry_validation_error_handler(
     )
 
 
-app.add_exception_handler(RequestValidationError, _registry_validation_error_handler)
+app.add_exception_handler(RequestValidationError, _request_validation_error_handler)
 
 # 中间件注册顺序：先注册 → 后执行（dispatch 包装）。
 # AuditMiddleware 在 CORS 之后注册，保证 CORS preflight 不被审计。

@@ -82,7 +82,7 @@ class InvitationSendEmailResponse(BaseModel):
     ok: bool = True
     invitation_id: UUID
     email: str
-    invite_url: str
+    invite_url: str = Field(repr=False)
     message: str
 
 
@@ -106,8 +106,8 @@ class BulkInviteResultItem(BaseModel):
     ok: bool
     retryable: bool = False
     invitation_id: UUID | None = None
-    token: str | None = None
-    invite_url: str | None = None
+    token: str | None = Field(default=None, repr=False)
+    invite_url: str | None = Field(default=None, repr=False)
     project_id: UUID | None = None
     project_name: str | None = None
     error: str | None = None

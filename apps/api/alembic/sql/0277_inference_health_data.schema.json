@@ -1,0 +1,278 @@
+{
+  "$id": "aap-inference-health-data-native/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Inference health caller-transaction data capability",
+  "$comment": "Fixed typed reads and narrowly scoped health mutations on the original caller transaction. All reconciliation locks follow Registry to Pool to Member.",
+  "$defs": {},
+  "type": "object",
+  "function_defaults": {
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"],
+    "time_zone": "UTC",
+    "date_style": "ISO, YMD",
+    "extra_float_digits": 3
+  },
+  "tables": [],
+  "functions": [
+    {
+      "signature": "aap_inference_health_data_v1.health_data_policy()",
+      "language": "sql",
+      "volatility": "STABLE",
+      "arguments": [],
+      "returns": {
+        "kind": "jsonb",
+        "shape": {
+          "schema": "aap-inference-health-data-native/v1",
+          "data_protocol": "aap-inference-health-data/v1",
+          "transaction": "caller_owned",
+          "functions": [
+            "aap_inference_health_data_v1.health_data_policy()",
+            "aap_inference_health_data_v1.backend_row(uuid,boolean)",
+            "aap_inference_health_data_v1.membership_row(uuid,text,boolean)",
+            "aap_inference_health_data_v1.observation_clock()",
+            "aap_inference_health_data_v1.lock_resource(text)",
+            "aap_inference_health_data_v1.try_promotion()",
+            "aap_inference_health_data_v1.write_backend(uuid,text,timestamptz,text,boolean,boolean)",
+            "aap_inference_health_data_v1.member_pool(uuid)",
+            "aap_inference_health_data_v1.pool_row(uuid,uuid)",
+            "aap_inference_health_data_v1.member_row(uuid)",
+            "aap_inference_health_data_v1.apply_reconciliation(uuid,uuid,text,text,text,bigint,text,text)"
+          ],
+          "ready": true
+        }
+      },
+      "semantics": "Secret-free readiness for the fixed eleven-function data capability. No tables, per-request state, or transaction control."
+    },
+    {
+      "signature": "aap_inference_health_data_v1.backend_row(uuid,boolean)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        {
+          "name": "p_for_update",
+          "type": "boolean",
+          "nullable": false,
+          "description": "False performs a plain full-row SELECT; true locks the Registry row FOR UPDATE."
+        }
+      ],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          { "name": "id", "type": "uuid" },
+          { "name": "name", "type": "text" },
+          { "name": "url", "type": "text" },
+          { "name": "state", "type": "text" },
+          { "name": "is_interactive", "type": "boolean" },
+          { "name": "auth_method", "type": "text" },
+          { "name": "auth_token", "type": "text" },
+          { "name": "extra_params", "type": "jsonb" },
+          { "name": "gpu_resource_id", "type": "text" },
+          { "name": "vram_budget_mb", "type": "integer" },
+          { "name": "eviction_priority", "type": "integer" },
+          { "name": "health_meta", "type": "jsonb" },
+          { "name": "source", "type": "text" },
+          { "name": "error_message", "type": "text" },
+          { "name": "last_checked_at", "type": "timestamptz" },
+          { "name": "created_at", "type": "timestamptz" },
+          { "name": "updated_at", "type": "timestamptz" }
+        ]
+      },
+      "semantics": "Returns the full Registry record in ORM model order, including unused JSONB fields so materialization errors retain their prior phase. Missing Registry returns zero rows. Null arguments, including the lock selector, raise 22023."
+    },
+    {
+      "signature": "aap_inference_health_data_v1.membership_row(uuid,text,boolean)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_gpu_resource_id", "type": "text", "nullable": false },
+        {
+          "name": "p_for_update",
+          "type": "boolean",
+          "nullable": false,
+          "description": "False performs a plain SELECT; true locks the matching membership FOR UPDATE."
+        }
+      ],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          { "name": "membership_epoch", "type": "bigint" },
+          { "name": "state", "type": "text" }
+        ]
+      },
+      "semantics": "Reads only the exact backend/resource pair whose state is pending or active. Missing or retiring membership returns zero rows; there is no arbitrary state selector."
+    },
+    {
+      "signature": "aap_inference_health_data_v1.observation_clock()",
+      "language": "sql",
+      "volatility": "VOLATILE",
+      "arguments": [],
+      "returns": { "kind": "scalar", "type": "timestamptz" },
+      "semantics": "Returns clock_timestamp() on the caller's current transaction."
+    },
+    {
+      "signature": "aap_inference_health_data_v1.lock_resource(text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [{ "name": "p_gpu_resource_id", "type": "text", "nullable": false }],
+      "returns": { "kind": "scalar", "type": "void" },
+      "semantics": "Acquires the existing transaction advisory lock for the exact GPU resource key aap:gpu-resource:<resource_id>."
+    },
+    {
+      "signature": "aap_inference_health_data_v1.try_promotion()",
+      "language": "sql",
+      "volatility": "VOLATILE",
+      "arguments": [],
+      "returns": { "kind": "scalar", "type": "boolean" },
+      "semantics": "Attempts the existing transaction advisory lock for aap:gpu-membership-promotion and returns the native try-lock result."
+    },
+    {
+      "signature": "aap_inference_health_data_v1.write_backend(uuid,text,timestamptz,text,boolean,boolean)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        {
+          "name": "p_state",
+          "type": "text",
+          "nullable": false,
+          "enum": ["connected", "error"]
+        },
+        { "name": "p_observed_at", "type": "timestamptz", "nullable": false },
+        {
+          "name": "p_health_meta_json",
+          "type": "text",
+          "nullable": true,
+          "description": "Null or JSON text for an object/JSON null; parsed only at this write phase."
+        },
+        {
+          "name": "p_is_interactive",
+          "type": "boolean",
+          "nullable": true,
+          "description": "Used only when p_has_interactive is true."
+        },
+        { "name": "p_has_interactive", "type": "boolean", "nullable": false }
+      ],
+      "returns": { "kind": "scalar", "type": "integer" },
+      "semantics": "Updates only Registry state, last_checked_at, health_meta, optional is_interactive, and updated_at=now(). Returns affected rows. Health metadata is limited to object or JSON null. Invalid JSON reaches this write phase rather than an earlier observation phase."
+    },
+    {
+      "signature": "aap_inference_health_data_v1.member_pool(uuid)",
+      "language": "plpgsql",
+      "volatility": "STABLE",
+      "arguments": [{ "name": "p_registry_id", "type": "uuid", "nullable": false }],
+      "returns": { "kind": "scalar", "type": "uuid" },
+      "semantics": "Unlocked scalar lookup of a registry's current Pool id; missing member returns SQL null."
+    },
+    {
+      "signature": "aap_inference_health_data_v1.pool_row(uuid,uuid)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_pool_id", "type": "uuid", "nullable": false },
+        { "name": "p_registry_id", "type": "uuid", "nullable": false }
+      ],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          { "name": "id", "type": "uuid" },
+          { "name": "name", "type": "text" },
+          { "name": "enabled", "type": "boolean" },
+          { "name": "routing_policy", "type": "text" },
+          { "name": "legacy_instance_id", "type": "uuid" },
+          { "name": "routing_generation", "type": "bigint" },
+          { "name": "capability_fingerprint", "type": "text" },
+          { "name": "capability_snapshot", "type": "jsonb" },
+          { "name": "created_at", "type": "timestamptz" },
+          { "name": "updated_at", "type": "timestamptz" }
+        ]
+      },
+      "semantics": "Locks the selected Registry FOR KEY SHARE first, then loads and locks the requested Pool FOR UPDATE. A missing Registry or Pool returns zero rows. It does not require that the Registry still belongs to that Pool; the caller rechecks the locked Member."
+    },
+    {
+      "signature": "aap_inference_health_data_v1.member_row(uuid)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [{ "name": "p_registry_id", "type": "uuid", "nullable": false }],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          { "name": "id", "type": "uuid" },
+          { "name": "pool_id", "type": "uuid" },
+          { "name": "registry_id", "type": "uuid" },
+          { "name": "traffic_state", "type": "text" },
+          { "name": "weight", "type": "integer" },
+          { "name": "created_at", "type": "timestamptz" },
+          { "name": "updated_at", "type": "timestamptz" }
+        ]
+      },
+      "semantics": "Loads the complete Member row for the Registry and locks it FOR UPDATE. Missing Member returns zero rows."
+    },
+    {
+      "signature": "aap_inference_health_data_v1.apply_reconciliation(uuid,uuid,text,text,text,bigint,text,text)",
+      "language": "plpgsql",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_registry_id", "type": "uuid", "nullable": false },
+        { "name": "p_pool_id", "type": "uuid", "nullable": false },
+        { "name": "p_operation", "type": "text", "nullable": false, "enum": ["seed", "disable"] },
+        { "name": "p_snapshot_json", "type": "text", "nullable": false },
+        {
+          "name": "p_candidate_fingerprint",
+          "type": "text",
+          "nullable": false,
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        { "name": "p_expected_generation", "type": "bigint", "nullable": false },
+        {
+          "name": "p_expected_pool_fingerprint",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "p_expected_member_state",
+          "type": "text",
+          "nullable": false,
+          "enum": ["active", "draining", "disabled"]
+        }
+      ],
+      "returns": {
+        "kind": "table",
+        "columns": [
+          { "name": "pool_updated_at", "type": "timestamptz" },
+          { "name": "member_updated_at", "type": "timestamptz", "nullable": true }
+        ]
+      },
+      "semantics": "Locks Registry KEY SHARE, Pool FOR UPDATE, then Member FOR UPDATE, and compares pool generation/fingerprint, member ownership and traffic state to the supplied expected versions. seed requires an existing null pool fingerprint and writes only the canonical object snapshot/fingerprint, generation+1 and Pool updated_at. disable requires a changed nonnull pool fingerprint and non-disabled expected Member; it disables the Member first, then disables the Pool only when this Registry is its legacy instance, increments generation and updates timestamps. No Python canonicalization or health/quiescence authority is duplicated."
+    }
+  ],
+  "x-postgresql-functions": [
+    "aap_inference_health_data_v1.health_data_policy()",
+    "aap_inference_health_data_v1.backend_row(uuid,boolean)",
+    "aap_inference_health_data_v1.membership_row(uuid,text,boolean)",
+    "aap_inference_health_data_v1.observation_clock()",
+    "aap_inference_health_data_v1.lock_resource(text)",
+    "aap_inference_health_data_v1.try_promotion()",
+    "aap_inference_health_data_v1.write_backend(uuid,text,timestamptz,text,boolean,boolean)",
+    "aap_inference_health_data_v1.member_pool(uuid)",
+    "aap_inference_health_data_v1.pool_row(uuid,uuid)",
+    "aap_inference_health_data_v1.member_row(uuid)",
+    "aap_inference_health_data_v1.apply_reconciliation(uuid,uuid,text,text,text,bigint,text,text)"
+  ],
+  "x-postgresql-errors": {
+    "invalid_request": {
+      "sqlstate": "22023",
+      "message": "invalid Inference health data request"
+    },
+    "invalid_reconciliation": {
+      "sqlstate": "22023",
+      "message": "invalid health reconciliation request"
+    },
+    "reconciliation_snapshot_changed": {
+      "sqlstate": "40001",
+      "message": "health reconciliation snapshot changed"
+    }
+  }
+}

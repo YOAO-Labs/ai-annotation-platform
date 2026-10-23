@@ -2151,3 +2151,11 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   explicit in the architecture and import guide; it is not qualified as an
   independent owner operation. No reset command or destructive primary test is
   run. These lifecycle/ops gaps remain part of the active full-module goal.
+
+### Identity primary adoption checkpoint
+
+- Base is the protected primary 856fa79c87; accepted Identity implementation is selected from 4f9e0d97b, with Identity-only actor/read/write-fence and operator-consumer patches. Later Workspace implementation is excluded. The complete linear migration tail through 0306 and its owner grant artifacts are prerequisites.
+- A read-only primary snapshot passes the 0234-to-0306 upgrade and original-snapshot restore in an owned disposable PostgreSQL instance. The real baseline has 171 relations and one business row; two users and two legacy recovery tokens are added only in the copy. Password hashes, JWT admission, token hashing/email binding and original data projections are verified. The primary remains clean at 0234. Evidence: .worktree/identity-adoption-primary-copy-third.json.
+- Existing organization-ID capability is granted to the ordinary API so legacy template/pipeline consumers can remain in place while Identity private tables are revoked. The public profile is two relations and six functions. Actual HTTP visibility, denied direct table access and Node interoperability pass in .worktree/identity-primary-compatibility-first.json. No new owner implementation, SQL migration or deployment mode is introduced by this compatibility step.
+- The adoption API passes 252 unique selected contract cases across ten files: 143 from the first receipt and 109 from the second. The only intervening test source addition is the missing already-qualified preference helper; all earlier source hashes are checked before reuse. The initial fixture failures remain retained, and both owned environments are completely removed.
+- Cold API artifacts and complete independent assembly of this exact checkpoint remain pending. Source adoption and primary runtime cutover are still separate gates. Go and production remain unchanged.

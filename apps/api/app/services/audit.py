@@ -175,7 +175,7 @@ def audit_origin_from_request(request: Request) -> _AuditOriginContext:
 
 def export_detail(
     *,
-    actor: User | None,
+    actor: User | IdentityActorFacts | None,
     request: Request | None,
     base: dict[str, Any] | None = None,
     filter_criteria: dict[str, Any] | None = None,
@@ -197,7 +197,7 @@ def export_detail(
 
 def export_metadata_header(
     *,
-    actor: User | None,
+    actor: User | IdentityActorFacts | None,
     fmt: str,
     request: Request | None = None,
 ) -> str:

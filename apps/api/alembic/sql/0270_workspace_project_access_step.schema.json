@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-workspace-project-access-step/v1",
+  "title": "Workspace Project access fact step",
+  "description": "One stateless actor, Project, or ProjectMember lock fact. The caller owns phase ordering, row decoding, policy evaluation, and the surrounding transaction.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ProjectAccessStepRequest"
+    },
+    {
+      "$ref": "#/$defs/ProjectAccessStepReply"
+    }
+  ],
+  "$defs": {
+    "ProjectAccessStepRequest": {
+      "type": "object",
+      "required": ["actor_id", "project_id", "phase"],
+      "properties": {
+        "actor_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "project_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "phase": {
+          "enum": ["lock_actor_share", "lock_project_key_share", "lock_member_share"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProjectAccessActor": {
+      "type": "object",
+      "required": ["actor_id", "platform_role", "is_active"],
+      "properties": {
+        "actor_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "platform_role": {
+          "type": "string"
+        },
+        "is_active": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProjectAccessActorFacts": {
+      "type": "object",
+      "required": ["actor"],
+      "properties": {
+        "actor": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/ProjectAccessActor"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProjectAccessProjectFacts": {
+      "type": "object",
+      "required": ["row_json"],
+      "properties": {
+        "row_json": {
+          "type": ["string", "null"],
+          "description": "Null when no Project exists; otherwise a lossless text JSON object containing the full 43-column Project row, with counters supplied by the typed Labeling capability."
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProjectAccessMemberFacts": {
+      "type": "object",
+      "required": ["rows_json"],
+      "properties": {
+        "rows_json": {
+          "type": "string",
+          "description": "Text JSON array of zero or one complete nine-column ProjectMember rows."
+        }
+      },
+      "additionalProperties": false
+    },
+    "ProjectAccessStepReply": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["schema", "actor_id", "project_id", "phase", "facts"],
+          "properties": {
+            "schema": {
+              "const": "aap-workspace-project-access-step/v1"
+            },
+            "actor_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "project_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "phase": {
+              "const": "lock_actor_share"
+            },
+            "facts": {
+              "$ref": "#/$defs/ProjectAccessActorFacts"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["schema", "actor_id", "project_id", "phase", "facts"],
+          "properties": {
+            "schema": {
+              "const": "aap-workspace-project-access-step/v1"
+            },
+            "actor_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "project_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "phase": {
+              "const": "lock_project_key_share"
+            },
+            "facts": {
+              "$ref": "#/$defs/ProjectAccessProjectFacts"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["schema", "actor_id", "project_id", "phase", "facts"],
+          "properties": {
+            "schema": {
+              "const": "aap-workspace-project-access-step/v1"
+            },
+            "actor_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "project_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "phase": {
+              "const": "lock_member_share"
+            },
+            "facts": {
+              "$ref": "#/$defs/ProjectAccessMemberFacts"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "x-postgresql-functions": ["aap_workspace_v1.project_access_step(uuid, uuid, text)"],
+  "x-postgresql-errors": {
+    "invalid_arguments": {
+      "sqlstate": "22023"
+    },
+    "lock_contention": {
+      "sqlstates": ["55P03", "40001", "40P01"],
+      "hints": {
+        "lock_actor_share": "aap.workspace.project_access.account_busy",
+        "lock_project_key_share": "aap.workspace.project_access.project_busy",
+        "lock_member_share": "aap.workspace.project_access.membership_busy"
+      }
+    }
+  }
+}

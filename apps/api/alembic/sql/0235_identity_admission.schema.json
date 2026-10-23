@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:identity-admission:v1",
+  "title": "Identity admission and durable session capabilities",
+  "oneOf": [
+    { "$ref": "#/$defs/PrincipalReply" },
+    { "$ref": "#/$defs/FailureReply" },
+    { "$ref": "#/$defs/CandidatesPage" },
+    { "$ref": "#/$defs/AuthenticationPolicy" },
+    { "$ref": "#/$defs/RetirementResult" },
+    { "$ref": "#/$defs/GenerationResult" },
+    { "$ref": "#/$defs/BooleanResult" },
+    { "$ref": "#/$defs/PurgedCount" }
+  ],
+  "$defs": {
+    "Principal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actor_id",
+        "name",
+        "email",
+        "role",
+        "is_active",
+        "credential_type",
+        "credential_id",
+        "generation",
+        "scopes",
+        "expires_at"
+      ],
+      "properties": {
+        "actor_id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"]
+        },
+        "is_active": { "const": true },
+        "credential_type": { "enum": ["jwt", "api_key"] },
+        "credential_id": { "type": "string", "format": "uuid" },
+        "generation": {
+          "anyOf": [
+            { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 },
+            { "type": "null" }
+          ]
+        },
+        "scopes": {
+          "anyOf": [{ "type": "array", "items": { "type": "string" } }, { "type": "null" }]
+        },
+        "expires_at": {
+          "anyOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "credential_type": { "const": "jwt" } } },
+          "then": {
+            "properties": {
+              "generation": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              "scopes": { "type": "null" },
+              "expires_at": { "type": "string", "format": "date-time" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "credential_type": { "const": "api_key" } } },
+          "then": {
+            "properties": {
+              "generation": { "type": "null" },
+              "scopes": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      ]
+    },
+    "PrincipalReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "data"],
+      "properties": {
+        "schema": { "const": "aap-identity/v1" },
+        "ok": { "const": true },
+        "data": { "$ref": "#/$defs/Principal" }
+      }
+    },
+    "FailureReply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ok", "error"],
+      "properties": {
+        "schema": { "const": "aap-identity/v1" },
+        "ok": { "const": false },
+        "error": { "$ref": "#/$defs/FailureDetail" }
+      }
+    },
+    "FailureDetail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid_request",
+            "credential_invalid",
+            "credential_revoked",
+            "generation_outdated",
+            "token_expired",
+            "user_inactive",
+            "invalid_account_role",
+            "credential_busy"
+          ]
+        }
+      }
+    },
+    "Candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "key_hash"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "key_hash": { "type": "string", "minLength": 1, "maxLength": 255 }
+      }
+    },
+    "CandidatesPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "items", "next_after"],
+      "properties": {
+        "schema": { "const": "aap-identity-candidates/v1" },
+        "items": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/Candidate" }
+        },
+        "next_after": {
+          "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }]
+        }
+      }
+    },
+    "AuthenticationPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "issuer", "refresh_grace_seconds"],
+      "properties": {
+        "schema": { "const": "aap-identity-policy/v1" },
+        "issuer": { "const": "aap-identity/v1" },
+        "refresh_grace_seconds": { "const": 604800 }
+      }
+    },
+    "RetirementResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "generation", "revoked_key_ids", "revoked_at"],
+      "properties": {
+        "schema": { "const": "aap-identity-retirement/v1" },
+        "generation": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "revoked_key_ids": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" }
+        },
+        "revoked_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "GenerationResult": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9223372036854775807
+    },
+    "BooleanResult": {
+      "type": "boolean"
+    },
+    "PurgedCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10000
+    }
+  },
+  "x-postgresql-functions": [
+    "aap_identity_v1.authentication_policy()",
+    "aap_identity_v1.read_jwt_principal(uuid, uuid, bigint, timestamptz, boolean)",
+    "aap_identity_v1.read_api_key_candidates(text, uuid, integer)",
+    "aap_identity_v1.confirm_api_key_principal(uuid, text)",
+    "aap_identity_v1.get_credential_generation(uuid)",
+    "aap_identity_v1.advance_credential_generation(uuid)",
+    "aap_identity_v1.revoke_jti(uuid, timestamptz)",
+    "aap_identity_v1.is_jti_revoked(uuid)",
+    "aap_identity_v1.retire_account_credentials(uuid)",
+    "aap_identity_v1.lock_current_principal(uuid, text, uuid, bigint, timestamptz, text[])",
+    "aap_identity_v1.purge_expired_revocations(integer)"
+  ],
+  "x-native-errors": [
+    "invalid_request",
+    "credential_invalid",
+    "credential_revoked",
+    "generation_outdated",
+    "token_expired",
+    "user_inactive",
+    "invalid_account_role",
+    "credential_busy"
+  ],
+  "x-native-retention": "Revoked JTIs remain authoritative through the supplied expiration-plus-refresh-grace time.",
+  "x-native-lock-order": "User, then API key; JTI revocation uses one deterministic advisory transaction lock shared with the final-principal fence."
+}

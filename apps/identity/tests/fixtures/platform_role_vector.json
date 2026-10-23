@@ -1,0 +1,9 @@
+{
+  "signing_secret": "vector-only-platform-role-secret",
+  "operation_id": "fedcba98-7654-4321-8fed-cba987654321",
+  "target_user_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "role": "employee",
+  "canonical_request": "{\"operation\":\"change_platform_role\",\"payload\":{\"role\":\"employee\",\"target_user_id\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\"}}",
+  "request_fingerprint": "51ddaf3df4e4082722e2caaba62a0b5e81e3ae74d27226e7419626b721151b72",
+  "derivation_id": "1a0fe5291a35f7809fab318a88db099f7c85694dcefbbecf363c958da9952349"
+}

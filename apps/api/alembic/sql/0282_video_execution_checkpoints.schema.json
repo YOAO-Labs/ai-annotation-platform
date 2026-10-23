@@ -1,0 +1,290 @@
+{
+  "$id": "aap-video-execution-checkpoints-native/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Video execution window checkpoint Native authority",
+  "$comment": "Migration 0282 stores an immutable proof-bound VideoExecutionPlan and canonical per-window result journal in Jobs. Captures and parts are generation-scoped; result publication requires a complete byte-verified payload and Labeling Mask retention roots in the same transaction.",
+  "function_defaults": {
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"],
+    "time_zone": "UTC",
+    "date_style": "ISO, YMD",
+    "extra_float_digits": 3
+  },
+  "public_functions": [
+    {
+      "signature": "aap_jobs_v1.video_execution_checkpoint_step(text,text)",
+      "volatility": "VOLATILE",
+      "arguments": [
+        {
+          "name": "p_action",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "p_arguments",
+          "type": "text",
+          "nullable": false
+        }
+      ],
+      "returns": {
+        "kind": "jsonb",
+        "data_schema": "aap-video-checkpoint-data/v1",
+        "status": ["ok", "rejected"],
+        "rejected_fields": ["schema", "status", "reason"],
+        "reasons": [
+          "capture_closed",
+          "capture_conflict",
+          "capture_mismatch",
+          "checkpoint_conflict",
+          "checkpoint_identity_incomplete",
+          "checkpoint_incomplete",
+          "checkpoint_invalid",
+          "checkpoint_missing",
+          "execution_busy",
+          "finish_conflict",
+          "input_busy",
+          "input_unavailable",
+          "invalid_request",
+          "invalid_response",
+          "job_cancelled",
+          "job_missing",
+          "job_not_active",
+          "lease_lost",
+          "manifest_invalid",
+          "manifest_mismatch",
+          "mask_retention_unavailable",
+          "part_conflict",
+          "part_invalid",
+          "part_missing",
+          "plan_conflict",
+          "plan_mismatch",
+          "plan_not_frozen",
+          "realm_mismatch",
+          "recovery_required",
+          "replay_conflict",
+          "replay_mismatch",
+          "scope_unavailable",
+          "span_incomplete",
+          "span_mismatch",
+          "storage_unavailable",
+          "window_mismatch",
+          "window_out_of_order"
+        ],
+        "ok_shapes": {
+          "policy": ["schema", "status", "ready", "functions"],
+          "input_facts": ["schema", "status", "facts"],
+          "freeze_plan": ["schema", "status", "plan"],
+          "read_plan": ["schema", "status", "plan"],
+          "read_resume": ["schema", "status", "windows", "closed_spans", "next_ordinal"],
+          "begin_window": ["schema", "status", "attempt"],
+          "capture_window": ["schema", "status", "capture"],
+          "put_part": ["schema", "status", "part"],
+          "seal_window": ["schema", "status", "window"],
+          "read_part": ["schema", "status", "part"],
+          "verify_replay": ["schema", "status", "verified"],
+          "close_span": ["schema", "status", "closed"],
+          "recovery_ready": ["schema", "status", "ready"],
+          "finish": ["schema", "status", "finished"],
+          "retire": ["schema", "status", "retired"]
+        }
+      }
+    }
+  ],
+  "login_profile": {
+    "role": "video_execution_client",
+    "functions": [
+      "aap_jobs_v1.video_execution_step(text,text)",
+      "aap_jobs_v1.video_execution_checkpoint_step(text,text)"
+    ],
+    "raw_table_rights": false
+  },
+  "owner_capabilities": [
+    {
+      "signature": "aap_labeling_v1.video_execution_request_facts(uuid)",
+      "owner": "labeling_owner",
+      "execute_grantee": "jobs_owner",
+      "returns": "aap-labeling-video-execution-request-facts/v1"
+    },
+    {
+      "signature": "aap_assets_v1.video_execution_input_facts(uuid)",
+      "owner": "assets_owner",
+      "execute_grantee": "jobs_owner",
+      "returns": "aap-assets-video-execution-input-facts/v1"
+    },
+    {
+      "signature": "aap_labeling_v1.retain_video_execution_checkpoint_masks(uuid,text,jsonb)",
+      "owner": "labeling_owner",
+      "execute_grantee": "jobs_owner",
+      "returns": "aap-labeling-mask-gc/v1"
+    },
+    {
+      "signature": "aap_inference_routing_v1.video_execution_scope_retired(uuid)",
+      "owner": "inference_owner",
+      "execute_grantee": "jobs_owner",
+      "returns": "boolean"
+    },
+    {
+      "signature": "aap_inference_routing_v1.video_execution_scope_facts(uuid)",
+      "owner": "inference_owner",
+      "execute_grantee": "jobs_owner",
+      "returns": "minimal same-realm scope facts without capability"
+    }
+  ],
+  "private_jobs_readers": [
+    {
+      "signature": "aap_jobs_v1.video_execution_running_mask_roots_live(uuid)",
+      "execute_grantee": "labeling_owner",
+      "returns": "boolean"
+    },
+    {
+      "signature": "aap_jobs_v1.video_execution_checkpoint_mask_retained(text)",
+      "execute_grantee": "labeling_owner",
+      "returns": "boolean"
+    },
+    {
+      "signature": "aap_jobs_v1.video_execution_input_retained(uuid)",
+      "execute_grantee": "labeling_owner",
+      "returns": "boolean"
+    },
+    {
+      "signature": "aap_jobs_v1.video_execution_source_item_retained(uuid)",
+      "execute_grantee": "labeling_owner",
+      "returns": "boolean"
+    }
+  ],
+  "private_functions": [
+    "aap_jobs_v1._video_checkpoint_reply(jsonb,text)",
+    "aap_jobs_v1._video_checkpoint_canonical_json(jsonb)",
+    "aap_jobs_v1._video_checkpoint_digest(jsonb)",
+    "aap_jobs_v1._video_checkpoint_integer(jsonb,bigint,bigint)",
+    "aap_jobs_v1._video_checkpoint_digest_valid(text)",
+    "aap_jobs_v1._video_checkpoint_plan_identities_complete(jsonb)",
+    "aap_jobs_v1._video_checkpoint_manifest_valid(jsonb)",
+    "aap_jobs_v1._video_checkpoint_plan_valid(jsonb,jsonb,uuid,jsonb)",
+    "aap_jobs_v1._video_checkpoint_input_facts(uuid)",
+    "aap_jobs_v1._video_checkpoint_all_routes_retired(uuid,uuid)",
+    "aap_jobs_v1._video_execution_checkpoint_terminal()",
+    "aap_labeling_v1._mask_gc_root_entry_live(text,text,timestamptz,boolean)",
+    "aap_labeling_v1._mask_gc_release_tracker_running_outputs()",
+    "aap_labeling_v1.video_tracker_input_referenced(uuid)",
+    "aap_labeling_v1.guard_dataset_source_deletion(uuid,uuid)",
+    "aap_jobs_v1._video_checkpoint_results_complete(uuid,uuid)"
+  ],
+  "tables": [
+    "aap_jobs_v1.video_execution_checkpoint_restore",
+    "aap_jobs_v1.video_execution_journals",
+    "aap_jobs_v1.video_execution_window_attempts",
+    "aap_jobs_v1.video_execution_captures",
+    "aap_jobs_v1.video_execution_capture_parts",
+    "aap_jobs_v1.video_execution_windows",
+    "aap_jobs_v1.video_execution_window_parts",
+    "aap_jobs_v1.video_execution_span_closures",
+    "aap_labeling_v1.video_execution_checkpoint_mask_sets"
+  ],
+  "actions": {
+    "policy": {
+      "keys": [],
+      "functions": [
+        "aap_jobs_v1.video_execution_step(text,text)",
+        "aap_jobs_v1.video_execution_checkpoint_step(text,text)"
+      ]
+    },
+    "execution_proof": ["job_id", "run_id", "worker_id", "generation", "lease_token"],
+    "freeze_plan": {
+      "extra_keys": ["plan"],
+      "success": ["plan"]
+    },
+    "read_plan": {
+      "extra_keys": [],
+      "success": ["plan"]
+    },
+    "read_resume": {
+      "extra_keys": ["after_ordinal", "limit"],
+      "limit_max": 100,
+      "cursor": "exclusive ordinal",
+      "success": ["windows", "closed_spans", "next_ordinal"]
+    },
+    "begin_window": {
+      "extra_keys": [
+        "plan_digest",
+        "window_ordinal",
+        "window_digest",
+        "seed_input_digest",
+        "predecessor_checkpoint_digest"
+      ],
+      "mode": ["execute", "replay"],
+      "state": ["started", "capturing", "captured", "replay_verified", "abandoned"],
+      "success": ["attempt"]
+    },
+    "capture_window": {
+      "extra_keys": ["plan_digest", "window_ordinal", "capture_id", "manifest"],
+      "manifest_schema": "aap-video-window-result/v1",
+      "capture_state": ["receiving", "sealed", "abandoned"],
+      "success": ["capture"]
+    },
+    "put_part": {
+      "extra_keys": ["capture_id", "index", "sha256", "data_base64"],
+      "max_decoded_part_bytes": 524288,
+      "success": ["part"]
+    },
+    "seal_window": {
+      "extra_keys": ["capture_id"],
+      "success": ["window"]
+    },
+    "read_part": {
+      "extra_keys": ["checkpoint_id", "index"],
+      "success": ["part"]
+    },
+    "verify_replay": {
+      "extra_keys": [
+        "plan_digest",
+        "window_ordinal",
+        "capture_id",
+        "checkpoint_id",
+        "result_digest",
+        "continuation_digest",
+        "discovery_seeds_digest",
+        "seed_input_digest",
+        "predecessor_checkpoint_digest",
+        "raw_response_digest"
+      ],
+      "success": ["verified"]
+    },
+    "close_span": {
+      "extra_keys": ["plan_digest", "context_span_digest"],
+      "success": ["closed"]
+    },
+    "recovery_ready": {
+      "extra_keys": [],
+      "success": ["ready"]
+    },
+    "finish": {
+      "extra_keys": ["outcome"],
+      "outcome": ["completed", "cancelled", "failed"],
+      "success": ["finished"]
+    },
+    "retire": {
+      "extra_keys": [],
+      "success": ["retired"]
+    }
+  },
+  "budgets": {
+    "plan_bytes": 2097152,
+    "rpc_request_bytes": 2097152,
+    "payload_bytes": 67108864,
+    "part_bytes": 524288,
+    "parts_per_window": 128,
+    "windows": 8192,
+    "resume_page_windows": 100
+  },
+  "retention": {
+    "window_manifest_schema": "aap-video-window-result/v1",
+    "window_payload_schema": "aap-video-window-result-content/v1",
+    "window_part_schema": "aap-video-window-result-part/v1",
+    "mask_root_kind": "video_execution_checkpoints",
+    "journal_pin_until": "writer_terminal",
+    "input_and_source_pin_until": "execution_retired"
+  },
+  "$defs": {}
+}

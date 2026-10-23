@@ -12,7 +12,6 @@ from app.db.enums import ProjectRole, TaskStatus
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task_batch import TaskBatch
-from app.db.models.user import User
 from app.services import project_membership as membership
 from app.services.project_membership import (
     PROJECT_ROLES,
@@ -40,13 +39,14 @@ from app.services.project_membership import (
 )
 from app.services.audit import AuditAction, AuditService
 from app.services.batch import BatchService
+from app.services.identity_contracts import IdentityActorFacts
 
 
 async def change_role(
     db: AsyncSession,
     *,
     project: Project,
-    actor: User,
+    actor: IdentityActorFacts,
     member_id: uuid.UUID,
     target_role: str,
     expected_version: int,
@@ -286,7 +286,7 @@ async def remove_member(
     db: AsyncSession,
     *,
     project: Project,
-    actor: User,
+    actor: IdentityActorFacts,
     member_id: uuid.UUID,
 ) -> None:
     """Remove an *idle* member after the same blockers used by role change.

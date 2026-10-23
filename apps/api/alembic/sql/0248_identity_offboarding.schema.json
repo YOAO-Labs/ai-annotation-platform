@@ -1,0 +1,1843 @@
+{
+  "$defs": {
+    "DirectoryUserRecord": {
+      "additionalProperties": false,
+      "description": "The exact public UserOut projection, with historical role/status strings.",
+      "properties": {
+        "avatar_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Avatar Ref"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "deactivation_requested_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deactivation Requested At"
+        },
+        "deactivation_scheduled_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Deactivation Scheduled At"
+        },
+        "disabled_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled At"
+        },
+        "disabled_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled By"
+        },
+        "disabled_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled Kind"
+        },
+        "disabled_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disabled Reason"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "email_verified_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Email Verified At"
+        },
+        "group_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Group Id"
+        },
+        "group_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Group Name"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "last_login_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Login At"
+        },
+        "last_seen_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Seen At"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "password_admin_reset_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Password Admin Reset At"
+        },
+        "preferences": {
+          "additionalProperties": true,
+          "title": "Preferences",
+          "type": "object"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "name",
+        "role",
+        "group_name",
+        "group_id",
+        "status",
+        "is_active",
+        "disabled_kind",
+        "disabled_at",
+        "disabled_by",
+        "disabled_reason",
+        "email_verified_at",
+        "last_login_at",
+        "last_seen_at",
+        "password_admin_reset_at",
+        "deactivation_requested_at",
+        "deactivation_scheduled_at",
+        "preferences",
+        "avatar_ref",
+        "created_at"
+      ],
+      "title": "DirectoryUserRecord",
+      "type": "object"
+    },
+    "NativeOffboardingApplyCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "const": "commit_offboarding",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/OffboardingApplyPayload"
+        },
+        "phase": {
+          "const": "apply",
+          "title": "Phase",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-offboarding-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "operation",
+        "actor",
+        "expected_key_hash",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "phase",
+        "payload"
+      ],
+      "title": "NativeOffboardingApplyCommand",
+      "type": "object"
+    },
+    "NativeOffboardingApplyData": {
+      "additionalProperties": false,
+      "properties": {
+        "result": {
+          "$ref": "#/$defs/OffboardingResultRecord"
+        }
+      },
+      "required": ["result"],
+      "title": "NativeOffboardingApplyData",
+      "type": "object"
+    },
+    "NativeOffboardingApplySuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/NativeOffboardingApplyData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "commit_offboarding",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "phase": {
+          "const": "apply",
+          "title": "Phase",
+          "type": "string"
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
+        },
+        "replayed": {
+          "title": "Replayed",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-offboarding-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "ok",
+        "operation",
+        "operation_id",
+        "principal",
+        "phase",
+        "data",
+        "replayed"
+      ],
+      "title": "NativeOffboardingApplySuccess",
+      "type": "object"
+    },
+    "NativeOffboardingFailureReply": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/OffboardingFailureDetail"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-offboarding-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "title": "NativeOffboardingFailureReply",
+      "type": "object"
+    },
+    "NativeOffboardingPrepareCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Principal"
+        },
+        "audit_context": {
+          "$ref": "#/$defs/SessionAuditContext"
+        },
+        "derivation_id": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Derivation Id",
+          "type": "string"
+        },
+        "expected_key_hash": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Key Hash"
+        },
+        "operation": {
+          "enum": ["preview_offboarding", "commit_offboarding"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/NativeOffboardingPreparePayload"
+        },
+        "phase": {
+          "const": "prepare",
+          "title": "Phase",
+          "type": "string"
+        },
+        "request_fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Request Fingerprint",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-offboarding-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "operation",
+        "actor",
+        "expected_key_hash",
+        "request_fingerprint",
+        "derivation_id",
+        "audit_context",
+        "phase",
+        "payload"
+      ],
+      "title": "NativeOffboardingPrepareCommand",
+      "type": "object"
+    },
+    "NativeOffboardingPreparePayload": {
+      "additionalProperties": false,
+      "properties": {
+        "payload_project_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Payload Project Ids",
+          "type": "array"
+        },
+        "receiver_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Receiver Ids",
+          "type": "array"
+        },
+        "target_user_id": {
+          "format": "uuid",
+          "title": "Target User Id",
+          "type": "string"
+        }
+      },
+      "required": ["target_user_id", "receiver_ids", "payload_project_ids"],
+      "title": "NativeOffboardingPreparePayload",
+      "type": "object"
+    },
+    "NativeOffboardingPrepareSuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "discriminator": {
+            "mapping": {
+              "replay": "#/$defs/OffboardingPrepareReplayData",
+              "snapshot": "#/$defs/OffboardingPrepareSnapshotData"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/OffboardingPrepareSnapshotData"
+            },
+            {
+              "$ref": "#/$defs/OffboardingPrepareReplayData"
+            }
+          ],
+          "title": "Data"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "enum": ["preview_offboarding", "commit_offboarding"],
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "phase": {
+          "const": "prepare",
+          "title": "Phase",
+          "type": "string"
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
+        },
+        "schema": {
+          "const": "aap-identity-offboarding-native/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation", "operation_id", "principal", "phase", "data"],
+      "title": "NativeOffboardingPrepareSuccess",
+      "type": "object"
+    },
+    "OffboardingApiKeyFact": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "key_prefix": {
+          "title": "Key Prefix",
+          "type": "string"
+        },
+        "last_used_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Used At"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "revoked_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Revoked At"
+        }
+      },
+      "required": ["id", "name", "key_prefix", "last_used_at", "revoked_at", "created_at"],
+      "title": "OffboardingApiKeyFact",
+      "type": "object"
+    },
+    "OffboardingApplyPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_target_generation": {
+          "exclusiveMaximum": 9223372036854775808,
+          "minimum": 0,
+          "title": "Expected Target Generation",
+          "type": "integer"
+        },
+        "expected_target_is_active": {
+          "title": "Expected Target Is Active",
+          "type": "boolean"
+        },
+        "labeling_plan": {
+          "items": {
+            "$ref": "#/$defs/OffboardingLabelingPlan"
+          },
+          "title": "Labeling Plan",
+          "type": "array"
+        },
+        "mode": {
+          "enum": ["handoff", "emergency_suspend"],
+          "title": "Mode",
+          "type": "string"
+        },
+        "normalized_reason": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Normalized Reason"
+        },
+        "owner_plan": {
+          "items": {
+            "$ref": "#/$defs/OffboardingOwnerPlan"
+          },
+          "title": "Owner Plan",
+          "type": "array"
+        },
+        "reason_present": {
+          "title": "Reason Present",
+          "type": "boolean"
+        },
+        "scope_basis": {
+          "$ref": "#/$defs/OffboardingScopeBasis"
+        },
+        "target_user_id": {
+          "format": "uuid",
+          "title": "Target User Id",
+          "type": "string"
+        },
+        "transaction_id": {
+          "minLength": 1,
+          "title": "Transaction Id",
+          "type": "string"
+        },
+        "transfers": {
+          "items": {
+            "$ref": "#/$defs/OffboardingTransfer"
+          },
+          "title": "Transfers",
+          "type": "array"
+        },
+        "unresolved": {
+          "items": {
+            "$ref": "#/$defs/OffboardingUnresolved"
+          },
+          "title": "Unresolved",
+          "type": "array"
+        }
+      },
+      "required": [
+        "transaction_id",
+        "target_user_id",
+        "expected_target_generation",
+        "expected_target_is_active",
+        "mode",
+        "normalized_reason",
+        "reason_present",
+        "owner_plan",
+        "labeling_plan",
+        "transfers",
+        "unresolved",
+        "scope_basis"
+      ],
+      "title": "OffboardingApplyPayload",
+      "type": "object"
+    },
+    "OffboardingBatchFact": {
+      "additionalProperties": false,
+      "properties": {
+        "annotator_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Annotator Id"
+        },
+        "assigned_user_ids": {
+          "title": "Assigned User Ids"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewer Id"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "project_id",
+        "name",
+        "status",
+        "annotator_id",
+        "reviewer_id",
+        "assigned_user_ids"
+      ],
+      "title": "OffboardingBatchFact",
+      "type": "object"
+    },
+    "OffboardingBlockedDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "blockers": {
+          "items": {
+            "$ref": "#/$defs/OffboardingBlocker"
+          },
+          "title": "Blockers",
+          "type": "array"
+        },
+        "code": {
+          "const": "offboarding_blocked",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code", "blockers"],
+      "title": "OffboardingBlockedDetail",
+      "type": "object"
+    },
+    "OffboardingBlocker": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "historical_inactive",
+            "no_owner_receiver",
+            "no_annotator_receiver",
+            "no_reviewer_receiver",
+            "historic_mixed_role"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": ["code", "message"],
+      "title": "OffboardingBlocker",
+      "type": "object"
+    },
+    "OffboardingCandidateMembership": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "role": {
+          "enum": ["annotator", "reviewer"],
+          "title": "Role",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": ["project_id", "user_id", "role"],
+      "title": "OffboardingCandidateMembership",
+      "type": "object"
+    },
+    "OffboardingCandidateUser": {
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": ["id", "name", "email", "role"],
+      "title": "OffboardingCandidateUser",
+      "type": "object"
+    },
+    "OffboardingFailureDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "enum": [
+                "invalid_request",
+                "credential_invalid",
+                "credential_revoked",
+                "generation_outdated",
+                "token_expired",
+                "user_inactive",
+                "invalid_account_role",
+                "credential_busy"
+              ],
+              "type": "string"
+            },
+            {
+              "enum": [
+                "manager_required",
+                "target_not_found",
+                "self_offboard",
+                "last_super_admin",
+                "target_role_forbidden",
+                "inactive_unmanaged",
+                "scope_forbidden",
+                "offboarding_preview_stale",
+                "historical_target",
+                "state_forbidden",
+                "duplicate_project",
+                "receiver_required",
+                "receiver_ineligible",
+                "offboarding_blocked",
+                "account_busy",
+                "offboarding_busy",
+                "operation_conflict",
+                "unavailable"
+              ],
+              "type": "string"
+            }
+          ],
+          "title": "Code"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/PreviewStaleDetail"
+            },
+            {
+              "$ref": "#/$defs/ReceiverRequiredDetail"
+            },
+            {
+              "$ref": "#/$defs/ReceiverIneligibleDetail"
+            },
+            {
+              "$ref": "#/$defs/OffboardingBlockedDetail"
+            },
+            {
+              "$ref": "#/$defs/OffboardingTaskBusyDetail"
+            },
+            {
+              "$ref": "#/$defs/OffboardingResourceBusyDetail"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Detail"
+        },
+        "status_code": {
+          "anyOf": [
+            {
+              "maximum": 599,
+              "minimum": 400,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Status Code"
+        }
+      },
+      "required": ["code", "status_code", "detail"],
+      "title": "OffboardingFailureDetail",
+      "type": "object"
+    },
+    "OffboardingLabelingPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Batch Ids",
+          "type": "array"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "receiver_id": {
+          "format": "uuid",
+          "title": "Receiver Id",
+          "type": "string"
+        },
+        "role": {
+          "enum": ["annotator", "reviewer"],
+          "title": "Role",
+          "type": "string"
+        },
+        "task_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Task Ids",
+          "type": "array"
+        }
+      },
+      "required": ["project_id", "role", "receiver_id", "batch_ids", "task_ids"],
+      "title": "OffboardingLabelingPlan",
+      "type": "object"
+    },
+    "OffboardingLockFact": {
+      "additionalProperties": false,
+      "properties": {
+        "expire_at": {
+          "format": "date-time",
+          "title": "Expire At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["id", "task_id", "expire_at"],
+      "title": "OffboardingLockFact",
+      "type": "object"
+    },
+    "OffboardingMemberFact": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": ["id", "project_id", "role"],
+      "title": "OffboardingMemberFact",
+      "type": "object"
+    },
+    "OffboardingOwnerPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_owner_id": {
+          "format": "uuid",
+          "title": "Expected Owner Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "receiver_id": {
+          "format": "uuid",
+          "title": "Receiver Id",
+          "type": "string"
+        }
+      },
+      "required": ["project_id", "expected_owner_id", "receiver_id"],
+      "title": "OffboardingOwnerPlan",
+      "type": "object"
+    },
+    "OffboardingPolicyReply": {
+      "additionalProperties": false,
+      "properties": {
+        "policy": {
+          "const": "aap-identity-offboarding/v1",
+          "title": "Policy",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-identity-offboarding-policy/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "policy"],
+      "title": "OffboardingPolicyReply",
+      "type": "object"
+    },
+    "OffboardingPrepareReplayData": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "replay",
+          "title": "Kind",
+          "type": "string"
+        },
+        "result": {
+          "$ref": "#/$defs/OffboardingResultRecord"
+        },
+        "scope_basis": {
+          "$ref": "#/$defs/OffboardingScopeBasis"
+        },
+        "scope_status": {
+          "$ref": "#/$defs/OffboardingReplayScopeStatus"
+        },
+        "target_generation": {
+          "exclusiveMaximum": 9223372036854775808,
+          "minimum": 0,
+          "title": "Target Generation",
+          "type": "integer"
+        },
+        "transaction_id": {
+          "minLength": 1,
+          "title": "Transaction Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "transaction_id",
+        "target_generation",
+        "result",
+        "scope_basis",
+        "scope_status"
+      ],
+      "title": "OffboardingPrepareReplayData",
+      "type": "object"
+    },
+    "OffboardingPrepareSnapshotData": {
+      "additionalProperties": false,
+      "properties": {
+        "facts": {
+          "$ref": "#/$defs/OffboardingSnapshotFacts"
+        },
+        "kind": {
+          "const": "snapshot",
+          "title": "Kind",
+          "type": "string"
+        },
+        "target_generation": {
+          "exclusiveMaximum": 9223372036854775808,
+          "minimum": 0,
+          "title": "Target Generation",
+          "type": "integer"
+        },
+        "target_is_active": {
+          "title": "Target Is Active",
+          "type": "boolean"
+        },
+        "transaction_id": {
+          "minLength": 1,
+          "title": "Transaction Id",
+          "type": "string"
+        }
+      },
+      "required": ["kind", "transaction_id", "target_generation", "target_is_active", "facts"],
+      "title": "OffboardingPrepareSnapshotData",
+      "type": "object"
+    },
+    "OffboardingProjectFact": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "owner_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Owner Id"
+        }
+      },
+      "required": ["id", "name", "owner_id"],
+      "title": "OffboardingProjectFact",
+      "type": "object"
+    },
+    "OffboardingReplayScopeStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "all_projects_owned": {
+          "title": "All Projects Owned",
+          "type": "boolean"
+        },
+        "projects_exist": {
+          "title": "Projects Exist",
+          "type": "boolean"
+        }
+      },
+      "required": ["projects_exist", "all_projects_owned"],
+      "title": "OffboardingReplayScopeStatus",
+      "type": "object"
+    },
+    "OffboardingResourceBusyDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "offboarding_busy",
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "const": "\u804c\u8d23\u6b63\u5728\u53d8\u5316\uff0c\u8bf7\u5237\u65b0\u9884\u89c8\u540e\u91cd\u8bd5",
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": ["code", "message"],
+      "title": "OffboardingResourceBusyDetail",
+      "type": "object"
+    },
+    "OffboardingResultRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "audit_id": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Audit Id",
+          "type": "integer"
+        },
+        "mode": {
+          "enum": ["handoff", "emergency_suspend"],
+          "title": "Mode",
+          "type": "string"
+        },
+        "revoked_api_key_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Revoked Api Key Ids",
+          "type": "array"
+        },
+        "status": {
+          "const": "suspended",
+          "title": "Status",
+          "type": "string"
+        },
+        "transfers": {
+          "items": {
+            "$ref": "#/$defs/OffboardingTransfer"
+          },
+          "title": "Transfers",
+          "type": "array"
+        },
+        "unresolved": {
+          "items": {
+            "$ref": "#/$defs/OffboardingUnresolved"
+          },
+          "title": "Unresolved",
+          "type": "array"
+        },
+        "user": {
+          "$ref": "#/$defs/DirectoryUserRecord"
+        }
+      },
+      "required": [
+        "user",
+        "status",
+        "mode",
+        "transfers",
+        "unresolved",
+        "revoked_api_key_ids",
+        "audit_id"
+      ],
+      "title": "OffboardingResultRecord",
+      "type": "object"
+    },
+    "OffboardingScopeBasis": {
+      "additionalProperties": false,
+      "properties": {
+        "project_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Project Ids",
+          "type": "array"
+        },
+        "target_role": {
+          "title": "Target Role",
+          "type": "string"
+        },
+        "target_was_active": {
+          "title": "Target Was Active",
+          "type": "boolean"
+        }
+      },
+      "required": ["target_role", "target_was_active", "project_ids"],
+      "title": "OffboardingScopeBasis",
+      "type": "object"
+    },
+    "OffboardingSnapshotFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "api_keys": {
+          "items": {
+            "$ref": "#/$defs/OffboardingApiKeyFact"
+          },
+          "title": "Api Keys",
+          "type": "array"
+        },
+        "batches": {
+          "items": {
+            "$ref": "#/$defs/OffboardingBatchFact"
+          },
+          "title": "Batches",
+          "type": "array"
+        },
+        "candidate_memberships": {
+          "items": {
+            "$ref": "#/$defs/OffboardingCandidateMembership"
+          },
+          "title": "Candidate Memberships",
+          "type": "array"
+        },
+        "candidate_users": {
+          "items": {
+            "$ref": "#/$defs/OffboardingCandidateUser"
+          },
+          "title": "Candidate Users",
+          "type": "array"
+        },
+        "locks": {
+          "items": {
+            "$ref": "#/$defs/OffboardingLockFact"
+          },
+          "title": "Locks",
+          "type": "array"
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/OffboardingMemberFact"
+          },
+          "title": "Members",
+          "type": "array"
+        },
+        "other_unreserved": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Other Unreserved",
+          "type": "integer"
+        },
+        "projects": {
+          "items": {
+            "$ref": "#/$defs/OffboardingProjectFact"
+          },
+          "title": "Projects",
+          "type": "array"
+        },
+        "target": {
+          "$ref": "#/$defs/DirectoryUserRecord"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/$defs/OffboardingTaskFact"
+          },
+          "title": "Tasks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "target",
+        "projects",
+        "members",
+        "batches",
+        "tasks",
+        "locks",
+        "api_keys",
+        "candidate_users",
+        "candidate_memberships",
+        "other_unreserved"
+      ],
+      "title": "OffboardingSnapshotFacts",
+      "type": "object"
+    },
+    "OffboardingTaskBusyDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "offboarding_busy",
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": ["code"],
+      "title": "OffboardingTaskBusyDetail",
+      "type": "object"
+    },
+    "OffboardingTaskFact": {
+      "additionalProperties": false,
+      "properties": {
+        "assignee_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Assignee Id"
+        },
+        "batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Batch Id"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Project Id"
+        },
+        "reviewer_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reviewer Id"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Version"
+        }
+      },
+      "required": [
+        "id",
+        "project_id",
+        "batch_id",
+        "status",
+        "assignee_id",
+        "reviewer_id",
+        "version"
+      ],
+      "title": "OffboardingTaskFact",
+      "type": "object"
+    },
+    "OffboardingTransfer": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Batch Ids",
+          "type": "array"
+        },
+        "lock_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Lock Count",
+          "type": "integer"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "receiver_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Receiver Id"
+        },
+        "role": {
+          "enum": ["owner", "annotator", "reviewer"],
+          "title": "Role",
+          "type": "string"
+        },
+        "task_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Task Count",
+          "type": "integer"
+        }
+      },
+      "required": ["project_id", "role", "receiver_id", "batch_ids", "task_count", "lock_count"],
+      "title": "OffboardingTransfer",
+      "type": "object"
+    },
+    "OffboardingUnresolved": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Batch Ids",
+          "type": "array"
+        },
+        "lock_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Lock Count",
+          "type": "integer"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "reason": {
+          "const": "emergency_suspension_requires_later_handoff",
+          "title": "Reason",
+          "type": "string"
+        },
+        "role": {
+          "enum": ["owner", "annotator", "reviewer"],
+          "title": "Role",
+          "type": "string"
+        },
+        "task_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Task Count",
+          "type": "integer"
+        }
+      },
+      "required": ["project_id", "role", "reason", "batch_ids", "task_count", "lock_count"],
+      "title": "OffboardingUnresolved",
+      "type": "object"
+    },
+    "PreviewStaleDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "blockers": {
+          "items": {
+            "$ref": "#/$defs/OffboardingBlocker"
+          },
+          "title": "Blockers",
+          "type": "array"
+        },
+        "code": {
+          "const": "offboarding_preview_stale",
+          "title": "Code",
+          "type": "string"
+        },
+        "current_preview_version": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Current Preview Version",
+          "type": "string"
+        },
+        "expected_preview_version": {
+          "title": "Expected Preview Version",
+          "type": "string"
+        }
+      },
+      "required": ["code", "expected_preview_version", "current_preview_version", "blockers"],
+      "title": "PreviewStaleDetail",
+      "type": "object"
+    },
+    "Principal": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "credential_type": {
+                  "const": "jwt"
+                },
+                "expires_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "generation": {
+                  "exclusiveMaximum": 9223372036854775808,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "scopes": {
+                  "type": "null"
+                }
+              }
+            },
+            {
+              "properties": {
+                "credential_type": {
+                  "const": "api_key"
+                },
+                "generation": {
+                  "type": "null"
+                },
+                "scopes": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "credential_id": {
+          "format": "uuid",
+          "title": "Credential Id",
+          "type": "string"
+        },
+        "credential_type": {
+          "enum": ["jwt", "api_key"],
+          "title": "Credential Type",
+          "type": "string"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 9223372036854775808,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Generation"
+        },
+        "is_active": {
+          "const": true,
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Role",
+          "type": "string"
+        },
+        "scopes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scopes"
+        }
+      },
+      "required": [
+        "actor_id",
+        "name",
+        "email",
+        "role",
+        "is_active",
+        "credential_type",
+        "credential_id",
+        "generation",
+        "scopes",
+        "expires_at"
+      ],
+      "title": "Principal",
+      "type": "object"
+    },
+    "ReceiverIneligibleDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "receiver_ineligible",
+          "title": "Code",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "receiver_id": {
+          "format": "uuid",
+          "title": "Receiver Id",
+          "type": "string"
+        },
+        "role": {
+          "enum": ["owner", "annotator", "reviewer"],
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": ["code", "project_id", "role", "receiver_id"],
+      "title": "ReceiverIneligibleDetail",
+      "type": "object"
+    },
+    "ReceiverRequiredDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "receiver_required",
+          "title": "Code",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "role": {
+          "enum": ["owner", "annotator", "reviewer"],
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": ["code", "project_id", "role"],
+      "title": "ReceiverRequiredDetail",
+      "type": "object"
+    },
+    "SessionAuditContext": {
+      "additionalProperties": false,
+      "properties": {
+        "ip": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ip"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "maxLength": 8,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Method"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Path"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "maxLength": 36,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Request Id"
+        }
+      },
+      "required": ["method", "path", "ip", "request_id"],
+      "title": "SessionAuditContext",
+      "type": "object"
+    }
+  },
+  "$id": "aap-identity-offboarding-native/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "discriminator": {
+        "mapping": {
+          "apply": "#/$defs/NativeOffboardingApplyCommand",
+          "prepare": "#/$defs/NativeOffboardingPrepareCommand"
+        },
+        "propertyName": "phase"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/NativeOffboardingPrepareCommand"
+        },
+        {
+          "$ref": "#/$defs/NativeOffboardingApplyCommand"
+        }
+      ]
+    },
+    {
+      "discriminator": {
+        "mapping": {
+          "apply": "#/$defs/NativeOffboardingApplySuccess",
+          "prepare": "#/$defs/NativeOffboardingPrepareSuccess"
+        },
+        "propertyName": "phase"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/NativeOffboardingPrepareSuccess"
+        },
+        {
+          "$ref": "#/$defs/NativeOffboardingApplySuccess"
+        }
+      ]
+    },
+    {
+      "$ref": "#/$defs/NativeOffboardingFailureReply"
+    },
+    {
+      "$ref": "#/$defs/OffboardingPolicyReply"
+    }
+  ]
+}

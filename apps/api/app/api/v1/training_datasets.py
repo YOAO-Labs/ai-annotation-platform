@@ -13,7 +13,6 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingRun
 from app.db.models.training_preview import TrainingPreview
 from app.db.models.project_task_dataset import ProjectTaskDataset
-from app.db.models.user import User
 from app.deps import (
     get_current_user,
     get_db,
@@ -42,6 +41,7 @@ from app.services.training_dataset_bridge import TrainingDatasetError
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 from app.services.dataset_task_facts import ProjectTaskSourceReader
 from app.services.training_authority_contract import TrainingAuthorityPort
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter(
     prefix="/projects/{project_id}/training-datasets",
@@ -73,7 +73,7 @@ async def preflight(
     body: TrainingDatasetSelection,
     request: Request,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     source_reader: ProjectTaskSourceReader = Depends(get_labeling_task_source_reader),
 ):
@@ -96,7 +96,7 @@ async def create_version(
     body: TrainingDatasetCreate,
     request: Request,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     dataset_dispatcher: TrainingDatasetDispatcher = Depends(
         get_training_dataset_dispatcher
@@ -210,7 +210,7 @@ async def get_version(
 async def retry_version(
     version_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     dataset_dispatcher: TrainingDatasetDispatcher = Depends(
         get_training_dataset_dispatcher
@@ -244,7 +244,7 @@ async def retry_version(
 async def download_version(
     version_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     await lock_project_manager(db, user.id, project.id)
@@ -274,7 +274,7 @@ async def download_version(
 async def delete_version(
     version_id: uuid.UUID,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await db.execute(

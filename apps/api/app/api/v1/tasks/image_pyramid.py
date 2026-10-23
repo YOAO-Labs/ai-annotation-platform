@@ -9,7 +9,6 @@ from app.api.v1.tasks._shared import _image_pyramid_task_source, _load_task_or_4
 from app.application.image_pyramid import bind_image_pyramid_api
 from app.config import settings
 from app.core.ratelimit import limiter
-from app.db.models.user import User
 from app.deps import get_current_user, get_db, require_scopes
 from app.observability.metrics import IMAGE_PYRAMID_API_REQUESTS_TOTAL
 from app.schemas.image_pyramid import (
@@ -20,6 +19,7 @@ from app.schemas.image_pyramid import (
 )
 from app.services import task_access
 from app.services.image_pyramid_contract import ImagePyramidFailure
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -34,7 +34,7 @@ async def get_image_pyramid(
     request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
@@ -85,7 +85,7 @@ async def create_image_pyramid_asset_urls(
     payload: ImagePyramidAssetUrlsRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     if len(payload.items) > settings.image_pyramid_asset_url_batch_max:
         raise HTTPException(
@@ -130,7 +130,7 @@ async def retry_image_pyramid(
     request: Request,
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)

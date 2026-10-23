@@ -112,6 +112,7 @@ from app.api.v1.tasks._shared import (
     VIDEO_MANIFEST_URL_EXPIRES_IN,
 )
 from app.services.workspace_contract import ProjectAccess
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -123,7 +124,7 @@ router = APIRouter()
 async def get_reviewable_video_tracker_jobs(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """恢复当前任务仍待接受/丢弃的服务端候选。"""
     task = await _load_task_or_404(db, task_id)
@@ -140,7 +141,7 @@ async def get_reviewable_video_tracker_jobs(
 async def get_active_video_tracker_jobs(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """恢复当前任务仍在运行 (queued/running) 的追踪任务, 供刷新后重连 WebSocket。"""
     task = await _load_task_or_404(db, task_id)
@@ -154,7 +155,7 @@ async def get_active_video_tracker_jobs(
 async def get_video_manifest(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
@@ -194,7 +195,7 @@ async def get_video_manifest(
 async def get_point_cloud_manifest(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     from app.db.models.project import Project
 
@@ -237,7 +238,7 @@ async def get_video_frame_timetable(
     from_frame: int | None = Query(default=None, ge=0, alias="from"),
     to_frame: int | None = Query(default=None, ge=0, alias="to"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
@@ -301,7 +302,7 @@ async def get_video_manifest_v2(
     task_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
@@ -319,7 +320,7 @@ async def get_video_manifest_v2(
 async def get_video_segments(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
@@ -342,7 +343,7 @@ async def claim_video_segment(
     segment_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
@@ -382,7 +383,7 @@ async def heartbeat_video_segment(
     segment_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
@@ -424,7 +425,7 @@ async def release_video_segment(
     segment_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
@@ -457,7 +458,9 @@ async def release_video_segment(
     return body
 
 
-async def _segment_privileged(db: AsyncSession, task: Task, user: User) -> bool:
+async def _segment_privileged(
+    db: AsyncSession, task: Task, user: User | IdentityActorFacts
+) -> bool:
     from app.db.models.project import Project
 
     project = await db.get(Project, task.project_id)
@@ -480,7 +483,7 @@ async def submit_video_segment(
     segment_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
     quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
 ):
@@ -595,7 +598,7 @@ async def reopen_video_segment(
     task_id: uuid.UUID,
     segment_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_review_write),
 ):
     task = await _load_task_or_404(db, task_id)
@@ -623,7 +626,7 @@ async def unassign_video_segment(
     task_id: uuid.UUID,
     segment_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_review_write),
 ):
     task = await _load_task_or_404(db, task_id)
@@ -650,7 +653,7 @@ async def unassign_video_segment(
 async def list_video_track_quality(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     from app.db.models.video_track_quality import VideoTrackQualityRun
 
@@ -681,7 +684,7 @@ async def run_video_track_quality_now(
     task_id: uuid.UUID,
     body: VideoTrackQualityRunRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_review_write),
     quality_dispatcher: QualityJobDispatcher = Depends(get_quality_job_dispatcher),
 ):
@@ -718,7 +721,7 @@ async def get_video_track_quality(
     task_id: uuid.UUID,
     run_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     from app.db.models.video_track_quality import (
         VideoTrackQualityIssue,
@@ -763,7 +766,7 @@ async def accept_video_track_quality(
     run_id: uuid.UUID,
     body: VideoTrackQualityAcceptRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_review_write),
 ):
     from app.db.models.video_track_quality import VideoTrackQualityRun
@@ -801,7 +804,7 @@ async def get_video_chunks(
     from_frame: int | None = Query(default=None, ge=0),
     to_frame: int | None = Query(default=None, ge=0),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
@@ -831,7 +834,7 @@ async def get_video_chunk(
     chunk_id: int,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
@@ -867,7 +870,7 @@ async def get_video_frame(
     format: Literal["webp", "jpeg"] = Query(default="webp"),
     w: int = Query(default=512, ge=1, le=4096),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
@@ -896,7 +899,7 @@ async def prefetch_video_frame_assets(
     task_id: uuid.UUID,
     payload: VideoFramePrefetchRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id)
@@ -924,7 +927,7 @@ async def retry_video_frame_assets(
     task_id: uuid.UUID,
     payload: VideoFrameRetryRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = await _load_task_or_404(db, task_id)
@@ -960,7 +963,7 @@ async def save_video_mask_correction_keyframe(
     request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = (
@@ -1029,7 +1032,7 @@ async def operate_video_mask_correction_keyframe(
     request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
     task = (
@@ -1104,7 +1107,7 @@ async def create_video_mask_correction(
     payload: VideoMaskCorrectionRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
     tracker_dispatcher: VideoTrackerJobDispatcher = Depends(
         get_video_tracker_job_dispatcher
@@ -1246,7 +1249,7 @@ async def propagate_video_track(
     payload: VideoTrackerPropagateRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
     tracker_dispatcher: VideoTrackerJobDispatcher = Depends(
         get_video_tracker_job_dispatcher
@@ -1304,7 +1307,7 @@ async def track_video(
     payload: VideoTrackerPropagateRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
     tracker_dispatcher: VideoTrackerJobDispatcher = Depends(
         get_video_tracker_job_dispatcher

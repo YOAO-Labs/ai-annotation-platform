@@ -22,8 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import UserRole
 from app.db.models.project import Project
-from app.db.models.user import User
 from app.deps import get_db, require_project_owner, require_roles
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -45,7 +45,9 @@ class AliasFrequencyResponse(BaseModel):
 async def get_alias_frequency(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)),
+    _admin: IdentityActorFacts = Depends(
+        require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)
+    ),
     _project: Project = Depends(require_project_owner),
 ) -> AliasFrequencyResponse:
     """统计本项目 predictions 中各 detected label 出现次数, 按 count desc 排."""

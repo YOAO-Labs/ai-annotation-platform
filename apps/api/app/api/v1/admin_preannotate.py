@@ -27,13 +27,13 @@ from app.db.models.prediction import FailedPrediction, Prediction
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
-from app.db.models.user import User
 from app.deps import get_current_user_id, get_db, require_roles
 from app.application.bulk_clear_preannotate import (
     bulk_clear_preannotate as run_bulk_clear_preannotate,
 )
 from app.services.audit import audit_origin_from_request
 from app.services.batch_permissions import bulk_preannotation_eligible_condition
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -60,7 +60,9 @@ class PreannotateQueueResponse(BaseModel):
 async def list_preannotate_queue(
     limit: int = Query(default=50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)),
+    admin: IdentityActorFacts = Depends(
+        require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)
+    ),
 ) -> PreannotateQueueResponse:
     """列出已预标 (pre_annotated 状态) 的批次, 按最近一次预标时间倒序.
 
@@ -228,7 +230,9 @@ class PreannotateProjectSummaryResponse(BaseModel):
 )
 async def list_preannotate_project_summary(
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)),
+    admin: IdentityActorFacts = Depends(
+        require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)
+    ),
 ) -> PreannotateProjectSummaryResponse:
     """v0.9.12 B-17 · 给 ProjectCardGrid 提供 per-project 聚合.
 

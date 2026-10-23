@@ -12,7 +12,7 @@ from app.db.enums import MANAGER_PLATFORM_ROLES, PlatformRole
 from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
-from app.db.models.user import User
+from app.services.identity_read_relations import account_profiles
 
 
 class AnnotationCommentService:
@@ -62,20 +62,21 @@ class AnnotationCommentService:
         found = {row[0] for row in rows}
         manager_rows = (
             await self.db.execute(
-                select(User.id)
-                .join(Project, Project.owner_id == User.id)
+                select(account_profiles.c.id)
+                .select_from(account_profiles)
+                .join(Project, Project.owner_id == account_profiles.c.id)
                 .where(
                     Project.id == project_id,
-                    User.id.in_(user_ids),
-                    User.role.in_(sorted(MANAGER_PLATFORM_ROLES)),
+                    account_profiles.c.id.in_(user_ids),
+                    account_profiles.c.role.in_(sorted(MANAGER_PLATFORM_ROLES)),
                 )
             )
         ).all()
         super_rows = (
             await self.db.execute(
-                select(User.id).where(
-                    User.id.in_(user_ids),
-                    User.role == PlatformRole.SUPER_ADMIN.value,
+                select(account_profiles.c.id).where(
+                    account_profiles.c.id.in_(user_ids),
+                    account_profiles.c.role == PlatformRole.SUPER_ADMIN.value,
                 )
             )
         ).all()

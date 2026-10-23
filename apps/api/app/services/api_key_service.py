@@ -1,179 +1,104 @@
-"""v0.9.3 · API Key 生成 / 校验。
-
-token 形态：``ak_`` + 32 字符 url-safe base64（`secrets.token_urlsafe(24)` 输出 32 字符）。
-入库存 bcrypt(plaintext)；前 12 字符（含 ``ak_``）作 key_prefix 用于列表展示与定位。
-
-校验流程（被 deps.get_current_user 复用）：
-1. 头 3 字符必须为 ``ak_``；否则非 api_key token，跳过。
-2. 取前 12 字符作 prefix，查同 prefix 未吊销 ApiKey 行（通常 ≤ 1 行；冲突极小）。
-3. 候选行逐个 ``bcrypt.checkpw``；命中即返回 ApiKey + 关联 user。
-"""
+"""Bind API-key commands to the independent Identity owner."""
 
 from __future__ import annotations
 
-import secrets
-import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Iterable
+import asyncio
 
-from sqlalchemy import select
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import hash_password, verify_password
-from app.db.models.api_key import ApiKey
-from app.db.models.user import User
-from app.schemas.api_key import ApiKeyCreate, ApiKeyCreated, ApiKeyOut, ApiKeyUpdate
-from app.services.api_key_contracts import ApiKeyManagementPort
-
-_PREFIX = "ak_"
-_PREFIX_LEN = 12  # "ak_" + 9 chars
-_TOKEN_RANDOM_BYTES = 24  # token_urlsafe(24) -> 32 chars
-
-
-def generate_token() -> tuple[str, str]:
-    """返回 (plaintext, key_prefix)。plaintext 仅返回一次，不入库。"""
-    plaintext = _PREFIX + secrets.token_urlsafe(_TOKEN_RANDOM_BYTES)
-    return plaintext, plaintext[:_PREFIX_LEN]
+from aap_identity.contract import IdentityUnavailable
+from aap_identity.key_contract import KeyReply, KeyRequest, decode_key_reply
+from aap_identity.key_manager import KeyManager
+from aap_identity.key_postgres import KeyPostgresData
+from app.config import settings
+from app.services.identity_contracts import IdentityGatewayUnavailable
+from app.services.identity_gateway import (
+    MAX_RESPONSE_BYTES,
+    IdentityGateway,
+    identity_database_source,
+    identity_endpoint,
+)
+from app.services.identity_session_data import IdentityKeySessionData
 
 
-def is_api_key_token(token: str) -> bool:
-    return token.startswith(_PREFIX)
+class _CommandAuthenticator:
+    def __init__(self, identity: IdentityGateway, db: AsyncSession):
+        self.identity = identity
+        self.db = db
 
-
-async def _create_key_for_owner(
-    db: AsyncSession,
-    user_id: uuid.UUID,
-    name: str,
-    scopes: list[str],
-    expires_at: datetime | None = None,
-) -> tuple[ApiKey, str]:
-    """生成 + 入库；返回 (entity, plaintext)。调用方需 commit。"""
-    plaintext, prefix = generate_token()
-    key = ApiKey(
-        user_id=user_id,
-        name=name,
-        key_prefix=prefix,
-        key_hash=hash_password(plaintext),
-        scopes=scopes,
-        expires_at=expires_at,
-    )
-    db.add(key)
-    await db.flush()
-    await db.refresh(key)
-    return key, plaintext
-
-
-async def _get_owned(db: AsyncSession, user_id, key_id) -> ApiKey | None:
-    res = await db.execute(
-        select(ApiKey).where(ApiKey.id == key_id, ApiKey.user_id == user_id)
-    )
-    return res.scalar_one_or_none()
-
-
-async def resolve_token(db: AsyncSession, token: str) -> tuple[ApiKey, User] | None:
-    """ak_ token → (ApiKey, User)。无效 / revoked 返 None。
-    命中后顺手刷新 last_used_at（最终 commit 由调用方控制）。
-    """
-    if not is_api_key_token(token) or len(token) < _PREFIX_LEN:
-        return None
-    prefix = token[:_PREFIX_LEN]
-    res = await db.execute(
-        select(ApiKey).where(ApiKey.key_prefix == prefix, ApiKey.revoked_at.is_(None))
-    )
-    candidates: Iterable[ApiKey] = res.scalars().all()
-    now = datetime.now(timezone.utc)
-    for key in candidates:
-        if verify_password(token, key.key_hash):
-            if key.expires_at is not None and key.expires_at < now:
-                return None  # 已过期
-            user = await db.get(User, key.user_id)
-            if user is None or not user.is_active:
-                return None
-            key.last_used_at = now
-            return key, user
-    return None
-
-
-def _expires_at_from_days(days: int | None) -> datetime | None:
-    if days is None:
-        return None
-    return datetime.now(timezone.utc) + timedelta(days=days)
-
-
-class SqlApiKeyManagement(ApiKeyManagementPort):
-    """Manage one owner's keys in the caller's existing SQL transaction."""
-
-    def __init__(self, db: AsyncSession) -> None:
-        self._db = db
-
-    async def list_keys(self, owner_id: uuid.UUID) -> list[ApiKeyOut]:
-        res = await self._db.execute(
-            select(ApiKey)
-            .where(ApiKey.user_id == owner_id)
-            .order_by(ApiKey.created_at.desc())
+    async def authenticate_bound(self, token: str):
+        bound = await self.identity.embedded_authenticator(self.db).authenticate_bound(
+            token
         )
-        keys = list(res.scalars().all())
-        return [ApiKeyOut.model_validate(key) for key in keys]
+        if (
+            bound.principal.credential_type == "api_key"
+            and self.identity.uses_caller_session(self.db)
+        ):
+            # Record usage and release admission locks before bcrypt issuance.
+            await self.db.commit()
+        return bound
 
-    async def create_key(
-        self, owner_id: uuid.UUID, payload: ApiKeyCreate
-    ) -> ApiKeyCreated:
-        expires_at = _expires_at_from_days(payload.expires_in_days)
-        key, plaintext = await _create_key_for_owner(
-            self._db, owner_id, payload.name, payload.scopes, expires_at
+
+class IdentityKeyManagement:
+    def __init__(self, db: AsyncSession, identity: IdentityGateway):
+        self.db = db
+        self.identity = identity
+
+    async def execute(self, request: KeyRequest) -> KeyReply:
+        try:
+            async with asyncio.timeout(self.identity.timeout_seconds):
+                if self.identity.identity_url is not None:
+                    return await self._remote(request)
+                dsn = identity_database_source(
+                    settings.identity_key_database_url,
+                    settings.identity_key_database_url_file,
+                )
+                data = KeyPostgresData(dsn) if dsn else IdentityKeySessionData(self.db)
+                if dsn:
+                    await data.key_policy()
+                secret = (
+                    self.identity.signing_secret
+                    if self.identity.signing_secret is not None
+                    else settings.secret_key
+                )
+                if not secret:
+                    raise IdentityGatewayUnavailable()
+                result = await KeyManager(
+                    _CommandAuthenticator(self.identity, self.db), data, secret
+                ).execute(request)
+                if not dsn:
+                    await self.db.commit()
+                return result
+        except (IdentityUnavailable, TimeoutError):
+            raise IdentityGatewayUnavailable() from None
+
+    async def _remote(self, request: KeyRequest) -> KeyReply:
+        if not self.identity.identity_token:
+            raise IdentityGatewayUnavailable()
+        endpoint = identity_endpoint(
+            self.identity.identity_url, "/v1/identity/api-keys/execute"
         )
-        await self._db.commit()
-        await self._db.refresh(key)
-        return ApiKeyCreated(
-            **ApiKeyOut.model_validate(key).model_dump(), plaintext=plaintext
-        )
-
-    async def update_key(
-        self, owner_id: uuid.UUID, key_id: uuid.UUID, payload: ApiKeyUpdate
-    ) -> ApiKeyOut | None:
-        fields = payload.model_fields_set
-        expires_at = None
-        if "expires_in_days" in fields:
-            # Keep the original route's clock read before its owned-row query.
-            expires_at = _expires_at_from_days(payload.expires_in_days)
-        key = await _get_owned(self._db, owner_id, key_id)
-        if key is None or key.revoked_at is not None:
-            return None
-        if "name" in fields:
-            key.name = payload.name
-        if "scopes" in fields:
-            key.scopes = payload.scopes
-        if "expires_in_days" in fields:
-            key.expires_at = expires_at
-        await self._db.flush()
-        await self._db.refresh(key)
-        await self._db.commit()
-        await self._db.refresh(key)
-        return ApiKeyOut.model_validate(key)
-
-    async def rotate_key(
-        self, owner_id: uuid.UUID, key_id: uuid.UUID
-    ) -> ApiKeyCreated | None:
-        key = await _get_owned(self._db, owner_id, key_id)
-        if key is None or key.revoked_at is not None:
-            return None
-        plaintext, prefix = generate_token()
-        key.key_hash = hash_password(plaintext)
-        key.key_prefix = prefix
-        key.last_used_at = None
-        await self._db.flush()
-        await self._db.refresh(key)
-        await self._db.commit()
-        await self._db.refresh(key)
-        return ApiKeyCreated(
-            **ApiKeyOut.model_validate(key).model_dump(), plaintext=plaintext
-        )
-
-    async def revoke_key(self, owner_id: uuid.UUID, key_id: uuid.UUID) -> bool:
-        key = await _get_owned(self._db, owner_id, key_id)
-        if key is None or key.revoked_at is not None:
-            return False
-        key.revoked_at = datetime.now(timezone.utc)
-        await self._db.flush()
-        await self._db.commit()
-        return True
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.identity.timeout_seconds, trust_env=False
+            ) as client:
+                async with client.stream(
+                    "POST",
+                    endpoint,
+                    content=request.model_dump_json(by_alias=True, exclude_unset=True),
+                    headers={
+                        "Authorization": f"Bearer {self.identity.identity_token}",
+                        "Content-Type": "application/json",
+                    },
+                ) as response:
+                    if response.status_code != 200:
+                        raise IdentityGatewayUnavailable()
+                    body = bytearray()
+                    async for chunk in response.aiter_bytes(chunk_size=65536):
+                        body.extend(chunk)
+                        if len(body) > MAX_RESPONSE_BYTES:
+                            raise IdentityGatewayUnavailable()
+        except (httpx.HTTPError, httpx.InvalidURL, ValueError):
+            raise IdentityGatewayUnavailable() from None
+        return decode_key_reply(request, bytes(body))

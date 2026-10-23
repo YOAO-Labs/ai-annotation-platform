@@ -5,7 +5,6 @@ from sqlalchemy import func, select
 from app.db.models.learning_policy import LearningPolicy, LearningTrigger
 from app.db.models.project import Project
 from app.db.models.training_run import TrainingRun
-from app.db.models.user import User
 from app.deps import (
     get_current_user,
     get_db,
@@ -26,6 +25,7 @@ from app.services.dataset_task_facts import ProjectTaskSourceReader
 
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 from app.services.training_authority_contract import TrainingAuthorityPort
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter(
     prefix="/projects/{project_id}/learning-policy",
@@ -51,7 +51,7 @@ async def save_policy(
     body: LearningPolicySave,
     request: Request,
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db=Depends(get_db),
 ):
     policy = await service.save(
@@ -73,7 +73,7 @@ async def save_policy(
 async def disable_policy(
     expected_revision: int = Query(ge=1),
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db=Depends(get_db),
 ):
     policy = await service.disable(db, project.id, user, expected_revision)
@@ -88,7 +88,7 @@ async def disable_policy(
 )
 async def check_policy(
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db=Depends(get_db),
     dataset_dispatcher: TrainingDatasetDispatcher = Depends(
         get_training_dataset_dispatcher
@@ -162,7 +162,7 @@ async def list_triggers(
 )
 async def delete_policy(
     project: Project = Depends(require_project_owner),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
     db=Depends(get_db),
 ):
     if await service.delete(db, project.id, user):

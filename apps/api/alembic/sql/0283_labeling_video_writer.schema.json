@@ -1,0 +1,210 @@
+{
+  "$id": "aap-labeling-video-writer-native/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Labeling video writer Native authority",
+  "$comment": "Migration 0283 adds a fixed Labeling finalizer for claimed video executions. It validates the exact current Jobs proof before receipt replay, reconstructs candidate prefixes from immutable Jobs checkpoints, fences Mask keys in bounded batches, and atomically updates the canonical Job, Jobs finish fact, and immutable receipt.",
+  "$defs": {},
+  "type": "object",
+  "function_defaults": {
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"],
+    "time_zone": "UTC",
+    "date_style": "ISO, YMD",
+    "extra_float_digits": 3
+  },
+  "public_functions": [
+    {
+      "signature": "aap_labeling_v1.video_writer_step(text,text)",
+      "volatility": "VOLATILE",
+      "arguments": [
+        {
+          "name": "p_action",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "p_arguments",
+          "type": "text",
+          "nullable": false
+        }
+      ],
+      "returns": {
+        "kind": "jsonb",
+        "data_schema": "aap-labeling-video-writer-data/v1",
+        "status": ["ok", "rejected"],
+        "rejected_fields": ["schema", "ok", "error"],
+        "reasons": [
+          "candidate_invalid",
+          "checkpoint_incomplete",
+          "execution_busy",
+          "finish_conflict",
+          "input_busy",
+          "input_unavailable",
+          "invalid_request",
+          "invalid_response",
+          "job_cancelled",
+          "job_missing",
+          "job_not_active",
+          "lease_lost",
+          "mask_content_deleting",
+          "mask_content_epoch_changed",
+          "operation_conflict",
+          "permission_denied",
+          "plan_not_frozen",
+          "realm_mismatch",
+          "recovery_required",
+          "source_map_invalid",
+          "staged_result_too_large",
+          "storage_unavailable"
+        ],
+        "ok_shapes": {
+          "policy": ["schema", "ok", "data"],
+          "prepare": ["schema", "ok", "data"],
+          "lock_masks": ["schema", "ok", "data"],
+          "apply": ["schema", "ok", "data"],
+          "status": ["schema", "ok", "data"],
+          "read_window": ["schema", "ok", "data"],
+          "read_publication": ["schema", "ok", "data"]
+        }
+      }
+    }
+  ],
+  "login_profile": {
+    "role": "labeling_video_writer_client",
+    "functions": ["aap_labeling_v1.video_writer_step(text,text)"],
+    "raw_table_rights": false
+  },
+  "owner_capabilities": [
+    {
+      "signature": "aap_jobs_v1.video_writer_authority(text,jsonb)",
+      "owner": "jobs_owner",
+      "execute_grantee": "labeling_owner",
+      "returns": "aap-video-checkpoint-data/v1 or aap-video-execution-data/v1"
+    },
+    {
+      "table": "aap_labeling_v1.video_writer_receipts",
+      "owner": "labeling_owner",
+      "raw_grantees": [],
+      "semantics": "Immutable, no canonical Job foreign key, unique by operation and logical run."
+    }
+  ],
+  "private_functions": [
+    "aap_labeling_v1._video_writer_reply(jsonb,text)",
+    "aap_labeling_v1._video_writer_exact_keys(jsonb,text[])",
+    "aap_labeling_v1._video_writer_digest_valid(text)",
+    "aap_labeling_v1._video_writer_source_map(uuid,jsonb,jsonb)",
+    "aap_labeling_v1._video_writer_mask_epochs(jsonb)",
+    "aap_labeling_v1._video_writer_facts(jsonb,text,jsonb,jsonb)",
+    "aap_labeling_v1._video_writer_receipt_immutable()",
+    "aap_labeling_v1._video_writer_authority_code(text)",
+    "aap_labeling_v1._video_writer_stage_validate(jsonb,jsonb,text,text,jsonb,jsonb)",
+    "aap_labeling_v1._video_writer_instance_number(text)"
+  ],
+  "actions": {
+    "policy": {
+      "keys": [],
+      "success": ["functions", "max_request_bytes", "max_staged_bytes"]
+    },
+    "prepare": {
+      "keys": [
+        "operation_id",
+        "execution",
+        "outcome",
+        "request_digest",
+        "expected_input",
+        "error_message"
+      ],
+      "success": ["receipt", "facts"],
+      "semantics": "Checks the current proof before replay, then returns canonical Job and accepted input facts. Matching immutable receipts bypass restaging."
+    },
+    "lock_masks": {
+      "keys": [
+        "operation_id",
+        "execution",
+        "outcome",
+        "request_digest",
+        "expected_input",
+        "error_message",
+        "object_keys"
+      ],
+      "success": ["epochs"],
+      "semantics": "Keys must be unique and globally C-sorted. Existing Labeling Mask write authority is acquired in batches of 1000 inside the caller transaction; permits accumulate across batches."
+    },
+    "apply": {
+      "keys": [
+        "operation_id",
+        "execution",
+        "outcome",
+        "request_digest",
+        "expected_input",
+        "error_message",
+        "staged_result_json",
+        "staged_sha256",
+        "staged_byte_size"
+      ],
+      "success": ["receipt"],
+      "semantics": "Revalidates the current claim, checkpoint-derived results, accepted evidence, stage identity and actual Mask references before atomically publishing Job status, Jobs finish fact and immutable receipt."
+    },
+    "status": {
+      "keys": ["operation_id", "execution", "request_digest"],
+      "success": ["receipt"]
+    },
+    "read_window": {
+      "keys": ["operation_id", "execution", "request_digest", "window_ordinal"],
+      "success": ["checkpoint", "attempt"],
+      "semantics": "Returns the byte-verified original UTF-8 payload and manifest plus only the current-generation attempt."
+    },
+    "read_publication": {
+      "keys": ["execution"],
+      "success": ["receipt"],
+      "semantics": "Read-only current-proof lookup of the immutable publication for this Job and run, including an earlier command generation. Exact status digest matching remains unchanged."
+    }
+  },
+  "jobs_authority_actions": {
+    "inspect": {
+      "keys": ["job_id", "run_id", "worker_id", "generation", "lease_token"],
+      "success": ["plan"]
+    },
+    "read_window": {
+      "extra_keys": ["window_ordinal"],
+      "success": ["checkpoint", "attempt"]
+    },
+    "guard_stage": {
+      "keys": ["job_id", "run_id", "worker_id", "generation", "lease_token"],
+      "purpose": "stage"
+    },
+    "guard_cancel": {
+      "keys": ["job_id", "run_id", "worker_id", "generation", "lease_token"],
+      "purpose": "cancel"
+    },
+    "guard_fail": {
+      "keys": ["job_id", "run_id", "worker_id", "generation", "lease_token"],
+      "purpose": "fail"
+    },
+    "finish_completed": {
+      "keys": ["job_id", "run_id", "worker_id", "generation", "lease_token"],
+      "outcome": "completed"
+    },
+    "finish_cancelled": {
+      "keys": ["job_id", "run_id", "worker_id", "generation", "lease_token"],
+      "outcome": "cancelled"
+    },
+    "finish_failed": {
+      "keys": ["job_id", "run_id", "worker_id", "generation", "lease_token"],
+      "outcome": "failed"
+    },
+    "has_track_results": {
+      "keys": ["job_id", "run_id", "worker_id", "generation", "lease_token"],
+      "success": ["has_track_results"],
+      "semantics": "Derives nonempty sealed track output from byte-verified canonical window payloads."
+    }
+  },
+  "budgets": {
+    "native_rpc_bytes": 135266304,
+    "policy_request_bytes": 68157440,
+    "staged_result_bytes": 67108864,
+    "window_payload_bytes": 67108864,
+    "mask_write_batch_keys": 1000
+  }
+}

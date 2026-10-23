@@ -15,7 +15,6 @@ from app.deps import (
     require_project_capability,
 )
 from app.db.enums import BatchStatus
-from app.db.models.user import User
 from app.db.models.project import Project
 from app.schemas.batch import (
     BatchCreate,
@@ -59,6 +58,7 @@ from sqlalchemy import select as sa_select
 
 from app.application.task_submission import TaskSubmissionWorkflow
 from app.application.task_workflow_errors import TaskWorkflowError
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -150,7 +150,7 @@ async def create_batch(
     request: Request,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = BatchService(db)
     batch = await svc.create(project_id, data, current_user.id)
@@ -223,7 +223,7 @@ async def apply_batch_assignment(
     request: Request,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(get_current_user),
+    actor: IdentityActorFacts = Depends(get_current_user),
 ):
     plan = await _assignment_plan(db, project_id, batch_id, data, lock=True)
     if plan.preview_version != data.preview_version:
@@ -258,7 +258,7 @@ async def delete_batch(
     force: bool = False,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = BatchService(db)
     batch = await svc.get(batch_id)
@@ -293,7 +293,7 @@ async def transition_batch(
     request: Request,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(project_access_for_path),
 ):
     svc = BatchService(db)
@@ -418,7 +418,7 @@ async def split_batches(
     request: Request,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = BatchService(db)
     batches = await svc.split(project_id, data, current_user.id)
@@ -451,7 +451,7 @@ async def distribute_batches_in_project(
     request: Request,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """v0.7.2：项目级 batch 分派 — 把项目下未分派/全部 batch 圆周分配给所选 annotator/reviewer。
     每 batch 落到 1 个 annotator + 1 个 reviewer；同步回填该 batch 下所有 task 的 assignee_id/reviewer_id。
@@ -490,7 +490,7 @@ async def preview_distribution_in_project(
     data: ProjectDistributeBatches,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """Preview assignment changes without mutating batches or task rows."""
 
@@ -514,7 +514,7 @@ async def apply_distribution_in_project(
     request: Request,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """Apply a previously reviewed project distribution plan."""
 
@@ -556,7 +556,7 @@ async def reject_batch(
     request: Request,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(
         require_project_capability(ProjectCapability.REVIEW_WRITE.value)
     ),
@@ -629,7 +629,7 @@ async def reset_batch_to_draft(
     request: Request,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """v0.7.6 · owner 兜底：把任意状态批次回退到 draft。
 
@@ -681,7 +681,7 @@ async def admin_lock_batch(
     request: Request,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = BatchService(db)
     batch = await svc.get(batch_id)
@@ -741,7 +741,7 @@ async def admin_unlock_batch(
     request: Request,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = BatchService(db)
     batch = await svc.get(batch_id)
@@ -814,7 +814,7 @@ async def bulk_archive_batches(
     request: Request,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = BatchService(db)
     summary = await svc.bulk_archive(project_id, data.batch_ids)
@@ -840,7 +840,7 @@ async def bulk_delete_batches(
     force: bool = False,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = BatchService(db)
     # v0.11.25：force=false 时含进行中成果/已预标的批次进 failed(reason=requires_force)
@@ -871,7 +871,7 @@ async def bulk_reassign_batches(
     request: Request,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     raw = data.model_dump(exclude_unset=True)
     annotator_set = "annotator_id" in raw
@@ -915,7 +915,7 @@ async def bulk_activate_batches(
     request: Request,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = BatchService(db)
     summary = await svc.bulk_activate(project_id, data.batch_ids)
@@ -940,7 +940,7 @@ async def bulk_approve_batches(
     request: Request,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(
         require_project_capability(ProjectCapability.REVIEW_WRITE.value)
     ),
@@ -970,7 +970,7 @@ async def bulk_reject_batches(
     request: Request,
     project: Project = Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(
         require_project_capability(ProjectCapability.REVIEW_WRITE.value)
     ),
@@ -1158,7 +1158,7 @@ async def export_batch(
     ),
     mots_frame_base: int = Query(0, ge=0, le=1),
     project: Project = Depends(require_project_visible),
-    actor: User = Depends(get_current_user),
+    actor: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     _access: ProjectAccess = Depends(
         require_project_capability(ProjectCapability.EXPORT_ANNOTATIONS.value)

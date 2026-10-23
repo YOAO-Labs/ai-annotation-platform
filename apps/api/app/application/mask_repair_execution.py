@@ -12,7 +12,8 @@ from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem
 from app.db.models.mask_repair_batch import MaskRepairBatch
 from app.db.models.task import Task
-from app.db.models.user import User
+from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.identity_contracts import IdentityActorStatus
 from app.schemas.video_tracker_job import VideoMaskCorrectionRequest
 from app.services import async_job as async_job_svc
 from app.services.mask_repair import (
@@ -56,7 +57,7 @@ async def _run_sam_candidate(
     *,
     item: dict[str, Any],
     batch_id: uuid.UUID,
-    actor: User,
+    actor: IdentityActorStatus,
     job_id: uuid.UUID,
     dispatch_context_factory,
 ) -> dict[str, Any]:
@@ -189,7 +190,7 @@ async def _run_tracker_candidate(
     db: AsyncSession,
     *,
     item: dict[str, Any],
-    actor: User,
+    actor: IdentityActorStatus,
     dispatcher: VideoTrackerJobDispatcher,
 ) -> dict[str, Any]:
     task = await db.get(Task, uuid.UUID(str(item["task_id"])))
@@ -295,7 +296,9 @@ async def run_mask_repair(
                 completed += 1
                 continue
             actor = (
-                await db.get(User, batch.requested_by_id)
+                await IdentityAccountLockData(db).read_actor_status(
+                    batch.requested_by_id
+                )
                 if batch.requested_by_id is not None
                 else None
             )
@@ -357,7 +360,9 @@ async def run_mask_repair(
                 completed += 1
                 continue
             actor = (
-                await db.get(User, batch.requested_by_id)
+                await IdentityAccountLockData(db).read_actor_status(
+                    batch.requested_by_id
+                )
                 if batch.requested_by_id is not None
                 else None
             )
@@ -462,7 +467,9 @@ async def run_mask_repair_rollback(
             async with session_factory() as db:
                 batch = await db.get(MaskRepairBatch, repair_id)
                 actor = (
-                    await db.get(User, batch.requested_by_id)
+                    await IdentityAccountLockData(db).read_actor_status(
+                        batch.requested_by_id
+                    )
                     if batch is not None and batch.requested_by_id is not None
                     else None
                 )

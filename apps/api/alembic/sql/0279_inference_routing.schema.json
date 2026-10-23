@@ -1,0 +1,385 @@
+{
+  "$id": "aap-inference-routing-native/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Inference durable routing authority",
+  "$comment": "PostgreSQL owns admission scopes, HTTP attempts, pool selection state, management holds, backend continuity, and minimal command receipts. Redis is not quiescence evidence.",
+  "$defs": {},
+  "type": "object",
+  "function_defaults": {
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"],
+    "time_zone": "UTC",
+    "date_style": "ISO, YMD",
+    "extra_float_digits": 3
+  },
+  "public_functions": [
+    {
+      "signature": "aap_inference_routing_v1.routing_policy()",
+      "volatility": "STABLE",
+      "returns": {
+        "kind": "jsonb",
+        "shape": {
+          "schema": "aap-inference-routing-native/v1",
+          "data_protocol": "aap-inference-routing-data/v1",
+          "transaction": "caller_owned",
+          "functions": [
+            "aap_inference_routing_v1.routing_policy()",
+            "aap_inference_routing_v1.routing_step(text,text)"
+          ],
+          "actions": [
+            "command_status",
+            "record_command",
+            "admission_snapshot",
+            "reserve_scope",
+            "scope_status",
+            "begin_attempt",
+            "settle_attempt",
+            "heartbeat_scope",
+            "close_scope",
+            "quiescence",
+            "prepare_control",
+            "finish_control",
+            "prepare_epoch",
+            "finish_epoch",
+            "capture_transport_subject",
+            "open_transport_subject",
+            "begin_control_attempt",
+            "settle_control_attempt",
+            "runtime_snapshot"
+          ],
+          "ready": true
+        }
+      }
+    },
+    {
+      "signature": "aap_inference_routing_v1.routing_step(text,text)",
+      "volatility": "VOLATILE",
+      "arguments": [
+        { "name": "p_action", "type": "text", "nullable": false },
+        { "name": "p_arguments", "type": "text", "nullable": false }
+      ],
+      "returns": {
+        "kind": "jsonb",
+        "shape": {
+          "schema": "aap-inference-routing-data/v1",
+          "status": ["ok", "rejected"],
+          "reason": [
+            "pool_unavailable",
+            "pool_not_enabled",
+            "pool_saturated",
+            "generation_mismatch",
+            "scope_unavailable",
+            "scope_expired",
+            "scope_closed",
+            "transport_changed",
+            "management_busy",
+            "member_not_draining",
+            "member_not_quiescent",
+            "continuity_unverified",
+            "backend_not_ready",
+            "invalid_command"
+          ]
+        }
+      }
+    }
+  ],
+  "actions": [
+    { "name": "command_status", "keys": ["request_id", "command_sha256"] },
+    { "name": "record_command", "keys": ["request_id", "command_sha256", "operation", "result"] },
+    {
+      "name": "admission_snapshot",
+      "keys": [
+        "pool_id",
+        "registry_id",
+        "project_id",
+        "mode",
+        "required_instance_id",
+        "health_max_age_seconds"
+      ]
+    },
+    {
+      "name": "reserve_scope",
+      "keys": [
+        "snapshot",
+        "candidate_ids",
+        "scope_id",
+        "command_sha256",
+        "owner",
+        "operation",
+        "ttl_ms"
+      ]
+    },
+    { "name": "scope_status", "keys": ["scope_id", "capability"] },
+    {
+      "name": "begin_attempt",
+      "keys": ["scope_id", "capability", "attempt_id", "method", "path", "transport_identity"]
+    },
+    {
+      "name": "settle_attempt",
+      "keys": ["scope_id", "capability", "attempt_id", "kind", "status_code", "reason"]
+    },
+    { "name": "heartbeat_scope", "keys": ["scope_id", "capability", "ttl_ms"] },
+    { "name": "close_scope", "keys": ["scope_id", "capability", "outcome"] },
+    { "name": "quiescence", "keys": ["registry_id"] },
+    {
+      "name": "prepare_control",
+      "keys": ["control_id", "registry_id", "kind", "expected_topology"]
+    },
+    { "name": "finish_control", "keys": ["control_id", "capability"] },
+    { "name": "prepare_epoch", "keys": ["control_id", "registry_id"] },
+    { "name": "finish_epoch", "keys": ["control_id", "reply"] },
+    {
+      "name": "capture_transport_subject",
+      "keys": ["parent_kind", "parent_id", "capability", "attempt_id", "transport_identity"]
+    },
+    {
+      "name": "open_transport_subject",
+      "keys": ["parent_kind", "parent_id", "attempt_id", "subject"]
+    },
+    {
+      "name": "begin_control_attempt",
+      "keys": ["control_id", "capability", "attempt_id", "method", "path", "transport_identity"]
+    },
+    {
+      "name": "settle_control_attempt",
+      "keys": ["control_id", "capability", "attempt_id", "kind", "status_code", "reason"]
+    },
+    {
+      "name": "runtime_snapshot",
+      "keys": ["registry_ids"],
+      "max_registry_ids": 512,
+      "registry_ids_unique": true,
+      "facts": {
+        "observed_at": "ISO 8601 UTC timestamp",
+        "registries": [
+          {
+            "registry_id": "uuid",
+            "open_scopes": "nonnegative integer",
+            "active_attempts": "nonnegative integer",
+            "uncertain_attempts": "nonnegative integer",
+            "continuity": ["unverified", "ready"],
+            "authority_epoch": "uuid|null",
+            "backend_incarnation": "uuid|null",
+            "control_id": "uuid|null"
+          }
+        ]
+      },
+      "semantics": "Read-only; omits absent registries, sorts returned rows by registry_id, and never expires scopes or proves physical quiescence."
+    }
+  ],
+  "private_tables": [
+    {
+      "name": "aap_inference_routing_v1.authority_secret",
+      "columns": [
+        "singleton boolean primary key true",
+        "secret bytea length 32",
+        "realm_database_oid oid",
+        "realm_database_name text"
+      ],
+      "semantics": "Database-local key; never returned."
+    },
+    {
+      "name": "aap_inference_routing_v1.registry_state",
+      "columns": [
+        "registry_id uuid primary key",
+        "config_revision bigint",
+        "eligibility_revision bigint",
+        "authority_epoch uuid",
+        "backend_incarnation uuid nullable",
+        "continuity unverified|ready",
+        "epoch_key bytea length 32",
+        "realm text",
+        "updated_at timestamptz"
+      ],
+      "semantics": "Registry insert creates unverified state; config/eligibility revisions are independent."
+    },
+    {
+      "name": "aap_inference_routing_v1.scopes",
+      "columns": [
+        "id uuid primary key",
+        "command_sha256 text64",
+        "registry_id uuid",
+        "pool_id uuid nullable",
+        "project_id uuid nullable",
+        "mode off|observe|enforce|direct",
+        "owner text",
+        "operation text",
+        "generation bigint nullable",
+        "config_revision bigint",
+        "eligibility_revision bigint",
+        "authority_epoch uuid",
+        "realm text",
+        "state reserved|active|uncertain|finished|cancelled|expired|reconciled",
+        "closed boolean",
+        "heartbeat_deadline timestamptz",
+        "reconciled_by uuid nullable",
+        "created_at timestamptz",
+        "updated_at timestamptz"
+      ],
+      "semantics": "Only reserved scopes with no attempts may expire. Active and uncertain work persists."
+    },
+    {
+      "name": "aap_inference_routing_v1.attempts",
+      "columns": [
+        "id uuid primary key",
+        "scope_id uuid",
+        "method text",
+        "path text",
+        "transport_identity_sha256 text64",
+        "state active|response|uncertain|reconciled",
+        "status_code integer nullable",
+        "reason text nullable",
+        "created_at timestamptz",
+        "updated_at timestamptz"
+      ],
+      "semantics": "One row per real HTTP attempt; no transport payload or credentials."
+    },
+    {
+      "name": "aap_inference_routing_v1.weights",
+      "columns": [
+        "pool_id uuid",
+        "registry_id uuid",
+        "current_weight bigint",
+        "primary key(pool_id,registry_id)"
+      ],
+      "semantics": "Durable SWRR current weights, cleared when pool generation advances."
+    },
+    {
+      "name": "aap_inference_routing_v1.controls",
+      "columns": [
+        "id uuid primary key",
+        "registry_id uuid",
+        "kind unload|reload|epoch",
+        "phase prepared|draining|completed|uncertain",
+        "new_epoch uuid nullable",
+        "retired_epoch uuid nullable",
+        "recovered_kind unload|reload nullable (only for recovered epoch controls)",
+        "challenge text64",
+        "backend_incarnation uuid nullable",
+        "config_revision bigint",
+        "realm text",
+        "expected_topology jsonb nullable",
+        "created_at timestamptz",
+        "updated_at timestamptz"
+      ],
+      "semantics": "Prepared and uncertain rows remain exclusive management holds. An unresolved unload or reload may be recovered under its same control ID as an epoch hold; recovered_kind preserves the original operation."
+    },
+    {
+      "name": "aap_inference_routing_v1.control_attempts",
+      "columns": [
+        "id uuid primary key",
+        "control_id uuid",
+        "method text",
+        "path text",
+        "transport_identity_sha256 text64",
+        "state active|response|uncertain|reconciled",
+        "status_code integer nullable",
+        "reason text nullable",
+        "created_at timestamptz",
+        "updated_at timestamptz"
+      ],
+      "semantics": "Unload/reload hold completion derives from these actual HTTP attempts."
+    },
+    {
+      "name": "aap_inference_routing_v1.command_receipts",
+      "columns": [
+        "id uuid primary key",
+        "command_sha256 text64",
+        "operation text",
+        "result jsonb",
+        "creating_xid xid8",
+        "realm text",
+        "created_at timestamptz"
+      ],
+      "semantics": "Minimal result only; endpoint credentials, raw probe data and signing keys are rejected."
+    }
+  ],
+  "triggers": [
+    "aap_route_registry_after_insert",
+    "aap_route_registry_before_change",
+    "aap_route_pool_before_change",
+    "aap_route_pool_after_generation",
+    "aap_route_member_before_change",
+    "aap_route_project_pool_before_change"
+  ],
+  "private_functions": [
+    "aap_inference_routing_v1._routing_exact_keys(jsonb,text[])",
+    "aap_inference_routing_v1._routing_uuid(text)",
+    "aap_inference_routing_v1._routing_integer(jsonb,bigint,bigint)",
+    "aap_inference_routing_v1._routing_reply(text,jsonb)",
+    "aap_inference_routing_v1._routing_rejected(text)",
+    "aap_inference_routing_v1._routing_receipt_safe(jsonb)",
+    "aap_inference_routing_v1._routing_realm()",
+    "aap_inference_routing_v1._routing_secret()",
+    "aap_inference_routing_v1._routing_base64url(bytea)",
+    "aap_inference_routing_v1._routing_unbase64url(text)",
+    "aap_inference_routing_v1._routing_sign_snapshot(jsonb)",
+    "aap_inference_routing_v1._routing_open_snapshot(text)",
+    "aap_inference_routing_v1._routing_scope_capability(uuid)",
+    "aap_inference_routing_v1._routing_control_capability(uuid)",
+    "aap_inference_routing_v1._routing_scope_view(uuid,boolean)",
+    "aap_inference_routing_v1._routing_control_view(uuid,boolean)",
+    "aap_inference_routing_v1._routing_transport_identity(uuid)",
+    "aap_inference_routing_v1._routing_max_concurrency(uuid)",
+    "aap_inference_routing_v1._routing_sign_admission(uuid,uuid,uuid,text,text,text)",
+    "aap_inference_routing_v1._routing_has_unresolved(uuid)",
+    "aap_inference_routing_v1._routing_has_control(uuid)",
+    "aap_inference_routing_v1._routing_registry_after_insert()",
+    "aap_inference_routing_v1._routing_registry_before_change()",
+    "aap_inference_routing_v1._routing_pool_before_change()",
+    "aap_inference_routing_v1._routing_pool_after_generation()",
+    "aap_inference_routing_v1._routing_member_before_change()",
+    "aap_inference_routing_v1._routing_project_pool_before_change()"
+  ],
+  "x-postgresql-functions": [
+    "aap_inference_routing_v1.routing_policy()",
+    "aap_inference_routing_v1.routing_step(text,text)"
+  ],
+  "x-postgresql-private-functions": [
+    "aap_inference_routing_v1._routing_exact_keys(jsonb,text[])",
+    "aap_inference_routing_v1._routing_uuid(text)",
+    "aap_inference_routing_v1._routing_integer(jsonb,bigint,bigint)",
+    "aap_inference_routing_v1._routing_reply(text,jsonb)",
+    "aap_inference_routing_v1._routing_rejected(text)",
+    "aap_inference_routing_v1._routing_receipt_safe(jsonb)",
+    "aap_inference_routing_v1._routing_realm()",
+    "aap_inference_routing_v1._routing_secret()",
+    "aap_inference_routing_v1._routing_base64url(bytea)",
+    "aap_inference_routing_v1._routing_unbase64url(text)",
+    "aap_inference_routing_v1._routing_sign_snapshot(jsonb)",
+    "aap_inference_routing_v1._routing_open_snapshot(text)",
+    "aap_inference_routing_v1._routing_scope_capability(uuid)",
+    "aap_inference_routing_v1._routing_control_capability(uuid)",
+    "aap_inference_routing_v1._routing_scope_view(uuid,boolean)",
+    "aap_inference_routing_v1._routing_control_view(uuid,boolean)",
+    "aap_inference_routing_v1._routing_transport_identity(uuid)",
+    "aap_inference_routing_v1._routing_max_concurrency(uuid)",
+    "aap_inference_routing_v1._routing_sign_admission(uuid,uuid,uuid,text,text,text)",
+    "aap_inference_routing_v1._routing_has_unresolved(uuid)",
+    "aap_inference_routing_v1._routing_has_control(uuid)",
+    "aap_inference_routing_v1._routing_registry_after_insert()",
+    "aap_inference_routing_v1._routing_registry_before_change()",
+    "aap_inference_routing_v1._routing_pool_before_change()",
+    "aap_inference_routing_v1._routing_pool_after_generation()",
+    "aap_inference_routing_v1._routing_member_before_change()",
+    "aap_inference_routing_v1._routing_project_pool_before_change()"
+  ],
+  "x-postgresql-private-tables": [
+    "aap_inference_routing_v1.authority_secret",
+    "aap_inference_routing_v1.registry_state",
+    "aap_inference_routing_v1.scopes",
+    "aap_inference_routing_v1.attempts",
+    "aap_inference_routing_v1.weights",
+    "aap_inference_routing_v1.controls",
+    "aap_inference_routing_v1.control_attempts",
+    "aap_inference_routing_v1.command_receipts"
+  ],
+  "x-postgresql-errors": {
+    "invalid_command": { "sqlstate": "22023", "message": "invalid routing command" },
+    "management_busy": { "sqlstate": "55P03", "hint": "aap.inference.routing.management_busy" },
+    "snapshot_changed": { "status": "rejected", "reason": "generation_mismatch" },
+    "transport_changed": { "status": "rejected", "reason": "transport_changed" },
+    "uncertain_work": { "status": "rejected", "reason": "member_not_quiescent" }
+  }
+}

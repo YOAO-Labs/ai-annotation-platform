@@ -22,6 +22,7 @@ from app.services.audit_origin_contract import AuditOriginContext
 from app.services.mask_mutation import MaskMutationService
 from app.services.mask_mutation_contract import MaskMutationPort
 from app.services.workspace_contract import ProjectAccess
+from app.services.identity_contracts import IdentityActorFacts
 
 
 class _MaskMutationSqlAdapter(MaskMutationPort):
@@ -30,7 +31,7 @@ class _MaskMutationSqlAdapter(MaskMutationPort):
         db: AsyncSession,
         *,
         task_id: UUID,
-        actor: User,
+        actor: User | IdentityActorFacts,
         access: ProjectAccess | None,
     ) -> None:
         self._task_id = task_id
@@ -67,7 +68,7 @@ class _AnnotationSliceSqlAdapter(AnnotationSlicePort):
         db: AsyncSession,
         *,
         task_id: UUID,
-        actor: User,
+        actor: User | IdentityActorFacts,
         access: ProjectAccess | None,
     ) -> None:
         self._task_id = task_id

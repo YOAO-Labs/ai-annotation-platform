@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:workspace-project-reference-set-lock",
+  "title": "Workspace ordered Project reference set lock",
+  "description": "Caller-transactional ordered NOWAIT Project FOR UPDATE set lock. Missing Project IDs are omitted; an empty input returns an empty array. The caller owns authorization and commit.",
+  "$defs": {
+    "ProjectIdArray": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "uniqueItems": true
+    }
+  },
+  "x-postgresql-functions": ["aap_workspace_v1.lock_project_references_for_update(uuid[])"],
+  "x-postgresql-errors": {
+    "invalid_arguments": {
+      "sqlstate": "22023"
+    },
+    "lock_contention": {
+      "sqlstates": ["55P03", "40001", "40P01"],
+      "translation": "None; the caller retains its existing busy mapping."
+    }
+  },
+  "x-native-capabilities": {
+    "authorization_boundary": "The caller owns actor and Project authorization; this function only locks matching Project rows.",
+    "functions": [
+      {
+        "arguments": [
+          {
+            "json_schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "name": "p_project_ids",
+            "postgres_type": "uuid[]"
+          }
+        ],
+        "name": "lock_project_references_for_update",
+        "result_model": "ProjectIdArray",
+        "result_postgres_type": "uuid[]",
+        "result_schema_ref": "#/$defs/ProjectIdArray",
+        "signature": "aap_workspace_v1.lock_project_references_for_update(uuid[])",
+        "transaction_semantics": "Perform one ordered MATERIALIZED SELECT FOR UPDATE NOWAIT over matching Project IDs in the caller's transaction. Return the unique sorted IDs actually locked; missing IDs are omitted and empty input returns []. No actor checks, row serialization, DML, or transaction ownership are added."
+      }
+    ],
+    "postgres_schema": "aap_workspace_v1",
+    "transaction_boundary": "The caller owns the surrounding transaction and commit."
+  }
+}

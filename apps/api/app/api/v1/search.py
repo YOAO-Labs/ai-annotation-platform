@@ -20,9 +20,10 @@ from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
-from app.db.models.user import User
+from app.services.identity_read_relations import account_profiles, read_account_profiles
 from app.api.v1.projects import _visible_project_filter
 from app.services.scheduler import task_visibility_clause
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
@@ -32,7 +33,7 @@ async def global_search(
     q: str = Query(..., min_length=1, max_length=64),
     limit: int = Query(5, ge=1, le=20),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ) -> dict[str, list[dict[str, Any]]]:
     pattern = f"%{q}%"
 
@@ -144,24 +145,34 @@ async def global_search(
     # project_members 决定）
     if user.role == PlatformRole.SUPER_ADMIN.value:
         users_q = (
-            select(User)
-            .where(or_(User.name.ilike(pattern), User.email.ilike(pattern)))
-            .where(User.is_active.is_(True))
-            .order_by(User.name)
+            select(account_profiles)
+            .where(
+                or_(
+                    account_profiles.c.name.ilike(pattern),
+                    account_profiles.c.email.ilike(pattern),
+                )
+            )
+            .where(account_profiles.c.is_active.is_(True))
+            .order_by(account_profiles.c.name)
             .limit(limit)
         )
     else:
         # 仅返回当前用户共项目的成员
         users_q = (
-            select(User)
-            .join(ProjectMember, ProjectMember.user_id == User.id)
+            select(account_profiles)
+            .join(ProjectMember, ProjectMember.user_id == account_profiles.c.id)
             .where(ProjectMember.project_id.in_(visible_proj_ids_q))
-            .where(or_(User.name.ilike(pattern), User.email.ilike(pattern)))
-            .where(User.is_active.is_(True))
+            .where(
+                or_(
+                    account_profiles.c.name.ilike(pattern),
+                    account_profiles.c.email.ilike(pattern),
+                )
+            )
+            .where(account_profiles.c.is_active.is_(True))
             .distinct()
             .limit(limit)
         )
-    users = (await db.execute(users_q)).scalars().all()
+    users = await read_account_profiles(db, users_q)
     member_items = [
         {
             "id": str(u.id),

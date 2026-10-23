@@ -49,7 +49,7 @@
       },
       "AIToolPreferences": {
         "additionalProperties": false,
-        "description": "每用户的 AI 工具偏好，按 ML backend id 分桶。\n\n不同 backend 的 /setup.params schema 不同（gsam2 有 box/text_threshold，sam3 有\nscore_threshold 等），故按 backend id 各存一份，互不污染；多用户各自一份 preferences，\n天然隔离不打架。值为 /setup.params 对应的自由 dict，平台只做存取不强校验字段。\n\nv0.18.25 · 新增 model_by_backend：交互工具的引擎(模型)选择，同样按 backend 分桶。\n本子树为「深一层合并」(update_preferences)，故 params/model 两个子键可各自独立保存。",
+        "description": "每用户的 AI 工具偏好，按 ML backend id 分桶。\n\n不同 backend 的 /setup.params schema 不同（gsam2 有 box/text_threshold，sam3 有\nscore_threshold 等），故按 backend id 各存一份，互不污染；多用户各自一份 preferences，\n天然隔离不打架。值为 /setup.params 对应的自由 dict，平台只做存取不强校验字段。\n\n新增 model_by_backend：交互工具的引擎(模型)选择，同样按 backend 分桶。\n本子树为「深一层合并」(update_preferences)，故 params/model 两个子键可各自独立保存。",
         "properties": {
           "interactive_backend_by_project": {
             "additionalProperties": {
@@ -7940,7 +7940,7 @@
       },
       "CameraPanelState": {
         "additionalProperties": false,
-        "description": "v0.15.x · 3D 悬浮相机面板的位置 + 折叠态。按相机 role 分桶存。\n\n位置像素由前端按视图计算后落库;无该 role 键 = 用默认贴边位置 + 自动折叠态。",
+        "description": "3D 悬浮相机面板的位置 + 折叠态。按相机 role 分桶存。\n\n位置像素由前端按视图计算后落库;无该 role 键 = 用默认贴边位置 + 自动折叠态。",
         "properties": {
           "collapsed": {
             "default": false,
@@ -12004,7 +12004,7 @@
         "type": "object"
       },
       "DeactivationRequest": {
-        "description": "v0.8.1 · 自助注销申请：可附原因（≤500 字符）。",
+        "description": "自助注销申请，可附原因。",
         "properties": {
           "reason": {
             "anyOf": [
@@ -14847,7 +14847,7 @@
       },
       "FloatingPanelState": {
         "additionalProperties": false,
-        "description": "v0.13.10 · 工作台浮窗状态。像素默认由前端按窗口计算。",
+        "description": "工作台浮窗状态。像素默认由前端按窗口计算。",
         "properties": {
           "detached": {
             "default": false,
@@ -14908,7 +14908,7 @@
       },
       "FloatingSelectionState": {
         "additionalProperties": false,
-        "description": "v0.16.8 · 选中标注浮动信息卡的位置、尺寸与折叠态(跨设备)。\n\n与边栏浮窗不同,选中卡无「合并回边栏」语义,故只有 collapsed(无 detached);\n显隐由选中状态驱动,这里只持久化几何与折叠。尺寸界与 FloatingPanelState 一致。",
+        "description": "选中标注浮动信息卡的位置、尺寸与折叠态(跨设备)。\n\n与边栏浮窗不同,选中卡无「合并回边栏」语义,故只有 collapsed(无 detached);\n显隐由选中状态驱动,这里只持久化几何与折叠。尺寸界与 FloatingPanelState 一致。",
         "properties": {
           "collapsed": {
             "default": false,
@@ -18983,7 +18983,7 @@
       },
       "LabelContentByType": {
         "additionalProperties": false,
-        "description": "v0.16.7 · 标签内容按标注类型分段；class 三段恒显，不入表。\n\nsingle=图片手工框 / track=视频轨迹框 / ai=图片预测框，各段只列该类型有意义的字段。\n旧扁平 list 由 WorkbenchCommonPreferences 的 before validator 迁移为本结构。",
+        "description": "标签内容按标注类型分段；class 三段恒显，不入表。\n\nsingle=图片手工框 / track=视频轨迹框 / ai=图片预测框，各段只列该类型有意义的字段。\n旧扁平 list 由 WorkbenchCommonPreferences 的 before validator 迁移为本结构。",
         "properties": {
           "ai": {
             "items": {
@@ -28415,7 +28415,7 @@
       },
       "PointcloudCameraState": {
         "additionalProperties": false,
-        "description": "v0.15.x · 点云主视角快照。由前端 OrbitControls 写入/恢复。",
+        "description": "点云主视角快照。由前端 OrbitControls 写入/恢复。",
         "properties": {
           "mode": {
             "default": "orbit",
@@ -37674,7 +37674,7 @@
       },
       "ShortcutBinding": {
         "additionalProperties": false,
-        "description": "v0.24 · 单条结构化快捷键绑定。\n\n``key`` 是规范化的 ``KeyboardEvent.key``：单个字符（任意字符，如 ``/``）或\n小写命名键（如 ``arrowright``）。``modifiers`` 是显式修饰键集合，匹配时要求\n完全一致（``mod`` = 平台主修饰键，Ctrl/⌘）。",
+        "description": "单条结构化快捷键绑定。\n\n``key`` 是规范化的 ``KeyboardEvent.key``：单个字符（任意字符，如 ``/``）或\n小写命名键（如 ``arrowright``）。``modifiers`` 是显式修饰键集合，匹配时要求\n完全一致（``mod`` = 平台主修饰键，Ctrl/⌘）。",
         "properties": {
           "key": {
             "maxLength": 32,
@@ -45867,7 +45867,7 @@
       },
       "TriViewFloatState": {
         "additionalProperties": false,
-        "description": "v0.13.10 · 3D 三视图浮层位置、尺寸与折叠态。",
+        "description": "3D 三视图浮层位置、尺寸与折叠态。",
         "properties": {
           "collapsed": {
             "default": false,
@@ -45928,7 +45928,7 @@
       },
       "UIPreferences": {
         "additionalProperties": false,
-        "description": "v0.15.25 · 全局 UI 偏好（工作台之外）；跟随账号跨设备。\n\n主题原先只存 localStorage（仅本机），升级到服务端偏好后换设备登录即保持。\n'system' = 跟随操作系统 prefers-color-scheme。",
+        "description": "全局 UI 偏好（工作台之外）；跟随账号跨设备。\n\n主题原先只存 localStorage（仅本机），升级到服务端偏好后换设备登录即保持。\n'system' = 跟随操作系统 prefers-color-scheme。",
         "properties": {
           "changelog_seen_version": {
             "default": "",
@@ -50847,7 +50847,7 @@
       },
       "WorkbenchCommonPreferences": {
         "additionalProperties": false,
-        "description": "v0.15.3 · 跨模态通用偏好（性能观测等）。",
+        "description": "跨模态通用偏好（性能观测等）。",
         "properties": {
           "autoAdvanceOnDecide": {
             "default": true,
@@ -50990,7 +50990,7 @@
       },
       "WorkbenchImagePreferences": {
         "additionalProperties": false,
-        "description": "v0.15.3 · 图像模态偏好（2D 画布渲染 / 顶点手柄）。",
+        "description": "图像模态偏好（2D 画布渲染 / 顶点手柄）。",
         "properties": {
           "afterBoxCreate": {
             "default": "pick_class",
@@ -51244,7 +51244,7 @@
       },
       "WorkbenchPointcloudPreferences": {
         "additionalProperties": false,
-        "description": "v0.15.3 · 点云模态偏好。v0.15.6 填充渲染 / 导航字段（默认值 = 拆分前现状值）。",
+        "description": "点云模态偏好与渲染、导航字段。",
         "properties": {
           "cameraDamping": {
             "default": 0.1,
@@ -51347,7 +51347,7 @@
       },
       "WorkbenchPreferencesRead": {
         "additionalProperties": false,
-        "description": "Read shape with opaque fallbacks for rolling upgrades.\n\n``workspace`` keeps stored layout envelopes verbatim; ``shortcuts`` tolerates\ncorrupt or newer shortcut subtrees so one bad bucket cannot fail the whole\npreference GET. The route strips and re-inserts both around validation.",
+        "description": "Read shape with opaque fallbacks for rolling upgrades.\n\n``workspace`` keeps stored layout envelopes verbatim; ``shortcuts`` tolerates\ncorrupt or newer shortcut subtrees so one bad bucket cannot fail the whole\npreference GET. The portable policy restores both around strict validation.",
         "properties": {
           "common": {
             "$ref": "#/components/schemas/WorkbenchCommonPreferences"
@@ -51385,7 +51385,7 @@
       },
       "WorkbenchShortcutPreferences": {
         "additionalProperties": false,
-        "description": "v0.24 · 账号级快捷键覆盖。\n\n每个桶（common / image / video）将命令 ID 映射到该命令的完整组合列表：\n缺失或 ``null`` = 用默认组合；空列表 = 停用；非空列表（≤2 条，一主一备）=\n整体替换默认组合。PATCH 只提交变更的命令条目（深合并按命令生效）。",
+        "description": "账号级快捷键覆盖。\n\n每个桶（common / image / video）将命令 ID 映射到该命令的完整组合列表：\n缺失或 ``null`` = 用默认组合；空列表 = 停用；非空列表（≤2 条，一主一备）=\n整体替换默认组合。PATCH 只提交变更的命令条目（深合并按命令生效）。",
         "properties": {
           "common": {
             "additionalProperties": {
@@ -51450,7 +51450,7 @@
       },
       "WorkbenchVideoPreferences": {
         "additionalProperties": false,
-        "description": "v0.15.5 · 视频模态偏好（播放 / 步进）。",
+        "description": "视频模态偏好（播放 / 步进）。",
         "properties": {
           "autoFitOnResize": {
             "default": true,
@@ -55501,7 +55501,7 @@
     },
     "/api/v1/auth/invitations/accept": {
       "post": {
-        "description": "Explicitly attach an existing, matching account to an invitation project.",
+        "description": "Explicitly attach the matching account without changing its platform role.",
         "operationId": "accept_invitation_for_existing_user_api_v1_auth_invitations_accept_post",
         "requestBody": {
           "content": {
@@ -55746,7 +55746,7 @@
     },
     "/api/v1/auth/me/avatar": {
       "delete": {
-        "description": "恢复默认头像（= 回退首字母圆片）。",
+        "description": "恢复默认头像，回退到姓名首字母。",
         "operationId": "clear_avatar_api_v1_auth_me_avatar_delete",
         "responses": {
           "200": {
@@ -55771,7 +55771,7 @@
         ]
       },
       "patch": {
-        "description": "选择内置头像（``preset:<slug>``）或清除头像（``avatar_ref: null``）。\n\n``upload:`` 前缀一律拒绝,否则用户可以把别人的 token 挂到自己名下。",
+        "description": "选择内置头像或清除头像；上传引用只能由上传端点生成。",
         "operationId": "set_avatar_ref_api_v1_auth_me_avatar_patch",
         "requestBody": {
           "content": {
@@ -55816,7 +55816,7 @@
         ]
       },
       "post": {
-        "description": "上传自定义头像。\n\n服务端是唯一可信方:客户端声明的 MIME 只作早退,真实格式 / 像素规模由 Pillow 判定,\n产物统一为 256×256 方形 WebP 后写入 ``avatars`` 桶。请求体另有中间件级上限\n(``middleware/upload_body_limits``),此处再按文件字节复核一次。",
+        "description": "上传自定义头像，服务端校验真实图片并规范化为 256×256 WebP。\n\n头像引用提交成功后才清理旧上传对象；提交结果未知时保留新字节以便核对。",
         "operationId": "upload_avatar_api_v1_auth_me_avatar_post",
         "requestBody": {
           "content": {
@@ -55863,7 +55863,7 @@
     },
     "/api/v1/auth/me/deactivation-request": {
       "delete": {
-        "description": "v0.8.1 · 冷静期内撤销自助注销申请。",
+        "description": "冷静期内撤销自助注销申请。",
         "operationId": "cancel_self_deactivation_api_v1_auth_me_deactivation_request_delete",
         "responses": {
           "200": {
@@ -55888,7 +55888,7 @@
         ]
       },
       "post": {
-        "description": "v0.8.1 · 自助注销申请。7 天冷静期，期间可撤销。",
+        "description": "自助注销申请。七天冷静期，期间可撤销。",
         "operationId": "request_self_deactivation_api_v1_auth_me_deactivation_request_post",
         "requestBody": {
           "content": {
@@ -55935,7 +55935,7 @@
     },
     "/api/v1/auth/me/heartbeat": {
       "post": {
-        "description": "v0.8.3 · 在线状态心跳。\n\n前端每 30s 调一次（document.visibilityState === 'visible' 时），刷新\nlast_seen_at 与 status='online'。Celery beat `mark_inactive_offline` 任务\n据 last_seen_at 把超 OFFLINE_THRESHOLD_MINUTES 的用户置 offline。",
+        "description": "刷新在线心跳；既有调度任务按最后活跃时间执行离线判定。",
         "operationId": "heartbeat_api_v1_auth_me_heartbeat_post",
         "responses": {
           "204": {
@@ -55994,7 +55994,7 @@
     },
     "/api/v1/auth/me/preferences": {
       "get": {
-        "description": "v0.9.41 · 读取当前用户的标注偏好。空字段走 schema 默认值。",
+        "description": "读取当前账号偏好，未设置字段使用默认值，保留 opaque 工作区和快捷键。",
         "operationId": "get_preferences_api_v1_auth_me_preferences_get",
         "responses": {
           "200": {
@@ -56019,7 +56019,7 @@
         ]
       },
       "patch": {
-        "description": "锁定最新用户偏好后深合并 PATCH；workspace context 原子替换且禁止版本降级。\n\n入参收 raw dict：先过 legacy 平铺键提升器 + 移除键剥离器（均 v0.16 移除）再手动走\npydantic 校验，校验失败按 FastAPI 原生 422 形态抛出。",
+        "description": "在身份所有者事务内合并稀疏偏好并校验版本冲突。",
         "operationId": "update_preferences_api_v1_auth_me_preferences_patch",
         "requestBody": {
           "content": {
@@ -56118,7 +56118,7 @@
     },
     "/api/v1/auth/refresh": {
       "post": {
-        "description": "v0.8.8 · 用即将 / 已过期的 token 换新 token（grace 7 天）。\n\n返回 401 时前端应跳转登录页（grace 已过、被 logout、被 deactivate）。",
+        "description": "用有效或七天宽限内的 JWT 换取新 token；401 时应重新登录。",
         "operationId": "refresh_token_api_v1_auth_refresh_post",
         "responses": {
           "200": {
@@ -56285,7 +56285,7 @@
     },
     "/api/v1/auth/send-verification-email": {
       "post": {
-        "description": "v0.12.0 · 重发验证邮件。无论邮箱是否存在 / 已验证都返回 202（防枚举）。",
+        "description": "持久受理验证邮件投递，响应不等待 SMTP。",
         "operationId": "send_verification_email_endpoint_api_v1_auth_send_verification_email_post",
         "requestBody": {
           "content": {
@@ -56325,7 +56325,7 @@
     },
     "/api/v1/auth/verify-email": {
       "post": {
-        "description": "v0.12.0 · 消费验证 token，置 email_verified_at。",
+        "description": "在身份所有者事务中单次消费验证链接并记录审计。",
         "operationId": "verify_email_api_v1_auth_verify_email_post",
         "requestBody": {
           "content": {
@@ -61428,7 +61428,7 @@
     },
     "/api/v1/invitations/{invitation_id}/send-email": {
       "post": {
-        "description": "Send an existing invitation; the link and token are never rotated.",
+        "description": "Await the durable sender without holding a business transaction open.",
         "operationId": "send_invitation_email_endpoint_api_v1_invitations__invitation_id__send_email_post",
         "parameters": [
           {
@@ -86010,7 +86010,7 @@
     },
     "/api/v1/users/stats": {
       "get": {
-        "description": "v0.8.3 · UsersPage 顶部 4 卡之「本周活跃」与状态聚合。\n\nweekly_active 基于 last_seen_at >= now-7d，比旧的 status==online 更准确\n（旧逻辑只反映瞬时在线状态）。",
+        "description": "用户目录筛选统计，按最近七天活动时间聚合。",
         "operationId": "users_stats_api_v1_users_stats_get",
         "parameters": [
           {
@@ -86131,7 +86131,7 @@
     },
     "/api/v1/users/{user_id}": {
       "delete": {
-        "description": "软删除（is_active=False）。super_admin 可删任意（除自己/最后一名超管）；\nproject_admin 可删启用的标注员/审核员，但目标的派生项目（成员、批次、\n任务、锁、名下项目）一旦出现在其他人的项目里（跨项目交接需上级处理）\n则拒绝；未分配账号无项目归属，可直接删除。\n\n若 target 仍持有未完成任务（assignee_id + status in pending/in_progress/review）或 task_lock，\n返回 409，要求传入 `transfer_to_user_id`；前端弹\"先转交\"二次 Modal。\nproject_admin 的转交接收人必须是每个待转交任务所在项目的成员。",
+        "description": "Soft-delete with current manager authority and the existing task handoff rules.",
         "operationId": "delete_user_api_v1_users__user_id__delete",
         "parameters": [
           {
@@ -86244,6 +86244,7 @@
     },
     "/api/v1/users/{user_id}/deactivate": {
       "post": {
+        "description": "Suspend an account with current manager authority and retained reservations.",
         "operationId": "deactivate_user_api_v1_users__user_id__deactivate_post",
         "parameters": [
           {
@@ -86456,7 +86457,7 @@
     },
     "/api/v1/users/{user_id}/reactivate": {
       "post": {
-        "description": "Reactivate only an explicitly suspended account.",
+        "description": "Reactivate a suspended account and retire its previous credentials.",
         "operationId": "reactivate_user_api_v1_users__user_id__reactivate_post",
         "parameters": [
           {
@@ -86522,7 +86523,7 @@
     },
     "/api/v1/users/{user_id}/role": {
       "patch": {
-        "description": "Platform-role mutation.  Super administrator only (plan AUTH-04).\n\nA platform-role edit never cascades into any project's membership; project\nresponsibility is changed through the project member role endpoints.",
+        "description": "Change a platform role while preserving existing project responsibilities.\n\nA platform-role edit never cascades into any project's membership; project\nresponsibility is changed through the project member role endpoints.",
         "operationId": "change_user_role_api_v1_users__user_id__role_patch",
         "parameters": [
           {
@@ -86580,7 +86581,7 @@
     },
     "/api/v1/users/{user_id}/role/preview": {
       "get": {
-        "description": "Platform-role preview.  Super administrator only (plan AUTH-04).",
+        "description": "Preview a platform-role change with current project and work blockers.",
         "operationId": "preview_user_role_change_api_v1_users__user_id__role_preview_get",
         "parameters": [
           {

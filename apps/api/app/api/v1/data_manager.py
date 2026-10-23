@@ -14,7 +14,6 @@ from app.deps import (
     require_project_visible,
 )
 from app.db.models.task import Task
-from app.db.models.user import User
 from app.services.workspace_contract import (
     ProjectAccess,
     ProjectCapability,
@@ -62,6 +61,7 @@ from app.services.audit import AuditService
 from app.services.exporting.packaging import clean_export_targets
 from app.services.data_management.task_filters import visible_tasks_stmt
 from app.workers.export import run_export
+from app.services.identity_contracts import IdentityActorFacts
 
 
 router = APIRouter()
@@ -76,7 +76,7 @@ async def preview_data_manager_task_assignment(
     payload: DataManagerTaskAssignmentRequest,
     project=Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(get_current_user),
+    actor: IdentityActorFacts = Depends(get_current_user),
 ):
     del project
     return await LabelingTaskAssignmentService(db).preview_assignment(
@@ -96,7 +96,7 @@ async def apply_data_manager_task_assignment(
     request: Request,
     project=Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(get_current_user),
+    actor: IdentityActorFacts = Depends(get_current_user),
 ):
     del project
     result = await LabelingTaskAssignmentService(db).apply_assignment(
@@ -130,7 +130,7 @@ async def export_data_manager_tasks(
     request: Request,
     project=Depends(require_project_visible),
     db: AsyncSession = Depends(get_db),
-    actor: User = Depends(get_current_user),
+    actor: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(
         require_project_capability(ProjectCapability.EXPORT_ANNOTATIONS.value)
     ),
@@ -291,7 +291,7 @@ async def get_data_manager_schema(
     project_id: uuid.UUID,
     entity_scope: DataManagerEntityScope = Query(default="tasks"),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     project = await assert_project_visible(project_id, db, user.id)
     return build_data_manager_schema(project, entity_scope)
@@ -305,7 +305,7 @@ async def get_data_manager_summary(
     project_id: uuid.UUID,
     payload: DataManagerSummaryRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     project = await assert_project_visible(project_id, db, user.id)
     access = await resolve_project_access(db, actor_id=user.id, project=project)
@@ -328,7 +328,7 @@ async def get_data_manager_matches(
     task_id: uuid.UUID,
     payload: DataManagerMatchesRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     project = await assert_project_visible(project_id, db, user.id)
     access = await resolve_project_access(db, actor_id=user.id, project=project)
@@ -353,7 +353,7 @@ async def query_data_manager_objects(
     project_id: uuid.UUID,
     payload: DataManagerEntityQueryRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     project = await assert_project_visible(project_id, db, user.id)
     access = await resolve_project_access(db, actor_id=user.id, project=project)
@@ -381,7 +381,7 @@ async def get_data_manager_object_location(
     project_id: uuid.UUID,
     annotation_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     project = await assert_project_visible(project_id, db, user.id)
     return await DataManagerObjectService(db).location(
@@ -400,7 +400,7 @@ async def get_data_manager_object_detail(
     project_id: uuid.UUID,
     annotation_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     project = await assert_project_visible(project_id, db, user.id)
     access = await resolve_project_access(db, actor_id=user.id, project=project)
@@ -421,7 +421,7 @@ async def query_data_manager_tracks(
     project_id: uuid.UUID,
     payload: DataManagerEntityQueryRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     project = await assert_project_visible(project_id, db, user.id)
     access = await resolve_project_access(db, actor_id=user.id, project=project)
@@ -449,7 +449,7 @@ async def get_data_manager_track_detail(
     project_id: uuid.UUID,
     track_ref: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     project = await assert_project_visible(project_id, db, user.id)
     access = await resolve_project_access(db, actor_id=user.id, project=project)

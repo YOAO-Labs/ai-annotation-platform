@@ -1,0 +1,280 @@
+{
+  "$defs": {
+    "Action": {
+      "enum": [
+        "begin",
+        "backend",
+        "source_pool",
+        "video_annotations",
+        "video_trackers",
+        "video_items",
+        "video_media",
+        "task_count",
+        "lock_config",
+        "datasets",
+        "dataset_scenes",
+        "authority",
+        "allocate",
+        "insert",
+        "enable_backend",
+        "binding",
+        "update",
+        "delete",
+        "finish"
+      ],
+      "type": "string"
+    },
+    "ConfigurationError": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {},
+        "headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rollback": {
+          "type": "boolean"
+        },
+        "status_code": {
+          "maximum": 599,
+          "minimum": 400,
+          "type": "integer"
+        }
+      },
+      "required": ["status_code", "detail", "headers", "rollback"],
+      "type": "object"
+    },
+    "ConfigurationFailure": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/Action"
+        },
+        "error": {
+          "$ref": "#/$defs/ConfigurationError"
+        },
+        "ok": {
+          "const": false,
+          "type": "boolean"
+        },
+        "operation": {
+          "$ref": "#/$defs/Operation"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-workspace-configuration/v1",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation_id", "operation", "action", "ok", "error"],
+      "type": "object"
+    },
+    "ConfigurationPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-configuration/v1",
+          "type": "string"
+        }
+      },
+      "required": ["schema"],
+      "type": "object"
+    },
+    "ConfigurationRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "operation": {
+          "$ref": "#/$defs/Operation"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "payload_ascii": {
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-workspace-configuration/v1",
+          "type": "string"
+        },
+        "selectors": {
+          "$ref": "#/$defs/Selectors"
+        },
+        "target_id": {
+          "$ref": "#/$defs/NullableUuid"
+        }
+      },
+      "required": [
+        "schema",
+        "operation_id",
+        "operation",
+        "actor_id",
+        "target_id",
+        "selectors",
+        "payload_ascii"
+      ],
+      "type": "object"
+    },
+    "ConfigurationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "resource_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "template_id": {
+          "$ref": "#/$defs/NullableUuid"
+        }
+      },
+      "required": ["resource_id", "template_id"],
+      "type": "object"
+    },
+    "ConfigurationStepFacts": {
+      "additionalProperties": true,
+      "description": "Action-specific, owner-produced snapshots and facts.",
+      "type": "object"
+    },
+    "ConfigurationSuccess": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/Action"
+        },
+        "facts": {
+          "$ref": "#/$defs/ConfigurationStepFacts"
+        },
+        "ok": {
+          "const": true,
+          "type": "boolean"
+        },
+        "operation": {
+          "$ref": "#/$defs/Operation"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "schema": {
+          "const": "aap-workspace-configuration/v1",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation_id", "operation", "action", "ok", "facts"],
+      "type": "object"
+    },
+    "NullableUuid": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "Operation": {
+      "enum": [
+        "create_project",
+        "update_project",
+        "create_template",
+        "update_template",
+        "delete_template",
+        "duplicate_template"
+      ],
+      "type": "string"
+    },
+    "Selectors": {
+      "additionalProperties": false,
+      "properties": {
+        "ml_backend_id": {
+          "$ref": "#/$defs/NullableUuid"
+        },
+        "ml_backend_present": {
+          "type": "boolean"
+        },
+        "ml_backend_source_id": {
+          "$ref": "#/$defs/NullableUuid"
+        },
+        "organization_id": {
+          "$ref": "#/$defs/NullableUuid"
+        },
+        "organization_present": {
+          "type": "boolean"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "enum": ["private", "organization", "public"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scope_present": {
+          "type": "boolean"
+        },
+        "source_project_id": {
+          "$ref": "#/$defs/NullableUuid"
+        },
+        "template_id": {
+          "$ref": "#/$defs/NullableUuid"
+        }
+      },
+      "required": [
+        "source_project_id",
+        "template_id",
+        "ml_backend_source_id",
+        "ml_backend_id",
+        "ml_backend_present",
+        "scope",
+        "scope_present",
+        "organization_id",
+        "organization_present"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "aap-workspace-configuration/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/ConfigurationPolicy"
+    },
+    {
+      "$ref": "#/$defs/ConfigurationRequest"
+    },
+    {
+      "$ref": "#/$defs/ConfigurationSuccess"
+    },
+    {
+      "$ref": "#/$defs/ConfigurationFailure"
+    },
+    {
+      "$ref": "#/$defs/ConfigurationResult"
+    }
+  ],
+  "$comment": "Workspace owns the six project/template configuration writes. All domain-owned reads and effects use typed capabilities; the API LOGIN is intended to receive only configuration_policy() and configuration_step(...).",
+  "x-postgresql-functions": [
+    "aap_workspace_configuration_v1.configuration_policy()",
+    "aap_workspace_configuration_v1.configuration_step(jsonb,text,jsonb,text[],text[])"
+  ]
+}

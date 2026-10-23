@@ -1,0 +1,827 @@
+{
+  "$defs": {
+    "CreateKeyPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_in_days": {
+          "anyOf": [
+            {
+              "maximum": 3650,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires In Days"
+        },
+        "name": {
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array"
+        }
+      },
+      "required": ["name"],
+      "title": "CreateKeyPayload",
+      "type": "object"
+    },
+    "CreateKeyReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/KeyCreatedData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "create_api_key",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
+        },
+        "schema": {
+          "const": "aap-identity-keys/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "principal", "operation", "data"],
+      "title": "CreateKeyReply",
+      "type": "object"
+    },
+    "CreateKeyRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "create_api_key",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/CreateKeyPayload"
+        },
+        "schema": {
+          "const": "aap-identity-keys/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "token": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "title": "Token",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation_id", "token", "operation", "payload"],
+      "title": "CreateKeyRequest",
+      "type": "object"
+    },
+    "EmptyPayload": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "EmptyPayload",
+      "type": "object"
+    },
+    "KeyCreatedData": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/KeyRecord"
+        },
+        "plaintext": {
+          "pattern": "^ak_[A-Za-z0-9_-]{32}$",
+          "title": "Plaintext",
+          "type": "string"
+        }
+      },
+      "required": ["key", "plaintext"],
+      "title": "KeyCreatedData",
+      "type": "object"
+    },
+    "KeyFailureDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "enum": [
+                "invalid_request",
+                "credential_invalid",
+                "credential_revoked",
+                "generation_outdated",
+                "token_expired",
+                "user_inactive",
+                "invalid_account_role",
+                "credential_busy"
+              ],
+              "type": "string"
+            },
+            {
+              "enum": ["key_not_found", "key_busy", "operation_conflict"],
+              "type": "string"
+            }
+          ],
+          "title": "Code"
+        }
+      },
+      "required": ["code"],
+      "title": "KeyFailureDetail",
+      "type": "object"
+    },
+    "KeyFailureReply": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/KeyFailureDetail"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "schema": {
+          "const": "aap-identity-keys/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "error"],
+      "title": "KeyFailureReply",
+      "type": "object"
+    },
+    "KeyListData": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/KeyRecord"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": ["items"],
+      "title": "KeyListData",
+      "type": "object"
+    },
+    "KeyPatch": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_in_days": {
+          "anyOf": [
+            {
+              "maximum": 3650,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires In Days"
+        },
+        "name": {
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array"
+        }
+      },
+      "title": "KeyPatch",
+      "type": "object"
+    },
+    "KeyRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "key_prefix": {
+          "pattern": "^ak_[A-Za-z0-9_-]{9}$",
+          "title": "Key Prefix",
+          "type": "string"
+        },
+        "last_used_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Used At"
+        },
+        "name": {
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "revoked_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Revoked At"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "key_prefix",
+        "scopes",
+        "expires_at",
+        "last_used_at",
+        "revoked_at",
+        "created_at"
+      ],
+      "title": "KeyRecord",
+      "type": "object"
+    },
+    "KeyRecordData": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/KeyRecord"
+        }
+      },
+      "required": ["key"],
+      "title": "KeyRecordData",
+      "type": "object"
+    },
+    "KeyRevokedData": {
+      "additionalProperties": false,
+      "properties": {
+        "key_id": {
+          "format": "uuid",
+          "title": "Key Id",
+          "type": "string"
+        },
+        "revoked": {
+          "const": true,
+          "title": "Revoked",
+          "type": "boolean"
+        }
+      },
+      "required": ["key_id", "revoked"],
+      "title": "KeyRevokedData",
+      "type": "object"
+    },
+    "ListKeyReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/KeyListData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "list_api_keys",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
+        },
+        "schema": {
+          "const": "aap-identity-keys/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "principal", "operation", "data"],
+      "title": "ListKeyReply",
+      "type": "object"
+    },
+    "ListKeyRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "list_api_keys",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/EmptyPayload"
+        },
+        "schema": {
+          "const": "aap-identity-keys/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "token": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "title": "Token",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation_id", "token", "operation", "payload"],
+      "title": "ListKeyRequest",
+      "type": "object"
+    },
+    "Principal": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "credential_type": {
+                  "const": "jwt"
+                },
+                "expires_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "generation": {
+                  "exclusiveMaximum": 9223372036854775808,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "scopes": {
+                  "type": "null"
+                }
+              }
+            },
+            {
+              "properties": {
+                "credential_type": {
+                  "const": "api_key"
+                },
+                "generation": {
+                  "type": "null"
+                },
+                "scopes": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "credential_id": {
+          "format": "uuid",
+          "title": "Credential Id",
+          "type": "string"
+        },
+        "credential_type": {
+          "enum": ["jwt", "api_key"],
+          "title": "Credential Type",
+          "type": "string"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 9223372036854775808,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Generation"
+        },
+        "is_active": {
+          "const": true,
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "enum": ["super_admin", "project_admin", "employee", "viewer"],
+          "title": "Role",
+          "type": "string"
+        },
+        "scopes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Scopes"
+        }
+      },
+      "required": [
+        "actor_id",
+        "name",
+        "email",
+        "role",
+        "is_active",
+        "credential_type",
+        "credential_id",
+        "generation",
+        "scopes",
+        "expires_at"
+      ],
+      "title": "Principal",
+      "type": "object"
+    },
+    "RevokeKeyReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/KeyRevokedData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "revoke_api_key",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
+        },
+        "schema": {
+          "const": "aap-identity-keys/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "principal", "operation", "data"],
+      "title": "RevokeKeyReply",
+      "type": "object"
+    },
+    "RevokeKeyRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "revoke_api_key",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/TargetKeyPayload"
+        },
+        "schema": {
+          "const": "aap-identity-keys/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "token": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "title": "Token",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation_id", "token", "operation", "payload"],
+      "title": "RevokeKeyRequest",
+      "type": "object"
+    },
+    "RotateKeyReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/KeyCreatedData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "rotate_api_key",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
+        },
+        "schema": {
+          "const": "aap-identity-keys/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "principal", "operation", "data"],
+      "title": "RotateKeyReply",
+      "type": "object"
+    },
+    "RotateKeyRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "rotate_api_key",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/TargetKeyPayload"
+        },
+        "schema": {
+          "const": "aap-identity-keys/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "token": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "title": "Token",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation_id", "token", "operation", "payload"],
+      "title": "RotateKeyRequest",
+      "type": "object"
+    },
+    "TargetKeyPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "key_id": {
+          "format": "uuid",
+          "title": "Key Id",
+          "type": "string"
+        }
+      },
+      "required": ["key_id"],
+      "title": "TargetKeyPayload",
+      "type": "object"
+    },
+    "UpdateKeyPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "key_id": {
+          "format": "uuid",
+          "title": "Key Id",
+          "type": "string"
+        },
+        "patch": {
+          "$ref": "#/$defs/KeyPatch"
+        }
+      },
+      "required": ["key_id", "patch"],
+      "title": "UpdateKeyPayload",
+      "type": "object"
+    },
+    "UpdateKeyReply": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/KeyRecordData"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "update_api_key",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
+        },
+        "schema": {
+          "const": "aap-identity-keys/v1",
+          "title": "Schema",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "ok", "operation_id", "principal", "operation", "data"],
+      "title": "UpdateKeyReply",
+      "type": "object"
+    },
+    "UpdateKeyRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "update_api_key",
+          "title": "Operation",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/UpdateKeyPayload"
+        },
+        "schema": {
+          "const": "aap-identity-keys/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "token": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "title": "Token",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "operation_id", "token", "operation", "payload"],
+      "title": "UpdateKeyRequest",
+      "type": "object"
+    }
+  },
+  "$id": "aap-identity-keys/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "discriminator": {
+        "mapping": {
+          "create_api_key": "#/$defs/CreateKeyRequest",
+          "list_api_keys": "#/$defs/ListKeyRequest",
+          "revoke_api_key": "#/$defs/RevokeKeyRequest",
+          "rotate_api_key": "#/$defs/RotateKeyRequest",
+          "update_api_key": "#/$defs/UpdateKeyRequest"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ListKeyRequest"
+        },
+        {
+          "$ref": "#/$defs/CreateKeyRequest"
+        },
+        {
+          "$ref": "#/$defs/UpdateKeyRequest"
+        },
+        {
+          "$ref": "#/$defs/RotateKeyRequest"
+        },
+        {
+          "$ref": "#/$defs/RevokeKeyRequest"
+        }
+      ]
+    },
+    {
+      "discriminator": {
+        "mapping": {
+          "create_api_key": "#/$defs/CreateKeyReply",
+          "list_api_keys": "#/$defs/ListKeyReply",
+          "revoke_api_key": "#/$defs/RevokeKeyReply",
+          "rotate_api_key": "#/$defs/RotateKeyReply",
+          "update_api_key": "#/$defs/UpdateKeyReply"
+        },
+        "propertyName": "operation"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ListKeyReply"
+        },
+        {
+          "$ref": "#/$defs/CreateKeyReply"
+        },
+        {
+          "$ref": "#/$defs/UpdateKeyReply"
+        },
+        {
+          "$ref": "#/$defs/RotateKeyReply"
+        },
+        {
+          "$ref": "#/$defs/RevokeKeyReply"
+        }
+      ]
+    },
+    {
+      "$ref": "#/$defs/KeyFailureReply"
+    }
+  ]
+}

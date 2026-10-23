@@ -20,6 +20,7 @@ from app.services.annotation_create_contract import (
 from app.services.audit import AuditAction, AuditService
 from app.services.raster_mask_storage import _VerifiedMaskContent
 from app.services.video_collaboration import heartbeat_task_lock_for_legacy_video
+from app.services.identity_contracts import IdentityActorFacts
 
 
 class _AnnotationCreateSqlAdapter(AnnotationCreatePort):
@@ -30,7 +31,7 @@ class _AnnotationCreateSqlAdapter(AnnotationCreatePort):
         db: AsyncSession,
         *,
         task: Task,
-        actor: User,
+        actor: User | IdentityActorFacts,
         verified_mask_content: _VerifiedMaskContent | None = None,
     ) -> None:
         self.db = db

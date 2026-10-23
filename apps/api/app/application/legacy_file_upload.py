@@ -22,7 +22,7 @@ from aap_assets_source_runtime.image_admission import (
 
 from app.application.task_workflow_errors import TaskWorkflowError
 from app.application.task_workflow_locks import lock_current_task_target
-from app.db.models.user import User
+from app.services.identity_account_lock_data import IdentityAccountLockData
 
 from app.services.labeling_tasks import (
     LabelingTaskService,
@@ -98,7 +98,7 @@ class LegacyFileUploadWorkflow:
             except ProjectWritePolicyFailure as exc:
                 restore_project_write_policy_failure(exc)
         else:
-            actor = await self.db.get(User, actor_id)
+            actor = await IdentityAccountLockData(self.db).read_actor_status(actor_id)
             if actor is None:
                 raise HTTPException(
                     status_code=401,

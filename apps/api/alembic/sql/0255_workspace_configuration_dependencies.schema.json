@@ -1,0 +1,159 @@
+{
+  "$defs": {
+    "IdentityWorkspaceConfigurationOrgScope": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-identity-workspace-configuration/v1",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "organization_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "visible": {
+          "type": "boolean"
+        }
+      },
+      "required": ["schema", "actor_id", "organization_id", "visible"],
+      "type": "object"
+    },
+    "AssetsWorkspaceConfigurationDataset": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "display_id": {
+          "type": "string"
+        },
+        "data_type": {
+          "type": "string"
+        },
+        "has_scenes": {
+          "type": "boolean"
+        }
+      },
+      "required": ["id", "display_id", "data_type", "has_scenes"],
+      "type": "object"
+    },
+    "AssetsWorkspaceConfigurationDatasets": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-assets-workspace-configuration/v1",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "datasets": {
+          "items": {
+            "$ref": "#/$defs/AssetsWorkspaceConfigurationDataset"
+          },
+          "type": "array"
+        }
+      },
+      "required": ["schema", "project_id", "datasets"],
+      "type": "object"
+    },
+    "LabelingWorkspaceConfigurationVideoFacts": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-labeling-workspace-configuration/v1",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "annotation_count": {
+          "minimum": 0,
+          "type": "integer",
+          "maximum": 9223372036854775807
+        },
+        "active_tracker_count": {
+          "minimum": 0,
+          "type": "integer",
+          "maximum": 9223372036854775807
+        },
+        "dataset_item_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema",
+        "project_id",
+        "annotation_count",
+        "active_tracker_count",
+        "dataset_item_ids"
+      ],
+      "type": "object"
+    },
+    "InferenceWorkspaceConfigurationBackend": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-inference-workspace-configuration/v1",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "registry_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "pool_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["schema", "project_id", "registry_id", "pool_id"],
+      "type": "object"
+    }
+  },
+  "$id": "aap-workspace-configuration-dependencies/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/IdentityWorkspaceConfigurationOrgScope"
+    },
+    {
+      "$ref": "#/$defs/AssetsWorkspaceConfigurationDatasets"
+    },
+    {
+      "$ref": "#/$defs/LabelingWorkspaceConfigurationVideoFacts"
+    },
+    {
+      "$ref": "#/$defs/InferenceWorkspaceConfigurationBackend"
+    }
+  ],
+  "$comment": "All functions require non-null UUID arguments. Read functions are stable, lock-free projections. The inference function performs the legacy enable operation in the caller transaction; missing pool returns null without writes.",
+  "x-postgresql-functions": [
+    "aap_assets_v1.workspace_configuration_datasets(uuid)",
+    "aap_identity_v1.workspace_configuration_org_scope(uuid, uuid)",
+    "aap_inference_v1.enable_workspace_project_backend(uuid, uuid)",
+    "aap_labeling_v1.workspace_configuration_video_facts(uuid)"
+  ]
+}

@@ -12,7 +12,6 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJob
-from app.db.models.api_key import ApiKey
 from app.db.models.project import Project
 from app.db.models.task_batch import TaskBatch
 from app.db.models.training_dataset import TrainingDatasetVersion
@@ -20,6 +19,8 @@ from app.db.models.user import User
 from app.schemas.training_dataset import TrainingDatasetCreate, TrainingDatasetSelection
 from app.services import async_job as jobs
 from app.services import project_task_dataset as task_datasets
+from app.services.identity_contracts import IdentityActorFacts
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.async_job_notify import notify_job_terminal
 from app.services.async_job_terminal import JobTerminal
 from app.services.project_access import resolve_project_access
@@ -105,8 +106,7 @@ class SqlTrainingAuthority(TrainingAuthorityPort):
             raise TrainingDatasetError(
                 "authority_revoked", "数据版本创建者已不存在", status_code=403
             )
-        await lock_actor_project_authority(self._db, actor_id, project_id)
-        actor = await self._db.get(User, actor_id, populate_existing=True)
+        actor = await lock_actor_project_authority(self._db, actor_id, project_id)
         project = await self._db.get(Project, project_id, populate_existing=True)
         if actor is None or project is None:
             raise TrainingDatasetError(
@@ -125,20 +125,8 @@ class SqlTrainingAuthority(TrainingAuthorityPort):
                 "authority_revoked", "数据版本创建权限已撤销", status_code=403
             )
         if api_key_id:
-            key = (
-                await self._db.execute(
-                    select(ApiKey)
-                    .where(ApiKey.id == uuid.UUID(api_key_id))
-                    .with_for_update(read=True)
-                    .execution_options(populate_existing=True)
-                )
-            ).scalar_one_or_none()
-            if (
-                key is None
-                or key.user_id != actor.id
-                or key.revoked_at
-                or (key.expires_at and key.expires_at <= datetime.now(timezone.utc))
-                or ("*" not in key.scopes and not required_scopes <= set(key.scopes))
+            if not await IdentityAccountLockData(self._db).accepted_api_key_authorized(
+                actor.id, uuid.UUID(api_key_id), required_scopes
             ):
                 raise TrainingDatasetError(
                     "api_key_revoked", "训练数据请求的 API Key 已失效", status_code=403
@@ -369,7 +357,7 @@ async def freeze_selection(
 async def create_version(
     db: AsyncSession,
     project: Project,
-    user: User,
+    user: User | IdentityActorFacts,
     body: TrainingDatasetCreate,
     *,
     api_key_id: str | None,

@@ -30,11 +30,12 @@ from app.schemas.dashboard import (
 )
 from app.services.user_brief import resolve_briefs_with_project_role
 from app.services.video_poster_references import video_poster_urls
+from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
 
-def _visible_project_clause(user: User):
+def _visible_project_clause(user: User | IdentityActorFacts):
     """Reviewer scope: reviewer memberships plus legitimately managed projects.
 
     A super administrator sees every project.  An employee who reviews in B but
@@ -44,7 +45,7 @@ def _visible_project_clause(user: User):
     return project_scope_clause(user, Project.id, project_roles=(REVIEWER_ROLE,))
 
 
-def _reviewable_claim_clause(user: User):
+def _reviewable_claim_clause(user: User | IdentityActorFacts):
     """Actual actionable-review visibility plus the "do not steal a claim" rule.
 
     Project authority is applied separately by ``_visible_project_clause``.  A
@@ -82,7 +83,9 @@ def _reviewable_claim_clause(user: User):
 @router.get("/reviewer", response_model=ReviewerDashboardStats)
 async def reviewer_dashboard(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*DASHBOARD_PLATFORM_ROLES)),
+    current_user: IdentityActorFacts = Depends(
+        require_roles(*DASHBOARD_PLATFORM_ROLES)
+    ),
 ):
     project_scope = _visible_project_clause(current_user)
     claim_scope = _reviewable_claim_clause(current_user)
@@ -466,7 +469,9 @@ async def reviewer_dashboard(
 @router.get("/reviewer/today-mini", response_model=ReviewerMiniStats)
 async def reviewer_today_mini(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*DASHBOARD_PLATFORM_ROLES)),
+    current_user: IdentityActorFacts = Depends(
+        require_roles(*DASHBOARD_PLATFORM_ROLES)
+    ),
 ):
     """v0.8.7 F5.3 · ReviewWorkbench 右侧栏 mini 仪表轻量端点。
 
@@ -524,7 +529,9 @@ async def reviewer_today_mini(
 async def my_recent_reviews(
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(*DASHBOARD_PLATFORM_ROLES)),
+    current_user: IdentityActorFacts = Depends(
+        require_roles(*DASHBOARD_PLATFORM_ROLES)
+    ),
 ):
     """v0.6.6 · 当前 reviewer 最近审核过的任务（已 approve / reject 落定的）。
 

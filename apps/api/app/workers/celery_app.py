@@ -13,6 +13,9 @@ celery_app = Celery(
         "app.workers.media",
         "app.workers.image_pyramid",
         "app.workers.dataset_import_delivery",
+        "app.workers.identity_mail_delivery",
+        "app.workers.identity_mail_v2_delivery",
+        "app.workers.notification_delivery",
         "app.workers.cleanup",
         "app.workers.audit",
         "app.workers.deactivation",
@@ -69,6 +72,12 @@ celery_app.conf.update(
     # 队列堆积、永不执行。收口到 default 让兜底任务真正跑起来。
     task_default_queue="default",
     task_routes={
+        "app.workers.identity_mail_delivery.relay_credential_mail": {
+            "queue": "default"
+        },
+        "app.workers.identity_mail_v2_delivery.relay_invitation_mail": {
+            "queue": "default"
+        },
         "app.workers.tasks.batch_predict": {"queue": "ml"},
         # v0.21.7 · 逐帧段任务跑 GPU predict → ml 队列; finalize 轻量走 default。
         "app.workers.frame_preannotate.predict_video_segment": {"queue": "ml"},
@@ -130,6 +139,10 @@ celery_app.conf.update(
         "app.workers.cross_frame_job.run_cross_frame_job": {"queue": "default"},
         # v0.7.6 · audit 异步 INSERT 走独立队列，不与 ml/media 抢资源
         "app.workers.audit.persist_audit_entry": {"queue": "audit"},
+        "app.workers.deactivation.process_deactivation_requests": {"queue": "default"},
+        "app.workers.notification_delivery.relay_identity_notifications": {
+            "queue": "default"
+        },
         # v0.8.4 · task_events 批量 INSERT 走独立队列
         "app.workers.task_events.persist_task_events_batch": {"queue": "audit"},
         # Owner-required tasks have a dedicated queue, separate from ordinary workers.
@@ -157,6 +170,18 @@ celery_app.conf.update(
     # v0.7.0：beat schedule。运维侧需 deploy `celery -A app.workers.celery_app beat` 进程
     # （或 worker --beat 单进程模式）才会触发。
     beat_schedule={
+        "relay-credential-mail": {
+            "task": "app.workers.identity_mail_delivery.relay_credential_mail",
+            "schedule": timedelta(seconds=10),
+        },
+        "relay-invitation-mail": {
+            "task": "app.workers.identity_mail_v2_delivery.relay_invitation_mail",
+            "schedule": timedelta(seconds=10),
+        },
+        "relay-identity-notifications": {
+            "task": "app.workers.notification_delivery.relay_identity_notifications",
+            "schedule": timedelta(seconds=10),
+        },
         "relay-prediction-retry-deliveries": {
             "task": "app.workers.predictions_retry.relay_prediction_retry_deliveries",
             "schedule": timedelta(seconds=10),

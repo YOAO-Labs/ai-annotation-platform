@@ -1,0 +1,416 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-inference-pipelines/v1",
+  "title": "Inference named pipeline NativeSQL protocol",
+  "description": "Fixed Inference-owned data capabilities for named pipeline queries, authority bridges, writes, and immutable command receipts. Policy and step are the only public client functions.",
+  "oneOf": [
+    { "$ref": "#/$defs/PipelineCommandRequest" },
+    { "$ref": "#/$defs/PipelineQueryRequest" },
+    { "$ref": "#/$defs/PipelineStatusRequest" },
+    { "$ref": "#/$defs/PipelineStepSuccess" },
+    { "$ref": "#/$defs/PipelineStepFailure" },
+    { "$ref": "#/$defs/PipelinePolicy" }
+  ],
+  "$defs": {
+    "Uuid": { "type": "string", "format": "uuid" },
+    "PipelineActor": {
+      "type": "object",
+      "required": ["id", "role"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Uuid" },
+        "role": {
+          "type": "string",
+          "description": "Trusted admitted Identity role snapshot; Native preserves historical role tokens without adding a new enum."
+        }
+      },
+      "additionalProperties": false
+    },
+    "PipelineCommandRequest": {
+      "type": "object",
+      "required": [
+        "schema",
+        "operation_id",
+        "operation",
+        "admitted_actor",
+        "target_id",
+        "payload_ascii"
+      ],
+      "properties": {
+        "schema": { "const": "aap-inference-pipelines/v1" },
+        "operation_id": { "$ref": "#/$defs/Uuid" },
+        "operation": {
+          "enum": ["create_pipeline", "update_pipeline", "delete_pipeline", "apply_pipeline"]
+        },
+        "admitted_actor": { "$ref": "#/$defs/PipelineActor" },
+        "target_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/Uuid" }] },
+        "payload_ascii": {
+          "type": "string",
+          "maxLength": 16777216,
+          "description": "Opaque ASCII JSON object text. Native SQL fingerprints it without parsing it into JSONB."
+        }
+      },
+      "additionalProperties": false
+    },
+    "PipelineFilters": {
+      "type": "object",
+      "required": ["scope", "project_id", "organization_id"],
+      "properties": {
+        "scope": {
+          "oneOf": [{ "type": "null" }, { "enum": ["private", "organization", "public"] }]
+        },
+        "project_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/Uuid" }] },
+        "organization_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/Uuid" }] }
+      },
+      "additionalProperties": false
+    },
+    "PipelineQueryRequest": {
+      "type": "object",
+      "required": [
+        "schema",
+        "request_id",
+        "operation",
+        "admitted_actor",
+        "target_id",
+        "filters",
+        "evidence"
+      ],
+      "properties": {
+        "schema": { "const": "aap-inference-pipelines/v1" },
+        "request_id": { "$ref": "#/$defs/Uuid" },
+        "operation": { "enum": ["list_pipelines", "get_pipeline", "get_pipeline_projection"] },
+        "admitted_actor": { "$ref": "#/$defs/PipelineActor" },
+        "target_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/Uuid" }] },
+        "filters": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/PipelineFilters" }] },
+        "evidence": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/PipelineCommandRequest" }] }
+      },
+      "additionalProperties": false
+    },
+    "PipelineStatusRequest": {
+      "type": "object",
+      "required": ["schema", "request_id", "operation", "command"],
+      "properties": {
+        "schema": { "const": "aap-inference-pipelines/v1" },
+        "request_id": { "$ref": "#/$defs/Uuid" },
+        "operation": { "const": "get_operation_status" },
+        "command": { "$ref": "#/$defs/PipelineCommandRequest" }
+      },
+      "additionalProperties": false
+    },
+    "PipelinePolicy": {
+      "type": "object",
+      "required": [
+        "schema",
+        "request_schema",
+        "step_schema",
+        "request_body_max_bytes",
+        "response_body_max_bytes",
+        "pipeline_columns",
+        "insert_columns",
+        "update_columns",
+        "actions",
+        "serialization"
+      ],
+      "properties": {
+        "schema": { "const": "aap-inference-pipelines-policy/v1" },
+        "request_schema": { "const": "aap-inference-pipelines/v1" },
+        "step_schema": { "const": "aap-inference-pipelines-step/v1" },
+        "request_body_max_bytes": { "const": 16777216 },
+        "response_body_max_bytes": { "const": 16777216 },
+        "pipeline_columns": {
+          "const": [
+            "id",
+            "scope",
+            "project_id",
+            "organization_id",
+            "name",
+            "stages",
+            "is_default",
+            "created_by",
+            "usage_count",
+            "created_at",
+            "updated_at"
+          ]
+        },
+        "insert_columns": {
+          "const": [
+            "id",
+            "scope",
+            "project_id",
+            "organization_id",
+            "name",
+            "stages",
+            "is_default",
+            "created_by"
+          ]
+        },
+        "update_columns": {
+          "const": ["scope", "project_id", "organization_id", "name", "stages", "is_default"]
+        },
+        "actions": {
+          "const": [
+            "begin",
+            "status",
+            "organization_ids",
+            "pipeline_get",
+            "pipeline_list",
+            "backend_get",
+            "backend_pool",
+            "backend_enabled",
+            "project_query",
+            "project_access",
+            "default_clear",
+            "pipeline_insert",
+            "pipeline_update",
+            "pipeline_delete",
+            "source_usage_increment",
+            "finish"
+          ]
+        },
+        "serialization": {
+          "type": "object",
+          "required": ["timezone", "date_style", "extra_float_digits"],
+          "properties": {
+            "timezone": { "const": "UTC" },
+            "date_style": { "const": "ISO,YMD" },
+            "extra_float_digits": { "const": 3 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "PipelineStepSuccess": {
+      "type": "object",
+      "required": [
+        "schema",
+        "request_id",
+        "operation",
+        "action",
+        "actor_id",
+        "target_id",
+        "ok",
+        "facts"
+      ],
+      "properties": {
+        "schema": { "const": "aap-inference-pipelines-step/v1" },
+        "request_id": { "$ref": "#/$defs/Uuid" },
+        "operation": { "type": "string" },
+        "action": { "type": "string" },
+        "actor_id": { "$ref": "#/$defs/Uuid" },
+        "target_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/Uuid" }] },
+        "ok": { "const": true },
+        "facts": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "PipelineStepFailure": {
+      "type": "object",
+      "required": [
+        "schema",
+        "request_id",
+        "operation",
+        "action",
+        "actor_id",
+        "target_id",
+        "ok",
+        "error"
+      ],
+      "properties": {
+        "schema": { "const": "aap-inference-pipelines-step/v1" },
+        "request_id": { "$ref": "#/$defs/Uuid" },
+        "operation": { "type": "string" },
+        "action": { "type": "string" },
+        "actor_id": { "$ref": "#/$defs/Uuid" },
+        "target_id": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/Uuid" }] },
+        "ok": { "const": false },
+        "error": {
+          "type": "object",
+          "required": ["status_code", "detail", "headers", "rollback"],
+          "properties": {
+            "status_code": { "type": "integer" },
+            "detail": {},
+            "headers": {
+              "oneOf": [
+                { "type": "null" },
+                { "type": "object", "additionalProperties": { "type": "string" } }
+              ]
+            },
+            "rollback": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "x-postgresql-functions": [
+    "aap_inference_pipelines_v1.pipeline_policy()",
+    "aap_inference_pipelines_v1.pipeline_step(jsonb, text, jsonb, text[], text[])",
+    "aap_inference_pipelines_v1._has_exact_keys(jsonb, text[])",
+    "aap_inference_pipelines_v1._actor_is_valid(jsonb)",
+    "aap_inference_pipelines_v1._command_is_valid(jsonb)",
+    "aap_inference_pipelines_v1._query_is_valid(jsonb)",
+    "aap_inference_pipelines_v1._pipeline_row_value(public.project_pipelines)",
+    "aap_inference_pipelines_v1._step_success(uuid, text, text, uuid, uuid, jsonb)",
+    "aap_inference_pipelines_v1._step_failure(uuid, text, text, uuid, uuid, integer, jsonb, jsonb, boolean)",
+    "aap_inference_pipelines_v1._guard_unfinished_operation()",
+    "aap_inference_pipelines_v1._cleanup_unfinished_state()"
+  ],
+  "x-postgresql-client-functions": [
+    "aap_inference_pipelines_v1.pipeline_policy()",
+    "aap_inference_pipelines_v1.pipeline_step(jsonb, text, jsonb, text[], text[])"
+  ],
+  "x-pipeline-actions": {
+    "begin": { "parameters": [], "column_names": [], "column_values": [], "facts": ["replay"] },
+    "status": {
+      "parameters": [],
+      "column_names": [],
+      "column_values": [],
+      "facts": ["state", "resource_id"]
+    },
+    "organization_ids": {
+      "parameters": ["actor_id"],
+      "column_names": [],
+      "column_values": [],
+      "facts": ["organization_ids"]
+    },
+    "pipeline_get": {
+      "parameters": ["pipeline_id"],
+      "column_names": [],
+      "column_values": [],
+      "facts": ["row_json"]
+    },
+    "pipeline_list": {
+      "parameters": ["scope", "project_id", "organization_id", "organization_ids"],
+      "column_names": [],
+      "column_values": [],
+      "facts": ["rows_json"]
+    },
+    "backend_get": {
+      "parameters": ["backend_id"],
+      "column_names": [],
+      "column_values": [],
+      "facts": ["row_json"]
+    },
+    "backend_pool": {
+      "parameters": ["backend_id"],
+      "column_names": [],
+      "column_values": [],
+      "facts": ["rows_json"]
+    },
+    "backend_enabled": {
+      "parameters": ["project_id", "pool_id"],
+      "column_names": [],
+      "column_values": [],
+      "facts": ["row_json"]
+    },
+    "project_query": {
+      "parameters": ["request", "action"],
+      "column_names": [],
+      "column_values": [],
+      "facts": ["workspace_reply"]
+    },
+    "project_access": {
+      "parameters": ["phase"],
+      "column_names": [],
+      "column_values": [],
+      "facts": ["workspace_reply"]
+    },
+    "default_clear": {
+      "parameters": ["project_id"],
+      "column_names": [],
+      "column_values": [],
+      "facts": ["affected_count"]
+    },
+    "pipeline_insert": {
+      "parameters": [],
+      "column_names": [
+        "id",
+        "scope",
+        "project_id",
+        "organization_id",
+        "name",
+        "stages",
+        "is_default",
+        "created_by"
+      ],
+      "column_values": ["text or SQL NULL per column"],
+      "facts": ["resource_id"]
+    },
+    "pipeline_update": {
+      "parameters": ["pipeline_id"],
+      "column_names": ["scope", "project_id", "organization_id", "name", "stages", "is_default"],
+      "column_values": ["text or SQL NULL per column; sparse and ordered"],
+      "facts": ["resource_id"]
+    },
+    "pipeline_delete": {
+      "parameters": ["pipeline_id"],
+      "column_names": [],
+      "column_values": [],
+      "facts": ["resource_id"]
+    },
+    "source_usage_increment": {
+      "parameters": ["source_pipeline_id"],
+      "column_names": [],
+      "column_values": [],
+      "facts": ["affected_count"]
+    },
+    "finish": {
+      "parameters": ["resource_id"],
+      "column_names": [],
+      "column_values": [],
+      "facts": ["resource_id"]
+    }
+  },
+  "x-pipeline-row-columns": [
+    "id",
+    "scope",
+    "project_id",
+    "organization_id",
+    "name",
+    "stages",
+    "is_default",
+    "created_by",
+    "usage_count",
+    "created_at",
+    "updated_at"
+  ],
+  "x-backend-read-facts": {
+    "registry": [
+      "id",
+      "last_checked_at",
+      "created_at",
+      "updated_at",
+      "extra_params",
+      "health_meta"
+    ],
+    "pool": ["id", "created_at", "updated_at", "capability_snapshot"],
+    "association": [
+      "id",
+      "project_id",
+      "pool_id",
+      "enabled",
+      "created_at",
+      "updated_at",
+      "default_variants"
+    ]
+  },
+  "x-postgresql-tables": [
+    "aap_inference_pipelines_v1.operation_states",
+    "aap_inference_pipelines_v1.operation_attempts",
+    "aap_inference_pipelines_v1.operation_receipts"
+  ],
+  "x-postgresql-errors": {
+    "invalid_direct_arguments": { "sqlstate": "22023" },
+    "operation_busy": { "status_code": 409, "reason": "operation_busy" },
+    "operation_conflict": { "status_code": 409, "reason": "operation_conflict" },
+    "workspace_project_access_contention": {
+      "sqlstates": ["55P03", "40001", "40P01"],
+      "hints": {
+        "account_busy": "aap.workspace.project_access.account_busy",
+        "project_busy": "aap.workspace.project_access.project_busy",
+        "membership_busy": "aap.workspace.project_access.membership_busy"
+      }
+    }
+  }
+}

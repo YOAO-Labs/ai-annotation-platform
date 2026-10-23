@@ -89,6 +89,7 @@ from app.observability.metrics import (
     observe_mask_ai_phase,
     record_mask_ai_operation,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 # v0.10.1 · /setup 代理结果的进程内 TTL 缓存. 工作台进入即拉, 避免 N 次 backend 探活.
 # key = backend_id (绑定改动 → 重绑后新 backend_id 自然 invalidate); 30s TTL 兜底.
@@ -111,7 +112,7 @@ def _assert_ml_backend_read(access: ProjectAccess) -> None:
 
 
 async def _assert_annotation_write_access(
-    db: AsyncSession, task: Task, user: User
+    db: AsyncSession, task: Task, user: User | IdentityActorFacts
 ) -> ProjectAccess:
     """Annotation-phase AI access for a task's actual project.
 
@@ -128,7 +129,7 @@ async def _assert_annotation_write_access(
 
 
 async def _reacquire_write_boundary(
-    db: AsyncSession, task_id: uuid.UUID, user: User
+    db: AsyncSession, task_id: uuid.UUID, user: User | IdentityActorFacts
 ) -> tuple[Task, ProjectAccess]:
     """Re-acquire task and locked membership at the final write boundary.
 
@@ -338,7 +339,7 @@ async def create_ml_backend(
     data: MLBackendCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    current_user: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
     # v0.19.0 ADR-0044 · 「为项目添加 backend」= 按 url 复用/新建全局注册项 + 为本项目启用。
     # 不再有 max_ml_backends_per_project 上限 (显存保护交全局行 extra_params.max_concurrency)。
@@ -431,7 +432,7 @@ async def set_ml_backend_enablement(
     data: ProjectMLBackendEnablement,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """v0.19.0 ADR-0044 · 切换本项目对某全局 backend 的启用 + 写项目级覆盖 (阈值/变体)。
 
@@ -501,7 +502,7 @@ async def update_ml_backend(
     data: MLBackendUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    current_user: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
     svc = MLBackendService(db)
     if not await svc.is_enabled(project_id, backend_id):
@@ -565,7 +566,7 @@ async def delete_ml_backend(
     backend_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     # v0.19.0 ADR-0044 · 项目作用域的「删除」= 为本项目停用全局 backend (不删全局注册项;
     # 删全局项是 superadmin 的 admin 端点, 见 PR3)。
@@ -599,7 +600,7 @@ async def unload_ml_backend(
     dispatch_context_factory: GPUDispatchContextFactory = Depends(
         get_gpu_dispatch_context_factory
     ),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    current_user: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ) -> MLBackendUnloadResponse:
     """B-28+ · 触发 backend 卸载模型释放显存. backend 未实现 /unload 时返回 502.
 
@@ -658,7 +659,7 @@ async def reload_ml_backend(
     dispatch_context_factory: GPUDispatchContextFactory = Depends(
         get_gpu_dispatch_context_factory
     ),
-    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    current_user: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
     """B-28+ · 触发 backend 重新加载模型. 已加载则 noop.
 
@@ -724,7 +725,7 @@ async def warmup_ml_backend(
     dispatch_context_factory: GPUDispatchContextFactory = Depends(
         get_gpu_dispatch_context_factory
     ),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """v0.14.14 协议 §4.4 · 转发 POST /warmup 到 backend.
 
@@ -1128,7 +1129,7 @@ async def refresh_ml_backend_capabilities(
     project_id: uuid.UUID,
     backend_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """v0.14.9 · 强制刷新能力快照: 先 invalidate setup 缓存再重探 + 派生.
 
@@ -1153,7 +1154,7 @@ async def check_health(
     project_id: uuid.UUID,
     backend_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = MLBackendService(db)
     backend = await svc.get(backend_id)
@@ -1206,7 +1207,7 @@ async def predict_test(
     dispatch_context_factory: GPUDispatchContextFactory = Depends(
         get_gpu_dispatch_context_factory
     ),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = MLBackendService(db)
     backend = await svc.get(backend_id)
@@ -1253,7 +1254,7 @@ async def interactive_annotating(
     dispatch_context_factory: GPUDispatchContextFactory = Depends(
         get_gpu_dispatch_context_factory
     ),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = MLBackendService(db)
     backend = await svc.get(backend_id)
@@ -1403,7 +1404,7 @@ async def predict_frame(
     dispatch_context_factory: GPUDispatchContextFactory = Depends(
         get_gpu_dispatch_context_factory
     ),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """v0.21.4 · 对客户端传入的「视频当前帧」JPEG 跑图像 backend, 落单帧 ``video_bbox`` 候选。
 
@@ -1559,7 +1560,7 @@ async def interactive_annotating_frame(
     dispatch_context_factory: GPUDispatchContextFactory = Depends(
         get_gpu_dispatch_context_factory
     ),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """视频当前帧的**交互式** SAM 提示 (point / interactive_box / exemplar)。
 
@@ -1804,7 +1805,7 @@ async def set_project_ml_backend_pool_enablement(
     data: ProjectMLBackendPoolEnablement,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     """切换本项目对某服务池的启用 + 写项目级变体覆盖 (pool 级, ADR-0050 §12.2)。
 

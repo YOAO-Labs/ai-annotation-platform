@@ -50,11 +50,15 @@ async def _run_video_tracker_job(job_id: str, celery_task_id: str | None) -> Non
                 # revoked account/project must not keep producing tracker work.
                 if task is not None and project_id is not None:
                     from fastapi import HTTPException
-                    from app.db.models.user import User
+                    from app.services.identity_account_lock_data import (
+                        IdentityAccountLockData,
+                    )
                     from app.services.project_access import resolve_project_access
 
                     actor = (
-                        await db.get(User, job.created_by)
+                        await IdentityAccountLockData(db).read_actor_status(
+                            job.created_by
+                        )
                         if job.created_by is not None
                         else None
                     )

@@ -60,6 +60,7 @@ from app.services.video_tracks import (
     resolve_track_at_frame,
 )
 from app.utils.raster_mask_rle import coco_rle_bbox_norm
+from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 
 
 log = logging.getLogger(__name__)
@@ -152,12 +153,16 @@ async def _load_annotation(
     return annotation
 
 
-async def _is_privileged(db: AsyncSession, task: Task, user: User) -> bool:
+async def _is_privileged(
+    db: AsyncSession, task: Task, user: User | IdentityActorFacts
+) -> bool:
     project = await db.get(Project, task.project_id)
     return bool(project and is_privileged_for_project(user, project))
 
 
-def _lock_valid_for_user(row: VideoSegment, user: User, now: datetime) -> bool:
+def _lock_valid_for_user(
+    row: VideoSegment, user: User | IdentityActorFacts, now: datetime
+) -> bool:
     return bool(
         row.locked_by == user.id
         and row.lock_expires_at is not None
@@ -169,7 +174,7 @@ async def _assert_segment_lock(
     db: AsyncSession,
     ctx: VideoContext,
     payload: VideoTrackerPropagateRequest,
-    user: User,
+    user: User | IdentityActorFacts,
     *,
     privileged: bool,
 ) -> uuid.UUID:
@@ -291,7 +296,7 @@ async def save_video_mask_keyframe(
     frame_index: int,
     payload: VideoMaskKeyframeSaveRequest,
     expected_version: int,
-    user: User,
+    user: User | IdentityActorFacts,
 ) -> tuple[Annotation, dict[str, Any]]:
     """Persist one Mask keyframe without accepting a whole-track geometry."""
 
@@ -452,7 +457,7 @@ async def operate_video_mask_keyframe(
     frame_index: int,
     payload: VideoMaskKeyframeOperationRequest,
     expected_version: int,
-    user: User,
+    user: User | IdentityActorFacts,
 ) -> tuple[Annotation, dict[str, Any]]:
     """Apply one versioned Mask-track frame-state operation.
 
@@ -732,7 +737,7 @@ async def create_video_mask_correction_job(
     ctx: VideoContext,
     annotation_id: uuid.UUID,
     payload: VideoMaskCorrectionRequest,
-    user: User,
+    user: User | IdentityActorFacts | IdentityActorStatus,
 ) -> VideoTrackerJobOut:
     _assert_frame_range(ctx, payload.from_frame, payload.to_frame)
     annotation = (
@@ -1046,7 +1051,7 @@ async def create_tracker_job(
     ctx: VideoContext,
     annotation_id: uuid.UUID | None,
     payload: VideoTrackerPropagateRequest,
-    user: User,
+    user: User | IdentityActorFacts,
     dispatcher: VideoTrackerJobDispatcher,
 ) -> VideoTrackerJobOut:
     _assert_frame_range(ctx, payload.from_frame, payload.to_frame)
@@ -1411,7 +1416,7 @@ async def list_reviewable_tracker_jobs(
     db: AsyncSession,
     *,
     task: Task,
-    user: User,
+    user: User | IdentityActorFacts,
 ) -> list[VideoTrackerJobOut]:
     """Return server-side candidates that the current workbench user can resume."""
     conditions = [
@@ -1450,7 +1455,7 @@ async def list_active_tracker_jobs(
     db: AsyncSession,
     *,
     task: Task,
-    user: User,
+    user: User | IdentityActorFacts,
 ) -> list[VideoTrackerJobOut]:
     """Return in-flight (queued/running) jobs so the workbench can reconnect their WS after reload."""
     conditions = [

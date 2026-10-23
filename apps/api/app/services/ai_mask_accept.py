@@ -47,6 +47,7 @@ from app.services.video_tracks import (
     remove_frame_from_outside_ranges,
     resolve_track_at_frame,
 )
+from app.services.identity_contracts import IdentityActorFacts
 
 
 class AiMaskAcceptError(ValueError):
@@ -106,7 +107,7 @@ async def expire_accept_decisions(
 def _validate_replay(
     decision: AiMaskAcceptDecision,
     request_digest: str,
-    current_user: User,
+    current_user: User | IdentityActorFacts,
     *,
     access: Any = None,
 ) -> AiMaskAcceptResponse:
@@ -257,7 +258,7 @@ async def _resolve_routing_lineage(
 
 
 def _assert_task_still_editable(
-    task: Task, current_user: User, *, access: Any = None
+    task: Task, current_user: User | IdentityActorFacts, *, access: Any = None
 ) -> None:
     if task.status not in {"review", "completed"}:
         return
@@ -421,7 +422,7 @@ async def accept_ai_mask_candidate(
     *,
     task_id: uuid.UUID,
     data: AiMaskAcceptRequest,
-    current_user: User,
+    current_user: User | IdentityActorFacts,
     request,
     expected_version: int | None,
     access: Any = None,

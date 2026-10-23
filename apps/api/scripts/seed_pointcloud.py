@@ -71,10 +71,9 @@ async def _ensure_admin(db) -> uuid.UUID:
     from app.config import settings
     from app.services.identity_commands import IdentityCommandService
 
-    admin = await IdentityCommandService(db).ensure_import_admin(
+    return await IdentityCommandService(db).ensure_import_admin(
         environment=settings.environment
     )
-    return admin.id
 
 
 async def seed_pointcloud(

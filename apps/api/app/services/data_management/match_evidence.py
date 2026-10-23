@@ -15,6 +15,7 @@ from app.db.models.annotation import Annotation
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
+from app.services.identity_contracts import IdentityActorFacts
 from app.services.data_management.filter_tree import validate_filter_tree
 from app.services.data_management.task_filters import (
     _compile_annotation_object_condition,
@@ -217,7 +218,7 @@ async def collect_match_evidence(
     task_id: UUID,
     filter_json: dict[str, Any],
     project: Project,
-    user: User,
+    user: User | IdentityActorFacts,
 ) -> MatchEvidence:
     """Evaluate OR branches once, then return direct SQL witness predicates."""
 

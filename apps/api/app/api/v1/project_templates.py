@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import UserRole
 from app.db.models.project_template import ProjectTemplate
-from app.db.models.user import User
+from app.services.identity_read_relations import read_account_profile
 from app.deps import get_current_user, get_db
 from app.schemas.project_template import (
     ProjectTemplateCreate,
@@ -31,6 +31,7 @@ from app.application.project_workspace_configuration import (
     WorkspaceConfigurationWorkflow,
 )
 from app.services.project_template import assert_template_visible, list_user_org_ids
+from app.services.identity_contracts import IdentityActorFacts
 
 
 router = APIRouter()
@@ -40,8 +41,8 @@ async def _serialize(db: AsyncSession, template: ProjectTemplate) -> dict:
     """挂上 created_by_name 方便前端展示."""
     creator_name: str | None = None
     if template.created_by:
-        row = await db.execute(select(User.name).where(User.id == template.created_by))
-        creator_name = row.scalar_one_or_none()
+        creator = await read_account_profile(db, template.created_by)
+        creator_name = creator.name if creator is not None else None
     data = {c.name: getattr(template, c.name) for c in template.__table__.columns}
     data["created_by_name"] = creator_name
     return data
@@ -55,7 +56,7 @@ async def list_templates(
     type_key: Annotated[list[str] | None, Query()] = None,
     search: str | None = None,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     q = select(ProjectTemplate)
 
@@ -96,7 +97,7 @@ async def list_templates(
 async def create_template(
     data: ProjectTemplateCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     template = await WorkspaceConfigurationWorkflow(db).create_template(
         data.model_dump(exclude_unset=True, exclude_none=False),
@@ -120,7 +121,7 @@ async def _load_template_or_404(
 async def get_template(
     template_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     template = await _load_template_or_404(db, template_id)
     await assert_template_visible(db, template, user)
@@ -132,7 +133,7 @@ async def update_template(
     template_id: uuid.UUID,
     data: ProjectTemplateUpdate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     template = await WorkspaceConfigurationWorkflow(db).update_template(
         template_id,
@@ -148,7 +149,7 @@ async def update_template(
 async def delete_template(
     template_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     await WorkspaceConfigurationWorkflow(db).delete_template(
         template_id, actor_id=user.id
@@ -162,7 +163,7 @@ async def delete_template(
 async def duplicate_template(
     template_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(get_current_user),
 ):
     """克隆任意可见模板为当前用户私有模板."""
     template = await WorkspaceConfigurationWorkflow(db).duplicate_template(

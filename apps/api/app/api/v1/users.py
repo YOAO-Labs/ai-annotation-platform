@@ -1,22 +1,16 @@
 import csv
 import io
 import json
-from datetime import datetime, timezone
 from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
-from pydantic import BaseModel, ValidationError
+from fastapi.security import HTTPAuthorizationCredentials
+from pydantic import BaseModel, Field
 
-from app.config import settings
 from app.core.ratelimit import limiter
-from app.deps import get_db, require_roles
-from app.db.models.user import User
-from app.db.models.group import Group
-from app.db.enums import PLATFORM_ROLES, UserRole
+from app.deps import bearer_scheme
 from app.schemas.user import (
     OffboardingCommitRequest,
     OffboardingPreview,
@@ -31,47 +25,40 @@ from app.schemas.management import (
     BulkGroupAssignmentResponse,
     BulkInviteRequest,
     BulkInviteResponse,
-    BulkInviteResultItem,
-    GroupAssignmentPreviewItem,
     RoleImpactPreview,
     UserPage,
-    UserPageItem,
 )
-from app.services.invitation import InvitationService, invitation_project_role
 from app.services.csv_export import csv_literal
-from app.services.management import (
-    build_user_query,
-    fetch_lifecycle_blocked_ids,
-    fetch_managed_user_ids,
-    fetch_user_page,
-    role_impact_preview,
-    user_scope_clause,
-    validate_platform_role_filter,
-    user_stats as management_user_stats,
+from app.api.v1.platform_role_commands import (
+    execute_platform_role,
+    get_platform_role_commands,
 )
-from app.services.audit import (
-    AuditService,
-    AuditAction,
-    export_detail,
-    export_metadata_header,
+from app.services.identity_platform_role_commands import PlatformRoleCommandsPort
+from app.api.v1.suspension_commands import execute_suspension, get_suspension_commands
+from app.services.identity_suspension_commands import SuspensionCommandsPort
+from app.api.v1.deletion_commands import execute_deletion, get_deletion_commands
+from app.services.identity_deletion_commands import DeletionCommandsPort
+from app.api.v1.offboarding_commands import (
+    execute_offboarding,
+    get_offboarding_commands,
 )
-from app.services.system_settings_service import SystemSettingsService
-from app.application.legacy_user_lifecycle import (
-    admin_reset_password as admin_reset_password_workflow,
-    change_user_role as change_user_role_workflow,
-    apply_bulk_group_assignment as apply_bulk_group_assignment_workflow,
-    assign_user_group as assign_user_group_workflow,
-    bulk_error,
-    deactivate_user as deactivate_user_workflow,
-    delete_user as delete_user_workflow,
+from app.services.identity_offboarding_commands import OffboardingCommandsPort
+from app.api.v1.admin_password_commands import (
+    execute_admin_password_reset,
+    get_admin_password_commands,
 )
-from app.application.user_lifecycle import UserLifecycleWorkflow
-from sqlalchemy.exc import DBAPIError
+from app.services.identity_admin_password_commands import AdminPasswordCommandsPort
+from app.api.v1.directory_commands import execute_directory, get_directory_commands
+from app.services.identity_directory_commands import DirectoryCommandsPort
+from app.api.v1.group_commands import execute_group, get_group_commands
+from app.api.v1.invitation_commands import (
+    execute_invitation,
+    get_invitation_manager_commands,
+)
+from app.services.identity_invitation_commands import InvitationCommandsPort
+from app.services.identity_group_commands import GroupCommandsPort
 
 router = APIRouter()
-
-_MANAGERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
-_PA_ASSIGNABLE_ROLES = {UserRole.EMPLOYEE.value}
 
 
 class UsersStats(BaseModel):
@@ -80,8 +67,19 @@ class UsersStats(BaseModel):
     weekly_active: int
 
 
+def _directory_filters(status_filter, project_id, group_id, role, search):
+    return {
+        "status": status_filter,
+        "project_id": str(project_id) if project_id is not None else None,
+        "group_id": str(group_id) if group_id is not None else None,
+        "role": role,
+        "search": search,
+    }
+
+
 @router.get("/stats", response_model=UsersStats)
 async def users_stats(
+    request: Request,
     status_filter: Literal["active", "inactive", "all"] = Query(
         "active", alias="status"
     ),
@@ -89,32 +87,22 @@ async def users_stats(
     group_id: UUID | None = Query(None),
     role: str | None = Query(None),
     search: str | None = Query(None, max_length=255),
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: DirectoryCommandsPort = Depends(get_directory_commands),
 ):
-    """v0.8.3 · UsersPage 顶部 4 卡之「本周活跃」与状态聚合。
-
-    weekly_active 基于 last_seen_at >= now-7d，比旧的 status==online 更准确
-    （旧逻辑只反映瞬时在线状态）。
-    """
-    stats = await management_user_stats(
-        db,
-        actor,
-        project_id=project_id,
-        group_id=group_id,
-        role=role,
-        status_filter=status_filter,
-        search=search,
-    )
-    return UsersStats(
-        total=stats.total,
-        online=stats.online,
-        weekly_active=stats.weekly_active,
+    """用户目录筛选统计，按最近七天活动时间聚合。"""
+    return await execute_directory(
+        request,
+        credentials,
+        commands,
+        "user_stats",
+        _directory_filters(status_filter, project_id, group_id, role, search),
     )
 
 
 @router.get("/query", response_model=UserPage)
 async def query_users(
+    request: Request,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=500),
     status_filter: Literal["active", "inactive", "all"] = Query(
@@ -124,65 +112,25 @@ async def query_users(
     group_id: UUID | None = Query(None),
     role: str | None = Query(None),
     search: str | None = Query(None, max_length=255),
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: DirectoryCommandsPort = Depends(get_directory_commands),
 ):
-    rows, total = await fetch_user_page(
-        db,
-        actor,
-        page=page,
-        page_size=page_size,
-        project_id=project_id,
-        group_id=group_id,
-        role=role,
-        status_filter=status_filter,
-        search=search,
-    )
-    # Rows outside the project-bounded manage scope are still listed for
-    # lookup; flag manageability per row so the UI can disable actions only
-    # where writes would truly be denied. Manage scope = own-project members
-    # plus every enabled annotator/reviewer (interim platform-wide arm);
-    # enabled super admins stay visible but read-only. Lifecycle writes are
-    # gated separately: they stay project-bounded to the actor's own
-    # projects even for rows the wider arm makes manageable.
-    managed_ids: set[UUID] | None = None
-    lifecycle_blocked: set[UUID] = set()
-    if actor.role == UserRole.PROJECT_ADMIN.value:
-        managed_ids = await fetch_managed_user_ids(db, actor)
-        lifecycle_blocked = await fetch_lifecycle_blocked_ids(
-            db, actor=actor, user_ids=[user.id for user in rows]
-        )
-
-    def _page_item(user: User) -> UserPageItem:
-        item = UserPageItem.model_validate(user)
-        item.is_managed = (
-            True
-            if managed_ids is None or user.id == actor.id
-            else (
-                user.id in managed_ids
-                or (user.is_active and user.role in _PA_ASSIGNABLE_ROLES)
-            )
-        )
-        item.is_lifecycle_managed = (
-            True
-            if managed_ids is None
-            else item.is_managed and user.id not in lifecycle_blocked
-        )
-        return item
-
-    items = [_page_item(user) for user in rows]
-    pages = (total + page_size - 1) // page_size if total else 0
-    return UserPage(
-        items=items,
-        total=total,
-        page=page,
-        page_size=page_size,
-        pages=pages,
+    return await execute_directory(
+        request,
+        credentials,
+        commands,
+        "query_users",
+        {
+            **_directory_filters(status_filter, project_id, group_id, role, search),
+            "page": page,
+            "page_size": page_size,
+        },
     )
 
 
 @router.get("", response_model=list[UserOut])
 async def list_users(
+    request: Request,
     role: str | None = None,
     status_filter: Literal["active", "inactive", "all"] = Query(
         "active", alias="status"
@@ -190,8 +138,8 @@ async def list_users(
     project_id: UUID | None = Query(
         None, description="可选项目过滤；project_admin 入参被忽略，强制限定到其管理项目"
     ),
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: DirectoryCommandsPort = Depends(get_directory_commands),
 ):
     """用户列表。
     - super_admin：默认全量；可选 `project_id` 过滤到该项目成员。
@@ -199,40 +147,18 @@ async def list_users(
       * `role=employee`：放开限制返回全量候选（用于指派 modal 选人）。
       * 其他场景：限定到 `Project.owner_id == actor.id` 的项目成员（actor 自身始终可见）。
     """
-    from app.db.models.project import Project
-    from app.db.models.project_member import ProjectMember
-
-    # Legacy/unknown role filters are rejected, never silently empty.
-    role = validate_platform_role_filter(role)
-
-    q = select(User)
-    if status_filter == "active":
-        q = q.where(User.is_active.is_(True))
-    elif status_filter == "inactive":
-        q = q.where(User.is_active.is_(False))
-    if role:
-        q = q.where(User.role == role)
-
-    if actor.role == UserRole.PROJECT_ADMIN.value:
-        if role in _PA_ASSIGNABLE_ROLES and status_filter == "active":
-            # 指派候选人场景：必须看到全量员工，否则永远没有可指派对象
-            pass
-        else:
-            members_subq = (
-                select(ProjectMember.user_id)
-                .join(Project, Project.id == ProjectMember.project_id)
-                .where(Project.owner_id == actor.id)
-            )
-            q = q.where(or_(User.id.in_(members_subq), User.id == actor.id))
-    elif project_id is not None:
-        # super_admin 显式按项目过滤
-        members_subq = select(ProjectMember.user_id).where(
-            ProjectMember.project_id == project_id
-        )
-        q = q.where(User.id.in_(members_subq))
-
-    result = await db.execute(q.order_by(User.created_at.desc()))
-    return result.scalars().all()
+    data = await execute_directory(
+        request,
+        credentials,
+        commands,
+        "list_users",
+        {
+            "role": role,
+            "status": status_filter,
+            "project_id": str(project_id) if project_id is not None else None,
+        },
+    )
+    return data["users"]
 
 
 _ExportFormat = Literal["csv", "json"]
@@ -240,6 +166,7 @@ _ExportFormat = Literal["csv", "json"]
 
 @router.get("/export")
 async def export_users(
+    request: Request,
     format: _ExportFormat = Query("csv"),
     status_filter: Literal["active", "inactive", "all"] = Query(
         "active", alias="status"
@@ -248,130 +175,85 @@ async def export_users(
     group_id: UUID | None = Query(None),
     role: str | None = Query(None),
     search: str | None = Query(None, max_length=255),
-    request: Request = None,  # type: ignore[assignment]
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: DirectoryCommandsPort = Depends(get_directory_commands),
 ):
-    rows = (
-        (
-            await db.execute(
-                build_user_query(
-                    actor,
-                    project_id=project_id,
-                    group_id=group_id,
-                    role=role,
-                    status_filter=status_filter,
-                    search=search,
-                ).order_by(User.created_at.desc(), User.id.desc())
-            )
-        )
-        .scalars()
-        .all()
+    data = await execute_directory(
+        request,
+        credentials,
+        commands,
+        "export_users",
+        {
+            **_directory_filters(status_filter, project_id, group_id, role, search),
+            "format": format,
+        },
     )
-
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-
-    if format == "json":
-        payload_rows = [
-            {
-                "id": str(u.id),
-                "email": u.email,
-                "name": u.name,
-                "role": u.role,
-                "group_name": u.group_name,
-                "group_id": str(u.group_id) if u.group_id else None,
-                "status": u.status,
-                "created_at": u.created_at.isoformat(),
-            }
-            for u in rows
-        ]
-        # v0.8.1 · 文件首部 _export_meta 字段（审计可追溯）
-        from app.middleware.request_id import request_id_var
-
-        wrapped = {
-            "_export_meta": {
-                "exported_by": actor.email,
-                "exported_at": datetime.now(timezone.utc).isoformat(),
-                "request_id": request_id_var.get() or None,
-                "count": len(rows),
-            },
-            "users": payload_rows,
+    rows = [
+        {
+            **row,
+            "id": str(row["id"]),
+            "group_id": str(row["group_id"]) if row["group_id"] else None,
+            "created_at": row["created_at"].isoformat(),
         }
-        body = json.dumps(wrapped, ensure_ascii=False, indent=2)
-        await AuditService.log(
-            db,
-            actor=actor,
-            action="user.export",
-            target_type="user",
-            target_id=None,
-            request=request,
-            status_code=200,
-            detail=export_detail(
-                actor=actor,
-                request=request,
-                base={"format": "json", "count": len(rows)},
-            ),
+        for row in data["users"]
+    ]
+    exported_at = data["exported_at"]
+    ts = exported_at.strftime("%Y%m%d_%H%M%S")
+    if format == "json":
+        body = json.dumps(
+            {
+                "_export_meta": {
+                    "exported_by": data["exported_by"],
+                    "exported_at": exported_at.isoformat(),
+                    "request_id": data["request_id"],
+                    "count": len(rows),
+                },
+                "users": rows,
+            },
+            ensure_ascii=False,
+            indent=2,
         )
-        await db.commit()
-        return StreamingResponse(
-            iter([body]),
-            media_type="application/json; charset=utf-8",
-            headers={"Content-Disposition": f'attachment; filename="users_{ts}.json"'},
+        media_type = "application/json; charset=utf-8"
+    else:
+        buf = io.StringIO()
+        buf.write("\ufeff")
+        buf.write(
+            f"# Exported by: {data['exported_by'] or 'anonymous'}\n"
+            f"# Exported at: {exported_at.isoformat()}\n"
+            f"# Request ID: {data['request_id'] or ''}\n"
         )
-
-    # CSV
-    buf = io.StringIO()
-    # Excel UTF-8 BOM 兼容
-    buf.write("﻿")
-    # v0.8.1 · 首部审计 metadata 注释行（pandas/Excel 可 comment='#' 跳过）
-    buf.write(export_metadata_header(actor=actor, fmt="csv", request=request))
-    writer = csv.writer(buf)
-    writer.writerow(
-        [
-            "id",
-            "email",
-            "name",
-            "role",
-            "group_name",
-            "group_id",
-            "status",
-            "created_at",
-        ]
-    )
-    for u in rows:
+        writer = csv.writer(buf)
         writer.writerow(
             [
-                str(u.id),
-                csv_literal(u.email),
-                csv_literal(u.name),
-                u.role,
-                csv_literal(u.group_name or ""),
-                str(u.group_id) if u.group_id else "",
-                u.status,
-                u.created_at.isoformat(),
+                "id",
+                "email",
+                "name",
+                "role",
+                "group_name",
+                "group_id",
+                "status",
+                "created_at",
             ]
         )
-    body = buf.getvalue()
-
-    await AuditService.log(
-        db,
-        actor=actor,
-        action="user.export",
-        target_type="user",
-        target_id=None,
-        request=request,
-        status_code=200,
-        detail=export_detail(
-            actor=actor,
-            request=request,
-            base={"format": "csv", "count": len(rows)},
-        ),
-    )
-    await db.commit()
+        for row in rows:
+            writer.writerow(
+                [
+                    row["id"],
+                    csv_literal(row["email"]),
+                    csv_literal(row["name"]),
+                    row["role"],
+                    csv_literal(row["group_name"] or ""),
+                    row["group_id"] or "",
+                    row["status"],
+                    row["created_at"],
+                ]
+            )
+        body = buf.getvalue()
+        media_type = "text/csv; charset=utf-8"
     return StreamingResponse(
         iter([body]),
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="users_{ts}.csv"'},
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="users_{ts}.{format}"'},
     )
 
 
@@ -383,181 +265,15 @@ async def export_users(
 async def invite_user(
     payload: InvitationCreate,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: InvitationCommandsPort = Depends(get_invitation_manager_commands),
 ):
-    inv = await InvitationService.create(
-        db,
-        email=payload.email,
-        role=payload.role,
-        group_name=payload.group_name,
-        project_id=payload.project_id,
-        project_member_role=payload.project_member_role,
-        actor=actor,
-    )
-    await AuditService.log(
-        db,
-        actor=actor,
-        action=AuditAction.USER_INVITE,
-        target_type="user",
-        target_id=inv.email,
-        request=request,
-        status_code=201,
-        detail={
-            "role": inv.role,
-            "group_name": inv.group_name,
-            "project_id": str(inv.project_id) if inv.project_id else None,
-        },
-    )
-    await db.commit()
-
-    base_url = (
-        await SystemSettingsService.get(db, "frontend_base_url")
-        or settings.frontend_base_url
-    )
-    invite_url = f"{str(base_url).rstrip('/')}/register?token={inv.token}"
-    project_name = None
-    if inv.project_id:
-        from app.db.models.project import Project
-
-        project_name = await db.scalar(
-            select(Project.name).where(Project.id == inv.project_id)
-        )
-    return InvitationCreated(
-        invite_url=invite_url,
-        token=inv.token,
-        expires_at=inv.expires_at,
-        project_id=inv.project_id,
-        project_name=project_name,
-        project_member_role=invitation_project_role(inv),
-    )
-
-
-async def _bulk_invite(
-    payload: BulkInviteRequest,
-    *,
-    preview: bool,
-    request: Request,
-    db: AsyncSession,
-    actor: User,
-) -> BulkInviteResponse:
-    """Run each invitation in its own savepoint.
-
-    Preview uses one enclosing savepoint so quota and duplicate checks see the
-    earlier rows in the same request; the enclosing savepoint is rolled back at
-    the end. Apply keeps successful item savepoints and commits once after all
-    rows have been attempted, allowing failed rows to be retried alone.
-    """
-
-    from app.db.models.project import Project
-
-    preview_tx = await db.begin_nested() if preview else None
-    results: list[BulkInviteResultItem] = []
-    seen_emails: set[str] = set()
-    base_url = (
-        await SystemSettingsService.get(db, "frontend_base_url")
-        or settings.frontend_base_url
-    )
-    try:
-        for index, raw_item in enumerate(payload.items):
-            try:
-                item = InvitationCreate.model_validate(raw_item.model_dump())
-            except ValidationError as exc:
-                results.append(
-                    BulkInviteResultItem(
-                        index=index,
-                        email=raw_item.email,
-                        ok=False,
-                        retryable=True,
-                        error=bulk_error(exc),
-                    )
-                )
-                continue
-            if item.email in seen_emails:
-                results.append(
-                    BulkInviteResultItem(
-                        index=index,
-                        email=item.email,
-                        ok=False,
-                        retryable=True,
-                        error="本批次中邮箱重复",
-                    )
-                )
-                continue
-            item_tx = await db.begin_nested()
-            try:
-                inv = await InvitationService.create(
-                    db,
-                    email=item.email,
-                    role=item.role,
-                    group_name=item.group_name,
-                    project_id=item.project_id,
-                    project_member_role=item.project_member_role,
-                    actor=actor,
-                )
-                await AuditService.log(
-                    db,
-                    actor=actor,
-                    action="user.bulk_invite",
-                    target_type="invitation",
-                    target_id=str(inv.id),
-                    request=request,
-                    status_code=200,
-                    detail={
-                        "email": inv.email,
-                        "role": inv.role,
-                        "project_id": str(inv.project_id) if inv.project_id else None,
-                        "preview": preview,
-                    },
-                )
-                project_name = None
-                if inv.project_id:
-                    project_name = await db.scalar(
-                        select(Project.name).where(Project.id == inv.project_id)
-                    )
-                await item_tx.commit()
-                seen_emails.add(item.email)
-                results.append(
-                    BulkInviteResultItem(
-                        index=index,
-                        email=item.email,
-                        ok=True,
-                        invitation_id=inv.id,
-                        token=inv.token if not preview else None,
-                        invite_url=(
-                            f"{str(base_url).rstrip('/')}/register?token={inv.token}"
-                            if not preview
-                            else None
-                        ),
-                        project_id=inv.project_id,
-                        project_name=project_name,
-                    )
-                )
-            except Exception as exc:
-                await item_tx.rollback()
-                results.append(
-                    BulkInviteResultItem(
-                        index=index,
-                        email=item.email,
-                        ok=False,
-                        retryable=True,
-                        error=bulk_error(exc),
-                    )
-                )
-        if preview:
-            await preview_tx.rollback()  # type: ignore[union-attr]
-        else:
-            await db.commit()
-    except Exception:
-        if preview_tx is not None and preview_tx.is_active:
-            await preview_tx.rollback()
-        raise
-
-    return BulkInviteResponse(
-        items=results,
-        succeeded=sum(item.ok for item in results),
-        failed=sum(not item.ok for item in results),
-        preview=preview,
+    return await execute_invitation(
+        request,
+        credentials,
+        commands,
+        "create_invitation",
+        payload.model_dump(mode="json"),
     )
 
 
@@ -565,11 +281,15 @@ async def _bulk_invite(
 async def preview_bulk_invites(
     payload: BulkInviteRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: InvitationCommandsPort = Depends(get_invitation_manager_commands),
 ):
-    return await _bulk_invite(
-        payload, preview=True, request=request, db=db, actor=actor
+    return await execute_invitation(
+        request,
+        credentials,
+        commands,
+        "preview_invitation_batch",
+        payload.model_dump(mode="json"),
     )
 
 
@@ -577,71 +297,31 @@ async def preview_bulk_invites(
 async def apply_bulk_invites(
     payload: BulkInviteRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: InvitationCommandsPort = Depends(get_invitation_manager_commands),
 ):
-    return await _bulk_invite(
-        payload, preview=False, request=request, db=db, actor=actor
-    )
-
-
-async def _group_assignment_item(
-    db: AsyncSession,
-    *,
-    actor: User,
-    user_id: UUID,
-    group_id: UUID | None,
-) -> GroupAssignmentPreviewItem:
-    target = await db.scalar(
-        select(User).where(User.id == user_id, user_scope_clause(actor))
-    )
-    if target is None:
-        return GroupAssignmentPreviewItem(
-            user_id=user_id,
-            ok=False,
-            error="用户不存在或不在管理范围内",
-        )
-    group_name = None
-    if group_id is not None:
-        group_name = await db.scalar(select(Group.name).where(Group.id == group_id))
-        if group_name is None:
-            return GroupAssignmentPreviewItem(
-                user_id=user_id,
-                email=target.email,
-                name=target.name,
-                ok=False,
-                error="数据组不存在",
-            )
-    return GroupAssignmentPreviewItem(
-        user_id=user_id,
-        email=target.email,
-        name=target.name,
-        ok=True,
-        current_group_id=target.group_id,
-        current_group_name=target.group_name,
-        next_group_id=group_id,
-        next_group_name=group_name,
+    return await execute_invitation(
+        request,
+        credentials,
+        commands,
+        "apply_invitation_batch",
+        payload.model_dump(mode="json"),
     )
 
 
 @router.post("/groups/bulk/preview", response_model=BulkGroupAssignmentPreview)
 async def preview_bulk_group_assignment(
     payload: BulkGroupAssignmentRequest,
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: GroupCommandsPort = Depends(get_group_commands),
 ):
-    items = [
-        await _group_assignment_item(
-            db, actor=actor, user_id=user_id, group_id=payload.group_id
-        )
-        for user_id in payload.user_ids
-    ]
-    return BulkGroupAssignmentPreview(
-        group_id=payload.group_id,
-        group_name=next((item.next_group_name for item in items if item.ok), None),
-        items=items,
-        applicable=sum(item.ok for item in items),
-        blocked=sum(not item.ok for item in items),
+    return await execute_group(
+        request,
+        credentials,
+        commands,
+        "preview_group_assignments",
+        payload.model_dump(mode="json"),
     )
 
 
@@ -649,11 +329,15 @@ async def preview_bulk_group_assignment(
 async def apply_bulk_group_assignment(
     payload: BulkGroupAssignmentRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: GroupCommandsPort = Depends(get_group_commands),
 ):
-    return await apply_bulk_group_assignment_workflow(
-        db, payload=payload, actor=actor, request=request
+    return await execute_group(
+        request,
+        credentials,
+        commands,
+        "apply_group_assignments",
+        payload.model_dump(mode="json"),
     )
 
 
@@ -664,24 +348,14 @@ class RoleChangePayload(BaseModel):
 @router.get("/{user_id}/role/preview", response_model=RoleImpactPreview)
 async def preview_user_role_change(
     user_id: UUID,
+    request: Request,
     role: str = Query(..., min_length=1),
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: PlatformRoleCommandsPort = Depends(get_platform_role_commands),
 ):
-    """Platform-role preview.  Super administrator only (plan AUTH-04)."""
-
-    if role not in PLATFORM_ROLES:
-        raise HTTPException(status_code=400, detail=f"非法平台角色: {role}")
-    target = await db.get(User, user_id)
-    if target is None or not target.is_active:
-        raise HTTPException(status_code=404, detail="用户不存在")
-    return await role_impact_preview(
-        db,
-        actor=actor,
-        target=target,
-        requested_role=role,
-        manager_target_check=True,
-        assignable_roles=PLATFORM_ROLES,
+    """Preview a platform-role change with current project and work blockers."""
+    return await execute_platform_role(
+        request, credentials, commands, "preview_role_change", user_id, role
     )
 
 
@@ -690,25 +364,23 @@ async def change_user_role(
     user_id: str,
     payload: RoleChangePayload,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: PlatformRoleCommandsPort = Depends(get_platform_role_commands),
 ):
-    """Platform-role mutation.  Super administrator only (plan AUTH-04).
+    """Change a platform role while preserving existing project responsibilities.
 
     A platform-role edit never cascades into any project's membership; project
     responsibility is changed through the project member role endpoints.
     """
 
-    return await change_user_role_workflow(
-        db, user_id=user_id, role=payload.role, actor=actor, request=request
+    data = await execute_platform_role(
+        request, credentials, commands, "change_platform_role", user_id, payload.role
     )
-
-
-# —— v0.8.1 · 管理员重置低等级用户密码 ——
+    return data["user"]
 
 
 class AdminResetPasswordResponse(BaseModel):
-    temp_password: str
+    temp_password: str = Field(repr=False)
     message: str
     target_email: str
 
@@ -722,17 +394,15 @@ class AdminResetPasswordResponse(BaseModel):
 async def admin_reset_password(
     user_id: UUID,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: AdminPasswordCommandsPort = Depends(get_admin_password_commands),
 ):
-    target, temp_password = await admin_reset_password_workflow(
-        db, user_id=user_id, actor=actor, request=request
-    )
+    result = await execute_admin_password_reset(request, credentials, commands, user_id)
 
     return AdminResetPasswordResponse(
-        temp_password=temp_password,
+        temp_password=result.temp_password,
         message="请通过安全渠道告知用户首次登录后立即修改密码",
-        target_email=target.email,
+        target_email=result.target_email,
     )
 
 
@@ -747,24 +417,16 @@ async def delete_user(
     user_id: str,
     request: Request,
     payload: DeleteUserPayload | None = Body(None),
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: DeletionCommandsPort = Depends(get_deletion_commands),
 ):
-    """软删除（is_active=False）。super_admin 可删任意（除自己/最后一名超管）；
-    project_admin 可删启用的标注员/审核员，但目标的派生项目（成员、批次、
-    任务、锁、名下项目）一旦出现在其他人的项目里（跨项目交接需上级处理）
-    则拒绝；未分配账号无项目归属，可直接删除。
-
-    若 target 仍持有未完成任务（assignee_id + status in pending/in_progress/review）或 task_lock，
-    返回 409，要求传入 `transfer_to_user_id`；前端弹"先转交"二次 Modal。
-    project_admin 的转交接收人必须是每个待转交任务所在项目的成员。
-    """
-    return await delete_user_workflow(
-        db,
-        user_id=user_id,
-        actor=actor,
-        request=request,
-        transfer_to_user_id=payload.transfer_to_user_id if payload else None,
+    """Soft-delete with current manager authority and the existing task handoff rules."""
+    return await execute_deletion(
+        request,
+        credentials,
+        commands,
+        user_id,
+        payload.transfer_to_user_id if payload else None,
     )
 
 
@@ -772,11 +434,12 @@ async def delete_user(
 async def deactivate_user(
     user_id: str,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: SuspensionCommandsPort = Depends(get_suspension_commands),
 ):
-    return await deactivate_user_workflow(
-        db, user_id=user_id, actor=actor, request=request
+    """Suspend an account with current manager authority and retained reservations."""
+    return await execute_suspension(
+        request, credentials, commands, "suspend_account", user_id
     )
 
 
@@ -786,12 +449,15 @@ async def deactivate_user(
 )
 async def offboarding_preview(
     user_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: OffboardingCommandsPort = Depends(get_offboarding_commands),
 ):
     """Return a complete, versioned handoff snapshot without mutating data."""
 
-    return await UserLifecycleWorkflow.preview(db, target_id=user_id, actor=actor)
+    return await execute_offboarding(
+        request, credentials, commands, "preview_offboarding", user_id
+    )
 
 
 @router.post(
@@ -802,32 +468,19 @@ async def offboarding_commit(
     user_id: UUID,
     payload: OffboardingCommitRequest,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: OffboardingCommandsPort = Depends(get_offboarding_commands),
 ):
     """Atomically transfer current responsibilities and suspend the account."""
 
-    try:
-        result = await UserLifecycleWorkflow.offboard(
-            db,
-            target_id=user_id,
-            actor=actor,
-            payload=payload,
-            request=request,
-        )
-        await db.commit()
-    except DBAPIError as exc:
-        await db.rollback()
-        if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "offboarding_busy",
-                    "message": "职责正在变化，请刷新预览后重试",
-                },
-            ) from exc
-        raise
-    return result
+    return await execute_offboarding(
+        request,
+        credentials,
+        commands,
+        "commit_offboarding",
+        user_id,
+        payload.model_dump(mode="json"),
+    )
 
 
 @router.post(
@@ -838,28 +491,18 @@ async def reactivate_user(
     user_id: UUID,
     request: Request,
     payload: ReactivateRequest | None = Body(None),
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: SuspensionCommandsPort = Depends(get_suspension_commands),
 ):
-    """Reactivate only an explicitly suspended account."""
-
-    try:
-        user = await UserLifecycleWorkflow.reactivate(
-            db,
-            target_id=user_id,
-            actor=actor,
-            reason=payload.reason if payload else None,
-            request=request,
-        )
-        await db.commit()
-    except DBAPIError as exc:
-        await db.rollback()
-        if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
-            raise HTTPException(
-                status_code=409, detail="账号正在更新，请刷新后重试"
-            ) from exc
-        raise
-    return user
+    """Reactivate a suspended account and retire its previous credentials."""
+    return await execute_suspension(
+        request,
+        credentials,
+        commands,
+        "reactivate_account",
+        user_id,
+        payload.reason if payload else None,
+    )
 
 
 class GroupAssignPayload(BaseModel):
@@ -871,9 +514,24 @@ async def assign_user_group(
     user_id: str,
     payload: GroupAssignPayload,
     request: Request,
-    db: AsyncSession = Depends(get_db),
-    actor: User = Depends(require_roles(*_MANAGERS)),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    commands: GroupCommandsPort = Depends(get_group_commands),
 ):
-    return await assign_user_group_workflow(
-        db, user_id=user_id, group_id=payload.group_id, actor=actor, request=request
+    try:
+        target_id = str(UUID(user_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="用户不存在") from None
+    group_id = None
+    if payload.group_id:
+        try:
+            group_id = str(UUID(payload.group_id))
+        except ValueError:
+            raise HTTPException(status_code=404, detail="数据组不存在") from None
+    data = await execute_group(
+        request,
+        credentials,
+        commands,
+        "assign_user_group",
+        {"user_id": target_id, "group_id": group_id},
     )
+    return data["account"]
