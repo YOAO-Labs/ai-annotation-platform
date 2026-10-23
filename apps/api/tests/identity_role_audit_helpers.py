@@ -130,12 +130,16 @@ async def historical_audit_database(test_engine, *, initialize=True):
 
 
 @asynccontextmanager
-async def audit_reader(test_engine):
-    """Provision only the existing non-Identity reads and the explicit owner profile."""
+async def audit_reader(test_engine, *, cli_role=False):
+    """Compose explicit owner audit profiles with the remaining Labeling reads."""
     from tests.test_workspace_consumer_profile_native import _grants
 
     _verify_postgres(test_engine.url)
-    role = "identity_audit_" + uuid.uuid4().hex[:12]
+    role = (
+        str(test_engine.url.database) + "_app"
+        if cli_role
+        else "identity_audit_" + uuid.uuid4().hex[:12]
+    )
     password = uuid.uuid4().hex
     engine = None
     async with test_engine.begin() as db:
@@ -154,7 +158,7 @@ async def audit_reader(test_engine):
             await db.execute(text(f"GRANT USAGE ON SCHEMA public TO {role}"))
             await db.execute(
                 text(
-                    f"GRANT SELECT ON public.projects,public.project_members,public.tasks,public.task_batches,public.annotations,public.task_locks,public.alembic_version TO {role}"
+                    f"GRANT SELECT ON public.tasks,public.task_batches,public.annotations,public.task_locks,public.alembic_version TO {role}"
                 )
             )
             # Prove the owner profile removes existing table and column grants.
@@ -163,10 +167,25 @@ async def audit_reader(test_engine):
             await db.execute(
                 text(f"GRANT SELECT (id,token) ON public.user_invitations TO {role}")
             )
-        result = await _grants(
-            test_engine, ROOT / "infra/docker/identity-role-audit-grants.sql", role
-        )
-        assert result.returncode == 0, result.stderr
+        async with test_engine.begin() as db:
+            # Existing broad and column grants must both be removed by the installer.
+            await db.execute(
+                text(
+                    f"GRANT SELECT ON public.projects,public.project_members TO {role}"
+                )
+            )
+            await db.execute(
+                text(f"GRANT SELECT (id,owner_id) ON public.projects TO {role}")
+            )
+            await db.execute(
+                text(f"GRANT SELECT (id,role) ON public.project_members TO {role}")
+            )
+        for installer in (
+            "identity-role-audit-grants.sql",
+            "workspace-role-audit-grants.sql",
+        ):
+            result = await _grants(test_engine, ROOT / "infra/docker" / installer, role)
+            assert result.returncode == 0, result.stderr
         engine = create_async_engine(
             test_engine.url.set(username=role, password=password), hide_parameters=True
         )

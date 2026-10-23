@@ -7833,3 +7833,23 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   It binds the exact 51-case union, original baseline, 504 source cases, 358
   architecture passes and 150 deferred rules, retained failures and recovery,
   both cold cases/34 commands, artifact identities and final preservation.
+
+### Workspace historical role-audit owner boundary
+
+The historical audit now reads Project and ProjectMember through three fixed
+Workspace audit relations. The explicit installer composes with the existing
+Identity installer on actual revision 0171 without advancing Alembic. Ordinary
+Workspace deployment revokes this privileged audit surface. No new runtime,
+credential selector, Identity join, filter, role mapping, or transaction is added.
+
+The audit preserves the existing report version, fields, SQL NULL semantics,
+manager predicates, limits and privacy. Optional member preparation metadata uses
+pg_attribute under the owner rather than privilege-filtered information_schema.
+The fixed views see additive revision 0173 without reinstallation.
+
+The first owned-database acceptance passed 22 cases, including eight unchanged
+full report goldens, actual historical schemas, Node consumption, backup/restore,
+repeatable snapshots, nullable diagnostics and atomic installer rejection. All
+513 Workspace source cases passed. Matching cold artifact and real CLI acceptance
+are the remaining gates for this slice. The sole current remaining-work ledger
+is docs-site/dev/concepts/module-deployment.md; the whole module remains open.

@@ -9,7 +9,7 @@ const input = JSON.parse(readFileSync(0, "utf8"));
 const client = new Client({ connectionString: input.database_url });
 try {
   await client.connect();
-  for (const table of ["users", "user_invitations"])
+  for (const table of ["users", "user_invitations", "projects", "project_members"])
     await assert.rejects(client.query(`SELECT id FROM public.${table}`), { code: "42501" });
   await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
   const accounts = (
@@ -43,12 +43,30 @@ try {
     (await client.query("SELECT * FROM aap_identity_audit_v1.schema_capabilities")).rows,
     [{ invitation_project_role: input.prepared }],
   );
+  const projects = (
+    await client.query("SELECT * FROM aap_workspace_audit_v1.project_facts ORDER BY id")
+  ).rows;
+  assert.equal(projects.length, 1);
+  assert.deepEqual(Object.keys(projects[0]), ["id", "owner_id", "status"]);
+  assert.equal(projects[0].status, "in_progress");
+  const members = (
+    await client.query("SELECT * FROM aap_workspace_audit_v1.project_member_facts ORDER BY id")
+  ).rows;
+  assert.equal(members.length, 1);
+  assert.deepEqual(Object.keys(members[0]), ["id", "project_id", "user_id", "role"]);
+  assert.equal(members[0].project_id, projects[0].id);
+  assert.equal(members[0].role, "viewer");
+  assert.deepEqual(
+    (await client.query("SELECT * FROM aap_workspace_audit_v1.schema_capabilities")).rows,
+    [{ member_version: input.prepared, member_updated_at: input.prepared }],
+  );
   await client.query("ROLLBACK");
   process.stdout.write(
     JSON.stringify({
       ok: true,
       read_only: true,
       private_identity_denied: true,
+      private_workspace_denied: true,
       prepared: input.prepared,
     }),
   );

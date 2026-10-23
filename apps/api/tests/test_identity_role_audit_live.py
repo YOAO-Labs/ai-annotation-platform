@@ -14,7 +14,12 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
-from tests.identity_role_audit_helpers import historical_audit_database
+from scripts.audit_project_roles import (
+    _json_default,
+    collect_report,
+    read_only_audit_session,
+)
+from tests.identity_role_audit_helpers import audit_reader, historical_audit_database
 from tests.project_guide_asset_owner_helpers import (
     assert_workspace_identity,
     endpoint_url,
@@ -37,12 +42,13 @@ _AUDIT_VIEWS = {
     "aap_identity_audit_v1.account_roles",
     "aap_identity_audit_v1.invitation_facts",
     "aap_identity_audit_v1.schema_capabilities",
+    "aap_workspace_audit_v1.project_facts",
+    "aap_workspace_audit_v1.project_member_facts",
+    "aap_workspace_audit_v1.schema_capabilities",
 }
 _READ_ONLY_TABLES = {
     "alembic_version",
     "annotations",
-    "projects",
-    "project_members",
     "task_batches",
     "task_locks",
     "tasks",
@@ -165,7 +171,7 @@ async def _temporary_runtime_role(test_engine, historical, monkeypatch):
             await db.execute(
                 text(
                     "GRANT SELECT ON TABLE public.alembic_version, "
-                    "public.annotations, public.projects, public.project_members, "
+                    "public.annotations, "
                     "public.task_batches, public.task_locks, public.tasks "
                     "TO legacy_runtime"
                 )
@@ -238,7 +244,21 @@ async def _source_snapshot(historical) -> dict:
         revision = await db.scalar(
             text("SELECT version_num FROM public.alembic_version")
         )
+        projects = (
+            await db.execute(
+                text("SELECT id,owner_id,status FROM public.projects ORDER BY id")
+            )
+        ).all()
+        members = (
+            await db.execute(
+                text(
+                    "SELECT id,project_id,user_id,role FROM public.project_members ORDER BY id"
+                )
+            )
+        ).all()
     return {
+        "projects": tuple(tuple(row) for row in projects),
+        "members": tuple(tuple(row) for row in members),
         "users": tuple(tuple(row) for row in users),
         "invitations": tuple(tuple(row) for row in invitations),
         "revision": revision,
@@ -247,24 +267,13 @@ async def _source_snapshot(historical) -> dict:
 
 async def _assert_empty_audit_views(historical) -> None:
     async with historical.connect() as db:
-        assert (
-            await db.scalar(
-                text("SELECT to_regclass('aap_identity_audit_v1.account_roles')")
+        for relation in _AUDIT_VIEWS:
+            assert (
+                await db.scalar(
+                    text("SELECT to_regclass(:relation)"), {"relation": relation}
+                )
+                is None
             )
-            is None
-        )
-        assert (
-            await db.scalar(
-                text("SELECT to_regclass('aap_identity_audit_v1.invitation_facts')")
-            )
-            is None
-        )
-        assert (
-            await db.scalar(
-                text("SELECT to_regclass('aap_identity_audit_v1.schema_capabilities')")
-            )
-            is None
-        )
         assert (
             await db.scalar(text("SELECT version_num FROM public.alembic_version"))
             == "0171"
@@ -326,7 +335,12 @@ async def _assert_runtime_acl(
                 ),
                 {"relation": f"public.{relation}"},
             ), relation
-        for private_relation in ("public.users", "public.user_invitations"):
+        for private_relation in (
+            "public.users",
+            "public.user_invitations",
+            "public.projects",
+            "public.project_members",
+        ):
             assert not await db.scalar(
                 text(
                     "SELECT pg_catalog.has_table_privilege('legacy_runtime',"
@@ -351,7 +365,7 @@ async def _assert_runtime_acl(
                             "FROM pg_catalog.pg_class AS relation "
                             "JOIN pg_catalog.pg_namespace AS namespace "
                             "ON namespace.oid=relation.relnamespace "
-                            "WHERE namespace.nspname='aap_identity_audit_v1' "
+                            "WHERE namespace.nspname IN ('aap_identity_audit_v1','aap_workspace_audit_v1') "
                             "AND relation.relkind='v' "
                             "AND pg_catalog.has_table_privilege("
                             "'legacy_runtime',relation.oid,'SELECT')"
@@ -624,6 +638,20 @@ async def test_installed_role_audit_uses_owned_identity_views_on_real_0171(
                     identity_owner="identity_code",
                     consumer_role="legacy_runtime",
                 )
+                missing_workspace = await _audit_cli(cli, "--max-rows", "1")
+                record_property(
+                    "workspace_role_audit_missing_profile", missing_workspace.evidence
+                )
+                assert (
+                    missing_workspace.exit_code == 2 and not missing_workspace.timed_out
+                )
+                assert await _source_snapshot(historical) == before
+                _grants(
+                    historical,
+                    "workspace-role-audit-grants.sql",
+                    workspace_owner="workspace_code",
+                    consumer_role="legacy_runtime",
+                )
                 await _assert_runtime_acl(historical, installed=True)
                 await _identity_api_profile(test_engine)
                 async with historical.connect() as db:
@@ -777,7 +805,7 @@ async def test_installed_role_audit_uses_owned_identity_views_on_real_0171(
                 record_property(
                     "identity_role_audit_scope",
                     "Qualified the real 0171 role-audit CLI against fenced "
-                    "Identity-owned user and invitation views, including limit, "
+                    "Identity and Workspace-owned audit views, including limit, "
                     "pretty output, permission denial, physical process recovery, "
                     "and unchanged historical rows. Broader Identity operations "
                     "remain outside this case.",
@@ -799,3 +827,81 @@ async def test_installed_role_audit_uses_owned_identity_views_on_real_0171(
 
     assert await _identity_api_profile(test_engine) == api_profile_before
     record_property("identity_role_audit_owned_database", evidence)
+
+
+async def test_installed_role_audit_current_workspace_denial_and_recovery(
+    test_engine, tmp_path, record_property
+):
+    from tests.test_project_role_audit import _cleanup, _seed_full
+
+    resources, _bucket, _s3 = await assert_workspace_identity(test_engine)
+    endpoint = urlsplit(endpoint_url())
+    assert endpoint.scheme in {"http", "https"} and endpoint.hostname
+    host = f"[{endpoint.hostname}]" if ":" in endpoint.hostname else endpoint.hostname
+    ctx = await _seed_full(test_engine)
+    cli = None
+    try:
+        async with audit_reader(test_engine, cli_role=True) as (reader, role):
+            before = await _source_snapshot(test_engine)
+            async with read_only_audit_session(reader) as db:
+                expected = json.loads(
+                    json.dumps(await collect_report(db), default=_json_default)
+                )
+            source = tmp_path / "workspace-role-audit-current-cli"
+            source.mkdir()
+            cli = WorkspaceImportCli(
+                test_engine,
+                tmp_path,
+                source_root=source,
+                buckets=resources["buckets"],
+                minio_authority=f"{host}:{endpoint.port or 9000}",
+                minio_use_ssl=endpoint.scheme == "https",
+                s3_access_key=os.environ["AAP_MODULE_DATA_ASSET_IMPORT_S3_ACCESS_KEY"],
+                s3_secret_key=os.environ["AAP_MODULE_DATA_ASSET_IMPORT_S3_SECRET_KEY"],
+                runtime_database_url=reader.url,
+            )
+            try:
+                await asyncio.to_thread(cli.start)
+                run = await _audit_cli(cli, "--max-rows", "1000")
+                record_property("workspace_role_audit_current_report", run.evidence)
+                report = _report(run)
+                for key in ("generated_at", "run_id"):
+                    expected.pop(key)
+                    report.pop(key)
+                assert report == expected
+                async with test_engine.begin() as db:
+                    await db.execute(
+                        text(
+                            f"REVOKE SELECT ON aap_workspace_audit_v1.project_member_facts FROM {role}"
+                        )
+                    )
+                try:
+                    denied = await _audit_cli(cli, "--max-rows", "1000")
+                    record_property(
+                        "workspace_role_audit_current_denied", denied.evidence
+                    )
+                    assert denied.exit_code == 2 and not denied.timed_out
+                    assert denied.stderr.strip().startswith("audit failed: ")
+                    assert "Traceback" not in denied.stderr
+                finally:
+                    async with test_engine.begin() as db:
+                        await db.execute(
+                            text(
+                                f"GRANT SELECT ON aap_workspace_audit_v1.project_member_facts TO {role}"
+                            )
+                        )
+                recovered = await _audit_cli(cli, "--max-rows", "1000")
+                record_property(
+                    "workspace_role_audit_current_recovered", recovered.evidence
+                )
+                report = _report(recovered)
+                for key in ("generated_at", "run_id"):
+                    report.pop(key)
+                assert report == expected
+                assert await _source_snapshot(test_engine) == before
+            finally:
+                if cli is not None:
+                    await asyncio.to_thread(cli.close)
+                    cli = None
+    finally:
+        await _cleanup(test_engine, ctx)

@@ -1,4 +1,4 @@
-"""Replay the actual role audit across the Identity read boundary."""
+"""Replay the actual role audit across the Identity and Workspace read boundaries."""
 
 from __future__ import annotations
 
@@ -148,7 +148,7 @@ async def test_role_audit_profile_and_repeatable_snapshot(test_engine):
     ctx = await _seed_full(test_engine)
     try:
         async with audit_reader(test_engine) as (reader, role):
-            for table in ("users", "user_invitations"):
+            for table in ("users", "user_invitations", "projects", "project_members"):
                 await _denied(reader, f"SELECT id FROM public.{table}")
             await _denied(
                 reader,
@@ -159,22 +159,26 @@ async def test_role_audit_profile_and_repeatable_snapshot(test_engine):
                     (
                         await db.execute(
                             text(
-                                "SELECT oid FROM pg_class WHERE relnamespace='aap_identity_audit_v1'::regnamespace ORDER BY oid"
+                                "SELECT oid FROM pg_class WHERE relnamespace IN ('aap_identity_audit_v1'::regnamespace,'aap_workspace_audit_v1'::regnamespace) ORDER BY oid"
                             )
                         )
                     )
                     .scalars()
                     .all()
                 )
-            result = await _grants(
-                test_engine, ROOT / "infra/docker/identity-role-audit-grants.sql", role
-            )
-            assert result.returncode == 0, result.stderr
+            for installer in (
+                "identity-role-audit-grants.sql",
+                "workspace-role-audit-grants.sql",
+            ):
+                result = await _grants(
+                    test_engine, ROOT / "infra/docker" / installer, role
+                )
+                assert result.returncode == 0, result.stderr
             async with reader.connect() as db:
                 assert (
                     await db.execute(
                         text(
-                            "SELECT oid FROM pg_class WHERE relnamespace='aap_identity_audit_v1'::regnamespace ORDER BY oid"
+                            "SELECT oid FROM pg_class WHERE relnamespace IN ('aap_identity_audit_v1'::regnamespace,'aap_workspace_audit_v1'::regnamespace) ORDER BY oid"
                         )
                     )
                 ).scalars().all() == view_ids
@@ -229,9 +233,29 @@ async def test_role_audit_profile_and_repeatable_snapshot(test_engine):
                         ),
                         {"id": ctx["ids"]["legacy_project_invitation"]},
                     )
+                    await writer.execute(
+                        text(
+                            "UPDATE public.projects SET status='audit_diagnostic' WHERE id=:id"
+                        ),
+                        {"id": ctx["projects"][0]},
+                    )
+                    await writer.execute(
+                        text(
+                            "UPDATE public.project_members SET role='audit_diagnostic' WHERE user_id=:id"
+                        ),
+                        {"id": ctx["ids"]["unknown_user"]},
+                    )
                 assert await collect_report(db, **arguments) == before
             async with read_only_audit_session(reader) as db:
                 after = await collect_report(db, **arguments)
+            assert (
+                after["reconciliation"]["projects"]["by_status"]["audit_diagnostic"]
+                == 1
+            )
+            assert (
+                after["reconciliation"]["memberships"]["by_role"]["audit_diagnostic"]
+                == 1
+            )
             assert (
                 after["summary"]["unknown_platform_roles"]
                 == before["summary"]["unknown_platform_roles"] - 1
@@ -270,8 +294,150 @@ async def _node_audit_reader(reader, *, prepared, project_role):
         "ok": True,
         "read_only": True,
         "private_identity_denied": True,
+        "private_workspace_denied": True,
         "prepared": prepared,
     }
+
+
+@pytest.mark.parametrize(
+    "invalid", ["database", "owner", "definition", "view_owner", "extra_relation"]
+)
+async def test_workspace_audit_installer_rejects_drift_atomically(test_engine, invalid):
+    from tests.test_workspace_consumer_profile_native import _grants
+
+    installer = ROOT / "infra/docker/workspace-role-audit-grants.sql"
+    relation = "aap_workspace_audit_v1.project_facts"
+    async with audit_reader(test_engine) as (reader, role):
+        async with test_engine.begin() as db:
+            definition = await db.scalar(
+                text(f"SELECT pg_get_viewdef('{relation}'::regclass)")
+            )
+            await db.execute(text(f"REVOKE SELECT ON {relation} FROM {role}"))
+            if invalid == "definition":
+                await db.execute(
+                    text(
+                        f"CREATE OR REPLACE VIEW {relation} WITH (security_barrier=true) AS SELECT id,owner_id,status FROM public.projects WHERE false"
+                    )
+                )
+            elif invalid == "view_owner":
+                await db.execute(text(f"ALTER VIEW {relation} OWNER TO identity_code"))
+            elif invalid == "extra_relation":
+                await db.execute(
+                    text("CREATE TABLE aap_workspace_audit_v1.unexpected(id uuid)")
+                )
+        try:
+            options = (
+                {"expected_database": "wrong_test"} if invalid == "database" else {}
+            )
+            if invalid == "owner":
+                options["workspace_owner"] = "identity_code"
+            result = await _grants(test_engine, installer, role, **options)
+            assert result.returncode != 0
+            async with test_engine.connect() as db:
+                assert not await db.scalar(
+                    text(
+                        "SELECT has_table_privilege(:role,CAST(:relation AS regclass),'SELECT')"
+                    ),
+                    {"role": role, "relation": relation},
+                )
+            await _denied(reader, f"SELECT id FROM {relation}")
+        finally:
+            async with test_engine.begin() as db:
+                if invalid == "view_owner":
+                    await db.execute(
+                        text(f"ALTER VIEW {relation} OWNER TO workspace_code")
+                    )
+                if invalid == "definition":
+                    await db.execute(
+                        text(
+                            f"CREATE OR REPLACE VIEW {relation} WITH (security_barrier=true) AS {definition}"
+                        )
+                    )
+                if invalid == "extra_relation":
+                    await db.execute(
+                        text("DROP TABLE aap_workspace_audit_v1.unexpected")
+                    )
+            recovered = await _grants(test_engine, installer, role)
+            assert recovered.returncode == 0, recovered.stderr
+        async with read_only_audit_session(reader) as db:
+            await collect_report(db)
+
+
+async def test_normal_workspace_profile_revokes_explicit_audit_grants(test_engine):
+    from tests.test_workspace_consumer_profile_native import _grants
+
+    async with audit_reader(test_engine) as (reader, role):
+        async with test_engine.begin() as db:
+            await db.execute(
+                text(
+                    f"GRANT SELECT (id) ON aap_workspace_audit_v1.project_facts TO {role}"
+                )
+            )
+        applied = await _grants(
+            test_engine, ROOT / "infra/docker/workspace-consumer-grants.sql", role
+        )
+        assert applied.returncode == 0, applied.stderr
+        async with test_engine.connect() as db:
+            assert not await db.scalar(
+                text(
+                    "SELECT has_schema_privilege(:role,'aap_workspace_audit_v1','USAGE')"
+                ),
+                {"role": role},
+            )
+            assert not await db.scalar(
+                text(
+                    "SELECT has_any_column_privilege(:role,'aap_workspace_audit_v1.project_facts','SELECT')"
+                ),
+                {"role": role},
+            )
+        await _denied(reader, "SELECT id FROM aap_workspace_audit_v1.project_facts")
+
+
+async def test_historical_workspace_audit_preserves_diagnostic_nulls(test_engine):
+    async with historical_audit_database(test_engine) as (historical, _evidence):
+        async with historical.begin() as db:
+            await db.execute(
+                text(
+                    "ALTER TABLE public.projects ALTER COLUMN owner_id DROP NOT NULL, ALTER COLUMN status DROP NOT NULL"
+                )
+            )
+            await db.execute(
+                text(
+                    "ALTER TABLE public.project_members ALTER COLUMN project_id DROP NOT NULL, ALTER COLUMN user_id DROP NOT NULL, ALTER COLUMN role DROP NOT NULL"
+                )
+            )
+            await db.execute(
+                text("UPDATE public.projects SET owner_id=NULL,status=NULL")
+            )
+            await db.execute(
+                text(
+                    "UPDATE public.project_members SET project_id=NULL,user_id=NULL,role=NULL"
+                )
+            )
+        async with audit_reader(historical) as (reader, _role):
+            async with read_only_audit_session(reader) as db:
+                assert (
+                    await db.execute(
+                        text(
+                            "SELECT owner_id,status FROM aap_workspace_audit_v1.project_facts"
+                        )
+                    )
+                ).one() == (None, None)
+                assert (
+                    await db.execute(
+                        text(
+                            "SELECT project_id,user_id,role FROM aap_workspace_audit_v1.project_member_facts"
+                        )
+                    )
+                ).one() == (None, None, None)
+                report = await collect_report(db)
+                assert report["reconciliation"]["projects"]["by_status"] == {
+                    "unknown": 1
+                }
+                assert report["reconciliation"]["memberships"]["by_role"] == {
+                    "unknown": 1
+                }
+                assert report["baseline"]["database_revisions"] == ["0171"]
 
 
 async def test_historical_profile_tracks_preparation_and_node(
@@ -283,7 +449,7 @@ async def test_historical_profile_tracks_preparation_and_node(
                 view_ids = (
                     await db.scalars(
                         text(
-                            "SELECT oid FROM pg_class WHERE relnamespace='aap_identity_audit_v1'::regnamespace ORDER BY oid"
+                            "SELECT oid FROM pg_class WHERE relnamespace IN ('aap_identity_audit_v1'::regnamespace,'aap_workspace_audit_v1'::regnamespace) ORDER BY oid"
                         )
                     )
                 ).all()
@@ -327,7 +493,7 @@ async def test_historical_profile_tracks_preparation_and_node(
                 assert (
                     await db.scalars(
                         text(
-                            "SELECT oid FROM pg_class WHERE relnamespace='aap_identity_audit_v1'::regnamespace ORDER BY oid"
+                            "SELECT oid FROM pg_class WHERE relnamespace IN ('aap_identity_audit_v1'::regnamespace,'aap_workspace_audit_v1'::regnamespace) ORDER BY oid"
                         )
                     )
                 ).all() == view_ids

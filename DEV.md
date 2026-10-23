@@ -857,11 +857,12 @@ AAP_IDENTITY_RECORDING_FIXTURE_LIVE=1 \
 [唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)记录。这不替代实际
 浏览器录制、ML 推理或完整录制工作流验收；旧媒体资产和人工审阅来源不被重写。
 
-### 历史角色审计的 Identity 读取
+### 历史角色审计的 Identity 与 Workspace 读取
 
 `audit_project_roles.py` 通过 `aap_identity_audit_v1` 的三个固定关系读取账号角色、
-邀请审计字段和准备列事实。它保持单一 `REPEATABLE READ, READ ONLY` 事务，未安装
-关系时返回退出码 2，不建表、不修改 revision，也不回退到 User／邀请私表。
+邀请审计字段和准备列事实；通过 `aap_workspace_audit_v1` 的三个窄关系读取项目 ID／
+所有者／状态、成员 ID／项目／账号／原职责以及成员准备列事实。它保持单一 `REPEATABLE READ, READ ONLY` 事务，未安装
+关系时返回退出码 2，不建表、不修改 revision，也不回退到 User／邀请／项目／成员私表。
 
 在迁移前数据库上，由明确的迁移账号安装只读能力；以下角色必须已由维护者准备：
 
@@ -869,11 +870,15 @@ AAP_IDENTITY_RECORDING_FIXTURE_LIVE=1 \
 psql -v expected_database=annotation_test -v migration_role=owner \
   -v identity_owner=identity_code -v consumer_role=role_auditor \
   -f infra/docker/identity-role-audit-grants.sql
+psql -v expected_database=annotation_test -v migration_role=owner \
+  -v workspace_owner=workspace_code -v consumer_role=role_auditor \
+  -f infra/docker/workspace-role-audit-grants.sql
 ```
 
-`identity_owner` 是既有非 LOGIN 角色，`consumer_role` 是无管理权限、无继承成员关系的
-专用审计 LOGIN。安装器撤销它对 User／邀请私表的表级和列级权限，只追加三个审计
-关系的 SELECT。其他领域所需的只读权限和 Alembic 元数据读取由原领域维护者提供；
+`identity_owner` 和 `workspace_owner` 是既有非 LOGIN 角色，`consumer_role` 是无管理权限、无继承成员关系的
+专用审计 LOGIN。两个安装器分别撤销对应私表的表级和列级权限，各追加三个审计
+关系的 SELECT。普通 Workspace 消费者授权会再次撤销这类特权审计读取，必须使用
+独立的审计 LOGIN。其他领域所需的只读权限和 Alembic 元数据读取由原领域维护者提供；
 普通 Identity API 的五函数／两视图配置保持。
 
 将单次命令的 `DATABASE_URL` 指向审计 LOGIN 后，按原方式执行。安装器在命令之外
@@ -885,8 +890,9 @@ uv run python scripts/audit_project_roles.py --pretty
 ```
 
 原始角色、停用状态、NULL／未知值和邀请状态不被规范化。旧库尚无邀请项目角色列时
-报告未知；该列加入后，既有关系自动读取真实列值。15 项定向检查和一个包含七次真实容器调用的冷案例已通过，覆盖原报告复验、无重装
-schema 过渡、Node、备份恢复、权限拒绝和物理取消后的后端释放。参照下文组合私网
+报告未知；成员版本／更新时间准备列也通过 owner 的元数据关系报告。加列后既有
+关系自动反映真实能力，安装器和审计 CLI 均不推进历史数据库 revision。原 Identity
+资格继续保留，Workspace 组合资格见下方收据。参照下文组合私网
 验收表设置当前四项镜像及身份变量后，可运行同一自有资源案例：
 
 ```bash
@@ -896,8 +902,9 @@ AAP_IDENTITY_ROLE_AUDIT_LIVE=1 \
   --test-file tests/test_identity_role_audit_live.py
 ```
 
-收据见 `.worktree/identity-role-audit-qualification.json`。这是本机 ARM64 的有限正确性
-资格，未覆盖完整 Identity 或生产容量；整体剩余项见
+原 Identity 收据见 `.worktree/identity-role-audit-qualification.json`；组合 Workspace 收据
+见 `.worktree/workspace-role-audit-qualification.json`。这是本机 ARM64 的有限正确性
+资格，未覆盖完整 Workspace 或生产容量；整体剩余项见
 [唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
 
 ### 图片导入与规模种子的 Identity 选择
