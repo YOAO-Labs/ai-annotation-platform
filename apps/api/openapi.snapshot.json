@@ -6037,6 +6037,32 @@
       },
       "BucketSummary": {
         "properties": {
+          "attempt_status": {
+            "default": "never",
+            "title": "Attempt Status",
+            "type": "string"
+          },
+          "attempted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempted At"
+          },
+          "coverage": {
+            "default": "none",
+            "enum": [
+              "none",
+              "complete"
+            ],
+            "title": "Coverage",
+            "type": "string"
+          },
           "error": {
             "anyOf": [
               {
@@ -6048,39 +6074,130 @@
             ],
             "title": "Error"
           },
+          "is_estimate": {
+            "default": true,
+            "title": "Is Estimate",
+            "type": "boolean"
+          },
+          "measured_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured At"
+          },
+          "measurement_started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurement Started At"
+          },
           "name": {
             "title": "Name",
             "type": "string"
           },
           "object_count": {
-            "default": 0,
-            "title": "Object Count",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Object Count"
           },
           "role": {
             "title": "Role",
             "type": "string"
           },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "scope": {
+            "default": "current_objects",
+            "title": "Scope",
+            "type": "string"
+          },
+          "source": {
+            "default": "s3_list_objects_v2",
+            "title": "Source",
+            "type": "string"
+          },
           "status": {
+            "enum": [
+              "unknown",
+              "ok",
+              "stale"
+            ],
             "title": "Status",
             "type": "string"
           },
           "total_size_bytes": {
-            "default": 0,
-            "title": "Total Size Bytes",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Size Bytes"
           }
         },
         "required": [
           "name",
-          "status",
-          "role"
+          "role",
+          "roles",
+          "status"
         ],
         "title": "BucketSummary",
         "type": "object"
       },
       "BucketsResponse": {
         "properties": {
+          "bucket_count": {
+            "title": "Bucket Count",
+            "type": "integer"
+          },
+          "inventory_job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inventory Job Id"
+          },
+          "inventory_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inventory Status"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/BucketSummary"
@@ -6088,19 +6205,78 @@
             "title": "Items",
             "type": "array"
           },
-          "total_object_count": {
-            "title": "Total Object Count",
+          "location_id": {
+            "format": "uuid",
+            "title": "Location Id",
+            "type": "string"
+          },
+          "measured_bucket_count": {
+            "title": "Measured Bucket Count",
             "type": "integer"
           },
+          "physical_available_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Physical Available Bytes"
+          },
+          "physical_total_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Physical Total Bytes"
+          },
+          "quota_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quota Bytes"
+          },
+          "total_object_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Object Count"
+          },
           "total_size_bytes": {
-            "title": "Total Size Bytes",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Size Bytes"
           }
         },
         "required": [
           "items",
           "total_object_count",
-          "total_size_bytes"
+          "total_size_bytes",
+          "measured_bucket_count",
+          "bucket_count",
+          "location_id"
         ],
         "title": "BucketsResponse",
         "type": "object"
@@ -42477,6 +42653,33 @@
       },
       "StorageOverview": {
         "properties": {
+          "bucket_count": {
+            "title": "Bucket Count",
+            "type": "integer"
+          },
+          "inventory_job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inventory Job Id"
+          },
+          "inventory_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inventory Status"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/BucketSummary"
@@ -42484,19 +42687,78 @@
             "title": "Items",
             "type": "array"
           },
-          "total_object_count": {
-            "title": "Total Object Count",
+          "location_id": {
+            "format": "uuid",
+            "title": "Location Id",
+            "type": "string"
+          },
+          "measured_bucket_count": {
+            "title": "Measured Bucket Count",
             "type": "integer"
           },
+          "physical_available_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Physical Available Bytes"
+          },
+          "physical_total_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Physical Total Bytes"
+          },
+          "quota_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quota Bytes"
+          },
+          "total_object_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Object Count"
+          },
           "total_size_bytes": {
-            "title": "Total Size Bytes",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Size Bytes"
           }
         },
         "required": [
           "items",
           "total_object_count",
-          "total_size_bytes"
+          "total_size_bytes",
+          "measured_bucket_count",
+          "bucket_count",
+          "location_id"
         ],
         "title": "StorageOverview",
         "type": "object"
@@ -50841,6 +51103,25 @@
           "expires_in"
         ],
         "title": "UploadInitResponse",
+        "type": "object"
+      },
+      "UsageInventoryResponse": {
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "reused": {
+            "title": "Reused",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "job_id",
+          "reused"
+        ],
+        "title": "UsageInventoryResponse",
         "type": "object"
       },
       "UserBrief": {
@@ -88836,6 +89117,32 @@
           }
         ],
         "summary": "Storage Health",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/usage-inventory": {
+      "post": {
+        "operationId": "start_usage_inventory_api_v1_storage_usage_inventory_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageInventoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Start Usage Inventory",
         "tags": [
           "storage"
         ]

@@ -34,6 +34,7 @@ class AsyncJobKind(str, enum.Enum):
     TRAINING_PREVIEW = "training_preview"
     SAMPLE_EVALUATION = "sample_evaluation"
     ACTIVE_LEARNING_ROUND = "active_learning_round"
+    STORAGE_USAGE = "storage_usage"
     DATASET_QUALITY = "dataset_quality"
     DATASET_QUALITY_REVIEW = "dataset_quality_review"
     DATASET_SCAN = "dataset_scan"

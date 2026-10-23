@@ -200,7 +200,7 @@ describe("StoragePage", () => {
     expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["storage-source-summary"] });
     expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["storage-source-locations"] });
     expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["storage-bindings"] });
-    expect(mockInvalidateQueries).not.toHaveBeenCalledWith({ queryKey: ["storage-buckets"] });
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["storage-buckets"] });
   });
 
   it("视频资产加载中 → 显示加载态文字", () => {

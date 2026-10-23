@@ -1,5 +1,5 @@
 import { CopyableError } from "@/components/ui/CopyableError";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/api/client";
@@ -68,11 +68,13 @@ export function AsyncJobDetailModal({
   onClose,
   onRetryQueued,
   navigate: navigateExternal,
+  returnFocusRef,
 }: {
   jobId: string;
   onClose: () => void;
   onRetryQueued?: (queued: number) => void;
   navigate?: GuardedNavigate;
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }) {
   const userId = useAuthStore((state) => state.user?.id);
   const navigate = useNavigate();
@@ -202,7 +204,7 @@ export function AsyncJobDetailModal({
   };
 
   return (
-    <Modal open onClose={onClose} title="后台任务详情" width={640}>
+    <Modal open onClose={onClose} title="后台任务详情" width={640} returnFocusRef={returnFocusRef}>
       {jobQ.isPending && (
         <p role="status" className="text-sm text-muted-foreground">
           {jobQ.fetchStatus === "paused" ? "当前离线，联网后加载任务详情。" : "正在加载任务详情…"}

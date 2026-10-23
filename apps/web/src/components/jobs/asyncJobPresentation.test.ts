@@ -51,3 +51,14 @@ describe("后台任务结果", () => {
     ).toBeNull();
   });
 });
+
+it("对象盘点用已处理桶数显示进度，不伪造当前桶总量", () => {
+  expect(
+    jobProgressText({
+      kind: "storage_usage",
+      status: "running",
+      progress_pct: 33,
+      result: { success_count: 2, failed_count: 1 },
+    }),
+  ).toBe("已处理 3 个桶 · 当前桶对象总量未知");
+});

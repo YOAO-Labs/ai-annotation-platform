@@ -43,6 +43,7 @@ celery_app = Celery(
         # v0.11.15 · 外部连接器数据集导入
         "app.workers.dataset_import",
         "app.workers.storage_probe",
+        "app.workers.storage_usage",
         "app.workers.dataset_scan",
         "app.workers.dataset_registration",
         "app.workers.dataset_quality",
@@ -266,6 +267,10 @@ celery_app.conf.update(
             "schedule": crontab(hour=2, minute=30),
         },
         # v0.10.16 · async_jobs 终态 retention purge：30 天后清 completed/failed/cancelled
+        "recover-storage-usage": {
+            "task": "app.workers.storage_usage.recover_usage_inventories",
+            "schedule": 30.0,
+        },
         "recover-dataset-quality-reviews": {
             "task": "app.workers.dataset_quality_review.recover_quality_reviews",
             "schedule": 30.0,

@@ -47,6 +47,7 @@ CANCELLABLE_KINDS = {
     "dataset_import",
     "dataset_scan",
     "dataset_registration",
+    "storage_usage",
     "dataset_quality",
     "dataset_quality_review",
     "mask_qc",
@@ -98,6 +99,7 @@ def _build_async_job_query(
                 and_(
                     AsyncJob.kind.not_in(
                         [
+                            "storage_usage",
                             "dataset_scan",
                             "dataset_registration",
                             "dataset_quality",
@@ -149,6 +151,8 @@ async def _can_access_job(db: AsyncSession, *, job: AsyncJob, user: User) -> boo
     be able to see the job's project, and the reviewer scope-expansion paths use
     the *current* project role rather than a stale global account role.
     """
+    if job.kind == "storage_usage":
+        return user.is_active and user.role == PlatformRole.SUPER_ADMIN.value
     if job.kind in {"dataset_quality", "dataset_quality_review"}:
         try:
             actor = await source_access.require_manager(db, user.id)
@@ -286,6 +290,8 @@ async def list_async_jobs(
                 ]
             )
         )
+    if scopes is not None and "*" not in scopes:
+        stmt = stmt.where(AsyncJob.kind != "storage_usage")
     count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
 
     stmt = (
@@ -322,6 +328,8 @@ async def get_async_job(
         "dataset_quality_review",
     }:
         assert_request_scopes(request, "datasets:read")
+    if job.kind == "storage_usage":
+        assert_request_scopes(request, "*")
     return await _to_async_job_out(db, job)
 
 
@@ -355,6 +363,21 @@ async def cancel_async_job(
 
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
+
+    if job.kind == "storage_usage":
+        assert_request_scopes(request, "*")
+        from app.services import storage_usage
+        from app.services.dataset_content import key_authority
+
+        key_id = getattr(request.state, "api_key_id", None)
+        proof = await key_authority(db, current_user, key_id, "*")
+        await storage_usage.require_admin(db, current_user.id)
+        await storage_usage.cancel(db, job.id)
+        await storage_usage.require_admin(db, current_user.id)
+        if await key_authority(db, current_user, key_id, "*") != proof:
+            raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+        await db.commit()
+        return {"status": "cancelled", "id": str(job.id)}
 
     if job.kind in {"dataset_quality", "dataset_quality_review"}:
         assert_request_scopes(request, "datasets:write")

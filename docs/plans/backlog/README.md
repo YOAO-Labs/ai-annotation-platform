@@ -43,7 +43,7 @@ Promotion requires a fresh decision based on the actual repository, not a few no
 | [E09 存储控制台与去重](../1792661016_dataset-storage-console-boundaries.md)                        | 唯一配置、准确指标和上下文深链        | E02；与 E08 迁旧入口         |
 | [E10 版本与训练消费](../1792661016_dataset-versions-training-consumption.md)                       | 目录进入已有冻结体系、血缘及缓存      | 现有任务版本流与 E05；不重建 |
 | [E11 权限与生命周期](1792661016_dataset-permissions-lifecycle.md)                                  | 只读/修订保护、影响预览、恢复/回收    | 最小保护随核心；治理独立启用 |
-| [E12 容量、运维与恢复](1792661016_dataset-storage-operations-recovery.md)                          | 异步统计、定位故障、一致恢复          | 诊断随核心；恢复先于迁移     |
+| [E12 容量、运维与恢复](../1792661016_dataset-storage-operations-recovery.md)                       | 异步统计、定位故障、一致恢复          | 诊断随核心；恢复先于迁移     |
 
 实施前逐项通过本页 promotion gate，不能直接从 backlog 开始编码。E07 生产迁移和 E06 站点部署需要各自触发条件与实施授权，不能从本次转草案请求推定。
 

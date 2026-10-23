@@ -2,20 +2,21 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from app.deps import get_current_user, get_db, require_roles
+from app.deps import get_current_user, get_db, require_roles, assert_request_scopes
 from app.db.enums import PlatformRole
 from app.db.models.dataset import DatasetItem, VideoChunk, VideoFrameCache
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.services.storage import storage_service
-from app.schemas.storage import BucketSummary, BucketsResponse
+from app.schemas.storage import BucketsResponse, UsageInventoryResponse
+from app.services import storage_usage
 
 router = APIRouter()
 
@@ -87,25 +88,34 @@ async def storage_health(_: User = Depends(get_current_user)):
 
 
 @router.get("/buckets", response_model=BucketsResponse)
-async def storage_buckets(_: User = Depends(get_current_user)):
-    bucket_roles = {
-        storage_service.bucket: "annotations",
-        storage_service.datasets_bucket: "datasets",
-        storage_service.bug_reports_bucket: "bug-reports",
-        storage_service.media_cache_bucket: "media-cache",
-        storage_service.audit_archive_bucket: "audit-archive",
-        storage_service.avatars_bucket: "avatars",
-    }
-    items: list[BucketSummary] = []
-    for b, role in bucket_roles.items():
-        summary = await run_in_threadpool(storage_service.summarize_bucket, b)
-        items.append(BucketSummary(role=role, **summary))
+async def storage_buckets(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(PlatformRole.SUPER_ADMIN)),
+):
+    assert_request_scopes(request, "*")
+    await storage_usage.require_admin(db, current_user.id)
+    return await storage_usage.read_usage(db)
 
-    return BucketsResponse(
-        items=items,
-        total_object_count=sum(i.object_count for i in items),
-        total_size_bytes=sum(i.total_size_bytes for i in items),
+
+@router.post("/usage-inventory", response_model=UsageInventoryResponse, status_code=202)
+async def start_usage_inventory(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles(PlatformRole.SUPER_ADMIN)),
+):
+    assert_request_scopes(request, "*")
+    from app.workers.storage_usage import dispatch
+
+    job, reused = await storage_usage.start(
+        db, current_user, getattr(request.state, "api_key_id", None)
     )
+    job_id = job.id
+    if reused:
+        await db.commit()
+    else:
+        await dispatch(db, job)
+    return UsageInventoryResponse(job_id=job_id, reused=reused)
 
 
 class VideoAssetFailureItem(BaseModel):

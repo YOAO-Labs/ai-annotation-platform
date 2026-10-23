@@ -1,3 +1,4 @@
+import { StorageUsagePanel } from "./StorageUsagePanel";
 import { ListPagination } from "@/components/ui/ListPagination";
 import { listStyles } from "@/components/ui/listStyles";
 import { useEffect, useState } from "react";
@@ -186,6 +187,7 @@ function StoragePageOwner() {
   const qc = useQueryClient();
   const handleRefresh = () => {
     for (const key of [
+      "storage-buckets",
       "storage-source-locations",
       "storage-location",
       "storage-location-probes",
@@ -213,6 +215,7 @@ function StoragePageOwner() {
         </Button>
       </div>
       <StorageLocationsConsole />
+      <StorageUsagePanel />
       <VideoAssetFailuresPanel />
     </PageContainer>
   );

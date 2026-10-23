@@ -31,6 +31,7 @@ TERMINAL_NOTIFY_KINDS = {
     "dataset_import",
     "dataset_scan",
     "dataset_registration",
+    "storage_usage",
     "dataset_quality",
     "dataset_quality_review",
     "mask_qc",

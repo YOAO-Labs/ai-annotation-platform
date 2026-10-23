@@ -1,7 +1,7 @@
 """v0.9.3 · 超管 ML 集成总览。
 
 聚合返回：
-- storage：复用 storage.summarize_bucket 的两个 bucket 概览（仅 super_admin 走该端点）
+- storage：读取平台桶的持久成功快照（仅 super_admin 走该端点）
 - projects：跨所有项目的 ml_backends 列表，按 project 分组（保留 backend.url 但不返回 auth_token）
 
 v0.9.6 · 加 /probe (无 DB 副作用的 health check) + /runtime-hints (前端 modal placeholder).
@@ -24,7 +24,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.concurrency import run_in_threadpool
 
 from app.config import GPUArbiterMode, settings
 from app.db.enums import UserRole
@@ -59,7 +58,8 @@ from app.schemas.ml_routing import (
     RuntimeSnapshotResponse,
     TopologyResponse,
 )
-from app.schemas.storage import BucketSummary
+from app.schemas.storage import BucketsResponse
+from app.services.storage_usage import read_usage, require_admin
 from app.services.audit import AuditService
 from app.services.gpu_arbitration.contracts import (
     GPUArbiterDispatchError,
@@ -104,7 +104,6 @@ from app.services.ml_backend import (
     MLBackendURLConflict,
 )
 from app.services.ml_client import MLBackendClient
-from app.services.storage import storage_service
 
 router = APIRouter()
 
@@ -127,10 +126,8 @@ class ProjectMLBackendsGroup(BaseModel):
     backends: list[MLBackendOut]
 
 
-class StorageOverview(BaseModel):
-    items: list[BucketSummary]
-    total_object_count: int
-    total_size_bytes: int
+class StorageOverview(BucketsResponse):
+    pass
 
 
 class MLIntegrationsOverview(BaseModel):
@@ -142,36 +139,16 @@ class MLIntegrationsOverview(BaseModel):
 
 @router.get("/overview", response_model=MLIntegrationsOverview)
 async def get_overview(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
-    bucket_roles = {
-        storage_service.bucket: "annotations",
-        storage_service.datasets_bucket: "datasets",
-        storage_service.bug_reports_bucket: "bug-reports",
-        storage_service.media_cache_bucket: "media-cache",
-        storage_service.audit_archive_bucket: "audit-archive",
-    }
-    items: list[BucketSummary] = []
-    for b, role in bucket_roles.items():
-        try:
-            summary = await run_in_threadpool(storage_service.summarize_bucket, b)
-            items.append(BucketSummary(role=role, **summary))
-        except Exception as e:
-            items.append(
-                BucketSummary(
-                    name=b,
-                    status="error",
-                    object_count=0,
-                    total_size_bytes=0,
-                    error=str(e)[:200],
-                    role=role,
-                )
-            )
-    storage_overview = StorageOverview(
-        items=items,
-        total_object_count=sum(i.object_count for i in items),
-        total_size_bytes=sum(i.total_size_bytes for i in items),
+    from app.deps import assert_request_scopes
+
+    assert_request_scopes(request, "*")
+    await require_admin(db, _admin.id)
+    storage_overview = StorageOverview.model_validate(
+        (await read_usage(db)).model_dump()
     )
 
     # v0.19.0 ADR-0044 · backend 全局化; 「按项目分组」改为按项目「已启用」关联分组

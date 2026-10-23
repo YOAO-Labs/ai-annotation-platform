@@ -1,5 +1,5 @@
 snapshot = "0.24.0"
-watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub", "training-recipes", "training-previews", "sample-evaluations", "training-studies", "active-learning", "storage-locations", "dataset-sources", "files"]
+watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "annotation-feedbacks", "async-jobs", "ml-backends", "admin-ml-integrations", "training-datasets", "training-runs", "training-executor", "trained-models", "learning-policies", "training-hub", "training-recipes", "training-previews", "sample-evaluations", "training-studies", "active-learning", "storage", "storage-locations", "dataset-sources", "files"]
 
 [operations]
 "GET /api/v1/training/catalog" = { status = "excluded", reason = "web-only" }
@@ -445,3 +445,9 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "GET /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/review-batches/{batch_id}/members" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/review-batches/{batch_id}/execute" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/review-batches/{batch_id}/resume" = { status = "excluded", reason = "web-only" }
+
+"GET /api/v1/storage/health" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/buckets" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/usage-inventory" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/storage/video-assets/failures" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/storage/video-assets/retry" = { status = "excluded", reason = "web-only" }

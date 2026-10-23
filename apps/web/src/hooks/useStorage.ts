@@ -13,11 +13,29 @@ export function useStorageHealth() {
   });
 }
 
-export function useStorageBuckets() {
+export function useStorageBuckets(enabled = true) {
+  const owner = useAuthStore((s) => `${s.user?.id}/${s.sessionId}/${s.user?.role}`);
+  const revision = useSessionRevision();
   return useQuery({
-    queryKey: ["storage-buckets"],
-    queryFn: storageApi.buckets,
+    queryKey: ["storage-buckets", owner, revision],
+    queryFn: ({ signal }) => storageApi.buckets(signal),
     retry: false,
+    enabled,
+    refetchInterval: (query) =>
+      ["pending", "running"].includes(query.state.data?.inventory_status ?? "") ? 3000 : false,
+  });
+}
+
+export function useStartStorageInventory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: storageApi.startInventory,
+    onMutate: () => getAuthSessionRevision(),
+    onSuccess: (_data, _variables, revision) => {
+      if (getAuthSessionRevision() !== revision) return;
+      void qc.invalidateQueries({ queryKey: ["storage-buckets"] });
+      void qc.invalidateQueries({ queryKey: ["async-jobs"] });
+    },
   });
 }
 

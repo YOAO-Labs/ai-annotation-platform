@@ -1,3 +1,4 @@
+from app.db.models.storage_usage import StorageUsageInventory, StorageUsageSnapshot
 from app.db.models.dataset_quality_review import (
     DatasetQualityReviewBatch,
     DatasetQualityReviewMember,
@@ -284,3 +285,6 @@ __all__ += [
 __all__ += ["DatasetQualityRun", "DatasetQualityResult"]
 
 __all__ += ["DatasetQualityReviewBatch", "DatasetQualityReviewMember"]
+
+
+__all__ += ["StorageUsageInventory", "StorageUsageSnapshot"]

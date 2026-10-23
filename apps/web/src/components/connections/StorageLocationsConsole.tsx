@@ -429,7 +429,6 @@ function ConsoleOwner() {
                         <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">
                           {[
                             ["已索引源数据量", "待统计"],
-                            ["平台对象字节", "待统计"],
                             ["物理容量", "未提供"],
                             ["配额", "未提供"],
                           ].map(([label, value]) => (
@@ -440,7 +439,9 @@ function ConsoleOwner() {
                           ))}
                         </dl>
                         <p className="mt-3 text-xs text-muted-foreground">
-                          当前未接入可信容量采样；对象字节不代表磁盘容量。
+                          本位置的源索引量、物理容量与配额尚未采样。
+                          {role === "super_admin" &&
+                            "平台托管桶的对象字节见本页“平台对象占用”，不代表磁盘容量。"}
                         </p>
                         <h3 className="mb-2 mt-4 text-sm font-semibold">节点能力探测</h3>
                         {selected.allowed_actions?.includes("probe") && (

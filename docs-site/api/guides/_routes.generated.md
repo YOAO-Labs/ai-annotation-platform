@@ -659,6 +659,7 @@
 |---|---|
 | GET | `/health` |
 | GET | `/buckets` |
+| POST | `/usage-inventory` |
 | GET | `/video-assets/failures` |
 | POST | `/video-assets/retry` |
 
@@ -1000,4 +1001,4 @@
 
 ---
 
-_共 89 模块 / 578 路由_
+_共 89 模块 / 579 路由_

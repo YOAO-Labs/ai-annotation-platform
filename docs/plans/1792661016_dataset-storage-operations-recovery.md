@@ -1,31 +1,122 @@
 # EPIC-12：运维观测、容量口径与备份恢复
 
-> 状态：research-draft；未排期，未批准实施，未分配发布版本。
-> 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
-> 实施前须通过 [backlog promotion gate](README.md#promotion-gate)。[草案总览](1792661016_dataset-storage-roadmap.md)、[架构契约](1792661016_dataset-storage-architecture.md)和[交付验收](1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
+> 状态：approved；2026-10-23 按用户“继续推进下一阶段”授权实施 E12-A1 / E09-B1；其余切片仍待独立复核，不分配发布版本。
+> 晋升基线：`5b764eaa5`；工作树干净，保留 `1822b025369a33f4` 的 dev 人工验收环境，不重建后端镜像。
 
-> 优先级：P1；M1 交付基本健康、失败定位和恢复保护，M2/M3 完善容量与运维能力。
-> 负责人角色：运维、后端、测试；前端承接 EPIC-09 观测界面。
-> 依赖：EPIC-01/02 提供实体标识，EPIC-04 提供作业进度；EPIC-11 定义可清理边界。
+## 本轮定稿：E12-A1 / E09-B1
 
-## 本项目基线与改造落点
+已重新核对 CHANGELOG、E09/E08 当前阶段、API/模型、0208 迁移头、任务权限与测试夹具。E01/02 和统一 AsyncJob 已满足本切片依赖；E11 清理和 E07 迁移触发条件不属于本次。本轮只交付平台九用途的后台对象盘点、成功快照和存储页消费，不宣称完整 E12-A 已完成。
+
+```text
+StoragePage / ML overview -> snapshot read API -> PostgreSQL success snapshots
+                            |
+Super administrator -> inventory POST -> AsyncJob + singleton checkpoint
+                                           |
+                                    Celery paged S3 listing
+                                           |
+                           fenced checkpoints -> successful bucket snapshot
+                           Beat lease recovery / cooperative cancellation
+```
+
+### 合同与边界
+
+- `GET /storage/buckets` 只读数据库，不访问对象存储；ML overview 使用相同快照。九用途按 endpoint + bucket 去重，以 `roles` 表达共用，保留 `role` 为首个用途的兼容字段。
+- `POST /storage/usage-inventory` 创建统一后台任务；重复提交复用活跃任务。读取和启动均要求超级管理员；API Key 要求现有全权 `*`，执行中重新核对账号、Key 和配置。任务列表/详情/取消遵循同一权限。
+- 每页最多 1000 个当前对象，累加实际对象字节，包括目录标记；每段最多 10 页 / 30 秒，分页提交检查点，段间延迟 1 秒。单桶最多 10000 页、整轮最多 24 小时，超预算显式失败。连接/读取超时及重试有界。Worker 与 Beat 使用现有 default 队列。
+- 同一轮串行盘点各桶；每桶只有完整分页成功才替换成功值。单桶失败保留原值和原时间，继续其他桶；整轮标记失败并显示成功/失败桶数。取消保留已完成桶和旧成功值。崩溃/投递失败由租约恢复；任务 ID 和执行代次隔离旧执行者。
+- `measured_at`、`measurement_started_at`、`scope`、`source`、`coverage`、`is_estimate`、尝试状态和时间独立返回。超过 24 小时或最近尝试失败/取消为 stale；没有成功值返回 null，不冒充零。总数仅在全部配置桶均有成功快照时提供，同时返回已测桶数和总桶数。
+- 列举为采样时间窗口内当前对象汇总，非原子快照，不含历史版本、删除标记、未完成分片、供应商副本/压缩开销。外部源索引字节不混入。物理总量、可用量和配额明确未知。
+- 新增 0209 两张表：成功桶快照和单例盘点检查点。AsyncJob 被保留期删除后快照仍保留，FK SET NULL。endpoint/bucket 变更后旧身份快照不复用。
+- UI 使用既有紧凑字号、语义状态色与全宽列表；统计默认折叠，活跃任务/失败摘要可见；详情复用居中 AsyncJobDetailModal。刷新状态仅刷新查询，单独按钮启动盘点。
+
+### 精确文件范围
+
+本轮超过 8 个文件、跨 API/DB/worker/Web/docs 五个组件，属于较大切片；以共同的快照合同保持原子提交。
+
+实际修改清单（相对仓库根）：
+
+- `CHANGELOG.md`
+- `README.md`
+- `apps/api/alembic/versions/0209_storage_usage.py`
+- `apps/api/app/api/v1/admin_ml_integrations.py`
+- `apps/api/app/api/v1/async_jobs.py`
+- `apps/api/app/api/v1/storage.py`
+- `apps/api/app/db/models/__init__.py`
+- `apps/api/app/db/models/async_job.py`
+- `apps/api/app/db/models/storage_usage.py`
+- `apps/api/app/schemas/storage.py`
+- `apps/api/app/services/async_job_notify.py`
+- `apps/api/app/services/storage_usage.py`
+- `apps/api/app/workers/celery_app.py`
+- `apps/api/app/workers/signals.py`
+- `apps/api/app/workers/storage_usage.py`
+- `apps/api/openapi.snapshot.json`
+- `apps/api/tests/test_admin_ml_integrations.py`
+- `apps/api/tests/test_storage_event_loop.py`
+- `apps/api/tests/test_storage_usage.py`
+- `apps/web/src/api/adminMlIntegrations.ts`
+- `apps/web/src/api/asyncJobs.ts`
+- `apps/web/src/api/storage.ts`
+- `apps/web/src/components/connections/StorageLocationsConsole.test.tsx`
+- `apps/web/src/components/connections/StorageLocationsConsole.tsx`
+- `apps/web/src/components/jobs/AsyncJobDetailModal.test.tsx`
+- `apps/web/src/components/jobs/AsyncJobDetailModal.tsx`
+- `apps/web/src/components/jobs/asyncJobPresentation.test.ts`
+- `apps/web/src/components/jobs/asyncJobPresentation.ts`
+- `apps/web/src/hooks/useStorage.test.tsx`
+- `apps/web/src/hooks/useStorage.ts`
+- `apps/web/src/pages/Storage/StoragePage.test.tsx`
+- `apps/web/src/pages/Storage/StoragePage.tsx`
+- `apps/web/src/pages/Storage/StorageUsagePanel.test.tsx`
+- `apps/web/src/pages/Storage/StorageUsagePanel.tsx`
+- `docs-site/api/guides/_routes.generated.md`
+- `docs-site/api/guides/storage-locations.md`
+- `docs-site/dev/reference/storage-buckets.md`
+- `docs-site/user-guide/datasets/storage-connections.md`
+- `docs/plans/1792661016_dataset-storage-console-boundaries.md`
+- `docs/plans/1792661016_dataset-storage-operations-recovery.md`
+- `docs/plans/backlog/1792661016_dataset-storage-baseline.md`
+- `docs/plans/backlog/1792661016_dataset-storage-roadmap.md`
+- `docs/plans/backlog/README.md`
+- `packages/python-sdk/api-coverage.toml`
+
+### 验收与回退
+
+主要分层命令：
+
+```sh
+pnpm dev:worktree -- exec --mode test -- sh -c 'cd apps/api && .venv/bin/python -m pytest tests/test_storage_usage.py tests/test_storage_event_loop.py tests/test_admin_ml_integrations.py -k "storage_usage or slow_storage or overview" -q'
+pnpm --filter @anno/web exec vitest run src/pages/Storage/StorageUsagePanel.test.tsx src/pages/Storage/StoragePage.test.tsx src/hooks/useStorage.test.tsx src/components/connections/StorageLocationsConsole.test.tsx src/components/jobs/asyncJobPresentation.test.ts src/components/jobs/AsyncJobDetailModal.test.tsx
+pnpm --filter @anno/web exec tsc -b --noEmit
+pnpm --filter @anno/web lint
+pnpm --dir docs-site check:frontmatter
+pnpm --dir docs-site check:navigation
+```
+
+- 一次性 test 模式 API/DB：无成功快照为 null；九用途/共桶去重；多页精确累计与目录标记；失败/取消保留成功值；重复提交；配置/账号/Key 撤权；旧代次不能提交；崩溃检查点恢复；投递失败可恢复；查询和 ML overview 零 S3 调用；迁移升降级与 SET NULL 保留。
+- Web Vitest：空值/真零/过期/失败/部分覆盖、启动/重复启动、查询刷新不启动任务、任务详情与切换账号晚回调隔离。
+- `pnpm openapi:export`、`pnpm codegen`、SDK OpenAPI 合同、Web tsc/lint/css-token、文档 frontmatter/navigation、`git diff --check`。
+- 人工环境：确认无重要活跃任务后刷新本工作树 API/Worker/Beat；核对注册任务并实际盘点。桌面/窄屏、明/暗主题截图；重复刷新只发查询；详情居中/Escape/焦点与无溢出；检查控制台/失败网络请求。仅清理本轮测试资源，不删人工验收数据。
+- 回退：先停盘点/取消任务，回退应用提交，保留 0209 成功快照表；如需降级，在确认无盘点执行后降至 0208（只删除本切片观测元数据，不删除对象）。不回退为每请求扫描的默认 UI，不触发对象搬迁/清理。
+
+## 研究背景（晋升前基线）
 
 下列为固定提交的静态证据，尚非运行/浏览器验收结果。
 
-| 当前 owner / 代码锚点                                                | 已有能力、缺口与复用约束                                                                                 |
-| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| [storage.py](../../../apps/api/app/services/storage.py)              | summarize_bucket 全量物化列表，失败 error+零值，无持久成功快照；线程池避免阻塞不等于消除每请求全桶遍历。 |
-| [storage.py](../../../apps/api/app/api/v1/storage.py)                | health 只查 annotations，buckets 逐桶扫描；需分开节点/根/能力探测、容量采样和业务可用性。                |
-| [docker-compose.md](../../../docs-site/ops/deploy/docker-compose.md) | 已有 pg_dump/restore 和对象镜像说明，缺一致代次、对象清单及隔离恢复对账证据。                            |
-| [lan-production.md](../../../docs-site/ops/deploy/lan-production.md) | 已有九桶、配置、密钥/CA 备份要求；外部原件由明确责任方保护，索引不冒充备份。                             |
+| 当前 owner / 代码锚点                                             | 已有能力、缺口与复用约束                                                                                 |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| [storage.py](../../apps/api/app/services/storage.py)              | summarize_bucket 全量物化列表，失败 error+零值，无持久成功快照；线程池避免阻塞不等于消除每请求全桶遍历。 |
+| [storage.py](../../apps/api/app/api/v1/storage.py)                | health 只查 annotations，buckets 逐桶扫描；需分开节点/根/能力探测、容量采样和业务可用性。                |
+| [docker-compose.md](../../docs-site/ops/deploy/docker-compose.md) | 已有 pg_dump/restore 和对象镜像说明，缺一致代次、对象清单及隔离恢复对账证据。                            |
+| [lan-production.md](../../docs-site/ops/deploy/lan-production.md) | 已有九桶、配置、密钥/CA 备份要求；外部原件由明确责任方保护，索引不冒充备份。                             |
 
-候选修改入口：[storage.py](../../../apps/api/app/services/storage.py)、[storage.py](../../../apps/api/app/api/v1/storage.py)、[storage.py](../../../apps/api/app/schemas/storage.py)、[async_job.py](../../../apps/api/app/services/async_job.py)、[StoragePage.tsx](../../../apps/web/src/pages/Storage/StoragePage.tsx)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
+候选修改入口：[storage.py](../../apps/api/app/services/storage.py)、[storage.py](../../apps/api/app/api/v1/storage.py)、[storage.py](../../apps/api/app/schemas/storage.py)、[async_job.py](../../apps/api/app/services/async_job.py)、[StoragePage.tsx](../../apps/web/src/pages/Storage/StoragePage.tsx)。本轮准确文件范围与迁移已固定于上方实施合同；其余切片需独立复核。
 
 ## 1. 当前问题与依据
 
-当前 `summarize_bucket` 通过列举整个桶计算对象数和字节数，页面刷新可能触发昂贵的全量统计；当前存储页“总容量”使用的是对象已用字节，并不等于磁盘物理容量。[存储服务](../../../apps/api/app/services/storage.py)、[存储页面](../../../apps/web/src/pages/Storage/StoragePage.tsx)
+当前 `summarize_bucket` 通过列举整个桶计算对象数和字节数，页面刷新可能触发昂贵的全量统计；当前存储页“总容量”使用的是对象已用字节，并不等于磁盘物理容量。[存储服务](../../apps/api/app/services/storage.py)、[存储页面](../../apps/web/src/pages/Storage/StoragePage.tsx)
 
-系统已有 AsyncJob 全局历史和详情、媒体失败项重试，应该扩展其证据和诊断能力，而非新建另一套运维任务中心。[任务入口](../../../apps/web/src/components/shell/JobsBell.tsx)、[任务详情](../../../apps/web/src/components/jobs/AsyncJobDetailModal.tsx)
+系统已有 AsyncJob 全局历史和详情、媒体失败项重试，应该扩展其证据和诊断能力，而非新建另一套运维任务中心。[任务入口](../../apps/web/src/components/shell/JobsBell.tsx)、[任务详情](../../apps/web/src/components/jobs/AsyncJobDetailModal.tsx)
 
 外部目录原地引用后，平台需要同时表达“索引了多少外部数据”“平台实际存了多少副本”和“底层磁盘还剩多少”，不能把三者相加成一个使用量。
 
@@ -176,8 +267,8 @@
 
 前置合同不等于等待前置 Epic 全量完成。每个切片合并后系统仍须可用；含新来源的回退保留兼容读取和授权，不能把其相对路径交给旧 S3 拼接逻辑。预计多数切片涉及超过 8 个文件，实施时明确大范围边界与准确清单。
 
-已有回归入口：[test_storage_event_loop.py](../../../apps/api/tests/test_storage_event_loop.py)、[test_storage_public_url.py](../../../apps/api/tests/test_storage_public_url.py)、[test_training_storage_deletion.py](../../../apps/api/tests/test_training_storage_deletion.py)、[StoragePage.test.tsx](../../../apps/web/src/pages/Storage/StoragePage.test.tsx)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
+已有回归入口：[test_storage_event_loop.py](../../apps/api/tests/test_storage_event_loop.py)、[test_storage_public_url.py](../../apps/api/tests/test_storage_public_url.py)、[test_training_storage_deletion.py](../../apps/api/tests/test_training_storage_deletion.py)、[StoragePage.test.tsx](../../apps/web/src/pages/Storage/StoragePage.test.tsx)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
 
-实现时同步：[storage-buckets.md](../../../docs-site/dev/reference/storage-buckets.md)、[docker-compose.md](../../../docs-site/ops/deploy/docker-compose.md)、[lan-production.md](../../../docs-site/ops/deploy/lan-production.md)、[network-security.md](../../../docs-site/ops/deploy/network-security.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
+实现时同步：[storage-buckets.md](../../docs-site/dev/reference/storage-buckets.md)、[docker-compose.md](../../docs-site/ops/deploy/docker-compose.md)、[lan-production.md](../../docs-site/ops/deploy/lan-production.md)、[network-security.md](../../docs-site/ops/deploy/network-security.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
 
-完成实施后按[计划规范](../README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。

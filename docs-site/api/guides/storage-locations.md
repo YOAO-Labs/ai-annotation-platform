@@ -87,3 +87,19 @@ SFTP 连接 base_path 须为 `/`，整个账号命名空间为位置授权范围
 来源使用 limit/offset，任务使用 jobs_limit/jobs_offset，各自默认20、最多200。任务范围覆盖该位置全部可见来源，独立于当前来源页，并包括恢复前的历史尝试。项目管理员仍需拥有数据集管理权和位置使用权；全局位置不公开其他人的来源数量。停用、注销历史保留；原数据集已删除的来源仅超管可见，dataset 字段为空。任务详情、取消和恢复沿用原任务及来源接口。
 
 位置输出增加 `allowed_actions`：read、probe、browse、manage_location、manage_connection，按当前账号及实际端点权限裁剪；全局连接仍仅超管可管理。它不代替服务端操作时复查。source-summary 的 `total` 为可见来源数，`dataset_count` 为所有这些来源关联的非空数据集 ID 去重数，与来源分页无关。
+
+## 平台对象占用盘点
+
+以下端点属于 `/api/v1/storage`，与上方只读目录位置接口分开。两者均要求当前有效超级管理员；API Key 必须包含全权 `*`。相同限制适用于 ML 集成 overview 中的存储摘要以及 `storage_usage` 类型任务的列表、详情和取消；原任务发起者降权后不能继续访问。
+
+| 方法 | 路径                                 | 行为                                               |
+| ---- | ------------------------------------ | -------------------------------------------------- |
+| GET  | `/api/v1/storage/buckets`            | 只读成功快照与最近尝试，不执行 HEAD/LIST           |
+| POST | `/api/v1/storage/usage-inventory`    | `202 {job_id, reused}`，复用现有活动任务或创建盘点 |
+| POST | `/api/v1/async-jobs/{job_id}/cancel` | 合作式取消，保留成功值及已完成桶                   |
+
+每条 `items` 是一个 endpoint 下的唯一桶：`name`、`roles`（多个用途）、兼容字段 `role`（首用途）、`object_count`、`total_size_bytes`、`measured_at`、`measurement_started_at`、`attempt_status`、`attempted_at`、脱敏 `error`。`source=s3_list_objects_v2`、`scope=current_objects`、`coverage=none|complete`、`is_estimate=true` 明确观测范围。`status=unknown|ok|stale` 表示快照新鲜度，不代表存储健康。
+
+首次无成功值时计数和时间为 null；真空桶成功值为零。超过 24 小时或最近失败/取消为 stale，继续返回原成功值和原时间。`measured_bucket_count/bucket_count` 表示覆盖；只有全部桶都有成功值时才返回 `total_object_count/total_size_bytes` 合计，否则为 null。`physical_total_bytes`、`physical_available_bytes`、`quota_bytes` 仍为 null。`inventory_job_id/inventory_status` 指向最近盘点；任务过期清理后 ID 可为 null，但成功快照保留。
+
+调用方兼容说明：此 GET 已从实时统计变为快照读取；应处理 nullable 计数和新增状态，不能将未知值渲染为零或依赖每次 GET 重新盘点。ML overview.storage 使用相同结构。按桶去重并完整覆盖九用途，不能按角色重复相加。后台任务取消、崩溃与授权/配置变化不会发布未完整桶的累计数。更多口径和预算见[桶布局与快照](/dev/reference/storage-buckets#平台对象占用快照)。

@@ -393,3 +393,48 @@ describe("共享后台任务详情", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
+
+it("restores focus to an explicit trigger after an asynchronously opened task closes", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  mocks.get.mockResolvedValue({
+    ...job,
+    kind: "storage_usage",
+    project_id: null,
+    payload: {},
+    result: { success_count: 9, failed_count: 0 },
+  });
+  function AsyncOwner() {
+    const trigger = useRef<HTMLButtonElement>(null);
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <button
+          ref={trigger}
+          onClick={async () => {
+            await Promise.resolve();
+            setOpen(true);
+          }}
+        >
+          重新盘点
+        </button>
+        {open && (
+          <AsyncJobDetailModal jobId="j1" returnFocusRef={trigger} onClose={() => setOpen(false)} />
+        )}
+      </>
+    );
+  }
+  const view = render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <AsyncOwner />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "重新盘点" }));
+  await screen.findByRole("heading", { name: "存储对象盘点" });
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(screen.getByRole("button", { name: "重新盘点" })).toHaveFocus());
+  view.unmount();
+  client.clear();
+});

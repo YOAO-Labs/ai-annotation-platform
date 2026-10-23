@@ -34,6 +34,8 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 数据集详情的“质量”页签支持固定整份数据集的图片解码、尺寸与可信精确重复检测，可取消恢复并记录人工复核。批量复核支持勾选或全部筛选结果，先预览固定范围，再逐项检查修订、保留冲突与恢复进度。结果保留内容身份和时间，不自动删除、合并或影响训练；详见[质量检测说明](./docs-site/user-guide/datasets/index.md#图片质量检测与复核)与[API 合同](./docs-site/api/guides/datasets.md#图片质量运行)。
 
+存储管理的[平台对象占用](./docs-site/user-guide/datasets/storage-connections.md#平台对象占用与后台盘点)通过后台分页盘点九种用途并按实际桶去重；刷新页面只读取持久快照，失败或取消保留上次成功值与时间，统计对象字节不代表底层磁盘容量。
+
 数据集上传按稳定身份隔离原图，同名不同内容保留为独立文件；改名不移动已有原图。旧数据可按真实对象键回填内容与位置映射，参见[数据集上传与扫描](./docs-site/api/guides/datasets.md)及[兼容回填](./docs-site/dev/concepts/storage-connections.md#内容身份与兼容回填)。
 
 工作台支持按账号保存图片、视频和通用命令的自定义快捷键；类别直选使用 `1–9` 和 `0`，更多类别可搜索。使用方式见[工作台快捷键](./docs-site/user-guide/workbench/index.md#完整快捷键)，偏好读写契约见[认证与账号 API](./docs-site/api/guides/auth.md)。

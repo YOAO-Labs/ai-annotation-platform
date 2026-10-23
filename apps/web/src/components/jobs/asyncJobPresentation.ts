@@ -9,6 +9,7 @@ export const JOB_KIND_LABEL: Record<string, string> = {
   prediction_retry: "失败预测重试",
   dataset_import: "数据集导入",
   dataset_scan: "目录观测扫描",
+  storage_usage: "存储对象盘点",
   dataset_quality_review: "质量批量复核",
   dataset_quality: "数据集图片质检",
   dataset_registration: "目录预检与登记",
@@ -140,6 +141,11 @@ export function exportDownloadState(result: Record<string, unknown>, now = Date.
 export function jobProgressText(
   job: Pick<AsyncJob, "kind" | "status" | "progress_pct" | "result">,
 ): string {
+  if (job.kind === "storage_usage" && ["pending", "running"].includes(job.status)) {
+    const done =
+      (jobNumber(job.result, "success_count") ?? 0) + (jobNumber(job.result, "failed_count") ?? 0);
+    return `已处理 ${done} 个桶 · 当前桶对象总量未知`;
+  }
   if (job.kind === "dataset_scan") {
     const count = jobNumber(job.result, "processed_count") ?? 0;
     const state = ["pending", "running"].includes(job.status)

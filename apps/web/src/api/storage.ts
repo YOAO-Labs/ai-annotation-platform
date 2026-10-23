@@ -8,17 +8,34 @@ export interface StorageHealthResponse {
 
 export interface BucketSummary {
   name: string;
-  status: "ok" | "error";
-  object_count: number;
-  total_size_bytes: number;
-  error?: string;
-  role: "annotations" | "datasets" | "bug-reports" | "media-cache" | "audit-archive" | string;
+  role: string;
+  roles: string[];
+  status: "unknown" | "ok" | "stale";
+  object_count: number | null;
+  total_size_bytes: number | null;
+  error: string | null;
+  measured_at: string | null;
+  measurement_started_at: string | null;
+  attempt_status: string;
+  attempted_at: string | null;
+  scope: string;
+  source: string;
+  coverage: "none" | "complete";
+  is_estimate: boolean;
 }
 
 export interface BucketsResponse {
   items: BucketSummary[];
-  total_object_count: number;
-  total_size_bytes: number;
+  total_object_count: number | null;
+  total_size_bytes: number | null;
+  measured_bucket_count: number;
+  bucket_count: number;
+  physical_total_bytes: number | null;
+  physical_available_bytes: number | null;
+  quota_bytes: number | null;
+  inventory_job_id: string | null;
+  inventory_status: string | null;
+  location_id: string;
 }
 
 export type VideoAssetKind = "probe" | "poster" | "frame_timetable" | "chunk" | "frame";
@@ -68,7 +85,9 @@ export const storageApi = {
   probes: (id: string, signal?: AbortSignal) =>
     apiClient.get<StorageProbeOut[]>(`/storage-locations/${id}/probes`, { signal }),
   health: () => apiClient.get<StorageHealthResponse>("/storage/health"),
-  buckets: () => apiClient.get<BucketsResponse>("/storage/buckets"),
+  buckets: (signal?: AbortSignal) => apiClient.get<BucketsResponse>("/storage/buckets", { signal }),
+  startInventory: () =>
+    apiClient.post<{ job_id: string; reused: boolean }>("/storage/usage-inventory"),
   videoAssetFailures: (limit = 50, offset = 0, signal?: AbortSignal) =>
     apiClient.get<VideoAssetFailuresResponse>(
       `/storage/video-assets/failures?limit=${limit}&offset=${offset}`,

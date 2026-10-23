@@ -3,7 +3,7 @@ title: MinIO 存储桶布局
 audience: [dev, ops]
 type: reference
 status: stable
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-23
 ---
 
 # MinIO 存储桶布局
@@ -72,3 +72,15 @@ mc mirror --remove-source annotations/audit-archive/  audit-archive/
   - `avatars` 单对象不超过约 40 KB（`256×256` WebP），总体积随注册用户数线性增长；若对象数显著多于用户数，可排查是否存在 `users.avatar_ref` 未引用的孤儿对象。
 
 数据集名称只用于展示。托管原件的新键采用不可变数据集身份和独立上传身份，同名不同内容不会覆盖旧样本。内部用途绑定固定当前实际桶名；其他八用途继续由原 owner 读取，尚未固定历史位置前不支持独立切换目标。
+
+## 平台对象占用快照
+
+`GET /api/v1/storage/buckets` 与 ML 集成 overview 读取 PostgreSQL `storage_usage_snapshots`，不执行 S3 HEAD/LIST。仅显式 `POST /api/v1/storage/usage-inventory` 开始盘点；当前有效超级管理员与全权 API Key 可读/启动/取消。九用途复用 `PURPOSE_BUCKET_ATTRIBUTES`，执行前和每页提交前核验现有 `StorageBinding` 部署映射。按 endpoint、TLS 和桶名固定统计身份，共用桶合并 `roles`，不将占用分摊为九份。
+
+`storage_usage_inventories` 保存单例活动轮次、内部授权证明、分页 token、累计计数、租约及执行代次；公开 AsyncJob payload/result 仅含范围和计数，不返回配置、凭据或 token。每页最多 1000 个对象，每段最多 10 页或 30 秒，段间延迟 1 秒；每桶最多 10000 页、整轮最多 24 小时。S3 连接超时 3 秒、读超时 10 秒、最多 2 次尝试。只累加当前页，不物化全桶对象列表。
+
+每页 I/O 在数据库锁外完成，发布前重新锁定并核对任务 ID、代次、租约、账号/Key 与配置。检查点和进度同事务提交；整桶分页成功才替换该桶成功值。失败/取消仅更新最近尝试，不覆盖成功值。各桶独立成功；因此合计可能来自不同观测窗口。完整分页也不能保证并发写入时的原子时点一致，`is_estimate=true`。
+
+Celery default worker 执行盘点，Beat 每 30 秒回收超过 120 秒租约的任务；投递失败保留可恢复租约。部署本切片后必须应用 0209 并刷新 worker/Beat 的代码和任务注册；挂载源码不需要重建镜像。若没有 Beat，租约恢复不会自动运行。取消使用合作式栅栏，不强杀 provider 请求。AsyncJob 保留期删除通过 SET NULL 解除引用，成功观测继续存在。
+
+统计覆盖当前可见对象（含目录标记），不含历史版本、删除标记、未完成分片或物理存储开销。`measured_at`、`measurement_started_at`、`source=s3_list_objects_v2`、`scope=current_objects`、`coverage` 和最近尝试独立返回；未知计数为 null，真空桶为零。24 小时过期或最近失败/取消显示 stale。外部源逻辑字节、物理总量/可用空间和配额没有本轮采样，不由对象字节推算。
