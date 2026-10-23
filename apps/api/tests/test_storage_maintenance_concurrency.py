@@ -2,6 +2,7 @@
 
 from contextlib import asynccontextmanager
 import uuid
+from unittest.mock import AsyncMock
 
 from fastapi import HTTPException
 import pytest
@@ -9,7 +10,6 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
-from app.db.models.audit_log import AuditLog
 from app.db.models.dataset_asset import StorageLocation
 from app.db.models.storage_maintenance import (
     StorageMaintenanceGate as Gate,
@@ -22,10 +22,15 @@ from app.schemas.storage_maintenance import (
 )
 from app.services import storage_access as access, storage_maintenance as maintenance
 from app.services.content_snapshot import ContentError
+from app.services.audit import AuditService
 
 
 @asynccontextmanager
-async def world(test_engine):
+async def world(test_engine, monkeypatch):
+    # These tests isolate admission/transaction concurrency. The API suite tests
+    # real audit writes. Avoid producing immutable audit facts in a world whose
+    # independently committed actor must be removed during precise teardown.
+    monkeypatch.setattr(AuditService, "log", AsyncMock())
     actor_id, location_id = uuid.uuid4(), uuid.uuid4()
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     try:
@@ -62,12 +67,6 @@ async def world(test_engine):
                 delete(Gate).where(Gate.location_id == location_id)
             )
             await connection.execute(
-                delete(AuditLog).where(
-                    AuditLog.target_id == str(location_id),
-                    AuditLog.target_type == "storage_location",
-                )
-            )
-            await connection.execute(
                 delete(StorageLocation).where(StorageLocation.id == location_id)
             )
             await connection.execute(delete(User).where(User.id == actor_id))
@@ -101,7 +100,7 @@ async def test_committed_drain_stop_resume_fences_independent_admission(
     test_engine, monkeypatch
 ):
     monkeypatch.setattr(settings, "storage_maintenance_protocol_enabled", True)
-    async with world(test_engine) as (maker, actor_id, location_id):
+    async with world(test_engine, monkeypatch) as (maker, actor_id, location_id):
         async with maker() as reader:
             permit = await access.acquire(reader, location_id, "pre_drain")
         result = await transition(maker, actor_id, location_id, "drain", 1)
@@ -142,7 +141,7 @@ async def test_final_publication_gate_share_rejects_concurrent_control(
     test_engine, monkeypatch
 ):
     monkeypatch.setattr(settings, "storage_maintenance_protocol_enabled", True)
-    async with world(test_engine) as (maker, actor_id, location_id):
+    async with world(test_engine, monkeypatch) as (maker, actor_id, location_id):
         async with maker() as publication:
             await access.check(publication, location_id, expected_revision=1, lock=True)
             async with maker() as control:
