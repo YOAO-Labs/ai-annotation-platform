@@ -248,7 +248,7 @@ def e2e_fixture_schema() -> dict[str, Any]:
                     },
                     {
                         "name": "delete_templates",
-                        "signature": "aap_workspace_fixture_v1.delete_templates(boolean,text[])",
+                        "signature": "aap_workspace_fixture_v1.delete_templates(boolean, text[])",
                         "arguments": [
                             {
                                 "name": "p_shared",

@@ -17,6 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.factory import create_user
+from tests.test_workspace_consumer_profile_native import _PRIVATE
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_worktree_identity_runtime_role_native import (
     ROOT,
@@ -97,6 +98,27 @@ async def test_filtering_cli_preserves_guards_seed_and_resume_with_private_users
             backend.url.set(database=backend.resources["database"]),
             hide_parameters=True,
         )
+        role = backend.runtime_url().username
+        async with owner_engine.begin() as db:
+            for relation in _PRIVATE:
+                await db.execute(text(f'REVOKE ALL ON public.{relation} FROM "{role}"'))
+                columns = await db.scalar(
+                    text(
+                        "SELECT string_agg(quote_ident(attname),',' ORDER BY attnum) FROM pg_attribute WHERE attrelid=CAST(:relation AS regclass) AND attnum>0 AND NOT attisdropped"
+                    ),
+                    {"relation": "public." + relation},
+                )
+                await db.execute(
+                    text(f'REVOKE ALL ({columns}) ON public.{relation} FROM "{role}"')
+                )
+        async with runtime_engine.connect() as db:
+            for relation in _PRIVATE:
+                assert not await db.scalar(
+                    text(
+                        "SELECT has_table_privilege(current_user,:table,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR has_any_column_privilege(current_user,:table,'SELECT,INSERT,UPDATE,REFERENCES')"
+                    ),
+                    {"table": "public." + relation},
+                ), relation
         await _assert_private_identity_denied(
             runtime_engine, backend.runtime_url().username
         )
@@ -155,7 +177,7 @@ async def test_filtering_cli_preserves_guards_seed_and_resume_with_private_users
             counts = (
                 await db.execute(
                     text(
-                        "SELECT (SELECT count(*) FROM aap_identity_v1.account_profiles), (SELECT count(*) FROM projects), (SELECT count(*) FROM tasks)"
+                        "SELECT (SELECT count(*) FROM aap_identity_v1.account_profiles), (SELECT count(*) FROM aap_workspace_v1.project_facts), (SELECT count(*) FROM tasks)"
                     )
                 )
             ).one()
@@ -176,13 +198,16 @@ async def test_filtering_cli_preserves_guards_seed_and_resume_with_private_users
             assert (
                 await db.execute(
                     text(
-                        "SELECT (SELECT count(*) FROM aap_identity_v1.account_profiles), (SELECT count(*) FROM projects), (SELECT count(*) FROM tasks)"
+                        "SELECT (SELECT count(*) FROM aap_identity_v1.account_profiles), (SELECT count(*) FROM aap_workspace_v1.project_facts), (SELECT count(*) FROM tasks)"
                     )
                 )
             ).one() == counts
             assert (
                 await db.scalar(
-                    text("SELECT name FROM projects WHERE id=:id"), {"id": project_id}
+                    text(
+                        "SELECT name FROM aap_workspace_v1.project_facts WHERE id=:id"
+                    ),
+                    {"id": project_id},
                 )
                 == "Kept on resume"
             )
@@ -197,6 +222,9 @@ async def test_filtering_cli_preserves_guards_seed_and_resume_with_private_users
             hashlib.sha256(source.read_bytes()).hexdigest(),
         )
         record_property("filtering_cli_runs", json.dumps(runs))
+        record_property(
+            "filtering_cli_workspace_private_relations_denied", list(_PRIVATE)
+        )
         if runtime_engine is not None:
             await runtime_engine.dispose()
         if owner_engine is not None:

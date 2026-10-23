@@ -1,4 +1,4 @@
-"""Cold installed-API qualification for guarded E2E Identity consumers."""
+"""Cold installed-API qualification for guarded Identity and Workspace fixtures."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import uuid
 import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
+from aap_workspace.e2e_fixture_contract import e2e_fixture_schema
 
 from tests.project_guide_asset_owner_helpers import (
     assert_workspace_identity,
@@ -21,6 +22,7 @@ from tests.project_guide_asset_owner_helpers import (
 )
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.workspace_import_cli_helpers import CliRun, WorkspaceImportCli
+from tests.test_workspace_consumer_profile_native import _PRIVATE as _WORKSPACE_PRIVATE
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -578,11 +580,69 @@ async def _wait_for_backend_exit(test_engine, backend_pid: int) -> None:
     pytest.fail("stopped API container left its transaction in PostgreSQL")
 
 
+async def _assert_workspace_profile(test_engine):
+    functions = e2e_fixture_schema()["x-native-capabilities"]["functions"]
+    signatures = {function["signature"].replace(" ", "") for function in functions}
+    async with test_engine.connect() as db:
+        for role, operator in (
+            ("legacy_runtime", True),
+            ("identity_api_consumer", False),
+        ):
+            for relation in _WORKSPACE_PRIVATE:
+                assert not await db.scalar(
+                    text(
+                        "SELECT has_table_privilege(:role,:table,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR has_any_column_privilege(:role,:table,'SELECT,INSERT,UPDATE,REFERENCES')"
+                    ),
+                    {"role": role, "table": "public." + relation},
+                ), (role, relation)
+            assert not await db.scalar(
+                text(
+                    "SELECT has_schema_privilege(:role,'aap_workspace_fixture_v1','CREATE')"
+                ),
+                {"role": role},
+            )
+            assert (
+                bool(
+                    await db.scalar(
+                        text(
+                            "SELECT has_table_privilege(:role,'aap_workspace_fixture_v1.templates','SELECT')"
+                        ),
+                        {"role": role},
+                    )
+                )
+                is operator
+            )
+            expected = (
+                {signature.partition(".")[2] for signature in signatures}
+                if operator
+                else set()
+            )
+            assert await _function_set(db, role, "aap_workspace_fixture_v1") == expected
+        rows = (
+            (
+                await db.execute(
+                    text(
+                        "SELECT p.oid::regprocedure::text AS signature,r.rolname AS owner,p.prosecdef "
+                        "FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_roles r ON r.oid=p.proowner "
+                        "WHERE n.nspname='aap_workspace_fixture_v1'"
+                    )
+                )
+            )
+            .mappings()
+            .all()
+        )
+        assert {row["signature"].replace(" ", "") for row in rows} == signatures
+        assert all(
+            row["owner"] == "workspace_code" and row["prosecdef"] for row in rows
+        )
+
+
 async def test_installed_e2e_routes_use_fenced_identity_fixture_capabilities(
     test_engine, tmp_path, record_property
 ):
     _verify_postgres(test_engine.url)
     await _assert_identity_profile(test_engine)
+    await _assert_workspace_profile(test_engine)
     role_url = make_url(os.environ["AAP_MODULE_DATA_LEGACY_RUNTIME_URL"])
     assert role_url.drivername == "postgresql+asyncpg"
     assert role_url.username == "legacy_runtime"
@@ -707,6 +767,41 @@ async def test_installed_e2e_routes_use_fenced_identity_fixture_capabilities(
                 capability_revoked = False
 
         await _assert_identity_profile(test_engine)
+
+        workspace_create = "aap_workspace_fixture_v1.create_project(jsonb)"
+        try:
+            async with test_engine.begin() as owner:
+                await owner.execute(
+                    text(
+                        f"REVOKE EXECUTE ON FUNCTION {workspace_create} FROM legacy_runtime"
+                    )
+                )
+            denied, denied_result = await _run_probe(
+                cli,
+                _probe_command("denied", denied_ns),
+                record_property,
+                "workspace_e2e_missing_create_capability",
+            )
+            assert denied_result["status_code"] == 500, denied.evidence
+            assert (
+                "permission denied for function create_project" in denied.stderr.lower()
+            ), denied.evidence
+            await _assert_namespace_absent(test_engine, denied_ns)
+        finally:
+            async with test_engine.begin() as owner:
+                await owner.execute(
+                    text(
+                        f"GRANT EXECUTE ON FUNCTION {workspace_create} TO legacy_runtime"
+                    )
+                )
+        await _run_probe(
+            cli,
+            _probe_command("recover", denied_ns),
+            record_property,
+            "workspace_e2e_create_recovered",
+        )
+        await _assert_namespace_absent(test_engine, denied_ns)
+        await _assert_workspace_profile(test_engine)
 
         application_name = f"aap-id-e2e-{uuid.uuid4().hex[:20]}"
         gate = await _install_create_account_gate(

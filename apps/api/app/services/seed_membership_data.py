@@ -73,6 +73,7 @@ class SeedMembershipWrites:
         self.inserts.append(operation)
         if assigned_at is not _UNKNOWN:
             self.assignment_times[operation.id] = assigned_at
+        return operation
 
     def change(self, member, *, role, assigned_by, assigned_at=_UNKNOWN):
         change = self.changes.get(member.id)

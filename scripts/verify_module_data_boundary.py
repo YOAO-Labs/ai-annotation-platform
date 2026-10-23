@@ -275,6 +275,7 @@ SQL_ARTIFACTS = (
     "0306_gpu_registry_delete_noop.sql",
     "0307_workspace_media_seed_project.sql",
     "0308_workspace_seed_member_assignment.sql",
+    "0309_workspace_e2e_fixtures.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -395,8 +396,10 @@ SCHEMA_ARTIFACTS = (
     "0305_identity_e2e_fixtures.schema.json",
     "0307_workspace_media_seed_project.schema.json",
     "0308_workspace_seed_member_assignment.schema.json",
+    "0309_workspace_e2e_fixtures.schema.json",
 )
 TEST_FILES = (
+    "tests/test_workspace_e2e_native.py",
     "tests/test_gpu_registry_delete_noop_native.py",
     "tests/test_identity_e2e_replay.py",
     "tests/test_identity_e2e_native.py",
@@ -2393,6 +2396,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regprocedure('aap_identity_v1.create_seed_persona_account(jsonb)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.replace_fixture_preferences(uuid,jsonb)') IS NULL "
             "AND to_regnamespace('aap_identity_fixture_v1') IS NULL "
+            "AND to_regnamespace('aap_workspace_fixture_v1') IS NULL "
             "AND to_regprocedure('aap_identity_v1.read_scale_seed_super_admin()') IS NULL "
             "AND to_regprocedure('aap_identity_v1.read_scale_seed_annotator(uuid[])') IS NULL "
             "AND to_regprocedure('aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)') IS NULL "
@@ -2981,8 +2985,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0308"]:
-            raise RuntimeError("module-data acceptance requires migration head 0308")
+        if heads != ["0309"]:
+            raise RuntimeError("module-data acceptance requires migration head 0309")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -4000,6 +4004,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         if (
             "tests/test_seed_parent_operator_native.py" in selected_test_paths
+            or "tests/test_workspace_e2e_native.py" in selected_test_paths
+            or "tests/test_identity_e2e_live.py" in selected_test_paths
             or "tests/test_media_seed_workspace_native.py" in selected_test_paths
             or "tests/test_media_seed_workspace_live.py" in selected_test_paths
             or "tests/test_seed_parent_operator_live.py" in selected_test_paths
@@ -4116,6 +4122,37 @@ def main(argv: list[str] | None = None) -> int:
                             "consumer_role": "legacy_runtime",
                         },
                     )
+                if identity_e2e_live:
+                    for grant_name in (
+                        "workspace-consumer-grants.sql",
+                        "workspace-seed-operator-grants.sql",
+                        "workspace-e2e-fixture-grants.sql",
+                    ):
+                        _psql(
+                            container_id,
+                            container_name,
+                            container_identity,
+                            username="owner",
+                            password=owner_password,
+                            database=database,
+                            sql=(ROOT / "infra/docker" / grant_name).read_text(),
+                            variables={
+                                "expected_database": database,
+                                "migration_role": "owner",
+                                "workspace_owner": "workspace_code",
+                                "consumer_role": "legacy_runtime",
+                            },
+                        )
+                    evidence["workspace_e2e_fixture_operator"] = {
+                        "role": "legacy_runtime",
+                        "workspace_private_tables_denied": True,
+                        "ordinary_api_fixture_capabilities_denied": True,
+                        "profiles": [
+                            "workspace-consumer-grants.sql",
+                            "workspace-seed-operator-grants.sql",
+                            "workspace-e2e-fixture-grants.sql",
+                        ],
+                    }
                 evidence[
                     "identity_e2e_fixture_operator"
                     if identity_e2e_live

@@ -1406,6 +1406,15 @@ ALTER FUNCTION aap_identity_v1.create_seed_persona_account(jsonb)
     OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.replace_fixture_preferences(uuid,jsonb)
     OWNER TO :"identity_owner";
+GRANT USAGE, CREATE ON SCHEMA aap_workspace_fixture_v1 TO :"workspace_owner";
+ALTER VIEW aap_workspace_fixture_v1.templates OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_fixture_v1.create_project(jsonb) OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_fixture_v1.create_templates(jsonb) OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_fixture_v1.guard_project_cleanup(uuid[]) OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_fixture_v1.delete_projects(uuid[]) OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_fixture_v1.delete_templates(boolean,text[]) OWNER TO :"workspace_owner";
+REVOKE CREATE ON SCHEMA aap_workspace_fixture_v1 FROM :"workspace_owner";
+
 GRANT USAGE ON SCHEMA aap_identity_fixture_v1 TO :"identity_owner";
 GRANT DELETE ON public.users,public.password_reset_tokens,public.user_invitations,public.organization_members
     TO :"identity_owner";

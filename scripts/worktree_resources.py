@@ -910,6 +910,14 @@ class LocalResources:
                 fixture_grants = (
                     f"GRANT USAGE ON SCHEMA aap_identity_fixture_v1 TO {role}",
                     f"GRANT SELECT ON aap_identity_fixture_v1.account_profiles TO {role}",
+                    f"GRANT USAGE ON SCHEMA aap_workspace_fixture_v1 TO {role}",
+                    f"GRANT SELECT ON aap_workspace_fixture_v1.templates TO {role}",
+                    "GRANT EXECUTE ON FUNCTION "
+                    "aap_workspace_fixture_v1.create_project(jsonb), "
+                    "aap_workspace_fixture_v1.create_templates(jsonb), "
+                    "aap_workspace_fixture_v1.guard_project_cleanup(uuid[]), "
+                    "aap_workspace_fixture_v1.delete_projects(uuid[]), "
+                    f"aap_workspace_fixture_v1.delete_templates(boolean,text[]) TO {role}",
                 )
             identity_function_grant = ", ".join(identity_capabilities)
             image_media_function_grant = ", ".join(IMAGE_MEDIA_RUNTIME_CAPABILITIES)

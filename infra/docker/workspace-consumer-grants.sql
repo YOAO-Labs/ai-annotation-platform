@@ -145,6 +145,9 @@ BEGIN
         WHERE nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$'
     LOOP
         EXECUTE format('REVOKE ALL ON ALL FUNCTIONS IN SCHEMA %I FROM %I',v_schema.nspname,v_consumer);
+        IF v_schema.nspname = 'aap_workspace_fixture_v1' THEN
+            EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA %I FROM %I',v_schema.nspname,v_consumer);
+        END IF;
         EXECUTE format('REVOKE ALL ON SCHEMA %I FROM %I',v_schema.nspname,v_consumer);
     END LOOP;
     FOR v_schema IN

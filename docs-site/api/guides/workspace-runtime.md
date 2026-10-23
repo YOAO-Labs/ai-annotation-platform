@@ -264,6 +264,30 @@ Project 投影接受名称、类型、owner、状态、AI 标志、工具绑定�
 角色继续可运行脚本，专用 maintenance LOGIN 仍保留原六项能力。实际调用边界和
 本地验收范围见[模块台账](/dev/concepts/module-deployment#workspace-媒体及截图种子)。
 
+### 门控 E2E 夹具
+
+`aap_workspace_fixture_v1` 使用 `aap-workspace-e2e-fixtures/v1`，只用于既有测试
+夹具。数据库名必须以 `_test` 或 `_e2e` 结尾；HTTP 入口仍要求非 production 和
+`E2E_SEED_ENABLED=true`。普通 Workspace consumer 不获得这些能力。
+
+| 能力                               | 调用方事务中的行为                                        |
+| ---------------------------------- | --------------------------------------------------------- |
+| `create_project(jsonb)`            | 接受固定的十字段记录，保留原默认值，返回调用方指定的 UUID |
+| `create_templates(jsonb)`          | 接受固定模板记录数组，返回插入条数                        |
+| `guard_project_cleanup(uuid[])`    | 排序锁定项目，在任何子记录删除前检查真实视频退役状态      |
+| `delete_projects(uuid[])`          | 再次检查退役状态，只删除指定 UUID，返回条数               |
+| `delete_templates(boolean,text[])` | 删除固定共享前缀或精确 display ID 集合，返回条数          |
+
+创建字段由协议 schema 封闭定义；清理模板只读关系为 `templates(id,display_id)`。
+项目和成员读取复用普通 Workspace 事实关系，成员创建与种子元数据更新复用既有
+writer。原 fixture 的不兼容角色、历史属性及未来视频上下文保持原值。
+
+先安装 owner grants 和普通 consumer 围栏，再为受信任测试操作账号追加
+`workspace-seed-operator-grants.sql` 与 `workspace-e2e-fixture-grants.sql`。
+调用方仍持有 namespace、原 flush／savepoint 顺序及提交／回滚。未退役视频或忙锁
+返回 409，停止继续清理；二次守卫拒绝时外层事务也回滚。不得补造退役凭证。
+项目和模板残留均使清理失败；shared reset 前先显式清理各 owned namespace。
+
 ## 锁定权限与会话快照
 
 API 写入权限入口保留原元组接口，通过现有

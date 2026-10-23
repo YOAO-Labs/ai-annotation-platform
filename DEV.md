@@ -2761,6 +2761,27 @@ AAP_WORKSPACE_SEED_OPERATOR_LIVE=1 \
 SQL 失败／回滚保留旧状态和原始字节，旧对象清理发生在调用方提交后。该验证已通过，
 精确工件和日志见 `.worktree/workspace-seed-qualification.json`；主环境未切换。
 
+### 门控 E2E 的 Workspace 边界
+
+测试库中先安装 module-data owner grants、普通 Workspace consumer 围栏，再为明确
+选择的 fixture 操作账号追加 `workspace-seed-operator-grants.sql` 与
+`workspace-e2e-fixture-grants.sql`。后者只授予五项固定能力和模板 ID 关系；普通
+API／worker 不得到 fixture 能力。既有工作树测试账号按数据库后缀获得固定能力，
+不改变日常 Workspace 主环境的切换状态。
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/workspace-e2e-native.json \
+  --test-file tests/test_workspace_e2e_native.py \
+  --test-file tests/test_worktree_filtering_identity_native.py
+```
+
+真实筛选 CLI 覆盖已有数据拒绝、首次创建及保留修改后的重启，使用普通 E2E LOGIN，
+显式拒绝 Workspace 私表。冷工件验收复用 `test_identity_e2e_live.py`，同时检查
+Identity／Workspace 围栏；设置 `AAP_IDENTITY_E2E_FIXTURE_LIVE=1` 及匹配当前源码的
+`AAP_WORKSPACE_MODULE_*` 镜像和 identity 后运行。它不切换主环境，也不证明整模块
+部署完成。清理遇到未退役视频返回 409，先取消并完成真实退役再重试。
+
 ### 媒体种子与截图 Workspace 边界
 
 安装当前迁移并应用 module-data owner grants 后，可信操作账号先应用普通 Workspace

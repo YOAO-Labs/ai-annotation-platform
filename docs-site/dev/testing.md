@@ -280,6 +280,12 @@ seed/login/cleanup 请求。production 即使设置开关也不挂载路由。
 
 同一测试库一次只运行一个 seed/reset 流程。并行测试还需给各进程配置独立 MinIO buckets：基础清理使用固定媒体前缀，仅隔离数据库无法保护另一套测试的媒体。新增清理条件应使用 fixture 的项目、任务或显式标记；数据保留断言必须重新查询数据库，不能依赖未过期的 ORM identity map。
 
+共享 reset 前先调用各 namespace 的 owned-cleanup；共享选择器不能代替 owned
+项目、筛选模板的精确清理。Workspace 夹具通过固定原生能力创建项目／模板并清理，
+在删除子记录前检查视频退役状态，未退役或忙锁返回 409。清理失败后须保留原数据，
+解决阻塞再重试；不得为测试重跑伪造退役历史。协议与授权见
+[Workspace 夹具边界](/api/guides/workspace-runtime#门控-e2e-夹具)。
+
 Playwright 正常结束时由 `globalTeardown` 调用 `/seed/cleanup`。它只是兜底：
 强制中断可能跳过 teardown，因此必须始终依赖 `annotation_e2e` 的数据库隔离，
 不能把 cleanup 当成可在开发库运行 E2E 的理由。

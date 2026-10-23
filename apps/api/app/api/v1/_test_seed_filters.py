@@ -17,6 +17,13 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.workspace_e2e_fixtures import (
+    create_fixture_project as _create_project,
+    create_fixture_templates,
+)
+from app.services.seed_membership_data import SeedMembershipWrites
+from app.services.workspace_seed_data import register_seed_project_projection
+
 
 # Owned-namespace display ids for every fixed identifier below. Bases keep the
 # legacy literal so `build_filtering_seed` stays readable; owned values are
@@ -293,36 +300,6 @@ async def _get_users(db: AsyncSession, ids: _FilterIds) -> dict[str, Any]:
     return users
 
 
-async def _create_project(
-    db: AsyncSession,
-    *,
-    owner_id: UUID,
-    display_id: str,
-    name: str,
-    type_key: str,
-    type_label: str,
-    data_type: str,
-    tool_bindings: dict[str, Any],
-    scene_mode: bool = False,
-):
-    from app.db.models.project import Project
-
-    project = Project(
-        display_id=display_id,
-        name=name,
-        type_key=type_key,
-        type_label=type_label,
-        data_type=data_type,
-        owner_id=owner_id,
-        tool_bindings=tool_bindings,
-        scene_mode=scene_mode,
-        ai_enabled=False,
-    )
-    db.add(project)
-    await db.flush()
-    return project
-
-
 async def _create_dataset(
     db: AsyncSession,
     *,
@@ -333,6 +310,7 @@ async def _create_dataset(
     data_type: str,
     file_count: int = 0,
     is_temporal: bool = False,
+    membership_writes: SeedMembershipWrites | None = None,
 ):
     from app.db.models.dataset import Dataset, ProjectDataset
 
@@ -345,7 +323,10 @@ async def _create_dataset(
         created_by=created_by,
     )
     db.add(dataset)
-    await db.flush()
+    if membership_writes is None:
+        await db.flush()
+    else:
+        await membership_writes.flush()
     db.add(ProjectDataset(project_id=project_id, dataset_id=dataset.id))
     await db.flush()
     return dataset
@@ -503,7 +484,6 @@ def _bbox_annotation(
 async def _seed_image_semantics(
     db: AsyncSession, ids: _FilterIds, users: dict[str, Any], image_key: str
 ) -> FilteringImageManifest:
-    from app.db.models.project_member import ProjectMember
     from app.db.models.project_task_view import ProjectTaskView
 
     admin, annotator, reviewer = users["admin"], users["anno"], users["rev"]
@@ -517,24 +497,22 @@ async def _seed_image_semantics(
         data_type="image",
         tool_bindings=_image_binding(),
     )
-    db.add_all(
-        [
-            ProjectMember(
-                project_id=project.id,
-                user_id=annotator.id,
-                role="annotator",
-                assigned_by=admin.id,
-            ),
-            ProjectMember(
-                project_id=project.id,
-                user_id=reviewer.id,
-                role="reviewer",
-                assigned_by=admin.id,
-            ),
-        ]
+    membership_writes = SeedMembershipWrites(db)
+    membership_writes.add(
+        project_id=project.id,
+        user_id=annotator.id,
+        role="annotator",
+        assigned_by=admin.id,
+    )
+    membership_writes.add(
+        project_id=project.id,
+        user_id=reviewer.id,
+        role="reviewer",
+        assigned_by=admin.id,
     )
     dataset = await _create_dataset(
         db,
+        membership_writes=membership_writes,
         project_id=project.id,
         created_by=admin.id,
         display_id=ids.display("DS-E2E-FILTER-I"),
@@ -739,6 +717,7 @@ async def _seed_image_semantics(
     )
     db.add_all([root_or, required_nested, object_filter, invalid_view])
     await db.flush()
+    register_seed_project_projection(db, project.id)
     project.tool_bindings = {
         **project.tool_bindings,
         "bbox": {
@@ -819,7 +798,6 @@ async def _seed_video_review(
     db: AsyncSession, ids: _FilterIds, users: dict[str, Any], video_key: str
 ) -> FilteringVideoManifest:
     from app.db.models.annotation import Annotation
-    from app.db.models.project_member import ProjectMember
     from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
 
     admin, annotator, reviewer = users["admin"], users["anno"], users["rev"]
@@ -833,24 +811,22 @@ async def _seed_video_review(
         data_type="video",
         tool_bindings=_video_binding(),
     )
-    db.add_all(
-        [
-            ProjectMember(
-                project_id=project.id,
-                user_id=annotator.id,
-                role="annotator",
-                assigned_by=admin.id,
-            ),
-            ProjectMember(
-                project_id=project.id,
-                user_id=reviewer.id,
-                role="reviewer",
-                assigned_by=admin.id,
-            ),
-        ]
+    membership_writes = SeedMembershipWrites(db)
+    membership_writes.add(
+        project_id=project.id,
+        user_id=annotator.id,
+        role="annotator",
+        assigned_by=admin.id,
+    )
+    membership_writes.add(
+        project_id=project.id,
+        user_id=reviewer.id,
+        role="reviewer",
+        assigned_by=admin.id,
     )
     dataset = await _create_dataset(
         db,
+        membership_writes=membership_writes,
         project_id=project.id,
         created_by=admin.id,
         display_id=ids.display("DS-E2E-FILTER-V"),
@@ -1014,7 +990,6 @@ async def _seed_video_review(
 async def _seed_paging(
     db: AsyncSession, ids: _FilterIds, users: dict[str, Any], image_key: str
 ) -> FilteringPagingManifest:
-    from app.db.models.project_member import ProjectMember
 
     admin, annotator = users["admin"], users["anno"]
     project = await _create_project(
@@ -1033,16 +1008,16 @@ async def _seed_paging(
             }
         },
     )
-    db.add(
-        ProjectMember(
-            project_id=project.id,
-            user_id=annotator.id,
-            role="annotator",
-            assigned_by=admin.id,
-        )
+    membership_writes = SeedMembershipWrites(db)
+    membership_writes.add(
+        project_id=project.id,
+        user_id=annotator.id,
+        role="annotator",
+        assigned_by=admin.id,
     )
     dataset = await _create_dataset(
         db,
+        membership_writes=membership_writes,
         project_id=project.id,
         created_by=admin.id,
         display_id=ids.display("DS-E2E-FILTER-P"),
@@ -1119,7 +1094,6 @@ async def _seed_lidar(
     )
     from aap_assets_catalog.spatial_values import FramePose
     from app.services.assets_spatial import AssetsSpatialGateway
-    from app.db.models.project_member import ProjectMember
     from app.db.models.project_task_view import ProjectTaskView
     from app.db.models.task_dataset_item_link import TaskDatasetItemLink
     from app.services.scene_track_domain import ensure_scene_track
@@ -1143,16 +1117,16 @@ async def _seed_lidar(
         },
         scene_mode=True,
     )
-    db.add(
-        ProjectMember(
-            project_id=project.id,
-            user_id=annotator.id,
-            role="annotator",
-            assigned_by=admin.id,
-        )
+    membership_writes = SeedMembershipWrites(db)
+    membership_writes.add(
+        project_id=project.id,
+        user_id=annotator.id,
+        role="annotator",
+        assigned_by=admin.id,
     )
     dataset = await _create_dataset(
         db,
+        membership_writes=membership_writes,
         project_id=project.id,
         created_by=admin.id,
         display_id=ids.display("DS-E2E-FILTER-L"),
@@ -1394,7 +1368,6 @@ async def _seed_operations(
     from app.db.models.async_job import AsyncJob
     from app.db.models.audit_log import AuditLog
     from app.db.models.bug_report import BugReport
-    from app.db.models.project_template import ProjectTemplate
 
     admin, annotator = users["admin"], users["anno"]
     identity = IdentityE2EFixtures(db)
@@ -1457,36 +1430,37 @@ async def _seed_operations(
             data_type="video",
         ),
     ]
-    templates = [
-        ProjectTemplate(
-            display_id=ids.display("TPL-E2E-FILTER-A"),
-            name=ids.display_name("Filter Private Template"),
-            description="private fixture",
-            type_label="Image detection",
-            type_key="image-det",
-            data_type="image",
-            tool_bindings=project_a.tool_bindings,
-            label_config={},
-            scope="private",
-            created_by=admin.id,
-            source_project_id=project_a.id,
-        ),
-        ProjectTemplate(
-            display_id=ids.display("TPL-E2E-FILTER-B"),
-            name=ids.display_name("Filter Public Template"),
-            description="public fixture",
-            type_label="Video detection",
-            type_key="video-det",
-            data_type="video",
-            tool_bindings=project_b.tool_bindings,
-            label_config={},
-            scope="public",
-            created_by=admin.id,
-            source_project_id=project_b.id,
-        ),
-    ]
-    db.add_all(templates)
-    await db.flush()
+    templates = await create_fixture_templates(
+        db,
+        [
+            dict(
+                display_id=ids.display("TPL-E2E-FILTER-A"),
+                name=ids.display_name("Filter Private Template"),
+                description="private fixture",
+                type_label="Image detection",
+                type_key="image-det",
+                data_type="image",
+                tool_bindings=project_a.tool_bindings,
+                label_config={},
+                scope="private",
+                created_by=admin.id,
+                source_project_id=project_a.id,
+            ),
+            dict(
+                display_id=ids.display("TPL-E2E-FILTER-B"),
+                name=ids.display_name("Filter Public Template"),
+                description="public fixture",
+                type_label="Video detection",
+                type_key="video-det",
+                data_type="video",
+                tool_bindings=project_b.tool_bindings,
+                label_config={},
+                scope="public",
+                created_by=admin.id,
+                source_project_id=project_b.id,
+            ),
+        ],
+    )
     now = _now()
     invitations = [
         FixtureInvitation(

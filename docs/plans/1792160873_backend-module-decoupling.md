@@ -7696,3 +7696,32 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   reproducers, non-editable artifact hashes, all six cold command results and
   actual DB/S3 state, migrations, cleanup and preservation. This closes this
   bounded Workspace consumer group locally; the full goal remains active.
+
+### Guarded Workspace E2E fixture boundary
+
+- Owner source 2a14f9d88db1a5525dbb878b8a1d09f48ca8cf55 is integrated as
+  909609d1bac23ea23e5a324a3e14c890c1eaaa14. Migration 0309 adds five closed
+  fixture capabilities plus a guarded two-column template fact relation. All
+  writes require a \_test/\_e2e database and an explicitly granted trusted operator;
+  normal Workspace API credentials retain the ordinary boundary.
+- Root migrates Project/member/template creates, scoped cleanup, metadata edits,
+  Session.get reads and the filtering CLI. Existing member and metadata writers
+  retain the original flush points. Shared reset selectors are unchanged; its
+  overbroad convergence documentation is corrected to require owned cleanup first.
+- Four actual route baselines capture complete Project/member/template fields
+  before migration at 968c1df40101f3b5b330af4030da479676db48f5. Native replays
+  match all four. Ninety-five distinct database/consumer cases now pass: original
+  HTTP semantics, explicit transaction/cache cases, genuine unretired denial,
+  controlled final-guard/lock denial with child rollback, renamed Project and
+  template residuals, Lidar transaction abort, five-function Node peer and the
+  actual ordinary E2E LOGIN filtering CLI. Never-started proof is produced only
+  by the existing owner guard; no retirement evidence is fabricated.
+- Focused attempt second retains 88 passing cases and one ACL-test failure: resolving
+  an object name without schema USAGE was correctly denied. The test now uses OIDs
+  obtained by its owner, and focused attempt third passes that case plus two final
+  refusal branches. Earlier immutable baseline/native/failure receipts remain in
+  .worktree/workspace-e2e-\*. Workspace source suite passes 498. Migration 0309,
+  frozen SQL rollback/re-upgrade and owned resource cleanup pass.
+- Matching non-editable owner/API artifacts and installed cold HTTP qualification
+  remain the next gate. The whole Workspace module and active full goal remain
+  open; primary, Go experiment, production and release boundaries are unchanged.
