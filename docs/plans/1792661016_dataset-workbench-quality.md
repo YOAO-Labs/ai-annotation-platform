@@ -1,8 +1,8 @@
 # EPIC-08：数据集工作台与质量管理
 
-> 状态：research-draft；未排期，未批准实施，未分配发布版本。
+> 状态：approved；A 切片实施中，后续切片仍待晋升；未分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
-> 实施前须通过 [backlog promotion gate](README.md#promotion-gate)。[草案总览](1792661016_dataset-storage-roadmap.md)、[架构契约](1792661016_dataset-storage-architecture.md)和[交付验收](1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
+> 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 | 属性     | 草案约定                                                           |
 | -------- | ------------------------------------------------------------------ |
@@ -12,26 +12,62 @@
 | 协同     | EPIC-04 提供同步；EPIC-09 统一页面边界；EPIC-10 提供冻结版本       |
 | 交付阶段 | M1 最小工作台；M2 质量、视图与批量管理；近似重复能力按实际需求后置 |
 
+## 本次晋升复核与实施合同
+
+用户已授权“完成 E10-A，再推进 E08/E09 页面整合”。复核基线 `74bd04c12`，工作树干净；E03/E04 已完成，E10-A 已支持引用原图严格读取后冻结独立副本。本节替代历史候选范围，仅实施 E08-A/E09-A 页面整合；保存视图、质量治理、异步容量统计和维护迁移仍属后续切片。超过 8 个文件，跨前端、API、合同和文档；不创建业务表、不改依赖/环境、不重建镜像。
+
+### 准确文件范围
+
+- E08：`apps/web/src/pages/Datasets/{DatasetsPage,DatasetDetailPage,datasetsUrlState}.tsx`（URL helper 为 `.ts`）及同名测试；`apps/web/src/App.tsx`、`apps/web/src/{api/datasets,hooks/useDatasets}.ts`；`apps/web/src/pages/Projects/ProjectLearningPage.tsx` 及测试。保留原展开详情上传、扫描、元数据、Scene、坐标系、关联/解绑全部业务；独立详情、服务端分页/来源/可用性过滤、网格和检查器、分项目进度、关联版本与复用冻结入口。
+- E09：`apps/web/src/pages/Storage/StoragePage.tsx` 及测试；`apps/web/src/components/connections/{FilesystemLocationsPanel,StorageConnectionsPanel,StorageLocationSourceSummary}.tsx` 及相应测试；`apps/web/src/components/datasets/{ImportDatasetWizard,DirectoryReferencePanel}.tsx` 及测试；`apps/web/src/{api/datasetSources,api/storage,hooks/useStorage}.ts`。统一配置 owner、位置 URL、九用途、未知指标、安全返回导入草稿，保留视频维护及 E04 来源/任务分页。
+- 后端：`apps/api/app/{api/v1/datasets,schemas/dataset,services/dataset}.py`、新增 `services/dataset_workbench.py` 和 `apps/api/tests/test_dataset_workbench.py`。如需探测历史，扩展 `api/v1/storage_locations.py`、`schemas/storage_location.py`、`tests/test_storage_locations_api.py`。生成 OpenAPI/前端类型和适用 SDK manifest。
+- 文档：`docs-site/user-guide/datasets/`、`docs-site/api/` 相关指南、`docs-site/dev/reference/storage-buckets.md`、`README.md`、`CHANGELOG.md`，本计划及草案索引。
+
+### 数据流、权限和兼容
+
+```text
+/storage?location=ID <--- safe return ---> /datasets?location_id=ID&page=N
+        |                                           |
+existing config + nine bindings              /datasets/ID?tab=...&item=...
+        |                                           |
+source/job summary <------------------- source + sanitized item status
+                                                    |
+                                    authorized project /learning?tab=data
+                                                    |
+                                          existing E10 freeze composer
+```
+
+不新增 migration；仅扩展查询合同。可用性带观测时间，未实时核验不得称当前可读；预览与原图分别判断，缩略图不构成可标注证明。筛选按持久观测，页面只查询当前页。项目进度仅统计该数据集在该项目的任务，列表按既有项目权限裁剪；关联版本沿用训练模块。位置过滤沿用来源授权，按唯一 dataset ID 计数。新读取与异步回调绑定认证及资源 owner，撤权/切会话不展示迟到结果。
+
+旧连接页签转唯一存储配置；向导仅选择已有连接，返回仅接受站内白名单路径，草稿按会话/数据集隔离且不持久保存秘密或 File。存储不再重复数据集目录，不调用逐桶全扫描；没有可靠测量合同时容量、配额、源规模和对象字节显示未提供/待统计。九用途只读，不伪装迁移。
+
+### 验收门与回退
+
+- 后端：worktree wrapper disposable test DB 下运行新增 workbench、storage source summary、storage locations、既有数据集/项目访问测试；覆盖分页、双项目、撤权、异常、唯一计数。同步 OpenAPI、TS、SDK route coverage 并检查合同。
+- 前端：指定文件 `pnpm --filter @anno/web exec vitest run ...`，typecheck、受影响 ESLint、CSS token lint；覆盖 URL、会话、失败重试、分页/过滤、解绑预览失败阻断、九用途及导入返回。
+- 浏览器：3100/8100 既有人工作环境，验证旧链接、独立详情、来源↔位置、分页网格/检查器、项目进度、引用冻结入口、九用途及深浅主题；检查网络/控制台。测试后清理临时文件和 disposable DB，保留人工环境。
+- 回退提交只撤销 UI/查询扩展，保留来源、Asset、冻结版本和存储身份，不将 reference 键交旧 S3 拼接。最终检查 diff 并追加 Outcome。
+
 ## 本项目基线与改造落点
 
 下列为固定提交的静态证据，尚非运行/浏览器验收结果。
 
-| 当前 owner / 代码锚点                                                                       | 已有能力、缺口与复用约束                                                                                                            |
-| ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| [DatasetsPage.tsx](../../../apps/web/src/pages/Datasets/DatasetsPage.tsx)                   | 已有展开详情、文件/Scene、关联/解绑影响、元数据修复与 ?dataset= 入口；独立详情逐项迁移保留。                                        |
-| [datasetsUrlState.ts](../../../apps/web/src/pages/Datasets/datasetsUrlState.ts)             | 复用 URL 分页/过滤状态；新详情/来源/检查器请求纳入认证和资源 owner 防迟到约束。                                                     |
-| [project_task_view.py](../../../apps/api/app/db/models/project_task_view.py)                | 现有 ProjectTaskView 只管项目 tasks/objects/tracks，不直接作为 DatasetItem 保存视图；项目 Data Manager 保持任务/标注/分配权威入口。 |
-| [training_dataset_analysis.py](../../../apps/api/app/services/training_dataset_analysis.py) | 冻结分析可复用通用计算；原始媒体质量按 Asset/算法修订保存，不能继承给新字节；原图位置可用性独立观测。                               |
+| 当前 owner / 代码锚点                                                                    | 已有能力、缺口与复用约束                                                                                                            |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| [DatasetsPage.tsx](../../apps/web/src/pages/Datasets/DatasetsPage.tsx)                   | 已有展开详情、文件/Scene、关联/解绑影响、元数据修复与 ?dataset= 入口；独立详情逐项迁移保留。                                        |
+| [datasetsUrlState.ts](../../apps/web/src/pages/Datasets/datasetsUrlState.ts)             | 复用 URL 分页/过滤状态；新详情/来源/检查器请求纳入认证和资源 owner 防迟到约束。                                                     |
+| [project_task_view.py](../../apps/api/app/db/models/project_task_view.py)                | 现有 ProjectTaskView 只管项目 tasks/objects/tracks，不直接作为 DatasetItem 保存视图；项目 Data Manager 保持任务/标注/分配权威入口。 |
+| [training_dataset_analysis.py](../../apps/api/app/services/training_dataset_analysis.py) | 冻结分析可复用通用计算；原始媒体质量按 Asset/算法修订保存，不能继承给新字节；原图位置可用性独立观测。                               |
 
-候选修改入口：[DatasetsPage.tsx](../../../apps/web/src/pages/Datasets/DatasetsPage.tsx)、[datasetsUrlState.ts](../../../apps/web/src/pages/Datasets/datasetsUrlState.ts)、[ImportDatasetWizard.tsx](../../../apps/web/src/components/datasets/ImportDatasetWizard.tsx)、[datasets.ts](../../../apps/web/src/api/datasets.ts)、[App.tsx](../../../apps/web/src/App.tsx)、[datasets.py](../../../apps/api/app/api/v1/datasets.py)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
+候选修改入口：[DatasetsPage.tsx](../../apps/web/src/pages/Datasets/DatasetsPage.tsx)、[datasetsUrlState.ts](../../apps/web/src/pages/Datasets/datasetsUrlState.ts)、[ImportDatasetWizard.tsx](../../apps/web/src/components/datasets/ImportDatasetWizard.tsx)、[datasets.ts](../../apps/web/src/api/datasets.ts)、[App.tsx](../../apps/web/src/App.tsx)、[datasets.py](../../apps/api/app/api/v1/datasets.py)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
 
 ## 1. 问题与当前依据
 
-当前数据集列表通过展开行承载详情，包含文件、场景、项目关联和元数据修复，基础能力已经存在；随着原地目录、多来源和来源可用性加入，展开行难以继续承载主工作流。[代码依据：DatasetsPage](../../../apps/web/src/pages/Datasets/DatasetsPage.tsx)。
+当前数据集列表通过展开行承载详情，包含文件、场景、项目关联和元数据修复，基础能力已经存在；随着原地目录、多来源和来源可用性加入，展开行难以继续承载主工作流。[代码依据：DatasetsPage](../../apps/web/src/pages/Datasets/DatasetsPage.tsx)。
 
-当前导入向导已经支持本地文件、ZIP 和连接器，以及异步任务反馈。新方案应增加原地目录注册与预览计划，并保留现有入口。[代码依据：ImportDatasetWizard](../../../apps/web/src/components/datasets/ImportDatasetWizard.tsx)。
+当前导入向导已经支持本地文件、ZIP 和连接器，以及异步任务反馈。新方案应增加原地目录注册与预览计划，并保留现有入口。[代码依据：ImportDatasetWizard](../../apps/web/src/components/datasets/ImportDatasetWizard.tsx)。
 
-训练相关分析已经包含统计与差异能力。本 Epic 扩展工作数据集的可发现性与问题处理，不另建一套定义不同的训练统计。[代码依据：training_dataset_analysis](../../../apps/api/app/services/training_dataset_analysis.py)。
+训练相关分析已经包含统计与差异能力。本 Epic 扩展工作数据集的可发现性与问题处理，不另建一套定义不同的训练统计。[代码依据：training_dataset_analysis](../../apps/api/app/services/training_dataset_analysis.py)。
 
 ## 2. 目标、范围与暂不做
 
@@ -67,7 +103,7 @@
 
 列表仅保留名称、类型、样本数、来源摘要、可用性、关联项目和最近变更。数据集名称是逻辑名称，重命名不会导致目录迁移。
 
-详情页建议包含“数据”“来源与同步”“质量”“项目关联”“关联版本”五个页签。页头只保留业务摘要，不嵌入整套存储仪表盘。完整字段归属以 [信息架构](1792661016_dataset-storage-information-architecture.md) 为准。
+详情页建议包含“数据”“来源与同步”“质量”“项目关联”“关联版本”五个页签。页头只保留业务摘要，不嵌入整套存储仪表盘。完整字段归属以 [信息架构](backlog/1792661016_dataset-storage-information-architecture.md) 为准。
 
 表格与网格共享同一过滤器和服务端查询。网格按需加载缩略图；列表不能通过加载全部样本再由浏览器分页来实现。
 
@@ -186,8 +222,8 @@
 
 前置合同不等于等待前置 Epic 全量完成。每个切片合并后系统仍须可用；含新来源的回退保留兼容读取和授权，不能把其相对路径交给旧 S3 拼接逻辑。预计多数切片涉及超过 8 个文件，实施时明确大范围边界与准确清单。
 
-已有回归入口：[DatasetsPage.test.tsx](../../../apps/web/src/pages/Datasets/DatasetsPage.test.tsx)、[datasetsUrlState.test.ts](../../../apps/web/src/pages/Datasets/datasetsUrlState.test.ts)、[ImportDatasetWizard.test.tsx](../../../apps/web/src/components/datasets/ImportDatasetWizard.test.tsx)、[test_datasets_list_has_scenes.py](../../../apps/api/tests/test_datasets_list_has_scenes.py)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
+已有回归入口：[DatasetsPage.test.tsx](../../apps/web/src/pages/Datasets/DatasetsPage.test.tsx)、[datasetsUrlState.test.ts](../../apps/web/src/pages/Datasets/datasetsUrlState.test.ts)、[ImportDatasetWizard.test.tsx](../../apps/web/src/components/datasets/ImportDatasetWizard.test.tsx)、[test_datasets_list_has_scenes.py](../../apps/api/tests/test_datasets_list_has_scenes.py)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
 
-实现时同步：[index.md](../../../docs-site/user-guide/datasets/index.md)、[import-images.md](../../../docs-site/user-guide/datasets/import-images.md)、[data-versions.md](../../../docs-site/user-guide/online-learning/data-versions.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
+实现时同步：[index.md](../../docs-site/user-guide/datasets/index.md)、[import-images.md](../../docs-site/user-guide/datasets/import-images.md)、[data-versions.md](../../docs-site/user-guide/online-learning/data-versions.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
 
-完成实施后按[计划规范](../README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
