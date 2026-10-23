@@ -300,18 +300,33 @@ async def test_cancelled_location_io_retains_receipt_until_thread_closes(
 
 
 @pytest.mark.parametrize(
-    "failure", [None, "body", "cancel", "stream", "adapter", "constructor"]
+    "failure",
+    [
+        None,
+        "body",
+        "cancel",
+        "stream",
+        "adapter",
+        "constructor",
+        "constructor_unsettled",
+    ],
 )
 async def test_copy_import_receipt_covers_stream_and_adapter_cleanup(
     monkeypatch, failure
 ):
     events = []
-    permit = SimpleNamespace(revision=1)
 
-    async def settle(*_args):
-        events.append("settled")
+    class Permit:
+        revision = 1
 
-    permit.__aexit__ = settle
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            if not getattr(exc, "storage_operation_unsettled", False):
+                events.append("settled")
+
+    permit = Permit()
 
     async def acquire(*args, **kwargs):
         events.append("admitted")
@@ -325,7 +340,9 @@ async def test_copy_import_receipt_covers_stream_and_adapter_cleanup(
 
     async def build(*args):
         if failure == "constructor":
-            raise OSError("constructor failed")
+            raise OSError("constructor failed before physical access")
+        if failure == "constructor_unsettled":
+            raise storage_access.mark_unsettled(OSError("constructor cleanup failed"))
         return Adapter()
 
     class Stream:
@@ -363,8 +380,10 @@ async def test_copy_import_receipt_covers_stream_and_adapter_cleanup(
     else:
         with pytest.raises((ValueError, OSError, asyncio.CancelledError, ContentError)):
             await execute()
-    if failure in {"stream", "adapter", "constructor"}:
+    if failure in {"stream", "adapter", "constructor_unsettled"}:
         assert "settled" not in events
+    elif failure == "constructor":
+        assert events == ["admitted", "settled"]
     else:
         assert events[-3:] == ["stream_closed", "adapter_closed", "settled"]
 

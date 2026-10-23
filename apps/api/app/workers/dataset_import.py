@@ -153,38 +153,30 @@ def _collect_within_limits(
 @asynccontextmanager
 async def _registered_source(db, conn, revision):
     """Retain admission through stream ingestion and verified adapter closure."""
-    permit = await storage_access.acquire(
+    async with await storage_access.acquire(
         db,
         connector_location_id(conn.id),
         "connection_import",
         expected_revision=revision,
-    )
-    adapter = None
-    handles_closed = True
+    ):
+        adapter = None
 
-    def close_stream(stream):
-        nonlocal handles_closed
-        try:
-            stream.close()
-        except BaseException:
-            handles_closed = False
-            raise ContentError("storage_operation_unsettled", 503) from None
-
-    try:
-        adapter = await build_adapter(db, conn)
-        yield adapter, close_stream
-    finally:
-        # A failed constructor/close cannot prove physical handles have ended.
-        # Leave its durable receipt unresolved rather than claim the source quiet.
-        if adapter is not None:
+        def close_stream(stream):
             try:
-                adapter.close()
+                storage_access.close_registered(stream)
             except BaseException:
-                handles_closed = False
-                raise
-            finally:
-                if handles_closed:
-                    await permit.__aexit__(None, None, None)
+                raise storage_access.mark_unsettled(
+                    ContentError("storage_operation_unsettled", 503)
+                ) from None
+
+        try:
+            adapter = await build_adapter(db, conn)
+            yield adapter, close_stream
+        finally:
+            # Constructors prove successful cleanup or propagate the explicit
+            # uncertainty marker. Ordinary validation/read failures can settle.
+            if adapter is not None:
+                storage_access.close_registered(adapter)
 
 
 async def _validate_connection_import(

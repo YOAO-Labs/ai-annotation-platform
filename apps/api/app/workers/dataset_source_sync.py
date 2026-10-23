@@ -14,6 +14,8 @@ from app.workers.celery_app import celery_app
 
 
 def error_code(exc):
+    if getattr(exc, "storage_operation_unsettled", False):
+        return "storage_operation_unsettled"
     if isinstance(exc, (FilesystemStorageError, ContentError)):
         return exc.code
     if isinstance(exc, HTTPException):

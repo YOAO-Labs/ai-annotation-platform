@@ -16,6 +16,7 @@ from app.core.crypto import (
     ConnectorCryptoNotConfigured,
 )
 from app.services import connector_guard
+from app.services.storage_access import close_registered, mark_unsettled
 from app.services.filesystem_storage import FilesystemStorageError as StorageError
 
 PAGE_SIZE = 200
@@ -91,7 +92,7 @@ def require_conditions(client, params):
         }:
             raise
     else:
-        response["Body"].close()
+        close_registered(response["Body"])
         raise StorageError("s3_conditions_not_supported")
 
 
@@ -147,21 +148,24 @@ class S3Access:
             secret = decrypt_secret(self.secret_enc)
         except (ConnectorCryptoError, ConnectorCryptoNotConfigured):
             raise StorageError("connection_unavailable") from None
-        client = boto3.client(
-            "s3",
-            endpoint_url=endpoint,
-            aws_access_key_id=secret["access_key"],
-            aws_secret_access_key=secret["secret_key"],
-            region_name=self.config.get("region"),
-            config=Config(
-                connect_timeout=2,
-                read_timeout=2,
-                retries={"max_attempts": 0},
-                s3={"addressing_style": "path"},
-                proxies={},
-                signature_version="s3v4",
-            ),
-        )
+        try:
+            client = boto3.client(
+                "s3",
+                endpoint_url=endpoint,
+                aws_access_key_id=secret["access_key"],
+                aws_secret_access_key=secret["secret_key"],
+                region_name=self.config.get("region"),
+                config=Config(
+                    connect_timeout=2,
+                    read_timeout=2,
+                    retries={"max_attempts": 0},
+                    s3={"addressing_style": "path"},
+                    proxies={},
+                    signature_version="s3v4",
+                ),
+            )
+        except BaseException as exc:
+            raise mark_unsettled(exc)
 
         def guard(request, **kwargs):
             destination = urlsplit(request.url)
@@ -173,10 +177,12 @@ class S3Access:
                 raise StorageError("s3_redirect_denied")
             allowed_endpoint(endpoint, self.allowlist)
 
-        client.meta.events.register("before-send.s3", guard)
         try:
+            client.meta.events.register("before-send.s3", guard)
             yield client
         except ClientError as exc:
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             code = exc.response.get("Error", {}).get("Code")
             raise StorageError(
                 "source_changed"
@@ -187,10 +193,12 @@ class S3Access:
                 if code in {"NoSuchKey", "NoSuchVersion", "404", "NotFound"}
                 else "content_source_unavailable"
             ) from None
-        except (BotoCoreError, connector_guard.ConnectorHostDenied):
+        except (BotoCoreError, connector_guard.ConnectorHostDenied) as exc:
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             raise StorageError("content_source_unavailable") from None
         finally:
-            client.close()
+            close_registered(client)
 
     def list_page(self, relative, cursor=None, *, directories=False):
         prefix = directory_prefix(self.config.get("base_prefix", ""), relative)
@@ -290,7 +298,7 @@ class S3Access:
                 ):
                     raise StorageError("source_changed")
             finally:
-                body.close()
+                close_registered(body)
 
     def probe(self, sample_file=None):
         capabilities = {
@@ -311,6 +319,8 @@ class S3Access:
                 "anchor": self.anchor,
             }
         except (StorageError, connector_guard.ConnectorHostDenied) as exc:
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             return {
                 "ok": False,
                 "code": getattr(exc, "code", "connector_host_denied"),

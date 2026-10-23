@@ -36,6 +36,7 @@ def _bearer(token: str) -> dict[str, str]:
 class _FakeS3Client:
     def __init__(self, objects: dict[str, bytes]) -> None:
         self.objects = objects
+        self.closed = False
 
     def list_objects_v2(self, **kwargs):
         prefix = kwargs.get("Prefix") or ""
@@ -54,6 +55,9 @@ class _FakeS3Client:
 
     def get_object(self, *, Bucket, Key):
         return {"Body": io.BytesIO(self.objects[Key])}
+
+    def close(self):
+        self.closed = True
 
 
 def test_s3_adapter_lists_opens_and_filters(monkeypatch):

@@ -14,6 +14,7 @@ import stat
 import time
 
 from app.config import settings
+from app.services.storage_access import closing_registered, mark_unsettled
 
 MAX_ENTRIES = 5000
 _BENEATH = 0x08
@@ -25,6 +26,17 @@ class FilesystemStorageError(ValueError):
     def __init__(self, code):
         self.code = code
         super().__init__(code)
+
+
+def _close_descriptors(handles):
+    failure = None
+    for handle in handles:
+        try:
+            os.close(handle)
+        except BaseException as exc:
+            failure = mark_unsettled(exc)
+    if failure is not None:
+        raise failure
 
 
 def relative_path(value: str) -> str:
@@ -125,11 +137,12 @@ def location_directory(config, path="", *, expected_anchor=None):
         target_fd = _open_beneath(base_fd, path, directory=True)
         handles.append(target_fd)
         yield target_fd, anchor
-    except OSError:
+    except OSError as exc:
+        if getattr(exc, "storage_operation_unsettled", False):
+            raise
         raise FilesystemStorageError("filesystem_unavailable") from None
     finally:
-        for handle in reversed(handles):
-            os.close(handle)
+        _close_descriptors(reversed(handles))
 
 
 def capture_anchor(config):
@@ -180,7 +193,7 @@ def content_file(
             observation = {**fingerprint, "source_identity": source_identity}
             if expected and any(observation.get(k) != v for k, v in expected.items()):
                 raise FilesystemStorageError("source_changed")
-            with os.fdopen(fd, "rb", closefd=False) as body:
+            with closing_registered(os.fdopen(fd, "rb", closefd=False)) as body:
                 yield body, observation
             if file_observation(os.fstat(fd)) != fingerprint:
                 raise FilesystemStorageError("source_changed")
@@ -189,7 +202,7 @@ def content_file(
                 if file_observation(os.fstat(current)) != fingerprint:
                     raise FilesystemStorageError("source_changed")
             finally:
-                os.close(current)
+                _close_descriptors([current])
             # Detect replacement of the source directory itself after opening.
             with location_directory(
                 config, source_path, expected_anchor=expected_anchor
@@ -197,7 +210,7 @@ def content_file(
                 if _identity(again) != _identity(parent):
                     raise FilesystemStorageError("source_changed")
         finally:
-            os.close(fd)
+            _close_descriptors([fd])
 
 
 def scan_directory(config, path, *, expected_anchor, expected_identity=None):
@@ -209,7 +222,7 @@ def scan_directory(config, path, *, expected_anchor, expected_identity=None):
             raise FilesystemStorageError("directory_identity_changed")
         entries = []
         deadline = time.monotonic() + 2
-        with os.scandir(fd) as iterator:
+        with closing_registered(os.scandir(fd)) as iterator:
             for entry in iterator:
                 if len(entries) >= MAX_ENTRIES:
                     raise FilesystemStorageError("directory_too_large")
@@ -258,7 +271,7 @@ def browse_directory(
     with location_directory(config, path, expected_anchor=expected_anchor) as (fd, _):
         entries, raw, checked = [], [], 0
         deadline = time.monotonic() + 2
-        with os.scandir(fd) as iterator:
+        with closing_registered(os.scandir(fd)) as iterator:
             for entry in iterator:
                 try:
                     entry.name.encode("utf-8", errors="strict")
@@ -313,7 +326,7 @@ def probe_directory(config, sample_file=None, *, expected_anchor=None):
                     os.pread(file_fd, 16, 1)
                     capabilities["range"] = "verified"
                 finally:
-                    os.close(file_fd)
+                    _close_descriptors([file_fd])
         return {
             "ok": True,
             "code": "ok",
@@ -322,6 +335,8 @@ def probe_directory(config, sample_file=None, *, expected_anchor=None):
             "host_id": host_identity(),
         }
     except FilesystemStorageError as exc:
+        if getattr(exc, "storage_operation_unsettled", False):
+            raise
         return {
             "ok": False,
             "code": exc.code,

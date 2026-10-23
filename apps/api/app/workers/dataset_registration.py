@@ -69,6 +69,8 @@ async def dispatch(db, run_id):
 
 
 def error_code(exc):
+    if getattr(exc, "storage_operation_unsettled", False):
+        return "storage_operation_unsettled"
     if isinstance(exc, (ContentError, fs.FilesystemStorageError)):
         return exc.code
     if isinstance(exc, HTTPException) and isinstance(exc.detail, dict):

@@ -494,8 +494,12 @@ async def probe(
         "storage_maintenance",
         "storage_maintenance_changed",
         "storage_maintenance_busy",
+        "storage_operation_unsettled",
     }:
-        raise HTTPException(409, detail={"code": result["code"]})
+        raise HTTPException(
+            503 if result["code"] == "storage_operation_unsettled" else 409,
+            detail={"code": result["code"]},
+        )
     actor = await require_manager(db, actor.id)
     if await key_authority(db, actor, key_id, "datasets:write") != key_proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})

@@ -22,6 +22,7 @@ from app.core.crypto import (
     ConnectorCryptoNotConfigured,
 )
 from app.services import connector_guard
+from app.services.storage_access import close_registered, closing_registered
 from app.services.filesystem_storage import (
     FilesystemStorageError as StorageError,
     relative_path,
@@ -138,18 +139,28 @@ class SftpAccess:
                 channel_timeout=2,
                 sock=connection,
             )
-            with client.open_sftp() as sftp:
+            with closing_registered(client.open_sftp()) as sftp:
                 sftp.get_channel().settimeout(2)
                 yield sftp
-        except paramiko.BadHostKeyException:
+        except paramiko.BadHostKeyException as exc:
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             raise StorageError("sftp_host_key_mismatch") from None
-        except paramiko.AuthenticationException:
+        except paramiko.AuthenticationException as exc:
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             raise StorageError("connection_unavailable") from None
-        except connector_guard.ConnectorHostDenied:
+        except connector_guard.ConnectorHostDenied as exc:
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             raise StorageError("connector_host_denied") from None
-        except (paramiko.SSHException, EOFError):
+        except (paramiko.SSHException, EOFError) as exc:
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             raise StorageError("content_source_unavailable") from None
         except OSError as exc:
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             raise StorageError(
                 "path_unavailable"
                 if exc.errno == errno.ENOENT
@@ -158,9 +169,11 @@ class SftpAccess:
                 else "content_source_unavailable"
             ) from None
         finally:
-            client.close()
-            if connection is not None:
-                connection.close()
+            try:
+                close_registered(client)
+            finally:
+                if connection is not None:
+                    close_registered(connection)
 
     def require_anchor(self, expected):
         if expected is not None and expected != self.anchor:
@@ -176,28 +189,31 @@ class SftpAccess:
             deadline = time.monotonic() + 2
             before = checked_path(sftp, path, directory=True)
             entries, names = [], set()
-            for info in sftp.listdir_iter("/" + path, read_aheads=1):
-                if len(entries) >= MAX_ENTRIES:
-                    raise StorageError("directory_too_large")
-                if time.monotonic() > deadline:
-                    raise StorageError("directory_budget_exceeded")
-                name = relative_path(info.filename)
-                if not name or "/" in name or name in names:
-                    raise StorageError("sftp_invalid_listing")
-                names.add(name)
-                remote = "/" + "/".join(p for p in [path, name] if p)
-                observed = observation(info, remote)
-                mode = observed["mode"]
-                kind = (
-                    "directory"
-                    if stat.S_ISDIR(mode)
-                    else "file"
-                    if stat.S_ISREG(mode)
-                    else "symlink"
-                    if stat.S_ISLNK(mode)
-                    else "special"
-                )
-                entries.append({"name": name, "kind": kind, **observed})
+            with closing_registered(
+                sftp.listdir_iter("/" + path, read_aheads=1)
+            ) as iterator:
+                for info in iterator:
+                    if len(entries) >= MAX_ENTRIES:
+                        raise StorageError("directory_too_large")
+                    if time.monotonic() > deadline:
+                        raise StorageError("directory_budget_exceeded")
+                    name = relative_path(info.filename)
+                    if not name or "/" in name or name in names:
+                        raise StorageError("sftp_invalid_listing")
+                    names.add(name)
+                    remote = "/" + "/".join(p for p in [path, name] if p)
+                    observed = observation(info, remote)
+                    mode = observed["mode"]
+                    kind = (
+                        "directory"
+                        if stat.S_ISDIR(mode)
+                        else "file"
+                        if stat.S_ISREG(mode)
+                        else "symlink"
+                        if stat.S_ISLNK(mode)
+                        else "special"
+                    )
+                    entries.append({"name": name, "kind": kind, **observed})
             if checked_path(sftp, path, directory=True) != before:
                 raise StorageError("directory_changed")
             entries.sort(key=lambda e: e["name"])
@@ -236,7 +252,7 @@ class SftpAccess:
                 before.get(k) != v for k, v in expected.items() if k != "kind"
             ):
                 raise StorageError("source_changed")
-            with sftp.open("/" + relative, "rb", bufsize=0) as body:
+            with closing_registered(sftp.open("/" + relative, "rb", bufsize=0)) as body:
                 body.settimeout(2)
                 if observation(body.stat(), "/" + relative) != before:
                     raise StorageError("source_changed")
@@ -268,6 +284,8 @@ class SftpAccess:
                 "anchor": self.anchor,
             }
         except StorageError as exc:
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             return {
                 "ok": False,
                 "code": exc.code,

@@ -6,6 +6,7 @@ from typing import BinaryIO, Iterable, Iterator
 import boto3
 from botocore.config import Config as BotoConfig
 
+from app.services.storage_access import close_registered, mark_unsettled
 from app.services.sources.base import (
     SourceAdapter,
     SourceObject,
@@ -42,16 +43,19 @@ class S3CompatibleSource(SourceAdapter):
 
         self.bucket = str(config["bucket"])
         self.base_prefix = normalize_relpath(str(config.get("base_prefix") or ""))
-        self.client = boto3.client(
-            "s3",
-            endpoint_url=endpoint,
-            aws_access_key_id=secret.get("access_key"),
-            aws_secret_access_key=secret.get("secret_key"),
-            region_name=config.get("region"),
-            config=BotoConfig(
-                connect_timeout=10, read_timeout=60, retries={"max_attempts": 2}
-            ),
-        )
+        try:
+            self.client = boto3.client(
+                "s3",
+                endpoint_url=endpoint,
+                aws_access_key_id=secret.get("access_key"),
+                aws_secret_access_key=secret.get("secret_key"),
+                region_name=config.get("region"),
+                config=BotoConfig(
+                    connect_timeout=10, read_timeout=60, retries={"max_attempts": 2}
+                ),
+            )
+        except BaseException as exc:
+            raise mark_unsettled(exc)
 
     def _rel_from_key(self, key: str) -> str:
         key = normalize_relpath(key)
@@ -116,4 +120,4 @@ class S3CompatibleSource(SourceAdapter):
         return resp["Body"]
 
     def close(self) -> None:
-        return None
+        close_registered(self.client)

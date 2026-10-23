@@ -511,6 +511,8 @@ async def claim(db, run_id, task_id, node_id):
 def failure_code(exc, fallback):
     from app.services.content_snapshot import ContentError
 
+    if getattr(exc, "storage_operation_unsettled", False):
+        return "storage_operation_unsettled"
     if isinstance(exc, (fs.FilesystemStorageError, ContentError)):
         return exc.code
     if isinstance(exc, HTTPException):

@@ -409,7 +409,6 @@ async def test_new_api_node_cannot_rebind_old_reference_to_new_qualification(
 
 
 def test_ssh_uses_validated_socket_and_independent_pinned_host_keys(monkeypatch):
-    from contextlib import nullcontext
     from types import SimpleNamespace
 
     calls = []
@@ -446,10 +445,9 @@ def test_ssh_uses_validated_socket_and_independent_pinned_host_keys(monkeypatch)
             calls.append(("ssh",))
 
         def open_sftp(self):
-            return nullcontext(
-                SimpleNamespace(
-                    get_channel=lambda: SimpleNamespace(settimeout=lambda v: None)
-                )
+            return SimpleNamespace(
+                get_channel=lambda: SimpleNamespace(settimeout=lambda v: None),
+                close=lambda: None,
             )
 
         def close(self):

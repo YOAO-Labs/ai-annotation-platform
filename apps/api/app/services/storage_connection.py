@@ -32,6 +32,7 @@ from app.db.enums import UserRole
 from app.db.models.storage_connection import StorageConnection
 from app.db.models.user import User
 from app.services import connector_guard
+from app.services.storage_access import close_registered, mark_unsettled
 
 # 各 kind 的必填字段
 _REQUIRED_CONFIG = {
@@ -446,6 +447,10 @@ async def _probe(kind, config, secret, *, allowlist=None, io=None):
     except ContentError:
         raise
     except Exception as exc:  # Never expose SDK errors: they may contain secrets/URLs.
+        if io is not None and getattr(exc, "storage_operation_unsettled", False):
+            raise mark_unsettled(
+                ContentError("storage_operation_unsettled", 503)
+            ) from None
         return False, _probe_failure_message(exc), None
 
 
@@ -506,16 +511,19 @@ def _test_s3(config: dict, secret: dict) -> int:
     endpoint = config["endpoint"]
     if "://" not in endpoint:
         endpoint = f"{scheme}://{endpoint}"
-    client = boto3.client(
-        "s3",
-        endpoint_url=endpoint,
-        aws_access_key_id=secret.get("access_key"),
-        aws_secret_access_key=secret.get("secret_key"),
-        region_name=config.get("region"),
-        config=BotoConfig(
-            connect_timeout=10, read_timeout=15, retries={"total_max_attempts": 1}
-        ),
-    )
+    try:
+        client = boto3.client(
+            "s3",
+            endpoint_url=endpoint,
+            aws_access_key_id=secret.get("access_key"),
+            aws_secret_access_key=secret.get("secret_key"),
+            region_name=config.get("region"),
+            config=BotoConfig(
+                connect_timeout=10, read_timeout=15, retries={"total_max_attempts": 1}
+            ),
+        )
+    except BaseException as exc:
+        raise mark_unsettled(exc)
     try:
         resp = client.list_objects_v2(
             Bucket=config["bucket"],
@@ -524,19 +532,30 @@ def _test_s3(config: dict, secret: dict) -> int:
         )
         return min(int(resp.get("KeyCount", 0)), _TEST_SAMPLE_LIMIT)
     finally:
-        client.close()
+        close_registered(client)
 
 
 @contextmanager
 def _close_on_deadline(close):
-    # Closing the SSH transport also interrupts a server that never yields an entry.
-    timer = Timer(_PROBE_TIMEOUT_SECONDS, close)
+    # Deadline close is physical I/O too: cancel() cannot join a running callback.
+    failures = []
+
+    def finish_on_deadline():
+        try:
+            close()
+        except BaseException as exc:
+            failures.append(mark_unsettled(exc))
+
+    timer = Timer(_PROBE_TIMEOUT_SECONDS, finish_on_deadline)
     timer.daemon = True
     timer.start()
     try:
         yield
     finally:
         timer.cancel()
+        timer.join()
+        if failures:
+            raise failures[0]
 
 
 def _sample_sftp(sftp, path):
@@ -546,7 +565,7 @@ def _sample_sftp(sftp, path):
     try:
         return sum(1 for _ in islice(entries, _TEST_SAMPLE_LIMIT))
     finally:
-        entries.close()
+        close_registered(entries)
 
 
 def _test_sftp(config: dict, secret: dict, allowlist=None) -> int:
@@ -598,6 +617,6 @@ def _test_legacy_sftp(client, config, secret, load_sftp_private_key):
             sftp.get_channel().settimeout(10)
             return _sample_sftp(sftp, config.get("base_path", ".") or ".")
         finally:
-            sftp.close()
+            close_registered(sftp)
     finally:
-        client.close()
+        close_registered(client)

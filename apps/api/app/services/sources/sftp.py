@@ -6,6 +6,7 @@ import posixpath
 import stat
 from typing import BinaryIO, Iterable, Iterator
 
+from app.services.storage_access import close_registered
 from app.services.sources.base import (
     SourceAdapter,
     SourceObject,
@@ -89,20 +90,24 @@ class SftpSource(SourceAdapter):
 
         self.base_path = _clean_remote(str(config.get("base_path") or "."))
         self._client = paramiko.SSHClient()
-        self._client.load_system_host_keys()
-        self._client.set_missing_host_key_policy(paramiko.RejectPolicy())
-        pkey = load_sftp_private_key(secret)
-        self._client.connect(
-            hostname=str(config["host"]),
-            port=int(config.get("port", 22)),
-            username=str(config["username"]),
-            password=secret.get("password") if pkey is None else None,
-            pkey=pkey,
-            timeout=10,
-            allow_agent=False,
-            look_for_keys=False,
-        )
-        self._sftp = self._client.open_sftp()
+        try:
+            self._client.load_system_host_keys()
+            self._client.set_missing_host_key_policy(paramiko.RejectPolicy())
+            pkey = load_sftp_private_key(secret)
+            self._client.connect(
+                hostname=str(config["host"]),
+                port=int(config.get("port", 22)),
+                username=str(config["username"]),
+                password=secret.get("password") if pkey is None else None,
+                pkey=pkey,
+                timeout=10,
+                allow_agent=False,
+                look_for_keys=False,
+            )
+            self._sftp = self._client.open_sftp()
+        except BaseException:
+            close_registered(self._client)
+            raise
 
     def _rel_from_path(self, path: str) -> str:
         if self.base_path in {"", "."}:
@@ -153,6 +158,6 @@ class SftpSource(SourceAdapter):
 
     def close(self) -> None:
         try:
-            self._sftp.close()
+            close_registered(self._sftp)
         finally:
-            self._client.close()
+            close_registered(self._client)

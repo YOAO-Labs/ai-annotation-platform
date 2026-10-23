@@ -33,6 +33,21 @@ from app.services.storage_connection import can_use_connection
 PROBE_TTL = timedelta(minutes=5)
 
 
+async def _registered_io(*args, **kwargs):
+    try:
+        return await storage_access.run(*args, **kwargs)
+    except BaseException as exc:
+        if isinstance(exc, Exception) and getattr(
+            exc, "storage_operation_unsettled", False
+        ):
+            from app.services.content_snapshot import ContentError
+
+            raise storage_access.mark_unsettled(
+                ContentError("storage_operation_unsettled", 503)
+            ) from None
+        raise
+
+
 def api_node_id():
     return f"api:{socket.gethostname()}"
 
@@ -353,7 +368,7 @@ async def browse(db, location, *, path, limit, cursor, maintenance_revision=None
         from functools import partial
 
         browse_directory = partial(fs.browse_directory, location.config)
-    names, more, snapshot = await storage_access.run(
+    names, more, snapshot = await _registered_io(
         db,
         location.id,
         "browse",
@@ -406,7 +421,7 @@ async def perform_probe(
         from app.services.reference_storage import configuration
 
         access = await configuration(db, location)
-        result = await storage_access.run(
+        result = await _registered_io(
             db,
             location.id,
             "probe",
@@ -419,7 +434,7 @@ async def perform_probe(
     else:
         anchor = await node_anchor(db, location, node_id)
         try:
-            result = await storage_access.run(
+            result = await _registered_io(
                 db,
                 location.id,
                 "probe",
@@ -465,7 +480,7 @@ async def browse_s3(db, location, path, cursor, *, maintenance_revision=None):
             token = data["token"]
         except (JWTError, ValueError, KeyError, TypeError):
             raise HTTPException(409, "Directory cursor is invalid or stale") from None
-    page = await storage_access.run(
+    page = await _registered_io(
         db,
         location.id,
         "browse",
