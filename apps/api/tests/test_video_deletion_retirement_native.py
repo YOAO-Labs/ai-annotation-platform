@@ -17,6 +17,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from aap_assets_video_inputs import execution as tracker_input_execution
+from aap_assets_video_inputs_runtime.garbage import VideoGarbageCollector
 from app.db.models.annotation import Annotation
 from app.db.models.dataset import ProjectDataset
 from app.db.models.video_tracker_job import VideoTrackerJob
@@ -197,6 +198,61 @@ async def _seed_tracker_input(db, *, ready=True):
         "job": job,
         "claim": claim,
     }
+
+
+async def _queue_historical_tracker_input_root(db, fixture):
+    now = await db.scalar(text("SELECT pg_catalog.clock_timestamp()"))
+    prefix = await db.scalar(
+        text(
+            "SELECT prefix FROM public.asset_accepted_video_input_attempts "
+            "WHERE input_id=:input AND generation=:generation"
+        ),
+        {"input": fixture["input_id"], "generation": fixture["claim"].generation},
+    )
+    await db.execute(
+        text(
+            "SELECT aap_assets_v1._video_input_queue_prefix("
+            ":prefix,'input_expired',pg_catalog.clock_timestamp())"
+        ),
+        {"prefix": prefix},
+    )
+    await db.execute(
+        text(
+            "UPDATE public.asset_accepted_video_inputs "
+            "SET status='expired',retire_after=:now,retention_checked_at=:now "
+            "WHERE input_id=:input"
+        ),
+        {"now": now, "input": fixture["input_id"]},
+    )
+    await db.execute(
+        text(
+            "UPDATE public.asset_accepted_video_input_attempts "
+            "SET status='expired',completed_at=:now "
+            "WHERE input_id=:input AND generation=:generation"
+        ),
+        {
+            "now": now,
+            "input": fixture["input_id"],
+            "generation": fixture["claim"].generation,
+        },
+    )
+    await db.execute(
+        text(
+            "UPDATE public.asset_accepted_input_garbage "
+            "SET not_before=pg_catalog.clock_timestamp()-interval '1 second' "
+            "WHERE prefix=:prefix"
+        ),
+        {"prefix": prefix},
+    )
+    frozen_source_key = await db.scalar(
+        text(
+            "SELECT plan #>> '{input,blob,key}' "
+            "FROM public.asset_accepted_video_inputs WHERE input_id=:input"
+        ),
+        {"input": fixture["input_id"]},
+    )
+    assert frozen_source_key == prefix + "source"
+    return prefix
 
 
 @pytest.mark.parametrize("kind", ["project", "unlink"])
@@ -678,6 +734,373 @@ async def test_tracker_input_retention_lock_contention_fails_closed_and_gc_skips
         )
         await caller.rollback()
         await locker.rollback()
+
+
+class _NativeVideoGarbageDatabase:
+    def __init__(self, db):
+        self.db = db
+
+    async def call(self, operation, request):
+        if operation == "claim_accepted_video_input_garbage":
+            statement = (
+                "SELECT aap_assets_v1.claim_accepted_video_input_garbage("
+                "CAST(:worker AS uuid),CAST(:lease AS integer),CAST(:page AS integer))"
+            )
+            parameters = {
+                "worker": request.worker_id,
+                "lease": request.lease_seconds,
+                "page": request.page_size,
+            }
+        elif operation == "complete_accepted_video_input_garbage":
+            statement = (
+                "SELECT aap_assets_v1.complete_accepted_video_input_garbage("
+                "CAST(:garbage AS uuid),CAST(:token AS uuid))"
+            )
+            parameters = {
+                "garbage": request.garbage_id,
+                "token": request.lease_token,
+            }
+        else:
+            raise AssertionError(f"unexpected garbage operation: {operation}")
+        raw = await self.db.scalar(text(statement), parameters)
+        return tracker_input_execution.parse_native(operation, request, raw)
+
+
+class _RecordingVideoStorage:
+    def __init__(self):
+        self.deleted_prefixes = []
+
+    async def delete_attempt_versions(self, prefix):
+        self.deleted_prefixes.append(prefix)
+        return 1
+
+
+async def test_due_historical_tracker_tombstone_is_rechecked_before_gc_delete(
+    db_session,
+):
+    fixture = await _seed_tracker_input(db_session)
+    job = fixture["job"]
+    now = await db_session.scalar(text("SELECT pg_catalog.clock_timestamp()"))
+    job.status = "completed"
+    job.started_at = now
+    job.completed_at = now
+    await db_session.flush()
+    # Recreate the persisted result of the pre-0312 tracker sweep with a real
+    # accepted input, attempt prefix, and owner-created garbage tombstone.
+    prefix = await _queue_historical_tracker_input_root(db_session, fixture)
+
+    deletion = await _delete(db_session, "project", fixture)
+    retention_raw = await db_session.scalar(
+        text("SELECT aap_labeling_v1.video_tracker_input_referenced(:id)"),
+        {"id": fixture["input_id"]},
+    )
+    retention = (
+        json.loads(retention_raw) if isinstance(retention_raw, str) else retention_raw
+    )
+    storage = _RecordingVideoStorage()
+    collector = VideoGarbageCollector(
+        _NativeVideoGarbageDatabase(db_session), storage, worker_id=uuid.uuid4()
+    )
+    completed = await collector.collect_once()
+    tombstone = (
+        await db_session.execute(
+            text(
+                "SELECT lease_token,completed_at,not_before "
+                "FROM public.asset_accepted_input_garbage WHERE prefix=:prefix"
+            ),
+            {"prefix": prefix},
+        )
+    ).one()
+    after_claim = await db_session.scalar(text("SELECT pg_catalog.clock_timestamp()"))
+
+    observed = {
+        "deletion_blocked": deletion == _blocked("project"),
+        "input_referenced": retention.get("data", {}).get("referenced"),
+        "deleted_prefixes": storage.deleted_prefixes,
+        "completed": completed,
+        "tombstone_deferred": (
+            tombstone.lease_token is None
+            and tombstone.completed_at is None
+            and tombstone.not_before > after_claim
+        ),
+    }
+    assert observed == {
+        "deletion_blocked": True,
+        "input_referenced": True,
+        "deleted_prefixes": [],
+        "completed": 0,
+        "tombstone_deferred": True,
+    }, observed
+
+
+@pytest.mark.parametrize("status", ["running", "unknown_future_state"])
+async def test_unstarted_job_status_outside_deletion_safe_set_retains_input(
+    db_session, status
+):
+    fixture = await _seed_tracker_input(db_session)
+    await db_session.execute(
+        text(
+            "UPDATE public.video_tracker_jobs SET status=:status,started_at=NULL "
+            "WHERE id=:id"
+        ),
+        {"status": status, "id": fixture["job_id"]},
+    )
+    await db_session.flush()
+    deletion = await _delete(db_session, "project", fixture)
+    jobs_reply_raw = await db_session.scalar(
+        text("SELECT aap_jobs_v1.video_tracker_input_retention_facts(:input,:job)"),
+        {"input": fixture["input_id"], "job": fixture["job_id"]},
+    )
+    jobs_reply = (
+        json.loads(jobs_reply_raw)
+        if isinstance(jobs_reply_raw, str)
+        else jobs_reply_raw
+    )
+    retention_raw = await db_session.scalar(
+        text("SELECT aap_labeling_v1.video_tracker_input_referenced(:id)"),
+        {"id": fixture["input_id"]},
+    )
+    retention = (
+        json.loads(retention_raw) if isinstance(retention_raw, str) else retention_raw
+    )
+    sweep = await _tracker_native_call(
+        db_session,
+        "sweep_video_tracker_inputs",
+        tracker_input_execution.SweepVideoInputsRequest(limit=10),
+    )
+    observed = {
+        "deletion_blocked": deletion == _blocked("project"),
+        "jobs_execution_retained": jobs_reply.get("data", {}).get("execution_retained"),
+        "input_referenced": retention.get("data", {}).get("referenced"),
+        "sweep_expired": sweep.expired,
+        "input_status": await db_session.scalar(
+            text(
+                "SELECT status FROM public.asset_accepted_video_inputs "
+                "WHERE input_id=:id"
+            ),
+            {"id": fixture["input_id"]},
+        ),
+    }
+    assert observed == {
+        "deletion_blocked": True,
+        "jobs_execution_retained": True,
+        "input_referenced": True,
+        "sweep_expired": 0,
+        "input_status": "ready",
+    }, observed
+
+
+@pytest.mark.parametrize("status", ["running", "unknown_future_state"])
+async def test_retired_run_with_nonterminal_status_still_retains_input(
+    db_session, status
+):
+    fixture = await _seed_tracker_input(db_session)
+    await _retire_current_tracker_run_without_routes(db_session, fixture)
+    await db_session.execute(
+        text("UPDATE public.video_tracker_jobs SET status=:status WHERE id=:id"),
+        {"status": status, "id": fixture["job_id"]},
+    )
+    await db_session.flush()
+
+    deletion = await _delete(db_session, "project", fixture)
+    jobs_reply_raw = await db_session.scalar(
+        text("SELECT aap_jobs_v1.video_tracker_input_retention_facts(:input,:job)"),
+        {"input": fixture["input_id"], "job": fixture["job_id"]},
+    )
+    jobs_reply = (
+        json.loads(jobs_reply_raw)
+        if isinstance(jobs_reply_raw, str)
+        else jobs_reply_raw
+    )
+    retention_raw = await db_session.scalar(
+        text("SELECT aap_labeling_v1.video_tracker_input_referenced(:id)"),
+        {"id": fixture["input_id"]},
+    )
+    retention = (
+        json.loads(retention_raw) if isinstance(retention_raw, str) else retention_raw
+    )
+    sweep = await _tracker_native_call(
+        db_session,
+        "sweep_video_tracker_inputs",
+        tracker_input_execution.SweepVideoInputsRequest(limit=10),
+    )
+    assert deletion == _blocked("project")
+    assert jobs_reply["data"]["execution_retained"] is True
+    assert retention["data"]["referenced"] is True
+    assert sweep.expired == 0
+
+
+@pytest.mark.parametrize("state", ["never_started", "current_retired"])
+async def test_safe_historical_tracker_tombstones_still_reach_video_gc(
+    db_session, state
+):
+    fixture = await _seed_tracker_input(db_session)
+    if state == "never_started":
+        fixture["job"].status = "completed"
+        fixture["job"].started_at = None
+        fixture["job"].completed_at = await db_session.scalar(
+            text("SELECT pg_catalog.clock_timestamp()")
+        )
+    else:
+        await _retire_current_tracker_run_without_routes(db_session, fixture)
+    await db_session.flush()
+    prefix = await _queue_historical_tracker_input_root(db_session, fixture)
+    storage = _RecordingVideoStorage()
+    collector = VideoGarbageCollector(
+        _NativeVideoGarbageDatabase(db_session), storage, worker_id=uuid.uuid4()
+    )
+
+    completed = await collector.collect_once()
+
+    assert storage.deleted_prefixes == [prefix]
+    assert completed == 1
+    assert await db_session.scalar(
+        text(
+            "SELECT completed_at IS NOT NULL "
+            "FROM public.asset_accepted_input_garbage WHERE prefix=:prefix"
+        ),
+        {"prefix": prefix},
+    )
+
+
+async def test_retained_first_page_does_not_starve_superseded_attempt_cleanup(
+    db_session,
+):
+    fixture = await _seed_tracker_input(db_session, ready=False)
+    first_claim = fixture["claim"]
+    expired = await db_session.scalar(
+        text("SELECT pg_catalog.clock_timestamp()-interval '1 second'")
+    )
+    await db_session.execute(
+        text(
+            "UPDATE public.asset_accepted_video_inputs SET lease_expires_at=:expired "
+            "WHERE input_id=:input"
+        ),
+        {"expired": expired, "input": fixture["input_id"]},
+    )
+    await db_session.execute(
+        text(
+            "UPDATE public.asset_accepted_video_input_attempts SET lease_expires_at=:expired "
+            "WHERE input_id=:input AND generation=:generation"
+        ),
+        {
+            "expired": expired,
+            "input": fixture["input_id"],
+            "generation": first_claim.generation,
+        },
+    )
+    second = await _tracker_native_call(
+        db_session,
+        "claim_video_tracker_input",
+        tracker_input_execution.ClaimVideoInputRequest(
+            worker_id=uuid.uuid4(), input_id=fixture["input_id"], lease_seconds=60
+        ),
+    )
+    assert second.claim is not None
+    assert second.claim.generation == first_claim.generation + 1
+    plan, entries = _plan_for_claim(second.claim, frame_count=6)
+    await _stage_times(db_session, second.claim, entries)
+    ready = await _tracker_native_call(
+        db_session,
+        "finish_video_tracker_input",
+        _finish_request(second.claim, plan),
+    )
+    assert ready.status == "ready"
+    fixture["claim"] = second.claim
+    current_run = await _step(
+        db_session,
+        "claim",
+        {
+            "job_id": str(fixture["job_id"]),
+            "worker_id": str(uuid.uuid4()),
+            "lease_seconds": 30,
+        },
+    )
+    assert current_run["status"] == "ok", current_run
+    # A stale unretired journal can retain the input ID, but the immutable
+    # ready plan now points only at generation 2, never the abandoned root.
+    await db_session.execute(
+        text(
+            "INSERT INTO aap_jobs_v1.video_execution_journals "
+            "(job_id,run_id,input_id,writer_terminal,execution_retired) "
+            "VALUES(:job,:run,:input,false,false)"
+        ),
+        {
+            "job": fixture["job_id"],
+            "run": uuid.uuid4(),
+            "input": fixture["input_id"],
+        },
+    )
+    await db_session.flush()
+    assert await _delete(db_session, "project", fixture) == _blocked("project")
+
+    older_prefix = await db_session.scalar(
+        text(
+            "SELECT prefix FROM public.asset_accepted_video_input_attempts "
+            "WHERE input_id=:input AND generation=:generation"
+        ),
+        {"input": fixture["input_id"], "generation": first_claim.generation},
+    )
+    await db_session.execute(
+        text(
+            "UPDATE public.asset_accepted_input_garbage "
+            "SET not_before=pg_catalog.clock_timestamp()-interval '1 second' "
+            "WHERE prefix=:prefix"
+        ),
+        {"prefix": older_prefix},
+    )
+    current_prefix = await _queue_historical_tracker_input_root(db_session, fixture)
+    assert current_prefix != older_prefix
+    await db_session.execute(
+        text(
+            "UPDATE public.asset_accepted_input_garbage "
+            "SET not_before=pg_catalog.clock_timestamp()-interval '2 seconds' "
+            "WHERE prefix=:prefix"
+        ),
+        {"prefix": current_prefix},
+    )
+    await db_session.execute(
+        text(
+            "UPDATE public.asset_accepted_input_garbage "
+            "SET not_before=pg_catalog.clock_timestamp()-interval '1 second' "
+            "WHERE prefix=:prefix"
+        ),
+        {"prefix": older_prefix},
+    )
+
+    database = _NativeVideoGarbageDatabase(db_session)
+    request = tracker_input_execution.ClaimVideoGarbageRequest(
+        worker_id=uuid.uuid4(), lease_seconds=60, page_size=1
+    )
+    first_page = await database.call("claim_accepted_video_input_garbage", request)
+    current_row = (
+        await db_session.execute(
+            text(
+                "SELECT lease_token,not_before FROM public.asset_accepted_input_garbage "
+                "WHERE prefix=:prefix"
+            ),
+            {"prefix": current_prefix},
+        )
+    ).one()
+    assert first_page.items == ()
+    assert current_row.lease_token is None
+    assert current_row.not_before > await db_session.scalar(
+        text("SELECT pg_catalog.clock_timestamp()")
+    )
+
+    second_page = await database.call("claim_accepted_video_input_garbage", request)
+    assert [item.prefix for item in second_page.items] == [older_prefix]
+    storage = _RecordingVideoStorage()
+    await storage.delete_attempt_versions(second_page.items[0].prefix)
+    ack = await database.call(
+        "complete_accepted_video_input_garbage",
+        tracker_input_execution.CompleteVideoGarbageRequest(
+            garbage_id=second_page.items[0].garbage_id,
+            lease_token=second_page.items[0].lease_token,
+        ),
+    )
+    assert ack.completed is True
+    assert storage.deleted_prefixes == [older_prefix]
 
 
 @pytest.mark.parametrize("kind", ["project", "unlink"])

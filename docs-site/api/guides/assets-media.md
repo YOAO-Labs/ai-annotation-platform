@@ -76,6 +76,8 @@ Task 摘要明确区分 `missing`、`stale`、`inconsistent` 与生成状态，�
 
 Accepted-input 垃圾回收还会查询 Jobs 当前 execution 的退役事实。运行中、已启动但没有账本、当前 execution 缺少 journal，或 journal 与当前 run 不匹配时，原片输入继续保留；只有当前 run 的 journal 同时证明 writer 已终结且 execution 已退役，或 Jobs 证明 Job 从未启动／已由删除围栏安全清除后，才解除 execution 保留。Annotation pin 会独立保留输入，仍存在的 Job 继续遵循现有状态与审核宽限规则。若 Labeling scope 缺失但 accepted input 仍为 ready，系统使用既有 Assets 事实恢复 Job 身份；scope 缺失且输入尚未 ready 时无法证明身份，Labeling 返回无效事实，Assets sweeper 会跳过该条目。它会继续保留并形成待修复积压；自动排空旧 worker 或人工修复入口尚未提供。
 
+垃圾领取时也会重新核对尚未处理的 tracker tombstone：当前不可回收的 source 前缀会按清理租约时长延后，本页继续扫描，因此前面的保留项不会阻塞后续过期或已被新一代替代的前缀。清理 worker 默认租约为 600 秒，Native claim 接受 60–7200 秒。已领取的旧租约无法由 SQL 撤销；升级领取围栏前应停止 `apps/assets-cleanup` 并确认进程退出，再等待未完成租约到期。若不能确认进程退出，应先隔离其对象存储删除凭据。已经删除的对象版本不能通过此迁移恢复。
+
 升级排空、Worker 选择与精确 grants 见 `DEV.md`；来源快照、保留和回退责任见 [ADR-0110](/dev/adr/0110-retained-tracker-video-inputs)。这条专用协议不扩大旧批量预标的 frame-only 准入。
 
 ## 已受理图片输入

@@ -99,6 +99,37 @@ fail-closed backlog limitation for damaged or out-of-band records. It does not
 provide a legacy worker drain, an operator repair path, or physical worker and
 credential fencing; those remain separate recovery work.
 
-### 历史垃圾队列的采用限制
+## Follow-up — historical garbage-claim fence
 
-0312 只改变后续引用／清扫判断，不撤回此前已过期和入队的前缀。原有垃圾领取会直接领取到期视频前缀，清理器随后删除 S3 版本；已发出的租约也不会被新事实自动撤销。采用或降级前须真实停止并排空／围栏清理器，盘点旧前缀与租约。claim-time 保护和旧输入修复仍是独立前提，不能仅凭本次判断修复重新启用删除。
+Migration 0313 also checks existing due tracker tombstones immediately before
+the Assets cleanup lease is issued. It matches attempt prefixes against the
+immutable accepted input source Blob (and, where applicable, the immutable
+frame Blob). A current tracker root is leased only after the existing Labeling
+projection says it is unreferenced. An attempt from an older generation can
+still be cleaned while the current Job is retained because it cannot be the
+Blob named by the frozen plan. Unmapped or ambiguous tombstones fail closed.
+Held tombstones are deferred by the current claim-lease duration and the claim
+continues through its bounded page, so due safe work behind retained entries
+continues to progress. The never-started and current-run-retired cases still
+reach the existing collector.
+
+This claim gate cannot recall a prefix already leased to a cleanup process or
+reverse an S3 delete already accepted. Before applying the migration, stop
+`apps/assets-cleanup` and confirm the process has exited; if its exit or
+in-flight request completion cannot be established, fence its S3 delete
+credential and wait out the request window. The cleanup worker's default
+garbage lease is 600 seconds and the Native claim accepts 60–7200 seconds. After
+a confirmed stop, wait for any remaining lease to expire before restarting
+cleanup. The worker normally handles SIGTERM by waiting for its current bounded
+S3 request, then stopping before the next request and leaving the lease
+unacknowledged. After restart, SQL rechecks the row when its lease expires. A
+prefix already physically deleted needs separate restoration from an
+authoritative source; lease expiry is not proof that deletion stopped or that
+deleted bytes remain recoverable.
+
+Downgrading 0313 restores the old unchecked claim function; downgrading 0312
+also restores the older Labeling retention projection. Treat either downgrade
+as reopening the data-loss path. Neither migration changes tombstone history or
+restores an already-expired input. Nonready scope-less records and unmapped
+legacy tombstones remain a bounded-cleanup backlog until their owner identity
+can be proven.

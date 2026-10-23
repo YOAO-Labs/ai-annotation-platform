@@ -166,6 +166,8 @@ Ultralytics YOLO11 的配置页可生成原生增强预览，对照冻结原图�
 
 专用视频跟踪、范围传播和 Mask 修正使用各自作业的固定原片输入，逐窗口复用同一保留版本；采样设置变化不会改写已接受请求，候选采纳与派生标注保留原片证据。控制和执行复用现有 Media 工件，见[跟踪原片接口](./docs-site/api/guides/assets-media.md#视频跟踪的原片输入)。
 
+视频输入回收同时核对未退役执行和历史垃圾前缀的当前引用，无法证明安全时保留。升级前须停止并确认清理进程退出、盘点旧租约；历史过期状态及已删除对象不自动恢复，见 [DEV.md](./DEV.md) 与[输入保留台账](./docs-site/dev/concepts/module-deployment.md#tracker-input-retention)。
+
 视频执行增加冻结计划与不可变窗口账本；确认旧范围退役且模型兼容身份完整后，可复用已完成窗口或重放未闭合会话。真实进程中断接管已在隔离本地环境验证。worker 成功、取消和失败的最终写入已有独立 Labeling owner 源码切片，仍在本地验收；人工审核及中间 start/progress 仍由 API 持有，见[视频窗口协议](./docs-site/api/guides/module-data.md#视频执行窗口账本)、[Labeling 写入协议](./docs-site/api/guides/labeling-runtime.md#视频-worker-的最终写入)和 [ADR-0159](./docs/adr/0159-independent-labeling-video-writer.md)。
 
 Mask 内容读写提供可选独立工件 `apps/assets-mask-content`，沿用现有引用和业务权限；回收统一使用持久删除围栏与不可变回执，可本地装配或调用独立协调服务。部署与配置见 [DEV.md](./DEV.md#mask-内容的独立字节服务)，协议见 [Mask 字节接口](./docs-site/api/guides/mask-content.md)。

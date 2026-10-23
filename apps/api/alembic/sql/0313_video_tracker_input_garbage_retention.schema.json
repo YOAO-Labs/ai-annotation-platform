@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-video-tracker-input-garbage-retention-native/v1",
+  "title": "Historical tracker input tombstone retention",
+  "$defs": {
+    "Uuid": { "type": "string", "format": "uuid" },
+    "GarbageItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "garbage_id": { "$ref": "#/$defs/Uuid" },
+        "prefix": { "type": "string" },
+        "lease_token": { "$ref": "#/$defs/Uuid" }
+      },
+      "required": ["garbage_id", "prefix", "lease_token"]
+    },
+    "ClaimSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "const": "aap-assets-video-input-execution/v1" },
+        "ok": { "const": true },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/GarbageItem" },
+              "maxItems": 100
+            }
+          },
+          "required": ["items"]
+        }
+      },
+      "required": ["schema", "ok", "data"]
+    },
+    "ClaimFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "const": "aap-assets-video-input-execution/v1" },
+        "ok": { "const": false },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "enum": ["invalid_request", "input_busy", "invalid_response"]
+            }
+          },
+          "required": ["code"]
+        }
+      },
+      "required": ["schema", "ok", "error"]
+    }
+  },
+  "type": "object",
+  "function_defaults": {
+    "volatility": "VOLATILE",
+    "parallel": "UNSAFE",
+    "security_definer": true,
+    "search_path": ["pg_catalog", "pg_temp"]
+  },
+  "owner_capabilities": [
+    {
+      "signature": "aap_jobs_v1.video_tracker_input_retention_facts(uuid, uuid)",
+      "owner": "jobs_owner",
+      "execute_grantee": "labeling_owner",
+      "returns": "aap-jobs-video-tracker-input-retention/v1"
+    },
+    {
+      "signature": "aap_labeling_v1.video_tracker_input_referenced(uuid)",
+      "owner": "labeling_owner",
+      "execute_grantee": "assets_owner",
+      "returns": "aap-labeling-video-tracker-inputs/v1"
+    },
+    {
+      "signature": "aap_assets_v1.claim_accepted_video_input_garbage(uuid, integer, integer)",
+      "owner": "assets_owner",
+      "execute_grantee": "asset_cleanup_client",
+      "returns": "aap-assets-video-input-execution/v1"
+    }
+  ],
+  "functions": [
+    {
+      "signature": "aap_jobs_v1.video_tracker_input_retention_facts(uuid, uuid)",
+      "arguments": [
+        {
+          "name": "p_input_id",
+          "postgres_type": "uuid",
+          "json_schema": { "$ref": "#/$defs/Uuid" }
+        },
+        {
+          "name": "p_tracker_job_id",
+          "postgres_type": "uuid",
+          "nullable": true,
+          "json_schema": {
+            "anyOf": [{ "$ref": "#/$defs/Uuid" }, { "type": "null" }]
+          }
+        }
+      ],
+      "returns": {
+        "kind": "jsonb",
+        "schema": { "const": "aap-jobs-video-tracker-input-retention/v1" }
+      },
+      "semantics": "Reuse the 0312 fact contract. A Job without execution or journal releases execution retention only when it is unstarted and its status is in the explicit 0300 never-started-safe set. A current execution releases only with a same-run writer-terminal retired journal and a canonical Job that is absent or in the 0300 terminal set. Unknown, running, and NULL statuses fail closed."
+    },
+    {
+      "signature": "aap_assets_v1.claim_accepted_video_input_garbage(uuid, integer, integer)",
+      "arguments": [
+        {
+          "name": "p_worker_id",
+          "postgres_type": "uuid",
+          "json_schema": { "$ref": "#/$defs/Uuid" }
+        },
+        {
+          "name": "p_lease_seconds",
+          "postgres_type": "integer",
+          "json_schema": { "type": "integer", "minimum": 60, "maximum": 7200 }
+        },
+        {
+          "name": "p_page_size",
+          "postgres_type": "integer",
+          "json_schema": { "type": "integer", "minimum": 1, "maximum": 100 }
+        }
+      ],
+      "returns": {
+        "kind": "jsonb",
+        "schema": {
+          "anyOf": [{ "$ref": "#/$defs/ClaimSuccess" }, { "$ref": "#/$defs/ClaimFailure" }]
+        }
+      },
+      "semantics": "Call the existing Labeling retention projection only for a current tracker source Blob still named by its immutable accepted plan, or a current frame Blob still named by its immutable frame record. A referenced or unprovable current root is deferred by one claim lease and scanning continues through the bounded page. Known superseded attempt prefixes remain collectible while the Job is live. Manifest-owned garbage keeps its prior path. Unmapped video tombstones fail closed and remain backlog."
+    }
+  ],
+  "x-postgresql-functions": [
+    "aap_jobs_v1.video_tracker_input_retention_facts(uuid, uuid)",
+    "aap_labeling_v1.video_tracker_input_referenced(uuid)",
+    "aap_assets_v1.claim_accepted_video_input_garbage(uuid, integer, integer)"
+  ],
+  "x-postgresql-replaced-functions": [
+    "aap_jobs_v1.video_tracker_input_retention_facts(uuid, uuid)",
+    "aap_assets_v1.claim_accepted_video_input_garbage(uuid, integer, integer)"
+  ]
+}
