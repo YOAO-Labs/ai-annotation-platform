@@ -23,6 +23,7 @@ from app.schemas.storage_location import (
     StorageLocationList,
     StorageLocationOut,
     StorageLocationUpdate,
+    StorageMaintenanceImpact,
     StorageSourceSummary,
     StorageProbeOut,
     StorageProbeRequest,
@@ -202,6 +203,25 @@ async def update_location(
     )
     await db.commit()
     return await svc.to_out(db, location, actor)
+
+
+@router.get(
+    "/{location_id}/maintenance-impact", response_model=StorageMaintenanceImpact
+)
+async def maintenance_impact(
+    location_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services.storage_maintenance_impact import impact
+
+    return await impact(
+        db,
+        location_id,
+        actor,
+        api_key_id=getattr(request.state, "api_key_id", None),
+    )
 
 
 @router.get("/{location_id}/original-cache", response_model=OriginalCacheUsage)

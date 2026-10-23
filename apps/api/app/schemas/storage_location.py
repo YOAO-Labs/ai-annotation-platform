@@ -56,6 +56,42 @@ class StorageLocationList(BaseModel):
     total: int
 
 
+class StorageMaintenanceCounts(BaseModel):
+    sources: int
+    enabled_sources: int
+    unregistered_sources: int
+    items: int
+    reference_items: int
+    datasets: int
+    projects: int
+    tasks: int
+    annotations: int
+    active_scans: int
+    active_registrations: int
+    enabled_schedules: int
+    ready_previews: int
+    failed_previews: int
+    preview_bytes: int
+    cache_entries: int
+    cache_bytes: int
+    active_cache_read_leases: int
+    active_input_leases: int
+    cleanup_input_leases: int
+    ready_lineage_versions: int
+    unfinished_lineage_versions: int
+
+
+class StorageMaintenanceImpact(BaseModel):
+    location_id: uuid.UUID
+    config_revision: int
+    measured_at: datetime
+    scope: Literal["stored_dependencies"]
+    counts: StorageMaintenanceCounts
+    frozen_coverage: Literal["recorded_location_lineage_only"]
+    input_coverage: Literal["current_task_links_only"]
+    execution_permission: Literal[False]
+
+
 class StorageOriginalCounts(BaseModel):
     verified: int
     missing: int

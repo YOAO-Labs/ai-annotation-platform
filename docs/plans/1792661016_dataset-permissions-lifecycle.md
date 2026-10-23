@@ -1,8 +1,8 @@
 # EPIC-11：权限、删除与保留治理
 
-> 状态：research-draft；未排期，未批准实施，未分配发布版本。
-> 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
-> 实施前须通过 [backlog promotion gate](README.md#promotion-gate)。[草案总览](1792661016_dataset-storage-roadmap.md)、[架构契约](1792661016_dataset-storage-architecture.md)和[交付验收](1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
+> 状态：approved；2026-10-24 的 E11-B1/E09-B3 位置维护影响盘点已完成；整项 E11 继续活动，未分配发布版本。
+> 晋升基线：`802e6e4df`；工作树干净，保留 3100/8100、两个 Worker 与 beat，不重建镜像。
+> 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 | 属性     | 草案约定                                                           |
 | -------- | ------------------------------------------------------------------ |
@@ -12,26 +12,70 @@
 | 协同     | EPIC-04 的并发任务；EPIC-08/09 的操作反馈；EPIC-10 的冻结引用      |
 | 交付阶段 | M1 最小安全闭环；M2 完整影响预览、保留与回收；M3 站点授权扩展      |
 
-## 本项目基线与改造落点
+## 本轮定稿：E11-B1 / E09-B3 位置维护影响盘点
+
+用户已授权持续推进整套 Epic，并允许独立子代理或串行执行。重新核对当前 CHANGELOG、E02/E05/E09/E10/E12、0213迁移头、位置权限/更新、来源生命周期、严格读取和完整缓存 owner。受控根、任务级读取、来源暂停/注销的保留、内容修订与完整原图门槛已随核心链路交付，不重复建设，也不据此宣称整个E11-A完成。数据集仍有硬删除合同，归档/受控恢复尚未交付；不从旧草案直接生成状态表。
+
+本片交付超级管理员使用的只读位置盘点，补齐后续维护的可解释依据。它不生成变更许可或impact proof；提交绑定预览、归档/恢复、退役及物理回收仍需独立实现和并发资格门。现有配置保存/读取合同不变。
+
+```text
+Location centered modal -> collapsed maintenance disclosure -> GET maintenance-impact
+  super_admin + datasets:read -> fresh actor/key/location authority
+                                  | one SQL statement / stored dependencies
+                                  v
+  source/history + members + projects/tasks/annotations + durable active attempts
+  schedules + preview records + original cache/read leases + linked input leases
+  frozen versions with persisted location lineage (explicit historical coverage)
+                                  |
+                                  v
+  fresh authority -> timestamped counts + behavior/coverage -> current UI session
+```
+
+### 合同与边界
+
+- 只支持外部来源位置（filesystem 或 connection-backed 位置），平台用途位置不提供此维护合同。连接的登记类型不因此获得原地引用能力；SFTP也只盘点已有数据库关系。GET要求当前超级管理员与datasets:read，前后复核身份和Key；未授权不可通过聚合推断私有关系。无源I/O、对象HEAD/LIST、探测、写入、任务启动/取消或审计写入。
+- 聚合本位置全部保留来源（含暂停、注销和dataset已删除的历史）。业务样本按采纳修订和位置Asset记录去重；引用样本另列，数据集/项目/任务/标注按当前真实关系去重。项目包括已有数据集关联、即使没有任务；历史断开的关系不回填。全量SQL聚合，不逐来源查询，返回固定大小。
+- 活动扫描与预检/登记按持久run状态计数，不依赖短期AsyncJob；同步按enabled配置计数。位置修订变化在下一检查点使旧轮停止写入，自动同步在下次检查进入阻塞；不把保存说成已同步取消所有后台任务。
+- 预览只报告ready/failed记录及已记录字节，不证明对象存在/当前可读。完整缓存按scope_location_id统计全部状态和已记字节，包含无业务FK保留的孤儿账本；活跃读租约以数据库时间判定。任意位置修订更新会令旧完整缓存失配，后续受控回收仍受租约约束；预览可按当前策略和内容继续复用。
+- 临时预测输入只统计通过当前Task仍可归属本位置的租约，分active/cleanup_pending；不是所有预测/修复作业，也不涵盖已失去业务关系的临时输入。冻结只统计snapshot中持久source_lineage.location_id可证明的版本，区分ready与pending/running；托管和缺少位置血缘的历史不计入。明确partial coverage，不以零数值宣称无引用或允许退役/回收。
+- 文案解释停用拒绝新引用原图读取（包括缓存），人员使用权撤回影响来源管理但不代替既有Task项目授权，已就绪冻结内容按项目权限独立保留。新功能不提供停用/归档/删除按钮，不扩大已有写权限。
+- UI 在现有居中位置详情内以“维护影响”折叠显示，默认无额外请求，展开/刷新只发GET。时间、刷新失败保留的旧结果、加载/空值与撤权隐藏明确。角色/会话/位置/修订隔离缓存和迟到结果，明暗与桌面/窄屏无溢出；不打散现有来源诊断和返回导航。
+
+### 准确文件范围、兼容与验证
+
+本片超过8文件、跨API/查询合同/Web/文档四组件，保持共同只读合同一次提交：
+
+- 后端：`apps/api/app/services/storage_maintenance_impact.py`、`app/schemas/storage_location.py`、`app/api/v1/storage_locations.py`、`tests/test_storage_maintenance_impact.py`（后三者前缀均为`apps/api/`）；`apps/api/openapi.snapshot.json`、`packages/python-sdk/api-coverage.toml`及本地生成TS合同。
+- Web：`apps/web/src/components/connections/StorageMaintenanceImpact{.tsx,.test.tsx}`、`StorageLocationsConsole.tsx`；必要既有Console回归覆盖集成，复用现有API client、Query与会话隔离。
+- 正式文档：`docs-site/user-guide/datasets/storage-connections.md`、`docs-site/api/guides/storage-locations.md`、`docs-site/api/guides/_routes.generated.md`、`docs-site/dev/concepts/storage-connections.md`、`README.md`、`CHANGELOG.md`。
+- 计划与晋升引用：本计划、E09、整套执行队列，backlog索引、路线、基线和信息架构。只搬迁本E11文件并更新全部链接，保留原故事与未完成验收；不分配发布版本、不新增环境变量/依赖/schema。
+
+后端使用owner已核实的一次性test模式：测试空位置、跨来源/历史/注销/孤儿、相同项目与样本去重、无任务项目关联、run/job独立、缓存/有效租约、临时租约归属、冻结血缘与缺血缘历史、平台位置拒绝、各角色/Key/前后撤权、零源I/O和固定查询数。`pnpm dev:worktree -- exec --mode test -- sh -c 'cd apps/api && .venv/bin/python -m pytest tests/test_storage_maintenance_impact.py tests/test_storage_source_summary.py tests/test_storage_locations_api.py -q'`；SDK只读新路由按现有Web专用覆盖排除并运行合同4项。
+
+Web定向Vitest、tsc、lint/css tokens；生成OpenAPI/TS与API索引，Ruff/Prettier、文档frontmatter/导航/可读性/构建、diff与正常提交钩子。实际浏览器使用独立会话、无mock，在保留3100/8100查看既有位置；检查默认折叠、查询/刷新、原导航/弹窗Escape与焦点，1440桌面和390窄屏明暗截图、控制台及网络。无Worker代码变更不刷新服务、不重建镜像。测试结束按owner销毁test资源，清理报告/截图/缓存/浏览器会话，保留人工业务数据。
+
+回退只撤销新增GET/UI/合同，不改变业务或物理对象。交付后追加Outcome与实测证据，E11-B2的版本化变更门禁、数据集归档/恢复及E11-C物理回收继续活动。
+
+## 历史调研基线与改造落点
 
 下列为固定提交的静态证据，尚非运行/浏览器验收结果。
 
-| 当前 owner / 代码锚点                                                                        | 已有能力、缺口与复用约束                                                                                      |
-| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| [project_access.py](../../../apps/api/app/services/project_access.py)                        | 平台身份和项目职责分离，复用当前权限权威；位置 use/manage、内容按用途授权是新增能力。                         |
-| [dataset.py](../../../apps/api/app/services/dataset.py)                                      | Dataset/Item 当前硬删，unlink 硬删除项目任务/标注等并返回 soft=false；已有影响计数，尚无绑定预览版本/有效期。 |
-| [active_learning_pool.py](../../../apps/api/app/services/active_learning_pool.py)            | guard_source 已保护主动学习历史来源；通用保留/回收不得绕过现有引用阻断。                                      |
-| [training_storage_deletion.py](../../../apps/api/app/db/models/training_storage_deletion.py) | 训练已有持久删除 intent/tombstone 和重试，不是 Dataset 软删除。现有数据集登录读取并不等于已有对象级 ACL。     |
+| 当前 owner / 代码锚点                                                                     | 已有能力、缺口与复用约束                                                                                      |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| [project_access.py](../../apps/api/app/services/project_access.py)                        | 平台身份和项目职责分离，复用当前权限权威；位置 use/manage、内容按用途授权是新增能力。                         |
+| [dataset.py](../../apps/api/app/services/dataset.py)                                      | Dataset/Item 当前硬删，unlink 硬删除项目任务/标注等并返回 soft=false；已有影响计数，尚无绑定预览版本/有效期。 |
+| [active_learning_pool.py](../../apps/api/app/services/active_learning_pool.py)            | guard_source 已保护主动学习历史来源；通用保留/回收不得绕过现有引用阻断。                                      |
+| [training_storage_deletion.py](../../apps/api/app/db/models/training_storage_deletion.py) | 训练已有持久删除 intent/tombstone 和重试，不是 Dataset 软删除。现有数据集登录读取并不等于已有对象级 ACL。     |
 
-候选修改入口：[deps.py](../../../apps/api/app/deps.py)、[project_access.py](../../../apps/api/app/services/project_access.py)、[datasets.py](../../../apps/api/app/api/v1/datasets.py)、[dataset.py](../../../apps/api/app/services/dataset.py)、[storage_connection.py](../../../apps/api/app/services/storage_connection.py)、[training_storage_cleanup.py](../../../apps/api/app/services/training_storage_cleanup.py)、[dataset.py](../../../apps/api/app/db/models/dataset.py)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
+候选修改入口：[deps.py](../../apps/api/app/deps.py)、[project_access.py](../../apps/api/app/services/project_access.py)、[datasets.py](../../apps/api/app/api/v1/datasets.py)、[dataset.py](../../apps/api/app/services/dataset.py)、[storage_connection.py](../../apps/api/app/services/storage_connection.py)、[training_storage_cleanup.py](../../apps/api/app/services/training_storage_cleanup.py)、[dataset.py](../../apps/api/app/db/models/dataset.py)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
 
 ## 1. 问题与当前依据
 
 原地引用把文件生命周期留在外部目录，平台的“删除数据集”“移除样本”“解除项目关联”必须与“删除原文件”区分。多位置、多项目引用同一内容后，也不能按单个数据集删除动作直接回收共享文件。
 
-当前数据集 API 已有角色和 scope 校验，写操作主要限制为 super_admin/project_admin；连接器具有 owner/global 范围，并将密钥加密保存。本 Epic 延用这些基础，补齐对象级使用授权与引用生命周期，不把新的能力模型写成已经存在的事实。[数据集 API](../../../apps/api/app/api/v1/datasets.py)、[连接器模型](../../../apps/api/app/db/models/storage_connection.py)。
+当前数据集 API 已有角色和 scope 校验，写操作主要限制为 super_admin/project_admin；连接器具有 owner/global 范围，并将密钥加密保存。本 Epic 延用这些基础，补齐对象级使用授权与引用生命周期，不把新的能力模型写成已经存在的事实。[数据集 API](../../apps/api/app/api/v1/datasets.py)、[连接器模型](../../apps/api/app/db/models/storage_connection.py)。
 
-当前删除和解除关联已有业务处理，前端具备影响确认；训练版本已经冻结内容。新治理应复用这些流程，并保护跨数据集、项目和版本引用。[数据集服务](../../../apps/api/app/services/dataset.py)、[数据集页面](../../../apps/web/src/pages/Datasets/DatasetsPage.tsx)、[训练版本模型](../../../apps/api/app/db/models/training_dataset.py)。
+当前删除和解除关联已有业务处理，前端具备影响确认；训练版本已经冻结内容。新治理应复用这些流程，并保护跨数据集、项目和版本引用。[数据集服务](../../apps/api/app/services/dataset.py)、[数据集页面](../../apps/web/src/pages/Datasets/DatasetsPage.tsx)、[训练版本模型](../../apps/api/app/db/models/training_dataset.py)。
 
 ## 2. 目标、范围与暂不做
 
@@ -206,8 +250,22 @@ Asset 的业务引用保护的是应保留的内容，不会永久固定每一�
 
 前置合同不等于等待前置 Epic 全量完成。每个切片合并后系统仍须可用；含新来源的回退保留兼容读取和授权，不能把其相对路径交给旧 S3 拼接逻辑。预计多数切片涉及超过 8 个文件，实施时明确大范围边界与准确清单。
 
-已有回归入口：[test_storage_connections_api.py](../../../apps/api/tests/test_storage_connections_api.py)、[test_connector_crypto_guard.py](../../../apps/api/tests/test_connector_crypto_guard.py)、[test_dataset_delete_cleanup.py](../../../apps/api/tests/test_dataset_delete_cleanup.py)、[test_dataset_link.py](../../../apps/api/tests/test_dataset_link.py)、[test_training_storage_deletion.py](../../../apps/api/tests/test_training_storage_deletion.py)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
+已有回归入口：[test_storage_connections_api.py](../../apps/api/tests/test_storage_connections_api.py)、[test_connector_crypto_guard.py](../../apps/api/tests/test_connector_crypto_guard.py)、[test_dataset_delete_cleanup.py](../../apps/api/tests/test_dataset_delete_cleanup.py)、[test_dataset_link.py](../../apps/api/tests/test_dataset_link.py)、[test_training_storage_deletion.py](../../apps/api/tests/test_training_storage_deletion.py)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
 
-实现时同步：[index.md](../../../docs-site/user-guide/datasets/index.md)、[storage-connections.md](../../../docs-site/user-guide/datasets/storage-connections.md)、[training-datasets.md](../../../docs-site/dev/concepts/training-datasets.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
+实现时同步：[index.md](../../docs-site/user-guide/datasets/index.md)、[storage-connections.md](../../docs-site/user-guide/datasets/storage-connections.md)、[training-datasets.md](../../docs-site/dev/concepts/training-datasets.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
 
-完成实施后按[计划规范](../README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+
+## Outcome
+
+2026-10-24 完成 E11-B1 / E09-B3；实现、正式文档与本记录同次提交。本阶段交付只读依赖盘点，未改变既有配置PATCH或硬删除合同，不宣称完整E11或全owner安全停用完成，未分配发布版本。
+
+- 已交付：超级管理员及datasets:read的GET，前后复核当前身份、Key与位置修订；单SQL汇总全部保留来源、采纳历史与Asset成员、数据集/项目/任务/标注、持久活动轮次和周期配置、预览与完整缓存账本/有效读租约、当前Task可归因输入，以及持久位置血缘可归因冻结版本。固定大小响应不返回路径、秘密、内部snapshot或证明，无写入及外部I/O；平台用途位置明确拒绝。
+- 范围解释：输入按持久状态计数，包含到期待清理记录，不冒充当前作业/有效凭证；缺Task关联的历史输入、托管或缺少位置血缘的旧冻结仍未覆盖。位置修订使旧完整缓存失配，预览复用、Task项目授权和独立冻结内容各按原合同判断。响应execution_permission=false，不产生提交许可或无引用证明。
+- API/DB：43个不同用例通过，其中新26、既有来源摘要和位置API17。首次42项及补充SFTP1项通过，S3重复核验不重复累计。覆盖45个来源跨页恒定查询、全部只读SQL、零文件/对象I/O、真实新旧采纳修订和注销、三条成员路径及无任务项目关联去重、AsyncJob删除后轮次保留、孤儿缓存及租约期限、预览源与平台目的位置、输入过期/孤儿和当前Task归因、跨项目冻结重复成员与未知/null/非数组历史、角色/Key矩阵、聚合后身份/Key/位置变化拒绝。S3/SFTP空外部位置均可盘点已有关系，不赋予新原地读取能力。
+- Web与SDK：新增9个Web用例及既有Console12个通过，覆盖默认零请求、加载/刷新、失败保留时间证据、401/403/404隐藏、会话迟到结果、位置/修订隔离和配置已变化提示。SDK合同4项通过；合计68个不同本地用例，不宣称全量套件或远程CI。首次Web失败来自测试mock漏导出ApiError，修正后9项通过；tsc中的测试Array.at调用改为当前target支持的索引后通过。
+- 实际浏览器：保留的3100/8100、独立会话、无mock；位置有8来源（启用7）、8数据集、12引用样本、7项目、12任务、7标注、9条预览记录7926字节，活动轮次/同步与缓存账本为0。展开前无新GET，展开和刷新各一条GET200，无变更POST；统计与真实API一致。已就绪冻结显示0并附部分覆盖说明，未将旧版本解释为无保护依赖。
+- 交互与视觉：1440×1000及390×900明暗主题截图已检查。窄屏页面宽度390，居中弹窗342×852，内容在弹窗内滚动无横向溢出；Enter展开、Escape关闭并恢复“查看 人工验收受控目录 详情”焦点通过。页面JS错误和失败HTTP为0，控制台仅Vite debug/React DevTools info。自动化等待曾误命中窄屏隐藏导航drawer，改为当前Modal选择器后确认行为正常，无应用修复。
+- 文档与检查：更新用户存储指南、存储位置API与生成路由索引、存储连接架构、README、CHANGELOG Unreleased；E11由backlog晋升根目录，四处旧引用、E09和整套队列同步。OpenAPI仅新增GET，无旧operation移除；TS生成、SDK覆盖、Ruff、Prettier、tsc、完整Web lint/CSS tokens、文档frontmatter197/navigation199/严格可读性198及构建通过。仅有既有4条ESLint warning、两处训练页样式建议和构建语言/大包提示。
+- 清理与保留：按owner销毁1822b025369a33f4:test DB/Redis/九桶，退出0；专用浏览器已关闭，任务报告/截图/构建/缓存于记录后清理。dev人工业务数据与原始文件、两个Worker和beat保留，无schema/Worker/依赖变更、不重建镜像。
+- 剩余：候选配置与版本化提交门禁、全部异步owner的维护协议、数据集归档/软删除与不恢复已撤销人员授权的恢复策略、受控物理回收和跨Epic完整矩阵仍须继续实施。E11/E09活动计划不归档。

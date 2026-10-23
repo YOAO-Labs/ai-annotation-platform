@@ -2,7 +2,7 @@
 audience: [dev, project_admin, super_admin]
 type: reference
 status: stable
-last_reviewed: 2026-10-23
+last_reviewed: 2026-10-24
 ---
 
 # 受控存储位置
@@ -63,6 +63,24 @@ PATCH 允许 `name / enabled / cache_policy / original_cache_quota_bytes / origi
 `list / read / range` 分别返回 `verified / unknown`；只传目录时不会推断 read 已验证。显式样本以只读方式采样；`write / delete / presign` 为 `unsupported`，不写探针文件。离线返回 `node_timeout` 或 `node_unavailable`，未配置根返回 `root_not_configured`。证据5分钟过期，配置变更或停用后显示 `stale`；API可达不能代替 worker 可扫描。
 
 API本地探测等待窗口3秒，远端等待窗口5秒。超时后台结果不会自行更新有效证据；操作系统阻塞的文件系统调用无法由线程取消，等待窗口不表示底层 I/O 已终止。首次探测某节点信任其部署根映射；跨节点 dev/inode 不比较，能力通过也不代表字节一致或原地预览已验收。
+
+## 只读维护影响
+
+`GET /storage-locations/{location_id}/maintenance-impact` 要求当前有效超级管理员和 `datasets:read`；返回前再次检查账号、API Key及位置修订。仅支持 filesystem 或连接支持的外部位置，平台用途位置返回409、`platform_maintenance_impact_unsupported`；查询期间修订变化返回409、`storage_location_revision_changed`。无写入、审计追加、源I/O或任务投递。
+
+响应含 `location_id`、`config_revision`、数据库 `measured_at`、`scope=stored_dependencies`、固定大小的 `counts`。全部计数来自同一条SQL的数据库快照，不受来源列表分页影响：
+
+| 计数                                                                            | 范围                                                                                                          |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `sources` / `enabled_sources` / `unregistered_sources`                          | 位置全部保留来源，包含无数据集关联历史                                                                        |
+| `items` / `reference_items` / `datasets` / `projects` / `tasks` / `annotations` | 样本按采纳修订、引用及该位置Asset关系去重；项目含无任务的数据集关联                                           |
+| `active_scans` / `active_registrations` / `enabled_schedules`                   | pending/running持久轮次及enabled周期配置，不依赖AsyncJob保留                                                  |
+| `ready_previews` / `failed_previews` / `preview_bytes`                          | 来源预览生成记录，字节仅累加ready记录，不做对象存在性检查                                                     |
+| `cache_entries` / `cache_bytes` / `active_cache_read_leases`                    | 按scope_location_id聚合全部状态账本，含无业务FK保留记录；读租约按数据库时间尚未到期                           |
+| `active_input_leases` / `cleanup_input_leases`                                  | 通过当前Task可归属样本的临时输入记录，按状态区分，不代表全部预测或修复作业                                    |
+| `ready_lineage_versions` / `unfinished_lineage_versions`                        | snapshot.samples内source_lineage.location_id明确匹配的位置版本；同版本多成员只计一次，未完成仅pending/running |
+
+`frozen_coverage=recorded_location_lineage_only` 和 `input_coverage=current_task_links_only` 显式限定归因；缺位置血缘的历史、托管冻结和失去Task关系的输入未计入。输入按持久状态计数，包含已到期但尚未转入清理的active记录，不代表运行作业或有效下载凭证。`execution_permission=false`，本响应不生成impact proof，不可作为停用/归档/回收的提交许可。位置修订更新可能使旧扫描、同步、预测上下文及完整缓存失配，各owner在自己的检查点复核；任务人员授权、预览和已保留冻结内容有独立合同，详见[维护影响](/user-guide/datasets/storage-connections#位置维护影响)。
 
 ## 完整原图缓存
 

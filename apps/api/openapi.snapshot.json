@@ -43002,6 +43002,177 @@
         "title": "StorageLocationUpdate",
         "type": "object"
       },
+      "StorageMaintenanceCounts": {
+        "properties": {
+          "active_cache_read_leases": {
+            "title": "Active Cache Read Leases",
+            "type": "integer"
+          },
+          "active_input_leases": {
+            "title": "Active Input Leases",
+            "type": "integer"
+          },
+          "active_registrations": {
+            "title": "Active Registrations",
+            "type": "integer"
+          },
+          "active_scans": {
+            "title": "Active Scans",
+            "type": "integer"
+          },
+          "annotations": {
+            "title": "Annotations",
+            "type": "integer"
+          },
+          "cache_bytes": {
+            "title": "Cache Bytes",
+            "type": "integer"
+          },
+          "cache_entries": {
+            "title": "Cache Entries",
+            "type": "integer"
+          },
+          "cleanup_input_leases": {
+            "title": "Cleanup Input Leases",
+            "type": "integer"
+          },
+          "datasets": {
+            "title": "Datasets",
+            "type": "integer"
+          },
+          "enabled_schedules": {
+            "title": "Enabled Schedules",
+            "type": "integer"
+          },
+          "enabled_sources": {
+            "title": "Enabled Sources",
+            "type": "integer"
+          },
+          "failed_previews": {
+            "title": "Failed Previews",
+            "type": "integer"
+          },
+          "items": {
+            "title": "Items",
+            "type": "integer"
+          },
+          "preview_bytes": {
+            "title": "Preview Bytes",
+            "type": "integer"
+          },
+          "projects": {
+            "title": "Projects",
+            "type": "integer"
+          },
+          "ready_lineage_versions": {
+            "title": "Ready Lineage Versions",
+            "type": "integer"
+          },
+          "ready_previews": {
+            "title": "Ready Previews",
+            "type": "integer"
+          },
+          "reference_items": {
+            "title": "Reference Items",
+            "type": "integer"
+          },
+          "sources": {
+            "title": "Sources",
+            "type": "integer"
+          },
+          "tasks": {
+            "title": "Tasks",
+            "type": "integer"
+          },
+          "unfinished_lineage_versions": {
+            "title": "Unfinished Lineage Versions",
+            "type": "integer"
+          },
+          "unregistered_sources": {
+            "title": "Unregistered Sources",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sources",
+          "enabled_sources",
+          "unregistered_sources",
+          "items",
+          "reference_items",
+          "datasets",
+          "projects",
+          "tasks",
+          "annotations",
+          "active_scans",
+          "active_registrations",
+          "enabled_schedules",
+          "ready_previews",
+          "failed_previews",
+          "preview_bytes",
+          "cache_entries",
+          "cache_bytes",
+          "active_cache_read_leases",
+          "active_input_leases",
+          "cleanup_input_leases",
+          "ready_lineage_versions",
+          "unfinished_lineage_versions"
+        ],
+        "title": "StorageMaintenanceCounts",
+        "type": "object"
+      },
+      "StorageMaintenanceImpact": {
+        "properties": {
+          "config_revision": {
+            "title": "Config Revision",
+            "type": "integer"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/StorageMaintenanceCounts"
+          },
+          "execution_permission": {
+            "const": false,
+            "title": "Execution Permission",
+            "type": "boolean"
+          },
+          "frozen_coverage": {
+            "const": "recorded_location_lineage_only",
+            "title": "Frozen Coverage",
+            "type": "string"
+          },
+          "input_coverage": {
+            "const": "current_task_links_only",
+            "title": "Input Coverage",
+            "type": "string"
+          },
+          "location_id": {
+            "format": "uuid",
+            "title": "Location Id",
+            "type": "string"
+          },
+          "measured_at": {
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "scope": {
+            "const": "stored_dependencies",
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "location_id",
+          "config_revision",
+          "measured_at",
+          "scope",
+          "counts",
+          "frozen_coverage",
+          "input_coverage",
+          "execution_permission"
+        ],
+        "title": "StorageMaintenanceImpact",
+        "type": "object"
+      },
       "StorageOriginalCounts": {
         "properties": {
           "changed": {
@@ -89831,6 +90002,54 @@
           }
         ],
         "summary": "Directories",
+        "tags": [
+          "storage-locations"
+        ]
+      }
+    },
+    "/api/v1/storage-locations/{location_id}/maintenance-impact": {
+      "get": {
+        "operationId": "maintenance_impact_api_v1_storage_locations__location_id__maintenance_impact_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Location Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageMaintenanceImpact"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Maintenance Impact",
         "tags": [
           "storage-locations"
         ]
