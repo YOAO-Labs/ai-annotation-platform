@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 import hmac
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -26,6 +27,7 @@ from app.main import app
 from app.schemas.user import UserOut
 from app.services.identity_gateway import IdentityGateway, get_identity_gateway
 from tests.factory import DEFAULT_PASSWORD, create_user
+from tests.test_identity_recovery import _postgres_tool
 from tests.test_asset_storage_cleanup_runtime import (
     _verified_resource_manifest,
     _verify_postgres,
@@ -361,7 +363,7 @@ async def _seed_accounts(engine):
 
 @pytest.mark.asyncio
 async def test_same_owner_child_prepare_http_and_destroy_use_owned_runtime_login(
-    test_engine, tmp_path, monkeypatch
+    test_engine, tmp_path, monkeypatch, record_property
 ):
     _verify_postgres(test_engine.url)
     backend = _backend(tmp_path, test_engine)
@@ -450,6 +452,84 @@ async def test_same_owner_child_prepare_http_and_destroy_use_owned_runtime_login
         actor, target = await _seed_accounts(owner_engine)
         async with _embedded_client(runtime_engine, monkeypatch) as client:
             await _exercise_embedded_http(client, actor, target)
+
+        state_query = text(
+            "SELECT id,name,role,is_active,status,credential_generation FROM users "
+            "WHERE id=ANY(:ids) ORDER BY id"
+        )
+        async with owner_engine.connect() as db:
+            before_restore = (
+                await db.execute(state_query, {"ids": [actor.id, target.id]})
+            ).all()
+            revoked_before = await db.scalar(
+                text("SELECT count(*) FROM identity_revoked_jtis")
+            )
+            assert revoked_before > 0
+        snapshot = tmp_path / "owned-runtime.dump"
+        snapshot.touch(mode=0o600)
+        dump = await asyncio.to_thread(
+            _postgres_tool,
+            owner_engine,
+            ["pg_dump", "-U", "owner", "-Fc", reopened.resources["database"]],
+        )
+        assert dump.startswith(b"PGDMP")
+        snapshot.write_bytes(dump)
+        record_property(
+            "worktree_runtime_backup_sha256", hashlib.sha256(dump).hexdigest()
+        )
+        await runtime_engine.dispose()
+        await owner_engine.dispose()
+        await reopened.owned_runtime_role("check_drop")
+        # Preserve the global LOGIN and its sidecar while restoring its owned DB.
+        await reopened.database("drop")
+        assert hmac.compare_digest(
+            reopened._runtime_credentials(required=True)["password"], previous_password
+        )
+        await reopened.database("create")
+        await asyncio.to_thread(
+            _postgres_tool,
+            test_engine,
+            [
+                "pg_restore",
+                "-U",
+                "owner",
+                "--exit-on-error",
+                "--dbname",
+                reopened.resources["database"],
+            ],
+            body=snapshot.read_bytes(),
+        )
+        assert await reopened.verify_runtime_login()
+        runtime_engine = create_async_engine(
+            reopened.runtime_url(), hide_parameters=True
+        )
+        owner_engine = create_async_engine(reopened.url, hide_parameters=True)
+        await _assert_private_identity_denied(runtime_engine, credentials["role"])
+        async with owner_engine.connect() as db:
+            assert (
+                await db.execute(state_query, {"ids": [actor.id, target.id]})
+            ).all() == before_restore
+            assert (
+                await db.scalar(text("SELECT count(*) FROM identity_revoked_jtis"))
+                == revoked_before
+            )
+        async with _embedded_client(runtime_engine, monkeypatch) as client:
+            login = await client.post(
+                "/api/v1/auth/login",
+                json={"email": actor.email, "password": DEFAULT_PASSWORD},
+            )
+            assert login.status_code == 200, login.text
+            profile = await client.get(
+                "/api/v1/auth/me",
+                headers={"Authorization": "Bearer " + login.json()["access_token"]},
+            )
+            assert profile.status_code == 200 and profile.json()["id"] == str(
+                actor.id
+            ), profile.text
+        record_property(
+            "worktree_runtime_backup_restore",
+            "same database, role and secret; data, revocations, ACL and HTTP verified",
+        )
     finally:
         if runtime_engine is not None:
             await runtime_engine.dispose()

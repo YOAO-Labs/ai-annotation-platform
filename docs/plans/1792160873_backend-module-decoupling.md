@@ -7401,3 +7401,11 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   account RPCs need separate diagnostics. Direct SELECT route probes and traced
   passing assemblies do not close this failure. Reproduce those actual RPC consumers
   with sanitized phase/status/SQLSTATE evidence as the next bounded Identity item.
+
+- Implementation 600556197530225c4dcb6d09d5f88c582d8bee67 passed normal hooks.
+  Before cold installation, extend the existing full Native case with real custom
+  pg_dump/pg_restore of the same owned database while preserving its global LOGIN
+  and sidecar. The extension passes: actual account state and durable revocations
+  match, the role still authenticates and cannot read private tables, and real HTTP
+  login/profile succeeds after restore. Record the backup SHA, do not fabricate
+  recovery rows or rotate credentials, and keep the unique case union at twenty.
