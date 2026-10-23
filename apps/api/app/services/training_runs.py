@@ -38,6 +38,7 @@ from app.schemas.training_run import ExecutorFence, TrainingRunCreate
 from app.services import async_job as jobs
 from app.services.async_job_notify import notify_job_terminal
 from app.services.storage import storage_service as storage
+from app.services import training_dataset_storage
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
     content_digest,
@@ -718,10 +719,13 @@ async def fenced(db, attempt_id, fence: ExecutorFence, *, allow_terminal=False):
     return lease, run, attempt
 
 
-def internal_download(key):
+def internal_download(key, *, bucket=None):
     return storage.client.generate_presigned_url(
         "get_object",
-        Params={"Bucket": storage.training_bucket, "Key": key},
+        Params={
+            "Bucket": storage.training_bucket if bucket is None else bucket,
+            "Key": key,
+        },
         ExpiresIn=600,
     )
 
@@ -736,13 +740,27 @@ def claim_token(attempt, claim_id):
 
 async def assignment(db, run, attempt, token):
     dataset = await db.get(TrainingDatasetVersion, run.dataset_id)
+    try:
+        if dataset is None or dataset.project_id != run.project_id:
+            raise TrainingDatasetError(
+                "training_storage_dataset_mismatch",
+                "冻结训练版本不属于当前项目",
+                status_code=409,
+            )
+        owner = training_dataset_storage.resolve(dataset)
+        owner.contains(dataset.package_key)
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from None
     result = {
         "run_id": str(run.id),
         "attempt_id": str(attempt.id),
         "lease_token": token,
         "config": run.config,
         "config_digest": run.config_digest,
-        "dataset_url": internal_download(dataset.package_key),
+        "dataset_url": internal_download(dataset.package_key, bucket=owner.bucket),
         "resume": None,
     }
     if attempt.native_budget:

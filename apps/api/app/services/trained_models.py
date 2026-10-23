@@ -29,7 +29,8 @@ from app.db.models.training_run import TrainingAttempt, TrainingRun
 from app.services.ml_backend import MLBackendService
 from app.services.ml_client import MLBackendClient
 from app.services.storage import storage_service as storage
-from app.services.training_dataset_bridge import content_digest
+from app.services import training_dataset_storage
+from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
 from app.services.training_runs import internal_download, verify_artifact
 from app.services.training_artifacts import read_json_artifact
 from app.services.training_evaluations import parse_evaluation
@@ -382,7 +383,34 @@ def download_url(key):
     return storage.rewrite_host_for_ml_backend(internal_download(key))
 
 
+def frozen_sample_location(project_id, dataset, task_id):
+    """Keep retained trial inputs under their dataset owner, apart from weights."""
+    try:
+        if dataset is None or dataset.project_id != project_id:
+            raise TrainingDatasetError(
+                "training_storage_dataset_mismatch",
+                "冻结训练版本不属于当前项目",
+                status_code=409,
+            )
+        owner = training_dataset_storage.resolve(dataset)
+        return owner, owner.key(f"media/{task_id}")
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from None
+
+
 async def install_and_trial(db, project, version, deployment):
+    dataset = await db.get(
+        TrainingDatasetVersion, uuid.UUID(version.provenance["dataset_id"])
+    )
+    if dataset is None:
+        raise HTTPException(status_code=409, detail="固定训练版本不可用")
+    sample = next((s for s in dataset.manifest["samples"] if s["split"] == "val"), None)
+    if not sample:
+        raise HTTPException(status_code=409, detail="缺少固定验证样本")
+    owner, sample_key = frozen_sample_location(project.id, dataset, sample["task_id"])
     backend = await enabled_backend(db, project.id, deployment.registry_id)
     await assert_routable_backend(db, project.id, deployment.registry_id)
     client = MLBackendClient(backend)
@@ -394,12 +422,6 @@ async def install_and_trial(db, project, version, deployment):
         }
     )
     check_receipt(version, receipt)
-    dataset = await db.get(
-        TrainingDatasetVersion, uuid.UUID(version.provenance["dataset_id"])
-    )
-    sample = next((s for s in dataset.manifest["samples"] if s["split"] == "val"), None)
-    if not sample:
-        raise HTTPException(status_code=409, detail="缺少固定验证样本")
     ref = frozen_reference(
         version, deployment, runtime=receipt.get("inference_runtime")
     )
@@ -407,8 +429,8 @@ async def install_and_trial(db, project, version, deployment):
         [
             {
                 "id": sample["task_id"],
-                "file_path": download_url(
-                    f"projects/{project.id}/datasets/{dataset.id}/media/{sample['task_id']}"
+                "file_path": storage.rewrite_host_for_ml_backend(
+                    internal_download(sample_key, bucket=owner.bucket)
                 ),
             },
         ],

@@ -23,6 +23,7 @@ from app.db.models.training_dataset_analysis import (
     TrainingDatasetAnalyzedSample,
 )
 from app.services.storage import storage_service as storage
+from app.services import training_dataset_storage
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
     content_digest,
@@ -811,11 +812,16 @@ async def media_observations(db, version_id):
 
 def read_media(project_id, version, sample, *, preview=False):
     """Verify the complete retained object before sending any byte to the caller."""
-    key = f"projects/{project_id}/datasets/{version.id}/media/{sample.task_id}"
+    owner = training_dataset_storage.resolve(version)
+    if str(project_id) != str(version.project_id):
+        raise TrainingDatasetError(
+            "training_storage_invalid_key", "冻结图片不属于该项目", status_code=409
+        )
+    key = owner.key(f"media/{sample.task_id}")
     temporary = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")
     body = None
     try:
-        head = storage.client.head_object(Bucket=storage.training_bucket, Key=key)
+        head = storage.client.head_object(Bucket=owner.bucket, Key=key)
         if (
             head.get("Metadata", {}).get("snapshot-digest") != version.snapshot_digest
             or head.get("Metadata", {}).get("sha256") != sample.sha256
@@ -828,7 +834,7 @@ def read_media(project_id, version, sample, *, preview=False):
                 "frozen_media_identity", "冻结图片身份或大小不匹配", status_code=409
             )
         response = storage.client.get_object(
-            Bucket=storage.training_bucket, Key=key, IfMatch=head["ETag"]
+            Bucket=owner.bucket, Key=key, IfMatch=head["ETag"]
         )
         body = response["Body"]
         digest, size = hashlib.sha256(), 0
@@ -916,10 +922,15 @@ def read_instance_masks(project_id, version, sample, annotation_ids):
     requested = {str(identifier) for identifier in annotation_ids}
     if not requested:
         return {}
-    key = f"projects/{project_id}/datasets/{version.id}/masks/{sample.task_id}.json"
+    owner = training_dataset_storage.resolve(version)
+    if str(project_id) != str(version.project_id):
+        raise TrainingDatasetError(
+            "training_storage_invalid_key", "冻结掩码不属于该项目", status_code=409
+        )
+    key = owner.key(f"masks/{sample.task_id}.json")
     result = {}
     try:
-        response = storage.client.get_object(Bucket=storage.training_bucket, Key=key)
+        response = storage.client.get_object(Bucket=owner.bucket, Key=key)
         try:
             data = response["Body"].read(
                 INSTANCE_RLE_LIMITS["max_sample_label_bytes"] + 1

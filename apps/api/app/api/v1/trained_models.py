@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.training_datasets import lock_owner
 from app.db.models.project import Project
+from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.trained_model import (
     ModelDeployment,
     ModelRelease,
@@ -144,17 +145,25 @@ async def model_detail(
         )
     ).all()
     rendered_deployments = []
+    dataset = None
     for item in deployments:
         rendered = ModelDeploymentOut.model_validate(item).model_dump(mode="json")
         if item.status == "ready" and item.trial.get("task_id"):
             from app.services.storage import storage_service
 
-            key = f"projects/{project.id}/datasets/{version.provenance['dataset_id']}/media/{item.trial['task_id']}"
+            if dataset is None:
+                dataset = await db.get(
+                    TrainingDatasetVersion,
+                    uuid.UUID(version.provenance["dataset_id"]),
+                )
+            owner, key = service.frozen_sample_location(
+                project.id, dataset, item.trial["task_id"]
+            )
             url = await asyncio.to_thread(
                 storage_service.generate_download_url,
                 key,
                 expires_in=600,
-                bucket=storage_service.training_bucket,
+                bucket=owner.bucket,
                 align=False,
             )
             rendered["trial"] = {**rendered["trial"], "sample_url": url}

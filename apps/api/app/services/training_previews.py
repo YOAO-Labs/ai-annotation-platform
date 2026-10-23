@@ -33,6 +33,7 @@ from app.schemas.training_run import TrainingRunCreate
 from app.services import async_job as jobs, training_runs as training
 from app.services.async_job_notify import notify_job_terminal
 from app.services.storage import storage_service as storage
+from app.services import training_dataset_storage
 from app.services.training_artifacts import read_json_artifact
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
@@ -330,19 +331,39 @@ def due_to_stop(preview):
     return None
 
 
-async def assignment(preview, *, stop=False):
-    urls = (
-        {}
-        if stop
-        else {
+async def assignment(db, preview, *, stop=False):
+    urls = {}
+    if not stop:
+        version = await db.get(TrainingDatasetVersion, preview.dataset_id)
+        try:
+            if version is None or version.project_id != preview.project_id:
+                raise TrainingDatasetError(
+                    "training_storage_dataset_mismatch",
+                    "冻结训练版本不属于当前项目",
+                    status_code=409,
+                )
+            owner = training_dataset_storage.resolve(version)
+            for source in preview.spec["sources"]:
+                owner.contains(source["media_key"])
+                if source["media_key"] != owner.key(f"media/{source['task_id']}"):
+                    raise TrainingDatasetError(
+                        "training_storage_invalid_key",
+                        "预览图片与固定训练样本不一致",
+                        status_code=409,
+                    )
+        except TrainingDatasetError as exc:
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail={"code": exc.code, "message": str(exc)},
+            ) from None
+        urls = {
             source["task_id"]: storage.client.generate_presigned_url(
                 "get_object",
-                Params={"Bucket": storage.training_bucket, "Key": source["media_key"]},
+                Params={"Bucket": owner.bucket, "Key": source["media_key"]},
                 ExpiresIn=LIMITS["execution_seconds"],
             )
             for source in preview.spec["sources"]
         }
-    )
     return dict(
         preview_id=str(preview.id),
         lease_token=token_for(preview, preview.claim_id),
@@ -379,7 +400,7 @@ async def claim(db, body):
                 if exc.status_code != 403:
                     raise
                 stop = True
-            return await assignment(preview, stop=stop)
+            return await assignment(db, preview, stop=stop)
         return None
     # Resolve an old durable claim before qualifying a new runtime. An idle
     # recovery must not advertise stale capabilities or acquire queued work.
@@ -440,7 +461,7 @@ async def claim(db, body):
         preview.started_at = preview.heartbeat_at = now()
         lease.preview_id = preview.id
         await jobs.mark_running(db, preview.async_job_id)
-        return await assignment(preview)
+        return await assignment(db, preview)
     return None
 
 

@@ -25,6 +25,7 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.services import async_job as jobs
 from app.services.async_job_notify import notify_job_terminal
 from app.services.storage import storage_service
+from app.services import training_dataset_storage
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
     build_training_package,
@@ -59,11 +60,11 @@ def materialize_image(
     snapshot_digest: str,
     directory: Path,
     *,
+    bucket: str,
     verified_reference=None,
 ) -> dict:
     """Reuse preserved source bytes on retries; never reread changed originals."""
     key = f"{prefix}/media/{sample['task_id']}"
-    bucket = storage_service.training_bucket
     preserved = False
     try:
         head = storage_service.client.head_object(Bucket=bucket, Key=key)
@@ -190,9 +191,20 @@ async def materialize_sample(
     node_id,
 ):
     """Try retained bytes first, then resolve an authorized reference if needed."""
+    owner = training_dataset_storage.resolve(version)
+    if prefix != owner.prefix.rstrip("/"):
+        raise TrainingDatasetError(
+            "training_storage_invalid_key", "冻结前缀与版本归属不一致", status_code=409
+        )
+    owner.contains(f"{prefix}/media/{sample['task_id']}")
     try:
         return await asyncio.to_thread(
-            materialize_image, sample, prefix, snapshot_digest, directory
+            materialize_image,
+            sample,
+            prefix,
+            snapshot_digest,
+            directory,
+            bucket=owner.bucket,
         )
     except TrainingDatasetError as exc:
         if exc.code != "reference_read_required":
@@ -220,6 +232,7 @@ async def materialize_sample(
             prefix,
             snapshot_digest,
             directory,
+            bucket=owner.bucket,
             verified_reference=content,
         )
         await assert_dataset_authority(db, version)
@@ -260,6 +273,7 @@ async def _build_dataset(
     version_id, job_id, attempt_id, session_factory, node_id=None
 ) -> None:
     prefix = None
+    owner = None
     published = False
     async with session_factory() as db:
         version = await db.get(TrainingDatasetVersion, version_id)
@@ -281,11 +295,12 @@ async def _build_dataset(
                 or version.status != "pending"
             ):
                 return
+            owner = training_dataset_storage.resolve(version)
+            prefix = owner.prefix.rstrip("/")
             version.status = "running"
             await jobs.mark_running(db, job_id)
             snapshot = version.snapshot
             snapshot_digest = version.snapshot_digest
-            prefix = f"projects/{version.project_id}/datasets/{version.id}"
             parent = (
                 await db.get(TrainingDatasetVersion, version.parent_id)
                 if version.parent_id
@@ -345,12 +360,13 @@ async def _build_dataset(
                     package,
                     parent_manifest=parent_manifest,
                 )
-                package_key = f"{prefix}/attempts/{attempt_id}/dataset.zip"
+                owner = training_dataset_storage.resolve(version)
+                package_key = owner.key(f"attempts/{attempt_id}/dataset.zip")
                 await asyncio.to_thread(
                     storage_service.upload_file,
                     str(package),
                     package_key,
-                    bucket=storage_service.training_bucket,
+                    bucket=owner.bucket,
                     content_type="application/zip",
                 )
                 package_digest = await asyncio.to_thread(file_digest, package)
@@ -430,7 +446,7 @@ async def _build_dataset(
                 await db.commit()
         finally:
             await db.rollback()
-            if prefix and not published:
+            if owner is not None and prefix and not published:
                 cleanup = False
                 try:
                     # A commit acknowledgement can fail after publication succeeded.
@@ -450,10 +466,11 @@ async def _build_dataset(
                     await db.rollback()
                 try:
                     if cleanup:
+                        owner = training_dataset_storage.resolve_ref(owner.ref)
                         await asyncio.to_thread(
                             storage_service.delete_prefix,
                             f"{prefix}/attempts/{attempt_id}/",
-                            bucket=storage_service.training_bucket,
+                            bucket=owner.bucket,
                         )
                 except Exception:
                     log.exception("Training attempt cleanup failed: %s", attempt_id)
