@@ -56,6 +56,7 @@ async def remap_storage(
     )
     from app.db.models.dataset_source import DatasetSourcePreview
     from app.db.models.original_cache import OriginalCacheEntry
+    from app.db.models.managed_original_retirement import ManagedOriginalRetirement
     from app.db.models.prediction_input import PredictionInputLease
     from app.db.models.training_storage_deletion import TrainingStorageDeletion
 
@@ -139,6 +140,27 @@ async def remap_storage(
             )
     for row in await db.scalars(select(TrainingStorageDeletion)):
         remap(row, "training_storage_deletions", str(row.id))
+    for row in await db.scalars(select(ManagedOriginalRetirement)):
+        if (
+            row.location_id != LEGACY_LOCATION_ID
+            or row.location_config_revision != 1
+            or row.binding_generation != 1
+            or row.identity_state != "verified_binding"
+            or row.role != "managed_original"
+            or row.bucket != source["MINIO_DATASETS_BUCKET"]
+            or row.storage_identity
+            != identity(endpoint_url, source["MINIO_DATASETS_BUCKET"])
+        ):
+            raise WorktreeError("托管原件保留记录存在未知物理身份，需要独立恢复合同")
+        table = "managed_original_retirements"
+        remap(row, table, str(row.id))
+        change(
+            row,
+            "storage_identity",
+            identity(endpoint_url, target["MINIO_DATASETS_BUCKET"]),
+            table,
+            str(row.id),
+        )
     for row, field, value in planned:
         setattr(row, field, value)
     await db.flush()

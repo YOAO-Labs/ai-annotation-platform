@@ -197,3 +197,17 @@ GET 只查询数据库，不读源文件、不 HEAD/LIST 对象、不启动扫�
 首次无成功值时计数和时间为 null；真空桶成功值为零。超过 24 小时或最近失败/取消为 stale，继续返回原成功值和原时间。`measured_bucket_count/bucket_count` 表示覆盖；只有全部桶都有成功值时才返回 `total_object_count/total_size_bytes` 合计，否则为 null。`physical_total_bytes`、`physical_available_bytes`、`quota_bytes` 仍为 null。`inventory_job_id/inventory_status` 指向最近盘点；任务过期清理后 ID 可为 null，但成功快照保留。
 
 调用方兼容说明：此 GET 已从实时统计变为快照读取；应处理 nullable 计数和新增状态，不能将未知值渲染为零或依赖每次 GET 重新盘点。ML overview.storage 使用相同结构。按桶去重并完整覆盖九用途，不能按角色重复相加。后台任务取消、崩溃与授权/配置变化不会发布未完整桶的累计数。更多口径和预算见[桶布局与快照](/dev/reference/storage-buckets#平台对象占用快照)。
+
+## 托管原件保留预演
+
+`GET /api/v1/storage/managed-original-reclamation?limit=50&offset=0` 要求当前超级管理员及API Key全权`*`。`limit`为1至100，`offset`为0至1000000；按关系移除时间、记录ID稳定排序。查询只读取已登记托管原件的独立保留账本和当前引用，不创建任务、修改状态、获取签名或访问对象存储。
+
+返回`scope=registered_managed_original_retirement_assertions`、`unit=retirement_assertion`、`measured_at`、`coverage`、`counts`、`items`及`limit/offset/has_more`。`execution_permission=false`，`reclaimable_bytes=null`，响应不能用作执行令牌或后续删除依据。
+
+`counts`包含`total_assertions/protected_assertions/retained_assertions/blocked_assertions`，后三者互斥且合计为总数；另有`policy_candidate_assertions`、`unknown_size_assertions`、`known_asserted_bytes`及无法完整解析的`unknown_training_versions/unknown_active_learning_rounds`。按记录累计的大小可能重复同一物理原件，不是可释放字节。计数、逐项引用及本页来自同一SQL观测；分页之间不保证数据库保持不变。
+
+每项返回历史`id/asset_id/dataset_id/dataset_item_id`、`retired_at/retain_until/size_bytes`、`identity_state=current|unknown|mismatch`、`status=protected|retained|blocked`、`policy_candidate`、`roots`和`blockers`，不返回桶、对象键、端点或秘密。`current`只表示保存的配置证据与当前配置匹配，不代表字节存在或内容已现场核验。`retain_until=null`表示无限期保护。已知引用优先归为protected，否则未到期/无期限归为retained，其余归为blocked；候选仍受所有未知保护条件阻断。
+
+`roots`分别表示内容位置、样本、任务、任务数据集关联、所有保留状态的训练版本、主动学习历史及无法确认物理桶的旧任务。`blockers`解释这些引用、无限期/未到保留期限、未知/变化的存储身份、未核验内容/定位、不支持的历史快照和旧任务桶、未证明独占所有权、未知备份/迁移保留与未检查现场副本。未知历史结构不能因无法展开而视为零引用。
+
+`coverage`明确旧位置不回填、未登记原件未记录、现场对象未检查、独占所有权未建立、备份/迁移保留未知，仅解析已支持的训练和主动学习记录。前后复验身份/Key与本地及持久配置，撤权拒绝返回，配置变化返回409 `configuration_changed`。本读请求不锁住后续业务变更，刷新后仍须重新核对；其他物理清理owner的合同不因此改变。

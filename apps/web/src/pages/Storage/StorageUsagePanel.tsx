@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { listStyles } from "@/components/ui/listStyles";
+import { ManagedOriginalReclamationPanel } from "./ManagedOriginalReclamationPanel";
 
 const ROLES: Record<string, string> = {
   annotations: "标注资产",
@@ -272,6 +273,7 @@ function StorageUsageOwner() {
             </details>
           </>
         )}
+        <ManagedOriginalReclamationPanel />
       </Card>
       {jobId && !denied && (
         <AsyncJobDetailModal

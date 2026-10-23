@@ -177,6 +177,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         )
         from app.db.models.dataset_source import DatasetSourcePreview
         from app.db.models.original_cache import OriginalCacheEntry
+        from app.db.models.managed_original_retirement import ManagedOriginalRetirement
         from app.db.models.prediction_input import PredictionInputLease
         from app.db.models.training_storage_deletion import TrainingStorageDeletion
         from app.services.dataset_assets import LEGACY_LOCATION_ID
@@ -189,6 +190,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
             cache=OriginalCacheEntry,
             input=PredictionInputLease,
             deletion=TrainingStorageDeletion,
+            retirement=ManagedOriginalRetirement,
         )
         self.source, self.target, self.endpoint = (
             roles("source"),
@@ -246,6 +248,23 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                     id="deletion", bucket=self.source["MINIO_TRAINING_BUCKET"]
                 )
             ],
+            ManagedOriginalRetirement: [
+                SimpleNamespace(
+                    id="retirement",
+                    location_id=LEGACY_LOCATION_ID,
+                    location_config_revision=1,
+                    binding_generation=1,
+                    identity_state="verified_binding",
+                    role="managed_original",
+                    bucket=self.source["MINIO_DATASETS_BUCKET"],
+                    storage_identity=identity(
+                        self.endpoint, self.source["MINIO_DATASETS_BUCKET"]
+                    ),
+                    assertion_digest="immutable-assertion",
+                    retain_until=None,
+                    dataset_id="historical-dataset",
+                )
+            ],
         }
         self.db = SimpleNamespace(
             get=AsyncMock(
@@ -276,6 +295,7 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                 "original_cache_entries",
                 "prediction_input_leases",
                 "training_storage_deletions",
+                "managed_original_retirements",
             },
         )
         target = storage_view(self.endpoint, self.target)
@@ -290,6 +310,36 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
         for rows in self.rows.values():
             self.assertTrue(all(row.bucket in self.target.values() for row in rows))
         self.db.flush.assert_awaited_once()
+        retirement = self.rows[self.models.retirement][0]
+        self.assertEqual(
+            retirement.storage_identity,
+            identity(self.endpoint, self.target["MINIO_DATASETS_BUCKET"]),
+        )
+        self.assertEqual(retirement.assertion_digest, "immutable-assertion")
+        self.assertEqual(retirement.dataset_id, "historical-dataset")
+        self.assertIsNone(retirement.retain_until)
+
+    async def test_unknown_retired_original_cannot_be_adopted_on_restore(self):
+        retirement = self.rows[self.models.retirement][0]
+        for field, value in [
+            ("identity_state", "unknown"),
+            ("storage_identity", "foreign"),
+            ("location_config_revision", None),
+            ("binding_generation", 2),
+            ("location_id", "foreign"),
+            ("bucket", "foreign"),
+            ("role", "original_cache"),
+        ]:
+            original = getattr(retirement, field)
+            setattr(retirement, field, value)
+            with self.subTest(field=field), self.assertRaises(WorktreeError):
+                await remap_storage(self.db, self.source, self.target, self.endpoint)
+            self.assertEqual(
+                self.rows[self.models.asset][0].bucket,
+                self.source["MINIO_DATASETS_BUCKET"],
+            )
+            self.db.flush.assert_not_awaited()
+            setattr(retirement, field, original)
 
     async def test_unknown_cleanup_owner_refuses_all_planned_changes(self):
         self.rows[self.models.deletion][0].bucket = "not-owned"

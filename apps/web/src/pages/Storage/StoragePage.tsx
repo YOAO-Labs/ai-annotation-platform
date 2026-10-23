@@ -188,6 +188,7 @@ function StoragePageOwner() {
   const handleRefresh = () => {
     for (const key of [
       "storage-buckets",
+      "storage-managed-original-reclamation",
       "storage-source-locations",
       "storage-location",
       "storage-location-probes",

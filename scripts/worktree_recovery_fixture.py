@@ -31,6 +31,7 @@ MAPPED_COLUMNS = {
     "original_cache_entries": {"bucket", "storage_identity"},
     "prediction_input_leases": {"bucket", "storage_identity"},
     "training_storage_deletions": {"bucket"},
+    "managed_original_retirements": {"bucket", "storage_identity"},
 }
 
 
@@ -262,6 +263,31 @@ async def seed(db, external: Path):
             )
 
         # Durable owners exercise every supported physical relocation column.
+        retired = DatasetItem(
+            dataset_id=world[3].id,
+            file_name="retired-managed.png",
+            file_path="recovery/retired-managed.png",
+            file_type="image",
+            file_size=len(green),
+            width=48,
+            height=32,
+        )
+        db.add(retired)
+        await db.flush()
+        storage.client.put_object(
+            Bucket=storage.datasets_bucket,
+            Key=retired.file_path,
+            Body=green,
+            ContentType="image/png",
+        )
+        await register_item_asset(
+            db,
+            retired,
+            sha256=hashlib.sha256(green).hexdigest(),
+            size_bytes=len(green),
+            binding=binding,
+        )
+        assert await DatasetService(db).delete_item(retired.id)
         source_item = await db.scalar(
             select(DatasetSourceItem).where(DatasetSourceItem.source_id == world[5].id)
         )
@@ -409,6 +435,7 @@ async def verify_application(db, external: Path):
     from app.db.models.dataset import DatasetItem
     from app.db.models.dataset_source import DatasetReference, DatasetSourcePreview
     from app.db.models.original_cache import OriginalCacheEntry
+    from app.db.models.managed_original_retirement import ManagedOriginalRetirement
     from app.db.models.storage_connection import StorageConnection
     from app.db.models.training_dataset import TrainingDatasetVersion
     from app.db.models.user import User
@@ -428,6 +455,20 @@ async def verify_application(db, external: Path):
     }
     for record in await db.scalars(select(OriginalCacheEntry)):
         original_cache.verify_stored(record)
+    retirements = list(await db.scalars(select(ManagedOriginalRetirement)))
+    assert len(retirements) == 1
+    for record in retirements:
+        response = storage.client.get_object(
+            Bucket=record.bucket, Key=record.object_key
+        )
+        body = response["Body"]
+        try:
+            content = body.read()
+        finally:
+            body.close()
+        assert len(content) == record.size_bytes
+        assert hashlib.sha256(content).hexdigest() == record.sha256
+        assert record.retain_until is None
     for preview in await db.scalars(select(DatasetSourcePreview)):
         assert directory_previews.cached_bytes_match(preview)
     actor = await db.scalar(select(User).where(User.role == "super_admin"))

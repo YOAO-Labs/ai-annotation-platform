@@ -23535,6 +23535,344 @@
         "title": "ManagedLifecycleCapabilities",
         "type": "object"
       },
+      "ManagedOriginalReclamationCounts": {
+        "properties": {
+          "blocked_assertions": {
+            "title": "Blocked Assertions",
+            "type": "integer"
+          },
+          "known_asserted_bytes": {
+            "title": "Known Asserted Bytes",
+            "type": "integer"
+          },
+          "policy_candidate_assertions": {
+            "title": "Policy Candidate Assertions",
+            "type": "integer"
+          },
+          "protected_assertions": {
+            "title": "Protected Assertions",
+            "type": "integer"
+          },
+          "retained_assertions": {
+            "title": "Retained Assertions",
+            "type": "integer"
+          },
+          "total_assertions": {
+            "title": "Total Assertions",
+            "type": "integer"
+          },
+          "unknown_active_learning_rounds": {
+            "title": "Unknown Active Learning Rounds",
+            "type": "integer"
+          },
+          "unknown_size_assertions": {
+            "title": "Unknown Size Assertions",
+            "type": "integer"
+          },
+          "unknown_training_versions": {
+            "title": "Unknown Training Versions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_assertions",
+          "retained_assertions",
+          "protected_assertions",
+          "blocked_assertions",
+          "policy_candidate_assertions",
+          "unknown_size_assertions",
+          "known_asserted_bytes",
+          "unknown_training_versions",
+          "unknown_active_learning_rounds"
+        ],
+        "title": "ManagedOriginalReclamationCounts",
+        "type": "object"
+      },
+      "ManagedOriginalReclamationCoverage": {
+        "properties": {
+          "active_learning_roots": {
+            "const": "recorded_members_and_source_snapshots",
+            "default": "recorded_members_and_source_snapshots",
+            "title": "Active Learning Roots",
+            "type": "string"
+          },
+          "backup_holds": {
+            "const": "unknown",
+            "default": "unknown",
+            "title": "Backup Holds",
+            "type": "string"
+          },
+          "exclusive_ownership": {
+            "const": "not_established",
+            "default": "not_established",
+            "title": "Exclusive Ownership",
+            "type": "string"
+          },
+          "historical_locators": {
+            "const": "not_backfilled",
+            "default": "not_backfilled",
+            "title": "Historical Locators",
+            "type": "string"
+          },
+          "migration_holds": {
+            "const": "unknown",
+            "default": "unknown",
+            "title": "Migration Holds",
+            "type": "string"
+          },
+          "object_presence": {
+            "const": "not_checked",
+            "default": "not_checked",
+            "title": "Object Presence",
+            "type": "string"
+          },
+          "training_snapshots": {
+            "const": "recorded_supported_shapes",
+            "default": "recorded_supported_shapes",
+            "title": "Training Snapshots",
+            "type": "string"
+          },
+          "unregistered_originals": {
+            "const": "not_recorded",
+            "default": "not_recorded",
+            "title": "Unregistered Originals",
+            "type": "string"
+          }
+        },
+        "title": "ManagedOriginalReclamationCoverage",
+        "type": "object"
+      },
+      "ManagedOriginalReclamationItem": {
+        "properties": {
+          "asset_id": {
+            "format": "uuid",
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "blockers": {
+            "items": {
+              "enum": [
+                "current_asset_location",
+                "current_dataset_item",
+                "current_task",
+                "current_task_dataset_link",
+                "retained_training_version",
+                "active_learning_history",
+                "indefinite_retention",
+                "retention_window",
+                "storage_identity_unknown",
+                "storage_identity_mismatch",
+                "content_identity_unverified",
+                "locator_unverified",
+                "unsupported_training_snapshot",
+                "unsupported_active_learning_snapshot",
+                "legacy_task_bucket_unknown",
+                "exclusive_ownership_unproven",
+                "backup_holds_unknown",
+                "migration_holds_unknown",
+                "object_presence_not_checked"
+              ],
+              "type": "string"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "dataset_id": {
+            "format": "uuid",
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_item_id": {
+            "format": "uuid",
+            "title": "Dataset Item Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "identity_state": {
+            "enum": [
+              "current",
+              "unknown",
+              "mismatch"
+            ],
+            "title": "Identity State",
+            "type": "string"
+          },
+          "policy_candidate": {
+            "title": "Policy Candidate",
+            "type": "boolean"
+          },
+          "retain_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retain Until"
+          },
+          "retired_at": {
+            "format": "date-time",
+            "title": "Retired At",
+            "type": "string"
+          },
+          "roots": {
+            "$ref": "#/components/schemas/ManagedOriginalReclamationRoots"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          },
+          "status": {
+            "enum": [
+              "retained",
+              "protected",
+              "blocked"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "asset_id",
+          "dataset_id",
+          "dataset_item_id",
+          "retired_at",
+          "retain_until",
+          "size_bytes",
+          "identity_state",
+          "status",
+          "policy_candidate",
+          "roots",
+          "blockers"
+        ],
+        "title": "ManagedOriginalReclamationItem",
+        "type": "object"
+      },
+      "ManagedOriginalReclamationPreview": {
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/ManagedOriginalReclamationCounts"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/ManagedOriginalReclamationCoverage"
+          },
+          "execution_permission": {
+            "const": false,
+            "default": false,
+            "title": "Execution Permission",
+            "type": "boolean"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ManagedOriginalReclamationItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "measured_at": {
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "reclaimable_bytes": {
+            "title": "Reclaimable Bytes",
+            "type": "null"
+          },
+          "scope": {
+            "const": "registered_managed_original_retirement_assertions",
+            "default": "registered_managed_original_retirement_assertions",
+            "title": "Scope",
+            "type": "string"
+          },
+          "unit": {
+            "const": "retirement_assertion",
+            "default": "retirement_assertion",
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "measured_at",
+          "coverage",
+          "counts",
+          "items",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "title": "ManagedOriginalReclamationPreview",
+        "type": "object"
+      },
+      "ManagedOriginalReclamationRoots": {
+        "properties": {
+          "active_learning_roots": {
+            "title": "Active Learning Roots",
+            "type": "integer"
+          },
+          "ambiguous_legacy_tasks": {
+            "title": "Ambiguous Legacy Tasks",
+            "type": "integer"
+          },
+          "asset_locations": {
+            "title": "Asset Locations",
+            "type": "integer"
+          },
+          "dataset_items": {
+            "title": "Dataset Items",
+            "type": "integer"
+          },
+          "task_dataset_links": {
+            "title": "Task Dataset Links",
+            "type": "integer"
+          },
+          "tasks": {
+            "title": "Tasks",
+            "type": "integer"
+          },
+          "training_versions": {
+            "title": "Training Versions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "asset_locations",
+          "dataset_items",
+          "tasks",
+          "task_dataset_links",
+          "training_versions",
+          "active_learning_roots",
+          "ambiguous_legacy_tasks"
+        ],
+        "title": "ManagedOriginalReclamationRoots",
+        "type": "object"
+      },
       "ManagerStatus": {
         "properties": {
           "available": {
@@ -91550,6 +91888,68 @@
           }
         ],
         "summary": "Storage Health",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/managed-original-reclamation": {
+      "get": {
+        "operationId": "managed_original_reclamation_api_v1_storage_managed_original_reclamation_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedOriginalReclamationPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Managed Original Reclamation",
         "tags": [
           "storage"
         ]

@@ -1,6 +1,6 @@
 # EPIC-11：权限、删除与保留治理
 
-> 状态：approved；2026-10-24 的 E11-B1/E09-B3 位置盘点、E11-B2 位置配置确认、E11-B3 数据集归档/恢复与 E11-C1 逻辑位置访问维护已完成；整项 E11 继续活动，未分配发布版本。
+> 状态：approved；2026-10-24 的 E11-B1/E09-B3 位置盘点、E11-B2 位置配置确认、E11-B3 数据集归档/恢复、E11-C1 逻辑位置访问维护与 E11-C2-A 托管原件保留预演已完成；整项 E11 继续活动，未分配发布版本。
 > 晋升基线：`802e6e4df`；工作树干净，保留 3100/8100、两个 Worker 与 beat，不重建镜像。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -11,6 +11,35 @@
 | 依赖     | 与 EPIC-01/02/03/05 同步定义对象、位置和读取权限，不作为末尾补丁   |
 | 协同     | EPIC-04 的并发任务；EPIC-08/09 的操作反馈；EPIC-10 的冻结引用      |
 | 交付阶段 | M1 最小安全闭环；M2 完整影响预览、保留与回收；M3 站点授权扩展      |
+
+## 本轮定稿：E11-C2-A 托管原件保留账本与回收预演
+
+2026-10-24 复核基线 `dd2fdf428`，工作树干净，沿用整套实施、提交及独立子代理授权。C1的逻辑Location排空不提供物理回收许可；复核发现Dataset/Item硬删除保留托管原件字节，但Item→Asset→AssetLocation级联会丢失精确位置。先补齐这一不可恢复的证据缺口，不通过扫描桶前缀推断所有权，也不把现有缓存清理误作dry-run。
+
+交付独立的`managed_original_retirements`账本，0216仅加表。DatasetService在既有删除锁和同一业务事务中，于级联删除前保存每条managed_original的精确内部locator、历史Dataset/Item/Asset/Location ID、可证明的配置/绑定修订及存储身份、已有摘要/大小与核验时间。无业务级联外键；失败/回滚不留下已退休断言，重复捕获幂等。历史未知位置、未验证内容或无法确认的绑定原样标为未知，不凭角色名、键格式或同SHA认定独占所有权，也不因这类未知状态阻断原有合法逻辑删除。外部reference、缓存及派生预览不进入此原件账本；已经丢失的历史locator不伪造回填。
+
+每条断言默认`policy_revision=1`、`retain_until=null`，表示未指定保留策略、无限期保护。本片不引入保留天数默认值、缩短保留接口或生产恢复承诺。现有cache/input的retain_until只保护不确定写入的恢复账本，字节可能先被删除，不能当作内容保留锁。训练、预览、金字塔和临时输入继续由原owner负责，不把本账本描述为已经覆盖这些物理清理。
+
+新增只读GET `/storage/managed-original-reclamation`，仅当前超级管理员与`*` scope，前后复验当前身份/Key及相关平台配置。以同一SQL观测时间和有界分页给出断言、已记录字节/未知数量与保留原因；统计单位明确是退休断言，已知同一物理locator不能冒充多个独立可释放对象。重新核对当前AssetLocation、旧Item/Task定位、适用Task关联和active-learning历史根，以及全部保留状态训练snapshot中的精确source_bucket/source_key；归档、失败/取消训练仍保留，未知/不支持snapshot结构明确阻断。缺生产恢复点/迁移保留登记、回源和最小副本证明时标为未覆盖，不能返回零引用或安全可删结论。固定`execution_permission=false`，不签发执行令牌、不改状态、不调用源/对象I/O或派发任务。
+
+```text
+Dataset/Item hard-delete transaction -> capture managed-original assertions -> business cascade
+                                               | same commit / rollback          |
+                                               v                                 v
+                                  independent retention ledger <--- survives business deletion
+                                               |
+                     current exact-locator roots + all retained frozen snapshots
+                                               |
+                         pure SQL non-executing preview -> Storage Web disclosure
+                                               |
+                         offline owned recovery -> explicit physical remapping
+```
+
+范围超过8文件、跨数据库/API/Web/恢复工具及正式文档。隔离ownership切片负责模型注册、0216、capture服务、Dataset删除接缝和所有权/迁移测试；隔离planner切片负责只读服务、schema/router注册和API/DB回归。主树负责Web存储页折叠预演/分页/居中详情与测试、离线恢复白名单/fixture/回归、OpenAPI/TS/API索引/SDK覆盖、用户/API/架构/恢复说明、README/CHANGELOG及执行队列。无新依赖、环境变量或服务。代码回退保留退休账本；有断言时0216不得破坏性降级。
+
+验收使用已核实一次性test DB：删除后locator/历史身份保留、外部/缓存角色排除、同事务失败与幂等、未知旧证据、共享locator及归档/训练全部状态/历史active-learning/畸形snapshot保护、配置/身份/Key前后变化、纯SELECT与零物理调用、固定查询数和分页边界。恢复测试覆盖新物理owner的精确重定位、未知/外部身份拒绝、保留历史断言和不启动队列。浏览器在保留3100/8100以任务自有托管样本真实删除验证原件字节仍在、断言/阻断原因可见；既有人工数据只读，1440/390明暗、Escape/焦点、分页及网络/溢出验证。迁移/所属API与Worker刷新遵循owned环境核验，不重建镜像、不改共享.env；清理临时业务、任务自有原件/断言、test DB/Redis/九桶、截图/报告/构建缓存与已集成子工作树，保留人工环境。
+
+本片为C2-A，完整C2还须明确实际保留策略、可核验恢复点/迁移保留、独占所有权/副本与物理访问资格、最终执行互斥及可恢复幂等删除。未完成这些门禁不能将预演或C1状态提升为物理许可，E11/E09和整套Epic不因此完成或归档。
 
 ## 本轮定稿：E11-C1 位置访问维护准入与排空
 
@@ -324,6 +353,21 @@ Asset 的业务引用保护的是应保留的内容，不会永久固定每一�
 完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
 
 ## Outcome
+
+### E11-C2-A 托管原件保留账本与只读预演
+
+2026-10-24 在 `dd2fdf428` 基线上交付；后端及夹具修正提交为 `db7febc72`、`3bdcf5ca0`、`0af55ca02`、`b56864b29`，Web、恢复工具、正式文档与本记录同次集成提交。E11-C2尚未全部完成，E11/E09与整套Epic继续活动，不分配发布版本。
+
+- 原件证据：0216纯加表，无业务级联外键；Dataset/Item在既有删除锁和同一事务内，于级联前批量捕获已登记managed_original定位及历史身份、内容和可证明的配置证据。回滚同时撤回，重复捕获幂等；未知身份保存unknown，不伪造历史locator或独占所有权，也不阻断原有合法逻辑删除。默认未指定保留策略、无限期保护，有记录时禁止破坏性降级。
+- 预演：仅当前超级管理员与全权Key可读，前后复核身份/Key及本地、持久平台配置。单SQL按同一观测汇总完整计数和有界页，重查当前定位、Item/Task及关联、所有状态训练快照和主动学习历史；未知结构不能视为零。保护优先于保留，再到资格待核实，计数单位为断言，重复大小不是可释放容量。始终execution_permission=false、reclaimable_bytes=null，无源/对象I/O、任务或状态写入。
+- Web：现有“平台对象占用”中默认折叠，仅展开时查询；独立分页、刷新时间和失败旧证据、撤权隐藏、会话修订隔离。详情使用居中Modal，13px正文/11px次要提示；清楚解释无限期保护、已记录引用和未知所有权/现场副本/备份/迁移条件，不提供删除操作。
+- 本地检查：136个不同API/数据库用例、36个Web用例、4个SDK合同和11个恢复纯测试通过，共187个不同用例。API覆盖新增捕获/迁移、纯SELECT预演、事务回滚、幂等、全部训练状态/畸形历史、撤权/配置变化、固定查询数/分页及既有上传/生命周期/外部引用/Asset/任务关联回归。初次失败仅为测试夹具不符合现有约束，修正后原失败项通过，未重复累计；Vitest首次线程参数冲突未执行用例，改用明确min/max后通过。
+- 真实恢复：合成源销毁后恢复148表73行、九桶20对象，完整核对内容摘要与数据库受保护列；七类物理owner共19处映射包括新保留账本。仅重定位bucket/storage_identity，原始assertion_digest、历史业务ID及无限期保留不变；未知身份拒绝全部映射。冻结/中断、外部原件缺失和同名替换拒绝继续通过，不自动恢复队列；源和目标均按owner销毁并验证清理。
+- 人工环境：核实dev归属和空闲，应用0216并通过所属服务刷新API、两个Worker与beat，3100/8100健康，无镜像重建或共享.env修改。通过真实API上传11个任务自有PNG，待缩略图Worker完成后删除Dataset；11个原件逐项回读SHA/大小保持、11条独立记录无限期保留，接口及Web分页为10+1且无重复。既有业务数据和源文件未参与删除。
+- 浏览器：独立会话、无mock，1440×1000和390×900明暗截图已检查；新预演区域与详情无横向溢出，窄屏详情342px宽、内容可滚动。默认零预演请求，展开/刷新/分页共7条GET、无写请求；159条XHR/Fetch无失败，JS/console错误均为0。居中详情、Escape及触发按钮焦点返回通过。自动化scrollintoview曾令旧shell产生横向滚动，窄屏重新加载并仅滚动main后布局正常；未改动无关shell。
+- 合同与文档：OpenAPI、本地TS、591条API索引及SDK覆盖同步；用户存储指南、API指南、架构、恢复运行说明、README、DEV、CHANGELOG Unreleased与E09/执行队列更新。Ruff check/format、tsc、完整Web lint/CSS tokens、文档frontmatter197/navigation199/严格可读性198及构建通过，正常根提交钩子与diff检查通过；保留既有4条lint warning、两处样式建议及构建提示，未运行远程CI。
+- 清理与保留：正常API已删除自有业务；在验证零Worker活动后，仅按manifest中的精确locator清理11个自有原件、11个缩略图及11条测试断言，保留操作审计。8Dataset/12Item/8Source/12Task/7Annotation、三原件SHA和已有冻结包/元信息与基线一致。一次性test DB/Redis/九桶按owner销毁；专用浏览器、报告/截图/构建缓存及已等价集成的子工作树清理，人工环境保留。
+- 剩余：显式保留策略与可核验恢复点/迁移保留、原件独占所有权/最小副本、全部物理读写资格及最终互斥/幂等执行仍待独立定稿与验收。C2-A只补齐已登记原件在业务删除后的证据缺口，不覆盖此前丢失的定位、外部原件、缓存或其他owner的物理清理；预演、C1维护和策略候选均不能提升为物理删除许可。
 
 ### E11-C1 逻辑位置访问维护
 

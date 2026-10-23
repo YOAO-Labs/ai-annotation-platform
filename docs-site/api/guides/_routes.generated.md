@@ -673,6 +673,12 @@
 | POST | `/{location_id}/maintenance-preview` |
 | POST | `/{location_id}/maintenance` |
 
+## `storage_reclamation.py`
+
+| Method | Path |
+|---|---|
+| GET | `/managed-original-reclamation` |
+
 ## `storage.py`
 
 | Method | Path |
@@ -1022,4 +1028,4 @@
 
 ---
 
-_共 92 模块 / 590 路由_
+_共 93 模块 / 591 路由_

@@ -850,3 +850,9 @@ PYTHONPATH=. uv run python scripts/seed.py --profile online-training
 `STORAGE_MAINTENANCE_PROTOCOL_ENABLED` 默认 false：新代码始终登记受控访问，但预览/提交控制保持关闭。确认旧 API/Worker 都已退出、新准入与旧委托拒绝已实测后，才为该命名空间的全部进程设置 true 并刷新。不能仅重启一个 API，或以初始空账本推断无旧访问。共享 `.env` 不应为单个工作树更改。
 
 维护仅针对单个逻辑位置。取消或超时会等待实际 I/O 收尾；进程退出或账本删除失败留下记录，不会 TTL 到期自动清零。等待中的记录必须先核实责任，平台没有强制清零接口。独立冻结内容与平台自有清理不追加源维护限制，也不把共享根、其他位置和外部客户端当作已停止。回退代码保留账本；有未收尾或非初始维护事实时禁止丢弃0215。详见[维护协议](docs-site/dev/concepts/storage-connections.md#位置访问维护协议)。
+
+### 托管原件保留账本
+
+迁移0216新增独立原件位置记录。部署先向核实归属的目标应用迁移，再刷新实际执行Dataset/Item删除代码的API与Worker；无依赖或镜像变化时不重建镜像。旧代码删除不会生成新记录，不能将升级前或未登记的原件解释为已覆盖。
+
+删除前的capture与业务删除同事务，无独立提交或对象I/O。没有保留策略时`retain_until=null`表示无限期保护；预演不签发物理执行凭证。回退保留账本，有记录时拒绝0216降级。离线恢复映射须包含该物理owner，未知身份拒绝静默映射；详见[原件保留合同](docs-site/dev/concepts/storage-connections.md#托管原件移除后的保留证据)。
