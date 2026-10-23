@@ -82,7 +82,7 @@ async def version(db, project_id, samples, *, status="ready", **fields):
 
 async def live_item(db, actor, key, *, archived=False):
     dataset = Dataset(
-        display_id=f"retirement-{uuid.uuid4().hex[:12]}",
+        display_id=f"retired-{uuid.uuid4().hex[:12]}",
         name="Retained root",
         created_by=actor.id,
         archived_at=datetime.now(timezone.utc) if archived else None,
@@ -187,7 +187,11 @@ async def test_past_retention_is_only_a_policy_candidate_and_cannot_authorize_de
     ("fields", "blocker"),
     [
         (
-            {"identity_state": "unknown", "storage_identity": None},
+            {
+                "identity_state": "unknown",
+                "storage_identity": None,
+                "identity_error_code": "historical_identity_unknown",
+            },
             "storage_identity_unknown",
         ),
         ({"storage_identity": "f" * 64}, "storage_identity_mismatch"),
@@ -457,22 +461,22 @@ async def test_active_learning_failed_history_retains_source_snapshot_and_unknow
 
 
 async def test_api_requires_current_superadmin_and_star_key_scope(
-    db_session, retirement_admin, project_admin, httpx_client
+    db_session, retirement_admin, super_admin, project_admin, httpx_client
 ):
     from app.services import api_key_service
 
     await assertion(db_session)
-    denied = await httpx_client.get(PATH, headers=headers(project_admin[0]))
+    denied = await httpx_client.get(PATH, headers=headers(project_admin))
     assert denied.status_code == 403
     created, raw = await api_key_service.create_key(
         db_session, retirement_admin, name="read-only", scopes=["datasets:read"]
     )
     response = await httpx_client.get(PATH, headers={"Authorization": f"Bearer {raw}"})
     assert response.status_code == 403
-    ok = await httpx_client.get(PATH, headers=headers(retirement_admin))
+    ok = await httpx_client.get(PATH, headers=headers(super_admin))
     assert ok.status_code == 200 and ok.json()["execution_permission"] is False
     assert (
-        await httpx_client.get(PATH + "?limit=101", headers=headers(retirement_admin))
+        await httpx_client.get(PATH + "?limit=101", headers=headers(super_admin))
     ).status_code == 422
     assert created.id
 
