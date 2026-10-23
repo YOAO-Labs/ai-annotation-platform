@@ -84,7 +84,7 @@ async def generated_parent_runtime(test_engine, resources, monkeypatch):
                     ),
                     {"role": role["name"]},
                 )
-                quoted = db.bind.dialect.identifier_preparer.quote_identifier(
+                quoted = test_engine.dialect.identifier_preparer.quote_identifier(
                     role["name"]
                 )
                 await db.execute(text(f"DROP OWNED BY {quoted}"))

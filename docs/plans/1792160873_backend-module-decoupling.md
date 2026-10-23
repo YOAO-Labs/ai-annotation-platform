@@ -7409,3 +7409,10 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   match, the role still authenticates and cannot read private tables, and real HTTP
   login/profile succeeds after restore. Record the backup SHA, do not fabricate
   recovery rows or rotate credentials, and keep the unique case union at twenty.
+
+- The first installed API run completed the embedded Identity HTTP probe, then
+  failed fixture cleanup because AsyncConnection has no bind attribute. Use the
+  owning AsyncEngine dialect for identifier quoting; verify that exact expression
+  with actual SQLAlchemy objects before repeating cold acceptance. Preserve
+  `.worktree/identity-runtime-role-cold-first.*` and its real exit 1. Parent-owned
+  cleanup still removed its resources, bootstrap principal and PostgreSQL container.
