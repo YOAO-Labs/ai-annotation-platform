@@ -1,7 +1,38 @@
 # EPIC-12：运维观测、容量口径与备份恢复
 
-> 状态：approved；2026-10-23 按用户“继续推进下一阶段”授权的 E12-A1/A2 与 E09-B1/B2 已完成；其余切片仍待独立复核，不分配发布版本。
+> 状态：approved；E12-A1/A2、E09-B1/B2 与 2026-10-24 的 E12-B1 离线隔离恢复试点已完成；其余切片仍待独立复核，不分配发布版本。
 > 晋升基线：`5b764eaa5`；工作树干净，保留 `1822b025369a33f4` 的 dev 人工验收环境，不重建后端镜像。
+
+## 本轮定稿：E12-B1 离线一致备份与隔离恢复演练
+
+2026-10-24 基于 `2a18af83b` 重新核验，工作树干净。整套实施已获用户授权；本片补齐 E12-S06 的本地方案与试点，不将其等同于生产备份、在线/PITR、保留保护或生产 RPO/RTO。现有工作树归属/迁移验证复用；现有分步 dump/mirror 不是一致恢复证据。3100/8100、两 Worker、beat、业务库及镜像均保留。
+
+```text
+new random owned source -> real synthetic asset/label/freeze + interrupted task
+             | offline, no API/Worker/Beat, exact owner / no clients
+             v
+one backup_generation -> PG custom dump + all 9 purpose objects + SHA/metadata
+                       -> configuration/heads/frozen facts + separate key material
+             | verify complete archive, then destroy source resources
+             v
+new random owned empty target -> full PG restore -> explicit physical mapping ledger
+                              -> object restore + key + immutable business verification
+                              -> unfinished work / missing external original held for review
+             v
+bounded timing/report -> clean both owned namespaces and private artifacts
+```
+
+只接受脚本本次新建的两个随机 test root，无指向既有环境的参数；由 LocalResources 验证本机服务器、DB comment、九桶 tag 和 Redis label。先检查全部归属，锁模式，未知客户端或非空目标拒绝；不强断连接、不创建/修改共享PG roles。目标只创建空库，full restore 前不执行 Alembic upgrade；恢复后验证迁移头再授权runtime。源无运行服务，合成数据准备完成后零客户端；清单完成前复核数据库和对象集合不变，来源停写是本试点的进程隔离条件，不能宣传为生产停写门禁。
+
+备份目录0700、文件0600；统一代次包含代码提交、schema/head、数据库dump SHA、九用途映射、逐物理对象key/大小/流式SHA及读取所需metadata、外部原件保护责任、未完成作业和冻结事实。总对象/单对象/总字节/dump设明确预算；S3分页，不以ETag替代SHA。首版仅保护当前对象；遇版本化、删除标记或未完成分片拒绝发布。备份最后原子写完成标记；缺对象、读中变化、中断或篡改没有成功代次。密钥独立受限文件保存，仅合成演练专用Fernet key，不复制真实.env，不写公共清单/日志/Git；缺失/错误key必须阻止恢复验证。
+
+恢复到独立九桶，不能仅换环境变量。只在恢复目标DB按白名单变换 StorageBinding、平台 DatasetAssetLocation、SourcePreview、OriginalCacheEntry、PredictionInputLease、TrainingStorageDeletion 的物理桶/存储身份，并保留变换账本；记录未知/不匹配绑定须拒绝。源与目标使用独立配置子进程，原dump、业务ID、Asset/SHA、采纳修订、snapshot/manifest/package及来源证据不得改写。容量观测保留其原位置/时间身份，不冒充目标实时统计。旧Redis队列不恢复、不启动调度；未完成版本/作业记录保留并报告待核对，不能自动重新执行含历史物理locator的冻结任务。B1不开放恢复应用流量；后续上线门禁须覆盖所有异步owner及外部映射。
+
+实际演练须在备份后销毁源，证明目标不借源桶/源库：恢复标注—样本—Asset/修订链，校验ready版本所有原图、标签、清单、ZIP和Native输入；部分冻结保持未完成。合成外部原件移除后索引仍保留、实时严格读取拒绝，同名不同内容替代也须拒绝，ready保留内容独立可验。包含缓存与临时输入/删除账本的目标映射，证明不再指向源桶；缺key、坏dump/对象、owner不符、目标非空、预算和故障阶段清理设有意义回归。报告已知零写入窗口和阶段用时，只说明本次规模。
+
+准确范围超过8文件，跨工具/DB与存储合同/运维文档：新增 `scripts/storage_backup_bundle.py`、`scripts/test_storage_backup_bundle.py`、`scripts/verify_worktree_recovery.py`、`scripts/worktree_recovery_fixture.py`、`scripts/worktree_recovery_mapping.py`、`scripts/test_worktree_recovery.py`；必要复用现有helpers，不修改生产API/Worker/依赖/schema。新增正式 `docs-site/ops/deploy/storage-recovery.md`，更新部署两页、运维索引、DEV、README、CHANGELOG、本计划及整套队列。纯脚本unit命令与真实 `apps/api/.venv/bin/python scripts/verify_worktree_recovery.py` 分开记录；Ruff/格式、文档frontmatter/导航/可读性/构建、diff及提交钩子。无UI变更不重复浏览器矩阵。
+
+回退移除演练入口及工具提交；所有源/目标为本次随机owner资源，finally按原归属销毁，不触碰dev。失败清理不能冒充成功；若资源清理失败保留private清单和具体owner供再次核对，不强删未知资源。归档所有正常和注入故障报告的脱敏摘要到Outcome，删除任务临时文件后提交；整项E12仍保持活动。
 
 ## 本轮定稿：E12-A2 / E09-B2（已交付）
 
@@ -272,7 +303,7 @@ pnpm --dir docs-site check:navigation
 - [ ] 接入统一日志关联、位置健康、错误分类与告警恢复事件。
 - [ ] 建立代表性性能数据集和测量报告，确认有界资源与具体发布预算。
 - [ ] 设计一致备份清单、删除保护和任务恢复规则；保存密钥恢复材料。
-- [ ] 完成一次隔离恢复演练，覆盖冻结中断、缺失外部原件和旧任务状态。
+- [x] 完成一次离线合成隔离恢复演练，覆盖冻结中断、缺失外部原件和旧任务状态；生产恢复上线仍须另行验收。
 
 完成定义：用户能看懂实际占用与数据可用性，运维能定位故障并按演练过的步骤恢复业务，而不是只恢复一个运行中的容器。
 
@@ -320,3 +351,17 @@ E12-A1 / E09-B1 已完成。主实现提交 `0e85ce496`；本次交付记录同�
 - 正式文档：`docs-site/api/guides/storage-locations.md`、`docs-site/user-guide/datasets/storage-connections.md`、`docs-site/dev/concepts/storage-connections.md`、`README.md`、`CHANGELOG.md` Unreleased 及 OpenAPI 同步。API 路由未新增，生成 API 索引与 SDK coverage 无需变更。
 - 清理：已按 owner 销毁本轮 test DB/Redis/九桶及临时资源，清理日志、报告、截图、测试缓存和专用浏览器；保留 dev、D-7 来源、质检/复核记录及原 ready 冻结版本。完整 pre-commit 通过；首次 hook 仅自动排版路线表格，暂存格式化结果后重新完整通过。
 - 剩余：运维告警/日志关联与跨节点失败分类仍需独立合同；E12-B 分项归因、配额和一致恢复，E12-C 规模基准、E09 的 E11/E07 维护影响预览仍未完成。本次记录不是实时读取证明，也不提供物理容量或完整源索引字节。活动计划继续保留，不归档整套 Epic。
+
+### E12-B1 离线一致备份与隔离恢复交付
+
+2026-10-24 完成，仅资格化本机离线合成试点；生产 RPO/RTO 未定，整项 E12 继续活动。实现、正式文档和本记录同次提交，不分配发布版本。
+
+- 交付：私有完整备份代次、最后发布完成标记、流式 SHA 与 metadata、全部九用途及共桶范围、逐项预算和无版本历史门禁、独立演练密钥；源销毁后 full restore 至随机空目标，迁移头匹配后授权，六类物理 owner 白名单映射并保留17项变换账本。旧队列不恢复、不启动应用/调度，未完成任务明确待核对。
+- 纯测试：30个不同用例通过，包含备份与恢复的完整性、预算、分页/中途变化、空/共享桶、私有文件、完成标记、篡改、metadata、错误归属/非空目标/未知客户端、密钥类型与身份、优化模式拒绝、六类映射及拒绝前零变更。首次29项及新增空目标复查1项分别通过，不重复累计；均不连接业务基础设施。
+- 最终真实演练：代次 `a769013d-6b7e-4b38-856f-86ac140337c8`，迁移头0213，145表71行、九桶19对象4700字节。备份源库/源桶/Redis及外部文件销毁、源dump和旁路事实文件移除后，只使用完整代次与独立密钥恢复。原始全库指纹一致；映射后的受保护业务指纹一致，连接密文成功解密，完整缓存与预览回读校验通过。
+- 业务验证：1个ready版本的3张冻结图、标签、manifest、ZIP、来源证据与Native输入校验通过；1个已有部分媒体的running版本保留未完成，无伪造清单/包。两条外部引用索引保留，缺失原件严格拒绝；旧路径重建同名不同内容也拒绝，冻结内容仍独立可验。目标Redis为空。
+- 用时与窗口：源准备20.529秒、备份3.197秒、源销毁1.508秒、DB恢复13.605秒、对象恢复2.825秒、应用核验3.169秒；含归属/清理的总用时47.284秒。已知停写期间写入为0，仅适用于无服务的随机合成源；不能据此宣称生产数据损失窗口或恢复承诺。
+- 故障：源准备后注入中止、对象篡改、错误密钥、坏dump及DB恢复后中止均按预期退出1并验证清理。坏dump明确返回 `dump_integrity`，26.286秒结束并完成清理；恢复中止场景先销毁源再恢复目标，证明失败清理不依赖源。单元补充完成标记前DB回调失败、坏dump及缺key等边界。
+- 文档与检查：新增 `docs-site/ops/deploy/storage-recovery.md`，同步部署两页、运维索引、DEV、README、CHANGELOG Unreleased及整套队列。Ruff检查/格式、文档frontmatter/导航/严格可读性及构建通过；仅有既有大包和未加载代码语言的构建提示。无应用UI/API/Worker/schema改动，不重复浏览器矩阵，不重建镜像。
+- 清理与保留：演练正常/失败均按owner销毁随机DB/Redis/九桶并清理私有目录，最终清理状态verified；任务日志、报告、构建和Python缓存在记录后清理。当前dev 3100/8100、两个Worker及beat保留，服务只读核验；未向人工业务数据写入夹具。
+- 剩余：生产停写与删除保护、保留策略/PITR、恢复应用上线/异步owner处置、规模基准/告警和实际外部来源恢复仍需独立验收。此切片不提供通用生产恢复命令。接下来复核E11/E09维护影响与受控生命周期，不归档仍活动的E12。

@@ -380,6 +380,8 @@ pnpm --filter @anno/web build
 
 ## 5. 备份与恢复
 
+数据库、九用途对象及独立密钥材料须属于同一备份代次。以下命令是操作示例；生产需先完成覆盖 API、Worker/Beat、清理及外部写入的停写门禁，再核对数据库恢复点、逐对象清单与摘要。分步任务各自成功不能证明一致恢复。本地可先运行[一致备份与隔离恢复演练](./storage-recovery)，验证源销毁后的独立恢复；该试点不替代生产备份目标、保留和上线验收。
+
 ### 5.1 Postgres
 
 按业务重要度分级：
@@ -410,9 +412,9 @@ mc mirror anno/datasets    s3-backup/anno/datasets
 mc mirror anno/avatars     s3-backup/anno/avatars
 ```
 
-桶名见 `MINIO_BUCKET` / `MINIO_DATASETS_BUCKET` / `MINIO_AVATARS_BUCKET`（默认 `annotations` / `datasets` / `avatars`）。恢复时先恢复数据库再回灌这三个桶，确保 `users.avatar_ref` 指向的对象已就位。
+上述镜像示例只列出部分桶。完整范围应按当前九用途配置逐项登记，按相同物理桶去重：annotations、datasets、bug-reports、media-cache、audit-archive、import、export、avatars、training。空桶、主动排除的可重建内容和未完成任务也要明确记录，不能从清单中消失。头像、托管原件及训练冻结内容是持久业务数据；数据库引用不能替代文件。连接加密密钥和生产配置独立受控保存。
 
-启用在线学习数据版本后，另需备份并恢复 `MINIO_TRAINING_BUCKET`（默认 `training`）；数据库中的版本引用不能替代冻结原图和训练包。
+恢复时先验证完整代次、密钥及空目标归属，恢复数据库和匹配对象，再核对持久桶绑定、Asset/缓存/清理账本的物理身份。修改环境变量不会自动改写这些记录；原冻结清单和摘要保持不变。外部原件由其责任方恢复；旧队列和未完成任务先隔离核对，确认前不启动调度或开放流量。详细顺序见[恢复演练](./storage-recovery#恢复顺序与物理映射)。
 
 ### 5.3 Redis
 

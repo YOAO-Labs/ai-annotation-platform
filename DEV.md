@@ -247,6 +247,14 @@ pnpm dev:worktree -- stop --mode test
 支持范围为 macOS/Linux 的本机开发基础设施；不会自动注册共享 ML 后端或启动 GPU/beat。
 完整的首次数据、权限要求、重建与清理说明见[独立工作树开发环境](docs-site/dev/how-to/worktree-environments.md)。
 
+验证数据库与对象的一致恢复，可在当前 checkout 的 API 虚拟环境运行：
+
+```sh
+apps/api/.venv/bin/python scripts/verify_worktree_recovery.py
+```
+
+该命令只创建两套随机 owned test 资源，不接收现有环境目标，不启动应用或调度；源销毁后从完整备份代次和独立演练密钥恢复，再校验冻结包、标注、物理映射及未完成任务。成功或注入失败均核对清理；清理失败会保留私有清单。纯守卫测试为 `PYTHONPATH=scripts:apps/api apps/api/.venv/bin/python -m unittest test_storage_backup_bundle test_worktree_recovery`。详细预算、报告、故障注入与生产边界见[一致备份与隔离恢复演练](docs-site/ops/deploy/storage-recovery.md)。
+
 ## Codex 会话启动硬件上下文
 
 仓库内的 `.codex/hooks.json` 会在 Codex 会话启动、恢复、清空或压缩后运行
