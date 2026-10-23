@@ -26,7 +26,7 @@ Promotion requires a fresh decision based on the actual repository, not a few no
 
 ## 数据集与存储升级草案集
 
-[总览与推荐顺序](1792661016_dataset-storage-roadmap.md)将整套外部材料转为本项目 17 份研究草案：5 份总纲与 12 个 Epic，保留需求、故事和验收编号，补入代码落点、复用边界、独立切片、晋升条件及回退方法。E01-A、E02-A、E04-A、E05-A 与完整 E03 已完成本地验收，E03 已归档。E04-B1 已完成手动增量差异与仅新增接纳；E04-B2 周期扫描与预检、E04-B3 逐项内容新修订已完成；同摘要身份变化与移动裁决仍待独立推进，E08/E09 完整界面重整待独立评审。E01-B、E02-B、E05-B 仍待评审，其余草案未排期，不分配发布版本。
+[总览与推荐顺序](1792661016_dataset-storage-roadmap.md)将整套外部材料转为本项目 17 份研究草案：5 份总纲与 12 个 Epic，保留需求、故事和验收编号，补入代码落点、复用边界、独立切片、晋升条件及回退方法。E01-A、E02-A、E04-A、E05-A 与完整 E03 已完成本地验收，E03 已归档。完整 E04 已完成并归档，涵盖手动/周期增量、内容新修订、同内容重新核验、移动重定位、规则变更与历史导航。E10-A 已完成项目级引用训练冻结及实际浏览器验收，当前继续推进 E08/E09 页面整合。E01-B、E02-B、E05-B 仍待评审，其余草案未排期，不分配发布版本。
 
 共同约束：[架构与决策](1792661016_dataset-storage-architecture.md) · [信息架构](1792661016_dataset-storage-information-architecture.md) · [交付与 33 项跨 Epic 验收](1792661016_dataset-storage-delivery-acceptance.md) · [基线、来源映射与参考](1792661016_dataset-storage-baseline.md)。
 
@@ -41,7 +41,7 @@ Promotion requires a fresh decision based on the actual repository, not a few no
 | [E07 S3 选型与迁移](1792661016_dataset-s3-selection-migration.md)                                  | 候选契约、全用途迁移及回滚            | 试验独立；切换另过恢复门     |
 | [E08 数据集工作台与质量](1792661016_dataset-workbench-quality.md)                                  | 独立详情、动态视图、质量与项目上下文  | 迁现有功能；接真实来源状态   |
 | [E09 存储控制台与去重](1792661016_dataset-storage-console-boundaries.md)                           | 唯一配置、准确指标和上下文深链        | E02；与 E08 迁旧入口         |
-| [E10 版本与训练消费](1792661016_dataset-versions-training-consumption.md)                          | 目录进入已有冻结体系、血缘及缓存      | 现有任务版本流与 E05；不重建 |
+| [E10 版本与训练消费](../1792661016_dataset-versions-training-consumption.md)                       | 目录进入已有冻结体系、血缘及缓存      | 现有任务版本流与 E05；不重建 |
 | [E11 权限与生命周期](1792661016_dataset-permissions-lifecycle.md)                                  | 只读/修订保护、影响预览、恢复/回收    | 最小保护随核心；治理独立启用 |
 | [E12 容量、运维与恢复](1792661016_dataset-storage-operations-recovery.md)                          | 异步统计、定位故障、一致恢复          | 诊断随核心；恢复先于迁移     |
 

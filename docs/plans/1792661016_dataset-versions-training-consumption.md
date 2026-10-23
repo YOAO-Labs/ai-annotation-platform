@@ -1,36 +1,82 @@
 # EPIC-10：数据集版本、血缘与训练消费
 
-> 状态：research-draft；未排期，未批准实施，未分配发布版本。
+> 状态：E10-A complete；E10-B/C 保留为后续切片，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
-> 实施前须通过 [backlog promotion gate](README.md#promotion-gate)。[草案总览](1792661016_dataset-storage-roadmap.md)、[架构契约](1792661016_dataset-storage-architecture.md)和[交付验收](1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
+> 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 | 项目          | 内容                                                                                |
 | ------------- | ----------------------------------------------------------------------------------- |
-| 状态          | 研究草案，待晋升复核与产品/技术评审                                                 |
+| 状态          | E10-A 已完成；E10-B/C 待独立评审                                                    |
 | 日期          | 2026-10-22（Asia/Shanghai）                                                         |
 | 优先级 / 阶段 | P0：M1 既有冻结不退化及单目录最小冻结；P1：M2 多来源与视图版本；P2：M3 按需训练缓存 |
 | 负责角色      | 训练平台后端、数据集后端、算法使用者、测试                                          |
 | 最小依赖      | E01 内容身份、E05 验证读取、E11 最小版本权限                                        |
 | 协作          | E04 源变化；E06 训练节点可达性；E08 筛选/质量；E12 容量与恢复                       |
 
+## 本次实施：E10-A（2026-10-23）
+
+用户已授权“完成 E10-A，再推进 E08/E09 页面整合”。重新核查基线 `48bda47bc`，工作树干净；E03/E04 已完成，E05-A 的严格读取已可复用。当前 API 在选择快照时返回 `reference_not_supported`，Worker 同时拒绝 reference 键。本次通过晋升复核，只实现单目录最小冻结；E10-B 的多来源视图/增强血缘和 E10-C 节点缓存不在本切片。
+
+### 实施合同与范围
+
+- 复用 TrainingDatasetVersion、规范任务版本流、单条 PG 标注/类别快照、attempt fencing、持久媒体和 ZIP；不新增版本表或迁移，不改历史 snapshot/manifest/包/hash。
+- 仅新引用样本增加带 `schema: 1` 的来源身份：DatasetItem、Asset、完整 SHA-256、字节数；保留当前已资格检测、简单多边形、原生实例掩码桥接。几何合同与来源合同分别识别。
+- API 预检按现有 resolver 真读、校验与关闭有界快照，报告选中引用数量和预计持久原图复制体量。源文件异常逐项阻止发布，不能静默跳过；保留单图/总量上限及严格读取较小的 JPEG/PNG/WebP 限额。
+- Worker 用真实执行节点的已核验 anchor 读取引用；以当前项目/创建者/API Key 校验权限，按固定 Asset/SHA/字节复制，不能把 opaque reference 拼到 datasets 桶。持久冻结副本重试优先且校验 SHA；其可用性不依赖后续源状态。
+- 新来源身份以独立嵌套 schema 放入新清单，ZIP 不含宿主路径、凭据或长期 URL；旧输入不增加字段。保持 SHA/Scene 分组、重复标注冲突、父分区与现有消费者。
+- UI 沿用项目准备版本入口，展示复制体量、失败原因和已有后台进度；数据集入口在随后 E08-A 页面整合接入同一流程。
+
+```text
+项目/任务/标注（单条 PG 快照） -> API 预检 -> 固定样本/Asset/SHA
+                                                |
+Worker 当前节点/权限 -> E05 严格读取 -> training 持久媒体 -> 现有 ZIP/manifest
+                                                |
+                                     ready 后只读取保留副本
+```
+
+### 准确文件清单
+
+本切片超过 8 个文件，改动跨 API、读取服务、Worker、Web 和文档，保留上述数据流边界。
+
+- `apps/api/app/services/training_datasets.py`：去掉整体引用拒绝、固定引用身份与预检计量。
+- `apps/api/app/services/training_dataset_sources.py`（新增）：引用训练身份/严格快照适配；仅复用现有 resolver。
+- `apps/api/app/services/dataset_references.py`：允许内部调用显式指定真实读取节点，保留默认 API 语义。
+- `apps/api/app/workers/training_dataset.py`：冻结引用内容及真实节点传播、持久副本重试与摘要校验。
+- `apps/api/app/services/training_dataset_bridge.py`：独立 schema 来源证据，检测/分割/RLE 共用。
+- `apps/api/tests/test_training_dataset_references.py`（新增）：真实文件与一次性 MinIO/DB 完整冻结及故障回归。
+- `apps/api/tests/test_dataset_source_training_immutability.py`、`apps/api/tests/test_training_datasets.py`：现有托管与历史合同回归起点；必要时扩展。
+- `apps/web/src/pages/Projects/ProjectLearningPage.tsx`、对应 `.test.tsx`：复制体量与源错误展示。
+- `docs-site/user-guide/online-learning/data-versions.md`、`docs-site/user-guide/datasets/import-images.md`、`docs-site/dev/concepts/training-datasets.md`、`docs-site/api/guides/training-datasets.md`、`README.md`、`CHANGELOG.md`：当前能力与边界。
+- 本计划、backlog 索引/路线图/交付验收中的引用随晋升更新；若生成的 API schema 不变则只验证 OpenAPI/SDK，不制造无效快照变更。
+
+### 验证与验收门
+
+1. `pnpm dev:worktree -- doctor --mode dev` 核对长期人工环境归属；所有 DB 测试只用 `pnpm dev:worktree -- exec --mode test -- sh -c 'cd apps/api && .venv/bin/python -m pytest ...'`。
+2. 新引用测试：检测/多边形/RLE；两个项目隔离；预检体量；标注修改后仍用固定快照；源覆盖/删除/不可达阻断；真实节点未经核验拒绝；部分冻结后失败/取消与同版本重试；ready 后删除源仍能读取相同媒体/ZIP。
+3. 既有 `test_training_datasets.py`、`test_training_dataset_bridge.py`、`test_training_dataset_analysis.py`、`test_training_storage_deletion.py`、`test_project_task_datasets.py`、`test_dataset_source_training_immutability.py`；补充 resolver 节点兼容回归。
+4. Web 准备版本测试、typecheck、lint/CSS tokens；Python Ruff、OpenAPI check/SDK 合同、受影响文档与 `git diff --check`。
+5. 在当前人工环境刷新实际 export Worker，验证节点与新签名，实际浏览器创建引用版本、查看进度/冻结样本/下载；在专用演示来源覆盖/移走图片后旧 ready 仍保持原内容。保留 dev 数据，清理测试数据库/桶、临时截图、报告和专属浏览器会话。
+
+回退：关闭新引用版本创建并保持旧 ready 内容/合同可读；不删除已发布冻结内容，不把 reference 回退到旧对象存储路径。每个实施提交需同步正式文档；完成 E10-A 后记录 Outcome，再推进 E08/E09 的独立详情与存储边界整合。
+
 ## 本项目基线与改造落点
 
 下列为固定提交的静态证据，尚非运行/浏览器验收结果。
 
-| 当前 owner / 代码锚点                                                              | 已有能力、缺口与复用约束                                                                                          |
-| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| [training_dataset.py](../../../apps/api/app/db/models/training_dataset.py)         | TrainingDatasetVersion 已有 parent/snapshot/manifest/attempt/包摘要和状态，不新增同义 DatasetVersion。            |
-| [project_task_dataset.py](../../../apps/api/app/db/models/project_task_dataset.py) | 项目规范任务流及序号已存在；来源血缘不改 membership/ordinal 或历史 request/snapshot/manifest/package digest。     |
-| [training_datasets.py](../../../apps/api/app/services/training_datasets.py)        | 已有单条 PG 语句固定类别/任务/活跃标注；扩展 source_bucket/source_key 假设和来源修订证据，保留原快照边界。        |
-| [training_dataset.py](../../../apps/api/app/workers/training_dataset.py)           | materialize_image 已有 IfMatch/VersionId、SHA-256、完整解码、持久冻结及重试复用；接 resolver 而非重建冻结状态机。 |
+| 当前 owner / 代码锚点                                                           | 已有能力、缺口与复用约束                                                                                          |
+| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| [training_dataset.py](../../apps/api/app/db/models/training_dataset.py)         | TrainingDatasetVersion 已有 parent/snapshot/manifest/attempt/包摘要和状态，不新增同义 DatasetVersion。            |
+| [project_task_dataset.py](../../apps/api/app/db/models/project_task_dataset.py) | 项目规范任务流及序号已存在；来源血缘不改 membership/ordinal 或历史 request/snapshot/manifest/package digest。     |
+| [training_datasets.py](../../apps/api/app/services/training_datasets.py)        | 已有单条 PG 语句固定类别/任务/活跃标注；扩展 source_bucket/source_key 假设和来源修订证据，保留原快照边界。        |
+| [training_dataset.py](../../apps/api/app/workers/training_dataset.py)           | materialize_image 已有 IfMatch/VersionId、SHA-256、完整解码、持久冻结及重试复用；接 resolver 而非重建冻结状态机。 |
 
-候选修改入口：[training_datasets.py](../../../apps/api/app/services/training_datasets.py)、[training_dataset.py](../../../apps/api/app/workers/training_dataset.py)、[training_dataset_bridge.py](../../../apps/api/app/services/training_dataset_bridge.py)、[training_dataset_analysis.py](../../../apps/api/app/services/training_dataset_analysis.py)、[project_task_dataset.py](../../../apps/api/app/services/project_task_dataset.py)、[ProjectLearningPage.tsx](../../../apps/web/src/pages/Projects/ProjectLearningPage.tsx)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
+候选修改入口：[training_datasets.py](../../apps/api/app/services/training_datasets.py)、[training_dataset.py](../../apps/api/app/workers/training_dataset.py)、[training_dataset_bridge.py](../../apps/api/app/services/training_dataset_bridge.py)、[training_dataset_analysis.py](../../apps/api/app/services/training_dataset_analysis.py)、[project_task_dataset.py](../../apps/api/app/services/project_task_dataset.py)、[ProjectLearningPage.tsx](../../apps/web/src/pages/Projects/ProjectLearningPage.tsx)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
 
 ## 1. 问题与现有能力
 
 用户希望已有目录可以直接成为数据集，但外部目录持续变化。某天训练时读取的内容，必须能够与当时标注、标签定义和数据划分对应，不能只记录一个会被覆盖的路径。
 
-项目已经有 TrainingDatasetVersion、父版本、快照、manifest、打包摘要和冻结原图。已有训练桥接逻辑按 SHA-256 与 Scene 分组，保护切分一致性并识别重复图像的标注冲突；已有训练分析与版本比较。本 Epic 扩展多来源读取、来源血缘和消费方式，保留这些能力。[代码依据：训练版本模型](../../../apps/api/app/db/models/training_dataset.py)、[训练桥接](../../../apps/api/app/services/training_dataset_bridge.py)、[训练分析](../../../apps/api/app/services/training_dataset_analysis.py)
+项目已经有 TrainingDatasetVersion、父版本、快照、manifest、打包摘要和冻结原图。已有训练桥接逻辑按 SHA-256 与 Scene 分组，保护切分一致性并识别重复图像的标注冲突；已有训练分析与版本比较。本 Epic 扩展多来源读取、来源血缘和消费方式，保留这些能力。[代码依据：训练版本模型](../../apps/api/app/db/models/training_dataset.py)、[训练桥接](../../apps/api/app/services/training_dataset_bridge.py)、[训练分析](../../apps/api/app/services/training_dataset_analysis.py)
 
 ## 2. 目标与边界
 
@@ -197,8 +243,19 @@ M1 必须让一个已关联项目的原地图片目录，通过统一 resolver �
 
 前置合同不等于等待前置 Epic 全量完成。每个切片合并后系统仍须可用；含新来源的回退保留兼容读取和授权，不能把其相对路径交给旧 S3 拼接逻辑。预计多数切片涉及超过 8 个文件，实施时明确大范围边界与准确清单。
 
-已有回归入口：[test_training_datasets.py](../../../apps/api/tests/test_training_datasets.py)、[test_training_dataset_bridge.py](../../../apps/api/tests/test_training_dataset_bridge.py)、[test_project_task_datasets.py](../../../apps/api/tests/test_project_task_datasets.py)、[test_training_dataset_analysis.py](../../../apps/api/tests/test_training_dataset_analysis.py)、[test_training_storage_deletion.py](../../../apps/api/tests/test_training_storage_deletion.py)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
+已有回归入口：[test_training_datasets.py](../../apps/api/tests/test_training_datasets.py)、[test_training_dataset_bridge.py](../../apps/api/tests/test_training_dataset_bridge.py)、[test_project_task_datasets.py](../../apps/api/tests/test_project_task_datasets.py)、[test_training_dataset_analysis.py](../../apps/api/tests/test_training_dataset_analysis.py)、[test_training_storage_deletion.py](../../apps/api/tests/test_training_storage_deletion.py)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
 
-实现时同步：[training-datasets.md](../../../docs-site/dev/concepts/training-datasets.md)、[training-datasets.md](../../../docs-site/api/guides/training-datasets.md)、[data-versions.md](../../../docs-site/user-guide/online-learning/data-versions.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
+实现时同步：[training-datasets.md](../../docs-site/dev/concepts/training-datasets.md)、[training-datasets.md](../../docs-site/api/guides/training-datasets.md)、[data-versions.md](../../docs-site/user-guide/online-learning/data-versions.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
 
-完成实施后按[计划规范](../README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+
+## Outcome
+
+- E10-A 完成；提交以本文件 Git 历史中的 `feat(training): freeze verified reference originals into training versions` 为准。E10-B 多来源视图/增强血缘、E10-C 节点缓存仍待评审，本计划保留在根目录。
+- 实现：项目级固定快照接入现有严格 resolver，固定 Item/Asset/SHA/字节；真实 Worker 节点读取证明；独立训练原图与 ZIP；失败/取消同快照重试，优先验证保留副本；预检展示预计持久复制量。新来源使用独立嵌套 schema，旧合同和摘要不回写，无迁移或依赖变更。
+- 后端证据：既有训练/桥接/分析/删除/版本流/托管冻结不变性/RLE/引用读取共 171 项通过；新增引用冻结 18 项通过。新增矩阵覆盖检测、多边形、真实栅格 RLE、实际 MinIO 外部 S3 来源、源覆盖/离线/未核验节点、固定标注、两项目隔离、失败/取消重试、伪造保留媒体、读取中账号/API Key 撤权、保留副本重试撤权。随后扩展的 3 个合同用例再次通过训练执行器 `validate_dataset`，并验证解除关联/删除活跃数据集后冻结媒体不变。
+- Web：准备版本页 53 项通过，typecheck、受影响 ESLint、CSS tokens、Python Ruff check/format、OpenAPI 一致性、SDK 合同 4 项、文档 frontmatter/navigation 及 `git diff --check` 通过。未宣称全量 Web 或远程 CI 验收。
+- 实际浏览器：当前工作树 3100/8100，刷新真实 general/export Worker 后，从项目负责人确认 3 个引用任务，预检显示 17,778 字节，创建版本后实际任务 ready；浏览冻结样本和标注、点击下载、现有新建训练入口可用。版本 `da621d70-54af-47d4-aa8a-7795a56d63f5`。随后专用来源覆盖 vehicle-1、移除 vehicle-2；浏览器仍显示原 vehicle-1 与固定框，API 校验全部 3 张原图、标签和 ZIP SHA 不变，2 个实时源读取明确拒绝，原标注保留。浏览器错误为空；未启动原生模型训练。
+- 正式文档：`docs-site/user-guide/online-learning/data-versions.md`、`docs-site/user-guide/datasets/import-images.md`、`docs-site/dev/concepts/training-datasets.md`、`docs-site/api/guides/training-datasets.md`、`README.md`；`CHANGELOG.md` Unreleased 已更新。
+- 人工环境与专用演示数据继续保留，说明及固定摘要在忽略的 `.worktree/manual/README.md` / `training-fixture.json`。测试资源、报告、截图、专属浏览器会话按验证流程清理；不重建镜像、不推送、不分配发布版本。
+- 后续按用户顺序推进 E08-A/E09-A 页面整合：独立数据集详情、真实来源/可用性、项目/训练衔接与统一存储位置配置；动态质量视图、节点缓存、运维统计仍遵守各自独立范围。

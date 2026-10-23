@@ -203,6 +203,20 @@ afterEach(() => {
 });
 
 describe("project learning data versions", () => {
+  it("previews the retained copy size for reference originals before creation", async () => {
+    vi.mocked(trainingDatasetsApi.preflight).mockResolvedValueOnce({
+      ...report,
+      summary: { ...report.summary, reference_samples: 2, original_copy_bytes: 2048 },
+    });
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole("button", { name: "准备新版本" }));
+    await user.click(screen.getByRole("button", { name: "检查训练数据" }));
+    expect(await screen.findByText(/引用图片 2 张；预计新增原图副本/)).toHaveTextContent(
+      "2,048 字节",
+    );
+    expect(trainingDatasetsApi.create).not.toHaveBeenCalled();
+  });
   it("opens training data and creates UUID requests on plain HTTP without randomUUID", async () => {
     vi.stubGlobal("crypto", { getRandomValues: crypto.getRandomValues.bind(crypto) });
     const user = userEvent.setup();

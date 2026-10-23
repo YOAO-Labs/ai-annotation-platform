@@ -255,10 +255,6 @@ async def freeze_selection(
     rows = (await db.execute(stmt.execution_options(populate_existing=True))).all()
     from app.services.reference_keys import is_reference
 
-    if any(is_reference(row[0].file_path) for row in rows):
-        raise TrainingDatasetError(
-            "reference_not_supported", "原地引用图片尚未接入训练冻结", status_code=409
-        )
     if len(rows) > MAX_SAMPLES:
         raise TrainingDatasetError("sample_limit", "单个版本最多包含 20000 张图片")
     if selection.task_ids and {row[0].id for row in rows} != set(selection.task_ids):
@@ -320,6 +316,16 @@ async def freeze_selection(
         if reason:
             excluded.append({"task_id": task_id, "code": reason})
             continue
+        reference = is_reference(task.file_path)
+        if reference and item is None:
+            issues.append(
+                {
+                    "task_id": task_id,
+                    "code": "content_binding_changed",
+                    "message": "引用样本身份已失效",
+                }
+            )
+            continue
         try:
             if is_instance_rle(contract) and item and item.width and item.height:
                 instance_mask_annotations(
@@ -340,9 +346,18 @@ async def freeze_selection(
                 "task_version": task.version,
                 "annotations": active_annotations,
                 "scene_id": str(item.scene_id) if item and item.scene_id else None,
-                "source_bucket": storage_service.datasets_bucket
-                if task.dataset_item_id
-                else storage_service.bucket,
+                **(
+                    {
+                        "dataset_id": str(item.dataset_id),
+                        "dataset_item_id": str(item.id),
+                    }
+                    if reference
+                    else {
+                        "source_bucket": storage_service.datasets_bucket
+                        if task.dataset_item_id
+                        else storage_service.bucket
+                    }
+                ),
                 "source_key": task.file_path,
                 "expected_width": item.width if item else None,
                 "expected_height": item.height if item else None,
@@ -390,7 +405,47 @@ async def freeze_selection(
                     }
                 )
 
-    await asyncio.gather(*(capture(sample) for sample in samples))
+    await asyncio.gather(
+        *(
+            capture(sample)
+            for sample in samples
+            if not is_reference(sample["source_key"])
+        )
+    )
+    references = [s for s in samples if is_reference(s["source_key"])]
+    if references:
+        from app.services.training_dataset_sources import training_reference_snapshot
+
+        actor = await db.get(User, actor_id, populate_existing=True)
+        # One AsyncSession cannot serve concurrent resolver queries.
+        for sample in references:
+            try:
+                content, identity = await training_reference_snapshot(
+                    db, sample, actor, api_key_id=api_key_id
+                )
+                try:
+                    sample["asset_reference"] = identity
+                    sample["media"] = {
+                        "sha256": content.sha256,
+                        "size_bytes": content.size,
+                    }
+                    if is_instance_rle(contract):
+                        instance_mask_annotations(
+                            sample["annotations"],
+                            classes,
+                            content.width,
+                            content.height,
+                        )
+                finally:
+                    content.close()
+            except (TrainingDatasetError, DatasetContractError) as exc:
+                issues.append(
+                    {
+                        "task_id": sample["task_id"],
+                        "code": exc.code,
+                        "message": str(exc),
+                    }
+                )
     if len(samples) < 2:
         issues.append(
             {"code": "insufficient_samples", "message": "至少需要两张合格图片"}
@@ -415,6 +470,17 @@ async def freeze_selection(
         )
     snapshot = {
         **contract,
+        **(
+            {
+                "asset_source_contract": {
+                    "schema": 1,
+                    "reader": "verified-asset-reference-1",
+                    "freeze": "training-copy",
+                }
+            }
+            if references
+            else {}
+        ),
         "annotation_scope": annotation_scope,
         "source": source,
         "classes": classes,
@@ -441,6 +507,16 @@ async def freeze_selection(
             "excluded": len(excluded),
             "excluded_annotations": excluded_annotations,
             "objects": sum(len(s["annotations"]) for s in samples),
+            **(
+                {
+                    "reference_samples": len(references),
+                    "original_copy_bytes": sum(
+                        s.get("media", {}).get("size_bytes", 0) for s in samples
+                    ),
+                }
+                if references
+                else {}
+            ),
         },
         "issues": sorted(issues, key=lambda i: (i.get("task_id", ""), i["code"])),
         "excluded": excluded,

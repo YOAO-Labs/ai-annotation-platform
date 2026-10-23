@@ -1406,6 +1406,13 @@ function ProjectLearningContent({
                     {report.summary.objects ?? 0} · 排除其他工具标注{" "}
                     {report.summary.excluded_annotations ?? 0} 条
                   </p>
+                  {!!report.summary.reference_samples && (
+                    <p className="mt-2 text-muted-foreground">
+                      引用图片 {report.summary.reference_samples} 张；预计新增原图副本{" "}
+                      {(report.summary.original_copy_bytes ?? 0).toLocaleString()} 字节。
+                      创建版本时保存独立训练副本，就绪版本不随源目录变化。
+                    </p>
+                  )}
                   {report.issues.map((issue, index) => {
                     const taskId = typeof issue.task_id === "string" ? issue.task_id : "";
                     const taskOrdinal = taskId ? issueTaskOrdinals.get(taskId) : undefined;

@@ -502,7 +502,7 @@ async def apply_reference(db, source, run, entry, dataset, actor):
     return {"item_id": item.id, "created": True, "sha256": receipt["sha256"]}
 
 
-async def reference_context(db, item_id, actor, *, task_id=None):
+async def reference_context(db, item_id, actor, *, task_id=None, node_id=None):
     if task_id is None:
         await scans.require_actor(db, actor.id)
     else:
@@ -608,11 +608,13 @@ async def reference_context(db, item_id, actor, *, task_id=None):
         or (task_id is not None and task.file_path != item.file_path)
     ):
         raise snapshots.ContentError("content_binding_changed")
-    node = locations.api_node_id()
+    node = node_id or locations.api_node_id()
     anchor = await locations.node_anchor(db, location, node)
     if anchor is None:
-        raise snapshots.ContentError("api_read_not_verified")
-    # The pinned anchor and actual per-request verified read are the API's
+        raise snapshots.ContentError(
+            "worker_read_not_verified" if node_id else "api_read_not_verified"
+        )
+    # The pinned anchor and actual per-request verified read are this node's
     # capability proof; probe expiry does not authorize a new anchor or locator.
     same_host = run.snapshot.get("scan_host_id") == fs.host_identity()
     expected = (
@@ -657,10 +659,13 @@ async def reference_snapshot(
     task_id=None,
     api_key_id=None,
     scope="tasks:read",
+    node_id=None,
 ):
     from app.services.dataset_content import key_authority
 
-    context = await reference_context(db, item_id, actor, task_id=task_id)
+    context = await reference_context(
+        db, item_id, actor, task_id=task_id, node_id=node_id
+    )
     proof = await key_authority(db, actor, api_key_id, scope)
     if expected_sha256 is not None and expected_sha256 != context["sha256"]:
         raise snapshots.ContentError("content_mismatch")
@@ -676,7 +681,12 @@ async def reference_snapshot(
         context["sha256"],
     )
     try:
-        if await reference_context(db, item_id, actor, task_id=task_id) != context:
+        if (
+            await reference_context(
+                db, item_id, actor, task_id=task_id, node_id=node_id
+            )
+            != context
+        ):
             raise snapshots.ContentError("content_binding_changed")
         if await key_authority(db, actor, api_key_id, scope) != proof:
             raise HTTPException(403, detail={"code": "api_key_authority_revoked"})

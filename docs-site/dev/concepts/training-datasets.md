@@ -3,7 +3,7 @@ title: 在线学习与训练体系
 audience: [dev, ops]
 type: explanation
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-23
 ---
 
 # 在线学习与训练体系
@@ -116,6 +116,14 @@ last_reviewed: 2026-10-19
 #### 快照读取一致性
 
 `services/training_datasets.py` 通过单条 PostgreSQL 查询一次性读取工具类别、任务审核状态、素材引用与活跃标注，确保读取处于同一语句快照内，避免大文件复制期间持有数据库连接或锁。
+
+#### 原地引用的冻结读取
+
+`training_dataset_sources.py` 将引用样本接入 `dataset_references.reference_snapshot`，固定 DatasetItem、Asset、SHA-256 与字节数。来源身份使用独立的 `asset_source_contract` / `asset_reference` 嵌套 schema（均为 1）；图片/几何训练合同保持原定义。仅新含引用的 snapshot/manifest 写入这些字段，历史内容与摘要不回填。导出清单只记录业务身份和摘要，不包含挂载路径或凭据。
+
+API 预检逐项执行有界严格读取并及时关闭临时快照，报告引用数量及预计新增原图字节。Worker 将自身真实 Celery 节点传入 resolver，使用该节点已核验的 anchor，不能借用 API 节点的挂载证明。原图满足固定内容与尺寸后写入既有 training 版本前缀；失败/取消重试先核验已保留媒体的快照摘要、实际字节 SHA 及固定 Asset SHA。没有保留副本时才读取当前来源。
+
+标注和类别仍由同一 PG 语句固定。构建期间来源改写会失败，标注改写不会改变所选快照；ready 后的预览和 ZIP 永远只读取冻结字节。引用单图沿用 E05 严格读取的 64 MiB、3200 万像素、JPEG/PNG/WebP 限额。当前不引入节点缓存或跨版本内容复用。
 
 #### 连通分组与验证集防泄露
 

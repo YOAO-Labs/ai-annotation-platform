@@ -191,6 +191,18 @@ def assign_splits(
     return {s["task_id"]: assignments[root(s["task_id"])] for s in samples}
 
 
+def attach_asset_sources(snapshot: dict, manifest: dict) -> None:
+    """Add an explicit source contract only for newly frozen reference inputs."""
+    if "asset_source_contract" not in snapshot:
+        return
+    manifest["asset_source_contract"] = snapshot["asset_source_contract"]
+    sources = {s["task_id"]: s for s in snapshot["samples"]}
+    for member in manifest["samples"]:
+        reference = sources[member["task_id"]].get("asset_reference")
+        if reference:
+            member["asset_reference"] = reference
+
+
 def build_training_package(
     snapshot: dict,
     media: list[dict],
@@ -308,6 +320,7 @@ def build_training_package(
             manifest["summary"]["classes"] = len(classes)
         elif segmentation:
             manifest.update(**contract, format="ultralytics-segmentation")
+        attach_asset_sources(snapshot, manifest)
         manifest["split_history"] = split_history(manifest)
         manifest["semantic_partitions"] = semantic_partitions(manifest)
         manifest["validation_digest"] = content_digest(
@@ -579,6 +592,7 @@ def _build_instance_rle_package(
                 "classes": len(classes),
             },
         }
+        attach_asset_sources(snapshot, manifest)
         manifest["semantic_partitions"] = semantic_partitions(manifest)
         manifest["validation_digest"] = content_digest(
             {

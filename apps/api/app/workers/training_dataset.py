@@ -32,6 +32,7 @@ from app.services.training_dataset_bridge import (
     instance_rle_text,
 )
 from app.services.training_datasets import MAX_IMAGE_BYTES, assert_dataset_authority
+from app.services.reference_keys import is_reference
 from training_contract.dataset import (
     is_instance_rle,
     instance_rle_budget,
@@ -52,7 +53,12 @@ def file_digest(path: Path) -> str:
 
 
 def materialize_image(
-    sample: dict, prefix: str, snapshot_digest: str, directory: Path
+    sample: dict,
+    prefix: str,
+    snapshot_digest: str,
+    directory: Path,
+    *,
+    verified_reference=None,
 ) -> dict:
     """Reuse preserved source bytes on retries; never reread changed originals."""
     key = f"{prefix}/media/{sample['task_id']}"
@@ -71,27 +77,31 @@ def materialize_image(
     except ClientError as exc:
         if exc.response["Error"]["Code"] not in {"404", "NoSuchKey", "NotFound"}:
             raise
-        from app.services.reference_keys import reject_reference
-
-        reject_reference(sample["source_key"])
-        params = {
-            "Bucket": sample["source_bucket"],
-            "Key": sample["source_key"],
-            "IfMatch": sample["media"]["etag"],
-        }
-        if sample["media"].get("version_id"):
-            params["VersionId"] = sample["media"]["version_id"]
-        try:
-            response = storage_service.client.get_object(**params)
-        except ClientError as source_error:
-            raise TrainingDatasetError(
-                "source_media_changed", "原始图片已变化或不可用，请创建新版本"
-            ) from source_error
+        if is_reference(sample["source_key"]):
+            if verified_reference is None:
+                raise TrainingDatasetError(
+                    "reference_read_required", "引用图片需要严格校验读取"
+                )
+            response = {"Body": verified_reference.file}
+        else:
+            params = {
+                "Bucket": sample["source_bucket"],
+                "Key": sample["source_key"],
+                "IfMatch": sample["media"]["etag"],
+            }
+            if sample["media"].get("version_id"):
+                params["VersionId"] = sample["media"]["version_id"]
+            try:
+                response = storage_service.client.get_object(**params)
+            except ClientError as source_error:
+                raise TrainingDatasetError(
+                    "source_media_changed", "原始图片已变化或不可用，请创建新版本"
+                ) from source_error
     path = directory / sample["task_id"]
     try:
         size = 0
         with path.open("wb") as target:
-            for chunk in response["Body"].iter_chunks(chunk_size=1024 * 1024):
+            for chunk in iter(lambda: response["Body"].read(1024 * 1024), b""):
                 size += len(chunk)
                 if size > MAX_IMAGE_BYTES:
                     raise TrainingDatasetError(
@@ -105,6 +115,10 @@ def materialize_image(
     digest = file_digest(path)
     if preserved and head["Metadata"].get("sha256") != digest:
         raise TrainingDatasetError("preserved_media_corrupt", "冻结图片校验失败")
+    if sample.get("asset_reference") and sample["asset_reference"]["sha256"] != digest:
+        raise TrainingDatasetError(
+            "source_media_changed", "图片摘要与固定 Asset 不一致"
+        )
     try:
         with Image.open(path) as image:
             width, height = storage_service._logical_image_dimensions(image)
@@ -165,8 +179,55 @@ def materialize_image(
     }
 
 
+async def materialize_sample(
+    db, version, sample, prefix, snapshot_digest, directory, node_id
+):
+    """Try retained bytes first, then resolve an authorized reference if needed."""
+    try:
+        return await asyncio.to_thread(
+            materialize_image, sample, prefix, snapshot_digest, directory
+        )
+    except TrainingDatasetError as exc:
+        if exc.code != "reference_read_required":
+            raise
+    if not node_id or not node_id.startswith("worker:"):
+        raise TrainingDatasetError(
+            "worker_read_not_verified", "训练构建节点尚未核验原图读取能力"
+        )
+    from app.db.models.user import User
+    from app.services.training_dataset_sources import training_reference_snapshot
+
+    await assert_dataset_authority(db, version)
+    actor = await db.get(User, version.creator_id, populate_existing=True)
+    content, _ = await training_reference_snapshot(
+        db,
+        sample,
+        actor,
+        api_key_id=version.snapshot.get("authorization", {}).get("api_key_id"),
+        node_id=node_id,
+    )
+    try:
+        result = await asyncio.to_thread(
+            materialize_image,
+            sample,
+            prefix,
+            snapshot_digest,
+            directory,
+            verified_reference=content,
+        )
+        await assert_dataset_authority(db, version)
+        return result
+    finally:
+        content.close()
+
+
 async def build_dataset(
-    version_id: uuid.UUID, job_id: uuid.UUID, attempt_id: uuid.UUID, session_factory
+    version_id: uuid.UUID,
+    job_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    session_factory,
+    *,
+    node_id: str | None = None,
 ) -> None:
     # Keep the connection checked out across domain transaction commits.
     async with session_factory() as session:
@@ -179,13 +240,17 @@ async def build_dataset(
         if not acquired:
             return
         try:
-            await _build_dataset(version_id, job_id, attempt_id, session_factory)
+            await _build_dataset(
+                version_id, job_id, attempt_id, session_factory, node_id
+            )
         finally:
             await execution.execute(select(func.pg_advisory_unlock(key)))
             await execution.commit()
 
 
-async def _build_dataset(version_id, job_id, attempt_id, session_factory) -> None:
+async def _build_dataset(
+    version_id, job_id, attempt_id, session_factory, node_id=None
+) -> None:
     prefix = None
     published = False
     async with session_factory() as db:
@@ -225,8 +290,9 @@ async def _build_dataset(version_id, job_id, attempt_id, session_factory) -> Non
                 media = []
                 for index, sample in enumerate(snapshot["samples"]):
                     media.append(
-                        await asyncio.to_thread(
-                            materialize_image,
+                        await materialize_sample(
+                            db,
+                            version,
                             {
                                 **sample,
                                 "raster_contract": True,
@@ -237,6 +303,7 @@ async def _build_dataset(version_id, job_id, attempt_id, session_factory) -> Non
                             prefix,
                             snapshot_digest,
                             directory,
+                            node_id,
                         )
                     )
                     version = (
@@ -381,6 +448,7 @@ def run_training_dataset(self, version_id: str, job_id: str, attempt_id: str) ->
                 uuid.UUID(job_id),
                 uuid.UUID(attempt_id),
                 async_sessionmaker(engine, expire_on_commit=False),
+                node_id=f"worker:{self.request.hostname}",
             )
         finally:
             await engine.dispose()

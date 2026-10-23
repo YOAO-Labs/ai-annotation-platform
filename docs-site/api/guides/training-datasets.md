@@ -8,6 +8,8 @@ last_reviewed: 2026-10-22
 
 # 在线学习与模型训练 API
 
+原地引用图片使用相同项目版本 API。含引用的预检 `summary` 增加 `reference_samples` 与 `original_copy_bytes`（所选原图预计新增持久字节）；读取异常写入逐任务 `issues` 并令 `ready=false`。新 snapshot/manifest 以 `asset_source_contract.schema=1` 和样本 `asset_reference.schema=1` 固定业务 Asset/SHA；不改变几何合同、历史字节或现有 ZIP 消费。Worker 必须具备自身节点的读取 anchor，源变化返回明确构建错误，未就绪版本无法下载。
+
 基路径为 `/api/v1/projects/{project_id}/training-datasets`。所有操作要求项目负责人或超级管理员；API Key 还需 `annotations:read` 与 `datasets:read`，删除另需 `datasets:write`。
 
 | 方法   | 路径后缀                 | 行为                                                 |
