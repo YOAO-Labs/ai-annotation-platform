@@ -24447,6 +24447,280 @@
         "title": "ManagedOriginalRetentionSummary",
         "type": "object"
       },
+      "ManagedOriginalVerificationHistory": {
+        "properties": {
+          "blockers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "can_start": {
+            "title": "Can Start",
+            "type": "boolean"
+          },
+          "execution_permission": {
+            "const": false,
+            "default": false,
+            "title": "Execution Permission",
+            "type": "boolean"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ManagedOriginalVerificationItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "max_bytes": {
+            "title": "Max Bytes",
+            "type": "integer"
+          },
+          "measured_at": {
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "retirement_id": {
+            "format": "uuid",
+            "title": "Retirement Id",
+            "type": "string"
+          },
+          "scope": {
+            "const": "registered_retirement_assertion_only",
+            "default": "registered_retirement_assertion_only",
+            "title": "Scope",
+            "type": "string"
+          },
+          "timeout_seconds": {
+            "title": "Timeout Seconds",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "retirement_id",
+          "measured_at",
+          "can_start",
+          "blockers",
+          "max_bytes",
+          "timeout_seconds",
+          "items",
+          "total",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "title": "ManagedOriginalVerificationHistory",
+        "type": "object"
+      },
+      "ManagedOriginalVerificationItem": {
+        "properties": {
+          "async_job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Async Job Id"
+          },
+          "cancel_requested_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancel Requested At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "context_matches": {
+            "title": "Context Matches",
+            "type": "boolean"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "expected_sha256": {
+            "title": "Expected Sha256",
+            "type": "string"
+          },
+          "expected_size_bytes": {
+            "title": "Expected Size Bytes",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "observed_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed Sha256"
+          },
+          "observed_size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed Size Bytes"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "matched",
+                  "missing",
+                  "changed",
+                  "unverifiable",
+                  "failed",
+                  "cancelled"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "unsettled_operation": {
+            "title": "Unsettled Operation",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "async_job_id",
+          "status",
+          "outcome",
+          "error_code",
+          "requested_at",
+          "started_at",
+          "completed_at",
+          "cancel_requested_at",
+          "context_matches",
+          "unsettled_operation",
+          "expected_sha256",
+          "expected_size_bytes",
+          "observed_sha256",
+          "observed_size_bytes"
+        ],
+        "title": "ManagedOriginalVerificationItem",
+        "type": "object"
+      },
+      "ManagedOriginalVerificationStart": {
+        "properties": {
+          "async_job_id": {
+            "format": "uuid",
+            "title": "Async Job Id",
+            "type": "string"
+          },
+          "existing": {
+            "title": "Existing",
+            "type": "boolean"
+          },
+          "retirement_id": {
+            "format": "uuid",
+            "title": "Retirement Id",
+            "type": "string"
+          },
+          "verification_id": {
+            "format": "uuid",
+            "title": "Verification Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "retirement_id",
+          "verification_id",
+          "async_job_id",
+          "existing"
+        ],
+        "title": "ManagedOriginalVerificationStart",
+        "type": "object"
+      },
       "ManagerStatus": {
         "properties": {
           "available": {
@@ -92710,6 +92984,124 @@
           }
         ],
         "summary": "Managed Original Retention Preview",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/managed-original-retirements/{retirement_id}/verifications": {
+      "get": {
+        "operationId": "managed_original_verification_history_api_v1_storage_managed_original_retirements__retirement_id__verifications_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "retirement_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Retirement Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedOriginalVerificationHistory"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Managed Original Verification History",
+        "tags": [
+          "storage"
+        ]
+      },
+      "post": {
+        "operationId": "managed_original_verification_start_api_v1_storage_managed_original_retirements__retirement_id__verifications_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "retirement_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Retirement Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedOriginalVerificationStart"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Managed Original Verification Start",
         "tags": [
           "storage"
         ]

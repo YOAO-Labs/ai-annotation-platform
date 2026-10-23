@@ -16,6 +16,11 @@ from app.schemas.managed_original_retention import (
     ManagedOriginalRetentionPreview,
     ManagedOriginalRetentionState,
 )
+from app.schemas.managed_original_verification import (
+    ManagedOriginalVerificationHistory,
+    ManagedOriginalVerificationStart,
+)
+from app.services import managed_original_verification as verification
 from app.services import managed_original_retention as retention
 
 router = APIRouter()
@@ -107,3 +112,52 @@ async def managed_original_retention_apply(
     )
     await db.commit()
     return result
+
+
+@router.get(
+    "/managed-original-retirements/{retirement_id}/verifications",
+    response_model=ManagedOriginalVerificationHistory,
+)
+async def managed_original_verification_history(
+    retirement_id: uuid.UUID,
+    request: Request,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0, le=1_000_000),
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_roles(PlatformRole.SUPER_ADMIN)),
+):
+    assert_request_scopes(request, "*")
+    return await verification.history(
+        db,
+        retirement_id,
+        actor,
+        api_key_id=getattr(request.state, "api_key_id", None),
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.post(
+    "/managed-original-retirements/{retirement_id}/verifications",
+    response_model=ManagedOriginalVerificationStart,
+    status_code=202,
+)
+async def managed_original_verification_start(
+    retirement_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(require_roles(PlatformRole.SUPER_ADMIN)),
+):
+    assert_request_scopes(request, "*")
+    row, job, existing = await verification.start(
+        db,
+        retirement_id,
+        actor,
+        api_key_id=getattr(request.state, "api_key_id", None),
+        request=request,
+    )
+    response = verification.start_response(row, job, existing)
+    from app.workers.managed_original_verification import dispatch
+
+    await dispatch(db, job)
+    return response

@@ -1,6 +1,7 @@
 from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
 from app.db.models.storage_usage import StorageUsageInventory, StorageUsageSnapshot
 from app.db.models.original_cache import OriginalCacheEntry, OriginalCacheReadLease
+from app.db.models.managed_original_verification import ManagedOriginalVerification
 from app.db.models.managed_original_retirement import ManagedOriginalRetirement
 from app.db.models.managed_original_retention_hold import ManagedOriginalRetentionHold
 from app.db.models.dataset_quality_review import (
@@ -299,3 +300,5 @@ __all__ += ["StorageUsageInventory", "StorageUsageSnapshot"]
 __all__ += ["OriginalCacheEntry", "OriginalCacheReadLease"]
 __all__ += ["ManagedOriginalRetirement"]
 __all__ += ["ManagedOriginalRetentionHold"]
+
+__all__ += ["ManagedOriginalVerification"]

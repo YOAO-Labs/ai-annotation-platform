@@ -681,6 +681,8 @@
 | GET | `/managed-original-retirements/{retirement_id}/retention` |
 | POST | `/managed-original-retirements/{retirement_id}/retention-preview` |
 | POST | `/managed-original-retirements/{retirement_id}/retention` |
+| GET | `/managed-original-retirements/{retirement_id}/verifications` |
+| POST | `/managed-original-retirements/{retirement_id}/verifications` |
 
 ## `storage.py`
 
@@ -1031,4 +1033,4 @@
 
 ---
 
-_共 93 模块 / 594 路由_
+_共 93 模块 / 596 路由_
