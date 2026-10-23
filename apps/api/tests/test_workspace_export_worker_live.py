@@ -18,6 +18,8 @@ import zipfile
 from io import BytesIO
 
 from celery import Celery
+from kombu.transport.redis import bytes_to_str as _kombu_bytes_to_str
+from kombu.transport.redis import loads as _kombu_loads
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 import pytest
@@ -71,11 +73,12 @@ _SOURCE_PNG = base64.b64decode(
 )
 
 
-def _new_job_payload(project: Project) -> dict:
+def _new_job_payload(project: Project, opts: dict | None = None) -> dict:
+    options = dict(_TASK_OPTS if opts is None else opts)
     return {
         "targets": ["aap_json"],
         "format": "aap_json",
-        **_TASK_OPTS,
+        **options,
         "project_display_id": project.display_id,
     }
 
@@ -96,6 +99,12 @@ async def _seed_export_world(test_engine) -> dict:
             f"export-reviewer-{suffix}@worker.test",
             f"Export reviewer {suffix}",
         )
+        revoked_reviewer = await create_user(
+            db,
+            "employee",
+            f"export-revoked-reviewer-{suffix}@worker.test",
+            f"Export revoked reviewer {suffix}",
+        )
         project = await create_project(
             db,
             owner_id=owner.id,
@@ -110,6 +119,13 @@ async def _seed_export_world(test_engine) -> dict:
             assigned_by=owner.id,
         )
         db.add(project_member)
+        revoked_member = ProjectMember(
+            project_id=project.id,
+            user_id=revoked_reviewer.id,
+            role="reviewer",
+            assigned_by=owner.id,
+        )
+        db.add(revoked_member)
         dataset = Dataset(
             display_id=f"DS-EWL-{suffix[:8]}",
             name=f"export-worker-{suffix}",
@@ -170,16 +186,29 @@ async def _seed_export_world(test_engine) -> dict:
             result={},
         )
         db.add(first_job)
+        revoked_job = AsyncJob(
+            id=uuid.uuid4(),
+            kind="export",
+            user_id=revoked_reviewer.id,
+            project_id=project.id,
+            status=AsyncJobStatus.PENDING.value,
+            progress_pct=0,
+            payload=_new_job_payload(project),
+            result={},
+        )
+        db.add(revoked_job)
         await db.flush()
 
     return {
         "owner_id": owner.id,
         "reviewer_id": reviewer.id,
         "reviewer_email": reviewer.email,
+        "revoked_reviewer_id": revoked_reviewer.id,
         "project_id": project.id,
         "project_display_id": project.display_id,
         "project_name": project.name,
         "member_id": project_member.id,
+        "revoked_member_id": revoked_member.id,
         "dataset_id": dataset.id,
         "dataset_display_id": dataset.display_id,
         "item_id": item.id,
@@ -188,6 +217,7 @@ async def _seed_export_world(test_engine) -> dict:
         "task_display_id": task.display_id,
         "annotation_id": annotation.id,
         "job_id": first_job.id,
+        "revoked_job_id": revoked_job.id,
     }
 
 
@@ -300,6 +330,67 @@ def _new_export_locks(
 
 def _broker_snapshot(sender: Celery, queue: str) -> dict[str, int]:
     return _broker_state(sender, queue)
+
+
+def _find_owned_unacked_export(channel, worker, task_id: str):
+    qos = channel.qos
+    client = channel.client
+    matches = []
+    for raw_tag, raw_payload in client.hgetall(qos.unacked_key).items():
+        envelope = _kombu_loads(_kombu_bytes_to_str(raw_payload))
+        if not isinstance(envelope, list) or len(envelope) != 3:
+            raise AssertionError("Kombu Redis unacked entry has an invalid envelope")
+        message, exchange, routing_key = envelope
+        headers = message.get("headers") if isinstance(message, dict) else None
+        if not isinstance(headers, dict) or headers.get("id") != task_id:
+            continue
+        if headers.get("task") != _TASK_NAME:
+            raise AssertionError("Unacked task ID belongs to a different Celery task")
+        resolved_queues = channel._lookup(exchange, routing_key)
+        if (
+            exchange != ""
+            or routing_key != worker.queue
+            or resolved_queues != [worker.queue]
+        ):
+            raise AssertionError("Unacked export is not routed only to the owned queue")
+        if client.zscore(qos.unacked_index_key, raw_tag) is None:
+            raise AssertionError("Unacked export tag is absent from Kombu's index")
+        matches.append(
+            (
+                raw_tag,
+                {
+                    "task_id": task_id,
+                    "task": headers["task"],
+                    "exchange": exchange,
+                    "routing_key": routing_key,
+                    "delivery_tag_sha256": hashlib.sha256(
+                        _kombu_bytes_to_str(raw_tag).encode()
+                    ).hexdigest(),
+                },
+            )
+        )
+    if len(matches) != 1:
+        raise AssertionError(
+            f"Expected exactly one owned unacked export delivery, observed {len(matches)}"
+        )
+    return matches[0]
+
+
+def _restore_owned_unacked_export(sender: Celery, worker, task_id: str) -> dict:
+    with sender.connection_for_write() as connection:
+        channel = connection.default_channel
+        raw_tag, evidence = _find_owned_unacked_export(channel, worker, task_id)
+        channel.qos.restore_by_tag(
+            raw_tag,
+            client=channel.client,
+            leftmost=True,
+        )
+        client = channel.client
+        if client.hget(channel.qos.unacked_key, raw_tag) is not None:
+            raise AssertionError("Kombu did not remove the restored unacked tag")
+        if client.zscore(channel.qos.unacked_index_key, raw_tag) is not None:
+            raise AssertionError("Kombu did not remove the restored unacked index")
+        return {**evidence, "restored": True, "unacked_tag_removed": True}
 
 
 async def _job_snapshot(test_engine, job_id: uuid.UUID) -> dict:
@@ -459,7 +550,89 @@ async def _wait_delivery_state(
     return await asyncio.to_thread(lambda: result.state)
 
 
-async def _create_fresh_job(test_engine, world) -> uuid.UUID:
+async def _wait_export_recovery(
+    sender: Celery,
+    test_engine,
+    delivery_id: str,
+    job_id: uuid.UUID,
+    *,
+    timeout: float,
+) -> dict:
+    result = sender.AsyncResult(delivery_id)
+    deadline = asyncio.get_running_loop().time() + timeout
+    latest = {}
+    while asyncio.get_running_loop().time() < deadline:
+        state = await asyncio.to_thread(lambda: result.state)
+        job = await _job_snapshot(test_engine, job_id)
+        latest = {"delivery_state": state, "job": job}
+        if (job["status"] == "completed" and state == "SUCCESS") or state in {
+            "FAILURE",
+            "REVOKED",
+        }:
+            return latest
+        # A short advisory-lock retry can occur while the killed backend exits.
+        await asyncio.sleep(0.25)
+    return latest
+
+
+async def _wait_active_export_task(
+    sender: Celery, worker, task_id: str, *, timeout: float = 30
+) -> dict:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        inspect = sender.control.inspect(timeout=1, destination=[worker.node_name])
+        active = await asyncio.to_thread(inspect.active)
+        tasks = (active or {}).get(worker.node_name, [])
+        match = next(
+            (
+                task
+                for task in tasks
+                if task.get("id") == task_id and task.get("name") == _TASK_NAME
+            ),
+            None,
+        )
+        if match is not None:
+            return match
+        await asyncio.sleep(0.25)
+    raise AssertionError(f"export delivery {task_id} did not become active")
+
+
+async def _wait_failure_delivery_ack(
+    sender: Celery, worker, task_id: str, *, timeout: float = 30
+) -> dict:
+    result = sender.AsyncResult(task_id)
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        state = await asyncio.to_thread(lambda: result.state)
+        if state == "FAILURE":
+            broker = await asyncio.to_thread(_broker_snapshot, sender, worker.queue)
+            inspect = sender.control.inspect(timeout=1, destination=[worker.node_name])
+            active = await asyncio.to_thread(inspect.active)
+            reserved = await asyncio.to_thread(inspect.reserved)
+            outstanding = [
+                task
+                for snapshot in (active or {}, reserved or {})
+                for tasks in snapshot.values()
+                for task in tasks or []
+                if task.get("id") == task_id
+            ]
+            if (
+                active is not None
+                and reserved is not None
+                and worker.node_name in active
+                and worker.node_name in reserved
+                and broker["queue_size"] == 0
+                and broker["unacknowledged"] == 0
+                and not outstanding
+            ):
+                return {"task_id": task_id, "state": state, **broker}
+        await asyncio.sleep(0.25)
+    raise AssertionError("Failed export was not acknowledged by the broker")
+
+
+async def _create_fresh_job(
+    test_engine, world, *, opts: dict | None = None
+) -> uuid.UUID:
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     job_id = uuid.uuid4()
     async with maker.begin() as db:
@@ -473,7 +646,7 @@ async def _create_fresh_job(test_engine, world) -> uuid.UUID:
                 project_id=project.id,
                 status=AsyncJobStatus.PENDING.value,
                 progress_pct=0,
-                payload=_new_job_payload(project),
+                payload=_new_job_payload(project, opts),
                 result={},
             )
         )
@@ -571,14 +744,22 @@ async def _notification_counts(test_engine, job_ids: list[uuid.UUID]) -> dict[st
         return {str(job_id): int(count) for job_id, count in rows}
 
 
-def _send_export(sender: Celery, worker, world, job_id, delivery_id: str):
+def _send_export(
+    sender: Celery,
+    worker,
+    world,
+    job_id,
+    delivery_id: str,
+    *,
+    opts: dict | None = None,
+):
     return sender.send_task(
         _TASK_NAME,
         args=[
             str(world["project_id"]),
             None,
             ["aap_json"],
-            dict(_TASK_OPTS),
+            dict(_TASK_OPTS if opts is None else opts),
             str(job_id),
         ],
         queue=worker.queue,
@@ -651,6 +832,40 @@ async def test_export_recovers_after_worker_loss(
         )
 
         await _assert_workspace_consumer_closure(test_engine)
+        revoked_delivery_id = str(uuid.uuid4())
+        deliveries[revoked_delivery_id] = _send_export(
+            sender,
+            worker,
+            world,
+            world["revoked_job_id"],
+            revoked_delivery_id,
+        )
+        queued_before_revocation = await asyncio.to_thread(
+            _broker_snapshot, sender, worker.queue
+        )
+        assert queued_before_revocation["queue_size"] == 1
+        from app.services.workspace_membership import remove_member
+
+        maker = async_sessionmaker(test_engine, expire_on_commit=False)
+        async with maker() as db:
+            await remove_member(
+                db,
+                project_id=world["project_id"],
+                actor_id=world["owner_id"],
+                member_id=world["revoked_member_id"],
+            )
+        async with maker() as db:
+            assert await db.get(ProjectMember, world["revoked_member_id"]) is None
+        queued_after_revocation = await asyncio.to_thread(
+            _broker_snapshot, sender, worker.queue
+        )
+        assert queued_after_revocation["queue_size"] == 1
+        observation["queued_revocation"] = {
+            "queue_before_remove": queued_before_revocation,
+            "queue_after_remove": queued_after_revocation,
+            "membership_removed_before_worker_start": True,
+        }
+
         worker.start()
         await _wait_worker_ready(sender, worker)
         worker.assert_private_network()
@@ -666,6 +881,54 @@ async def test_export_recovers_after_worker_loss(
                 "task_ids",
             ],
         }
+        delivery_policy = worker.task_delivery_policy(_TASK_NAME)
+        assert delivery_policy == {
+            "acks_late": True,
+            "reject_on_worker_lost": True,
+        }
+        observation["task_delivery_policy"] = delivery_policy
+        revoked_outcome = await _wait_delivery_and_job(
+            sender,
+            test_engine,
+            revoked_delivery_id,
+            world["revoked_job_id"],
+            timeout=30,
+        )
+        if revoked_outcome["delivery_state"] != "FAILURE":
+            failure_state = await _wait_delivery_state(
+                sender, revoked_delivery_id, timeout=20
+            )
+            revoked_outcome["delivery_state_after_wait"] = failure_state
+        assert revoked_outcome["job"]["status"] == "failed", revoked_outcome
+        assert (
+            revoked_outcome.get(
+                "delivery_state_after_wait", revoked_outcome["delivery_state"]
+            )
+            == "FAILURE"
+        ), revoked_outcome
+        assert "download_url_path" not in revoked_outcome["job"]["result"]
+        revoked_ack = await _wait_failure_delivery_ack(
+            sender, worker, revoked_delivery_id
+        )
+        assert (await _artifact_snapshot(test_engine, world["project_id"]))[
+            "count"
+        ] == 0
+        assert (
+            await _owned_objects(
+                owner_s3, export_bucket, f"image/{world['project_id']}/"
+            )
+            == set()
+        )
+        observation["queued_revocation"].update(
+            {
+                "job": revoked_outcome["job"],
+                "broker_ack": revoked_ack,
+                "notifications": await _notification_count(
+                    test_engine, [world["revoked_job_id"]]
+                ),
+            }
+        )
+        assert observation["queued_revocation"]["notifications"] == 1
         inspect = sender.control.inspect(timeout=2, destination=[worker.node_name])
         registered = await asyncio.to_thread(inspect.registered)
         active_queues = await asyncio.to_thread(inspect.active_queues)
@@ -787,47 +1050,36 @@ async def test_export_recovers_after_worker_loss(
         observation["same_job_new_delivery"] = await _wait_delivery_and_job(
             sender, test_engine, new_delivery_id, world["job_id"], timeout=75
         )
-        if observation["same_job_new_delivery"]["delivery_state"] != "SUCCESS":
-            new_state = await _wait_delivery_state(sender, new_delivery_id, timeout=20)
-            observation["same_job_new_delivery"]["delivery_state_after_wait"] = (
-                new_state
-            )
-        if (
-            observation["same_job_new_delivery"].get(
-                "delivery_state_after_wait",
-                observation["same_job_new_delivery"]["delivery_state"],
-            )
-            == "SUCCESS"
-        ):
-            observation["same_job_new_delivery_ack"] = await _wait_broker_ack(
-                sender, worker, new_delivery_id
-            )
-        observation["same_job_new_delivery_broker"] = await asyncio.to_thread(
-            _broker_snapshot, sender, worker.queue
+        new_delivery_state = await _wait_delivery_state(
+            sender, new_delivery_id, timeout=75
         )
-
-        deliveries[first_delivery_id] = _send_export(
-            sender, worker, world, world["job_id"], first_delivery_id
+        observation["same_job_new_delivery"]["delivery_state_after_wait"] = (
+            new_delivery_state
         )
-        observation["same_job_old_delivery_sent"] = True
-        old_id_result_state = await _wait_delivery_state(
-            sender, first_delivery_id, timeout=12
-        )
-        observation["same_job_old_delivery_state"] = old_id_result_state
-        observation["same_job_after_old_delivery"] = await _job_snapshot(
+        assert new_delivery_state == "SUCCESS", observation["same_job_new_delivery"]
+        observation["job_after_new_delivery"] = await _job_snapshot(
             test_engine, world["job_id"]
         )
-        if old_id_result_state == "SUCCESS":
-            observation["same_job_old_delivery_ack"] = await _wait_broker_ack(
-                sender, worker, first_delivery_id
-            )
-        if old_id_result_state == "RETRY":
-            await asyncio.to_thread(
-                sender.control.revoke,
-                first_delivery_id,
-                terminate=False,
-                destination=[worker.node_name],
-            )
+        assert observation["job_after_new_delivery"]["status"] == "completed"
+
+        original_restore = _restore_owned_unacked_export(
+            sender, worker, first_delivery_id
+        )
+        observation["same_job_original_delivery_restore"] = original_restore
+        original_delivery_state = await _wait_delivery_state(
+            sender, first_delivery_id, timeout=45
+        )
+        observation["same_job_original_delivery_state"] = original_delivery_state
+        assert original_delivery_state == "SUCCESS", observation
+        observation["same_job_original_delivery_ack"] = await _wait_broker_ack(
+            sender, worker, first_delivery_id
+        )
+        observation["same_job_new_delivery_ack"] = await _wait_broker_ack(
+            sender, worker, new_delivery_id
+        )
+        observation["same_job_deliveries_broker"] = await asyncio.to_thread(
+            _broker_snapshot, sender, worker.queue
+        )
 
         fresh_job_id = await _create_fresh_job(test_engine, world)
         fresh_delivery_id = str(uuid.uuid4())
@@ -968,6 +1220,118 @@ async def test_export_recovers_after_worker_loss(
             "task_count": len(payload["tasks"]),
             "annotation_count": len(task_block["annotations"]),
         }
+
+        child_opts = {**_TASK_OPTS, "include_attributes": False}
+        child_job_id = await _create_fresh_job(test_engine, world, opts=child_opts)
+        child_world = {**world, "job_id": child_job_id}
+        child_delivery_id = str(uuid.uuid4())
+        child_runtime_before = worker.assert_runtime()
+        gate = await test_engine.connect()
+        gate_tx = await gate.begin()
+        await gate.execute(
+            text("LOCK TABLE public.predictions IN ACCESS EXCLUSIVE MODE")
+        )
+        deliveries[child_delivery_id] = _send_export(
+            sender,
+            worker,
+            child_world,
+            child_job_id,
+            child_delivery_id,
+            opts=child_opts,
+        )
+        child_gate = await _wait_export_build_gate(test_engine, worker, child_world)
+        child_active = await _wait_active_export_task(sender, worker, child_delivery_id)
+        child_worker_pid = int(child_active["worker_pid"])
+        child_database_pid = int(child_gate["activity"]["pid"])
+        assert child_active["name"] == _TASK_NAME
+        child_kill_record = worker.kill_prefork_child(child_worker_pid)
+        child_runtime_after_kill = worker.assert_runtime()
+        observation["prefork_child_loss"] = {
+            "job_id": str(child_job_id),
+            "delivery_id": child_delivery_id,
+            "worker_pid": child_worker_pid,
+            "database_pid": child_database_pid,
+            "kill": child_kill_record,
+            "runtime_before": child_runtime_before,
+            "runtime_after_kill": child_runtime_after_kill,
+        }
+        assert (
+            child_runtime_after_kill["container_id"]
+            == child_runtime_before["container_id"]
+        )
+        assert (
+            child_runtime_after_kill["started_at"] == child_runtime_before["started_at"]
+        )
+
+        await gate_tx.rollback()
+        gate_tx = None
+        await gate.close()
+        gate = None
+        await _wait_backend_gone(test_engine, child_database_pid)
+        observation["prefork_child_loss"]["lost_backend_gone_after_gate_release"] = True
+        try:
+            observation["prefork_child_loss"][
+                "replacement_active"
+            ] = await _wait_active_export_task(
+                sender, worker, child_delivery_id, timeout=2
+            )
+        except AssertionError:
+            observation["prefork_child_loss"]["replacement_active"] = None
+        observation["prefork_child_loss"]["logs_after_kill"] = (
+            worker.capture_diagnostics()
+        )
+
+        child_recovery = await _wait_export_recovery(
+            sender,
+            test_engine,
+            child_delivery_id,
+            child_job_id,
+            timeout=120,
+        )
+        child_delivery_state = child_recovery.get("delivery_state")
+        child_job_snapshot = child_recovery.get("job", {})
+        observation["prefork_child_loss"]["delivery_state"] = child_delivery_state
+        observation["prefork_child_loss"]["job"] = child_job_snapshot
+        assert child_delivery_state == "SUCCESS", observation["prefork_child_loss"]
+        assert child_job_snapshot["status"] == "completed", child_job_snapshot
+        assert child_job_snapshot["celery_task_id"] == child_delivery_id
+        assert child_job_snapshot["result"].get("cache_hit") is False
+        child_runtime_after_completion = worker.assert_runtime()
+        observation["prefork_child_loss"]["runtime_after_completion"] = (
+            child_runtime_after_completion
+        )
+        assert (
+            child_runtime_after_completion["container_id"]
+            == child_runtime_before["container_id"]
+        )
+        assert (
+            child_runtime_after_completion["started_at"]
+            == child_runtime_before["started_at"]
+        )
+        observation["prefork_child_loss"]["broker_ack"] = await _wait_broker_ack(
+            sender, worker, child_delivery_id
+        )
+        child_artifacts = await _artifact_snapshot(test_engine, world["project_id"])
+        observation["prefork_child_loss"]["artifacts"] = child_artifacts
+        assert child_artifacts["count"] == 2
+        assert child_job_snapshot["result"].get("object_key") in child_artifacts["keys"]
+        child_notifications = await _notification_count(test_engine, [child_job_id])
+        observation["prefork_child_loss"]["notifications"] = child_notifications
+        assert child_notifications == 1
+        child_objects = await _owned_objects(
+            owner_s3, export_bucket, f"image/{world['project_id']}/"
+        )
+        observation["prefork_child_loss"]["export_objects"] = sorted(child_objects)
+        child_key = child_job_snapshot["result"].get("object_key")
+        assert child_key in child_objects
+        assert len(child_objects) == 2
+        child_attempt_objects = [
+            key
+            for key in child_objects
+            if str(child_job_id) in key or child_job_id.hex in key
+        ]
+        assert child_attempt_objects == [child_key]
+
         record_property(
             "workspace_export_hard_loss_probe", json.dumps(observation, default=str)
         )
