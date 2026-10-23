@@ -315,6 +315,21 @@ requires-dist = [
 provides-extras = ["client", "test"]
 
 [[package]]
+name = "aap-jobs"
+version = "0.1.0"
+source = { editable = "../jobs" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+]
+provides-extras = ["test"]
+
+[[package]]
 name = "aap-labeling"
 version = "0.1.0"
 source = { editable = "../labeling" }
@@ -606,6 +621,7 @@ dependencies = [
     { name = "aap-identity", extra = ["postgres"] },
     { name = "aap-inference" },
     { name = "aap-inference-contract", extra = ["client"] },
+    { name = "aap-jobs" },
     { name = "aap-labeling", extra = ["postgres"] },
     { name = "aap-labeling-mask-gc", extra = ["client"] },
     { name = "aap-mail-transport" },
@@ -668,6 +684,7 @@ requires-dist = [
     { name = "aap-identity", extras = ["postgres"], editable = "../identity" },
     { name = "aap-inference", editable = "../inference" },
     { name = "aap-inference-contract", extras = ["client"], editable = "../_shared/inference_contract" },
+    { name = "aap-jobs", editable = "../jobs" },
     { name = "aap-labeling", extras = ["postgres"], editable = "../labeling" },
     { name = "aap-labeling-mask-gc", extras = ["client"], editable = "../labeling-mask-gc" },
     { name = "aap-mail-transport", editable = "../_shared/mail_transport" },

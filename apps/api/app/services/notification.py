@@ -39,7 +39,6 @@ from app.db.enums import (
     PlatformRole,
     ProjectRole,
 )
-from app.db.models.async_job import AsyncJob
 from app.db.models.notification import Notification
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
@@ -58,6 +57,7 @@ from app.services.workspace_read_relations import (
     project_facts,
     project_search_scope,
 )
+from app.services.jobs_notification_scope import notification_scope_facts
 from app.services.notification_read_relations import notification_rows
 from aap_notifications.preferences import NotificationPreferenceManager
 from aap_notifications.preferences_postgres import NotificationPreferencesPostgresData
@@ -101,32 +101,30 @@ _ACTUAL_TARGET_TYPES = ("export", "async_job")
 
 
 def _job_project_text_expr(notification=Notification):
+    job_scope = notification_scope_facts()
     return (
-        select(
-            func.cast(
-                func.coalesce(AsyncJob.project_id, AsyncJob.retained_project_id),
-                String,
-            )
-        )
-        .where(AsyncJob.id == notification.target_id)
+        select(func.cast(job_scope.c.scope_project_id, String))
+        .where(job_scope.c.id == notification.target_id)
         .correlate(notification)
         .scalar_subquery()
     )
 
 
 def _job_kind_expr(notification=Notification):
+    job_scope = notification_scope_facts()
     return (
-        select(AsyncJob.kind)
-        .where(AsyncJob.id == notification.target_id)
+        select(job_scope.c.kind)
+        .where(job_scope.c.id == notification.target_id)
         .correlate(notification)
         .scalar_subquery()
     )
 
 
 def _job_exists_expr(notification=Notification):
+    job_scope = notification_scope_facts()
     return (
-        select(AsyncJob.id)
-        .where(AsyncJob.id == notification.target_id)
+        select(job_scope.c.id)
+        .where(job_scope.c.id == notification.target_id)
         .correlate(notification)
         .exists()
     )
@@ -134,14 +132,14 @@ def _job_exists_expr(notification=Notification):
 
 def _job_project_exists_expr(user: IdentityActorStatus, notification=Notification):
     workspace_projects = project_search_scope(user)
+    job_scope = notification_scope_facts()
     return (
-        select(AsyncJob.id)
+        select(job_scope.c.id)
         .join(
             workspace_projects,
-            workspace_projects.c.project_id
-            == func.coalesce(AsyncJob.project_id, AsyncJob.retained_project_id),
+            workspace_projects.c.project_id == job_scope.c.scope_project_id,
         )
-        .where(AsyncJob.id == notification.target_id)
+        .where(job_scope.c.id == notification.target_id)
         .correlate(notification)
         .exists()
     )
@@ -150,10 +148,10 @@ def _job_project_exists_expr(user: IdentityActorStatus, notification=Notificatio
 def _effective_project_text_expr(notification=Notification):
     """SQL text expression for a notification's actual project scope.
 
-    For an export/async-job target the owning ``AsyncJob`` row is the actual
-    resource and wins over a stale or forged ``payload.project_id``.  Other
-    notifications use the payload project.  A missing/malformed value yields
-    NULL, which matches no accessible project and therefore fails closed.
+    For an export/async-job target Jobs' public scope fact is authoritative and
+    wins over a stale or forged ``payload.project_id``. Other notifications use
+    the payload project. A missing/malformed value yields NULL, which matches no
+    accessible project and therefore fails closed.
     """
 
     return case(
@@ -450,9 +448,10 @@ class NotificationService:
     ) -> list[tuple[bool, uuid.UUID | None, bool]]:
         """Resolve ``(restricted, project_id, export_required)`` per notification.
 
-        Export/async-job targets resolve the owning ``AsyncJob`` in one batched
+        Export/async-job targets resolve Jobs' public scope fact in one batched
         query; other targets use ``payload.project_id``. A missing or malformed
-        restricted target fails closed, while an unscoped job remains global.
+        restricted target fails closed, while an unscoped known-global job remains
+        global.
         """
 
         job_ids = {
@@ -460,12 +459,18 @@ class NotificationService:
         }
         jobs: dict[uuid.UUID, tuple[uuid.UUID | None, str | None]] = {}
         if job_ids:
+            job_scope = notification_scope_facts()
+            # This Core relation read replaces an ORM query, which autoflushed
+            # pending caller work. Preserve that behavior without overriding a
+            # surrounding Session.no_autoflush scope.
+            if self.db.autoflush:
+                await self.db.flush()
             job_rows = await self.db.execute(
                 select(
-                    AsyncJob.id,
-                    func.coalesce(AsyncJob.project_id, AsyncJob.retained_project_id),
-                    AsyncJob.kind,
-                ).where(AsyncJob.id.in_(job_ids))
+                    job_scope.c.id,
+                    job_scope.c.scope_project_id,
+                    job_scope.c.kind,
+                ).where(job_scope.c.id.in_(job_ids))
             )
             jobs = {jid: (pid, kind) for jid, pid, kind in job_rows.all()}
 

@@ -31,11 +31,16 @@ class _FakeResult:
 
 
 class _FakeDb:
-    def __init__(self, rows=None):
+    def __init__(self, rows=None, *, autoflush=False):
         self._rows = rows or []
+        self.autoflush = autoflush
+        self.flush_calls = 0
 
     async def execute(self, *_args, **_kwargs):
         return _FakeResult(self._rows)
+
+    async def flush(self):
+        self.flush_calls += 1
 
 
 def _job_row(payload, target_type, target_id):
@@ -106,10 +111,13 @@ async def test_global_job_target_is_preserved_as_global(kind):
     assert scopes == [(False, None, False)]
 
 
-async def test_unresolved_required_job_fails_closed_despite_forged_payload_project():
+@pytest.mark.parametrize("kind", ["create_tasks", "future_unrecognized_job_kind"])
+async def test_unresolved_required_job_fails_closed_despite_forged_payload_project(
+    kind,
+):
     target_id = uuid.uuid4()
     project_id = uuid.uuid4()
-    svc = NotificationService(_FakeDb([(target_id, None, "create_tasks")]))
+    svc = NotificationService(_FakeDb([(target_id, None, kind)]))
     rows = [_job_row({"project_id": str(project_id)}, "async_job", target_id)]
     scopes = await svc._resolve_delivery_scopes(rows)
     assert scopes == [(True, None, False)]
@@ -124,6 +132,19 @@ async def test_project_async_job_without_payload_scope_is_restricted():
     rows = [_job_row({"batch_display_id": "B-1"}, "async_job", target_id)]
     scopes = await svc._resolve_delivery_scopes(rows)
     assert scopes == [(True, project_id, False)]
+
+
+async def test_jobs_core_scope_read_preserves_default_autoflush():
+    target_id = uuid.uuid4()
+    db = _FakeDb([(target_id, None, "dataset_import")], autoflush=True)
+    service = NotificationService(db)
+
+    scopes = await service._resolve_delivery_scopes(
+        [_job_row({}, "async_job", target_id)]
+    )
+
+    assert scopes == [(False, None, False)]
+    assert db.flush_calls == 1
 
 
 async def test_missing_async_job_target_fails_closed():
