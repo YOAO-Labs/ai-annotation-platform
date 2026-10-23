@@ -27,6 +27,7 @@ from app.db.models.video_tracker_job import (
 from app.deps import (
     get_current_user,
     get_db,
+    get_video_tracker_job_dispatcher,
     require_roles,
     require_scopes,
     require_active_task_actor,
@@ -48,6 +49,7 @@ from app.services.video_tracking.jobs import (
     tracker_job_out,
     tracker_job_preview,
 )
+from app.services.video_tracking.dispatch import VideoTrackerJobDispatcher
 from app.observability.metrics import observe_mask_ai_phase, record_mask_ai_operation
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.workspace_read_relations import project_facts, project_rows
@@ -111,6 +113,16 @@ class VideoTrackerPreviewResult(BaseModel):
     source_annotation_id: uuid.UUID | None = None
     target_annotation_id: uuid.UUID | None = None
     manual_protected: bool = False
+
+
+class TrackerRetirementRedriveUnavailable(BaseModel):
+    reason: Literal["tracker_retirement_redrive_unavailable"]
+    job_id: uuid.UUID
+    retryable: Literal[True]
+
+
+class TrackerRetirementRedriveUnavailableResponse(BaseModel):
+    detail: TrackerRetirementRedriveUnavailable
 
 
 class VideoTrackerJobPreview(BaseModel):
@@ -415,12 +427,22 @@ async def get_video_tracker_job(
     "/{job_id}",
     response_model=VideoTrackerJobOut,
     dependencies=[Depends(require_scopes("annotations:write"))],
+    responses={
+        503: {
+            "model": TrackerRetirementRedriveUnavailableResponse,
+            "description": (
+                "Cancellation is committed; retry the same request if the "
+                "worker redrive could not be acknowledged."
+            ),
+        }
+    },
 )
 async def cancel_video_tracker_job(
     job_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
+    dispatcher: VideoTrackerJobDispatcher = Depends(get_video_tracker_job_dispatcher),
 ):
     task, row, access = await _lock_visible_job_task_row(
         db, job_id, current_user, require_annotation_write=False
@@ -502,6 +524,17 @@ async def cancel_video_tracker_job(
             decision="cancel",
             outcome="success",
         )
+    try:
+        dispatcher.dispatch_tracker_job(job_id)
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "reason": "tracker_retirement_redrive_unavailable",
+                "job_id": str(job_id),
+                "retryable": True,
+            },
+        ) from None
     return body
 
 

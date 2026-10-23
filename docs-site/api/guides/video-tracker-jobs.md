@@ -2,7 +2,7 @@
 audience: [dev]
 type: how-to
 status: stable
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-23
 ---
 
 # Video Tracker Jobs
@@ -267,7 +267,21 @@ DELETE /api/v1/video-tracker-jobs/{job_id}
 - `accept`：只对带结果的 `pending_review` / `cancelled` job 应用候选。服务端在同一事务内重新锁定 task、segment 和按 UUID 排序的全部源 annotation，复核 task 状态、assignment、segment lease、源版本与 annotation lock；任一源被软删或变化都 fail closed 返回 409。单源模式把主实例回填源轨迹，额外实例新建；多源模式按 `instance_id` 把各实例回填各自源轨迹；无源模式全部新建。接受后立即清空 staged result（引用已由 annotation 保活），响应的 `touched_annotation_ids` 列出本次回填和新建的轨迹。
 - `discard`：只允许带暂存结果的 `pending_review` / `cancelled` job，清空 staged result，annotation 保持不变；已丢弃时幂等返回，其它状态返回 `409`。
 - `decisions`：显式选择 `instance_ids` 与闭区间 `from_frame / to_frame`，决定 `accept` 或 `reject`。请求还要回传 preview 的 `job_revision` 与 `expected_source_versions`；接受人工关键帧需在收到 `manual_keyframe_protected` 后由用户确认，再用 `override_manual=true` 重试。服务端只处理选区，未选目标、窗口外结果和未决 Mask 引用保持不变；相同决定可安全重试，响应以 `review_replayed=true` 标识回放。
-- `DELETE`：请求停止 queued / running job。已计算的部分结果可能保留为 candidate，之后仍可接受或丢弃。
+- `DELETE`：请求停止 queued / running job。已计算的部分结果可能保留为 candidate，之后仍可接受或丢弃。取消状态与后台执行退役是两个阶段：API 先提交取消和一次性审计，再把同一 canonical job ID 投递给现有 worker 完成 proof-bound scope 退役。HTTP 200 的 `VideoTrackerJobOut` 只表示 job 已取消，不表示物理推理已停止或退役完成。
+
+取消提交后若队列投递无法确认，API 返回 `503`，job 可能已经是 `cancelled`；可以对同一 ID 重试 `DELETE`。重复请求会重投同一 job，不会将状态改回 `queued` 或重复写取消审计。错误形状：
+
+```json
+{
+  "detail": {
+    "reason": "tracker_retirement_redrive_unavailable",
+    "job_id": "11111111-1111-4111-8111-111111111111",
+    "retryable": true
+  }
+}
+```
+
+项目删除和数据集解绑会继续拒绝尚无耐久退役证明的执行。已启动但没有 Jobs 执行账本的旧 job，以及 scope-only 孤儿，不能通过重复取消或 lease 到期补出证明；它们须保持阻塞，直到运维人员能验证旧 worker/backend 已围栏并完成 owner 认可的退役。
 
 一般 tracking job 已计算的部分结果可在取消后继续审阅；correction job 取消时会立即丢弃 staged candidate、释放同轨活跃租约，但已保存的人工纠错关键帧不回滚。无人处理的 staged candidate 保留 24 小时，之后清理任务会清空引用：待审 / 部分审阅 job 转为 `discarded`，已取消 job 保持 `cancelled`。
 

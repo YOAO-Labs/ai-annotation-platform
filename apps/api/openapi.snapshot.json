@@ -40965,6 +40965,44 @@
         "title": "TrackerExemplar",
         "type": "object"
       },
+      "TrackerRetirementRedriveUnavailable": {
+        "properties": {
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "reason": {
+            "const": "tracker_retirement_redrive_unavailable",
+            "title": "Reason",
+            "type": "string"
+          },
+          "retryable": {
+            "const": true,
+            "title": "Retryable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "reason",
+          "job_id",
+          "retryable"
+        ],
+        "title": "TrackerRetirementRedriveUnavailable",
+        "type": "object"
+      },
+      "TrackerRetirementRedriveUnavailableResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/TrackerRetirementRedriveUnavailable"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "TrackerRetirementRedriveUnavailableResponse",
+        "type": "object"
+      },
       "TrainedModelCreate": {
         "additionalProperties": false,
         "properties": {
@@ -86790,6 +86828,16 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackerRetirementRedriveUnavailableResponse"
+                }
+              }
+            },
+            "description": "Cancellation is committed; retry the same request if the worker redrive could not be acknowledged."
           }
         },
         "security": [

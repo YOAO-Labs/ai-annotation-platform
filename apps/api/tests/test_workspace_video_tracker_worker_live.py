@@ -52,6 +52,7 @@ from tests.test_workspace_cross_frame_worker_live import (
     _identity_gateway_for_owned_auth,
 )
 from tests.test_workspace_worker_assembly_live import (
+    _broker_state,
     _assert_worker_database_identity,
     _delete_owned_queue,
     _wait_broker_ack,
@@ -90,6 +91,8 @@ class _VideoTrackerCeleryWorker(WorkspaceCeleryWorker):
 
     def __init__(self, *args, media_url: str, media_token: str, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        # The production dispatcher targets the isolated verifier's gpu queue.
+        self.queue = "gpu"
         routing_dsn = self._role_dsn(
             "AAP_MODULE_DATA_INFERENCE_ROUTING_URL", "inference_routing_client"
         )
@@ -319,8 +322,12 @@ def _access_token(actor_id: uuid.UUID, role: str) -> str:
 
 
 @asynccontextmanager
-async def _committed_api_client(app_module, test_engine):
-    from app.deps import get_db, get_identity_gateway
+async def _committed_api_client(app_module, test_engine, *, dispatcher=None):
+    from app.deps import (
+        get_db,
+        get_identity_gateway,
+        get_video_tracker_job_dispatcher,
+    )
 
     api_engine = create_async_engine(_api_role_url(), hide_parameters=True)
     api_sessions = async_sessionmaker(api_engine, expire_on_commit=False)
@@ -343,6 +350,9 @@ async def _committed_api_client(app_module, test_engine):
         owner_bindings[setting] = dsn.render_as_string(hide_password=False)
     previous_db = app_module.dependency_overrides.get(get_db)
     previous_gateway = app_module.dependency_overrides.get(get_identity_gateway)
+    previous_dispatcher = app_module.dependency_overrides.get(
+        get_video_tracker_job_dispatcher
+    )
 
     async def api_session_dependency():
         async with api_sessions() as session:
@@ -350,6 +360,10 @@ async def _committed_api_client(app_module, test_engine):
 
     app_module.dependency_overrides[get_db] = api_session_dependency
     app_module.dependency_overrides[get_identity_gateway] = lambda: gateway
+    if dispatcher is not None:
+        app_module.dependency_overrides[get_video_tracker_job_dispatcher] = lambda: (
+            dispatcher
+        )
     scoped = pytest.MonkeyPatch()
     for setting, dsn in owner_bindings.items():
         scoped.setattr(settings, setting, dsn)
@@ -372,6 +386,12 @@ async def _committed_api_client(app_module, test_engine):
             app_module.dependency_overrides.pop(get_identity_gateway, None)
         else:
             app_module.dependency_overrides[get_identity_gateway] = previous_gateway
+        if previous_dispatcher is None:
+            app_module.dependency_overrides.pop(get_video_tracker_job_dispatcher, None)
+        else:
+            app_module.dependency_overrides[get_video_tracker_job_dispatcher] = (
+                previous_dispatcher
+            )
         scoped.undo()
         await api_engine.dispose()
 
@@ -632,7 +652,7 @@ async def test_tracker_revocation_http_prerequisites(test_engine, app_module):
 
 
 async def test_real_video_tracker_cold_worker_uses_workspace_acl_and_genuine_retirement(
-    test_engine, tmp_path, app_module, record_property
+    test_engine, tmp_path, app_module, record_property, monkeypatch
 ):
     assert test_engine.url.database and test_engine.url.database.endswith("_test")
     video = await asyncio.to_thread(_video_bytes, tmp_path)
@@ -817,16 +837,55 @@ async def test_real_video_tracker_cold_worker_uses_workspace_acl_and_genuine_ret
                 test_engine, media.sessions, cancel_world["job_id"], 0
             )
             await asyncio.wait_for(cancel_peer.entered[1].wait(), timeout=60)
-            async with _committed_api_client(app_module, test_engine) as api:
+            from app.workers.video_tracker_dispatch import (
+                CeleryVideoTrackerJobDispatcher,
+            )
+
+            monkeypatch.setattr(
+                "app.workers.video_tracker_dispatch.current_app", sender
+            )
+            cancel_dispatcher = CeleryVideoTrackerJobDispatcher()
+            async with _committed_api_client(
+                app_module, test_engine, dispatcher=cancel_dispatcher
+            ) as api:
                 cancel_response = await api.delete(
                     f"/api/v1/video-tracker-jobs/{cancel_world['job_id']}",
                     headers={"Authorization": f"Bearer {cancel_world['actor_token']}"},
                 )
             assert cancel_response.status_code == 200, cancel_response.text
             assert cancel_response.json()["status"] == "cancelled"
+            broker_after_cancel = await asyncio.to_thread(
+                _broker_state, sender, worker.queue
+            )
+            assert (
+                broker_after_cancel["queue_size"]
+                + broker_after_cancel["unacknowledged"]
+                >= 2
+            ), "authorized cancellation did not redrive the same video job"
+            inspection = await asyncio.to_thread(
+                sender.control.inspect(timeout=2, destination=[worker.node_name]).active
+            )
+            active = [
+                task
+                for tasks in (inspection or {}).values()
+                for task in tasks or []
+                if task.get("id") == str(cancel_world["job_id"])
+            ]
+            assert len(active) == 1 and type(active[0].get("worker_pid")) is int
+            cancel_child_loss = worker.kill_prefork_child(active[0]["worker_pid"])
+            await _expire_exact_claim(
+                media.sessions,
+                cancel_world["job_id"],
+                expected_generation=1,
+            )
             cancel_peer.release[1].set()
+            async with asyncio.timeout(180):
+                while (
+                    await asyncio.to_thread(lambda: cancel_delivery.state)
+                ) != "SUCCESS":
+                    await asyncio.sleep(0.25)
             cancel_result = await asyncio.to_thread(
-                cancel_delivery.get, timeout=150, propagate=False
+                cancel_delivery.get, timeout=10, propagate=False
             )
             assert cancel_delivery.state == "SUCCESS", repr(cancel_result)
             cancel_ack = await _wait_broker_ack(sender, worker, cancel_world["job_id"])
@@ -847,6 +906,8 @@ async def test_real_video_tracker_cold_worker_uses_workspace_acl_and_genuine_ret
             record_property("video_tracker_cancel_ack", cancel_ack)
             record_property("video_tracker_cancel_checkpoint", cancel_checkpoint)
             record_property("video_tracker_cancel_retirement", cancel_execution)
+            record_property("video_tracker_cancel_child_loss", cancel_child_loss)
+            record_property("video_tracker_cancel_recovery_result", repr(cancel_result))
 
             async with _committed_api_client(app_module, test_engine) as api:
                 await _revoke_queued_worlds(api, worlds)

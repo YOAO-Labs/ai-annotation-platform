@@ -948,6 +948,7 @@ async def test_correction_cancel_preserves_manual_frame_and_blocks_bulk_review(
     httpx_client,
     db_session,
     super_admin,
+    app_module,
     correction_storage_mocks,
     monkeypatch,
 ):
@@ -991,6 +992,22 @@ async def test_correction_cancel_preserves_manual_frame_and_blocks_bulk_review(
     }
     await db_session.commit()
 
+    from app.deps import get_video_tracker_job_dispatcher
+
+    dispatched: list[uuid.UUID] = []
+
+    def dispatch_with_lost_ack(job_id: uuid.UUID) -> str:
+        dispatched.append(job_id)
+        if len(dispatched) == 1:
+            raise RuntimeError("simulated accepted dispatch with lost acknowledgement")
+        return str(uuid.uuid4())
+
+    monkeypatch.setitem(
+        app_module.dependency_overrides,
+        get_video_tracker_job_dispatcher,
+        lambda: SimpleNamespace(dispatch_tracker_job=dispatch_with_lost_ack),
+    )
+
     for action in ("accept", "discard"):
         blocked = await httpx_client.post(
             f"/api/v1/video-tracker-jobs/{job_id}/{action}",
@@ -1002,12 +1019,49 @@ async def test_correction_cancel_preserves_manual_frame_and_blocks_bulk_review(
             blocked.json()["detail"]["reason"] == "correction_requires_local_decision"
         )
 
+    denied = await httpx_client.delete(f"/api/v1/video-tracker-jobs/{job_id}")
+    assert denied.status_code == 401
+    assert dispatched == []
+
+    original_commit = db_session.commit
+
+    async def fail_cancellation_commit():
+        if job.status == VideoTrackerJobStatus.CANCELLED.value:
+            raise RuntimeError("injected cancellation commit failure")
+        await original_commit()
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(db_session, "commit", fail_cancellation_commit)
+        with pytest.raises(RuntimeError, match="injected cancellation commit failure"):
+            await httpx_client.delete(
+                f"/api/v1/video-tracker-jobs/{job_id}",
+                headers=_bearer(token),
+            )
+    await db_session.rollback()
+    await db_session.refresh(job)
+    assert job.status == VideoTrackerJobStatus.PENDING_REVIEW.value
+    assert dispatched == []
+    failed_commit_audit_count = await db_session.scalar(
+        select(func.count())
+        .select_from(AuditLog)
+        .where(
+            AuditLog.action == AuditAction.VIDEO_CORRECTION_JOB_CANCEL,
+            AuditLog.target_id == str(job.id),
+        )
+    )
+    assert failed_commit_audit_count == 0
+
     cancelled = await httpx_client.delete(
         f"/api/v1/video-tracker-jobs/{job_id}",
         headers=_bearer(token),
     )
-    assert cancelled.status_code == 200, cancelled.text
-    assert cancelled.json()["status"] == "cancelled"
+    assert cancelled.status_code == 503, cancelled.text
+    assert cancelled.json()["detail"] == {
+        "reason": "tracker_retirement_redrive_unavailable",
+        "job_id": job_id,
+        "retryable": True,
+    }
+    assert dispatched == [job.id]
     await db_session.refresh(job)
     await db_session.refresh(annotation)
     assert job.staged_result is None
@@ -1028,6 +1082,8 @@ async def test_correction_cancel_preserves_manual_frame_and_blocks_bulk_review(
         headers=_bearer(token),
     )
     assert repeated.status_code == 200
+    assert repeated.json()["status"] == "cancelled"
+    assert dispatched == [job.id, job.id]
     repeated_audit_count = await db_session.scalar(
         select(func.count())
         .select_from(AuditLog)
