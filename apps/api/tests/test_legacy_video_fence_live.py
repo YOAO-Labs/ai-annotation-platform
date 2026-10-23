@@ -512,13 +512,6 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
             image_revision = worker._image_record["source_revision"]
             if image_revision != expected_revision:
                 raise LocalFenceRefused("accepted_worker_image_revision_mismatch")
-            signature = worker.task_signature(_TASK_NAME)
-            delivery_policy = worker.task_delivery_policy(_TASK_NAME)
-            if signature.get("task") != _TASK_NAME or delivery_policy != {
-                "acks_late": True,
-                "reject_on_worker_lost": True,
-            }:
-                raise LocalFenceRefused("accepted_worker_task_contract_mismatch")
             sender_url = os.environ.get("CELERY_BROKER_URL") or _required("REDIS_URL")
             sender = Celery(
                 "local-legacy-video-fence-sender",
@@ -532,6 +525,13 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
             )
             worker.start()
             await _wait_worker_ready(sender, worker)
+            signature = worker.task_signature(_TASK_NAME)
+            delivery_policy = worker.task_delivery_policy(_TASK_NAME)
+            if signature.get("task") != _TASK_NAME or delivery_policy != {
+                "acks_late": True,
+                "reject_on_worker_lost": True,
+            }:
+                raise LocalFenceRefused("accepted_worker_task_contract_mismatch")
             bootstrap = worker.bootstrap_tracker_routes({"legacy": world})
             if bootstrap != [
                 {
