@@ -424,6 +424,7 @@ TEST_FILES = (
     "tests/test_workspace_import_cli_live.py",
     "tests/test_workspace_worker_assembly_live.py",
     "tests/test_workspace_cross_frame_worker_live.py",
+    "tests/test_workspace_export_worker_live.py",
     "tests/test_workspace_module_assembly_live.py",
     "tests/test_workspace_module_healthcheck.py",
     "tests/test_workspace_consumer_profile_native.py",
@@ -4034,6 +4035,10 @@ def main(argv: list[str] | None = None) -> int:
             or (
                 "tests/test_workspace_cross_frame_worker_live.py" in selected_test_paths
                 and os.environ.get("AAP_WORKSPACE_CROSS_FRAME_WORKER_LIVE") == "1"
+            )
+            or (
+                "tests/test_workspace_export_worker_live.py" in selected_test_paths
+                and os.environ.get("AAP_WORKSPACE_EXPORT_WORKER_LIVE") == "1"
             )
             or (
                 "tests/test_workspace_capacity_live.py" in selected_test_paths

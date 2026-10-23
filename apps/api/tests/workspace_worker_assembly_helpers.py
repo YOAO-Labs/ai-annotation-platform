@@ -183,6 +183,23 @@ class WorkspaceCeleryWorker:
         self.assert_runtime()
         self.assert_private_network()
 
+    def kill(self) -> dict:
+        """Lose the owned worker process without running application cleanup."""
+        before = self.assert_runtime()
+        self.assert_private_network()
+        self._docker("kill", "--signal", "KILL", self.container_id)
+        record = self._inspect(self.container_id)
+        self._verify_container_record(record)
+        state = record.get("State") or {}
+        if state.get("Running") or state.get("ExitCode") != 137:
+            raise RuntimeError("Owned worker did not terminate from SIGKILL")
+        return {
+            "container_id": record["Id"],
+            "started_at": before["started_at"],
+            "finished_at": state.get("FinishedAt"),
+            "exit_code": state["ExitCode"],
+        }
+
     def task_signature(self, task_name: str) -> dict:
         """Inspect the callable in the same immutable image as the live worker."""
         if task_name not in {
