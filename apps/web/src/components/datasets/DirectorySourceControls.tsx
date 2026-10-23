@@ -1,3 +1,4 @@
+import { DirectorySourceRules } from "./DirectorySourceRules";
 import { useState } from "react";
 import type { DatasetSourceOut, SourceLifecycleImpact } from "@/api/generated/types.gen";
 import { datasetSourcesApi as api } from "@/api/datasetSources";
@@ -76,6 +77,7 @@ export function DirectorySourceControls({
       <p className="mt-1 text-muted-foreground">
         位置禁止缓存时，来源的预览策略不生效。变更策略后须重新扫描、预检；已有缓存单独计量，关闭策略不删除共享对象。
       </p>
+      <DirectorySourceRules source={source} act={act} />
       {impact && !source.unregistered_at && (
         <div role="region" aria-label="来源操作影响" className="mt-2 border-t border-border pt-2">
           <p>

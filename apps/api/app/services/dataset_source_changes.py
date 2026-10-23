@@ -77,6 +77,22 @@ async def initialize(db, run):
             .where(DatasetSourceItem.source_id == run.source_id),
         )
     )
+    from app.db.models.dataset_asset import StorageLocation
+    from app.db.models.dataset_source import DatasetSource
+    from app.services.source_selection import selected_file
+
+    scan = await db.get(DatasetScanRun, run.scan_run_id)
+    source = await db.get(DatasetSource, run.source_id)
+    location = await db.get(StorageLocation, source.location_id)
+    omitted = await db.scalars(
+        select(Change).where(Change.run_id == run.id, Change.kind == "not_seen")
+    )
+    for change in omitted:
+        if not selected_file(
+            scan.snapshot["config"], change.relative_path, location.kind
+        ):
+            change.kind, change.reason = "excluded", "outside_selection_rules"
+    await db.flush()
     await db.execute(
         pg_insert(Change)
         .from_select(

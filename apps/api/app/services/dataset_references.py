@@ -589,9 +589,11 @@ async def reference_context(db, item_id, actor, *, task_id=None):
     ):
         raise snapshots.ContentError("content_unverified")
     receipt = entry.verified_content
+    from app.services.source_selection import locator
+
     if (
-        source.config != run.snapshot["config"]
-        or run.snapshot["config"] != original_run.snapshot["config"]
+        locator(source.config) != locator(run.snapshot["config"])
+        or locator(run.snapshot["config"]) != locator(original_run.snapshot["config"])
         or run.snapshot["anchor"] != original_run.snapshot["anchor"]
         or (accepted is None and ref.source_revision != run.snapshot["source_revision"])
         or (

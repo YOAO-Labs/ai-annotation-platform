@@ -297,6 +297,8 @@
 | POST | `/dataset-registrations/{registration_id}/changes/{path_digest}/relocate` |
 | GET | `/dataset-registrations/{registration_id}/changes/{path_digest}/move-candidates` |
 | GET | `/dataset-sources/{source_id}/revisions` |
+| POST | `/dataset-sources/{source_id}/rules/preview` |
+| POST | `/dataset-sources/{source_id}/rules` |
 
 ## `datasets.py`
 
@@ -966,4 +968,4 @@
 
 ---
 
-_共 86 模块 / 559 路由_
+_共 86 模块 / 561 路由_

@@ -43,6 +43,9 @@ from app.schemas.dataset_source import (
     SourceSyncScheduleOut,
     SourceSyncScheduleUpdate,
     SourceSyncScheduleContinue,
+    SourceRulesPreview,
+    SourceRulesApply,
+    SourceRulesImpact,
 )
 from app.services import dataset_scans as svc
 from app.services import dataset_source_access as access
@@ -932,3 +935,49 @@ async def source_revision_history(
 
     await access.require_source(db, source_id, actor)
     return await revisions.history(db, source_id, path_digest, limit, offset)
+
+
+@router.post(
+    "/dataset-sources/{source_id}/rules/preview", response_model=SourceRulesImpact
+)
+async def preview_source_rules(
+    source_id: uuid.UUID,
+    payload: SourceRulesPreview,
+    request: Request,
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(manager),
+):
+    from app.services import dataset_source_rules
+
+    return await dataset_source_rules.preview(
+        db,
+        source_id,
+        payload,
+        actor,
+        limit=limit,
+        offset=offset,
+        api_key_id=getattr(request.state, "api_key_id", None),
+    )
+
+
+@router.post("/dataset-sources/{source_id}/rules", response_model=DatasetSourceOut)
+async def apply_source_rules(
+    source_id: uuid.UUID,
+    payload: SourceRulesApply,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(manager),
+):
+    from app.services import dataset_source_rules
+
+    source = await dataset_source_rules.apply(
+        db,
+        source_id,
+        payload,
+        actor,
+        api_key_id=getattr(request.state, "api_key_id", None),
+    )
+    await db.commit()
+    return svc.source_out(source)

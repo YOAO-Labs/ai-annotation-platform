@@ -36,6 +36,7 @@ export function verifiedContentError(error: unknown): string {
     ].includes(code)
   )
     return "候选或当前修订已变化，请重新扫描和预检后核对";
+  if (code === "rules_impact_changed") return "规则或接纳路径已变化，请重新预览影响后确认";
   if (code === "source_busy") return "来源有扫描或登记正在执行，请稍后重新核对";
   if (code === "accepted_revision_item_deleted")
     return "已接纳的新样本已被删除；本次确认不会重新创建，请重新扫描";

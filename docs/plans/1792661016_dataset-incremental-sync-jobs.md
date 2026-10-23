@@ -1,12 +1,12 @@
 # EPIC-04：增量同步与后台任务编排
 
-> 状态：E04-A / E04-B1 / E04-B2 / E04-B3 / E04-B4 / E04-B5 completed；用户要求完整完成 E04，移动与其余合同继续实施；用户已授权推进和提交，不分配发布版本。
+> 状态：E04-A / E04-B1 / E04-B2 / E04-B3 / E04-B4 / E04-B5 / E04-B6 completed；用户要求完整完成 E04，规则、导航与剩余验收继续实施；用户已授权推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 | 项目          | 内容                                                     |
 | ------------- | -------------------------------------------------------- |
-| 状态          | E04-A 至 E04-B5 已完成本地验收；其余合同继续实施         |
+| 状态          | E04-A 至 E04-B6 已完成本地验收；其余合同继续实施         |
 | 日期          | 2026-10-23（Asia/Shanghai）                              |
 | 优先级 / 阶段 | P0：M1 幂等手动扫描与变化保护；P1：M2 周期同步与裁决     |
 | 负责角色      | 后端、任务系统维护者、前端、测试                         |
@@ -412,3 +412,20 @@ Touched areas exceed eight files: migration/model/schema, registration confirmat
 - Local verification: 69 successful backend cases across focused runs (including corrected rollback-only test assertions), covering existing periodic/manual contracts, automatic dispatch/recovery, whole-cycle mixed-difference gates, non-retroactive policy, both pause/Key-rotation I/O barriers with zero capture, registration compatibility and migration rollback/defaults. Final 36-case automatic/registration suite passed, timezone follow-up passed. Three focused Web cases passed. TypeScript, full Web lint/CSS, Ruff, OpenAPI consistency, SDK contract4 and documentation build passed. An accidentally broad Web invocation ran633 files:632 passed;14 existing StoragePage cases failed for missing QueryClientProvider. This test fixture issue will be addressed with the remaining storage navigation work; no full-Web green claim is made.
 - Actual browser: explicitly selected pure-addition policy and Asia/Shanghai in a separate retained source, then waited for real beat, exact-node scan, full preflight and automatic formal registration. Browser showed completed registration and one indexed file; read-only API assertions confirmed exactly one Item and one linked-project Task. Screenshots of the saved policy/timezone and completed registration were visually inspected. Owned API, worker, maintenance worker and beat were refreshed without an image rebuild; worktree doctor is healthy. The mixed-change live cycle remains part of final Epic acceptance.
 - The E04 plan remains active for filter-change impact, history/storage navigation, frozen-version invariance and complete acceptance. Retained manual fixtures and dev resources are preserved; disposable test infrastructure and task temporary files are cleaned between slices. No push, release or version assignment.
+
+## Execution contract — E04-B7
+
+Base: `a8b6e0cca`. Add preview/apply for recursive/include_globs/exclude_globs only. Locator, node, root and ownership stay immutable. Preview evaluates up to50000 accepted heads with backend-exact selection semantics; it does not enumerate external storage or predict unknown new files. Bind proof to proposed rules, source/location revision and ordered head revision identities plus active attempts. Apply rechecks original actor/Key under Location→Source locks, rejects active attempts, appends audit, advances Source revision/generation and explicitly blocks the old periodic plan until reconfigured. Old scans/preflights/checkpoints remain stale.
+
+Extract shared selection helpers: filesystem/SFTP excluded directories prune descendants; S3 keeps exact flat-key fnmatch semantics, preserving slashes/encoding. New comparisons classify accepted paths outside new rules as excluded even when ancestor pruning omitted them. Existing business reads compare every locator/config key except these three explicit selection keys, preserving original root/qualification/content and before/after I/O fencing. No Item/Task/label deletion or new identity.
+
+Changes exceed eight files: shared rules helper, rule service, scan/S3/changes/reference callers, schema/API/Web rules panel, backend/Web regressions, generated API/SDK/routes, ADR0106 and user/developer/API/CHANGELOG/README/plan. No migration/dependency/image changes. Verify CAS after head moves, authority, active attempts, reader continuity and strict locator changes, old-preflight rejection, matching parity and actual browser preview/apply/new scan.
+
+## Outcome — E04-B7
+
+- Delivered reviewed recursive/include/exclude changes through dedicated preview/apply endpoints. The bounded accepted-head preview is bound to proposed rules, Source/Location revisions, exact current head identities and active attempts. Apply rechecks initial authority, rejects stale proof or active work, advances revision/generation and audits. Existing schedules are blocked and stale current-cycle pointers cleared; domain history remains. Re-enabling starts a new configuration cycle.
+- Shared backend matching preserves FS/SFTP ancestor pruning and exact flat S3 key behavior. Omitted accepted descendants outside the new selection become excluded, never inferred missing. Business reading excludes only the three selection keys from locator comparison; roots, qualification, unknown config, immutable original receipts and before/after I/O checks remain strict. UI rule lists preserve commas, whitespace and embedded newlines without delimiter rewriting. Saving also refreshes paused schedule revision.
+- Local checks:47-case rules/FS/S3 regression passed; final19-case rules suite and2 Key-rotation lock-boundary cases passed. Nine Web component cases passed, including exact glob roundtrip, discarded preview after edits and paused-schedule refresh before re-enable. TypeScript, full Web lint/CSS, Ruff, OpenAPI check, SDK contract4 and documentation build passed. No remote CI claim.
+- Actual browser: separate retained nested-path fixture previewed fleet/vehicle.png leaving scope, required explicit review, saved fleet exclusion, then ran a new scan/preflight. Difference showed excluded1/not_seen0 with readable explanation. Opened the exact original Task and visually inspected its original image and one bbox annotation. Read-only assertions confirmed Source revision2, original single Item/Task/label, one original acceptance receipt and original content200. Browser errors were empty. Original dev fixtures remain.
+- Completed the remaining B6 live gate: real beat cycle with one changed and one added file stopped at awaiting_review; browser and API confirmed no partial automatic ingestion and original single Item/Task. The demo is paused for inspection.
+- Remaining full-E04 work: last-complete/history and storage fault navigation; existing managed frozen-version invariance regression; final acceptance matrix, retention decisions and plan archival. Disposable test resources and task temporary artifacts are cleaned between slices. No image rebuild, push or release.

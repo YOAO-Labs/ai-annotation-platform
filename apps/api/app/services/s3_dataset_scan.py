@@ -1,6 +1,5 @@
 """Commit one S3 page and its continuation under the existing scan lease."""
 
-import fnmatch
 import hashlib
 
 from sqlalchemy import func, select
@@ -8,7 +7,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from app.db.models.dataset_source import DatasetScanEntry as Entry
 from app.services import dataset_scans as scans
-from app.services import reference_storage
+from app.services import reference_storage, source_selection as selection
 from app.services.filesystem_storage import FilesystemStorageError as StorageError
 
 
@@ -58,13 +57,7 @@ async def apply_page(db, source, run, job, work, page):
     rows = []
     for item in page["entries"]:
         path = item["name"]
-        selected = (
-            (config["recursive"] or "/" not in path)
-            and not any(
-                fnmatch.fnmatchcase(path, p) for p in config.get("exclude_globs", [])
-            )
-            and any(fnmatch.fnmatchcase(path, p) for p in config["include_globs"])
-        )
+        selected = selection.selected_file(config, path, "s3")
         rows.append(
             {
                 "run_id": run.id,

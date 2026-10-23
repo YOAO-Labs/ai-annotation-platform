@@ -254,3 +254,5 @@ DatasetSourceItem 是来源/路径的当前头；DatasetSourceRevision 保存不
 退役旧 SourceItem 与建立新头、目标 RegistrationEntry 消费、审计同事务提交；原差异保持冻结。旧预览精确键在提交后清理，新路径按当前策略生成派生物。旧路径回归是新增候选。迁移0204保留原账本事实，已有移动历史时拒绝降级到旧定位读取。见 [ADR0104](/dev/adr/0104-explicit-source-relocations)。
 
 周期计划显式持久化 `new_file_policy=manual|pure_additions` 与有效 IANA 显示时区（默认 manual/UTC）。纯新增策略固定在扫描快照并传给预检；整轮只含新增/相同且无错误才以真实 worker 节点走既有 additions_only 确认。任何其他差异整轮留在门禁，策略中途打开不会接管人工轮次。确认嵌套 I/O 后复核计划 revision/token、原账号与 Key proof，自动正式登记仅在原授权完全相符时由协调器恢复；人工正式登记仅观察。0205降级前须暂停自动计划。固定分钟间隔不表达日历定时，时区仅控制显示。见 [ADR0105](/dev/adr/0105-opt-in-pure-addition-sync)。
+
+选择规则通过独立 preview/apply 入口更新，仅 recursive/include_globs/exclude_globs。预览绑定提议规则、Source/Location修订和排序接纳头修订身份，防止移动或重新核验后复用同计数旧预览；仅评估已接纳路径，不读取外部来源。保存拒绝活动尝试，原子递增来源修订与代次并阻断旧周期计划。观测账本保持；新差异按复用的后端选择语义识别规则外路径。业务 reader 只排除这三个字段进行定位比较，其他未知配置、原根/资格/回执与内容屏障继续严格校验。见 [ADR0106](/dev/adr/0106-reviewed-source-selection-changes)。

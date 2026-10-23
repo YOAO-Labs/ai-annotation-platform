@@ -42,7 +42,7 @@ last_reviewed: 2026-10-23
 }
 ```
 
-`relative_path` 相对存储位置，默认空字符串；不能使用绝对路径、父级跳转、链接或跨子挂载。`node_id` 必须是完整 Celery hostname。过滤使用区分大小写的 fnmatch，相对来源根匹配，include 默认 `["*"]`，exclude 默认 `[]`；排除的目录不递归，未匹配文件、链接和特殊类型记录为 skipped，不递归链接。源路径、节点、递归和过滤配置创建后不可重定向，需要新建来源；名称/启停用 expected_revision 防止覆盖并发修改。
+`relative_path` 相对存储位置，默认空字符串；不能使用绝对路径、父级跳转、链接或跨子挂载。`node_id` 必须是完整 Celery hostname。过滤使用区分大小写的 fnmatch，相对来源根匹配，include 默认 `["*"]`，exclude 默认 `[]`；排除的目录不递归，未匹配文件、链接和特殊类型记录为 skipped，不递归链接。源路径和节点创建后不可重定向，需要新建来源；递归和过滤仅通过下文影响确认接口调整；名称/启停用 expected_revision 防止覆盖并发修改。
 
 ## 完整性与恢复
 
@@ -186,3 +186,16 @@ SFTP 复用逐目录检查点、取消恢复及末次目录清单核对，每目
 差异两端仍保留原分类，通过 `relocated_to_path`、accepted_revision_id 和 accepted_item_id 显示共同处理结果。remaining_added_count 是尚待登记的新增数，与保留历史分类的 counts.added 分开；仅新增登记不会再次处理已消费目标。旧路径日后重新出现视为新候选，不自动取回已移动样本。历史 `acceptance_kind=relocation`，previous_path_digest 指示原路径，acceptance_order 提供与路径内修订号无关的接纳顺序。
 
 原引用保留初始凭据，严格读取按同来源、同 Item/Asset 的最新接纳定位进行；新定位失败不回退旧路径。当前支持同一来源内移动，跨位置/根/来源迁移及资格变更仍需独立处理。预览只清理原路径拥有的派生对象，不删除原件或业务历史。
+
+## 规则变更
+
+| 方法 | 路径                                                           | 行为                         |
+| ---- | -------------------------------------------------------------- | ---------------------------- |
+| POST | `/dataset-sources/{source_id}/rules/preview?limit=20&offset=0` | 分页预览已接纳路径的规则影响 |
+| POST | `/dataset-sources/{source_id}/rules`                           | 固定影响凭据确认规则变更     |
+
+预览请求 `expected_revision`、`recursive`、`include_globs`、`exclude_globs`；仅允许这三个选择字段，不能修改位置、相对路径、节点或所有权。响应含 `proof`、`counts`、`total`、`items`、`active_attempt_count`。影响分类为 within_scope、leaving_scope、entering_scope、outside_scope。默认每页20，最多200；同一快照各页 proof 相同。预览只评估最多50000条已接纳路径，不访问外部存储；扩大范围后的未知新文件数需重新扫描。
+
+确认在相同请求中增加 `impact_proof`。当前账号、原 Key 权限、Source/Location修订、接纳头身份或活动尝试变化返回409 `rules_impact_changed`；仍有活动尝试返回409 `source_busy`。必须结束或取消任务后重新预览。成功只更新选择规则并递增来源修订；旧扫描、预检和检查点不得复用，已有周期计划立即阻断，需重新配置启用。无变化请求保留现状。
+
+本地目录与 SFTP 的排除目录会剪掉子树；外部 S3 按原始对象相对键作平面 fnmatch，排除 `dir` 不隐含排除 `dir/...`，应使用 `dir/*`。不归一化 S3 重复斜线或编码。新预检将规则外旧路径列为 excluded，未遍历到不误判为未见。已接纳 Item、Task、标注及原内容身份保持，旧任务不因过滤条件改变而拒读；定位、根、资格和内容仍按原严格合同验证。

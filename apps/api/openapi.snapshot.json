@@ -40299,6 +40299,167 @@
         "title": "SourceRevisionResult",
         "type": "object"
       },
+      "SourceRulesApply": {
+        "additionalProperties": false,
+        "properties": {
+          "exclude_globs": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Exclude Globs",
+            "type": "array"
+          },
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "impact_proof": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Impact Proof",
+            "type": "string"
+          },
+          "include_globs": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Include Globs",
+            "type": "array"
+          },
+          "recursive": {
+            "title": "Recursive",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "recursive",
+          "include_globs",
+          "impact_proof"
+        ],
+        "title": "SourceRulesApply",
+        "type": "object"
+      },
+      "SourceRulesImpact": {
+        "properties": {
+          "active_attempt_count": {
+            "title": "Active Attempt Count",
+            "type": "integer"
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "expected_revision": {
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SourceRulesImpactItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "proof": {
+            "title": "Proof",
+            "type": "string"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source_id",
+          "expected_revision",
+          "proof",
+          "counts",
+          "total",
+          "items",
+          "active_attempt_count"
+        ],
+        "title": "SourceRulesImpact",
+        "type": "object"
+      },
+      "SourceRulesImpactItem": {
+        "properties": {
+          "impact": {
+            "enum": [
+              "within_scope",
+              "leaving_scope",
+              "entering_scope",
+              "outside_scope"
+            ],
+            "title": "Impact",
+            "type": "string"
+          },
+          "path_digest": {
+            "title": "Path Digest",
+            "type": "string"
+          },
+          "relative_path": {
+            "title": "Relative Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path_digest",
+          "relative_path",
+          "impact"
+        ],
+        "title": "SourceRulesImpactItem",
+        "type": "object"
+      },
+      "SourceRulesPreview": {
+        "additionalProperties": false,
+        "properties": {
+          "exclude_globs": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Exclude Globs",
+            "type": "array"
+          },
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "include_globs": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Include Globs",
+            "type": "array"
+          },
+          "recursive": {
+            "title": "Recursive",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "recursive",
+          "include_globs"
+        ],
+        "title": "SourceRulesPreview",
+        "type": "object"
+      },
       "SourceSyncScheduleContinue": {
         "additionalProperties": false,
         "properties": {
@@ -62808,6 +62969,145 @@
           }
         ],
         "summary": "Source Revision History",
+        "tags": [
+          "dataset-sources"
+        ]
+      }
+    },
+    "/api/v1/dataset-sources/{source_id}/rules": {
+      "post": {
+        "operationId": "apply_source_rules_api_v1_dataset_sources__source_id__rules_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceRulesApply"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetSourceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Apply Source Rules",
+        "tags": [
+          "dataset-sources"
+        ]
+      }
+    },
+    "/api/v1/dataset-sources/{source_id}/rules/preview": {
+      "post": {
+        "operationId": "preview_source_rules_api_v1_dataset_sources__source_id__rules_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceRulesPreview"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceRulesImpact"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview Source Rules",
         "tags": [
           "dataset-sources"
         ]

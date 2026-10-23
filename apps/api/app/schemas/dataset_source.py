@@ -291,3 +291,38 @@ class SourceSyncScheduleOut(BaseModel):
     last_checked_at: datetime | None
     last_started_at: datetime | None
     last_error: str | None
+
+
+class SourceRulesPreview(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int = Field(ge=1)
+    recursive: bool
+    include_globs: list[str] = Field(min_length=1, max_length=20)
+    exclude_globs: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("include_globs", "exclude_globs")
+    @classmethod
+    def valid_globs(cls, values):
+        if any(not value or len(value) > 1000 or "\x00" in value for value in values):
+            raise ValueError("Invalid source filter")
+        return values
+
+
+class SourceRulesApply(SourceRulesPreview):
+    impact_proof: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class SourceRulesImpactItem(BaseModel):
+    path_digest: str
+    relative_path: str
+    impact: Literal["within_scope", "leaving_scope", "entering_scope", "outside_scope"]
+
+
+class SourceRulesImpact(BaseModel):
+    source_id: uuid.UUID
+    expected_revision: int
+    proof: str
+    counts: dict[str, int]
+    total: int
+    items: list[SourceRulesImpactItem]
+    active_attempt_count: int

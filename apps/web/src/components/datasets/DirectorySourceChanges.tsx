@@ -22,6 +22,7 @@ const reasons: Record<string, string> = {
   content_changed: "内容摘要不同，不覆盖旧样本",
   observation_changed: "内容相同，文件观测已变化，等待人工重新核验",
   qualification_changed: "来源资格已变化，不重绑旧引用",
+  outside_selection_rules: "已接纳路径在当前扫描规则范围外，保留样本和标注",
   not_enumerated: "本轮未枚举到，可能未遍历；不代表删除",
   not_a_candidate: "已观察到该路径，但不属于本轮普通图片候选",
   invalid_image: "图片损坏或无法解码",

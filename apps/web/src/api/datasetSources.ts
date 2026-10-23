@@ -23,9 +23,19 @@ import type {
   SourceSyncScheduleOut,
   SourceSyncScheduleUpdate,
   SourceSyncScheduleContinue,
+  SourceRulesPreview,
+  SourceRulesApply,
+  SourceRulesImpact,
 } from "./generated/types.gen";
 
 export const datasetSourcesApi = {
+  previewRules: (id: string, payload: SourceRulesPreview, offset: number) =>
+    apiClient.post<SourceRulesImpact>(
+      `/dataset-sources/${id}/rules/preview?limit=20&offset=${offset}`,
+      payload,
+    ),
+  applyRules: (id: string, payload: SourceRulesApply) =>
+    apiClient.post<DatasetSourceOut>(`/dataset-sources/${id}/rules`, payload),
   syncSchedule: (id: string, signal?: AbortSignal) =>
     apiClient.get<SourceSyncScheduleOut | null>(`/dataset-sources/${id}/sync-schedule`, { signal }),
   configureSync: (id: string, payload: SourceSyncScheduleUpdate) =>

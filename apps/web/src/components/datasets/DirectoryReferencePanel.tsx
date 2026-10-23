@@ -118,6 +118,7 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
       if (!current()) return;
       await Promise.all([
         client.invalidateQueries({ queryKey: ["dataset-sources", owner] }),
+        client.invalidateQueries({ queryKey: ["source-sync-schedule", owner] }),
         client.invalidateQueries({ queryKey: ["dataset-scans", owner] }),
         client.invalidateQueries({ queryKey: ["dataset-scan-entries", owner] }),
         client.invalidateQueries({ queryKey: ["dataset-items", datasetId] }),

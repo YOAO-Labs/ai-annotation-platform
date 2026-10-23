@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import timedelta
-import fnmatch
 import hashlib
 import uuid
 
@@ -18,7 +17,7 @@ from app.db.models.dataset_asset import StorageLocation, StorageLocationProbe
 from app.services import async_job as jobs
 from app.services import filesystem_storage as fs
 from app.services import storage_location as locations
-from app.services import reference_storage
+from app.services import reference_storage, source_selection as selection
 from app.services import dataset_source_access as access
 from app.services.async_job_notify import notify_job_terminal
 
@@ -566,21 +565,12 @@ async def apply_directory(db, run_id, task_id, fence, work, manifest):
         fs.relative_path(
             "/".join(part for part in [config["relative_path"], path] if part)
         )
-        excluded = any(
-            fnmatch.fnmatchcase(path, pattern)
-            for pattern in config.get("exclude_globs", [])
-        )
-        selected = (
-            item["kind"] == "file"
-            and not excluded
-            and any(
-                fnmatch.fnmatchcase(path, pattern)
-                for pattern in config["include_globs"]
-            )
+        selected = item["kind"] == "file" and selection.selected_file(
+            config, path, "filesystem"
         )
         state = (
             "pending"
-            if item["kind"] == "directory" and config["recursive"] and not excluded
+            if item["kind"] == "directory" and selection.descend(config, path)
             else "observed"
             if selected
             else "skipped"
