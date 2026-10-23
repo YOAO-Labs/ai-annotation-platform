@@ -21,6 +21,8 @@ import {
   useBackfillMedia,
   useUpdateDataset,
 } from "@/hooks/useDatasets";
+import { DatasetItemFilters } from "./DatasetItemFilters";
+import { DatasetSavedViews } from "./DatasetSavedViews";
 import { projectsApi } from "@/api/projects";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
@@ -43,6 +45,7 @@ import { AxisConventionPicker } from "@/components/datasets/AxisConventionPicker
 import type { LidarAxisConvention } from "@/types";
 import {
   availabilityLabels,
+  datasetFilterPatch,
   clampDatasetPage,
   parseDatasetDetailUrl,
   safeDatasetsReturn,
@@ -175,13 +178,15 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
   const client = useQueryClient();
   const toast = useToastStore((s) => s.push);
   const workbench = useDatasetWorkbench(ds.id);
-  const files = useDatasetItems(ds.id, {
-    limit: state.pageSize,
-    offset: state.page * state.pageSize,
-    search: state.query || undefined,
-    source_id: state.sourceId,
-    availability: state.availability,
-  });
+  const files = useDatasetItems(
+    ds.id,
+    {
+      limit: state.pageSize,
+      offset: state.page * state.pageSize,
+      ...state.filters,
+    },
+    !state.restoreSavedView,
+  );
   const versions = useDatasetTrainingVersions(
     ds.id,
     { limit: state.versionPageSize, offset: state.versionPage * state.versionPageSize },
@@ -375,49 +380,37 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
       )}
       {state.tab === "data" && (
         <section aria-label="数据浏览" className="rounded-lg border border-border bg-card">
-          <div className="flex flex-wrap items-center gap-2 border-b border-border p-3">
-            <label className="sr-only" htmlFor="dataset-item-search">
-              搜索样本
-            </label>
-            <input
-              id="dataset-item-search"
-              className={`${inputClass} w-48`}
-              placeholder="搜索文件名…"
-              value={state.query}
-              onChange={(e) => patch({ q: e.target.value || undefined, page: undefined })}
+          <DatasetSavedViews
+            datasetId={ds.id}
+            filters={state.filters}
+            selectedId={state.savedViewId}
+            restore={state.restoreSavedView}
+            onApply={(filters, id) =>
+              patch({
+                ...datasetFilterPatch(filters),
+                saved_view: id,
+                view_query: id ? "1" : undefined,
+                page: undefined,
+              })
+            }
+            onSelect={(id) => patch({ saved_view: id, view_query: id ? "1" : undefined })}
+          />
+          <div className="border-b border-border p-3">
+            <DatasetItemFilters
+              key={JSON.stringify([
+                state.filters.media_type,
+                state.filters.extension,
+                state.filters.dimension_state,
+                state.filters.min_width,
+                state.filters.max_width,
+                state.filters.min_height,
+                state.filters.max_height,
+              ])}
+              filters={state.filters}
+              sources={sources}
+              onChange={(filters) => patch({ ...datasetFilterPatch(filters), page: undefined })}
             />
-            <select
-              className={inputClass}
-              aria-label="来源筛选"
-              value={state.sourceId ?? ""}
-              onChange={(e) => patch({ source_id: e.target.value || undefined, page: undefined })}
-            >
-              <option value="">全部来源</option>
-              {state.sourceId && !sources.some((source) => source.id === state.sourceId) && (
-                <option value={state.sourceId}>指定来源</option>
-              )}
-              {sources.map((source) => (
-                <option key={source.id} value={source.id}>
-                  {source.name}
-                </option>
-              ))}
-            </select>
-            <select
-              className={inputClass}
-              aria-label="可用性筛选"
-              value={state.availability ?? ""}
-              onChange={(e) =>
-                patch({ availability: e.target.value || undefined, page: undefined })
-              }
-            >
-              <option value="">全部可用性</option>
-              {Object.entries(availabilityLabels).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-            <div className="ml-auto flex gap-1">
+            <div className="mt-3 flex justify-end gap-1">
               <Button
                 size="sm"
                 aria-label="表格视图"
@@ -507,9 +500,11 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
               />
             </div>
           )}
-          {files.isLoading && (
+          {(files.isLoading || state.restoreSavedView) && (
             <p role="status" className="p-6 text-sm text-muted-foreground">
-              正在加载样本…
+              {state.restoreSavedView
+                ? "等待恢复个人视图；不可用时请重新选择视图。"
+                : "正在加载样本…"}
             </p>
           )}
           {files.error && <ErrorState error={files.error} retry={() => void files.refetch()} />}
@@ -531,76 +526,83 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {files.data?.items.map((item) => (
-                    <tr key={item.id}>
-                      <td className={tdClass}>
-                        <button
-                          className="max-w-72 truncate text-left font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          onClick={(e) => {
-                            selectedTrigger.current = e.currentTarget;
-                            patch({ item: item.id });
-                          }}
-                        >
-                          {item.file_name}
-                        </button>
-                        {typeof item.metadata.source_revision_number === "number" && (
-                          <Badge variant="outline">
-                            修订 {item.metadata.source_revision_number}
-                          </Badge>
-                        )}
-                      </td>
-                      <td className={tdClass}>{item.file_type}</td>
-                      <td className={`${tdClass} tabular-nums`}>
-                        {item.file_size == null ? "—" : `${(item.file_size / 1024).toFixed(1)} KB`}
-                      </td>
-                      <td className={tdClass}>{mediaInfo(item)}</td>
-                      <td className={tdClass}>
-                        {item.availability?.source_name ?? "托管上传或未提供"}
-                      </td>
-                      <td className={tdClass}>
-                        <Availability item={item} />
-                      </td>
-                      <td className={tdClass}>
-                        {new Date(item.created_at).toLocaleDateString("zh-CN")}
-                      </td>
-                    </tr>
-                  ))}
+                  {!state.restoreSavedView &&
+                    files.data?.items.map((item) => (
+                      <tr key={item.id}>
+                        <td className={tdClass}>
+                          <button
+                            className="max-w-72 truncate text-left font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            onClick={(e) => {
+                              selectedTrigger.current = e.currentTarget;
+                              patch({ item: item.id });
+                            }}
+                          >
+                            {item.file_name}
+                          </button>
+                          {typeof item.metadata.source_revision_number === "number" && (
+                            <Badge variant="outline">
+                              修订 {item.metadata.source_revision_number}
+                            </Badge>
+                          )}
+                        </td>
+                        <td className={tdClass}>{item.file_type}</td>
+                        <td className={`${tdClass} tabular-nums`}>
+                          {item.file_size == null
+                            ? "—"
+                            : `${(item.file_size / 1024).toFixed(1)} KB`}
+                        </td>
+                        <td className={tdClass}>{mediaInfo(item)}</td>
+                        <td className={tdClass}>
+                          {item.availability?.source_name ?? "托管上传或未提供"}
+                        </td>
+                        <td className={tdClass}>
+                          <Availability item={item} />
+                        </td>
+                        <td className={tdClass}>
+                          {new Date(item.created_at).toLocaleDateString("zh-CN")}
+                        </td>
+                      </tr>
+                    ))}
                 </tbody>
               </table>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3 p-3 sm:grid-cols-3 xl:grid-cols-5">
-              {files.data?.items.map((item) => (
-                <button
-                  key={item.id}
-                  className="min-w-0 rounded-md border border-border p-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={(e) => {
-                    selectedTrigger.current = e.currentTarget;
-                    patch({ item: item.id });
-                  }}
-                >
-                  <ItemThumbnail datasetId={ds.id} item={item} />
-                  <span className="mt-2 block truncate font-medium">{item.file_name}</span>
-                  <span className="mt-1 block">
-                    <Availability item={item} />
-                  </span>
-                </button>
-              ))}
+              {!state.restoreSavedView &&
+                files.data?.items.map((item) => (
+                  <button
+                    key={item.id}
+                    className="min-w-0 rounded-md border border-border p-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={(e) => {
+                      selectedTrigger.current = e.currentTarget;
+                      patch({ item: item.id });
+                    }}
+                  >
+                    <ItemThumbnail datasetId={ds.id} item={item} />
+                    <span className="mt-2 block truncate font-medium">{item.file_name}</span>
+                    <span className="mt-1 block">
+                      <Availability item={item} />
+                    </span>
+                  </button>
+                ))}
             </div>
           )}
-          {!files.isLoading && !files.error && !files.data?.items.length && (
-            <p className="p-6 text-center text-sm text-muted-foreground">
-              {state.query || state.sourceId || state.availability
-                ? "没有匹配的样本，调整筛选后重试"
-                : "暂无已登记样本；扫描中时请等待来源任务完成"}
-            </p>
-          )}
+          {!state.restoreSavedView &&
+            !files.isLoading &&
+            !files.error &&
+            !files.data?.items.length && (
+              <p className="p-6 text-center text-sm text-muted-foreground">
+                {Object.keys(state.filters).length
+                  ? "没有匹配的样本，调整筛选后重试"
+                  : "暂无已登记样本；扫描中时请等待来源任务完成"}
+              </p>
+            )}
           <ListPagination
             label="数据集文件"
             page={state.page}
             pageSize={state.pageSize}
-            total={files.data?.total ?? 0}
-            loading={files.isFetching}
+            total={state.restoreSavedView ? 0 : (files.data?.total ?? 0)}
+            loading={state.restoreSavedView || files.isFetching}
             onPageChange={(page) => patch({ page: page ? String(page + 1) : undefined })}
             onPageSizeChange={(size) =>
               patch({ page_size: size === 20 ? undefined : String(size), page: undefined })

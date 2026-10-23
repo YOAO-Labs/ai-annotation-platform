@@ -1,3 +1,4 @@
+from typing import Annotated
 import asyncio
 import hashlib
 import io
@@ -32,7 +33,6 @@ from app.db.models.dataset import Dataset
 from app.db.models.user import User
 from app.services.project_access import resolve_project_access_by_id
 from app.schemas.dataset import (
-    DatasetAvailabilityState,
     DatasetItemOut,
     DatasetWorkbench,
     DatasetTrainingVersionList,
@@ -48,6 +48,7 @@ from app.schemas.dataset import (
     DatasetImportFromConnectionResponse,
     SniffAxisConventionResponse,
 )
+from app.schemas.dataset_view import DatasetItemQuery
 from app.schemas.project import ProjectOut
 from app.services.audit import AuditAction, AuditService
 from app.services.axis_sniffer import AxisSnifferService
@@ -262,11 +263,7 @@ async def delete_dataset(
 )
 async def list_dataset_items(
     dataset_id: uuid.UUID,
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
-    source_id: uuid.UUID | None = None,
-    availability: DatasetAvailabilityState | None = None,
-    search: str | None = None,
+    query: Annotated[DatasetItemQuery, Query()],
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(get_current_user),
 ):
@@ -276,13 +273,16 @@ async def list_dataset_items(
         db,
         dataset_id,
         actor,
-        limit=limit,
-        offset=offset,
-        source_id=source_id,
-        state=availability,
-        search=search,
+        limit=query.limit,
+        offset=query.offset,
+        source_id=query.source_id,
+        state=query.availability,
+        search=query.search,
+        filters=query,
     )
-    return DatasetItemListResponse(items=items, total=total, limit=limit, offset=offset)
+    return DatasetItemListResponse(
+        items=items, total=total, limit=query.limit, offset=query.offset
+    )
 
 
 @router.get(

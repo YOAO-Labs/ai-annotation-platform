@@ -607,3 +607,92 @@ async def test_location_allowed_actions_follow_connector_admin_permissions(
         "allowed_actions"
     ]
     assert "manage_connection" in admin and "manage_location" in admin
+
+
+async def test_combined_format_dimensions_count_before_pagination(
+    db_session, super_admin, httpx_client
+):
+    db = db_session
+    ds = Dataset(
+        display_id=f"FLT-{uuid.uuid4().hex[:8]}",
+        name="Filters",
+        created_by=super_admin[0].id,
+    )
+    db.add(ds)
+    await db.flush()
+    values = [
+        ("nested.dir/a.JPG", "image", 640, 480),
+        ("b.jpeg", "image", 1280, 720),
+        ("c.jpg", "image", 320, 240),
+        ("d.png", "image", 640, 480),
+        ("dir.jpg/no-extension", "image", 640, 480),
+        ("unknown.jpg", "image", None, 480),
+        ("invalid.jpg", "image", 0, 480),
+        ("movie.JPG", "video", 640, 480),
+        ("calib.json", "other", None, None),
+    ]
+    for name, kind, width, height in values:
+        db.add(
+            DatasetItem(
+                dataset_id=ds.id,
+                file_name=name,
+                file_path=f"opaque/{uuid.uuid4()}",
+                file_type=kind,
+                width=width,
+                height=height,
+            )
+        )
+    await db.commit()
+    url, auth = f"/api/v1/datasets/{ds.id}/items", headers(super_admin)
+    query = dict(
+        extension=".JPEG",
+        media_type="image",
+        min_width=640,
+        max_height=720,
+        availability="unverified",
+        limit=1,
+    )
+    first = await httpx_client.get(url, params=query, headers=auth)
+    assert first.status_code == 200, first.text
+    assert first.json()["total"] == 2 and len(first.json()["items"]) == 1
+    second = (
+        await httpx_client.get(url, params={**query, "offset": 1}, headers=auth)
+    ).json()
+    assert (
+        second["total"] == 2
+        and second["items"][0]["id"] != first.json()["items"][0]["id"]
+    )
+    assert (
+        await httpx_client.get(
+            url, params={"extension": "jpg", "dimension_state": "unknown"}, headers=auth
+        )
+    ).json()["total"] == 2
+    assert (
+        await httpx_client.get(url, params={"dimension_state": "known"}, headers=auth)
+    ).json()["total"] == 6
+    assert (
+        await httpx_client.get(
+            url,
+            params={
+                "extension": "jpg",
+                "search": "nested.dir",
+                "min_width": 640,
+                "max_width": 640,
+            },
+            headers=auth,
+        )
+    ).json()["total"] == 1
+    other = await httpx_client.get(
+        url, params={"media_type": "other", "extension": "json"}, headers=auth
+    )
+    assert other.status_code == 200 and other.json()["total"] == 1
+    for invalid in (
+        {"min_width": 0},
+        {"max_height": -1},
+        {"min_height": 100, "max_height": 20},
+        {"dimension_state": "unknown", "max_width": 100},
+        {"media_type": "jpg"},
+        {"extension": "../jpg"},
+    ):
+        response = await httpx_client.get(url, params=invalid, headers=auth)
+        assert response.status_code == 422, response.text

@@ -21,6 +21,7 @@ from app.api.v1 import (
     dashboard,
     data_manager,
     datasets,
+    dataset_views,
     files,
     groups,
     guide_assets,
@@ -155,6 +156,7 @@ api_router.include_router(
 )
 api_router.include_router(files.router, prefix="/files", tags=["files"])
 api_router.include_router(datasets.router, prefix="/datasets", tags=["datasets"])
+api_router.include_router(dataset_views.router, tags=["datasets"])
 api_router.include_router(scenes.router, prefix="/scenes", tags=["scenes"])
 api_router.include_router(storage.router, prefix="/storage", tags=["storage"])
 api_router.include_router(

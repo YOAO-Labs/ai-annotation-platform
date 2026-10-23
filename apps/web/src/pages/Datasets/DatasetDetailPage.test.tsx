@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
@@ -12,6 +12,9 @@ const { toast } = vi.hoisted(() => ({ toast: vi.fn() }));
 vi.mock("@/api/datasets", () => ({
   datasetsApi: {
     get: vi.fn(),
+    savedViews: vi.fn().mockResolvedValue({ items: [] }),
+    saveView: vi.fn(),
+    deleteView: vi.fn(),
     workbench: vi.fn(),
     listItems: vi.fn(),
     item: vi.fn(),
@@ -133,6 +136,7 @@ function Location() {
         {location.search}
       </p>
       <button onClick={() => navigate("/datasets/dataset-two")}>切换数据集</button>
+      <button onClick={() => navigate("?q=changed")}>切换筛选条件</button>
     </>
   );
 }
@@ -161,6 +165,7 @@ function mount(path = "/datasets/dataset-one") {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(datasetsApi.savedViews).mockResolvedValue({ items: [] });
   useAuthStore.getState().setAuth("a", { id: "owner-a" } as MeResponse);
   vi.mocked(datasetsApi.get).mockImplementation(
     async (id) =>
@@ -218,6 +223,191 @@ afterEach(() => {
   useAuthStore.getState().logout();
 });
 describe("Dataset detail workbench", () => {
+  it("waits for a saved-view-only link and restores its source before querying samples", async () => {
+    let resolve!: (value: never) => void;
+    vi.mocked(datasetsApi.savedViews).mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    mount("/datasets/dataset-one?saved_view=source-view");
+    await screen.findByRole("combobox", { name: "个人视图" });
+    expect(datasetsApi.listItems).not.toHaveBeenCalled();
+    await act(async () =>
+      resolve({
+        items: [
+          {
+            id: "source-view",
+            dataset_id: "dataset-one",
+            name: "源图",
+            query: { source_id: "src", extension: "png" },
+          },
+        ],
+      } as never),
+    );
+    await waitFor(() =>
+      expect(datasetsApi.listItems).toHaveBeenCalledWith(
+        "dataset-one",
+        expect.objectContaining({ source_id: "src", extension: "png" }),
+        expect.anything(),
+      ),
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent("view_query=1");
+  });
+  it("keeps an unavailable saved-view link blocked instead of showing all samples", async () => {
+    mount("/datasets/dataset-one?saved_view=missing-view");
+    await screen.findByText(/此个人视图已删除/);
+    expect(datasetsApi.listItems).not.toHaveBeenCalled();
+  });
+  it("applies combined server filters, preserves typing focus and rejects reversed ranges", async () => {
+    const user = userEvent.setup();
+    mount();
+    const search = await screen.findByRole("textbox", { name: "搜索样本" });
+    await user.type(search, "car");
+    expect(search).toHaveFocus();
+    expect(search).toHaveValue("car");
+    await user.click(screen.getByText("更多筛选"));
+    await user.selectOptions(screen.getByRole("combobox", { name: "媒体类型" }), "image");
+    await user.type(screen.getByRole("textbox", { name: "文件扩展名" }), "JPEG");
+    await user.type(screen.getByRole("spinbutton", { name: "最小宽度" }), "640");
+    await user.type(screen.getByRole("spinbutton", { name: "最大宽度" }), "320");
+    await user.click(screen.getByRole("button", { name: "应用筛选" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("最小尺寸不能大于最大尺寸");
+    await user.clear(screen.getByRole("spinbutton", { name: "最大宽度" }));
+    await user.click(screen.getByRole("button", { name: "应用筛选" }));
+    await waitFor(() =>
+      expect(datasetsApi.listItems).toHaveBeenLastCalledWith(
+        "dataset-one",
+        expect.objectContaining({
+          search: "car",
+          media_type: "image",
+          extension: "jpeg",
+          min_width: 640,
+          offset: 0,
+        }),
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent("min_width=640");
+    expect(screen.getByRole("combobox", { name: "个人视图" })).toHaveValue("__custom__");
+  });
+
+  it("clears unapplied advanced drafts as well as active conditions", async () => {
+    const user = userEvent.setup();
+    mount();
+    await screen.findByRole("textbox", { name: "搜索样本" });
+    await user.click(screen.getByText("更多筛选"));
+    const extension = screen.getByRole("textbox", { name: "文件扩展名" });
+    await user.type(extension, "png");
+    await user.click(screen.getByRole("button", { name: "清除更多条件" }));
+    expect(extension).toHaveValue("");
+    await user.click(screen.getByRole("button", { name: "应用筛选" }));
+    expect(screen.getByTestId("location")).not.toHaveTextContent("extension=png");
+  });
+  it("retires a view dialog and its late callback when the same dataset URL conditions change", async () => {
+    const user = userEvent.setup();
+    let resolve!: (value: never) => void;
+    vi.mocked(datasetsApi.saveView).mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    mount();
+    await screen.findByRole("textbox", { name: "搜索样本" });
+    await user.click(screen.getByRole("button", { name: "保存为新视图" }));
+    await user.type(screen.getByRole("textbox", { name: "视图名称" }), "old scope");
+    await user.click(screen.getByRole("button", { name: "保存视图" }));
+    // Browser history can change while a modal owns focus.
+    fireEvent.click(screen.getByRole("button", { name: "切换筛选条件", hidden: true }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await act(async () =>
+      resolve({ id: "late", dataset_id: "dataset-one", name: "old scope", query: {} } as never),
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent("q=changed");
+    expect(screen.getByTestId("location")).not.toHaveTextContent("saved_view=late");
+  });
+  it("restores personal query conditions, flags edits and saves a new view in a modal", async () => {
+    const user = userEvent.setup();
+    const view = {
+      id: "saved-one",
+      dataset_id: "dataset-one",
+      name: "宽幅图片",
+      query: { extension: "png", min_width: 640 },
+      query_schema_version: 1 as const,
+      created_at: dataset.created_at,
+      updated_at: dataset.created_at,
+    };
+    let saved = [view];
+    vi.mocked(datasetsApi.savedViews).mockImplementation(async () => ({ items: saved }));
+    vi.mocked(datasetsApi.saveView).mockImplementation(async (_id, payload) => {
+      const result = { ...view, ...payload, id: "saved-two", query_schema_version: 1 as const };
+      saved = [...saved, result as typeof view];
+      return result;
+    });
+    mount("/datasets/dataset-one?page=2&view=grid&availability=changed");
+    const picker = await screen.findByRole("combobox", { name: "个人视图" });
+    await screen.findByRole("option", { name: "宽幅图片" });
+    await user.selectOptions(picker, "saved-one");
+    await waitFor(() =>
+      expect(datasetsApi.listItems).toHaveBeenLastCalledWith(
+        "dataset-one",
+        expect.objectContaining({
+          extension: "png",
+          min_width: 640,
+          offset: 0,
+        }),
+        expect.anything(),
+      ),
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent("saved_view=saved-one");
+    expect(screen.getByTestId("location")).toHaveTextContent("view=grid");
+    const search = screen.getByRole("textbox", { name: "搜索样本" });
+    await user.type(search, "new");
+    expect(screen.getByText(/当前条件有未保存修改/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "保存为新视图" }));
+    const dialog = await screen.findByRole("dialog", { name: "保存个人视图" });
+    await user.type(within(dialog).getByRole("textbox", { name: "视图名称" }), "新图片");
+    await user.click(within(dialog).getByRole("button", { name: "保存视图" }));
+    await waitFor(() =>
+      expect(datasetsApi.saveView).toHaveBeenCalledWith(
+        "dataset-one",
+        expect.objectContaining({
+          name: "新图片",
+          query: expect.objectContaining({ search: "new", extension: "png", min_width: 640 }),
+        }),
+        undefined,
+      ),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByTestId("location")).toHaveTextContent("saved_view=saved-two");
+  });
+
+  it("ignores a late personal view save after switching datasets", async () => {
+    const user = userEvent.setup();
+    let resolve!: (value: never) => void;
+    vi.mocked(datasetsApi.saveView).mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    mount();
+    await screen.findByRole("textbox", { name: "搜索样本" });
+    await user.click(screen.getByRole("button", { name: "保存为新视图" }));
+    await user.type(screen.getByRole("textbox", { name: "视图名称" }), "late");
+    await user.click(screen.getByRole("button", { name: "保存视图" }));
+    // Route navigation happens outside the modal to exercise owner retirement.
+    cleanup();
+    mount("/datasets/dataset-two");
+    await screen.findByRole("heading", { name: /第二目录/ });
+    await act(async () =>
+      resolve({ id: "late", dataset_id: "dataset-one", name: "late", query: {} } as never),
+    );
+    expect(screen.getByTestId("location")).not.toHaveTextContent("saved_view=late");
+  });
+
   it("bounds sample, project and version pages after their totals shrink", async () => {
     mount(
       "/datasets/dataset-one?tab=versions&page=99&project_page=99&version_page=99&source=src&scan=run",

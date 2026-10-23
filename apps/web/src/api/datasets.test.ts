@@ -25,6 +25,26 @@ beforeEach(() => {
 });
 
 describe("datasetsApi · endpoint 契约", () => {
+  it("sends bounded format and dimension predicates and personal view paths", () => {
+    datasetsApi.listItems("ds", {
+      media_type: "image",
+      extension: "jpg",
+      dimension_state: "known",
+      min_width: 640,
+      max_height: 1080,
+    });
+    expect(get).toHaveBeenCalledWith(
+      "/datasets/ds/items?media_type=image&extension=jpg&dimension_state=known&min_width=640&max_height=1080",
+    );
+    const payload = { name: "wide", query: { min_width: 640 } };
+    datasetsApi.saveView("ds", payload);
+    expect(post).toHaveBeenCalledWith("/datasets/ds/saved-views", payload);
+    datasetsApi.saveView("ds", payload, "v");
+    expect(put).toHaveBeenCalledWith("/datasets/ds/saved-views/v", payload);
+    datasetsApi.deleteView("ds", "v");
+    expect(del).toHaveBeenCalledWith("/datasets/ds/saved-views/v");
+  });
+
   it("limits paged training task choices to the selected dataset on the server", () => {
     const signal = new AbortController().signal;
     tasksApi.listByProject(

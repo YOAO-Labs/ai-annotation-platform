@@ -1,6 +1,6 @@
 # EPIC-08：数据集工作台与质量管理
 
-> 状态：E08-A complete；后续 B 切片仍待独立晋升；未分配发布版本。
+> 状态：E08-A complete；E08-B1 in progress；质量治理与批量范围待后续晋升；未分配发布版本。
 > 转入日期：2026-10-22；A 切片验收：2026-10-23；初始调研基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -12,7 +12,29 @@
 | 协同     | EPIC-04 提供同步；EPIC-09 统一页面边界；EPIC-10 提供冻结版本       |
 | 交付阶段 | M1 最小工作台；M2 质量、视图与批量管理；近似重复能力按实际需求后置 |
 
-## 本次晋升复核与实施合同
+## E08-B1 晋升复核与实施合同
+
+用户已授权继续推进下一阶段。复核基线 `7cfe292ce`，工作树干净；E08-A/E09-A、E10-A 已交付。本轮将 E08-B 拆出可独立验收的 B1：服务端组合筛选和个人动态视图。质量检测、固定批量范围、共享视图和训练冻结视图均不在此切片。超过 8 个文件，涉及迁移、API、前端、合同及文档；不增加依赖，不重建镜像。
+
+准确范围：`apps/api/app/{db/models/dataset_saved_view.py,db/models/__init__.py,schemas/dataset_view.py,api/v1/dataset_views.py,api/v1/datasets.py,api/v1/router.py,services/dataset_workbench.py}`；`apps/api/alembic/versions/0206_dataset_saved_views.py`；`apps/api/tests/{test_dataset_views.py,test_dataset_workbench.py,test_migration_0206_dataset_saved_views.py}`；`apps/web/src/{api/datasets.ts,hooks/useDatasets.ts,pages/Datasets/DatasetDetailPage.tsx,pages/Datasets/DatasetItemFilters.tsx,pages/Datasets/DatasetSavedViews.tsx,pages/Datasets/datasetsUrlState.ts}` 及对应 API、URL、页面/组件测试；OpenAPI 快照及本地生成类型、SDK 覆盖清单；`docs-site/{api/guides/datasets.md,api/guides/_routes.generated.md,user-guide/datasets/index.md}`、README、CHANGELOG 和本计划/路线/索引。
+
+```text
+URL conditions + personal view picker
+             |            |
+       bounded items    own saved queries (new table)
+             |            |
+       validated filter contract + current source authorization
+             |
+      SQL predicates -> count -> pagination -> bounded serialization
+```
+
+合同：文件名搜索、来源与已保存可用性观测可组合样本媒体类型（image/video/point_cloud/other）、文件扩展名、尺寸已知/未知及宽高范围。扩展名来自逻辑文件名的最后分量，大小写归一，jpeg/jpg 同组；不声称已探测真实编码。宽高须为正数，未知包括 NULL/非正值；反向范围及未知尺寸与范围冲突返回422。所有谓词在计数/分页之前执行。
+
+个人动态视图只存白名单查询条件，默认且仅个人可见；按 dataset+owner 隔离，同名409，最多100个。不保存 Item 集合、权限结果、路径或凭据。个人偏好写独立于数据集资源写守卫，要求登录及 datasets:read；来源条件保存/恢复均需当前授权，来源撤权或删除必须明确失败，不静默去掉条件。URL 保留完整条件与 saved_view ID（view_query=1 表示条件快照，只有 ID 时先恢复后查询）；修改条件显示未保存，表格/网格与分页独立。详情/保存/重命名/删除使用居中弹层，下拉说明在控件外，字号遵循共享约定。
+
+迁移接0205，仅增加 dataset_saved_views 表，父数据集/用户删除级联；旧API与数据保持兼容。回退会删除个人视图，运维应先导出；不影响样本、来源与冻结版本。一次性 test 模式验证迁移往返、模型一致性、组合分页、未知尺寸、私有CRUD/父子隔离/来源撤权/重名与动态成员。前端验证 URL、请求、个人视图恢复/修改/会话隔离；浏览器验收桌面/窄屏及明暗主题、弹层和网络/控制台。迁移随后应用当前人工验收 dev 库，保留业务数据、8100/3100入口及现有worker，不重建镜像。
+
+## E08-A 晋升复核与实施合同（已完成）
 
 用户已授权“完成 E10-A，再推进 E08/E09 页面整合”。复核基线 `74bd04c12`，工作树干净；E03/E04 已完成，E10-A 已支持引用原图严格读取后冻结独立副本。本节替代历史候选范围，仅实施 E08-A/E09-A 页面整合；保存视图、质量治理、异步容量统计和维护迁移仍属后续切片。超过 8 个文件，跨前端、API、合同和文档；不创建业务表、不改依赖/环境、不重建镜像。
 

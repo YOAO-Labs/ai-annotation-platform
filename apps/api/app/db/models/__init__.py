@@ -1,3 +1,4 @@
+from app.db.models.dataset_saved_view import DatasetSavedView
 from app.db.models.user import User
 from app.db.models.training_preview import TrainingPreview, TrainingPreviewResourceLease
 from app.db.models.training_study import TrainingStudy, TrainingTrial
@@ -165,6 +166,7 @@ __all__ = [
     "ProjectPipeline",
     "ProjectTemplate",
     "ProjectTaskView",
+    "DatasetSavedView",
     "Task",
     "ImagePyramidAsset",
     "ImagePyramidGeneration",

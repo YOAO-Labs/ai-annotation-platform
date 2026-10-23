@@ -1,6 +1,6 @@
 import type { UrlStateCodec, UrlStateIssue } from "@/hooks/useUrlFilterState";
 import { listPageSize } from "@/components/ui/ListPagination";
-import type { DatasetAvailabilityState } from "@/api/datasets";
+import type { DatasetAvailabilityState, DatasetItemFilters } from "@/api/datasets";
 
 export const DATASET_DATA_TYPE_VALUES = ["image", "video", "point_cloud", "multimodal"] as const;
 export type DatasetDataType = (typeof DATASET_DATA_TYPE_VALUES)[number];
@@ -71,6 +71,48 @@ export const datasetsUrlCodec: UrlStateCodec<DatasetsUrlState> = {
 export const parseDatasetsUrl = (search: string | URLSearchParams) =>
   parseDatasetsUrlWithIssues(search).state;
 
+export const DATASET_ITEM_FILTER_KEYS = [
+  "search",
+  "source_id",
+  "availability",
+  "media_type",
+  "extension",
+  "dimension_state",
+  "min_width",
+  "max_width",
+  "min_height",
+  "max_height",
+] as const;
+export function datasetItemFilters(params: URLSearchParams): DatasetItemFilters {
+  const filters: Record<string, string | number> = {};
+  DATASET_ITEM_FILTER_KEYS.forEach((key) => {
+    const value = params.get(key === "search" ? "q" : key);
+    if (!value) return;
+    // Invalid URL conditions must reach validation rather than broaden results.
+    filters[key] = key.startsWith("min_") || key.startsWith("max_") ? Number(value) : value;
+  });
+  return filters as DatasetItemFilters;
+}
+export function datasetFilterPatch(
+  filters: DatasetItemFilters,
+): Record<string, string | undefined> {
+  return Object.fromEntries(
+    DATASET_ITEM_FILTER_KEYS.map((key) => [
+      key === "search" ? "q" : key,
+      filters[key] == null || filters[key] === "" ? undefined : String(filters[key]),
+    ]),
+  );
+}
+export function datasetFilterSignature(filters: DatasetItemFilters): string {
+  const values = datasetFilterPatch(filters);
+  if (values.extension) {
+    values.extension = values.extension.toLowerCase().replace(/^\./, "");
+    if (values.extension === "jpeg") values.extension = "jpg";
+  }
+  if (values.q) values.q = values.q.trim();
+  return JSON.stringify(values);
+}
+
 export type DatasetTab = "data" | "sources" | "projects" | "versions";
 export function parseDatasetDetailUrl(params: URLSearchParams) {
   const rawTab = params.get("tab");
@@ -82,6 +124,9 @@ export function parseDatasetDetailUrl(params: URLSearchParams) {
   const availability = params.get("availability") as DatasetAvailabilityState | null;
   return {
     tab,
+    filters: datasetItemFilters(params),
+    savedViewId: params.get("saved_view") || undefined,
+    restoreSavedView: !!params.get("saved_view") && params.get("view_query") !== "1",
     query: params.get("q") ?? "",
     sourceId: params.get("source_id") || undefined,
     availability:

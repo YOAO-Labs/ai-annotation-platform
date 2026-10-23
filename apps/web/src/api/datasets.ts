@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { DatasetOut } from "./generated/types.gen";
+import type { DatasetOut, DatasetSavedViewOut, DatasetSavedViewWrite } from "./generated/types.gen";
 import type { LidarAxisConvention } from "@/types";
 
 function datasetGet<T>(path: string, init?: RequestInit): Promise<T> {
@@ -61,12 +61,23 @@ export interface DatasetTrainingVersions {
   limit: number;
   offset: number;
 }
-export interface DatasetItemListParams {
-  limit?: number;
-  offset?: number;
+export type DatasetSavedView = DatasetSavedViewOut;
+export type DatasetSavedViewPayload = DatasetSavedViewWrite;
+export interface DatasetItemFilters {
   search?: string;
   source_id?: string;
   availability?: DatasetAvailabilityState;
+  media_type?: "image" | "video" | "point_cloud" | "other";
+  extension?: string;
+  dimension_state?: "known" | "unknown";
+  min_width?: number;
+  max_width?: number;
+  min_height?: number;
+  max_height?: number;
+}
+export interface DatasetItemListParams extends DatasetItemFilters {
+  limit?: number;
+  offset?: number;
 }
 export interface DatasetItemResponse {
   id: string;
@@ -183,6 +194,15 @@ export const datasetsApi = {
 
   delete: (id: string) => apiClient.delete<void>(`/datasets/${id}`),
 
+  savedViews: (id: string, init?: RequestInit) =>
+    datasetGet<{ items: DatasetSavedView[] }>(`/datasets/${id}/saved-views`, init),
+  saveView: (id: string, payload: DatasetSavedViewPayload, viewId?: string) =>
+    viewId
+      ? apiClient.put<DatasetSavedView>(`/datasets/${id}/saved-views/${viewId}`, payload)
+      : apiClient.post<DatasetSavedView>(`/datasets/${id}/saved-views`, payload),
+  deleteView: (id: string, viewId: string) =>
+    apiClient.delete<void>(`/datasets/${id}/saved-views/${viewId}`),
+
   listItems: (id: string, params?: DatasetItemListParams, init?: RequestInit) => {
     const q = new URLSearchParams();
     if (params?.limit) q.set("limit", String(params.limit));
@@ -190,6 +210,20 @@ export const datasetsApi = {
     if (params?.search) q.set("search", params.search);
     if (params?.source_id) q.set("source_id", params.source_id);
     if (params?.availability) q.set("availability", params.availability);
+    (
+      [
+        "media_type",
+        "extension",
+        "dimension_state",
+        "min_width",
+        "max_width",
+        "min_height",
+        "max_height",
+      ] as const
+    ).forEach((key) => {
+      const value = params?.[key];
+      if (value !== undefined) q.set(key, String(value));
+    });
     const qs = q.toString();
     return datasetGet<DatasetItemListResponse>(`/datasets/${id}/items${qs ? `?${qs}` : ""}`, init);
   },

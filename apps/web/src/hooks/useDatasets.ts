@@ -7,7 +7,11 @@ import {
 import { useAuthStore } from "@/stores/authStore";
 import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
 import { getAuthSessionRevision } from "@/stores/authSession";
-import type { DatasetItemListParams } from "@/api/datasets";
+import type {
+  DatasetItemListParams,
+  DatasetSavedViewPayload,
+  DatasetSavedView,
+} from "@/api/datasets";
 
 function ownedMutation<T>(
   owner: { assert: (signal?: AbortSignal) => void },
@@ -167,7 +171,11 @@ export function useDeleteDataset() {
   });
 }
 
-export function useDatasetItems(datasetId: string | undefined, params?: DatasetItemListParams) {
+export function useDatasetItems(
+  datasetId: string | undefined,
+  params?: DatasetItemListParams,
+  enabled = true,
+) {
   const owner = useDatasetOwner();
   return useQuery({
     queryKey: ["dataset-items", datasetId, params, ...owner.key],
@@ -179,7 +187,7 @@ export function useDatasetItems(datasetId: string | undefined, params?: DatasetI
         throw new Error("样本归属已变化");
       return value;
     },
-    enabled: !!datasetId && owner.enabled,
+    enabled: !!datasetId && owner.enabled && enabled,
   });
 }
 
@@ -333,5 +341,73 @@ export function useProjectDatasets(projectId: string) {
       return value;
     },
     enabled: !!projectId && owner.enabled,
+  });
+}
+
+export function useDatasetSavedViews(id: string) {
+  const owner = useDatasetOwner();
+  return useQuery({
+    queryKey: ["dataset-saved-views", id, ...owner.key],
+    queryFn: async ({ signal }) => {
+      owner.assert(signal);
+      const value = await datasetsApi.savedViews(id, { signal });
+      owner.assert(signal);
+      if (value.items.some((view) => view.dataset_id !== id)) throw new Error("保存视图归属已变化");
+      return value;
+    },
+    enabled: !!id && owner.enabled,
+  });
+}
+export function useSaveDatasetView(id: string) {
+  const owner = useDatasetOwner();
+  const client = useQueryClient();
+  return useMutation({
+    onMutate: () => {
+      owner.assert();
+      return owner.capture();
+    },
+    mutationFn: async ({
+      viewId,
+      payload,
+    }: {
+      viewId?: string;
+      payload: DatasetSavedViewPayload;
+    }) => {
+      owner.assert();
+      const value = await datasetsApi.saveView(id, payload, viewId);
+      owner.assert();
+      if (value.dataset_id !== id) throw new Error("保存视图归属已变化");
+      return value;
+    },
+    onSuccess: (value, _variables, current) => {
+      if (!current?.()) return;
+      client.setQueryData<{ items: DatasetSavedView[] }>(
+        ["dataset-saved-views", id, ...owner.key],
+        (old) => ({
+          items: [...(old?.items ?? []).filter((view) => view.id !== value.id), value].sort(
+            (a, b) => a.name.localeCompare(b.name),
+          ),
+        }),
+      );
+      void client.invalidateQueries({ queryKey: ["dataset-saved-views", id] });
+    },
+  });
+}
+export function useDeleteDatasetView(id: string) {
+  const owner = useDatasetOwner();
+  const client = useQueryClient();
+  return useMutation({
+    onMutate: () => {
+      owner.assert();
+      return owner.capture();
+    },
+    mutationFn: async (viewId: string) => {
+      owner.assert();
+      await datasetsApi.deleteView(id, viewId);
+      owner.assert();
+    },
+    onSuccess: (_value, _variables, current) => {
+      if (current?.()) void client.invalidateQueries({ queryKey: ["dataset-saved-views", id] });
+    },
   });
 }

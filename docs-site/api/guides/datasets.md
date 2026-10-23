@@ -36,7 +36,7 @@ last_reviewed: 2026-10-23
 
 以下 GET 均要求登录及 `datasets:read`。`GET /datasets` 新增 `location_id`，仅可见该位置的管理员可用；使用现有来源管理授权，`total` 按唯一数据集计数。未获授权的位置返回404。原 search/data_type/has_scenes 与分页可组合。
 
-- `GET /{id}/items`：`limit` 1–200、`offset`，可组合 `search`（文件名）、`source_id`、`availability`。来源 ID 必须属于该数据集且当前账号可管理，否则404。
+- `GET /{id}/items`：`limit` 1–200、`offset`，可组合 `search`（文件名，最多200字符）、`source_id`、`availability`、`media_type`、`extension`、`dimension_state` 与 `min_width/max_width/min_height/max_height`。来源 ID 必须属于该数据集且当前账号可管理，否则404。
 - `GET /{id}/items/{item_id}`：直接读取单个样本及同一可用性合同；父子不匹配返回404。
 - `GET /{id}/items/{item_id}/preview`：管理员的鉴权图片流，复用来源预览读取的绑定、策略和实时授权检查；`Cache-Control: no-store`，不支持 Range。不会读取外部原图；源文件缺失时仍可交付获授权的独立派生。
 - `GET /{id}/workbench`：可用性分类计数、当前可管理来源和可见关联项目。项目统计仅包含该数据集的任务；`can_manage` 复用项目权限。旧 `/projects` 也按项目可见范围裁剪。
@@ -45,3 +45,20 @@ last_reviewed: 2026-10-23
 每个 item 增加 `availability`：state（verified/missing/changed/preview_only/unavailable/unverified）、reason_code、observed_at、preview_available、脱敏 source_id/source_name/location_id 和 allowed_actions。动作值为 read_original/read_preview/manage_source/view_location；来源信息和管理动作只提供给当前获授权的来源管理者。旧托管 file_url 继续原合同，不能凭其存在推断已核验。
 
 分类来自已保存的内容/位置绑定、接纳记录和**完整预检**差异，不同步探测或逐张读取原图。变化待确认和完整扫描未见保留原身份；预览与原图独立。verified 仅指已保存的核验观测，实际读取与编辑必须经过既有严格读取层；不能用该字段绕过任务权限。停用/注销来源、停用位置或禁用缓存策略会阻止预览动作。
+
+## 组合筛选与个人动态视图
+
+`media_type` 为样本登记类别 image/video/point_cloud/other；多模态是数据集的容器类别。历史登记类别不自动重分类。`extension` 按逻辑文件名最后分量的后缀匹配，忽略大小写和可选的前导点，jpeg/jpg 同组；不代表已探测实际编码格式。`dimension_state=known` 要求 width/height 均为正；unknown 包含任一空值或非正值。宽高范围为1–10000000的整数（像素），含边界且仅匹配尺寸已知样本。最小值大于最大值、未知尺寸与范围并用、非法枚举或扩展名均返回422。所有条件先组合，再 count 和分页，不逐样本访问来源。
+
+个人视图端点也要求登录及 `datasets:read`，它们保存浏览偏好，不授予修改数据集的权限：
+
+| 方法与路径                           | 请求/结果                                               |
+| ------------------------------------ | ------------------------------------------------------- |
+| `GET /{id}/saved-views`              | 当前用户的 `items`，最多100项，按名称/ID排序            |
+| `POST /{id}/saved-views`             | `{name, query, query_schema_version: 1}`，201返回新视图 |
+| `PUT /{id}/saved-views/{view_id}`    | 完整替换名称和条件，200返回视图                         |
+| `DELETE /{id}/saved-views/{view_id}` | 204，仅删除个人偏好                                     |
+
+`query` 仅接受上述筛选字段，不保存 limit/offset、固定样本集合、宿主路径、权限结果或凭据。名称去除首尾空白后1–120字符；同一用户/数据集内同名或超过100项返回409。其他用户（包括超管）及父子不匹配均返回404。来源保存及执行查询时都重新检查当前授权；失效来源返回404，不能移除条件后查询更大范围。列表保留已存条件，允许用户删除或修复失效视图。
+
+打开视图时查询当前数据；新接入的匹配样本自动出现。它不改变训练冻结版本的成员与副本。数据集或用户删除会级联清理视图。迁移回退会删除个人视图，回退前应导出需要保留的名称和查询条件。

@@ -265,6 +265,18 @@ def availability(row):
     }
 
 
+async def require_filter_source(db, dataset_id, source_id, actor):
+    visible = await db.scalar(
+        select(DatasetSource.id).where(
+            DatasetSource.id == source_id,
+            DatasetSource.dataset_id == dataset_id,
+            source_scope_clause(actor),
+        )
+    )
+    if visible is None:
+        raise HTTPException(404, "Dataset source not found")
+
+
 async def item_page(
     db,
     dataset_id,
@@ -276,20 +288,13 @@ async def item_page(
     state=None,
     search=None,
     item_id=None,
+    filters=None,
 ):
     await require_dataset(db, dataset_id)
     obs = observations(dataset_id, actor, preferred_source_id=source_id)
     query = select(obs)
     if source_id is not None:
-        visible = await db.scalar(
-            select(DatasetSource.id).where(
-                DatasetSource.id == source_id,
-                DatasetSource.dataset_id == dataset_id,
-                source_scope_clause(actor),
-            )
-        )
-        if visible is None:
-            raise HTTPException(404, "Dataset source not found")
+        await require_filter_source(db, dataset_id, source_id, actor)
         membership = (
             select(1)
             .select_from(DatasetSourceItem)
@@ -317,6 +322,50 @@ async def item_page(
                 select(DatasetItem.id).where(DatasetItem.file_name.ilike(f"%{search}%"))
             )
         )
+    if filters is not None:
+        predicates = []
+        if filters.media_type:
+            predicates.append(DatasetItem.file_type == filters.media_type)
+        if filters.extension:
+            # Logical filename, never the opaque reference key; only the final
+            # path component can contribute an extension.
+            extension = func.lower(func.substring(DatasetItem.file_name, r"[^/.]+$"))
+            has_extension = DatasetItem.file_name.op("~")(r"[^/]+\.[^/.]+$")
+            extensions = (
+                ["jpg", "jpeg"] if filters.extension == "jpg" else [filters.extension]
+            )
+            predicates.extend([has_extension, extension.in_(extensions)])
+        known = and_(DatasetItem.width > 0, DatasetItem.height > 0)
+        if filters.dimension_state == "known":
+            predicates.append(known)
+        elif filters.dimension_state == "unknown":
+            predicates.append(
+                or_(
+                    DatasetItem.width.is_(None),
+                    DatasetItem.height.is_(None),
+                    DatasetItem.width <= 0,
+                    DatasetItem.height <= 0,
+                )
+            )
+        has_range = False
+        for axis in ("width", "height"):
+            column = getattr(DatasetItem, axis)
+            lower, upper = (
+                getattr(filters, f"min_{axis}"),
+                getattr(filters, f"max_{axis}"),
+            )
+            if lower is not None:
+                predicates.append(column >= lower)
+                has_range = True
+            if upper is not None:
+                predicates.append(column <= upper)
+                has_range = True
+        if has_range:
+            predicates.append(known)
+        if predicates:
+            query = query.where(
+                obs.c.item_id.in_(select(DatasetItem.id).where(*predicates))
+            )
     if item_id is not None:
         query = query.where(obs.c.item_id == item_id)
     total = await db.scalar(select(func.count()).select_from(query.subquery()))

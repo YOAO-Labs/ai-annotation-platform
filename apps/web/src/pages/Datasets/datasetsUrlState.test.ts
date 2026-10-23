@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   datasetDetailPath,
+  datasetItemFilters,
+  datasetFilterPatch,
+  datasetFilterSignature,
   datasetsUrlCodec,
   legacyDatasetDetailPath,
   parseDatasetDetailUrl,
@@ -8,6 +11,32 @@ import {
   safeDatasetsReturn,
 } from "./datasetsUrlState";
 describe("Datasets URL state", () => {
+  it("round-trips combined sample conditions without silently dropping invalid ranges", () => {
+    const filters = datasetItemFilters(
+      new URLSearchParams("q=car&extension=JPEG&min_width=640&max_height=1080&media_type=image"),
+    );
+    expect(filters).toEqual({
+      search: "car",
+      extension: "JPEG",
+      min_width: 640,
+      max_height: 1080,
+      media_type: "image",
+    });
+    const patch = datasetFilterPatch(filters);
+    expect(patch.q).toBe("car");
+    expect(patch.min_width).toBe("640");
+    expect(patch.availability).toBeUndefined();
+    expect(datasetFilterSignature(filters)).toBe(
+      datasetFilterSignature({ ...filters, extension: ".jpg" }),
+    );
+    expect(datasetItemFilters(new URLSearchParams("min_width=-1&max_width=oops")).min_width).toBe(
+      -1,
+    );
+    expect(
+      datasetItemFilters(new URLSearchParams("min_width=-1&max_width=oops")).max_width,
+    ).toBeNaN();
+  });
+
   it("restores filters, server pagination and location while preserving unrelated links", () => {
     const parsed = parseDatasetsUrlWithIssues(
       "q= lidar &data_type=point_cloud&page=3&page_size=50&location_id=loc",

@@ -301,6 +301,13 @@
 | POST | `/dataset-sources/{source_id}/rules/preview` |
 | POST | `/dataset-sources/{source_id}/rules` |
 
+## `dataset_views.py`
+
+| Method | Path |
+|---|---|
+| PUT | `/{view_id}` |
+| DELETE | `/{view_id}` |
+
 ## `datasets.py`
 
 | Method | Path |
@@ -974,4 +981,4 @@
 
 ---
 
-_共 86 模块 / 567 路由_
+_共 87 模块 / 569 路由_
