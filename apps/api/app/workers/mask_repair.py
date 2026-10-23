@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.config import settings
 from app.db.models.annotation import Annotation
-from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import DatasetItem
 from app.db.models.mask_qc import MaskQCIssue
 from app.db.models.mask_repair_batch import MaskRepairBatch
@@ -25,6 +24,7 @@ from app.schemas.mask_mutation import (
 from app.schemas.video_tracker_job import VideoMaskCorrectionRequest
 from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
+from app.services.async_job_terminal import committed_repair_units
 from app.services.gpu_arbitration.dispatch import build_gpu_dispatch_context_factory
 from app.services.mask_mutation import MaskMutationService, scope_fingerprint
 from app.services.mask_repair import ROLLBACK_TTL, canonical_digest
@@ -38,7 +38,9 @@ from app.services.ml_interaction_proxy import (
 from app.services.ml_routing.client import RoutedMLBackendClient
 from app.services.prediction import PredictionService
 from app.services.raster_mask_storage import (
+    assert_raster_mask_write_enabled,
     build_rle_reference,
+    lock_raster_mask_references,
     reserve_raster_mask_upload,
     store_mask_reference_objects,
 )
@@ -46,9 +48,14 @@ from app.services.storage import resolve_task_url
 from app.services.video_frame_service import build_context_from_task
 from app.services.video_tracking.jobs import (
     create_video_mask_correction_job,
-    enqueue_tracker_job,
 )
 from app.workers.celery_app import celery_app
+from app.services.mask_repair_execution import (
+    RepairAttemptStopped,
+    start_attempt,
+    lock_attempt,
+    progress_counts,
+)
 
 
 _MASK_UPLOAD_LIMIT = 1000
@@ -100,7 +107,41 @@ async def _execute_shard(
     actor: User,
 ) -> dict[str, Any]:
     plan_items = list((batch.plan_json or {}).get("items") or [])
-    progressed: set[str] = set()
+    task_id = uuid.UUID(str(shard["task_id"]))
+    await _repair_task(db, task_id, actor)
+    await MaskMutationService(db)._lock_task(task_id)
+    shard_items = [plan_items[int(index)] for index in shard.get("item_indexes") or []]
+    output_geometries = [
+        _load_plan_payload(item["payload"])
+        .mutations[0]
+        .geometry.model_dump(mode="json", by_alias=True)
+        for item in shard_items
+    ]
+    for item in shard_items:
+        await reserve_raster_mask_upload(
+            db,
+            task_id=task_id,
+            object_key=str(item["result_reference"]["object_key"]),
+            limit=_MASK_UPLOAD_LIMIT,
+        )
+    # Acquire every output content lock before any Annotation row lock, in the
+    # same global order even when another task produces the same masks.
+    await lock_raster_mask_references(db, output_geometries, verify=False)
+    for item, geometry in zip(shard_items, output_geometries, strict=True):
+        await _store_result_rle(
+            db,
+            task_id=task_id,
+            geometry=geometry,
+            reference=dict(item["result_reference"]),
+            rle=dict(item["result_rle"]),
+        )
+    progressed: dict[str, int] = {}
+    for saved in (_result_copy(batch).get("shards") or {}).values():
+        if saved.get("status") == "completed" and saved.get("task_id") == str(
+            shard["task_id"]
+        ):
+            for entry in saved.get("items") or []:
+                progressed[str(entry["annotation_id"])] = int(entry["after_version"])
     item_results: list[dict[str, Any]] = []
     for item_index in shard.get("item_indexes") or []:
         item = plan_items[int(item_index)]
@@ -121,7 +162,7 @@ async def _execute_shard(
         conflicts = [
             annotation_id
             for annotation_id, version in current.items()
-            if version != frozen[annotation_id] and annotation_id not in progressed
+            if version != progressed.get(annotation_id, frozen[annotation_id])
         ]
         if conflicts:
             raise RuntimeError(f"version_conflict:{','.join(sorted(conflicts))}")
@@ -138,18 +179,9 @@ async def _execute_shard(
             }
         )
         target_id = str(item["annotation_id"])
-        mutation = payload.mutations[0]
-        geometry = mutation.geometry.model_dump(mode="json", by_alias=True)
-        await _store_result_rle(
-            db,
-            task_id=task_id,
-            geometry=geometry,
-            reference=dict(item["result_reference"]),
-            rle=dict(item["result_rle"]),
-        )
         response = await service.commit(task_id, payload, actor)
         after_version = int(response.result_versions[target_id])
-        progressed.add(target_id)
+        progressed[target_id] = after_version
         issue = await db.get(MaskQCIssue, uuid.UUID(str(item["issue_id"])))
         if issue is not None:
             issue.status = "resolved"
@@ -179,7 +211,7 @@ async def _execute_shard(
     }
 
 
-async def _run_sam_candidate(
+async def _prepare_sam_candidate(
     db: AsyncSession,
     *,
     item: dict[str, Any],
@@ -192,6 +224,11 @@ async def _run_sam_candidate(
         raise RuntimeError("candidate_source_missing")
     if int(annotation.version or 1) != int(item["source_version"]):
         raise RuntimeError("candidate_source_version_conflict")
+    from app.services.reference_access import reject_reference_scope
+    from app.services.reference_bindings import task_binding
+
+    await reject_reference_scope(db, task_ids=[task.id])
+    binding = task_binding(task)
     action = dict(item["action"])
     backend_id = uuid.UUID(str(action["backend_id"]))
     backend_service = MLBackendService(db)
@@ -231,6 +268,7 @@ async def _run_sam_candidate(
         operation="interactive_predict",
         dispatch_context_factory=dispatch_context_factory,
     )
+    await db.commit()
     response = await client.predict_interactive(
         task_data={"id": str(task.id), "file_path": resolve_task_url(task)},
         context=context,
@@ -242,11 +280,111 @@ async def _run_sam_candidate(
         context=context,
         expected_size=expected_size,
     )
-    prediction_ids: list[str] = []
-    for candidate_index, candidate in enumerate(candidates):
+    return {
+        "binding": binding,
+        "candidates": candidates,
+        "diagnostic": diagnostic,
+        "backend_id": client.last_instance_id or backend_id,
+        "pool_id": client.pool_id,
+        "model_id": model_id,
+        "model_version": getattr(response, "model_version", None),
+        "inference_time_ms": getattr(response, "inference_time_ms", None),
+    }
+
+
+async def _repair_task(db, task_id, actor):
+    from app.services.project_write_guard import (
+        lock_actor_project_authority,
+        lock_actor_scope,
+        assert_phase_write_allowed,
+    )
+    from app.services.project_access import resolve_project_access
+    from app.db.models.project import Project
+    from app.db.models.task_batch import TaskBatch
+    from app.services.task_lock import TaskLockService
+    from app.services.task_scope import lock_task_scope
+    from app.api.v1.tasks._shared import _assert_task_visible
+
+    task = await db.get(Task, task_id, populate_existing=True)
+    if task is None:
+        raise RuntimeError("candidate_source_missing")
+    await lock_actor_project_authority(db, actor.id, task.project_id)
+    await lock_actor_scope(db, actor.id, task.project_id)
+    await TaskLockService(db)._lock_task_scope(task_id, nowait=True)
+    await lock_task_scope(db, [task_id])
+    task = await db.scalar(
+        select(Task)
+        .where(Task.id == task_id)
+        .with_for_update(nowait=True)
+        .execution_options(populate_existing=True)
+    )
+    if task.batch_id:
+        await db.get(TaskBatch, task.batch_id, populate_existing=True)
+    project = await db.get(Project, task.project_id, populate_existing=True)
+    actor = await db.get(User, actor.id, populate_existing=True)
+    if actor is None or not actor.is_active:
+        raise RuntimeError("repair_actor_unavailable")
+    access = await resolve_project_access(db, user=actor, project=project)
+    if not access.has("review.write"):
+        raise RuntimeError("repair_authority_revoked")
+    await _assert_task_visible(db, task, actor, access=access)
+    await assert_phase_write_allowed(db, task, actor, action="repair mask")
+    if any(
+        lock.user_id != actor.id
+        for lock in await TaskLockService(db).active_locks(task_id, cleanup=False)
+    ):
+        raise RuntimeError("task_lock_conflict")
+    if task.file_type == "image":
+        assert_raster_mask_write_enabled(project)
+    return task
+
+
+async def _candidate_source(db, item, actor, *, lock_annotation=True):
+    task = await _repair_task(db, uuid.UUID(str(item["task_id"])), actor)
+    query = select(Annotation).where(
+        Annotation.id == uuid.UUID(str(item["annotation_id"]))
+    )
+    if lock_annotation:
+        query = query.with_for_update(nowait=True)
+    annotation = await db.scalar(query.execution_options(populate_existing=True))
+    if (
+        annotation is None
+        or annotation.task_id != task.id
+        or not annotation.is_active
+        or annotation.was_cancelled
+        or annotation.is_locked
+        or int(annotation.version or 1) != int(item["source_version"])
+    ):
+        raise RuntimeError("candidate_source_version_conflict")
+    return task, annotation
+
+
+async def _commit_sam_candidate(db, *, item, batch_id, actor, prepared):
+    from app.services.reference_bindings import task_binding
+
+    task, _ = await _candidate_source(db, item, actor, lock_annotation=False)
+    if task_binding(task) != prepared["binding"]:
+        raise RuntimeError("candidate_input_changed")
+    candidates = prepared["candidates"]
+    model_id = prepared["model_id"]
+    geometries = [
+        {
+            "type": "raster_mask",
+            "mask": build_rle_reference(dict(candidate["value"]["rle"])),
+        }
+        for candidate in candidates
+    ]
+    for geometry in geometries:
+        await reserve_raster_mask_upload(
+            db,
+            task_id=task.id,
+            object_key=str(geometry["mask"]["object_key"]),
+            limit=_MASK_UPLOAD_LIMIT,
+        )
+    await lock_raster_mask_references(db, geometries, verify=False)
+    for candidate, geometry in zip(candidates, geometries, strict=True):
         rle = dict(candidate["value"]["rle"])
-        reference = build_rle_reference(rle)
-        geometry = {"type": "raster_mask", "mask": reference}
+        reference = geometry["mask"]
         await _store_result_rle(
             db,
             task_id=task.id,
@@ -254,11 +392,18 @@ async def _run_sam_candidate(
             reference=reference,
             rle=rle,
         )
+    # Raster upload/content locks precede annotation locks, matching ordinary
+    # mask writes and GC. All candidates and the parent marker share one commit.
+    task, annotation = await _candidate_source(db, item, actor)
+    prediction_ids: list[str] = []
+    for candidate_index, (candidate, geometry) in enumerate(
+        zip(candidates, geometries, strict=True)
+    ):
         prediction = await PredictionService(db).create_from_ml_result(
             task_id=task.id,
             project_id=task.project_id,
-            ml_backend_id=client.last_instance_id or backend_id,
-            ml_backend_pool_id=client.pool_id,
+            ml_backend_id=prepared["backend_id"],
+            ml_backend_pool_id=prepared["pool_id"],
             result=[
                 {
                     "type": "raster_mask",
@@ -270,8 +415,8 @@ async def _run_sam_candidate(
                 }
             ],
             score=candidate.get("score"),
-            model_version=getattr(response, "model_version", None),
-            inference_time_ms=getattr(response, "inference_time_ms", None),
+            model_version=prepared["model_version"],
+            inference_time_ms=prepared["inference_time_ms"],
             source="mask_repair",
             pipeline_extra={
                 "mask_repair": {
@@ -290,7 +435,7 @@ async def _run_sam_candidate(
         "kind": "rerun_local_sam",
         "prediction_ids": prediction_ids,
         "candidate_count": len(prediction_ids),
-        "diagnostic": diagnostic,
+        "diagnostic": prepared["diagnostic"],
     }
 
 
@@ -342,279 +487,247 @@ async def _run_tracker_candidate(
         payload=request,
         user=actor,
     )
-    await db.commit()
-    job = await enqueue_tracker_job(db, job.id, fail_closed=True)
+    from app.db.models.video_tracker_job import VideoTrackerJob
+
+    child = await db.get(VideoTrackerJob, job.id)
+    child.celery_task_id = str(child.id)
     return {
-        "status": "completed",
+        "status": "dispatch_pending",
         "kind": "rerun_tracker",
         "tracker_job_id": str(job.id),
         "candidate_count": 1,
+        "dispatch_state": "pending",
     }
 
 
-async def _mark_batch_start(
-    SessionLocal: async_sessionmaker[AsyncSession],
-    batch_id: uuid.UUID,
-    celery_task_id: str | None,
-) -> tuple[uuid.UUID, list[dict[str, Any]], list[dict[str, Any]], bool]:
-    async with SessionLocal() as db:
-        batch = (
-            await db.execute(
-                select(MaskRepairBatch)
-                .where(MaskRepairBatch.id == batch_id)
-                .with_for_update()
-            )
-        ).scalar_one_or_none()
-        if batch is None or batch.async_job_id is None:
-            raise RuntimeError("mask repair batch not found")
-        job = await db.get(AsyncJob, batch.async_job_id)
-        if job is None:
-            raise RuntimeError("mask repair async job not found")
-        if job is not None and celery_task_id and not job.celery_task_id:
-            job.celery_task_id = celery_task_id
-        if job.status == "cancelled" or bool(
-            (job.payload or {}).get("cancel_requested")
-        ):
-            completed_shards = [
-                value
-                for value in (_result_copy(batch).get("shards") or {}).values()
-                if isinstance(value, dict) and value.get("status") == "completed"
-            ]
-            batch.status = "partial" if completed_shards else "cancelled"
-            batch.completed_at = datetime.now(timezone.utc)
-            await async_job_svc.mark_cancelled(
-                db, batch.async_job_id, result={"reason": "cancelled_by_user"}
-            )
-            await notify_job_terminal(db, job_id=batch.async_job_id)
-            await db.commit()
-            return batch.async_job_id, [], [], True
-        if batch.status not in {"pending", "running"}:
-            await db.commit()
-            return batch.async_job_id, [], [], True
-        batch.status = "running"
-        await async_job_svc.mark_running(
-            db, batch.async_job_id, celery_task_id=celery_task_id
+def _failure_reason(exc):
+    import re
+    from fastapi import HTTPException
+
+    if isinstance(exc, HTTPException):
+        detail = exc.detail if isinstance(exc.detail, dict) else {}
+        return str(
+            detail.get("code") or detail.get("reason") or f"http_{exc.status_code}"
+        )[:160]
+    value = str(exc)
+    return (
+        value if re.fullmatch(r"[a-zA-Z0-9_:.,-]{1,160}", value) else type(exc).__name__
+    )
+
+
+async def _actor(db, attempt):
+    actor = await db.get(User, attempt.actor_id, populate_existing=True)
+    if actor is None or not actor.is_active:
+        raise RuntimeError("repair_actor_unavailable")
+    return actor
+
+
+def _put_unit(batch, section, key, value):
+    result = _result_copy(batch)
+    result[section][key] = value
+    batch.result_json = result
+
+
+async def _progress(db, batch, attempt):
+    _, _, total = progress_counts(batch)
+    result = batch.result_json or {}
+    observed = sum(
+        len(result.get(section) or {}) for section in ("shards", "candidates")
+    )
+    await async_job_svc.update_progress(
+        db, attempt.job_id, int(min(observed, total) / max(1, total) * 100)
+    )
+
+
+async def _dispatch_tracker_handoff(factory, batch_id, job_id, key, child_id):
+    """Republish one durable child identity; an unknown broker result stays retryable."""
+    from app.db.models.video_tracker_job import VideoTrackerJob
+    from app.services.mask_repair_execution import lock_batch
+
+    error = None
+    async with factory() as db:
+        child = await db.get(
+            VideoTrackerJob, uuid.UUID(child_id), populate_existing=True
         )
+        if child is None:
+            raise RuntimeError("tracker_handoff_missing")
+        should_publish = child.status == "queued"
+        celery_id = child.celery_task_id
         await db.commit()
-        plan = dict(batch.plan_json or {})
-        return (
-            batch.async_job_id,
-            list(plan.get("shards") or []),
-            list(plan.get("items") or []),
-            False,
-        )
-
-
-async def _stop_if_cancelled(
-    db: AsyncSession,
-    *,
-    batch_id: uuid.UUID,
-    async_job_id: uuid.UUID,
-) -> bool:
-    job = await db.get(AsyncJob, async_job_id)
-    if job is None or (
-        job.status != "cancelled"
-        and not bool((job.payload or {}).get("cancel_requested"))
-    ):
-        return False
-    batch = (
-        await db.execute(
-            select(MaskRepairBatch)
-            .where(MaskRepairBatch.id == batch_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
-    if batch is not None:
-        completed_shards = [
-            value
-            for value in (_result_copy(batch).get("shards") or {}).values()
-            if isinstance(value, dict) and value.get("status") == "completed"
-        ]
-        batch.status = "partial" if completed_shards else "cancelled"
-        batch.completed_at = datetime.now(timezone.utc)
-    await async_job_svc.mark_cancelled(
-        db, async_job_id, result={"reason": "cancelled_by_user"}
-    )
-    await notify_job_terminal(db, job_id=async_job_id)
-    await db.commit()
-    return True
-
-
-async def _run_mask_repair(batch_id: str, celery_task_id: str | None) -> None:
-    engine = create_async_engine(settings.database_url, echo=False)
-    SessionLocal = async_sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
-    )
-    dispatch_context_factory = build_gpu_dispatch_context_factory(SessionLocal)
-    repair_id = uuid.UUID(batch_id)
-    try:
-        async_job_id, shards, items, cancelled = await _mark_batch_start(
-            SessionLocal, repair_id, celery_task_id
-        )
-        if cancelled:
+    if should_publish:
+        try:
+            celery_app.send_task(
+                "app.workers.video_tracker.run_video_tracker_job",
+                args=[child_id],
+                task_id=celery_id,
+                queue="gpu",
+            )
+        except Exception:
+            error = "tracker_dispatch_unknown"
+    async with factory() as db:
+        await async_job_svc.lock_job(db, job_id)
+        batch = await lock_batch(db, batch_id)
+        if batch is None:
             return
-        candidate_items = [
-            (index, item)
+        result = _result_copy(batch)
+        current = dict(result["candidates"].get(key) or {})
+        if current.get("tracker_job_id") != child_id:
+            return
+        if (
+            current.get("dispatch_state") == "published"
+            or current.get("status") == "completed"
+        ):
+            return
+        child = await db.get(
+            VideoTrackerJob, uuid.UUID(child_id), populate_existing=True
+        )
+        accepted = error is None or (child is not None and child.status != "queued")
+        current.update(
+            status="completed" if accepted else "dispatch_pending",
+            dispatch_state="published" if accepted else "unknown",
+        )
+        if accepted:
+            current.pop("reason", None)
+        else:
+            current["reason"] = error
+        result["candidates"][key] = current
+        batch.result_json = result
+        await db.commit()
+
+
+async def _run_forward(factory, batch_id, celery_task_id, async_job_id=None):
+    dispatch_context_factory = build_gpu_dispatch_context_factory(factory)
+    async with factory() as db:
+        attempt = await start_attempt(db, batch_id, async_job_id, celery_task_id)
+        await db.commit()
+        if attempt is None:
+            return
+        batch = await db.get(MaskRepairBatch, attempt.batch_id)
+        plan = dict(batch.plan_json or {})
+        items = list(plan.get("items") or [])
+        units = [("shards", str(row["id"]), row) for row in plan.get("shards") or []]
+        units += [
+            ("candidates", str(index), item)
             for index, item in enumerate(items)
             if item.get("kind") in {"rerun_local_sam", "rerun_tracker"}
         ]
-        work_count = len(shards) + len(candidate_items)
-        completed = failed = 0
-        for position, shard in enumerate(shards):
-            shard_id = str(shard["id"])
-            async with SessionLocal() as db:
-                if await _stop_if_cancelled(
-                    db, batch_id=repair_id, async_job_id=async_job_id
-                ):
-                    return
-                batch = await db.get(MaskRepairBatch, repair_id)
-                if batch is None:
-                    raise RuntimeError("mask repair batch disappeared")
-                existing = (_result_copy(batch).get("shards") or {}).get(shard_id)
-                if isinstance(existing, dict) and existing.get("status") == "completed":
-                    completed += 1
-                    continue
-                actor = (
-                    await db.get(User, batch.requested_by_id)
-                    if batch.requested_by_id is not None
-                    else None
-                )
-                if actor is None:
-                    raise RuntimeError("mask repair actor no longer exists")
-                try:
-                    shard_result = await _execute_shard(
-                        db, batch=batch, shard=shard, actor=actor
-                    )
-                    result = _result_copy(batch)
-                    result["shards"][shard_id] = shard_result
-                    batch.result_json = result
-                    batch.rollback_expires_at = (
-                        datetime.now(timezone.utc) + ROLLBACK_TTL
-                    )
+    for section, key, unit in units:
+        child_id = None
+        async with factory() as db:
+            try:
+                batch, job = await lock_attempt(db, attempt)
+                existing = (_result_copy(batch).get(section) or {}).get(key) or {}
+                if existing.get("status") == "completed":
                     await db.commit()
-                    completed += 1
-                except Exception as exc:
-                    await db.rollback()
-                    batch = (
-                        await db.execute(
-                            select(MaskRepairBatch)
-                            .where(MaskRepairBatch.id == repair_id)
-                            .with_for_update()
+                    continue
+                child_id = (
+                    existing.get("tracker_job_id") if section == "candidates" else None
+                )
+                if child_id:
+                    await db.commit()
+                else:
+                    actor = await _actor(db, attempt)
+                    if section == "shards":
+                        value = await _execute_shard(
+                            db, batch=batch, shard=unit, actor=actor
                         )
-                    ).scalar_one()
-                    result = _result_copy(batch)
-                    result["shards"][shard_id] = {
-                        "status": "failed",
-                        "task_id": str(shard["task_id"]),
-                        "reason": str(exc)[:500],
-                    }
-                    batch.result_json = result
-                    await db.commit()
-                    failed += 1
-            async with SessionLocal() as db:
-                await async_job_svc.update_progress(
-                    db,
-                    async_job_id,
-                    int(((position + 1) / max(1, work_count)) * 100),
-                )
-                await db.commit()
-
-        for offset, (item_index, item) in enumerate(candidate_items):
-            key = str(item_index)
-            async with SessionLocal() as db:
-                if await _stop_if_cancelled(
-                    db, batch_id=repair_id, async_job_id=async_job_id
-                ):
-                    return
-                batch = await db.get(MaskRepairBatch, repair_id)
-                if batch is None:
-                    raise RuntimeError("mask repair batch disappeared")
-                existing = (_result_copy(batch).get("candidates") or {}).get(key)
-                if isinstance(existing, dict) and existing.get("status") == "completed":
-                    completed += 1
-                    continue
-                actor = (
-                    await db.get(User, batch.requested_by_id)
-                    if batch.requested_by_id is not None
-                    else None
-                )
-                if actor is None:
-                    raise RuntimeError("mask repair actor no longer exists")
-                try:
-                    if item["kind"] == "rerun_local_sam":
-                        candidate_result = await _run_sam_candidate(
+                        batch.rollback_expires_at = (
+                            datetime.now(timezone.utc) + ROLLBACK_TTL
+                        )
+                    elif unit["kind"] == "rerun_local_sam":
+                        await _candidate_source(db, unit, actor, lock_annotation=False)
+                        await db.commit()
+                        prepared = await _prepare_sam_candidate(
                             db,
-                            item=item,
-                            batch_id=repair_id,
+                            item=unit,
+                            batch_id=attempt.batch_id,
                             dispatch_context_factory=dispatch_context_factory,
                         )
-                        await db.commit()
+                        await db.rollback()
+                        batch, job = await lock_attempt(db, attempt)
+                        actor = await _actor(db, attempt)
+                        value = await _commit_sam_candidate(
+                            db,
+                            item=unit,
+                            batch_id=attempt.batch_id,
+                            actor=actor,
+                            prepared=prepared,
+                        )
                     else:
-                        candidate_result = await _run_tracker_candidate(
-                            db, item=item, actor=actor
-                        )
-                    batch = await db.get(MaskRepairBatch, repair_id)
-                    result = _result_copy(batch)
-                    result["candidates"][key] = candidate_result
-                    batch.result_json = result
+                        await _candidate_source(db, unit, actor)
+                        value = await _run_tracker_candidate(db, item=unit, actor=actor)
+                        child_id = value["tracker_job_id"]
+                    _put_unit(batch, section, key, value)
+                    await _progress(db, batch, attempt)
                     await db.commit()
-                    completed += 1
-                except Exception as exc:
+            except RepairAttemptStopped:
+                await db.rollback()
+                return
+            except Exception as exc:
+                await db.rollback()
+                try:
+                    batch, job = await lock_attempt(db, attempt)
+                except RepairAttemptStopped:
                     await db.rollback()
-                    batch = (
-                        await db.execute(
-                            select(MaskRepairBatch)
-                            .where(MaskRepairBatch.id == repair_id)
-                            .with_for_update()
-                        )
-                    ).scalar_one()
-                    result = _result_copy(batch)
-                    result["candidates"][key] = {
-                        "status": "failed",
-                        "kind": item["kind"],
-                        "reason": str(exc)[:500],
-                    }
-                    batch.result_json = result
-                    await db.commit()
-                    failed += 1
-            async with SessionLocal() as db:
-                done = len(shards) + offset + 1
-                await async_job_svc.update_progress(
-                    db,
-                    async_job_id,
-                    int((done / max(1, work_count)) * 100),
+                    return
+                saved = (_result_copy(batch).get(section) or {}).get(key) or {}
+                # COMMIT may have succeeded before its response was lost.
+                # Never replace durable work with an inferred failure.
+                child_id = (
+                    saved.get("tracker_job_id") if section == "candidates" else None
                 )
+                if saved.get("status") != "completed" and not child_id:
+                    _put_unit(
+                        batch,
+                        section,
+                        key,
+                        {
+                            "status": "failed",
+                            "kind": unit.get("kind"),
+                            "task_id": str(unit.get("task_id")),
+                            "reason": _failure_reason(exc),
+                        },
+                    )
+                    await _progress(db, batch, attempt)
                 await db.commit()
-
-        async with SessionLocal() as db:
-            batch = (
-                await db.execute(
-                    select(MaskRepairBatch)
-                    .where(MaskRepairBatch.id == repair_id)
-                    .with_for_update()
-                )
-            ).scalar_one()
-            batch.status = (
-                "completed" if failed == 0 else ("partial" if completed else "failed")
+        if child_id:
+            await _dispatch_tracker_handoff(
+                factory, attempt.batch_id, attempt.job_id, key, child_id
             )
-            batch.completed_at = datetime.now(timezone.utc)
-            summary = {
-                "batch_id": str(batch.id),
-                "success_count": completed,
-                "failed_count": failed,
-                "result_digest": canonical_digest(batch.result_json or {}),
-            }
-            if completed:
-                await async_job_svc.mark_complete(db, async_job_id, result=summary)
-            else:
-                await async_job_svc.mark_failed(
-                    db,
-                    async_job_id,
-                    error="all mask repair shards failed",
-                    result=summary,
-                )
-            await notify_job_terminal(db, job_id=async_job_id)
-            await db.commit()
+    async with factory() as db:
+        try:
+            batch, job = await lock_attempt(db, attempt)
+        except RepairAttemptStopped:
+            await db.rollback()
+            return
+        completed, failed, total = progress_counts(batch)
+        batch.status = (
+            "completed"
+            if failed == 0 and total
+            else ("partial" if committed_repair_units(batch) else "failed")
+        )
+        batch.completed_at = datetime.now(timezone.utc)
+        summary = {
+            "batch_id": str(batch.id),
+            "success_count": completed,
+            "failed_count": failed,
+            "result_digest": canonical_digest(batch.result_json or {}),
+        }
+        if completed:
+            await async_job_svc.mark_complete(db, attempt.job_id, result=summary)
+        else:
+            await async_job_svc.mark_failed(
+                db, attempt.job_id, error="mask repair units unfinished", result=summary
+            )
+        await notify_job_terminal(db, job_id=attempt.job_id)
+        await db.commit()
+
+
+async def _run_mask_repair(batch_id, celery_task_id, async_job_id=None):
+    engine = create_async_engine(settings.database_url, echo=False)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    try:
+        await _run_forward(factory, batch_id, celery_task_id, async_job_id)
     finally:
         await engine.dispose()
 
@@ -655,6 +768,18 @@ async def _rollback_shard(
     actor: User,
 ) -> int:
     entries = list(shard_result.get("items") or [])
+    if entries:
+        task_id = uuid.UUID(str(plan_items[int(entries[0]["item_index"])]["task_id"]))
+        await _repair_task(db, task_id, actor)
+        await MaskMutationService(db)._lock_task(task_id)
+        await lock_raster_mask_references(
+            db,
+            [
+                plan_items[int(entry["item_index"])]["before_geometry"]
+                for entry in entries
+            ],
+            verify=False,
+        )
     for entry in entries:
         item = plan_items[int(entry["item_index"])]
         target = await db.get(Annotation, uuid.UUID(str(item["annotation_id"])))
@@ -674,122 +799,148 @@ async def _rollback_shard(
     return len(entries)
 
 
-async def _rollback_mask_repair(batch_id: str, celery_task_id: str | None) -> None:
-    engine = create_async_engine(settings.database_url, echo=False)
-    SessionLocal = async_sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
-    )
-    repair_id = uuid.UUID(batch_id)
-    failed_shard_id: str | None = None
-    rolled_back = 0
-    try:
-        async with SessionLocal() as db:
-            batch = await db.get(MaskRepairBatch, repair_id)
-            if batch is None or batch.rollback_async_job_id is None:
-                raise RuntimeError("mask repair rollback batch not found")
-            job_id = batch.rollback_async_job_id
-            await async_job_svc.mark_running(db, job_id, celery_task_id=celery_task_id)
-            await db.commit()
-        async with SessionLocal() as db:
-            batch = await db.get(MaskRepairBatch, repair_id)
-            assert batch is not None
-            plan_items = list((batch.plan_json or {}).get("items") or [])
-            shard_results = dict((batch.result_json or {}).get("shards") or {})
-            completed_shards = [
-                (shard_id, shard)
-                for shard_id, shard in shard_results.items()
-                if isinstance(shard, dict) and shard.get("status") == "completed"
-            ]
-        for shard_id, shard_result in reversed(completed_shards):
-            failed_shard_id = shard_id
-            async with SessionLocal() as db:
-                batch = await db.get(MaskRepairBatch, repair_id)
-                actor = (
-                    await db.get(User, batch.requested_by_id)
-                    if batch is not None and batch.requested_by_id is not None
-                    else None
-                )
-                if batch is None or actor is None:
-                    raise RuntimeError("mask repair rollback actor missing")
-                mutation_count = await _rollback_shard(
-                    db,
-                    plan_items=plan_items,
-                    shard_result=shard_result,
-                    actor=actor,
-                )
-                await db.commit()
-                rolled_back += mutation_count
-            failed_shard_id = None
-        async with SessionLocal() as db:
-            batch = (
-                await db.execute(
-                    select(MaskRepairBatch)
-                    .where(MaskRepairBatch.id == repair_id)
-                    .with_for_update()
-                )
-            ).scalar_one()
-            batch.status = "rolled_back"
-            batch.rolled_back_at = datetime.now(timezone.utc)
-            result = _result_copy(batch)
-            result["rollback"] = {
-                "status": "completed",
-                "mutation_count": rolled_back,
-                "completed_at": batch.rolled_back_at.isoformat(),
-            }
-            batch.result_json = result
-            await async_job_svc.mark_complete(
-                db,
-                batch.rollback_async_job_id,
-                result={"batch_id": str(batch.id), "rolled_back_count": rolled_back},
-            )
-            await notify_job_terminal(db, job_id=batch.rollback_async_job_id)
-            await db.commit()
-    except Exception as exc:
-        async with SessionLocal() as db:
-            batch = (
-                await db.execute(
-                    select(MaskRepairBatch)
-                    .where(MaskRepairBatch.id == repair_id)
-                    .with_for_update()
-                )
-            ).scalar_one_or_none()
-            if batch is not None:
-                batch.status = "rollback_failed"
+async def _run_rollback(factory, batch_id, celery_task_id, async_job_id=None):
+    async with factory() as db:
+        attempt = await start_attempt(
+            db, batch_id, async_job_id, celery_task_id, rollback=True
+        )
+        await db.commit()
+        if attempt is None:
+            return
+        batch = await db.get(MaskRepairBatch, attempt.batch_id)
+        plan_items = list((batch.plan_json or {}).get("items") or [])
+        # JSONB object key order is not execution order. Follow the immutable
+        # plan so reversing this list really reverses the forward shards.
+        saved = (batch.result_json or {}).get("shards") or {}
+        completed_shards = [
+            (str(shard["id"]), saved[str(shard["id"])])
+            for shard in (batch.plan_json or {}).get("shards") or []
+            if (saved.get(str(shard["id"])) or {}).get("status") == "completed"
+        ]
+    for shard_id, shard_result in reversed(completed_shards):
+        async with factory() as db:
+            try:
+                batch, job = await lock_attempt(db, attempt)
                 result = _result_copy(batch)
-                result["rollback"] = {
-                    "status": "failed",
-                    "reason": str(exc)[:500],
-                    "failed_shard_id": failed_shard_id,
-                    "rolled_back_count": rolled_back,
-                    "failed_at": datetime.now(timezone.utc).isoformat(),
-                }
-                batch.result_json = result
-                if batch.rollback_async_job_id is not None:
-                    await async_job_svc.mark_failed(
-                        db, batch.rollback_async_job_id, error=str(exc)
+                rollback = dict(result.get("rollback") or {})
+                checkpoints = dict(rollback.get("shards") or {})
+                if (checkpoints.get(shard_id) or {}).get("status") == "completed":
+                    await db.commit()
+                    continue
+                actor = await _actor(db, attempt)
+                count = await _rollback_shard(
+                    db, plan_items=plan_items, shard_result=shard_result, actor=actor
+                )
+                versions = {}
+                for entry in shard_result.get("items") or []:
+                    annotation_id = uuid.UUID(str(entry["annotation_id"]))
+                    annotation = await db.get(
+                        Annotation, annotation_id, populate_existing=True
                     )
-                    await notify_job_terminal(db, job_id=batch.rollback_async_job_id)
+                    versions[str(annotation_id)] = annotation.version
+                checkpoints[shard_id] = {
+                    "status": "completed",
+                    "mutation_count": count,
+                    "versions": versions,
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                }
+                rollback.update(status="running", shards=checkpoints)
+                result["rollback"] = rollback
+                batch.result_json = result
                 await db.commit()
-        raise
+            except RepairAttemptStopped:
+                await db.rollback()
+                return
+            except Exception as exc:
+                await db.rollback()
+                try:
+                    batch, job = await lock_attempt(db, attempt)
+                except RepairAttemptStopped:
+                    await db.rollback()
+                    return
+                result = _result_copy(batch)
+                rollback = dict(result.get("rollback") or {})
+                if ((rollback.get("shards") or {}).get(shard_id) or {}).get(
+                    "status"
+                ) == "completed":
+                    await db.commit()
+                    continue
+                rollback.update(
+                    status="failed",
+                    reason=_failure_reason(exc),
+                    failed_shard_id=shard_id,
+                    failed_at=datetime.now(timezone.utc).isoformat(),
+                )
+                result["rollback"] = rollback
+                batch.result_json = result
+                batch.status = "rollback_failed"
+                await async_job_svc.mark_failed(
+                    db, attempt.job_id, error=_failure_reason(exc)
+                )
+                await notify_job_terminal(db, job_id=attempt.job_id)
+                await db.commit()
+                return
+    async with factory() as db:
+        try:
+            batch, job = await lock_attempt(db, attempt)
+        except RepairAttemptStopped:
+            await db.rollback()
+            return
+        result = _result_copy(batch)
+        rollback = dict(result.get("rollback") or {})
+        count = sum(
+            int(value.get("mutation_count") or 0)
+            for value in (rollback.get("shards") or {}).values()
+            if value.get("status") == "completed"
+        )
+        batch.rolled_back_at = datetime.now(timezone.utc)
+        batch.status = "rolled_back"
+        for key in ("reason", "failed_shard_id", "failed_at"):
+            rollback.pop(key, None)
+        rollback.update(
+            status="completed",
+            mutation_count=count,
+            completed_at=batch.rolled_back_at.isoformat(),
+        )
+        result["rollback"] = rollback
+        batch.result_json = result
+        await async_job_svc.mark_complete(
+            db,
+            attempt.job_id,
+            result={"batch_id": str(batch.id), "rolled_back_count": count},
+        )
+        await notify_job_terminal(db, job_id=attempt.job_id)
+        await db.commit()
+
+
+async def _rollback_mask_repair(batch_id, celery_task_id, async_job_id=None):
+    engine = create_async_engine(settings.database_url, echo=False)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    try:
+        await _run_rollback(factory, batch_id, celery_task_id, async_job_id)
     finally:
         await engine.dispose()
 
 
 @celery_app.task(bind=True, name="app.workers.mask_repair.run_mask_repair")
-def run_mask_repair(self, batch_id: str) -> None:
+def run_mask_repair(self, batch_id: str, *, async_job_id: str | None = None) -> None:
     asyncio.run(
         _run_mask_repair(
             batch_id,
             getattr(getattr(self, "request", None), "id", None),
+            async_job_id,
         )
     )
 
 
 @celery_app.task(bind=True, name="app.workers.mask_repair.rollback_mask_repair")
-def rollback_mask_repair(self, batch_id: str) -> None:
+def rollback_mask_repair(
+    self, batch_id: str, *, async_job_id: str | None = None
+) -> None:
     asyncio.run(
         _rollback_mask_repair(
             batch_id,
             getattr(getattr(self, "request", None), "id", None),
+            async_job_id,
         )
     )

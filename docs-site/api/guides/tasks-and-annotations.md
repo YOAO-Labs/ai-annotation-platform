@@ -24,6 +24,17 @@ pending → in_progress → completed → review
 
 `GET /api/v1/tasks` 保留原查询参数，并可在 `dataset_id` 外提供 `dataset_filter`（最多2000字符的 JSON 对象），合同为数据集的 DatasetItemFilters。仅项目管理者使用此范围；API Key 还需 `datasets:read`。数据集必须关联当前项目，Scene/来源逐次校验归属与权限。无数据集、非法JSON、未知字段或不合法范围422，失效条件404；不忽略条件扩大选择。过滤在游标/offset分页和首页计数之前执行，与训练预检复用同一SQL。未传新参数保留原任务可见性和后续页 total=null 的合同。
 
+## Mask 质检批量修复
+
+`POST /projects/{project_id}/mask-qc/repairs:dry-run` 返回短期 receipt 和冻结计划摘要；
+`POST /projects/{project_id}/mask-qc/repairs` 使用两者执行。每次执行或恢复都有独立作业身份，旧消息和运行中重复投递不能接管新尝试。
+取消 `mask_repair` 作业先保存数据库状态，再通知队列；已经提交的分片、SAM 候选和 Tracker 子任务保留，尚未提交的模型结果会丢弃。
+
+`POST /mask-qc/repairs/{repair_id}/resume` 继续失败或部分完成批次，跳过完成项；Tracker 派发应答未知时复用同一个子任务。
+`POST /mask-qc/repairs/{repair_id}/rollback` 必须提交当前 `result_digest`，支持保留期内的 `completed`、`partial` 和 `rollback_failed` 状态。
+回滚按片保存检查点，继续时使用本次发起者的当前权限，跳过已回滚片；新版本冲突不强制覆盖。返回的 `result` 保留检查点和冲突原因。
+原地引用的批量修复目前仍受限，详情见 [Mask 用户说明](../../user-guide/workbench/mask-brush.md)。
+
 ## 拉取下一个任务
 
 ```http

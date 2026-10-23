@@ -91,11 +91,13 @@ async def reconcile_point_cloud_quality(
     run.completed_at = _now()
 
 
-def _completed_repair_shards(batch: MaskRepairBatch) -> int:
+def committed_repair_units(batch: MaskRepairBatch) -> int:
     return sum(
         1
-        for value in ((batch.result_json or {}).get("shards") or {}).values()
-        if isinstance(value, dict) and value.get("status") == "completed"
+        for section in ("shards", "candidates")
+        for value in ((batch.result_json or {}).get(section) or {}).values()
+        if isinstance(value, dict)
+        and value.get("status") in {"completed", "dispatch_pending"}
     )
 
 
@@ -112,25 +114,37 @@ async def reconcile_mask_repair(
 ) -> None:
     """Reconcile a ``MaskRepairBatch`` for ``mask_repair`` / rollback jobs.
 
-    A cancelled forward repair keeps an already-committed shard as ``partial``.
-    The fallback cancellation path intentionally does not reconcile a rollback
-    job: rollback cancellation is driven by the requested-repair lifecycle, and
-    the failed path is the one that owns ``rollback_failed``.
+    Forward repair preserves committed shards, candidates and child dispatch
+    intents as ``partial``. Interrupted rollback preserves its checkpoints and
+    becomes ``rollback_failed`` so another attempt can continue them.
     """
 
     if cancelled:
-        if job.kind != "mask_repair":
-            return
         batch = (
             await db.execute(
                 select(MaskRepairBatch)
-                .where(MaskRepairBatch.async_job_id == job.id)
+                .where(
+                    (
+                        MaskRepairBatch.rollback_async_job_id
+                        if job.kind == "mask_repair_rollback"
+                        else MaskRepairBatch.async_job_id
+                    )
+                    == job.id
+                )
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
         ).scalar_one_or_none()
-        if batch is None or not _locks_open(batch.status):
+        if batch is None:
             return
-        batch.status = "partial" if _completed_repair_shards(batch) else "cancelled"
+        if job.kind == "mask_repair_rollback":
+            if batch.status != "rolling_back":
+                return
+            batch.status = "rollback_failed"
+        elif _locks_open(batch.status):
+            batch.status = "partial" if committed_repair_units(batch) else "cancelled"
+        else:
+            return
         batch.completed_at = _now()
         return
 
@@ -140,11 +154,23 @@ async def reconcile_mask_repair(
         else MaskRepairBatch.async_job_id == job.id
     )
     batch = (
-        await db.execute(select(MaskRepairBatch).where(condition).with_for_update())
+        await db.execute(
+            select(MaskRepairBatch)
+            .where(condition)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
     ).scalar_one_or_none()
     if batch is None:
         return
-    batch.status = "rollback_failed" if job.kind == "mask_repair_rollback" else "failed"
+    if job.kind == "mask_repair_rollback":
+        if batch.status != "rolling_back":
+            return
+        batch.status = "rollback_failed"
+    elif _locks_open(batch.status):
+        batch.status = "partial" if committed_repair_units(batch) else "failed"
+    else:
+        return
     batch.completed_at = _now()
 
 

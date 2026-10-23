@@ -337,9 +337,11 @@ async def test_execute_dispatches_once_and_rollback_rejects_newer_annotation(
     plan = dry_run.json()
     dispatches: list[tuple[uuid.UUID, bool]] = []
 
-    async def fake_dispatch(batch_id: uuid.UUID, *, rollback: bool = False) -> str:
+    async def fake_dispatch(
+        batch_id: uuid.UUID, *, async_job_id: uuid.UUID, rollback: bool = False
+    ) -> str:
         dispatches.append((batch_id, rollback))
-        return "celery-mask-repair-1"
+        return str(async_job_id)
 
     monkeypatch.setattr("app.api.v1.mask_qc.dispatch_repair_batch", fake_dispatch)
     payload = {"receipt": plan["receipt"], "plan_digest": plan["plan_digest"]}

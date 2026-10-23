@@ -717,6 +717,7 @@ async def execute_repair_plan(
             select(MaskRepairBatch)
             .where(MaskRepairBatch.token_hash == _token_hash(receipt))
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     if batch is None or batch.project_id != project.id:
@@ -768,6 +769,7 @@ async def execute_repair_plan(
         user_id=actor.id,
         payload={"mask_repair_batch_id": str(batch.id)},
     )
+    job.celery_task_id = str(job.id)
     batch.async_job_id = job.id
     batch.status = "pending"
     await db.flush()
@@ -786,6 +788,7 @@ async def request_repair_rollback(
             select(MaskRepairBatch)
             .where(MaskRepairBatch.id == batch_id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     if batch is None:
@@ -801,7 +804,7 @@ async def request_repair_rollback(
             message="repair result changed; refresh before rollback",
         )
     now = datetime.now(timezone.utc)
-    if batch.status not in {"completed", "partial"}:
+    if batch.status not in {"completed", "partial", "rollback_failed"}:
         raise MaskRepairError(
             status_code=409,
             reason="repair_batch_not_rollbackable",
@@ -821,6 +824,7 @@ async def request_repair_rollback(
         user_id=actor.id,
         payload={"mask_repair_batch_id": str(batch.id)},
     )
+    job.celery_task_id = str(job.id)
     batch.rollback_async_job_id = job.id
     batch.status = "rolling_back"
     await db.flush()
@@ -838,6 +842,7 @@ async def resume_repair_batch(
             select(MaskRepairBatch)
             .where(MaskRepairBatch.id == batch_id)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     if batch is None:
@@ -860,6 +865,7 @@ async def resume_repair_batch(
         user_id=actor.id,
         payload={"mask_repair_batch_id": str(batch.id), "resumed": True},
     )
+    job.celery_task_id = str(job.id)
     batch.async_job_id = job.id
     batch.requested_by_id = actor.id
     batch.status = "pending"
@@ -867,12 +873,19 @@ async def resume_repair_batch(
     return batch
 
 
-async def dispatch_repair_batch(batch_id: uuid.UUID, *, rollback: bool = False) -> str:
+async def dispatch_repair_batch(
+    batch_id: uuid.UUID, *, async_job_id: uuid.UUID, rollback: bool = False
+) -> str:
     try:
         from app.workers.mask_repair import run_mask_repair, rollback_mask_repair
 
         task = rollback_mask_repair if rollback else run_mask_repair
-        result = task.apply_async(args=[str(batch_id)], queue="media")
+        result = task.apply_async(
+            args=[str(batch_id)],
+            kwargs={"async_job_id": str(async_job_id)},
+            task_id=str(async_job_id),
+            queue="media",
+        )
         return str(result.id)
     except Exception as exc:
         raise MaskRepairError(

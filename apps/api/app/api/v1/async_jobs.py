@@ -19,7 +19,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.enums import PlatformRole, ProjectRole
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.db.models.project import Project
-from app.db.models.mask_repair_batch import MaskRepairBatch
 from app.db.models.mask_format_import import MaskFormatImport
 from app.db.models.user import User
 from app.deps import get_current_user, get_db, assert_request_scopes
@@ -523,33 +522,33 @@ async def cancel_async_job(
         return {"status": "cancelled", "id": str(job_id)}
 
     if job.kind == "mask_repair":
-        if job.celery_task_id:
-            try:
-                from app.workers.celery_app import celery_app
-
-                celery_app.control.revoke(job.celery_task_id, terminate=False)
-            except Exception:
-                log.exception("mask_repair revoke failed job=%s", job.id)
-        batch = (
-            await db.execute(
-                select(MaskRepairBatch)
-                .where(MaskRepairBatch.async_job_id == job.id)
-                .with_for_update()
-            )
-        ).scalar_one_or_none()
+        # Match the worker's Job -> Batch publication locks. Cancellation must
+        # be durable before contacting the broker, including response loss.
+        job = await async_job_svc.lock_job(db, job_id)
+        if job is None or job.status not in {"pending", "running"}:
+            raise HTTPException(409, detail="repair is no longer cancellable")
+        if not await _can_access_job(db, job=job, user=current_user):
+            raise HTTPException(403, detail="not your job")
+        celery_task_id = job.celery_task_id
         if job.status == AsyncJobStatus.PENDING.value:
             await async_job_svc.mark_cancelled(
                 db, job.id, result={"reason": "cancelled_by_user"}
             )
-            if batch is not None and batch.status == "pending":
-                batch.status = "cancelled"
-                batch.completed_at = datetime.now(timezone.utc)
+            await reconcile_domain_terminal(db, job, cancelled=True)
             await notify_job_terminal(db, job_id=job.id)
-            await db.commit()
-            return {"status": "cancelled", "id": str(job_id)}
-        await async_job_svc.request_cancel(db, job.id)
+            response_status = "cancelled"
+        else:
+            await async_job_svc.request_cancel(db, job.id)
+            response_status = "cancel_requested"
         await db.commit()
-        return {"status": "cancel_requested", "id": str(job_id)}
+        if celery_task_id:
+            try:
+                from app.workers.celery_app import celery_app
+
+                celery_app.control.revoke(celery_task_id, terminate=False)
+            except Exception:
+                log.exception("mask_repair revoke failed job=%s", job_id)
+        return {"status": response_status, "id": str(job_id)}
 
     if job.kind == "mask_format_import":
         if job.celery_task_id:
