@@ -6,21 +6,26 @@
       "properties": {
         "created_at": {
           "format": "date-time",
+          "pattern": "^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(\\.[0-9]+)?(Z|([+-])([0-9]{2}):([0-9]{2}))$",
           "title": "Created At",
           "type": "string"
         },
         "id": {
           "format": "uuid",
+          "maxLength": 36,
+          "minLength": 36,
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
           "title": "Id",
           "type": "string"
         },
         "payload": {
-          "additionalProperties": true,
-          "title": "Payload",
-          "type": "object"
+          "title": "Payload"
         },
         "target_id": {
           "format": "uuid",
+          "maxLength": 36,
+          "minLength": 36,
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
           "title": "Target Id",
           "type": "string"
         },

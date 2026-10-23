@@ -5,8 +5,6 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const contractPath = path.resolve(here, "../../src/aap_notifications/realtime_event.schema.json");
-const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const dateTimePattern = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/;
 
 async function loadContract() {
   return JSON.parse(await readFile(contractPath, "utf8"));
@@ -32,6 +30,47 @@ function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function matchesPattern(value, schema) {
+  if (typeof value !== "string") return false;
+  const match = new RegExp(schema.pattern).exec(value);
+  return match !== null && match[0] === value;
+}
+
+function validDateTime(value, schema) {
+  if (!matchesPattern(value, schema)) return false;
+  const match = new RegExp(schema.pattern).exec(value);
+  const [
+    ,
+    rawYear,
+    rawMonth,
+    rawDay,
+    rawHour,
+    rawMinute,
+    rawSecond,
+    ,
+    zone,
+    ,
+    rawOffsetHour,
+    rawOffsetMinute,
+  ] = match;
+  const year = Number(rawYear);
+  const month = Number(rawMonth);
+  const day = Number(rawDay);
+  const hour = Number(rawHour);
+  const minute = Number(rawMinute);
+  const second = Number(rawSecond);
+  if (year < 1 || month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59) {
+    return false;
+  }
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (day < 1 || day > daysInMonth[month - 1]) return false;
+  if (zone !== "Z" && (Number(rawOffsetHour) > 23 || Number(rawOffsetMinute) > 59)) {
+    return false;
+  }
+  return true;
+}
+
 function validateRealtimeMessage(message, contract) {
   assert.ok(isRecord(message));
   const sync = contract.$defs.NotificationSyncEvent;
@@ -52,8 +91,13 @@ function validateRealtimeMessage(message, contract) {
   if (event.additionalProperties === false) {
     for (const field of Object.keys(message)) assert.ok(Object.hasOwn(properties, field));
   }
-  assert.ok(typeof message.id === "string" && uuidPattern.test(message.id));
-  assert.ok(typeof message.target_id === "string" && uuidPattern.test(message.target_id));
+  assert.ok(
+    matchesPattern(message.id, properties.id) && message.id.length === properties.id.maxLength,
+  );
+  assert.ok(
+    matchesPattern(message.target_id, properties.target_id) &&
+      message.target_id.length === properties.target_id.maxLength,
+  );
   assert.ok(
     typeof message.type === "string" &&
       Array.from(message.type).length <= properties.type.maxLength,
@@ -62,12 +106,7 @@ function validateRealtimeMessage(message, contract) {
     typeof message.target_type === "string" &&
       Array.from(message.target_type).length <= properties.target_type.maxLength,
   );
-  assert.ok(isRecord(message.payload));
-  assert.ok(
-    typeof message.created_at === "string" &&
-      dateTimePattern.test(message.created_at) &&
-      Number.isFinite(Date.parse(message.created_at)),
-  );
+  assert.ok(validDateTime(message.created_at, properties.created_at));
 }
 
 async function readStdin() {
@@ -107,9 +146,13 @@ export async function selfCheck() {
   ]);
   assert.equal(event.properties.id.format, "uuid");
   assert.equal(event.properties.target_id.format, "uuid");
+  assert.equal(event.properties.id.minLength, 36);
+  assert.equal(event.properties.id.maxLength, 36);
   assert.equal(event.properties.created_at.format, "date-time");
   assert.equal(event.properties.type.maxLength, 60);
   assert.equal(event.properties.type.enum, undefined);
+  assert.equal(event.properties.payload.type, undefined);
+  assert.equal(event.properties.payload.anyOf, undefined);
 
   const sync = contract.$defs.NotificationSyncEvent;
   assert.equal(sync.properties.type.const, "notifications.sync");

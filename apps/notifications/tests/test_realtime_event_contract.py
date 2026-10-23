@@ -38,6 +38,10 @@ def test_frozen_realtime_schema_matches_contract_models():
     assert frozen["$id"] == NOTIFICATION_REALTIME_PROTOCOL
     assert frozen["$defs"]["NotificationEvent"]["additionalProperties"] is False
     assert frozen["$defs"]["NotificationSyncEvent"]["additionalProperties"] is True
+    payload_schema = frozen["$defs"]["NotificationEvent"]["properties"]["payload"]
+    assert "type" not in payload_schema
+    assert "anyOf" not in payload_schema
+    assert frozen["$defs"]["NotificationEvent"]["properties"]["id"]["maxLength"] == 36
 
 
 def test_event_builder_preserves_existing_field_values_and_order():
@@ -75,6 +79,97 @@ def test_event_builder_does_not_coerce_wire_strings():
             payload={},
             created_at="2026-10-24T10:00:00+05:30",
         )
+
+
+def test_event_builder_preserves_valid_uuid_and_datetime_strings():
+    message = notification_event_message(
+        id="A0000000-0000-4000-8000-000000000001",
+        type="future.module_event",
+        target_type="task",
+        target_id="B0000000-0000-4000-8000-000000000002",
+        payload=None,
+        created_at="2026-10-24T10:00:00Z",
+    )
+
+    assert message["id"] == "A0000000-0000-4000-8000-000000000001"
+    assert message["target_id"] == "B0000000-0000-4000-8000-000000000002"
+    assert message["created_at"] == "2026-10-24T10:00:00Z"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [None, [], ["legacy"], "legacy", 7, True, 1.5, {"legacy": "object"}],
+)
+def test_event_builder_preserves_native_jsonb_payload_shapes(payload):
+    message = notification_event_message(
+        id="60000000-0000-4000-8000-000000000001",
+        type="legacy.notification",
+        target_type="task",
+        target_id="60000000-0000-4000-8000-000000000002",
+        payload=payload,
+        created_at="2026-10-24T10:00:00+05:30",
+    )
+
+    assert message["payload"] == payload
+
+
+def test_event_builder_preserves_deep_native_jsonb_payload():
+    payload = {}
+    nested = payload
+    for _ in range(350):
+        nested["next"] = {}
+        nested = nested["next"]
+
+    message = notification_event_message(
+        id="60000000-0000-4000-8000-000000000001",
+        type="legacy.notification",
+        target_type="task",
+        target_id="60000000-0000-4000-8000-000000000002",
+        payload=payload,
+        created_at="2026-10-24T10:00:00+05:30",
+    )
+
+    assert json.dumps(message) == json.dumps(
+        {
+            "id": "60000000-0000-4000-8000-000000000001",
+            "type": "legacy.notification",
+            "target_type": "task",
+            "target_id": "60000000-0000-4000-8000-000000000002",
+            "payload": payload,
+            "created_at": "2026-10-24T10:00:00+05:30",
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("id", "not-a-uuid"),
+        ("id", "60000000-0000-4000-8000-000000000001\n"),
+        ("target_id", "also-invalid"),
+        ("created_at", "not-a-time"),
+        ("created_at", "2026-10-24T10:00:00+05:30\n"),
+        ("created_at", "2026-02-31T10:00:00+05:30"),
+        ("created_at", "2026-10-24T24:00:00+05:30"),
+        ("created_at", "2026-10-24T10:00:00"),
+        ("created_at", "2026-10-24T10:00:00+24:00"),
+    ],
+)
+def test_event_builder_rejects_invalid_uuid_and_datetime_without_rewriting(
+    field, value
+):
+    message = {
+        "id": "60000000-0000-4000-8000-000000000001",
+        "type": "legacy.notification",
+        "target_type": "task",
+        "target_id": "60000000-0000-4000-8000-000000000002",
+        "payload": None,
+        "created_at": "2026-10-24T10:00:00+05:30",
+    }
+    message[field] = value
+
+    with pytest.raises(ValidationError):
+        notification_event_message(**message)
 
 
 def test_event_string_limits_count_unicode_codepoints():
@@ -128,6 +223,46 @@ def test_node_stdio_peer_accepts_and_preserves_existing_message_shapes():
             "payload": {"text": "中文"},
             "created_at": "2026-10-24T10:00:00+05:30",
         },
+        {
+            "id": "A0000000-0000-4000-8000-000000000001",
+            "type": "future.scalar_payload",
+            "target_type": "task",
+            "target_id": "B0000000-0000-4000-8000-000000000002",
+            "payload": None,
+            "created_at": "2026-10-24T10:00:00Z",
+        },
+        {
+            "id": "60000000-0000-4000-8000-000000000001",
+            "type": "future.array_payload",
+            "target_type": "task",
+            "target_id": "60000000-0000-4000-8000-000000000002",
+            "payload": ["legacy"],
+            "created_at": "2026-10-24T10:00:00+00:00",
+        },
+        {
+            "id": "60000000-0000-4000-8000-000000000001",
+            "type": "future.scalar_payload",
+            "target_type": "task",
+            "target_id": "60000000-0000-4000-8000-000000000002",
+            "payload": "legacy",
+            "created_at": "2026-10-24T10:00:00+00:00",
+        },
+        {
+            "id": "60000000-0000-4000-8000-000000000001",
+            "type": "future.scalar_payload",
+            "target_type": "task",
+            "target_id": "60000000-0000-4000-8000-000000000002",
+            "payload": 7,
+            "created_at": "2026-10-24T10:00:00+00:00",
+        },
+        {
+            "id": "60000000-0000-4000-8000-000000000001",
+            "type": "future.scalar_payload",
+            "target_type": "task",
+            "target_id": "60000000-0000-4000-8000-000000000002",
+            "payload": True,
+            "created_at": "2026-10-24T10:00:00+00:00",
+        },
         {"type": "notifications.sync", "marker": "before"},
         {
             "type": "notifications.sync",
@@ -169,3 +304,40 @@ def test_node_stdio_peer_rejects_malformed_event_without_echoing_it():
     assert result.stdout == ""
     assert result.stderr == "invalid notification realtime message\n"
     assert "redis://user:secret@cache" not in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("id", "not-a-uuid"),
+        ("id", "60000000-0000-4000-8000-000000000001\n"),
+        ("target_id", "also-invalid"),
+        ("created_at", "not-a-time"),
+        ("created_at", "2026-10-24T10:00:00+05:30\n"),
+        ("created_at", "2026-02-31T10:00:00+05:30"),
+        ("created_at", "2026-10-24T24:00:00+05:30"),
+        ("created_at", "2026-10-24T10:00:00"),
+        ("created_at", "2026-10-24T10:00:00+24:00"),
+    ],
+)
+def test_node_stdio_rejects_the_same_invalid_uuid_and_datetime(field, value):
+    sample = {
+        "id": "60000000-0000-4000-8000-000000000001",
+        "type": "legacy.notification",
+        "target_type": "task",
+        "target_id": "60000000-0000-4000-8000-000000000002",
+        "payload": None,
+        "created_at": "2026-10-24T10:00:00+05:30",
+    }
+    sample[field] = value
+    result = subprocess.run(
+        ["node", str(NODE_PROVIDER), "--stdio"],
+        input=json.dumps(sample),
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == "invalid notification realtime message\n"

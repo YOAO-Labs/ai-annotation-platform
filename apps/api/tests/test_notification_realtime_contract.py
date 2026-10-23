@@ -10,15 +10,17 @@ import pytest
 from app.services import notification as notification_module
 from app.services.notification import NotificationService
 
+_DEFAULT_PAYLOAD = object()
 
-def _row(*, created_at=None):
+
+def _row(*, created_at=None, payload=_DEFAULT_PAYLOAD):
     return SimpleNamespace(
         id=uuid.UUID("60000000-0000-4000-8000-000000000001"),
         user_id=uuid.UUID("60000000-0000-4000-8000-000000000002"),
         type="future.module_event",
         target_type="future_target",
         target_id=uuid.UUID("60000000-0000-4000-8000-000000000003"),
-        payload={"text": "中文"},
+        payload={"text": "中文"} if payload is _DEFAULT_PAYLOAD else payload,
         created_at=created_at,
     )
 
@@ -165,3 +167,26 @@ async def test_durable_publish_path_still_propagates_transport_errors(monkeypatc
             },
         )
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [None, [], ["legacy"], "legacy", 7, True])
+async def test_api_publish_methods_preserve_native_jsonb_payload_shapes(
+    monkeypatch, payload
+):
+    row = _row(
+        created_at=datetime(2026, 10, 24, tzinfo=timezone.utc),
+        payload=payload,
+    )
+    service = _service(row)
+    messages = []
+
+    async def capture(*, user_id, message):
+        messages.append((user_id, message))
+
+    monkeypatch.setattr(notification_module, "_publish", capture)
+    await service.publish_committed([row])
+    await service.publish_by_id(row.id)
+
+    assert len(messages) == 2
+    assert [message["payload"] for _user_id, message in messages] == [payload, payload]
