@@ -7850,6 +7850,22 @@ The fixed views see additive revision 0173 without reinstallation.
 The first owned-database acceptance passed 22 cases, including eight unchanged
 full report goldens, actual historical schemas, Node consumption, backup/restore,
 repeatable snapshots, nullable diagnostics and atomic installer rejection. All
-513 Workspace source cases passed. Matching cold artifact and real CLI acceptance
-are the remaining gates for this slice. The sole current remaining-work ledger
+513 Workspace source cases passed, alongside 358 architecture and nine report
+contract checks; 150 existing deferred architecture rules are not qualification.
+
+Implementation commit 8109a369c passed matching cold artifact checks (300 owner
+package files, 1,336 API/package/CLI files, five schema resources). Two cold cases
+executed 11 real CLI commands against actual 0171 and current databases, proving
+missing-profile/SELECT denial, unchanged complete reports, recovery, physical
+process cancellation/backend release, and unchanged historical rows/revision.
+Full migration roundtrip and owned-resource cleanup passed. Evidence is retained
+in .worktree/workspace-role-audit-qualification.json. This closes only the local
+Workspace historical-audit operation; production capacity and primary cutover
+are not qualified. The sole current remaining-work ledger
 is docs-site/dev/concepts/module-deployment.md; the whole module remains open.
+
+The aggregate evidence SHA256 is
+c69f2fb2427fdf570f503e26ec148a789893feec710816edcd2d26d51e2b6fd9.
+It binds the unchanged oracle, all 22 database cases, source check counts,
+11 cold commands, exact artifact identities, installer contract, worker cleanup,
+and preservation of the primary checkout, shared services and editable bindings.
