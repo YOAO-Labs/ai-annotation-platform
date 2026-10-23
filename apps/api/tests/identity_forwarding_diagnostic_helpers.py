@@ -19,10 +19,18 @@ import aap_identity_runtime.api as api
 path_context = contextvars.ContextVar("identity_rpc_path", default=None)
 connections = {}
 def emit(phase, started, error=None, **fields):
+    cause, error_chain = error, []
+    for _ in range(6):
+        if cause is None:
+            break
+        error_chain.append(dict(type=type(cause).__name__,frames=[
+            dict(file=f.filename.rsplit("/",1)[-1],line=f.lineno,function=f.name)
+            for f in traceback.extract_tb(cause.__traceback__)]))
+        cause = cause.__context__
     print("AAP_IDENTITY_ROUTE_TRACE " + json.dumps(dict(
         phase=phase, rpc=path_context.get(), seconds=round(time.monotonic()-started,6),
         error=type(error).__name__ if error else None,
-        sqlstate=getattr(error,"sqlstate",None), **fields)), flush=True)
+        sqlstate=getattr(error,"sqlstate",None), error_chain=error_chain, **fields)), flush=True)
 
 original_connect = asyncpg.connect
 async def connect(*args, **kwargs):

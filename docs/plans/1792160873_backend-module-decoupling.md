@@ -7520,3 +7520,42 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   source frame names, never exception messages, request bodies or secrets. Keep
   the untraced variant on the existing original startup command. Compile the
   embedded commands before actual current-image execution; no source fix is claimed.
+
+- Source 102b031a770a713a096455f0c1964397e3524cbc passed normal hooks. The
+  original full traced and untraced consumers pass in 113.639 and 106.449 seconds,
+  each preserving the original 66-entry public call ledger, real Node/Socket,
+  MailV1/V2, notifications, outages/replay and complete restore. Both use current
+  0306/frozen SQL and remove all registered owned resources. The API image matches
+  1,289 files; the unchanged 139-file Identity owner is reused.
+- Crucially, passing HTTP did not mean error-free transport: the traced restored
+  owner logged a real five-second invitation LOGIN connect timeout inside /ready.
+  No application SQL was reached; readiness retried and recovered. Preserve this
+  observation rather than treating the passing whole case as absence of failure.
+- Two owned transport probes omit Identity business code and compare private vs
+  host-forwarded routes with default and disabled SSL, four ordinary LOGINs and
+  1,024 attempts per arm. In the first probe, forwarded-disabled has sixteen actual
+  TimeoutError/CancelledError stacks ending in selector_events.sock_connect; its
+  other three arms pass. All four arms of the independent second probe pass.
+  Private routes total 4,096 attempts with no failures. These are connection
+  observations, not capacity benchmarks or independent business test cases.
+- The sixteen failures occur before TLS/authentication or business SQL, rejecting
+  a TLS-negotiation explanation for this reproduced fault. This local hairpin TCP
+  issue is proven; attribution of each historical business 503 remains unproven.
+  Do not add speculative transaction retries or change business timeouts.
+- The first probe's anonymous data volume was linked by fresh create and exclusive
+  mount/unmount events to that exact owned PostgreSQL ID, verified unreferenced and
+  removed. Its immutable initial receipt remains; a companion cleanup receipt
+  preserves the proof. The second probe uses tmpfs and verified volume-aware removal.
+- Extend the existing error-only trace metadata with cancellation traceback frame
+  names/lines. A framework-free check executes the actual emitter from source,
+  retains TimeoutError/CancelledError frames, excludes a known exception secret,
+  and compiles both command wrappers. This does not alter runtime business code.
+
+- A simultaneous comparison strengthens the isolation: the same installed client
+  process/server/four roles use default SSL on both routes. Private succeeds for
+  all 4,096 attempts; forwarding has 112 connect timeouts in 4,096 attempts. Each
+  captured cancellation ends at sock_connect to IPv4 192.168.65.254 and the owned
+  published port, before TLS or authentication. The private resolved peer is its
+  Docker network address. No DNS/IPv6/TLS explanation fits these observed failures.
+  This extra run changes the next action from generic RPC diagnosis to local
+  forwarding transport/assembly handling and the final Identity gate audit.

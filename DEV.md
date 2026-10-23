@@ -2162,6 +2162,24 @@ AAP_IDENTITY_LIVE_ACCEPTANCE=1 apps/api/.venv/bin/python \
 LOGIN 的连接上限实现，并在 finally 恢复。诊断收据路径写入 JUnit property。
 两项均已通过；它们仍未复现历史间歇故障，不能作为故障已修复或生产容量结论。
 
+保留原始完整业务顺序的复放入口如下，仍须每项使用全新验收数据库：
+
+```bash
+AAP_IDENTITY_LIVE_ACCEPTANCE=1 apps/api/.venv/bin/python \
+  scripts/verify_module_data_boundary.py --output .worktree/identity-forwarding-original-traced.json \
+  --test-file 'tests/test_identity_module_assembly_live.py::test_host_forwarded_identity_original_sequence[traced]'
+
+AAP_IDENTITY_LIVE_ACCEPTANCE=1 apps/api/.venv/bin/python \
+  scripts/verify_module_data_boundary.py --output .worktree/identity-forwarding-original-untraced.json \
+  --test-file 'tests/test_identity_module_assembly_live.py::test_host_forwarded_identity_original_sequence[untraced]'
+```
+
+这两项复用原整模块用例，覆盖邮件／通知交互、Node／Socket、停服、重放和完整恢复。
+插桩收据在停止／切库前保留日志，并记录 API 响应体读取、异常转换及连接取消的安全
+堆栈帧。两项已通过，但恢复期间的就绪探测实际遇到过一次连接超时。独立传输探针
+还复现了宿主机转发的 TCP `sock_connect` 超时；这与应用 SQL 错误不同，且不能据此
+逐次归因历史三类业务 503。当前独立部署仍使用已通过验收的 Compose 私网直连。
+
 ### 独立自助账户命令
 
 安装当前迁移并重新应用 `module-data-grants.sql` 后，为无角色成员关系的 `identity_account_client`、`identity_presence_client` LOGIN 授权；数据库须已撤销 PUBLIC TEMP。账户角色只有策略、准备、提交三个函数，扫描角色只有一项批量更新函数；不能直接访问 User、回执或 Audit 表：
