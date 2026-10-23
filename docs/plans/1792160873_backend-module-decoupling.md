@@ -7426,3 +7426,21 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   Migration head 0306, frozen SQL install/rollback, full re-upgrade and all owned
   cleanup pass. The first failed receipt remains immutable; no suite is rerun for
   counts. Native union remains twenty and the cold case adds one distinct case.
+
+- Documentation qualification e4968da310487993f8c43dec29b85d467675d024 passed
+  normal hooks; the documentation build passed in 16.706 seconds. Final
+  preservation confirms twenty unchanged editable bindings, protected clean primary
+  HEAD 856fa79c87ef2668d0ed74eb570df0a3e529d49f, four unchanged shared containers,
+  112 known owned PostgreSQL containers absent, no persistent Root/fixture runtime,
+  and matching input manifests for all four images. The one source worker is clean,
+  patch-equivalent, bundle/cache archived and removed; its branch is retained.
+- Aggregate `.worktree/identity-runtime-role-qualification.json` has SHA256
+  `a3101c779fde4f7814c9431af98e3a572f732f8d345c9df509c889db6e19d318`.
+  It records the twenty-case incremental Native union with per-case receipts,
+  one cold API case, real worker and backup/restore evidence, 98 Python tooling
+  checks, eleven Node checks, immutable failure receipts, source/image hashes and
+  cleanup/preservation facts. This closes the bounded worktree credential branch
+  locally; it does not close the entire Identity module or the overall goal.
+  The next bounded delivery remains actual invitation, restored /auth/me and
+  offboarding RPC diagnostics on the old host-forwarded PostgreSQL path. No push,
+  release, production deployment, primary cutover, remote CI or Go expansion occurred.
