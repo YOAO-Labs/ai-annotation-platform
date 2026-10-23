@@ -31,6 +31,16 @@ POST /api/v1/projects/:id/preannotate
 
 返回 `200` + `job_id`。任务进 Celery，状态机见 [预标注流水线](../../dev/concepts/prediction-pipeline)。
 
+## 原地引用图片
+
+同一预标端点支持普通图片项目的 `bulk` 与 `workbench` 后台执行，沿用各自管理权限或当前题编辑资格。API Key 还需 `tasks:read`，执行时继续复核原 Key 的身份、scope、有效期及撤销状态。
+
+当选择范围包含引用时，服务端固定实际任务 UUID 列表（包括跳过已预标后为空的情况）；实际执行引用的作业还固定 Task 版本、Item/Asset/SHA、大小、尺寸、来源修订及模型快照。相同幂等键重发 pending 作业复用首次范围和证据，不自动扩展到新增任务。
+
+实际 worker 节点必须具有该位置的读取锚点。完整核验的原图通过作业独占临时输入交给现有 HTTP 后端，根阶段、geometry 和 ROI 共用一次捕获的内容；最终写入前复查当前权限和绑定。候选元信息 `extra.reference_input` 仅保存内容与执行溯源，私有授权不在 AsyncJob 响应中返回，也不接受客户端提供写入凭证。
+
+这里只支持图片执行单位；frame、失败项重试、采纳、交互式预测和原生掩码处理继续保留引用门禁。来源不可读或资格变化时不会替换旧候选；修复后可重新提交预标。
+
 ## 查询 jobs
 
 ```http

@@ -474,11 +474,20 @@ class PredictionService:
         pipeline_extra: dict | None = None,
         ml_backend_pool_id: uuid.UUID | None = None,
         model_provenance: dict | None = None,
+        reference_receipt=None,
     ) -> Prediction:
         # v0.21.1 · 检测式追踪原生 int track_id → trk_<uuid> (读路径不得再生 uuid, 见 _remap_track_ids)。
         from app.services.reference_access import reject_reference_scope
 
-        await reject_reference_scope(self.db, task_ids=[task_id])
+        reference_evidence = None
+        if reference_receipt is None:
+            await reject_reference_scope(self.db, task_ids=[task_id])
+        else:
+            from app.services.prediction_references import validate_receipt
+
+            reference_evidence = await validate_receipt(
+                self.db, task_id, project_id, reference_receipt
+            )
         result = _remap_track_ids(result)
         task = await self.db.scalar(
             select(Task)
@@ -524,7 +533,16 @@ class PredictionService:
             # v0.18.1 · 多阶段预标注阶段元信息 (stage_count / enriched_attr_keys),
             # 追溯「哪个属性来自哪个阶段」; MVP 暂存 extra JSONB 不改表。
             extra={
-                **(pipeline_extra or {}),
+                **{
+                    key: value
+                    for key, value in (pipeline_extra or {}).items()
+                    if key not in {"reference_input", "reference_execution"}
+                },
+                **(
+                    {"reference_input": reference_evidence}
+                    if reference_evidence
+                    else {}
+                ),
                 **({"trained_model": model_provenance} if model_provenance else {}),
                 **(
                     {"inference_runtime": meta_data["inference_runtime"]}

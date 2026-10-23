@@ -35,7 +35,8 @@ class AsyncJobOut(BaseModel):
         return {
             key: value
             for key, value in payload.items()
-            if key not in {"directory_authority", "export_authority"}
+            if key
+            not in {"directory_authority", "export_authority", "prediction_authority"}
         }
 
 

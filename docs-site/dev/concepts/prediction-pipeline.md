@@ -39,7 +39,7 @@ AI 预标注流水线以 `async_jobs(kind=batch_predict)` 作为用户可见任�
   caption="批量预标端到端主链，共享同一份 canonical 可编辑资产"
 />
 
-受控模型、显式管线、工作台和带幂等键的请求在 API 中预建 AsyncJob，返回该持久作业 ID 并用作 Celery task ID；旧的不带这些条件的单阶段请求仍由 worker 建档。前端 `ProjectDetailPanel` / `RunStatusPanel` 通过订阅 `project:{id}:preannotate` WebSocket 频道接收实时进度与阶段统计。
+受控模型、显式管线、包含引用的任务范围、工作台和带幂等键的请求在 API 中预建 AsyncJob，返回该持久作业 ID 并用作 Celery task ID；旧的不带这些条件的单阶段请求仍由 worker 建档。前端 `ProjectDetailPanel` / `RunStatusPanel` 通过订阅 `project:{id}:preannotate` WebSocket 频道接收实时进度与阶段统计。
 
 ## 模型目录与执行快照
 
@@ -220,7 +220,17 @@ crop 模式默认走 **presigned URL**：现有 HTTP 后端直接读取 import �
 
 清理记录无业务级联外键，固定实际 bucket 与 endpoint 身份摘要；job、Task 或项目删除不能抹去回收意图。存储身份变化时保留 `storage_identity_changed`，不跟随新配置删除其他后端。正常完成并确认删除后移除记录；删除失败继续保留。过期失联或 PUT 结果不确定时，在活动期限后继续保留七天并重复清前缀，覆盖第一次清理之后才完成的旧 PUT。`recover_prediction_inputs` 由 beat 每分钟派到 `cleanup`，每轮最多处理 50 条，具体恢复延迟还取决于积压与存储可用性；导入桶七天生命周期是最后兜底。旧 `roi-crops/` 仍按原桶生命周期过期，不从无归属前缀反推可删除范围。
 
-原图快照可由输入 owner 接管，通过同份快照产生 ROI，取消会等待已启动 SDK I/O 结束再关文件。该组件负责资源所有权，不授予原图访问或结果写入资格。当前引用图片的预标、交互和采纳仍保留门禁；固定任务/内容证明、原 Key、最终取消事务与服务器 receipt 的接入继续独立实施。
+原图快照由输入 owner 接管，通过同份快照产生 ROI，取消会等待已启动 SDK I/O 结束再关文件。该组件只负责资源所有权，引用消费的授权与最终写入由 `prediction_references.ReferencePredictionJob` 负责。
+
+### 引用图片的执行资格
+
+后台 `bulk` 和工作台单题图片预标在 API 冻结实际 Task 范围、Task.version、原发起 Key proof、Item/Asset/SHA/大小/尺寸及来源修订，模型阶段写入不可变执行快照。skip 后不含引用的范围只固定 UUID，无需额外读图 scope 或模型快照；pending 幂等重发始终复用首次范围。没有服务器证明的旧队列仍不能消费引用。
+
+worker 使用 `worker:<Celery hostname>` 的已核验锚点捕获 strict snapshot，经 `PredictionInputs` 投递独占 `original/` 对象，geometry 复用同一 URL，ROI 从该快照解码，避免各阶段读到不同原件。逐阶段资格失败整题中止，不适用模型的 keep_parent/drop_box 软失败策略；引用在 frame 旧清理分支前拒绝。
+
+最终短事务沿用作业取消锁、账号/项目/成员、原 Key、批次/Task，再持有来源/位置/连接和 Item/Asset/节点探测的生命周期锁，复核绑定与模型快照。签发的专有 receipt 绑定当前 session、非嵌套事务、Task 和内容，提交或回滚即失效；`PredictionService` 仅据该 receipt 放行引用候选写入。持久元数据只存必要的内容及执行溯源，不能充当授权，也不保存 Key proof、原件定位配置或临时 URL。内容绑定与短锁 helper 由导出和预测复用，两者业务权限仍分别检查。
+
+失败记录保留原内容绑定和执行快照，尚未开放引用失败重试；当前可重新提交预标。预测采纳、交互、predict-test 和 mask repair 继续逐入口资格验证，不全局放宽旧 URL resolver。
 
 ### 单层并行兄弟（声明式，非 Celery chord）
 

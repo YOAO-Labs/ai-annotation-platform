@@ -2597,7 +2597,32 @@ async def trigger_preannotation(
         trained_models.is_controlled(stage.model_id)
         for stage in (body.pipeline_stages or [])
     )
-    needs_snapshot = uses_controlled_model or bool(body.pipeline_stages)
+    from app.services import prediction_references
+
+    freeze_reference_scope = (
+        project.data_type == "image"
+        and await prediction_references.contains_references(
+            db,
+            project.id,
+            task_ids=body.task_ids,
+            batch_id=body.batch_id,
+            scope=body.execution_scope,
+        )
+    )
+    has_reference_inputs = (
+        freeze_reference_scope
+        and await prediction_references.contains_references(
+            db,
+            project.id,
+            task_ids=body.task_ids,
+            batch_id=body.batch_id,
+            scope=body.execution_scope,
+            skip_predicted=body.predict_mode == "skip_predicted",
+        )
+    )
+    needs_snapshot = (
+        uses_controlled_model or bool(body.pipeline_stages) or has_reference_inputs
+    )
     execution_snapshot = None
     frozen_model_ref = None
     if uses_controlled_model:
@@ -2993,11 +3018,69 @@ async def trigger_preannotation(
                 "output_mode": body.output_mode,
                 "execution_scope": body.execution_scope,
                 "execution_unit": execution_unit,
+                "predict_mode": body.predict_mode,
                 "box_threshold": float(project.box_threshold),
                 "text_threshold": float(project.text_threshold),
             },
         )
         return root_ref
+
+    reference_tasks = None
+
+    async def freeze_reference_selection():
+        nonlocal \
+            reference_tasks, \
+            explicit_task_ids, \
+            total_tasks_hint, \
+            has_reference_inputs, \
+            needs_snapshot
+        if not freeze_reference_scope:
+            return
+        query = prediction_references.selection_query(
+            project.id,
+            task_ids=explicit_task_ids,
+            batch_id=body.batch_id,
+            scope=body.execution_scope,
+        )
+        if body.predict_mode == "skip_predicted":
+            query = query.where(Task.total_predictions == 0)
+        reference_tasks = list((await db.scalars(query)).all())
+        from app.services.reference_keys import is_reference
+
+        has_reference_inputs = any(
+            is_reference(row.file_path) for row in reference_tasks
+        )
+        needs_snapshot = (
+            uses_controlled_model or bool(body.pipeline_stages) or has_reference_inputs
+        )
+        if has_reference_inputs and execution_unit not in {None, "image"}:
+            raise HTTPException(
+                409, detail={"code": "reference_requires_image_execution"}
+            )
+        explicit_task_ids = [row.id for row in reference_tasks]
+        total_tasks_hint = len(explicit_task_ids)
+
+    async def reference_authority_payload():
+        if not has_reference_inputs:
+            return {}
+        from app.services.dataset_content import content_http_error
+
+        try:
+            proof = await prediction_references.capture_authority(
+                db,
+                project,
+                current_user,
+                request,
+                reference_tasks,
+                execution_snapshot,
+                scope=body.execution_scope,
+                batch_id=body.batch_id,
+                predict_mode=body.predict_mode,
+                execution_unit=execution_unit,
+            )
+        except Exception as exc:
+            raise content_http_error(exc) from None
+        return {"prediction_authority": proof}
 
     # 派发前预建持久作业, 让客户端可轮询同一 job、并发重试不会重复入队。
     # - 数据管理重试可带幂等键 (复用/去重)。
@@ -3050,7 +3133,11 @@ async def trigger_preannotation(
             # before publishing to Celery. Reuse the row and safely republish;
             # the worker's row lock makes a duplicate delivery a no-op.
             precreated_job = existing
-            if needs_snapshot:
+            saved_ids = ((existing.payload or {}).get("scope") or {}).get("task_ids")
+            if saved_ids is not None:
+                explicit_task_ids = [uuid.UUID(value) for value in saved_ids]
+                total_tasks_hint = len(explicit_task_ids)
+            if existing.execution_snapshot_id:
                 from app.services.prediction_execution import load_snapshot
 
                 saved, _ = await load_snapshot(
@@ -3062,6 +3149,7 @@ async def trigger_preannotation(
                 )
                 frozen_model_ref = root.get("frozen_model_ref")
         else:
+            await freeze_reference_selection()
             scoped_ids = (
                 [str(task_id) for task_id in explicit_task_ids]
                 if explicit_task_ids is not None
@@ -3084,6 +3172,7 @@ async def trigger_preannotation(
             if needs_snapshot:
                 frozen_model_ref = await freeze_execution()
                 precreated_payload["frozen_model_ref"] = frozen_model_ref
+            precreated_payload.update(await reference_authority_payload())
             precreated_job = await async_job_svc.create_job(
                 db,
                 kind="batch_predict",
@@ -3099,11 +3188,14 @@ async def trigger_preannotation(
         precreated_job.celery_task_id = str(precreated_job.id)
         await db.commit()
     elif (
-        body.execution_scope == "workbench" and explicit_task_ids is not None
-    ) or needs_snapshot:
+        (body.execution_scope == "workbench" and explicit_task_ids is not None)
+        or needs_snapshot
+        or freeze_reference_scope
+    ):
         # issue #121 review · 工作台单题请求 (无幂等键) 同样预建持久作业: worker 在派发
         # 前的范围复校验失败时, on_failure 能按 celery_task_id 落一条 failed 作业,
         # 工作台面板不会因找不到终态记录而无限轮询。
+        await freeze_reference_selection()
         scoped_ids = (
             [str(task_id) for task_id in explicit_task_ids]
             if explicit_task_ids is not None
@@ -3130,6 +3222,7 @@ async def trigger_preannotation(
                     else {}
                 ),
                 **({"frozen_model_ref": frozen_model_ref} if frozen_model_ref else {}),
+                **(await reference_authority_payload()),
             },
         )
         if execution_snapshot is not None:
@@ -3147,7 +3240,9 @@ async def trigger_preannotation(
             args=[
                 str(project.id),
                 str(source_backend_id),
-                [str(tid) for tid in explicit_task_ids] if explicit_task_ids else None,
+                [str(tid) for tid in explicit_task_ids]
+                if explicit_task_ids is not None
+                else None,
             ],
             kwargs={
                 "prompt": body.prompt,
@@ -3208,7 +3303,9 @@ async def trigger_preannotation(
             "ml_backend_id": str(source_backend_id),
             "batch_id": str(body.batch_id) if body.batch_id else None,
             "task_count": (
-                len(explicit_task_ids) if explicit_task_ids else total_tasks_hint
+                len(explicit_task_ids)
+                if explicit_task_ids is not None
+                else total_tasks_hint
             ),
             "prompt": (body.prompt or "")[:200],
             # output_mode 仅文本 prompt 路径生效; 几何路径不读它, 留 None 免误导 (与 job payload 一致)

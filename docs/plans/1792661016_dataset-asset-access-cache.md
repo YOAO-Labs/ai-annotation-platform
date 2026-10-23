@@ -1,6 +1,6 @@
 # EPIC-05：统一文件访问、预览与缓存
 
-> 状态：E05-A 读取基座、E03 工作台、E10 训练冻结、E05-C1 图片导出及 C2-A 输入回收基座已完成本地验收；E05-B 与引用预测资格仍待实施；不分配发布版本。
+> 状态：E05-A 读取基座、E03 工作台、E10 训练冻结、E05-C1 图片导出及 C2-A 输入回收基座已完成本地验收；后台引用图片预标主路径已接通；E05-B、引用失败重试/采纳及交互资格仍待实施；不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -22,6 +22,8 @@ C2 最终合同：入队固定实际任务、任务版本、原发起 Key proof�
 本轮先实施 C2-A 共用输入资源所有者，并实际接入现有多阶段预标及 snapshot retry 的 ROI 上传。上传前独立提交回收记录，使用服务生成的 attempt UUID 前缀；正常结束主动清理，删除失败持久重试，过期/失联尝试持续扫除可能迟到的写入。记录不随 job/task/project 删除级联消失，固定存储身份不匹配时拒绝访问新后端。原图快照转移所有权及同字节 image loader 也由该 owner 提供，后续 C2-B 接入引用、receipt、取消事务与重试/采纳；C2-A 不宣称已开放引用预标。
 
 C2-B 首个前置增量处理既有结果事务缺口（基线 `5b012036f`）：图片覆盖删除后移，与全部候选、元信息和显式 partial 失败记录同事务；写入异常先完整回滚，再记录失败。成功数和费用在提交后累加，回滚后的下一题按固定 UUID 刷新状态，路由客户端按 registry ID 重新解析。取消 API、逐题写入、最终批次/作业完成及迟到失败回调共用 fresh AsyncJob 行锁；作业元信息合并保留已提交取消标记，broker revoke 在数据库提交后执行。视频逐帧仍由独立 owner 负责，保留原派发前清理合同。该增量不开放引用门禁，Task/内容/Key 冻结、同快照投递、专有 receipt 和重试/采纳仍是 C2-B 的后续必要部分。
+
+当前继续主路径（基线 `167db664f`）：后台 bulk/工作台单题图片预标固定实际 Task 列表（包括空列表）、Task.version、Item/Asset/SHA/尺寸、来源修订和原发起 Key proof，并固定模型执行快照；pending 幂等重发复用首次证据。实际范围中已无引用时只固定范围，不额外要求读图 scope 或模型快照。抽取导出与预测共用的内容绑定和生命周期锁，业务授权仍分别校验。worker 使用真实节点严格读取，原图、geometry 与 ROI 共用一次捕获的字节，经独占临时输入交付旧 HTTP 协议；逐阶段复查资格，最终事务签发专有凭证才放行引用候选写入。凭证绑定当前 session、非嵌套事务、Task 与内容，不作为公开请求参数或持久授权；公开候选只保存必要身份与执行溯源，原 Key proof 不回传。引用禁止进入 frame 旧清理分支；资格/内容失败不适用模型软失败策略。两个重试入口与预测采纳继续在本主路径之后按同一合同接入，当前不绕过其门禁。
 
 范围超过 8 个文件：新增 `db/models/prediction_input.py`、迁移 `0212_prediction_input_leases.py`、`services/prediction_inputs.py`、`workers/prediction_input_cleanup.py` 及专项测试；修改模型注册、`StorageService` 可选有界客户端配置、`workers/{tasks,predictions_retry,roi,celery_app}.py` 和适用现有测试。同步 `docs-site/dev/concepts/prediction-pipeline.md`、存储架构/桶用途文档、运维清理说明、CHANGELOG、本计划与执行队列。没有新公开接口、依赖或环境变量。
 
@@ -305,3 +307,13 @@ M1 严格方案：对需要与标注绑定的可变原图，读取到受限临�
 - 正式 API/用户/架构说明、README、CHANGELOG 和 OpenAPI 取消描述同步；Ruff、OpenAPI 核对、196 页 frontmatter、198 页导航和 diff 检查通过。只读复核发现并修复 frame overwrite 回归，最终无阻断结论。没有前端样式或控件改动，不申报新增 UI 浏览器验收。
 - 人工环境无运行中业务任务时刷新当前 checkout API、普通/维护 worker 与 beat；3100/8100 healthy，两个 worker 注册 batch_predict/输入清理任务，订阅数量分别 8/2（含节点直达队列）。不重建镜像，不修改共享 .env、依赖、凭据、endpoint 或业务原件。任务所属测试资源在提交前由环境所有者销毁，临时脚本、HTTP 服务、worker、日志/XML 和测试缓存清理。
 - 完整 C2-B 继续实施：入队固定 Task/内容/Key、同快照引用投递、专有 receipt、两个失败重试入口和采纳仍未开放；交互/predict-test/mask repair 保留独立资格门禁。本计划与整套 Epic 目标均未完成，不归档。
+
+### E05-C2-B 后台引用图片预标 Outcome
+
+- 本增量完成 bulk 与 workbench 后台图片预标主路径：固定实际任务（含空范围）、版本、原 Key、模型与内容身份；pending 重发保留首次证明。真实 worker 节点严格捕获一次图片，经独占临时输入供根阶段、geometry 和 ROI 使用，最终短事务复查并签发 session/事务/Task 绑定 receipt。公开元数据仅保留内容及执行溯源。
+- 复用导出的低层内容绑定和生命周期锁，保留独立业务授权；frame 在旧清理前拒绝引用，阶段资格失败不能降为模型 partial，伪造或跨 session/事务/Task、嵌套事务 receipt 均拒绝。
+- 本地 288 个不同 API 用例通过（227 项执行/管线/权限/输入/引用导出/事务回归，加 61 项打包/最终守卫/导出 worker/严格内容回归）。覆盖原 Key 轮换、吊销、过期和 scope、未知节点、来源变化、Task 版本、最终取消、原件在模型执行期间变化但同快照 ROI 保持一致、幂等空范围及旧候选保留。只读复核未发现新的阻断问题。
+- 真实一次性 Celery worker 与 HTTP 协议夹具完成五种场景，实际 HTTP 拉取 MinIO 临时输入并校验原图 SHA 和 ROI：单阶段与三阶段成功；模型返回前撤销原 Key、取消、捕获前原件被替换均不写新候选且保留旧候选。五项结束后输入回收记录及临时对象均为零。夹具验证平台协议和事务，不代表真实模型质量、S3/SFTP 生产网络或规模性能资格。
+- Ruff、OpenAPI 快照、196 页 frontmatter 与198 页导航检查通过；没有公共请求 schema、新依赖、环境变量或迁移变更。同步 README、用户指南、API 和架构文档及 CHANGELOG。
+- 人工环境 3100/8100 沿用原 dev 数据，确认无活动作业后刷新普通/maintenance worker 与 beat；任务注册、8/2 队列订阅及真实 cleanup 派发通过。未重建镜像。独立 test 数据库、Redis 与九桶按 owner 确认销毁，任务所属脚本、日志与缓存在验证后清理。
+- 完整 C2-B 继续执行：两个失败重试入口、预测采纳、交互/predict-test/mask repair 尚未接入；引用失败目前重新提交预标。E05-B、E10 血缘及整套 Epic 仍未完成，不归档，不声称远程 CI 或生产部署验收。

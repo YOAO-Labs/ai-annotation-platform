@@ -2,6 +2,7 @@ from aap_task_contract import normalize_task_fields
 from app.services.ml_capabilities import resolve_model_task
 from app.services.prediction_execution import execution_summary
 import asyncio
+from copy import deepcopy
 import json
 import logging
 import time
@@ -342,6 +343,7 @@ async def _run_task_pipeline(
     input_session_factory=None,
     input_owner_id=None,
     input_owner_kind="batch_predict",
+    before_dispatch=None,
 ):
     """Own image handles and, for production ROI calls, durable temporary inputs."""
     images = []
@@ -362,6 +364,7 @@ async def _run_task_pipeline(
             stage_modes=stage_modes,
             execution_snapshot_id=execution_snapshot_id,
             load_image=owned_image,
+            before_dispatch=before_dispatch,
         )
 
     modes = stage_modes or ["crop"] * len(stages)
@@ -393,6 +396,7 @@ async def _execute_task_pipeline(
     stage_modes=None,
     execution_snapshot_id=None,
     load_image=None,
+    before_dispatch=None,
 ):
     """v0.18.1 ~ v0.18.14 · 对单个 task 按受限树形拓扑跑各阶段, 返回 (pred_results, pipeline_extra, stage_stats)。
 
@@ -488,6 +492,8 @@ async def _execute_task_pipeline(
         return extra
 
     url = resolve_url(task)
+    if before_dispatch:
+        await before_dispatch()
     executed_stages.add(0)
     results = await stage_clients[0].predict(
         [{"id": str(task.id), "file_path": url}], context=stage_contexts[0]
@@ -557,6 +563,8 @@ async def _execute_task_pipeline(
                     stage_outputs[snum] = []
                     continue
                 stats[snum]["targeted"] += len(geo.prompts)
+                if before_dispatch:
+                    await before_dispatch()
                 try:
                     executed_stages.add(si)
                     seg_results = await stage_clients[si].predict(
@@ -636,6 +644,8 @@ async def _execute_task_pipeline(
                 continue  # 无符合类别/几何的父框 → 本阶段对本图降级跳过
             targeted = {int(ci["id"]) for ci in crop_inputs}
             stats[snum]["targeted"] += len(targeted)
+            if before_dispatch:
+                await before_dispatch()
             try:
                 executed_stages.add(si)
                 ds_results = await stage_clients[si].predict(
@@ -762,6 +772,7 @@ async def _run_batch(
     frozen_model_ref: dict | None = None,
     task: str | None = None,
     prompt_type: str | None = None,
+    worker_node_id: str | None = None,
 ):
     """v0.9.5 · 批量预标 worker.
 
@@ -815,6 +826,7 @@ async def _run_batch(
     from app.services.prediction import PredictionService
     from app.services.task_lock import TaskLockService
     from app.services.batch_permissions import allows_bulk_preannotation
+    from app.services.task_scope import ids_clause
 
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(
@@ -880,6 +892,7 @@ async def _run_batch(
             else None
         )
         precreated_job: AsyncJob | None = None
+        reference_proof = None
         if async_job_id is not None:
             try:
                 precreated_job_id = uuid.UUID(async_job_id)
@@ -908,6 +921,9 @@ async def _run_batch(
             if frozen_model_ref is not None and saved_ref != frozen_model_ref:
                 raise ValueError("Queued model identity differs from the durable job")
             frozen_model_ref = saved_ref
+            reference_proof = deepcopy(
+                (precreated_job.payload or {}).get("prediction_authority")
+            )
             if precreated_job.execution_snapshot_id:
                 from app.services.prediction_execution import load_snapshot
 
@@ -940,6 +956,7 @@ async def _run_batch(
                     snapshot_payload["execution_scope"],
                     snapshot_payload["execution_unit"],
                 )
+                predict_mode = snapshot_payload.get("predict_mode", predict_mode)
             precreated_job.celery_task_id = celery_task_id
             await async_job_svc.mark_running(
                 db, precreated_job.id, celery_task_id=celery_task_id
@@ -965,7 +982,7 @@ async def _run_batch(
                     .outerjoin(TaskBatch, TaskBatch.id == Task.batch_id)
                     .where(
                         Task.project_id == project_uuid,
-                        Task.id.in_(requested_task_ids),
+                        ids_clause(Task.id, requested_task_ids),
                     )
                 )
             ).all()
@@ -1082,7 +1099,7 @@ async def _run_batch(
         if requested_task_ids is not None:
             base_conds = [
                 Task.project_id == project_uuid,
-                Task.id.in_(requested_task_ids),
+                ids_clause(Task.id, requested_task_ids),
             ]
             # 工作台单题交互可对 in_progress 任务运行; bulk 仍只捞 pending。
             if not workbench_scope:
@@ -1099,11 +1116,23 @@ async def _run_batch(
                 Task.status == "pending",
             ]
         sel = select(Task).where(*base_conds).order_by(Task.id)
-        if skip_predicted:
+        if skip_predicted and reference_proof is None:
             sel = sel.where(Task.total_predictions == 0)
         result = await db.execute(sel)
         tasks = list(result.scalars().all())
         total = len(tasks)
+        from app.services.reference_keys import is_reference
+
+        if execution_unit not in {None, "image"} and any(
+            is_reference(row.file_path) for row in tasks
+        ):
+            from app.services.content_snapshot import ContentError
+
+            raise ContentError("reference_requires_image_execution")
+        if reference_proof is not None and {row.id for row in tasks} != set(
+            requested_task_ids or []
+        ):
+            raise ValueError("Frozen prediction task scope changed")
 
         if controlled and any(task.file_type != "image" for task in tasks):
             raise ValueError("Controlled detection task is not an image")
@@ -1438,6 +1467,25 @@ async def _run_batch(
                 )
 
         snapshot_id = precreated_job.execution_snapshot_id if precreated_job else None
+        reference_job = None
+        if reference_proof is not None:
+            from app.services.prediction_references import ReferencePredictionJob
+
+            reference_job = ReferencePredictionJob(
+                db,
+                async_job_id,
+                reference_proof,
+                project_id=project_uuid,
+                actor_id=uuid.UUID(user_id) if user_id else None,
+                task_ids=requested_task_ids,
+                batch_id=uuid.UUID(batch_id) if batch_id else None,
+                scope=execution_scope,
+                predict_mode=predict_mode,
+                snapshot_id=snapshot_id,
+                snapshot_digest=snapshot_digest,
+                node_id=worker_node_id,
+                execution_unit=execution_unit,
+            )
         retry_request_context = (
             None if snapshot_id else _retryable_request_context(stage_contexts[0])
         )
@@ -1517,6 +1565,7 @@ async def _run_batch(
                 await engine.dispose()
                 return
 
+            task_inputs = None
             try:
                 if task is None:
                     raise ValueError("preannotation task is unavailable")
@@ -1524,15 +1573,24 @@ async def _run_batch(
                     from app.services.prediction_execution import validate_task_scope
 
                     await validate_task_scope(db, project, task, actor, execution_scope)
+                if reference_job is not None:
+                    task_inputs = await reference_job.open_inputs(task, SessionLocal)
                 results, pipeline_extra, stage_stats = await _run_task_pipeline(
                     task,
                     stages,
                     stage_clients,
                     stage_contexts,
-                    resolve_url=_resolve_task_url,
+                    resolve_url=reference_job.resolve_url
+                    if task_inputs
+                    else _resolve_task_url,
+                    upload_crop=task_inputs.upload_crop if task_inputs else None,
+                    load_image=task_inputs.load_image if task_inputs else None,
+                    before_dispatch=(lambda: reference_job.before_dispatch(task))
+                    if reference_job
+                    else None,
                     stage_modes=stage_modes,
                     execution_snapshot_id=snapshot_id,
-                    input_session_factory=SessionLocal,
+                    input_session_factory=None if task_inputs else SessionLocal,
                     input_owner_id=async_job_id,
                 )
                 _accumulate_stage_stats(stage_stats)
@@ -1576,10 +1634,15 @@ async def _run_batch(
                     )
                     await engine.dispose()
                     return
+                if reference_job is not None:
+                    await reference_job.lock_key()
                 if actor is not None:
                     await validate_task_scope(
                         db, project, task, actor, execution_scope, lock=True
                     )
+                reference_receipt = (
+                    await reference_job.final_receipt(task) if reference_job else None
+                )
                 if snapshot_id:
                     pipeline_extra = {
                         **(pipeline_extra or {}),
@@ -1620,6 +1683,11 @@ async def _run_batch(
                             if frozen_model_ref
                             else {}
                         ),
+                        **(
+                            {"reference_receipt": reference_receipt}
+                            if reference_receipt is not None
+                            else {}
+                        ),
                     )
                     partial_prediction_ids.append(str(created_prediction.id))
                     # v0.9.11 · 单条 cost 累加到 job 级总费用
@@ -1648,6 +1716,15 @@ async def _run_batch(
                             "stage_errors": pipeline_extra["pipeline"].get(
                                 "stage_errors", []
                             ),
+                            **(
+                                {
+                                    "reference_input": deepcopy(
+                                        reference_job.bindings[task_uuid]
+                                    )
+                                }
+                                if task_inputs
+                                else {}
+                            ),
                         },
                     )
                     partial_failure.execution_snapshot_id = snapshot_id
@@ -1671,6 +1748,14 @@ async def _run_batch(
                     await engine.dispose()
                     return
                 failure_extra: dict = {"execution_scope": execution_scope}
+                if (
+                    reference_job is not None
+                    and task_uuid in reference_job.bindings
+                    and reference_job.bindings[task_uuid].get("reference")
+                ):
+                    failure_extra["reference_input"] = deepcopy(
+                        reference_job.bindings[task_uuid]
+                    )
                 if snapshot_id:
                     failure_extra["execution_snapshot"] = {
                         "id": str(snapshot_id),
@@ -1701,6 +1786,13 @@ async def _run_batch(
                 failed_prediction_ids.append(str(failed.id))
                 await db.commit()
                 failed_count += 1
+            finally:
+                if reference_job is not None:
+                    # A hard cancellation can bypass the ordinary error path.
+                    # Release business locks before independent storage cleanup.
+                    if db.in_transaction():
+                        await db.rollback()
+                    await reference_job.close_inputs(task_uuid)
 
             # v0.18.6 · 逐阶段累加快照随进度推送 (多阶段才有), 让前端运行中实时更新卡上徽标。
             # 按 5% 步长 (或末条) 节流, 避免每条都塞快照; 阶段数少, payload 增量可忽略。
@@ -1917,5 +2009,6 @@ def batch_predict(
             execution_scope=execution_scope,
             async_job_id=async_job_id,
             frozen_model_ref=frozen_model_ref,
+            worker_node_id=f"worker:{self.request.hostname}",
         )
     )
