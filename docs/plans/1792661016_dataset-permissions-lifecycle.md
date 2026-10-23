@@ -1,6 +1,6 @@
 # EPIC-11：权限、删除与保留治理
 
-> 状态：approved；2026-10-24 的 E11-B1/E09-B3 位置盘点、E11-B2 位置配置确认与 E11-B3 数据集归档/恢复已完成；整项 E11 继续活动，未分配发布版本。
+> 状态：approved；2026-10-24 的 E11-B1/E09-B3 位置盘点、E11-B2 位置配置确认、E11-B3 数据集归档/恢复与 E11-C1 逻辑位置访问维护已完成；整项 E11 继续活动，未分配发布版本。
 > 晋升基线：`802e6e4df`；工作树干净，保留 3100/8100、两个 Worker 与 beat，不重建镜像。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -11,6 +11,32 @@
 | 依赖     | 与 EPIC-01/02/03/05 同步定义对象、位置和读取权限，不作为末尾补丁   |
 | 协同     | EPIC-04 的并发任务；EPIC-08/09 的操作反馈；EPIC-10 的冻结引用      |
 | 交付阶段 | M1 最小安全闭环；M2 完整影响预览、保留与回收；M3 站点授权扩展      |
+
+## 本轮定稿：E11-C1 位置访问维护准入与排空
+
+基线 `40952845b`，沿用整套实施和提交授权。交付外部逻辑位置的访问维护：active→draining→stopped，或显式resume回active；drain/resume递增独立maintenance_revision，stop也递增以保护确认重放。它关闭本位置受控来源/缓存及持久连接复制导入与连接测试的访问准入，等待实际已登记源I/O收尾后确认停止；保留已有业务关系和独立冻结内容。另一Location、重叠根、候选连接验证、直接宿主机/外部客户端与平台自有副本清理不纳入源位置静止证明，不提供卸载挂载、退役或物理删除许可。
+
+使用独立Gate和无过期Operation receipt；不以run lease、AsyncJob终态、心跳或TTL推断物理结束。Gate无业务Location外键，避免调用者未提交Location及外层锁导致独立登记事务自等待，同时保留业务删除后的访问责任。Operation指向Gate且直接保存位置、代次、目的、节点与开始时间，不保存路径/凭据；只在实际线程/句柄收尾后独立删除。进程中断或收尾DB失败保留未知记录并阻止停止，不自动清零，不开放无证据强制解除。
+
+准入事务只锁Gate SHARE、登记receipt并提交；不回读或锁Location。控制端User→Key→Location NOWAIT→Gate NOWAIT，发布端在已有业务锁之后持Gate SHARE并核对代次，独立收尾只碰receipt。content_snapshot在取消/超时后等待真实executor Future收尾并处理迟到Snapshot，其他SDK/文件线程复用同一收尾原则。所有跨停止/恢复的Scan/Registration/Sync、Quality、预测/修复/采纳、媒体导出、新冻结和持久连接复制导入在委托/内容证明中携带代次；历史缺字段按1解释，新请求在恢复后的当前权限下重新建立证明，旧队列不重放。
+
+新增0215迁移，历史位置为active/1。`STORAGE_MAINTENANCE_PROTOCOL_ENABLED=false`默认关闭维护控制；新代码访问登记始终执行。启用前必须核实该数据库命名空间全部旧API/队列消费者已退出并切换新协议，账本初始空不构成旧进程静止证明。人工环境只在确认所属服务空闲、刷新两个Worker/API与beat后单独启用，不改共享.env或重建镜像。
+
+新增GET `/{id}/maintenance` 与POST `/{id}/maintenance-preview`、`/{id}/maintenance`，仅当前超级管理员及对应datasets:read/write。操作为drain/stop/resume，必须绑定expected_revision和五分钟impact_token；沿用位置影响语义和单SQL关系指纹，提交重查身份/Key/Location及Gate修订和状态。stop预览和提交均要求没有未收尾receipt。状态返回固定范围声明、无物理删除许可、未收尾总数及最多50条安全记录；不自动启动、取消或强制终止业务任务。居中位置详情中的维护折叠显示当前状态、明确范围、未收尾操作和预览确认，默认不额外请求；明暗/窄屏与会话/对象/修订隔离遵循现有组件。
+
+```text
+Location management -> reviewed drain -> Gate draining + revision
+                                      | blocks new admission
+all covered source I/O -> Gate SHARE -> durable Operation -> physical thread/handle -> settle
+                                      |                                  |
+final owner publication -> Gate SHARE + captured revision                 |
+reviewed stop -> Gate UPDATE + zero unresolved Operations <---------------+
+reviewed resume -> active + fresh revision; no replay of old delegations
+```
+
+范围超过8文件。隔离A负责models/storage_maintenance、0215、services/storage_access和storage_maintenance、独立schema/router、config及核心/迁移测试；B负责扫描/登记/同步、storage_location的probe/browse及Out、持久连接复制导入/测试及相关API与测试；C负责content_snapshot、dataset_content/references、reference_bindings与预测/修复/导出/冻结消费证明、original_cache及Quality与测试。主树负责Web API/维护组件/入口及测试、环境说明/SDK覆盖、OpenAPI/TS/API索引、用户/API/架构文档、CHANGELOG/README/计划、真实运行验收和最终集成。无新增依赖或服务；配置只为防止混合协议部署产生虚假排空证明。
+
+验证使用核实一次性test资源：并发准入/关门与最终提交串行化、真实阻塞线程取消/超时不提前settle、跨Connection调用不提交业务事务、未知记录不随时间消失、代次与身份/Key/重放矩阵、停止/恢复后旧工作拒绝、缓存旁路和全部I/O接缝、平台位置拒绝及重叠位置范围声明。真实人工环境只用自有临时位置/来源完成drain/stop/resume与Worker拒绝/新轮，保留既有数据和文件；浏览器1440/390明暗、焦点/Escape/溢出、控制台/请求验收。迁移、目标Worker刷新、新签名/实际派发、后端/Web/SDK合同、Ruff/tsc/lint/CSS tokens、文档与正常提交钩子均须完成。结束按owner销毁test资源与任务产物；发生维护变更或未收尾Operation时拒绝破坏性降级，不清除已有维护事实。
 
 ## 本轮定稿：E11-B3 数据集归档与恢复
 
@@ -298,6 +324,21 @@ Asset 的业务引用保护的是应保留的内容，不会永久固定每一�
 完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
 
 ## Outcome
+
+### E11-C1 逻辑位置访问维护
+
+2026-10-24 在 `40952845b` 基线上交付；后端切片及收尾修正为 `9b13e62ff` 至 `86c2e9cd0`，Web、正式文档、生成合同与本记录同次提交。E11/E09及整套Epic继续活动，本片不提供物理回收、卸载或整块共享存储静止许可。
+
+- 维护合同：新增0215、独立Gate与无TTL未收尾receipt，支持active→draining→stopped及显式resume，每次转换递增维护修订。仅当前超级管理员及对应datasets scope可读/预览/提交，五分钟确认绑定身份/Key、位置配置、状态/代次及B1关系指纹；停止预览与提交均核对零未收尾。Gate不依赖业务Location外键；准入登记、最终发布和控制转换按既定锁序串行化，不提交调用者业务事务。
+- 收尾与旧证明：实际线程/Future及文件、对象流、SFTP关闭后才settle；重复取消、逻辑超时、迟到结果、构造/关闭不确定和落库失败均保留正确责任，Timer取消后等待回调实际结束。进程丢失不靠TTL、心跳或Job终态清零，没有强制解除接口。目录浏览/探测/扫描/登记/同步、连接复制导入/已保存连接测试、严格引用/完整缓存，以及质量、预测/采纳、修复、导出和新冻结各自接缝携带/检查代次；旧缺字段按1处理，恢复后旧委托仍拒绝。既有Task新请求使用当前代次；独立已保留冻结副本继续读取。
+- Web：既有居中位置详情新增默认折叠的“位置访问维护”，只展开时GET，展示状态/代次、时间和最多50条安全未收尾记录。未收尾时停止禁用，未启用部署控制时全部转换禁用；居中二次确认绑定预览，过期/冲突必须重预览，会话/位置/配置隔离，撤权隐藏证据、网络失败标明旧状态。另恢复数据集状态/类型的共享FilterGroup/FilterSelect，统一字号、焦点与窄屏布局，说明位于下拉框外。
+- 本地API/DB：621个不同用例通过，去重合并39项核心/迁移、370项读取/缓存/消费者及来源批次的已通过部分和135项最终来源/同步回归；失败项修正后覆盖，不累计重跑。包含真实事务并发、阻塞线程取消/超时、关闭失败留账、前后撤权、旧代次发布拒绝、迁移往返/破坏性降级拒绝及既有消费者。修正原训练缓存测试遗漏第三个返回值导致快照未关闭，以及容量测试与可选NOWAIT缓存发布竞争混合的问题；保留四快照同时占满容量的实质断言。
+- Web/SDK与检查：完整Web套件657文件、6541项通过，其中维护组件24项；SDK路由合同4项通过，合计7166个不同本地用例。OpenAPI、本地TS及590条API索引、209项环境变量参考同步；Ruff check/format、完整Web lint/CSS tokens、tsc、文档frontmatter197/navigation199/严格可读性198和构建通过，正常根提交钩子完成最终检查。保留既有lint、测试通知替身及构建提示，未运行远程CI。
+- 实际运行：核实owned dev空闲并应用0215，确认所属旧进程全部退出，通过拥有的服务刷新API、两个Worker与beat；仅本工作树服务启用协议，不改共享.env、不重建镜像。核对该命名空间恰有两个队列消费者、任务注册和新增签名，实际Worker探测/扫描成功。独立临时Location/Source/Task读取真实原件，持有实际打开FD和receipt时drain至2，UI停止禁用、停止预览409、新读取409；真实线程/句柄关闭后记录归零，stop至3，resume至4，原Task新读200且SHA一致。旧扫描核验409，新节点探测后新扫描完成3文件；Source.enabled保持true。
+- 浏览器：3100/8100、无mock、独立会话；1440×1000和390×900明暗截图已检查，维护/嵌套确认/未收尾及共享筛选均无横向溢出。取消初始焦点、Escape仅关闭顶层并归还触发按钮，归档筛选实际更新URL与结果；字号13px/提示11px、提示为次要色且在下拉框外。控制台错误0、453条XHR/Fetch无失败请求。已有冻结包下载摘要和冻结元信息保持；该包属于另一逻辑位置，不将共享根的验收冒充同Gate冻结范围资格。
+- 正式资料：用户存储指南、存储位置API指南及生成索引、存储连接架构、README、DEV、.env.example、环境参考、SDK覆盖、CHANGELOG Unreleased和E09/整套执行队列同步。部署控制默认false，新代码始终登记；只有同命名空间全部旧API/队列消费者退出并完成实测后才可启用，初始空账本不是部署资格。0215遇到未收尾或非初始维护事实拒绝破坏性降级。
+- 清理：自有临时Location/Dataset/Project/Source/Item/Task、两个扫描/终态Job、两条通知及零receipt的临时Gate按精确ID移除，保留不可变操作审计。原8Dataset/12Item/8Source/12Task/7Annotation、active/1状态和三原件SHA均恢复/保持；既有冻结内容未变。1822b025369a33f4:test数据库/Redis/九桶按owner销毁，独立浏览器关闭，报告/截图/构建缓存与已集成子工作树清理；3100/8100、两个Worker和beat继续运行。
+- 下一步：先复核E11-C2的平台自有副本、引用/租约、保留窗口与恢复点保护，交付不执行删除的dry-run资格和可解释阻断。物理执行、退役、共享/重叠位置、候选连接与外部客户端的物理静止仍需各自独立门禁；真实跨站点Agent和后端迁移目标未指定，不据本机结果宣称生产资格，不归档整项计划。
 
 ### E11-B3 数据集归档与恢复
 

@@ -43276,6 +43276,21 @@
             "title": "Kind",
             "type": "string"
           },
+          "maintenance_revision": {
+            "default": 1,
+            "title": "Maintenance Revision",
+            "type": "integer"
+          },
+          "maintenance_state": {
+            "default": "active",
+            "enum": [
+              "active",
+              "draining",
+              "stopped"
+            ],
+            "title": "Maintenance State",
+            "type": "string"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -43455,6 +43470,38 @@
         "title": "StorageLocationUpdate",
         "type": "object"
       },
+      "StorageMaintenanceApply": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "impact_token": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Impact Token",
+            "type": "string"
+          },
+          "operation": {
+            "enum": [
+              "drain",
+              "stop",
+              "resume"
+            ],
+            "title": "Operation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation",
+          "expected_revision",
+          "impact_token"
+        ],
+        "title": "StorageMaintenanceApply",
+        "type": "object"
+      },
       "StorageMaintenanceCounts": {
         "properties": {
           "active_cache_read_leases": {
@@ -43624,6 +43671,295 @@
           "execution_permission"
         ],
         "title": "StorageMaintenanceImpact",
+        "type": "object"
+      },
+      "StorageMaintenanceOpenOperation": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "purpose": {
+            "title": "Purpose",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "purpose",
+          "node_id",
+          "revision",
+          "started_at"
+        ],
+        "title": "StorageMaintenanceOpenOperation",
+        "type": "object"
+      },
+      "StorageMaintenancePreview": {
+        "properties": {
+          "changed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changed At"
+          },
+          "changed_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changed By"
+          },
+          "coverage": {
+            "const": "registered_location_access_only",
+            "title": "Coverage",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "impact": {
+            "$ref": "#/components/schemas/StorageMaintenanceImpact"
+          },
+          "impact_token": {
+            "title": "Impact Token",
+            "type": "string"
+          },
+          "location_id": {
+            "format": "uuid",
+            "title": "Location Id",
+            "type": "string"
+          },
+          "measured_at": {
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "open_operations": {
+            "title": "Open Operations",
+            "type": "integer"
+          },
+          "operation": {
+            "enum": [
+              "drain",
+              "stop",
+              "resume"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/StorageMaintenanceOpenOperation"
+            },
+            "maxItems": 50,
+            "title": "Operations",
+            "type": "array"
+          },
+          "physical_cleanup_permission": {
+            "const": false,
+            "title": "Physical Cleanup Permission",
+            "type": "boolean"
+          },
+          "protocol_enabled": {
+            "title": "Protocol Enabled",
+            "type": "boolean"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "active",
+              "draining",
+              "stopped"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "target_state": {
+            "enum": [
+              "active",
+              "draining",
+              "stopped"
+            ],
+            "title": "Target State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "location_id",
+          "state",
+          "revision",
+          "changed_at",
+          "changed_by",
+          "measured_at",
+          "protocol_enabled",
+          "open_operations",
+          "operations",
+          "has_more",
+          "coverage",
+          "physical_cleanup_permission",
+          "operation",
+          "target_state",
+          "expires_at",
+          "impact_token",
+          "impact"
+        ],
+        "title": "StorageMaintenancePreview",
+        "type": "object"
+      },
+      "StorageMaintenanceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "operation": {
+            "enum": [
+              "drain",
+              "stop",
+              "resume"
+            ],
+            "title": "Operation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation",
+          "expected_revision"
+        ],
+        "title": "StorageMaintenanceRequest",
+        "type": "object"
+      },
+      "StorageMaintenanceStatus": {
+        "properties": {
+          "changed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changed At"
+          },
+          "changed_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changed By"
+          },
+          "coverage": {
+            "const": "registered_location_access_only",
+            "title": "Coverage",
+            "type": "string"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "location_id": {
+            "format": "uuid",
+            "title": "Location Id",
+            "type": "string"
+          },
+          "measured_at": {
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          },
+          "open_operations": {
+            "title": "Open Operations",
+            "type": "integer"
+          },
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/StorageMaintenanceOpenOperation"
+            },
+            "maxItems": 50,
+            "title": "Operations",
+            "type": "array"
+          },
+          "physical_cleanup_permission": {
+            "const": false,
+            "title": "Physical Cleanup Permission",
+            "type": "boolean"
+          },
+          "protocol_enabled": {
+            "title": "Protocol Enabled",
+            "type": "boolean"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "active",
+              "draining",
+              "stopped"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "location_id",
+          "state",
+          "revision",
+          "changed_at",
+          "changed_by",
+          "measured_at",
+          "protocol_enabled",
+          "open_operations",
+          "operations",
+          "has_more",
+          "coverage",
+          "physical_cleanup_permission"
+        ],
+        "title": "StorageMaintenanceStatus",
         "type": "object"
       },
       "StorageOriginalCounts": {
@@ -90649,6 +90985,110 @@
         ]
       }
     },
+    "/api/v1/storage-locations/{location_id}/maintenance": {
+      "get": {
+        "operationId": "status_api_v1_storage_locations__location_id__maintenance_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Location Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageMaintenanceStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Status",
+        "tags": [
+          "storage-locations"
+        ]
+      },
+      "post": {
+        "operationId": "apply_api_v1_storage_locations__location_id__maintenance_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Location Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StorageMaintenanceApply"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageMaintenanceStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Apply",
+        "tags": [
+          "storage-locations"
+        ]
+      }
+    },
     "/api/v1/storage-locations/{location_id}/maintenance-impact": {
       "get": {
         "operationId": "maintenance_impact_api_v1_storage_locations__location_id__maintenance_impact_get",
@@ -90692,6 +91132,64 @@
           }
         ],
         "summary": "Maintenance Impact",
+        "tags": [
+          "storage-locations"
+        ]
+      }
+    },
+    "/api/v1/storage-locations/{location_id}/maintenance-preview": {
+      "post": {
+        "operationId": "preview_api_v1_storage_locations__location_id__maintenance_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Location Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StorageMaintenanceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageMaintenancePreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview",
         "tags": [
           "storage-locations"
         ]

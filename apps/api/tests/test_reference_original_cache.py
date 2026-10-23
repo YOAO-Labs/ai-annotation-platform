@@ -382,7 +382,7 @@ async def test_training_snapshot_freezes_same_complete_cached_bytes(referenced_c
         "dataset_id": str(w.dataset_id),
     }
     async with w.factory() as db:
-        image, identity = await training_reference_snapshot(
+        image, identity, _ = await training_reference_snapshot(
             db, sample, w.actor, node_id="worker:training-without-source"
         )
         try:

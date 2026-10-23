@@ -20,6 +20,7 @@ import { FilesystemLocationsPanel } from "./FilesystemLocationsPanel";
 import { StorageConnectionsPanel } from "./StorageConnectionsPanel";
 import { StorageLocationSourceSummary } from "./StorageLocationSourceSummary";
 import { StorageMaintenanceImpact } from "./StorageMaintenanceImpact";
+import { StorageLocationMaintenance } from "./StorageLocationMaintenance";
 import { safeDatasetReturn } from "@/components/datasets/storageNavigation";
 
 const PURPOSES = [
@@ -501,6 +502,7 @@ function ConsoleOwner() {
                     </Card>
                     <div className="mt-4">
                       <StorageMaintenanceImpact location={selected} />
+                      <StorageLocationMaintenance location={selected} />
                       {selected.kind === "filesystem" &&
                       selected.allowed_actions?.includes("manage_location") ? (
                         <FilesystemLocationsPanel locationId={selected.id} showProbe={false} />

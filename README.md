@@ -36,6 +36,8 @@ AI Annotation Platform 把项目管理、Data Manager、多模态标注工作台
 
 数据集详情的“质量”页签支持固定整份数据集的图片解码、尺寸与可信精确重复检测，可取消恢复并记录人工复核。批量复核支持勾选或全部筛选结果，先预览固定范围，再逐项检查修订、保留冲突与恢复进度。结果保留内容身份和时间，不自动删除、合并或影响训练；详见[质量检测说明](./docs-site/user-guide/datasets/index.md#图片质量检测与复核)与[API 合同](./docs-site/api/guides/datasets.md#图片质量运行)。
 
+超级管理员可在外部位置详情使用[位置访问维护](./docs-site/user-guide/datasets/storage-connections.md#位置访问维护)，关闭新访问、等待未收尾记录归零后确认停止，再按新修订恢复。部署须先核实所有 API/Worker 已采用访问登记协议；维护只涵盖该逻辑位置，不代表共享目录或整台存储静止。
+
 存储位置详情的[来源诊断](./docs-site/user-guide/datasets/storage-connections.md#位置内的来源诊断)将原地引用样本的原件观测、预览生成记录、扫描及预检进展分开显示，可定位到对应来源、轮次和后台任务；刷新只读已有记录，不进行实时存储探测。
 
 存储连接编辑使用修订号防止旧表单覆盖新配置；参数或凭据变更先验证认证与目录列举，失败保留原配置，详见[连接管理](./docs-site/user-guide/datasets/storage-connections.md)。

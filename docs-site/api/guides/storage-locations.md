@@ -96,7 +96,7 @@ PATCH在当前权限和配置锁下重新盘点；预览之后新增关系、等
 
 `list / read / range` 分别返回 `verified / unknown`；只传目录时不会推断 read 已验证。显式样本以只读方式采样；`write / delete / presign` 为 `unsupported`，不写探针文件。离线返回 `node_timeout` 或 `node_unavailable`，未配置根返回 `root_not_configured`。证据5分钟过期，配置变更或停用后显示 `stale`；API可达不能代替 worker 可扫描。
 
-API本地探测等待窗口3秒，远端等待窗口5秒。超时后台结果不会自行更新有效证据；操作系统阻塞的文件系统调用无法由线程取消，等待窗口不表示底层 I/O 已终止。首次探测某节点信任其部署根映射；跨节点 dev/inode 不比较，能力通过也不代表字节一致或原地预览已验收。
+API本地探测等待窗口3秒，远端等待窗口5秒。超时结果不会自行更新有效证据；已启动的受控线程仍须实际收尾，响应可能晚于等待窗口。操作系统阻塞调用无法由线程取消，窗口到期不表示底层 I/O 已终止。首次探测某节点信任其部署根映射；跨节点 dev/inode 不比较，能力通过也不代表字节一致或原地预览已验收。
 
 ## 只读维护影响
 
@@ -115,6 +115,24 @@ API本地探测等待窗口3秒，远端等待窗口5秒。超时后台结果不
 | `ready_lineage_versions` / `unfinished_lineage_versions`                        | snapshot.samples内source_lineage.location_id明确匹配的位置版本；同版本多成员只计一次，未完成仅pending/running |
 
 `frozen_coverage=recorded_location_lineage_only` 和 `input_coverage=current_task_links_only` 显式限定归因；缺位置血缘的历史、托管冻结和失去Task关系的输入未计入。输入按持久状态计数，包含已到期但尚未转入清理的active记录，不代表运行作业或有效下载凭证。`execution_permission=false`，本响应不生成impact proof，不可作为停用/归档/回收的提交许可。位置修订更新可能使旧扫描、同步、预测上下文及完整缓存失配，各owner在自己的检查点复核；任务人员授权、预览和已保留冻结内容有独立合同，详见[维护影响](/user-guide/datasets/storage-connections#位置维护影响)。
+
+## 位置访问维护
+
+以下接口仅支持外部逻辑位置，要求当前超级管理员与对应的 `datasets:read` / `datasets:write`。维护不会修改位置的 `enabled`、配置修订或来源启用状态。
+
+| 接口                                      | 用途                                                                                              |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `GET /{location_id}/maintenance`          | 读取当前维护状态、修订和未收尾访问，不访问源存储。                                                |
+| `POST /{location_id}/maintenance-preview` | `{operation, expected_revision}`；只读预览并返回五分钟 `impact_token`、目标状态及已保存关系盘点。 |
+| `POST /{location_id}/maintenance`         | 同一 `operation`、`expected_revision` 和 `impact_token`；提交时重新检查权限、状态与影响指纹。     |
+
+`operation=drain` 将 `active` 转为 `draining`，关闭新访问；`stop` 仅允许 `draining` 且未收尾为零时转为 `stopped`；`resume` 将 `draining/stopped` 转回 `active`。每次转换递增独立维护修订，旧委托缺少修订时按 1 处理，恢复不能复活旧证明。既有 Task 的新读取使用当前修订，保留原授权与固定内容检查。
+
+GET 与提交返回 `location_id / state / revision / changed_at / changed_by / measured_at / protocol_enabled`，以及 `open_operations`、最多 50 条 `operations:{id,purpose,node_id,revision,started_at}` 与 `has_more`。未收尾记录无 TTL，取消或超时须等真实线程和句柄结束后才移除；进程丢失或结束落库失败保留记录，不能由作业终态、租约到期或空初始账本推断静止。没有强制清零接口。预览另含 `operation / target_state / expires_at / impact_token / impact`。关闭新访问的预览不绑定高频 I/O 数量；停止的预览和提交均要求零记录。
+
+`coverage=registered_location_access_only` 与 `physical_cleanup_permission=false` 限定该逻辑位置的受控访问；共享根的其他位置、候选连接、外部客户端和已复制输入不在物理静止证明内。独立冻结媒体与平台自有缓存清理仍走原合同。`STORAGE_MAINTENANCE_PROTOCOL_ENABLED` 默认 false，仅状态查询可用；全部同命名空间 API/Worker 切换新协议并完成部署核验后才可开启变更。
+
+维护拒绝错误包括 `storage_maintenance`、`storage_maintenance_changed`、`storage_maintenance_busy`；预览错误为 `storage_maintenance_preview_invalid / expired / changed`；尚有记录返回 `storage_maintenance_unsettled`；结束落库无法确认时可能返回 `storage_operation_unsettled` 并保留责任，部署未资格化返回 `storage_maintenance_protocol_unqualified`。冲突后应刷新并重新预览，不能自动重放旧令牌。
 
 ## 完整原图缓存
 

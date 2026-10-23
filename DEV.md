@@ -842,3 +842,11 @@ PYTHONPATH=. uv run python scripts/seed.py --profile online-training
 内容核验账本迁移为0197；无新 worker task 或镜像构建；目录首次核验还需刷新使用 mounted 源码的扫描/probe worker、重新探测并扫描，记录实际主机证据，旧未知证据明确拒绝。托管严格读取只需当前 API。目录读取要求该 API 实例完成有效 read 探测；只挂载扫描 worker 时明确不可用。每进程快照上限256MiB临时字节，部署时给系统临时目录留出对应空间，多进程需累加；不写业务来源。见[严格读取接口](docs-site/api/guides/verified-content.md)。
 
 目录原地引用使用 Alembic0198：应用回退须保留已有 Reference/Asset 身份，仅空引用表可 schema downgrade。管理员逐条登记后，普通手工标注会在 Task 锁内重新捕获有界图片；慢挂载会延长锁占用。按节点配置只读根和检查 API/worker 访问，详见[引用内容合同](docs-site/api/guides/verified-content.md#已登记目录引用)。工作树启动器接受 Celery 自动创建的本节点定向队列，仍拒绝缺失职责队列或意外订阅，避免指定节点扫描/探测造成就绪误判。
+
+### 位置访问维护部署核验
+
+迁移0215新增访问 Gate 与未收尾账本。先向经过所有权核验的目标应用迁移，再刷新该命名空间的 API 和所有实际队列消费者；Celery 不会热重载。无依赖或镜像变更时不重建镜像，工作树通过其拥有的服务刷新两个 Worker 并验证任务注册、队列和实际派发，保留原端口与人工业务。
+
+`STORAGE_MAINTENANCE_PROTOCOL_ENABLED` 默认 false：新代码始终登记受控访问，但预览/提交控制保持关闭。确认旧 API/Worker 都已退出、新准入与旧委托拒绝已实测后，才为该命名空间的全部进程设置 true 并刷新。不能仅重启一个 API，或以初始空账本推断无旧访问。共享 `.env` 不应为单个工作树更改。
+
+维护仅针对单个逻辑位置。取消或超时会等待实际 I/O 收尾；进程退出或账本删除失败留下记录，不会 TTL 到期自动清零。等待中的记录必须先核实责任，平台没有强制清零接口。独立冻结内容与平台自有清理不追加源维护限制，也不把共享根、其他位置和外部客户端当作已停止。回退代码保留账本；有未收尾或非初始维护事实时禁止丢弃0215。详见[维护协议](docs-site/dev/concepts/storage-connections.md#位置访问维护协议)。

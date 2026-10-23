@@ -665,6 +665,14 @@
 | POST | `/{location_id}/probe` |
 | GET | `/{location_id}/probes` |
 
+## `storage_maintenance.py`
+
+| Method | Path |
+|---|---|
+| GET | `/{location_id}/maintenance` |
+| POST | `/{location_id}/maintenance-preview` |
+| POST | `/{location_id}/maintenance` |
+
 ## `storage.py`
 
 | Method | Path |
@@ -1014,4 +1022,4 @@
 
 ---
 
-_共 91 模块 / 587 路由_
+_共 92 模块 / 590 路由_

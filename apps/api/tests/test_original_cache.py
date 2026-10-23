@@ -730,13 +730,11 @@ async def test_four_distinct_snapshots_fill_without_requesting_extra_snapshot_ad
     try:
         for _ in range(4):
             contents.append(await snapshot(world))
-        results = await asyncio.gather(
-            *(
-                cache.store(world.factory, world.source_id, identity, content)
-                for identity, content in zip(assets, contents)
-            ),
-            return_exceptions=True,
-        )
+        # Hold all snapshot slots; optional NOWAIT publication is independent.
+        results = [
+            await cache.store(world.factory, world.source_id, identity, content)
+            for identity, content in zip(assets, contents)
+        ]
         assert results == ["stored"] * 4
         assert len(world.puts) == 4
     finally:

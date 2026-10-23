@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { ListPagination } from "@/components/ui/ListPagination";
+import { FilterGroup, FilterSelect } from "@/components/filters/FilterControls";
 import { listStyles } from "@/components/ui/listStyles";
 import {
   clampDatasetPage,
@@ -134,13 +135,12 @@ function DatasetsList() {
       )}
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-3">
-          <div className="flex flex-wrap items-start gap-3">
+          <FilterGroup label="数据集筛选" hideLabel className="items-start gap-3">
             <label className="grid gap-1 text-sm">
               数据集状态
-              <select
+              <FilterSelect
                 aria-label="数据集状态"
                 aria-describedby={stateHint}
-                className="rounded-md border border-input bg-background p-2 text-sm"
                 value={state.state}
                 onChange={(event) =>
                   patch({ state: event.target.value as typeof state.state, page: 0 })
@@ -149,16 +149,15 @@ function DatasetsList() {
                 <option value="active">活动</option>
                 <option value="archived">已归档</option>
                 <option value="all">全部</option>
-              </select>
+              </FilterSelect>
               <span id={stateHint} className="text-xs leading-relaxed text-muted-foreground">
                 归档保留内容，可在详情中恢复。
               </span>
             </label>
             <label className="grid gap-1 text-sm">
               数据类型
-              <select
+              <FilterSelect
                 aria-label="数据类型"
-                className="rounded-md border border-input bg-background p-2 text-sm"
                 value={state.data_type ?? ""}
                 onChange={(e) =>
                   patch({
@@ -175,9 +174,9 @@ function DatasetsList() {
                       {label}
                     </option>
                   ))}
-              </select>
+              </FilterSelect>
             </label>
-          </div>
+          </FilterGroup>
           <SearchInput
             placeholder="搜索数据集..."
             value={query}

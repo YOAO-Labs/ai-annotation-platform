@@ -461,3 +461,7 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "POST /api/v1/storage/usage-inventory" = { status = "excluded", reason = "web-only" }
 "GET /api/v1/storage/video-assets/failures" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/storage/video-assets/retry" = { status = "excluded", reason = "web-only" }
+
+"GET /api/v1/storage-locations/{location_id}/maintenance" = { status = "excluded", reason = "separate-connector-epic" }
+"POST /api/v1/storage-locations/{location_id}/maintenance-preview" = { status = "excluded", reason = "separate-connector-epic" }
+"POST /api/v1/storage-locations/{location_id}/maintenance" = { status = "excluded", reason = "separate-connector-epic" }
