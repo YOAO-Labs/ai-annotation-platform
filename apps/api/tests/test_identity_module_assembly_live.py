@@ -887,8 +887,9 @@ async def test_complete_compose_remote_api_workers_restart_and_restore(
         inbox.close()
 
 
+@pytest.mark.parametrize("trace", [True, False], ids=["traced", "untraced"])
 async def test_host_forwarded_identity_rpc_failures(
-    test_engine, tmp_path, record_property
+    test_engine, tmp_path, record_property, trace
 ):
     """Diagnose actual RPC consumers on the former topology, including restore."""
     from tests.identity_forwarding_diagnostic_helpers import ForwardedIdentityStack
@@ -919,8 +920,14 @@ async def test_host_forwarded_identity_rpc_failures(
     stack = None
     inbox = SMTPInbox()
     snapshot = tmp_path / "identity-forwarding.dump"
-    evidence = {"route": "host.docker.internal", "calls": [], "traces": []}
+    evidence = {
+        "route": "host.docker.internal",
+        "trace_enabled": trace,
+        "calls": [],
+        "traces": [],
+    }
     receipt = ROOT / ".worktree" / f"identity-forwarded-rpc-{suffix}.json"
+    trace_offsets = {}
 
     async def call(client, operation, method, path, expected=200, **kwargs):
         started = time.monotonic()
@@ -938,9 +945,13 @@ async def test_host_forwarded_identity_rpc_failures(
             evidence["calls"].append(row)
 
     def collect_traces(stage):
-        evidence["traces"].extend(
-            {"stage": stage, **row} for row in stack.trace_records()
-        )
+        counts = {}
+        for row in stack.trace_records():
+            service = row["service"]
+            counts[service] = counts.get(service, 0) + 1
+            if counts[service] > trace_offsets.get(service, 0):
+                evidence["traces"].append({"stage": stage, **row})
+        trace_offsets.update(counts)
 
     try:
         async with (
@@ -950,6 +961,7 @@ async def test_host_forwarded_identity_rpc_failures(
             stack = ForwardedIdentityStack(
                 test_engine,
                 tmp_path,
+                trace=trace,
                 secret=secret,
                 api_secret=api_secret,
                 control=control,
@@ -1017,9 +1029,66 @@ async def test_host_forwarded_identity_rpc_failures(
                                     ],
                                 },
                             )
+                    collect_traces("original")
+                    # The owned server's ordinary invitation LOGIN rejects new
+                    # connections; no command can start or ambiguously commit.
+                    async with test_engine.begin() as db:
+                        limit = await db.scalar(
+                            text(
+                                "SELECT rolconnlimit FROM pg_roles "
+                                "WHERE rolname='identity_invitation_client' AND NOT rolsuper"
+                            )
+                        )
+                        assert isinstance(limit, int) and limit != 0
+                        await db.execute(
+                            text(
+                                "ALTER ROLE identity_invitation_client CONNECTION LIMIT 0"
+                            )
+                        )
+                    try:
+                        await call(
+                            client,
+                            "controlled_connection_denial",
+                            "POST",
+                            "/api/v1/users/invite",
+                            503,
+                            json={
+                                "email": f"forward-control-{suffix}@example.test",
+                                "role": "employee",
+                            },
+                        )
+                    finally:
+                        async with test_engine.begin() as db:
+                            await db.execute(
+                                text(
+                                    f"ALTER ROLE identity_invitation_client CONNECTION LIMIT {limit}"
+                                )
+                            )
+                    async with test_engine.connect() as db:
+                        assert (
+                            await db.scalar(
+                                text(
+                                    "SELECT count(*) FROM user_invitations WHERE email=:email"
+                                ),
+                                {"email": f"forward-control-{suffix}@example.test"},
+                            )
+                            == 0
+                        )
+                    await call(
+                        client,
+                        "controlled_connection_recovery",
+                        "POST",
+                        "/api/v1/users/invite",
+                        201,
+                        json={
+                            "email": f"forward-control-{suffix}@example.test",
+                            "role": "employee",
+                        },
+                    )
             finally:
-                collect_traces("original")
+                collect_traces("control")
                 await stack.stop()
+                trace_offsets.clear()
             snapshot.touch(mode=0o600)
             snapshot.write_bytes(
                 _postgres_tool(
@@ -1064,10 +1133,24 @@ async def test_host_forwarded_identity_rpc_failures(
             "/v1/identity/invitations/execute",
             "/v1/identity/offboarding/execute",
         ):
-            assert any(
+            assert not trace or any(
                 row.get("rpc") == rpc and row["phase"] == "api_http"
                 for row in evidence["traces"]
             ), rpc
+        if trace:
+            assert any(
+                row["stage"] == "control"
+                and row["phase"] == "connect"
+                and row.get("sqlstate") == "53300"
+                for row in evidence["traces"]
+            )
+            for phase in ("owner_http", "api_http"):
+                assert any(
+                    row["stage"] == "control"
+                    and row["phase"] == phase
+                    and row.get("status") == 503
+                    for row in evidence["traces"]
+                )
     finally:
         receipt.touch(mode=0o600)
         receipt.write_text(json.dumps(evidence, indent=2) + "\n")

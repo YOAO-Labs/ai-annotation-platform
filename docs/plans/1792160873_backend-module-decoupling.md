@@ -7460,3 +7460,12 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   performs a real complete backup/restore and probes restored /auth/me separately.
   It retains all observations before asserting, without retrying ambiguous writes.
   Matching current images and the first diagnostic run are pending.
+
+- Diagnostic source dc37e9df2ecf08b6c5b3cae9c40c8adf9cc0cd5d passed normal
+  hooks. Current owner/API images match 139 and 1,289 installed/application files.
+  The first owned run passed 65 real calls: eight invitations, eight offboarding
+  previews/commits, eight original profiles, login and 32 restored profiles.
+  Both RPC layers returned 200 and all 270 observed database connects succeeded.
+  This did not reproduce or repair the original defect. The next bounded check
+  pairs the same case without instrumentation and adds a controlled connection
+  denial/recovery, proving that a real failure is visible to the diagnostic path.

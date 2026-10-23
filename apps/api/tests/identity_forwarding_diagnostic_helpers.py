@@ -143,8 +143,9 @@ uvicorn.run("app.main:app",host="0.0.0.0",port=8000,access_log=False,timeout_gra
 class ForwardedIdentityStack(IdentityModuleStack):
     """Keep existing owned assembly checks and restore only the original DB route."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, trace=True, **kwargs):
         super().__init__(*args, **kwargs)
+        self.trace_enabled = trace
         port = self.test_engine.url.port
         assert port and self.test_engine.url.host in {"127.0.0.1", "localhost"}
         self._database_urls = {
@@ -157,6 +158,8 @@ class ForwardedIdentityStack(IdentityModuleStack):
 
     def _write_override_file(self):
         super()._write_override_file()
+        if not self.trace_enabled:
+            return
         value = self._override_file.read_text()
         owner = "  identity-admission:\n    image: ${AAP_IDENTITY_RUNTIME_IMAGE:?}\n"
         api = '    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log", "--timeout-graceful-shutdown", "3"]'
