@@ -504,7 +504,7 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 迁移 `0323` 与 `apps/jobs` 发布 `aap-jobs-notification-scope-facts/v1`。`aap_jobs_v1.notification_scope_facts` 仅含 `id`、开放 `kind` 和 `scope_project_id`；后者保留当前项目优先、历史保留项目回退的顺序。通知筛选与批量投递读取公开关系，API 继续持有作业类型白名单、导出能力和当前成员授权；缺失作业仍 fail-closed，原 autoflush／no_autoflush 与调用方事务保持。
 
-安装迁移及 module-data grants 后，按 `infra/docker/jobs-notification-scope-grants.sql` 文件头为明确 API 与独立只读 LOGIN 授权。只读账号不能读取 Jobs 私表、写入关系或调用 Jobs 函数。普通 API 的其他作业消费者尚需原表权限，因此不能整体撤销 `async_jobs` 读取。没有新增 DSN、服务、执行器或环境变量；父线独立 LOGIN／Node 与完整迁移验收状态见[唯一台账](docs-site/dev/concepts/module-deployment.md#support-daily-and-jobs-facts)。
+安装迁移及 module-data grants 后，按 `infra/docker/jobs-notification-scope-grants.sql` 文件头为明确 API 与独立只读 LOGIN 授权。只读账号不能读取 Jobs 私表、写入关系或调用 Jobs 函数。普通 API 的其他作业消费者尚需原表权限，因此不能整体撤销 `async_jobs` 读取。没有新增 DSN、服务、执行器或环境变量；父线 27 项组合案例、真实独立 LOGIN／Node 及完整 `0323→0189→0323` 已通过，新 API 镜像的文件／导入／依赖检查为离线证据，详见[唯一台账](docs-site/dev/concepts/module-deployment.md#support-daily-and-jobs-facts)。
 
 ### Notifications 偏好事务内能力
 
