@@ -101,31 +101,40 @@ def runtime_for_reference(ref, framework_version=None):
     return expected
 
 
-def validate_results(results, ref):
+def validate_metadata(meta, ref):
+    """Validate frozen identity/runtime and source dimensions without remapping shapes."""
     identity = {
         key: ref[key] for key in ("model_version_id", "sha256", "classes_digest")
     }
     runtime = runtime_for_reference(ref)
+    segmentation = meta.get("segmentation")
+    if meta.get("trained_model") != identity or not isinstance(segmentation, dict):
+        raise ValueError("Segmentation model identity is missing or mismatched")
+    expected = {
+        "output_contract": SEGMENTATION_OUTPUT_CONTRACT,
+        "decoder": runtime["decoder"],
+        "mask_processing": runtime["mask_processing"],
+        "runtime_qualification": runtime,
+    }
+    if any(segmentation.get(key) != value for key, value in expected.items()):
+        raise ValueError("Unqualified segmentation decoder or runtime")
+    dimensions = segmentation.get("dimensions")
+    if (
+        not isinstance(dimensions, list)
+        or len(dimensions) != 2
+        or any(type(n) is not int or not 0 < n <= 8192 for n in dimensions)
+        or dimensions[0] * dimensions[1] > MAX_MASK_PIXELS
+    ):
+        raise ValueError("Segmentation dimensions or instance budget exceeded")
+    return dimensions
+
+
+def validate_results(results, ref):
     for result in results:
         meta = result.meta or {}
-        segmentation = meta.get("segmentation")
-        if meta.get("trained_model") != identity or not isinstance(segmentation, dict):
-            raise ValueError("Segmentation model identity is missing or mismatched")
-        expected = {
-            "output_contract": SEGMENTATION_OUTPUT_CONTRACT,
-            "decoder": runtime["decoder"],
-            "mask_processing": runtime["mask_processing"],
-            "runtime_qualification": runtime,
-        }
-        if any(segmentation.get(key) != value for key, value in expected.items()):
-            raise ValueError("Unqualified segmentation decoder or runtime")
-        dimensions = segmentation.get("dimensions")
+        dimensions = validate_metadata(meta, ref)
         if (
-            not isinstance(dimensions, list)
-            or len(dimensions) != 2
-            or any(type(n) is not int or not 0 < n <= 8192 for n in dimensions)
-            or dimensions[0] * dimensions[1] > MAX_MASK_PIXELS
-            or len(result.result) > MAX_INSTANCES
+            len(result.result) > MAX_INSTANCES
             or dimensions[0] * dimensions[1] * len(result.result) > MAX_MASK_ELEMENTS
         ):
             raise ValueError("Segmentation dimensions or instance budget exceeded")

@@ -361,15 +361,21 @@ class AnnotationService:
         from app.services.prediction import to_internal_shape
 
         raw_shapes = list(prediction.result or [])
+        rejected = set(prediction.rejected_shape_indexes or [])
         if shape_index is not None:
             if not (0 <= shape_index < len(raw_shapes)):
                 return None
+            if shape_index in rejected:
+                raise HTTPException(409, detail="Prediction shape was rejected")
             indexed = [(shape_index, to_internal_shape(raw_shapes[shape_index]))]
         else:
             indexed = [
                 (index, to_internal_shape(raw_shape))
                 for index, raw_shape in enumerate(raw_shapes)
+                if index not in rejected
             ]
+            if raw_shapes and not indexed:
+                raise HTTPException(409, detail="Prediction has no available shapes")
         task = await self.db.get(Task, prediction.task_id)
         if task is not None:
             # A2 · task row lock before the accepted annotations are written.

@@ -1721,11 +1721,10 @@ async def _run_batch(
                     await BatchService(db).clean_task_predictions(
                         [task_uuid], actor_id=actor_uuid
                     )
-                task_cost = 0.0
-                for pred_result in results:
-                    created_prediction = await pred_svc.create_from_ml_result(
+                writes = [
+                    dict(
                         task_id=task.id,
-                        project_id=uuid.UUID(project_id),
+                        project_id=project_uuid,
                         ml_backend_id=executed_backend_id,
                         result=pred_result.result,
                         score=pred_result.score,
@@ -1739,8 +1738,26 @@ async def _run_batch(
                             if frozen_model_ref
                             else {}
                         ),
+                    )
+                    for pred_result in results
+                ]
+                native_receipts = (
+                    await reference_job.qualify_native_results(
+                        task, reference_receipt, writes
+                    )
+                    if reference_job
+                    else [None] * len(writes)
+                )
+                task_cost = 0.0
+                for pred_result, write, native_receipt in zip(
+                    results, writes, native_receipts, strict=True
+                ):
+                    created_prediction = await pred_svc.create_from_ml_result(
+                        **write,
                         **(
-                            {"reference_receipt": reference_receipt}
+                            {"background_native_reference_receipt": native_receipt}
+                            if native_receipt is not None
+                            else {"reference_receipt": reference_receipt}
                             if reference_receipt is not None
                             else {}
                         ),

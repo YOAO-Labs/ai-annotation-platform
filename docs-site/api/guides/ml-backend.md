@@ -173,7 +173,7 @@ POST /api/v1/projects/:id/ml-backends/:bid/capabilities/refresh
 
 原生 Mask 的候选回执与 `mask_input_next` 同时绑定原图 Item/Asset/SHA/大小/尺寸。旧会话缺少原图证据或绑定另一份内容时返回 `mask_session_mismatch`；客户端不能自行补充内容证据。原生采纳沿用既有[原子采纳接口](./tasks-and-annotations#原生-ai-mask-候选采纳)，服务端重新核验原图并写入候选内容血缘；重放既有有效 decision 不要求短期候选回执仍未到期，也不会重复创建候选。
 
-这两个同步接口不会创建后台预标作业。后台原生掩码预标、批量 mask repair 与视频 frame 消费仍需各自的引用资格，不使用全局 URL resolver 绕过门禁。
+这两个同步接口不会创建后台预标作业。后台原生掩码预标与批量 mask repair 使用各自的引用资格，视频 frame 消费尚未接入；这些入口不使用全局 URL resolver 绕过门禁。
 
 ## 审计
 

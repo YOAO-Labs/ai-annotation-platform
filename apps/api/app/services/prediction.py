@@ -490,12 +490,45 @@ class PredictionService:
         reference_receipt=None,
         native_reference_receipt=None,
         repair_reference_receipt=None,
+        background_native_reference_receipt=None,
     ) -> Prediction:
         # v0.21.1 · 检测式追踪原生 int track_id → trk_<uuid> (读路径不得再生 uuid, 见 _remap_track_ids)。
         from app.services.reference_access import reject_reference_scope
 
         reference_evidence = None
-        if repair_reference_receipt is not None:
+        native_qualification = None
+        if background_native_reference_receipt is not None:
+            from app.services.reference_native_predictions import validate_receipt
+            from app.services.content_snapshot import ContentError
+
+            if (
+                reference_receipt is not None
+                or native_reference_receipt is not None
+                or repair_reference_receipt is not None
+                or source != "ml_backend"
+            ):
+                raise ContentError("background_native_reference_receipt_invalid")
+            reference_evidence, native_qualification = await validate_receipt(
+                self.db,
+                task_id,
+                project_id,
+                background_native_reference_receipt,
+                dict(
+                    task_id=task_id,
+                    project_id=project_id,
+                    ml_backend_id=ml_backend_id,
+                    result=result,
+                    score=score,
+                    model_version=model_version,
+                    inference_time_ms=inference_time_ms,
+                    token_meta=token_meta,
+                    source=source,
+                    pipeline_extra=pipeline_extra,
+                    ml_backend_pool_id=ml_backend_pool_id,
+                    model_provenance=model_provenance,
+                ),
+            )
+        elif repair_reference_receipt is not None:
             from app.services.reference_mask_repair import validate_receipt
             from app.services.content_snapshot import ContentError
 
@@ -602,7 +635,12 @@ class PredictionService:
                 **{
                     key: value
                     for key, value in (pipeline_extra or {}).items()
-                    if key not in {"reference_input", "reference_execution"}
+                    if key
+                    not in {
+                        "reference_input",
+                        "reference_execution",
+                        "reference_native",
+                    }
                 },
                 **(
                     {"reference_input": reference_evidence}
@@ -622,6 +660,18 @@ class PredictionService:
                 ),
             },
         )
+        if native_qualification is not None:
+            from app.services.reference_native_predictions import (
+                PROOF_KEY,
+                persisted_qualification,
+            )
+
+            meta.extra = {
+                **meta.extra,
+                PROOF_KEY: persisted_qualification(
+                    prediction, meta.extra, native_qualification
+                ),
+            }
         self.db.add(meta)
 
         await self.db.execute(select(Task).where(Task.id == task_id).with_for_update())

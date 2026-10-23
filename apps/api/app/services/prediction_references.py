@@ -289,8 +289,12 @@ class ReferencePredictionJob:
 
     def resolve_url(self, task):
         delivery = self.deliveries.get(task.id)
-        if delivery is None or delivery[0].record.expires_at <= datetime.now(
-            timezone.utc
+        if (
+            delivery is None
+            or delivery[0]._closed
+            or delivery[0]._snapshot is None
+            or delivery[0]._snapshot._closed
+            or delivery[0].record.expires_at <= datetime.now(timezone.utc)
         ):
             raise ContentError("prediction_input_expired")
         return delivery[1]
@@ -314,6 +318,11 @@ class ReferencePredictionJob:
                 .where(ApiKey.id == uuid.UUID(key_id))
                 .with_for_update(read=True, nowait=True)
             )
+
+    async def qualify_native_results(self, task, anchor, writes):
+        from app.services.reference_native_predictions import qualify_results
+
+        return await qualify_results(self, task, anchor, writes)
 
     async def final_receipt(self, task):
         """Caller holds job, actor/project/membership, Key and batch/Task locks."""

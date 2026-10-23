@@ -583,10 +583,8 @@ async def _run_snapshot_retry(
                     "stages": execution_summary(stages),
                 },
             }
-            service = PredictionService(db)
-            first = None
-            for result in results:
-                pred = await service.create_from_ml_result(
+            writes = [
+                dict(
                     task_id=task.id,
                     project_id=project.id,
                     ml_backend_id=clients[0].last_instance_id
@@ -599,13 +597,30 @@ async def _run_snapshot_retry(
                     token_meta=result.meta,
                     pipeline_extra=extra,
                     **(
-                        {"reference_receipt": reference_receipt}
-                        if reference_receipt is not None
-                        else {}
-                    ),
-                    **(
                         {"model_provenance": stages[0]["frozen_model_ref"]}
                         if stages[0].get("frozen_model_ref")
+                        else {}
+                    ),
+                )
+                for result in results
+            ]
+            native_receipts = (
+                await reference_owner.qualify_native_results(
+                    task, reference_receipt, writes
+                )
+                if reference_owner
+                else [None] * len(writes)
+            )
+            service = PredictionService(db)
+            first = None
+            for write, native_receipt in zip(writes, native_receipts, strict=True):
+                pred = await service.create_from_ml_result(
+                    **write,
+                    **(
+                        {"background_native_reference_receipt": native_receipt}
+                        if native_receipt is not None
+                        else {"reference_receipt": reference_receipt}
+                        if reference_receipt is not None
                         else {}
                     ),
                 )

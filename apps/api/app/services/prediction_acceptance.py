@@ -118,6 +118,11 @@ async def _check_content(db, task, binding, prediction, metadata, *, final=False
             db, task, binding, prediction, metadata, final=final
         )
         return
+    if metadata and (metadata.extra or {}).get("reference_native") is not None:
+        from app.services.reference_native_predictions import qualify_candidate
+
+        await qualify_candidate(db, task, binding, prediction, metadata, final=final)
+        return
     for shape in shapes:
         geometry = to_internal_shape(deepcopy(shape)).get("geometry")
         if not isinstance(geometry, dict) or geometry.get("type") not in _GEOMETRY:

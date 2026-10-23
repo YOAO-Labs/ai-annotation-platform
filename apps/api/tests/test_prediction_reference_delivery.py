@@ -521,12 +521,17 @@ async def test_receipt_is_private_and_bound_to_task_session_and_transaction(
             None,
             [],
             reference_receipt=receipt,
-            pipeline_extra={"reference_input": {"sha256": "forged"}},
+            pipeline_extra={
+                "reference_input": {"sha256": "forged"},
+                "reference_native": {"schema": 1, "kind": "forged"},
+            },
+            token_meta={"reference_native": {"schema": 1, "kind": "forged"}},
         )
         meta = await db_session.scalar(
             select(PredictionMeta).where(PredictionMeta.prediction_id == prediction.id)
         )
         assert meta.extra["reference_input"]["sha256"] != "forged"
+        assert "reference_native" not in meta.extra
         await db_session.commit()
         with pytest.raises(ContentError):
             await refs.validate_receipt(db_session, task_id, project_id, receipt)

@@ -32,8 +32,8 @@ def headers(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-async def seed_source(db, owner):
-    project = await create_project(db, owner_id=owner.id)
+async def seed_source(db, owner, *, project=None):
+    project = project or await create_project(db, owner_id=owner.id)
     project.ai_enabled = True
     dataset = TrainingDatasetVersion(
         project_id=project.id,

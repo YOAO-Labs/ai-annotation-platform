@@ -61,9 +61,17 @@ WorkBench 请求要求项目 `annotation.write` 和当前题有效编辑／分�
 
 最终结果可以混合原生 Mask 与后续矢量几何，不能再次套用原生类别和连续实例索引校验。删框后逐结果包裁剪 `mask_objects`，相同 SHA 仍被其它 shape 引用时保留；不跨结果合并对象包。持久化在任何 PUT 前复核全部 native gate、任务尺寸、精确对象集合、摘要、非空及预算，再按 Task → 排序内容锁物化；回滚遗留的共享 SHA 对象由既有 GC 处理。预测正文与内联对象不复制到元数据。按 snapshot shape lineage 采纳时，每个 shape 使用自身工具单位及阶段模型的类别策略；旧无阶段来源记录保留行级合同。人工接受、修正及审核后才能进入下一轮训练，见[实例分割闭环](./instance-segmentation-learning)。
 
-下游原生掩码仍缺少经过资格核验的像素回映与对象归属合同，不能通过丢 shape 或丢对象降级：运行时在属性合并、geometry 收集及 crop 回映前以 `NativeMaskChildOutputUnsupported` 记录明确阶段失败，按阶段策略保留或丢弃父对象。图片原生候选复用受预算管理的像素层、Worker 和缓存，按 Task/Prediction/原始 shape 下标读取并按真实像素拾取；来源、置信度或审阅状态变化后移除相应可见记录，缓存按预算回收，切题隔离迟到结果。引用后台原生生成仍需专用接入，普通引用 receipt 不因此放开。
+下游原生掩码仍缺少经过资格核验的像素回映与对象归属合同，不能通过丢 shape 或丢对象降级：运行时在属性合并、geometry 收集及 crop 回映前以 `NativeMaskChildOutputUnsupported` 记录明确阶段失败，按阶段策略保留或丢弃父对象。图片原生候选复用受预算管理的像素层、Worker 和缓存，按 Task/Prediction/原始 shape 下标读取并按真实像素拾取；来源、置信度或审阅状态变化后移除相应可见记录，缓存按预算回收，切题隔离迟到结果。引用后台原生生成使用下述独立资格，普通引用 receipt 继续拒绝原生载荷。
 
 详细决策见 [模型目录与冻结管线](../adr/archive/0088-model-catalog-and-frozen-pipelines)。
+
+### 引用图片的后台原生结果资格
+
+批量与工作台后台执行、两个失败重试入口共用 `ReferencePredictionJob`。普通引用凭证继续只允许普通几何；受控实例分割整图根阶段另由 `reference_native_predictions` 为每条最终结果签发内部凭证。先校验整组载荷，任何一条模型、运行时、尺寸、类别、RLE 或阶段来源不合格，均不进入首个对象 PUT。凭证绑定 owner、当前会话与非嵌套事务、Task/Project 及完整写入内容，关闭或过期的原图快照不能继续写入。
+
+最终检查锁定冻结模型部署与实际路由成员，复核当前项目类别和原图身份；不持锁等待模型或原件网络 I/O。原生实例索引保留运输层的身份，不因删父对象而要求重新连续编号。向量子结果必须来自实际执行的几何阶段，父链可以经过未持久化的 intermediate 或透传属性阶段；变换须满足整图坐标契约，不从缺失父身份猜测归属。已有 lineage 不保存已丢弃祖先的几何，因此这里不重新计算其完整裁剪映射。
+
+服务端保留字段 `PredictionMeta.extra.reference_native` 保存生成时冻结配置、内容身份及最终候选摘要；普通写入剥离客户端同名字段。它是当前服务写入边界的记录，不是对任意数据库篡改的密码学证明。采纳先核验当前权限和严格原图，再比对最终候选、稳定模型/阶段元信息与保存的记录，并读取 RLE 复查当前 Mask gate。证明包含历史所需事实，不依赖已清理的 AsyncJob/执行快照或仍在线的模型；驳回和重试替代记录不改变生成时身份。交互与批量修复继续使用各自的资格，不能混用。
 
 ## 与 `predictions` 表的边界
 
@@ -240,7 +248,7 @@ worker 使用 `worker:<Celery hostname>` 的已核验锚点捕获 strict snapsho
 
 引用 worker 复用 `ReferencePredictionJob` 和同快照输入，不持 FailedPrediction 行锁等待原图或模型 I/O。最终按 job→账号/项目/成员→失败项→Key→批次/Task→内容生命周期锁复验本 attempt，再一起提交候选、同快照 partial 替代、失败删除和作业完成。异常先回滚业务，再用 job→失败项锁独立记录本次失败与计数；Celery failure/revoked 使用相同边界，重复或迟到回调只处理匹配的 attempt，不清除后续 claim。发布响应丢失时不撤销已运行的 attempt。
 
-普通几何采纳由 `prediction_acceptance` 核验 URL Task 与候选归属、当前标注/读取权限及严格 API 原图，并与候选内容溯源比对。历史推理版本不作为永久门槛；当次操作固定当前版本与来源修订。最终持有账号/项目/成员、Key、批次/Task、Prediction/Meta 和内容生命周期锁，专有 receipt 绑定 session、非嵌套事务、actor、Task、候选及正文/溯源摘要，提交或回滚后失效。沿用类别、属性、贡献者、审核证据与统计流程；原生掩码和视频形态仍拒绝。同步交互和 predict-test 使用下述独立请求 owner；mask repair 和后台原生掩码仍保留门禁，不全局放宽旧 URL resolver。
+普通几何采纳由 `prediction_acceptance` 核验 URL Task 与候选归属、当前标注/读取权限及严格 API 原图，并与候选内容溯源比对。历史推理版本不作为永久门槛；当次操作固定当前版本与来源修订。最终持有账号/项目/成员、Key、批次/Task、Prediction/Meta 和内容生命周期锁，专有 receipt 绑定 session、非嵌套事务、actor、Task、候选及正文/溯源摘要，提交或回滚后失效。沿用类别、属性、贡献者、审核证据与统计流程。原生掩码使用各自专用资格，视频形态仍拒绝。同步交互和 predict-test 使用下述独立请求 owner；mask repair 和受控整图后台原生掩码分别核验生成记录，不全局放宽旧 URL resolver。
 
 ### 单层并行兄弟（声明式，非 Celery chord）
 
@@ -354,7 +362,7 @@ worker 累加各阶段 stats（源阶段 `{detected}`、下游 `{targeted, ok, f
 
 交互候选的 HMAC receipt 和加密 logits 会话增加服务器生成的 `reference_input` 原图身份，续点同时核对内容、模型、参数和源 Mask。原生采纳在原有 atomic owner 之前重新严格核验原图及当前读取/写入权限，以独立私有 receipt 绑定 session、非嵌套事务、actor、Task、请求摘要和掩码 digest；Prediction writer 仅为这一专用 receipt 接受单个原生图片 Mask，普通后台 receipt 继续拒绝原生形态。Prediction、Annotation、贡献者、审计与 decision 仍同事务提交，精修保持源版本和 If-Match 合同。
 
-decision 内保留非授权的原图溯源，15 分钟候选 receipt 到期后仍可在既有 24 小时 decision 期限内重放相同请求；重放同样复核当前权限和严格原图，不额外写候选。私有证据不在公开响应中输出，公开客户端仍只提交原有候选凭证。批量 mask repair 使用下述独立资格；后台原生掩码预标尚未接入引用。
+decision 内保留非授权的原图溯源，15 分钟候选 receipt 到期后仍可在既有 24 小时 decision 期限内重放相同请求；重放同样复核当前权限和严格原图，不额外写候选。私有证据不在公开响应中输出，公开客户端仍只提交原有候选凭证。批量 mask repair 使用下述独立资格；后台原生掩码预标使用本页的逐结果资格。
 
 ### 引用图片的批量修复
 
