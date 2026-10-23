@@ -74,8 +74,8 @@ def check_capability_violations(
     return violations
 
 
-# v0.20.21 · 可作下游 ROI 父框的输出几何 (对应 roi._box_bbox_pct: 轴对齐 bbox / 多边形取外接框)。
-_ROI_CAPABLE_GEOMETRIES = frozenset({"bbox", "polygon"})
+# Native parents supply tight foreground bounds from verified portable RLE.
+_ROI_CAPABLE_GEOMETRIES = frozenset({"bbox", "polygon", "raster_mask"})
 # sam3 等老 backend 用了受控词表外的输出几何别名, 归一化后再判可裁性 (否则漏判)。
 _GEO_ALIAS = {"box": "bbox", "mask": "polygon"}
 
@@ -99,7 +99,7 @@ def normalize_geometry_outputs(caps: dict) -> list[str]:
 def check_parent_geometry_roi(
     parent_caps: dict, *, where: str, parent_model_id
 ) -> list[CapabilityViolation]:
-    """v0.20.21 · 下游阶段按上游框裁 crop / 发 bbox_prompt 作 ROI, 仅 bbox/polygon 可作父框
+    """下游阶段按上游框裁 crop / 发 bbox_prompt 作 ROI, bbox/polygon/raster_mask 可作父框
     (roi._box_bbox_pct)。校验上游父阶段的 supported_geometric_outputs 是否含可裁几何。
 
     与 dispatch 已有的「下游能否吃框」门 (supported_inputs 含 bbox_prompt/crop) 对称: 那道查
@@ -118,7 +118,7 @@ def check_parent_geometry_roi(
         CapabilityViolation(
             code="no_roi_geometry",
             detail=(
-                f"{where}的上游模型 {parent_model_id!r} 只输出 {geos} (非 bbox/polygon), "
+                f"{where}的上游模型 {parent_model_id!r} 只输出 {geos} (非 bbox/polygon/raster_mask), "
                 "下游无法按其框裁 ROI, 该阶段所有父框将被跳过、零富集"
             ),
         )

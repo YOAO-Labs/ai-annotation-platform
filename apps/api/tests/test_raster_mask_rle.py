@@ -11,6 +11,7 @@ from app.utils.raster_mask_rle import (
     validate_coco_rle,
     coco_rle_area,
     coco_rle_bbox_norm,
+    coco_rle_bbox_pixels,
 )
 
 
@@ -26,6 +27,26 @@ def test_api_coco_rle_golden_cases(case):
     rle = encode_coco_rle(pixels, case["width"], case["height"])
     assert rle["counts"] == case["counts"]
     assert list(decode_coco_rle(rle)) == pixels
+
+
+@pytest.mark.parametrize("case", FIXTURE["valid"], ids=lambda case: case["name"])
+def test_pixel_bounds_match_dense_golden_foreground(case):
+    width, height = case["width"], case["height"]
+    pixels = case["pixels_row_major"]
+    points = [
+        (index % width, index // width) for index, pixel in enumerate(pixels) if pixel
+    ]
+    expected = (
+        (
+            min(x for x, _ in points),
+            min(y for _, y in points),
+            max(x for x, _ in points) + 1,
+            max(y for _, y in points) + 1,
+        )
+        if points
+        else None
+    )
+    assert coco_rle_bbox_pixels(encode_coco_rle(pixels, width, height)) == expected
 
 
 @pytest.mark.parametrize("case", FIXTURE["invalid"], ids=lambda case: case["name"])

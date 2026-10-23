@@ -2301,7 +2301,9 @@ def _validate_saved_pipeline(stages) -> list[dict] | None:
         ) from e
 
 
-def _stage_supported_inputs(backend, model_id: str | None) -> list[str]:
+def _stage_supported_inputs(
+    backend, model_id: str | None, *, task: str | None = None
+) -> list[str]:
     """v0.18.15 · 从 backend 能力快照取某 model 的 supported_inputs (一等输入契约)。
 
     health_meta.capabilities.models[] 已由 extract_capabilities 规范化 (含合成默认)。
@@ -2310,7 +2312,7 @@ def _stage_supported_inputs(backend, model_id: str | None) -> list[str]:
     from app.services.trained_models import is_controlled
 
     if is_controlled(model_id):
-        return ["full_image", "crop"]
+        return _stage_model(backend, model_id, task=task).get("supported_inputs", [])
     meta = getattr(backend, "health_meta", None)
     caps = meta.get("capabilities") if isinstance(meta, dict) else None
     models = caps.get("models") if isinstance(caps, dict) else None
@@ -2322,23 +2324,37 @@ def _stage_supported_inputs(backend, model_id: str | None) -> list[str]:
     return []
 
 
-def _stage_model(backend, model_id: str | None) -> dict:
+def _stage_model(backend, model_id: str | None, *, task: str | None = None) -> dict:
     """v0.19.2 WS2 · 从 backend 能力快照取某 model 的规范化条目 (无快照/匹配不到 → {})。
 
     供 dispatch-time 校验读 resource_profile / output_attribute_types。读
     health_meta.capabilities.models[] (extract_capabilities 已规范化), 不走 /instances。
     """
-    from app.services.trained_models import is_controlled
+    from app.services.trained_models import is_controlled, release_task
 
     if is_controlled(model_id):
-        return {
+        caps = {
             "id": model_id,
-            "task": "detect",
-            "supported_inputs": ["full_image", "crop"],
-            "supported_geometric_outputs": ["bbox"],
             "resource_profile": {"batchable": True},
             "output_attribute_types": ["class"],
         }
+        # Opaque version IDs acquire their task when the server freezes the
+        # model reference. Never advertise detection for an unresolved version.
+        resolved_task = release_task(model_id) or (
+            normalize_task(task) if task else None
+        )
+        if resolved_task in {"detect", "segment"}:
+            segmentation = resolved_task == "segment"
+            caps.update(
+                task=resolved_task,
+                supported_inputs=["full_image"]
+                if segmentation
+                else ["full_image", "crop"],
+                supported_geometric_outputs=["raster_mask"]
+                if segmentation
+                else ["bbox"],
+            )
+        return caps
     meta = getattr(backend, "health_meta", None)
     caps = meta.get("capabilities") if isinstance(meta, dict) else None
     models = caps.get("models") if isinstance(caps, dict) else None
@@ -2403,7 +2419,7 @@ async def _compute_pipeline_capability_warnings(db, stages) -> list[str]:
         backend = await svc.get(s["ml_backend_id"])
         if not backend:
             continue
-        caps = _stage_model(backend, s.get("model_id"))
+        caps = _stage_model(backend, s.get("model_id"), task=s.get("task"))
         if s.get("stage") is not None:
             stage_caps[s["stage"]] = (caps, s.get("model_id"))
         is_source = s.get("parent_stage") is None
@@ -2708,7 +2724,7 @@ async def trigger_preannotation(
                 stage.stage
                 for stage in body.pipeline_stages
                 if stage.parent_stage is None
-            ): (_stage_model(backend, body.model_id), body.model_id)
+            ): (_stage_model(backend, body.model_id, task=body.task), body.model_id)
         }
         for st in body.pipeline_stages:
             resolved_input = st.input
@@ -2740,7 +2756,7 @@ async def trigger_preannotation(
                 stage_devices.append(_stage_device(st_backend, st.model_id))
                 # v0.20.21 · 记本阶段 caps, 供循环后校验其作为下游父阶段时几何可否作 ROI。
                 stage_caps[st.stage] = (
-                    _stage_model(st_backend, st.model_id),
+                    _stage_model(st_backend, st.model_id, task=st.task),
                     st.model_id,
                 )
                 # v0.18.15 · 按子模型 supported_inputs 解析投递方式 + 几何可达性门控。
@@ -2748,7 +2764,7 @@ async def trigger_preannotation(
                 # crop (普通检测器在 crop 上跑 + 坐标回映)。据此把投递方式烘焙进 input.mode,
                 # worker 直接消费 (无快照时 inputs=[] → 放过门控、不烘焙, 保持零退化)。
                 target = (st.write or {}).get("target", "attributes")
-                inputs = _stage_supported_inputs(st_backend, st.model_id)
+                inputs = _stage_supported_inputs(st_backend, st.model_id, task=st.task)
                 if target in {"geometry", "intermediate"} and inputs:
                     if INPUT_BBOX_PROMPT not in inputs and INPUT_CROP not in inputs:
                         raise HTTPException(
@@ -2957,8 +2973,16 @@ async def trigger_preannotation(
                     raise HTTPException(status_code=422, detail=str(exc)) from exc
                 stage["frozen_model_ref"] = ref
                 stage["model_id"] = f"trained:{ref['model_version_id']}"
+                stage["task"] = normalize_task(ref["task"])
                 if stage.get("parent_stage") is None:
                     root_ref = ref
+                elif stage["task"] == "detect":
+                    stage["input"] = {
+                        **(stage.get("input") or {}),
+                        "mode": (stage.get("input") or {}).get("mode")
+                        or (stage.get("roi") or {}).get("mode")
+                        or "crop",
+                    }
             else:
                 if not stage.get("model_id"):
                     capabilities = (stage_backend.health_meta or {}).get(
@@ -3008,6 +3032,15 @@ async def trigger_preannotation(
                 stage["class_metadata"] = metadata.model_dump(mode="json")
                 if metadata.verification_status == "verified":
                     stage["identity_guarantee"] = "checkpoint_verified"
+        if uses_controlled_model:
+            # The initial scope check cannot know an opaque version's task.
+            # Revalidate the server-resolved identity before recording a job.
+            trained_models.assert_image_scope(
+                project,
+                prompt=body.prompt,
+                pipeline_stages=stages,
+                execution_unit=execution_unit,
+            )
         pipeline_stages_payload = stages
         execution_snapshot = await create_snapshot(
             db,

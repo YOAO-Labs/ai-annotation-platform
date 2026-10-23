@@ -465,6 +465,7 @@ async def prepare_mask_payload_for_write(
     *,
     reference_value: Any | None = None,
     required_upload_keys: set[str] | None = None,
+    portable_mask_meta: dict[str, Any] | None = None,
 ) -> None:
     """Gate, validate and claim every mask in a nested persistence payload.
 
@@ -475,6 +476,10 @@ async def prepare_mask_payload_for_write(
     """
     geometries = collect_mask_geometries(value)
     if not geometries:
+        if portable_mask_meta is not None:
+            from app.services.controlled_segmentation import validate_portable_masks
+
+            validate_portable_masks(value, portable_mask_meta)
         return
 
     if task is None:
@@ -505,7 +510,7 @@ async def prepare_mask_payload_for_write(
     # Check every image-mask gate before object reads, advisory locks, or upload
     # association. Video mask tracks keep their existing deployment contract.
     if any(geometry.get("type") == "raster_mask" for geometry in geometries):
-        project = await db.get(Project, task.project_id)
+        project = await db.get(Project, task.project_id, populate_existing=True)
         assert_raster_mask_write_enabled(project)
 
     for geometry in geometries:
@@ -532,6 +537,13 @@ async def prepare_mask_payload_for_write(
         for reference in collect_mask_references(geometry)
     }
     try:
+        if portable_mask_meta is not None:
+            from app.services.controlled_segmentation import validate_portable_masks
+
+            # Validate the entire envelope before the first PUT. Shared SHA
+            # objects remain GC-owned if a later storage/DB operation fails.
+            resolved = validate_portable_masks(value, portable_mask_meta)
+            await store_mask_reference_objects(db, value, resolved, task_id=task.id)
         committed_keys = await lock_raster_mask_references(
             db,
             references_to_commit,

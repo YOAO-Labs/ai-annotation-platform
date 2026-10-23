@@ -255,3 +255,5 @@ GET /api/v1/dashboard?view=projects        # 超管看全部
 目录 ID 是发现用标识；执行仍提交 `model_id` 与 `model_variants`，包括 `trained:<uuid>`、检测 `project-release` 或分割 `project-release:segment`，不能由客户端构造冻结部署身份。训练模型普通执行须已发布且未归档；Ultralytics 图片检测可作整图根和 crop 检测子阶段；受控 `yolo11n-seg` 实例分割只允许整图源阶段。目录以 `current_releases` 分别投影检测和分割的当前发布，同时保留检测兼容字段 `current_release`。
 
 显式管线和受控模型提交创建持久执行快照，每阶段冻结模型、参数、原生过滤和项目父类过滤。快照最多 1 MiB；旧无快照单阶段重试上下文仍限制 8 KiB。失败项重试复用原快照，缺失／摘要不符时明确失败，不回退到最新发布。普通批跑要求项目管理权限；`execution_scope=workbench` 要求当前项目标注权限及有效任务分派。
+
+受控模型的能力按实际任务解析，不把未知版本默认为检测；解析确切版本后再次检查分割仅为整图源阶段，不允许省略 `task` 绕过子阶段限制。整图原生 RLE 可为下游 crop/bbox prompt 提供紧像素外接框，类别路由使用项目绑定名称，保留原 Mask、实例索引及 shape lineage。带 `mask_objects` 的预测在任何 PUT 前验证完整对象集合、当前 native gate、任务尺寸、摘要、非空及预算；无效结果不会先上传一部分对象。尚未支持的下游原生结果记录 `NativeMaskChildOutputUnsupported` 阶段失败。图片引用的后台原生候选仍维持独立资格门禁。

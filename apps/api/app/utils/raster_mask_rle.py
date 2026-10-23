@@ -108,8 +108,8 @@ def coco_rle_area(rle: Mapping[str, Any]) -> int:
     return sum(counts[1::2])
 
 
-def coco_rle_bbox_norm(rle: Mapping[str, Any]) -> dict[str, float]:
-    """Return the tight normalized AABB without materializing the mask."""
+def coco_rle_bbox_pixels(rle: Mapping[str, Any]) -> tuple[int, int, int, int] | None:
+    """Return tight (left, top, right, bottom) bounds without decoding pixels."""
     height, width, counts = validate_coco_rle(rle)
     offset = 0
     foreground = False
@@ -132,10 +132,20 @@ def coco_rle_bbox_norm(rle: Mapping[str, Any]) -> dict[str, float]:
         offset += run_length
         foreground = not foreground
     if max_x < min_x or max_y < min_y:
+        return None
+    return min_x, min_y, max_x + 1, max_y + 1
+
+
+def coco_rle_bbox_norm(rle: Mapping[str, Any]) -> dict[str, float]:
+    """Return the tight normalized AABB without materializing the mask."""
+    bounds = coco_rle_bbox_pixels(rle)
+    if bounds is None:
         return {}
+    height, width = rle["size"]
+    left, top, right, bottom = bounds
     return {
-        "x": min_x / width,
-        "y": min_y / height,
-        "w": (max_x - min_x + 1) / width,
-        "h": (max_y - min_y + 1) / height,
+        "x": left / width,
+        "y": top / height,
+        "w": (right - left) / width,
+        "h": (bottom - top) / height,
     }

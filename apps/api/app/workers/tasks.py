@@ -419,6 +419,7 @@ async def _execute_task_pipeline(
     stage_stats: ``{stage号: {...}}`` —— 源阶段 {detected}; 下游 {targeted, ok, failed, skipped_geometry}。
     """
     from app.workers.roi import (
+        NativeMaskChildOutputUnsupported,
         collect_geometry_shapes,
         crop_inputs_from_boxes,
         geometry_prompts_from_boxes,
@@ -426,6 +427,25 @@ async def _execute_task_pipeline(
         remap_geometry_to_image,
     )
     from app.services.gpu_arbitration.contracts import gpu_arbiter_failure_record
+    from app.services.controlled_segmentation import validate_portable_masks
+    from app.services.raster_mask_storage import (
+        collect_mask_geometries,
+        collect_mask_references,
+    )
+
+    def validate_child_results(child_results):
+        if any(
+            (getattr(result, "meta", None) or {}).get("mask_objects") is not None
+            or collect_mask_geometries(result.result)
+            or any(
+                isinstance(shape, dict) and shape.get("type") == "brushlabels"
+                for shape in result.result or []
+            )
+            for result in child_results
+        ):
+            raise NativeMaskChildOutputUnsupported(
+                "Native child output requires a qualified pixel remap contract"
+            )
 
     lineage = []
     executed_stages = set()
@@ -498,6 +518,11 @@ async def _execute_task_pipeline(
     results = await stage_clients[0].predict(
         [{"id": str(task.id), "file_path": url}], context=stage_contexts[0]
     )
+    # Validate every original envelope before pruning, enrichment or child I/O.
+    # The routed transport has already mapped native classes exactly once.
+    for result in results:
+        if (result.meta or {}).get("mask_objects") is not None:
+            validate_portable_masks(result.result, result.meta)
     if len(stages) == 1:
         for ri, result in enumerate(results):
             tag_shapes(result.result, stages[0], result_index=ri)
@@ -505,9 +530,21 @@ async def _execute_task_pipeline(
 
     modes = stage_modes or ["crop"] * len(stages)
     depths = _compute_stage_depths(stages)
-    # geometry 模式纯坐标换算无需原图; 仅当存在 crop 下游阶段时才加载 (省去无谓全图拉取)。
-    needs_image = any(modes[si] == "crop" for si in range(1, len(stages)))
+    # Native prompt parents also need the actual source dimensions before dispatch.
+    native_sizes = [
+        geometry["mask"]["size"]
+        for result in results
+        if (result.meta or {}).get("mask_objects") is not None
+        for geometry in collect_mask_geometries(result.result)
+    ]
+    needs_image = bool(native_sizes) or any(
+        modes[si] == "crop" for si in range(1, len(stages))
+    )
     image = (load_image or _load_task_image)(task) if needs_image else None
+    if native_sizes and any(
+        size != [image.height, image.width] for size in native_sizes
+    ):
+        raise ValueError("Native root mask size differs from the source image")
     delivery = "presigned" if upload_crop is not None else "data_uri"
     enriched_keys: set[str] = set()
     gpu_arbiter_failures: list[dict] = []
@@ -557,7 +594,11 @@ async def _execute_task_pipeline(
             pcf = stage.get("parent_class_filter") or None
             if modes[si] == "geometry":
                 # geometry 投递: 全图 URL + 父框归一化列表, 下游 box-seg 出 polygon。
-                geo = geometry_prompts_from_boxes(parent_boxes, parent_class_filter=pcf)
+                geo = geometry_prompts_from_boxes(
+                    parent_boxes,
+                    parent_class_filter=pcf,
+                    mask_objects=(pred_result.meta or {}).get("mask_objects"),
+                )
                 stats[snum]["skipped_geometry"] += geo.skipped_geometry
                 if not geo.prompts:
                     stage_outputs[snum] = []
@@ -577,6 +618,7 @@ async def _execute_task_pipeline(
                         ],
                         context=stage_contexts[si],
                     )
+                    validate_child_results(seg_results)
                     shapes = collect_geometry_shapes(seg_results, parent_boxes)
                     tag_shapes(shapes, stage, parent_boxes, result_index=result_index)
                     stats[snum]["ok"] += len(shapes)
@@ -632,6 +674,7 @@ async def _execute_task_pipeline(
                 upload_fn=upload_fn,
                 cache=crop_cache,
                 min_crop_side_px=32,
+                mask_objects=(pred_result.meta or {}).get("mask_objects"),
             )
             stats[snum]["skipped_geometry"] += batch.skipped_geometry
             crop_inputs = batch.inputs
@@ -651,6 +694,7 @@ async def _execute_task_pipeline(
                 ds_results = await stage_clients[si].predict(
                     crop_inputs, context=stage_contexts[si]
                 )
+                validate_child_results(ds_results)
                 if target == "attributes":
                     merged = merge_classify_attributes(
                         parent_boxes, ds_results, write_keys=write_keys, label=label
@@ -734,6 +778,18 @@ async def _execute_task_pipeline(
             root_boxes[:] = [b for i, b in enumerate(root_boxes) if i not in dropped]
         if new_shapes:
             root_boxes.extend(new_shapes)
+        if (pred_result.meta or {}).get("mask_objects") is not None:
+            referenced = {
+                reference["sha256"] for reference in collect_mask_references(root_boxes)
+            }
+            pred_result.meta = {
+                **pred_result.meta,
+                "mask_objects": {
+                    digest: value
+                    for digest, value in pred_result.meta["mask_objects"].items()
+                    if digest in referenced
+                },
+            }
     extra = {
         "pipeline": {
             "stage_count": len(stages),

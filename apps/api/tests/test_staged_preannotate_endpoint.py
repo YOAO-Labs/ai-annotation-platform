@@ -123,6 +123,130 @@ def _stages(detect_id, classify_id):
 
 
 @pytest.mark.asyncio
+async def test_opaque_native_root_freezes_as_segmentation_with_attribute_child(
+    httpx_client, super_admin, db_session, _mock_celery, monkeypatch
+):
+    from app.services import trained_models
+
+    owner, token = super_admin
+    project, detect, classify, batch = await _seed(db_session, owner.id)
+    model_id = f"trained:{uuid.uuid4()}"
+
+    async def resolve(db, project, requested_model, registry_id):
+        if requested_model != model_id:
+            return None
+        return {
+            "framework": "ultralytics",
+            "task": "segmentation",
+            "model_version_id": model_id.split(":", 1)[1],
+        }
+
+    monkeypatch.setattr(trained_models, "resolve_reference", resolve)
+    stages = _stages(detect.id, classify.id)
+    stages[0]["model_id"] = model_id
+    response = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/preannotate",
+        headers=_bearer(token),
+        json={"batch_id": str(batch.id), "pipeline_stages": stages},
+    )
+    assert response.status_code == 200, response.text
+    queued = _mock_celery["kwargs"]["pipeline_stages"]
+    assert queued[0]["task"] == "segment"
+    assert queued[0]["frozen_model_ref"]["task"] == "segmentation"
+    assert queued[1]["parent_stage"] == queued[0]["stage"]
+
+
+@pytest.mark.asyncio
+async def test_opaque_native_child_is_rejected_after_server_resolves_task(
+    httpx_client, super_admin, db_session, _mock_celery, monkeypatch
+):
+    from app.services import trained_models
+
+    owner, token = super_admin
+    project, detect, classify, batch = await _seed(db_session, owner.id)
+    model_id = f"trained:{uuid.uuid4()}"
+
+    async def resolve(db, project, requested_model, registry_id):
+        if requested_model != model_id:
+            return None
+        return {
+            "framework": "ultralytics",
+            "task": "segmentation",
+            "model_version_id": model_id.split(":", 1)[1],
+        }
+
+    monkeypatch.setattr(trained_models, "resolve_reference", resolve)
+    stages = _stages(detect.id, classify.id)
+    stages[1].update(model_id=model_id, write={"target": "geometry"})
+    del stages[1]["task_type"]
+    response = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/preannotate",
+        headers=_bearer(token),
+        json={"batch_id": str(batch.id), "pipeline_stages": stages},
+    )
+    assert response.status_code == 422, response.text
+    assert "受控分割只支持整图" in response.text
+    assert not _mock_celery
+
+
+@pytest.mark.asyncio
+async def test_opaque_detection_child_freezes_crop_delivery_when_task_and_input_omitted(
+    httpx_client, super_admin, db_session, _mock_celery, monkeypatch
+):
+    from app.services import trained_models
+    from app.workers.tasks import _resolve_input_mode
+
+    owner, token = super_admin
+    project, detect, classify, batch = await _seed(db_session, owner.id)
+    model_id = f"trained:{uuid.uuid4()}"
+
+    async def resolve(db, project, requested_model, registry_id):
+        if requested_model != model_id:
+            return None
+        return {
+            "framework": "ultralytics",
+            "task": "detection",
+            "model_version_id": model_id.split(":", 1)[1],
+        }
+
+    monkeypatch.setattr(trained_models, "resolve_reference", resolve)
+    stages = _stages(detect.id, classify.id)
+    stages[1].update(model_id=model_id, write={"target": "geometry"})
+    del stages[1]["task_type"]
+    del stages[1]["roi"]
+    response = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/preannotate",
+        headers=_bearer(token),
+        json={"batch_id": str(batch.id), "pipeline_stages": stages},
+    )
+    assert response.status_code == 200, response.text
+    child = _mock_celery["kwargs"]["pipeline_stages"][1]
+    assert child["task"] == "detect"
+    assert child["input"]["mode"] == "crop"
+    assert _resolve_input_mode(child) == "crop"
+
+
+@pytest.mark.parametrize(
+    "model_id,task,expected_task,outputs,inputs",
+    [
+        ("project-release:segment", None, "segment", ["raster_mask"], ["full_image"]),
+        ("project-release", None, "detect", ["bbox"], ["full_image", "crop"]),
+        ("trained:opaque", "segmentation", "segment", ["raster_mask"], ["full_image"]),
+        ("trained:opaque", None, None, [], []),
+    ],
+)
+def test_controlled_stage_capabilities_do_not_invent_detection(
+    model_id, task, expected_task, outputs, inputs
+):
+    from app.api.v1.projects import _stage_model, _stage_supported_inputs
+
+    caps = _stage_model(None, model_id, task=task)
+    assert caps.get("task") == expected_task
+    assert caps.get("supported_geometric_outputs", []) == outputs
+    assert _stage_supported_inputs(None, model_id, task=task) == inputs
+
+
+@pytest.mark.asyncio
 async def test_no_pipeline_stages_forwards_none(
     httpx_client, super_admin, db_session, _mock_celery
 ):

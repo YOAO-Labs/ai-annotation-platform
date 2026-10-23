@@ -57,7 +57,11 @@ WorkBench 请求要求项目 `annotation.write` 和当前题有效编辑／分�
 
 预测元数据保留每阶段实际实例、模型引用和稳定 shape／直接父 shape 身份。`parent_box_idx` 属于直接父阶段；裁剪缓存按父阶段隔离，上传 key 包含内容摘要。受控框明确使用百分比坐标，ROI 回映尊重 `coordinate_units`，不把小于 1% 的框误判为归一化坐标。
 
-受控 `yolo11n-seg` 仅作为图片整图源阶段运行；裁剪、交互与视频组合在统一校验边界拒绝。后端返回原尺寸逐实例 RLE，平台验证类别、实例索引、尺寸及预算后，经现有掩码存储物化为 `raster_mask` 引用；预测正文与对象不复制到元数据。人工接受、修正及审核后才能进入下一轮训练，见[实例分割闭环](./instance-segmentation-learning)。
+受控实例分割仅作为图片整图源阶段运行；裁剪分割、交互与视频组合在统一校验边界拒绝。未知受控版本不冒充检测能力，解析确切版本后再次检查阶段范围。后端返回原尺寸逐实例 RLE，transport 验证类别、实例索引、模型及运行时并只映射一次项目类别；管线在富集或删框前完整核验 portable 对象，再从真实 RLE 取紧像素外接框供属性 crop 或全图 bbox prompt 使用。原 Mask 的洞、分离部分、实例索引和 SHA 保持不变；crop 与 prompt 都在下游派发前比对实际原图尺寸。
+
+最终结果可以混合原生 Mask 与后续矢量几何，不能再次套用原生类别和连续实例索引校验。删框后逐结果包裁剪 `mask_objects`，相同 SHA 仍被其它 shape 引用时保留；不跨结果合并对象包。持久化在任何 PUT 前复核全部 native gate、任务尺寸、精确对象集合、摘要、非空及预算，再按 Task → 排序内容锁物化；回滚遗留的共享 SHA 对象由既有 GC 处理。预测正文与内联对象不复制到元数据。按 snapshot shape lineage 采纳时，每个 shape 使用自身工具单位及阶段模型的类别策略；旧无阶段来源记录保留行级合同。人工接受、修正及审核后才能进入下一轮训练，见[实例分割闭环](./instance-segmentation-learning)。
+
+下游原生掩码仍缺少经过资格核验的像素回映与对象归属合同，不能通过丢 shape 或丢对象降级：运行时在属性合并、geometry 收集及 crop 回映前以 `NativeMaskChildOutputUnsupported` 记录明确阶段失败，按阶段策略保留或丢弃父对象。引用后台原生结果及画布候选加载仍待专用接入；本执行基座不放开普通引用 receipt。
 
 详细决策见 [模型目录与冻结管线](../adr/archive/0088-model-catalog-and-frozen-pipelines)。
 
@@ -249,13 +253,13 @@ worker 使用 `worker:<Celery hostname>` 的已核验锚点捕获 strict snapsho
 
 ### 上游几何可裁校验（`check_parent_geometry_roi`）
 
-下游阶段按上游父框裁 crop 或转 `bbox_prompt` 作 ROI 时，只有 **bbox / polygon** 是可裁几何（`roi._box_bbox_pct`）。若上游模型自报的 `supported_geometric_outputs` 只输出其它形态（如仅 `keypoint` / `polyline`），该阶段的所有父框会在运行期被跳过、零富集。为把这种"跑完才发现是空"的场景提前到配置期暴露，`check_parent_geometry_roi`（`apps/api/app/services/pipeline_validation.py`）作为**上游输出侧的对称门**，与已有的「下游能否吃框」门（`supported_inputs` 含 `bbox_prompt` / `crop`）形成上下游对称：
+下游阶段按上游父框裁 crop 或转 `bbox_prompt` 作 ROI 时，**bbox / polygon / raster_mask** 可提供外接框（`roi._box_bbox_pct`）；原生 Mask 必须附经核验的 portable RLE，不能使用后端自报近似框。若上游模型自报的 `supported_geometric_outputs` 只输出其它形态（如仅 `keypoint` / `polyline`），该阶段的所有父框会在运行期被跳过、零富集。为把这种"跑完才发现是空"的场景提前到配置期暴露，`check_parent_geometry_roi`（`apps/api/app/services/pipeline_validation.py`）作为**上游输出侧的对称门**，与已有的「下游能否吃框」门（`supported_inputs` 含 `bbox_prompt` / `crop`）形成上下游对称：
 
-| 上游 `supported_geometric_outputs`   | 判决                   | 说明                                                            |
-| ------------------------------------ | ---------------------- | --------------------------------------------------------------- |
-| 未自报（老 backend）                 | 放过                   | 保零退化                                                        |
-| 至少含一种可裁几何（bbox / polygon） | 放过                   | 部分不可裁交由运行期 `skipped_geometry` 兜底                    |
-| 完全不含可裁几何（如仅 `keypoint`）  | 违例 `no_roi_geometry` | 保存编排时软提示 `capability_warnings`，触发预标时 **422 硬挡** |
+| 上游 `supported_geometric_outputs`                 | 判决                   | 说明                                                            |
+| -------------------------------------------------- | ---------------------- | --------------------------------------------------------------- |
+| 未自报（老 backend）                               | 放过                   | 保零退化                                                        |
+| 至少含一种可裁几何（bbox / polygon / raster_mask） | 放过                   | 部分不可裁交由运行期 `skipped_geometry` 兜底                    |
+| 完全不含可裁几何（如仅 `keypoint`）                | 违例 `no_roi_geometry` | 保存编排时软提示 `capability_warnings`，触发预标时 **422 硬挡** |
 
 两条通道复用同一纯函数：
 
@@ -292,7 +296,7 @@ worker 使用 `worker:<Celery hostname>` 的已核验锚点捕获 strict snapsho
 | `merge_classify_attributes`   | 把下游分类结果按 `write.keys` 白名单 union 进父框 `attributes`                                                     |
 | `box_class_name`              | 从 LS shape 提取 `class_name`（`value.rectanglelabels[0]` / `value.labels[0]`），供 `parent_class_filter` 命中判定 |
 
-旋转框 / 多边形 / 退化框命中阶段路由但几何不支持时计入 `stats[si].skipped_geometry`，不再静默——见下文逐阶段统计。
+旋转框 / 退化框命中阶段路由但几何不支持时计入 `stats[si].skipped_geometry`；多边形取外接框。原生 RLE 缺失、摘要不符、空前景或尺寸不符会明确失败，不计作普通几何跳过——见下文逐阶段统计。
 
 ### 逐阶段统计：实时快照 + 终态真值
 

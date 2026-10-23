@@ -559,11 +559,14 @@ class PredictionService:
             .with_for_update()
             .execution_options(populate_existing=True)
         )
-        if (token_meta or {}).get("mask_objects") is not None:
-            from app.services.controlled_segmentation import materialize_masks
-
-            await materialize_masks(self.db, result, token_meta, task_id=task_id)
-        await prepare_mask_payload_for_write(self.db, task, result)
+        await prepare_mask_payload_for_write(
+            self.db,
+            task,
+            result,
+            portable_mask_meta=token_meta
+            if (token_meta or {}).get("mask_objects") is not None
+            else None,
+        )
         prediction = Prediction(
             id=uuid.uuid4(),
             task_id=task_id,
