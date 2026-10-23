@@ -19,7 +19,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.db.models.dataset import DatasetItem
-from app.db.models.ml_backend_pool import ProjectMLBackendPool
+from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.task import Task
 from app.db.models.video_tracker_job import VideoTrackerJob
 from app.services.accepted_tracker_inputs import capture_video_tracker_input
