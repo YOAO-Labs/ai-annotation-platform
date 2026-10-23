@@ -27,6 +27,7 @@ from app.db.models.video_tracker_job import VideoTrackerJob
 from app.services.accepted_tracker_inputs import capture_video_tracker_input
 from tests.conftest import create_registry_with_pool
 from tests.factory import build_tool_bindings, create_membership, create_user
+from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.project_guide_asset_owner_helpers import (
     assert_workspace_identity,
     create_guide_storage_scope,
@@ -324,16 +325,22 @@ async def _committed_api_client(app_module, test_engine):
     api_engine = create_async_engine(_api_role_url(), hide_parameters=True)
     api_sessions = async_sessionmaker(api_engine, expire_on_commit=False)
     gateway = _identity_gateway_for_owned_auth(test_engine)
-    suspension_dsn = make_url(
-        _module_role_url(
-            "AAP_MODULE_DATA_IDENTITY_SUSPENSION_URL", "identity_suspension_client"
+    owner_bindings = {}
+    for group, role, setting in (
+        (
+            "SUSPENSION",
+            "identity_suspension_client",
+            "identity_suspension_database_url",
+        ),
+        ("BRIEFS", "identity_briefs_client", "identity_briefs_database_url"),
+    ):
+        dsn = make_url(_module_role_url(f"AAP_MODULE_DATA_IDENTITY_{group}_URL", role))
+        assert (dsn.host, dsn.port, dsn.database) == (
+            test_engine.url.host,
+            test_engine.url.port,
+            test_engine.url.database,
         )
-    )
-    assert (suspension_dsn.host, suspension_dsn.port, suspension_dsn.database) == (
-        test_engine.url.host,
-        test_engine.url.port,
-        test_engine.url.database,
-    )
+        owner_bindings[setting] = dsn.render_as_string(hide_password=False)
     previous_db = app_module.dependency_overrides.get(get_db)
     previous_gateway = app_module.dependency_overrides.get(get_identity_gateway)
 
@@ -344,12 +351,13 @@ async def _committed_api_client(app_module, test_engine):
     app_module.dependency_overrides[get_db] = api_session_dependency
     app_module.dependency_overrides[get_identity_gateway] = lambda: gateway
     scoped = pytest.MonkeyPatch()
-    scoped.setattr(
-        settings,
-        "identity_suspension_database_url",
-        suspension_dsn.render_as_string(hide_password=False),
-    )
-    scoped.setattr(settings, "identity_suspension_database_url_file", "")
+    for setting, dsn in owner_bindings.items():
+        scoped.setattr(settings, setting, dsn)
+        scoped.setattr(settings, setting + "_file", "")
+    scoped.setattr(settings, "identity_url", "")
+    scoped.setattr(settings, "identity_token", "")
+    scoped.setattr(settings, "identity_auth_database_url", gateway.auth_database_url)
+    scoped.setattr(settings, "identity_auth_database_url_file", "")
     try:
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app_module), base_url="http://test"
@@ -512,6 +520,115 @@ def _delete_worker_queue(sender, worker, record_property) -> None:
             "workspace_video_tracker_queue_cleanup_error", type(exc).__name__
         )
         raise
+
+
+async def _revoke_queued_worlds(api, worlds):
+    removed = worlds["removed"]
+    member_path = (
+        f"/api/v1/projects/{removed['project_id']}/members/{removed['membership_id']}"
+    )
+    manager_headers = {"Authorization": f"Bearer {removed['owner_token']}"}
+    preview_response = await api.post(
+        member_path + "/role/preview",
+        headers=manager_headers,
+        json={
+            "project_role": "viewer",
+            "replacement_annotator_id": str(removed["replacement_id"]),
+        },
+    )
+    assert preview_response.status_code == 200, preview_response.text
+    preview = preview_response.json()
+    assert preview["blockers"] == [], preview
+    assert set(preview["resource_snapshot"]["annotation_task_ids"]) == {
+        str(removed["task_id"])
+    }
+    handover_response = await api.patch(
+        member_path + "/role",
+        headers=manager_headers,
+        json={
+            "project_role": "viewer",
+            "replacement_annotator_id": str(removed["replacement_id"]),
+            "expected_version": preview["current_version"],
+            "preview_token": preview["preview_token"],
+            "reason": "Queued tracker authority revocation after explicit handover",
+        },
+    )
+    assert handover_response.status_code == 200, handover_response.text
+    remove_response = await api.delete(
+        member_path,
+        headers=manager_headers,
+    )
+    assert remove_response.status_code == 204, remove_response.text
+    deactivate_response = await api.post(
+        f"/api/v1/users/{worlds['disabled']['actor_id']}/deactivate",
+        headers={"Authorization": f"Bearer {worlds['disabled']['owner_token']}"},
+    )
+    assert deactivate_response.status_code == 200, deactivate_response.text
+
+
+async def test_tracker_revocation_http_prerequisites(test_engine, app_module):
+    await assert_owned_test_database(test_engine)
+    await _assert_workspace_consumer_closure(test_engine)
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False)
+    worlds = {}
+    async with sessions.begin() as db:
+        for label in ("removed", "disabled"):
+            owner_id, project, _dataset_id, _item_id, task_id = await _seed_video_task(
+                db, status="in_progress"
+            )
+            actor = await _make_actor(db, f"http-{label}-{uuid.uuid4().hex}")
+            member = await create_membership(
+                db,
+                project_id=project.id,
+                user_id=actor.id,
+                role="annotator",
+                assigned_by=owner_id,
+            )
+            task = await db.get(Task, task_id)
+            task.assignee_id = actor.id
+            replacement_id = None
+            if label == "removed":
+                receiver = await _make_actor(db, f"http-receiver-{uuid.uuid4().hex}")
+                replacement_id = receiver.id
+                await create_membership(
+                    db,
+                    project_id=project.id,
+                    user_id=replacement_id,
+                    role="annotator",
+                    assigned_by=owner_id,
+                )
+            worlds[label] = {
+                "owner_token": _access_token(owner_id, "super_admin"),
+                "actor_id": actor.id,
+                "project_id": project.id,
+                "membership_id": member.id,
+                "replacement_id": replacement_id,
+                "task_id": task_id,
+            }
+    async with _committed_api_client(app_module, test_engine) as api:
+        await _revoke_queued_worlds(api, worlds)
+    async with sessions() as db:
+        assert (
+            await db.scalar(
+                text("SELECT count(*) FROM public.project_members WHERE id=:member"),
+                {"member": worlds["removed"]["membership_id"]},
+            )
+            == 0
+        )
+        assert (
+            await db.scalar(
+                text("SELECT assignee_id FROM public.tasks WHERE id=:task"),
+                {"task": worlds["removed"]["task_id"]},
+            )
+            == worlds["removed"]["replacement_id"]
+        )
+        assert (
+            await db.scalar(
+                text("SELECT is_active FROM public.users WHERE id=:actor"),
+                {"actor": worlds["disabled"]["actor_id"]},
+            )
+            is False
+        )
 
 
 async def test_real_video_tracker_cold_worker_uses_workspace_acl_and_genuine_retirement(
@@ -732,50 +849,7 @@ async def test_real_video_tracker_cold_worker_uses_workspace_acl_and_genuine_ret
             record_property("video_tracker_cancel_retirement", cancel_execution)
 
             async with _committed_api_client(app_module, test_engine) as api:
-                removed = worlds["removed"]
-                member_path = (
-                    f"/api/v1/projects/{removed['project_id']}/members/"
-                    f"{removed['membership_id']}"
-                )
-                manager_headers = {"Authorization": f"Bearer {removed['owner_token']}"}
-                preview_response = await api.post(
-                    member_path + "/role/preview",
-                    headers=manager_headers,
-                    json={
-                        "project_role": "viewer",
-                        "replacement_annotator_id": str(removed["replacement_id"]),
-                    },
-                )
-                assert preview_response.status_code == 200, preview_response.text
-                preview = preview_response.json()
-                assert preview["blockers"] == [], preview
-                assert set(preview["resource_snapshot"]["annotation_task_ids"]) == {
-                    str(removed["task_id"])
-                }
-                handover_response = await api.patch(
-                    member_path + "/role",
-                    headers=manager_headers,
-                    json={
-                        "project_role": "viewer",
-                        "replacement_annotator_id": str(removed["replacement_id"]),
-                        "expected_version": preview["current_version"],
-                        "preview_token": preview["preview_token"],
-                        "reason": "Queued tracker authority revocation after explicit handover",
-                    },
-                )
-                assert handover_response.status_code == 200, handover_response.text
-                remove_response = await api.delete(
-                    member_path,
-                    headers=manager_headers,
-                )
-                assert remove_response.status_code == 204, remove_response.text
-                deactivate_response = await api.post(
-                    f"/api/v1/users/{worlds['disabled']['actor_id']}/deactivate",
-                    headers={
-                        "Authorization": f"Bearer {worlds['disabled']['owner_token']}"
-                    },
-                )
-                assert deactivate_response.status_code == 200, deactivate_response.text
+                await _revoke_queued_worlds(api, worlds)
 
             for label in ("removed", "disabled"):
                 delivery, result, ack = await _deliver(
