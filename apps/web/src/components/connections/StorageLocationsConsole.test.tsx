@@ -124,6 +124,10 @@ it("loads exact URL detail, separates disabled state from expired node health an
   expect(screen.getByTestId("filesystem")).toHaveTextContent(ID);
   expect(screen.getByTestId("summary")).toHaveTextContent(ID);
   expect(storage.bindings).not.toHaveBeenCalled();
+  expect(screen.getByRole("dialog", { name: "存储位置详情" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  expect(screen.getByTestId("url")).not.toHaveTextContent("location=");
   fireEvent.click(
     within(screen.getByRole("navigation", { name: "存储位置分页" })).getByRole("button", {
       name: "下一页",
@@ -231,4 +235,45 @@ it("keeps the original dataset return while removing nested return links from ne
   expect(storageReturn.pathname).toBe("/storage");
   expect(storageReturn.searchParams.get("location")).toBe(ID);
   expect(storageReturn.searchParams.has("returnTo")).toBe(false);
+});
+
+it("opens location details from the full list and restores focus and list context on Escape", async () => {
+  mount("/storage?page=2&returnTo=%2Fdatasets%3Fpage%3D3");
+  await screen.findByRole("table", { name: "存储位置列表" });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(screen.queryByText("选择位置，查看配置、能力和关联来源。")).not.toBeInTheDocument();
+  const trigger = await screen.findByRole("button", { name: "查看 Company archive 详情" });
+  trigger.focus();
+  fireEvent.click(trigger);
+  await screen.findByRole("dialog", { name: "存储位置详情" });
+  expect(screen.getByTestId("url")).toHaveTextContent(`location=${ID}`);
+  expect(await within(screen.getByRole("dialog")).findByTestId("summary")).toHaveTextContent(ID);
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  await waitFor(() => expect(trigger).toHaveFocus());
+  expect(screen.getByTestId("url")).toHaveTextContent("page=2");
+  expect(screen.getByTestId("url")).toHaveTextContent("returnTo=");
+  expect(screen.getByTestId("url")).not.toHaveTextContent("location=");
+});
+it.each([
+  ["登记目录", "filesystem"],
+  ["新建远端连接", "connection"],
+])("opens %s in a centered creation dialog", async (label, testId) => {
+  mount("/storage");
+  const trigger = screen.getByRole("button", { name: label });
+  fireEvent.click(trigger);
+  const dialog = await screen.findByRole("dialog", { name: label });
+  expect(within(dialog).getByTestId(testId)).toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: "关闭" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  await waitFor(() => expect(trigger).toHaveFocus());
+});
+it("keeps invalid deep links dismissible without querying unrelated location data", async () => {
+  mount("/storage?location=invalid&page=2");
+  const dialog = await screen.findByRole("dialog", { name: "存储位置详情" });
+  expect(within(dialog).getByRole("alert")).toHaveTextContent("存储位置链接无效");
+  expect(api.location).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole("button", { name: "关闭" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  expect(screen.getByTestId("url")).toHaveTextContent("page=2");
 });

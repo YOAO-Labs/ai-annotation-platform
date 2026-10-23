@@ -1,5 +1,5 @@
 import { storageAccessDenied } from "./storageQueryState";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { datasetSourcesApi } from "@/api/datasetSources";
@@ -12,6 +12,7 @@ import { verifiedContentError } from "@/hooks/useVerifiedImage";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { listStyles } from "@/components/ui/listStyles";
+import { Modal } from "@/components/ui/Modal";
 import { Card } from "@/components/ui/Card";
 import { ListPagination, listPageSize } from "@/components/ui/ListPagination";
 import { FilesystemLocationsPanel } from "./FilesystemLocationsPanel";
@@ -72,6 +73,7 @@ function ConsoleOwner() {
   storageParams.delete("returnTo");
   const storageContext = `${location.pathname}${storageParams.size ? `?${storageParams}` : ""}`;
   const [createKind, setCreateKind] = useState<"filesystem" | "connection" | null>(null);
+  const dialogTrigger = useRef<HTMLElement | null>(null);
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30_000);
@@ -129,17 +131,16 @@ function ConsoleOwner() {
   const selected = (storageAccessDenied(detail.error) ? undefined : detail.data) as
     | Location
     | undefined;
+  const returnLink = returnTo && (
+    <Link className="mb-4 inline-block text-sm text-brand underline" to={returnTo}>
+      返回数据集
+      {new URL(returnTo, "https://dataset.invalid").searchParams.has("import") ? "导入" : "工作台"}
+    </Link>
+  );
   if (!allowed) return <p className="text-sm text-muted-foreground">当前账号没有存储管理权限。</p>;
   return (
     <>
-      {returnTo && (
-        <Link className="mb-4 inline-block text-sm text-brand underline" to={returnTo}>
-          返回数据集
-          {new URL(returnTo, "https://dataset.invalid").searchParams.has("import")
-            ? "导入"
-            : "工作台"}
-        </Link>
-      )}
+      {returnLink}
       <nav aria-label="存储管理视图" className="mb-4 flex gap-2">
         <Button
           aria-pressed={tab === "locations"}
@@ -232,7 +233,7 @@ function ConsoleOwner() {
           </div>
         </Card>
       ) : (
-        <div className="grid items-start gap-4 xl:grid-cols-[minmax(260px,340px)_minmax(0,1fr)]">
+        <>
           <Card>
             <div className="p-4">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -243,11 +244,23 @@ function ConsoleOwner() {
               </div>
               <div className="mb-3 flex flex-wrap gap-2">
                 {role === "super_admin" && (
-                  <Button size="sm" onClick={() => setCreateKind("filesystem")}>
+                  <Button
+                    size="sm"
+                    onClick={(event) => {
+                      dialogTrigger.current = event.currentTarget;
+                      setCreateKind("filesystem");
+                    }}
+                  >
                     登记目录
                   </Button>
                 )}
-                <Button size="sm" onClick={() => setCreateKind("connection")}>
+                <Button
+                  size="sm"
+                  onClick={(event) => {
+                    dialogTrigger.current = event.currentTarget;
+                    setCreateKind("connection");
+                  }}
+                >
                   新建远端连接
                 </Button>
               </div>
@@ -262,28 +275,64 @@ function ConsoleOwner() {
                   {verifiedContentError(locations.error)}
                 </p>
               )}
-              <ul className="divide-y divide-border">
-                {locationData?.items.map((item) => (
-                  <li key={item.id}>
-                    <button
-                      className={`w-full rounded-md px-2 py-3 text-left text-sm hover:bg-muted focus-visible:outline focus-visible:outline-ring ${locationId === item.id ? "bg-muted" : ""}`}
-                      aria-current={locationId === item.id ? "true" : undefined}
-                      onClick={() => {
-                        setCreateKind(null);
-                        patch({ location: item.id });
-                      }}
-                    >
-                      <span className="block font-semibold">{item.name}</span>
-                      <span className="mt-1 block text-xs text-muted-foreground">
-                        {KIND[item.kind] ?? item.kind} · {item.enabled ? "已启用" : "已停用"}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              {locationData?.total === 0 && (
-                <p className="py-4 text-xs text-muted-foreground">暂无获授权的存储位置。</p>
-              )}
+              <div className={listStyles.scroll}>
+                <table className={listStyles.table} aria-label="存储位置列表">
+                  <thead>
+                    <tr>
+                      <th>名称</th>
+                      <th>类型</th>
+                      <th>状态</th>
+                      <th className="text-right">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {locationData?.items.map((item) => (
+                      <tr key={item.id}>
+                        <td>
+                          <button
+                            className="text-sm font-medium text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            onClick={(event) => {
+                              dialogTrigger.current = event.currentTarget;
+                              setCreateKind(null);
+                              patch({ location: item.id });
+                            }}
+                            aria-haspopup="dialog"
+                          >
+                            {item.name}
+                          </button>
+                        </td>
+                        <td>{KIND[item.kind] ?? item.kind}</td>
+                        <td>
+                          <Badge variant={item.enabled ? "success" : "outline"}>
+                            {item.enabled ? "已启用" : "已停用"}
+                          </Badge>
+                        </td>
+                        <td className="text-right">
+                          <Button
+                            size="sm"
+                            aria-label={`查看 ${item.name} 详情`}
+                            aria-haspopup="dialog"
+                            onClick={(event) => {
+                              dialogTrigger.current = event.currentTarget;
+                              setCreateKind(null);
+                              patch({ location: item.id });
+                            }}
+                          >
+                            查看详情
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                    {locationData?.total === 0 && (
+                      <tr>
+                        <td colSpan={4} className={listStyles.empty}>
+                          暂无获授权的存储位置。
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
               <ListPagination
                 label="存储位置"
                 page={page}
@@ -295,12 +344,25 @@ function ConsoleOwner() {
               />
             </div>
           </Card>
-          <div className="min-w-0">
+          <Modal
+            open={!!createKind || !!rawId}
+            title={
+              createKind === "filesystem"
+                ? "登记目录"
+                : createKind === "connection"
+                  ? "新建远端连接"
+                  : "存储位置详情"
+            }
+            width={960}
+            returnFocusRef={dialogTrigger}
+            onClose={() => {
+              setCreateKind(null);
+              if (rawId) patch({ location: null });
+            }}
+          >
+            {returnLink}
             {createKind === "filesystem" ? (
               <>
-                <Button size="sm" className="mb-3" onClick={() => setCreateKind(null)}>
-                  取消登记
-                </Button>
                 <FilesystemLocationsPanel
                   onCreated={(item) => {
                     void client.invalidateQueries({ queryKey: ["storage-source-locations"] });
@@ -328,13 +390,6 @@ function ConsoleOwner() {
                   <p role="alert" className="text-xs text-status-danger">
                     存储位置链接无效。
                   </p>
-                )}
-                {!rawId && (
-                  <Card>
-                    <p className="p-6 text-sm text-muted-foreground">
-                      选择位置，查看配置、能力和关联来源。
-                    </p>
-                  </Card>
                 )}
                 {locationId && detail.isPending && (
                   <p role="status" className="text-xs text-muted-foreground">
@@ -463,8 +518,8 @@ function ConsoleOwner() {
                 )}
               </>
             )}
-          </div>
-        </div>
+          </Modal>
+        </>
       )}
     </>
   );

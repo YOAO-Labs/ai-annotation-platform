@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { datasetSourcesApi as api } from "@/api/datasetSources";
 import { ApiError } from "@/api/client";
@@ -48,6 +48,7 @@ export function DirectorySyncSchedule({
   datasetId: string;
 }) {
   const client = useQueryClient();
+  const policyHint = useId();
   const capture = useSessionGuard();
   const [policyDraft, setPolicyDraft] = useState<"manual" | "pure_additions" | null>(null);
   const [timezoneDraft, setTimezoneDraft] = useState<string | null>(null);
@@ -128,11 +129,12 @@ export function DirectorySyncSchedule({
           新增接纳策略{" "}
           <select
             aria-label="新增接纳策略"
+            aria-describedby={policyHint}
             className="rounded-md border border-input bg-background px-2 py-1"
             value={policy}
             onChange={(e) => setPolicyDraft(e.target.value as typeof policy)}
           >
-            <option value="manual">人工确认（默认）</option>
+            <option value="manual">人工确认</option>
             <option value="pure_additions">纯新增轮次自动登记</option>
           </select>
         </label>
@@ -193,6 +195,9 @@ export function DirectorySyncSchedule({
           刷新周期状态
         </Button>
       </div>
+      <p id={policyHint} className="mt-2 text-xs leading-relaxed text-muted-foreground">
+        默认由人工核对差异；自动登记仅适用于纯新增轮次。
+      </p>
       {row && (
         <p role="status" className="mt-2">
           {row.enabled || row.state === "blocked" ? states[row.state] : "周期计划已暂停"}

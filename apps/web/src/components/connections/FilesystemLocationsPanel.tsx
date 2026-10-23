@@ -1,6 +1,6 @@
 import { storageAccessDenied } from "./storageQueryState";
 import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { StorageLocationAccessFields } from "./StorageLocationAccessFields";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/api/client";
@@ -33,6 +33,7 @@ function FilesystemLocationsPanelOwner({
   onCreated,
   showProbe = true,
 }: FilesystemLocationsPanelProps) {
+  const rootHint = useId();
   const capture = useSessionGuard();
   const { role } = usePermissions();
   const session = useAuthStore((s) => s.sessionId);
@@ -94,8 +95,8 @@ function FilesystemLocationsPanelOwner({
       </p>
       {!locationId && (
         <>
-          <div className="flex flex-wrap items-end gap-2">
-            <label className="grid gap-1 text-xs">
+          <div className="grid items-start gap-4 sm:grid-cols-2">
+            <label className="grid min-w-0 gap-1 text-sm">
               位置名称
               <input
                 className={field}
@@ -104,16 +105,25 @@ function FilesystemLocationsPanelOwner({
                 maxLength={100}
               />
             </label>
-            <label className="grid gap-1 text-xs">
+            <label className="grid min-w-0 gap-1 text-sm">
               受控根
-              <select className={field} value={root} onChange={(e) => setRoot(e.target.value)}>
-                <option value="">选择已挂载根</option>
+              <select
+                className={field}
+                aria-label="受控根"
+                aria-describedby={rootHint}
+                value={root}
+                onChange={(e) => setRoot(e.target.value)}
+              >
+                <option value="" disabled hidden />
                 {roots.data?.map((r) => (
                   <option key={r}>{r}</option>
                 ))}
               </select>
+              <span id={rootHint} className="text-xs leading-relaxed text-muted-foreground">
+                选择部署时已挂载的存储根目录。
+              </span>
             </label>
-            <label className="grid gap-1 text-xs">
+            <label className="grid min-w-0 gap-1 text-sm">
               根内相对目录
               <input
                 className={field}
@@ -122,7 +132,7 @@ function FilesystemLocationsPanelOwner({
                 placeholder="留空使用受控根"
               />
             </label>
-            <label className="grid gap-1 text-xs">
+            <label className="grid min-w-0 gap-1 text-sm">
               允许的缓存
               <select
                 aria-label="位置缓存上限"
@@ -254,7 +264,7 @@ function FilesystemLocationsPanelOwner({
             onScope={setEditScope}
             onUsers={setEditUsers}
           />
-          <label className="grid gap-1 text-xs">
+          <label className="grid min-w-0 gap-1 text-sm">
             位置缓存上限
             <select
               aria-label="修改位置缓存上限"

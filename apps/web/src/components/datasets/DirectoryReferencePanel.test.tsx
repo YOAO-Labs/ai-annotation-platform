@@ -87,6 +87,13 @@ it("refreshes a paused schedule revision after saving source rules before re-ena
   const schedule = screen
     .getByText("周期计划", { exact: false, selector: "summary" })
     .closest("details")!;
+  expect(
+    screen.getByRole("combobox", { name: "原图策略", hidden: true }),
+  ).toHaveAccessibleDescription("原图保留在来源，不复制到平台。");
+  expect(screen.getByRole("option", { name: "原地引用", hidden: true })).toBeInTheDocument();
+  expect(
+    screen.queryByRole("option", { name: /不复制原图/, hidden: true }),
+  ).not.toBeInTheDocument();
   expect(creation).not.toHaveAttribute("open");
   expect(settings).not.toHaveAttribute("open");
   expect(schedule).not.toHaveAttribute("open");

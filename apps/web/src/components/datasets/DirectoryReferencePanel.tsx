@@ -1,7 +1,7 @@
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { storageLocationLink } from "./storageNavigation";
 import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { datasetSourcesApi as api } from "@/api/datasetSources";
 import { listStyles } from "@/components/ui/listStyles";
@@ -84,6 +84,7 @@ function DirectoryReferencePanelOwner({
   initialScanId,
   persistUrl = false,
 }: { datasetId: string } & DirectorySourceFocus) {
+  const hintId = useId();
   const navigation = useLocation();
   const [, setSearchParams] = useSearchParams();
   const syncFocus = (sourceId: string, scanId?: string) => {
@@ -308,7 +309,7 @@ function DirectoryReferencePanelOwner({
               setOffset(0);
             }}
           >
-            <option value="">选择来源</option>
+            <option value="" disabled hidden />
             {visibleSources.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
@@ -377,6 +378,11 @@ function DirectoryReferencePanelOwner({
             </>
           )}
         </div>
+        {!activeSource && (
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+            请先新增目录来源，再运行扫描。
+          </p>
+        )}
         {source && (
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-border pt-3 text-xs leading-relaxed text-muted-foreground">
             <span className="break-all">目录：{source.relative_path || "位置根目录"}</span>
@@ -423,11 +429,12 @@ function DirectoryReferencePanelOwner({
           <p className="mb-4 mt-3 text-sm leading-relaxed text-muted-foreground">
             选择已注册的存储位置，填写其下的相对路径。原图和预览缓存策略分别设置；本机文件夹请通过上传接入。
           </p>
-          <div className="grid items-end gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid items-start gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <label className="grid gap-1">
               存储位置
               <select
                 aria-label="原地引用存储位置"
+                aria-describedby={`${hintId}-location`}
                 className={field}
                 value={locationId}
                 onChange={(e) => {
@@ -435,7 +442,7 @@ function DirectoryReferencePanelOwner({
                   setBrowsePath(null);
                 }}
               >
-                <option value="">选择已登记位置</option>
+                <option value="" disabled hidden />
                 {locations.data?.items
                   .filter((l) => l.declared_capabilities.reference && l.enabled)
                   .map((l) => (
@@ -444,6 +451,12 @@ function DirectoryReferencePanelOwner({
                     </option>
                   ))}
               </select>
+              <span
+                id={`${hintId}-location`}
+                className="text-xs leading-relaxed text-muted-foreground"
+              >
+                选择已注册且启用的存储位置。
+              </span>
             </label>
             <div className="flex min-w-0 flex-wrap items-end gap-2 sm:col-span-2">
               <label className="grid min-w-0 flex-1 gap-1">
@@ -479,13 +492,22 @@ function DirectoryReferencePanelOwner({
               原图策略
               <select
                 aria-label="原图策略"
+                aria-describedby={`${hintId}-ownership`}
                 className={field}
                 value={ownership}
                 onChange={(e) => setOwnership(e.target.value as typeof ownership)}
               >
-                <option value="reference">原地引用（不复制原图）</option>
+                <option value="reference">原地引用</option>
                 <option value="managed_copy">托管复制</option>
               </select>
+              <span
+                id={`${hintId}-ownership`}
+                className="text-xs leading-relaxed text-muted-foreground"
+              >
+                {ownership === "reference"
+                  ? "原图保留在来源，不复制到平台。"
+                  : "核验原图后，复制到平台独立保存。"}
+              </span>
             </label>
             <label className="grid gap-1">
               预览策略

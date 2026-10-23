@@ -287,7 +287,7 @@ it("persists detail source/scan choices in URL without losing filters and clears
 it("opens source setup when no directory source has been configured", async () => {
   api.sources.mockResolvedValue({ items: [], total: 0 });
   mount();
-  await screen.findByRole("option", { name: "选择来源" });
+  await screen.findByText("请先新增目录来源，再运行扫描。");
   expect(screen.getByText("新增来源", { exact: false }).closest("details")).toHaveAttribute("open");
   expect(screen.queryByLabelText("扫描历史")).not.toBeInTheDocument();
 });

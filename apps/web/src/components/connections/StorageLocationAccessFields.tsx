@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { usersApi } from "@/api/users";
 import { Button } from "@/components/ui/Button";
@@ -21,6 +21,7 @@ export function StorageLocationAccessFields({
   onScope: (scope: "restricted" | "global") => void;
   onUsers: (ids: string[]) => void;
 }) {
+  const scopeHint = useId();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const users = useQuery({
@@ -37,10 +38,11 @@ export function StorageLocationAccessFields({
       className="mt-3 min-w-0 rounded-md border border-border p-3 text-sm"
     >
       <legend className="px-1 font-medium">位置使用范围</legend>
-      <label className="flex flex-wrap items-center gap-2">
+      <label className="grid gap-1">
         使用范围
         <select
           aria-label="位置使用范围"
+          aria-describedby={scopeHint}
           className={field}
           value={scope}
           onChange={(e) => onScope(e.target.value as "restricted" | "global")}
@@ -49,7 +51,7 @@ export function StorageLocationAccessFields({
           <option value="global">所有数据管理员</option>
         </select>
       </label>
-      <p className="mt-2 text-muted-foreground">
+      <p id={scopeHint} className="mt-2 text-xs leading-relaxed text-muted-foreground">
         超级管理员始终可用。此授权允许项目管理员为自己创建的数据集接入该位置，不授予其他数据集的管理权。标注员通过分配任务读取图片。
       </p>
       {scope === "restricted" && (

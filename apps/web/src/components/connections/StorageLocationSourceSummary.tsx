@@ -1,5 +1,5 @@
 import { storageAccessDenied } from "./storageQueryState";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { datasetSourcesApi as api } from "@/api/datasetSources";
@@ -57,6 +57,7 @@ export function StorageLocationSourceSummary(props: SummaryProps = {}) {
 }
 
 function SummaryOwner({ locationId: selectedLocationId, returnTo }: SummaryProps) {
+  const locationHint = useId();
   const { role } = usePermissions();
   const session = useAuthStore((s) => s.sessionId);
   const actor = useAuthStore((s) => s.user?.id);
@@ -106,6 +107,7 @@ function SummaryOwner({ locationId: selectedLocationId, returnTo }: SummaryProps
             存储位置历史
             <select
               aria-label="查看关联来源的存储位置"
+              aria-describedby={locationHint}
               className="rounded-md border border-input bg-background px-2 py-1.5 text-foreground"
               value={locationId}
               onChange={(event) => {
@@ -115,7 +117,7 @@ function SummaryOwner({ locationId: selectedLocationId, returnTo }: SummaryProps
                 setJobId(null);
               }}
             >
-              <option value="">请选择位置</option>
+              <option value="" disabled hidden />
               {locationData?.items.map((location) => (
                 <option key={location.id} value={location.id}>
                   {location.name} · {location.kind}
@@ -124,6 +126,9 @@ function SummaryOwner({ locationId: selectedLocationId, returnTo }: SummaryProps
               ))}
             </select>
           </label>
+          <p id={locationHint} className="mt-2 text-xs leading-relaxed text-muted-foreground">
+            选择位置后查看其关联来源与后台任务。
+          </p>
           <Pagination
             label="位置"
             offset={locationOffset}
