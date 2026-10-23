@@ -548,6 +548,14 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 统一验收器分别验证只读 LOGIN、普通 API 与 LAN 授权，拒绝私表读取及关系写入，并记录四阶段 `pg_get_viewdef`、原生列类型和 owner 转移。源码 SQL 哈希与数据库反解析哈希分开保存；操作验收、当前冷工件和完整模块资格见[读取台账](docs-site/dev/concepts/module-deployment.md#support-read-relations)。
 
+### Notifications 实时消息合同
+
+`apps/notifications` 发布 `aap-notification-realtime/v1` 和 `realtime_event.schema.json`，API 与 durable publisher 共用六个业务事件字段的构造，保留各自的日期字符串和 JSON 编码。合同不向既有帧增加 schema 字段，业务 type 与 sync reason 保持开放；原生 JSONB 的对象、数组、标量与 null 均可保留。通用 ping 仍属于 WebSocket 层。
+
+普通通知仍由调用方提交后 best-effort 发布，终态 job 保留原提交前路径，durable publisher 保留 lease／重试／ack。WS 继续逐帧认证与当前投递权限检查，缺失行保留四次查询及三次 150ms 等待；公开消息合同不会收紧既有 WS gate。订阅被取消或退订失败时也会关闭 PubSub。
+
+Node peer `apps/notifications/conformance/node/realtime_event_provider.mjs --stdio` 校验 stdin 的单条事件／sync 并原字节回显，不读取连接凭据。真实本地 socket 案例 `tests/test_notifications_socket_live.py` 通过现有 module-data verifier 运行，要求独占临时 PostgreSQL／Redis，分别使用受限 API、认证角色和单频道订阅 ACL。它覆盖原始事件、Node 帧、历史 JSONB、提交可见性、撤权及断连／handler 取消；源码检查、实际运行与整模块资格见[唯一台账](docs-site/dev/concepts/module-deployment.md#notification-realtime-wire)。
+
 ### 视频输入回收的保留前提
 
 视频输入保留迁移 `0312` 通过 Jobs 事实让 Labeling 保留未退役及未知旧执行的输入，并保留现有 pin、审核宽限期和已证明安全的释放。`0313` 还在领取已有垃圾前缀时重新核对当前输入引用；保留项按本次租约时长延后，已被新一代替代的前缀继续清理。升级前先停止全部 `apps/assets-cleanup` 进程并确认退出，盘点前缀与租约，等待剩余租约到期后再恢复清理；无法确认进程退出或在途 S3 请求结束时，须先隔离对象删除凭据。默认清理租约为 600 秒，Native claim 接受 60–7200 秒；租约到期本身不能证明物理删除已停止。

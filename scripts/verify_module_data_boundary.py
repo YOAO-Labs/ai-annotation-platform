@@ -694,6 +694,8 @@ TEST_FILES = (
     "tests/test_notification_read_relations.py",
     "tests/test_dataset_import_delivery.py::test_notification_delivery_acks_after_publish_by_persisted_id",
     "tests/test_ws_revalidation.py::test_notification_parser_resolves_stored_row",
+    "tests/test_notifications_socket_lifecycle.py",
+    "tests/test_notifications_socket_live.py",
     "tests/test_audit_append_adapter.py",
     "tests/test_audit_append_native.py",
     "tests/test_audit_logs.py",

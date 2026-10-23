@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-24
 ---
 
 # WebSocket 协议
@@ -58,7 +58,9 @@ ws://api.example.com/ws/notifications?token=eyJhbGciOi...
 
 服务端 → 客户端，JSON 文本帧。消息类型保持开放；当前有业务通知、心跳和同步控制帧。
 
-#### 业务消息（NotificationOut）
+#### 业务通知事件
+
+可移植合同为 `aap-notification-realtime/v1`，冻结 Schema 位于仓库 `apps/notifications/src/aap_notifications/realtime_event.schema.json`。它描述现有六字段事件和 sync 控制帧，不向消息增加版本字段；原生 JSONB 的数组、标量和 null 也保持可传输。通用 ping 不属于此 owner 合同。
 
 业务通知持久化到 Postgres 后通过 Redis Pub/Sub 发出。普通 API 消息由 `NotificationService.publish_committed` 发布；选定的 durable delivery worker 使用同一组业务字段。字段如下：
 

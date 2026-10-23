@@ -475,6 +475,31 @@ describe("useNotificationSocket", () => {
   });
 
   it.each([
+    { payload: null },
+    { payload: ["legacy", null, 7] },
+    { payload: "legacy" },
+    { payload: 0 },
+    { payload: false },
+  ])("旧通知的非对象 payload 仍刷新作业和通知 (%j)", ({ payload }) => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = vi.spyOn(qc, "invalidateQueries");
+    seedPreferences(qc, "u1", []);
+    mount(qc);
+
+    act(() => {
+      MockWebSocket.instances[0].triggerMessage({
+        id: "legacy-payload",
+        type: "job.completed",
+        payload,
+      });
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["async-jobs"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["notifications"] });
+    expect(toastCallCount()).toBe(0);
+  });
+
+  it.each([
     ["reason omitted", { type: "notifications.sync", schema: "future/v2" }],
     [
       "future reason and extension marker",

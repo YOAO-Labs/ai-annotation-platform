@@ -594,8 +594,8 @@ async def notifications_socket(
     r = aioredis.Redis(connection_pool=_get_redis_pool())
     pubsub = r.pubsub()
     channel = channel_for(user_id)
-    await pubsub.subscribe(channel)
     try:
+        await pubsub.subscribe(channel)
         await _run_pubsub_ws(
             websocket,
             pubsub,
@@ -607,7 +607,9 @@ async def notifications_socket(
         log.warning("notifications WS error user=%s err=%s", user_id, e)
     finally:
         try:
-            await pubsub.unsubscribe(channel)
-            await pubsub.close()
+            try:
+                await pubsub.unsubscribe(channel)
+            finally:
+                await pubsub.close()
         except Exception:
             pass
