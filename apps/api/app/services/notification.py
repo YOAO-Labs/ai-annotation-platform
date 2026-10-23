@@ -7,14 +7,12 @@ WS 断线 / 多端登录 / 离线场景都能从 GET /notifications 拉到。
 
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from collections.abc import Iterable
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-import redis.asyncio as aioredis
 from sqlalchemy import (
     String,
     and_,
@@ -70,13 +68,10 @@ from aap_notifications.read_state import NotificationReadStateManager
 from aap_notifications.read_state_postgres import NotificationReadStatePostgresData
 from aap_notifications.delete import NotificationDeleteManager
 from aap_notifications.delete_postgres import NotificationDeletePostgresData
+from aap_notifications.redis_pubsub import channel_for, publish_json as _publish_json
 
 
 log = logging.getLogger(__name__)
-
-
-def channel_for(user_id: uuid.UUID | str) -> str:
-    return f"notify:{user_id}"
 
 
 def _notification_project_id(row: Notification) -> uuid.UUID | None:
@@ -892,8 +887,8 @@ class NotificationService:
 
 
 async def _publish(*, user_id: uuid.UUID, message: dict) -> None:
-    r = aioredis.from_url(settings.redis_url)
-    try:
-        await r.publish(channel_for(user_id), json.dumps(message))
-    finally:
-        await r.close()
+    await _publish_json(
+        settings.redis_url,
+        channel=channel_for(user_id),
+        message=message,
+    )

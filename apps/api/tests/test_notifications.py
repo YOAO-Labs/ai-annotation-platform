@@ -11,6 +11,7 @@ from app.db.models.bug_report import BugReport
 from app.db.models.notification import Notification
 from app.db.models.notification_preference import NotificationPreference
 from app.services.display_id import next_display_id
+from app.services import notification as notification_module
 from app.services.notification import NotificationService
 from aap_notifications.preferences_policy import (
     KNOWN_NOTIFICATION_TYPES,
@@ -920,12 +921,51 @@ def _commit_spy(db_session, monkeypatch):
 
 
 def _record_publish(monkeypatch, sink: list, *, user_id=None):
+    expected_user_id = user_id
+
     async def fake_publish(*, user_id: uuid.UUID, message: dict):
-        if user_id is not None:
-            assert user_id == user_id
+        if expected_user_id is not None:
+            assert user_id == expected_user_id
         sink.append(message)
 
     monkeypatch.setattr("app.services.notification._publish", fake_publish)
+
+
+@pytest.mark.asyncio
+async def test_record_publish_rejects_a_different_user(monkeypatch):
+    expected_user_id = uuid.UUID("60000000-0000-4000-8000-000000000003")
+    sink = []
+    _record_publish(monkeypatch, sink, user_id=expected_user_id)
+
+    with pytest.raises(AssertionError):
+        await notification_module._publish(
+            user_id=uuid.UUID("60000000-0000-4000-8000-000000000004"),
+            message={"type": "notifications.sync", "reason": "read"},
+        )
+
+    assert sink == []
+
+
+@pytest.mark.asyncio
+async def test_raw_publish_uses_legacy_channel_and_transport_seam(monkeypatch):
+    user_id = uuid.UUID("60000000-0000-4000-8000-000000000003")
+    message = {"type": "notifications.sync", "reason": "read"}
+    calls = []
+
+    async def fake_publish_json(redis_url, *, channel, message):
+        calls.append((redis_url, channel, message))
+
+    monkeypatch.setattr(notification_module, "_publish_json", fake_publish_json)
+
+    await notification_module._publish(user_id=user_id, message=message)
+
+    assert calls == [
+        (
+            notification_module.settings.redis_url,
+            f"notify:{user_id}",
+            message,
+        )
+    ]
 
 
 @pytest.mark.asyncio
