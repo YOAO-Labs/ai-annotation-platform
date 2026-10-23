@@ -353,3 +353,76 @@ async def test_read_error_with_successful_close_settles_receipt(test_engine):
                 lambda: (_ for _ in ()).throw(OSError("read failed")),
             )
         assert await count(test_engine, location_id) == 0
+
+
+async def test_acquired_callback_persists_permit_identity_before_executor_starts(
+    test_engine,
+):
+    async with world(test_engine) as (db, location_id):
+        state = {}
+        started = threading.Event()
+
+        async def acquired(permit):
+            assert not started.is_set()
+            assert permit.location_id == location_id and permit.revision == 1
+            assert await count(test_engine, location_id) == 1
+            state["permit_id"] = permit.id
+            await db.commit()
+            state["callback_finished"] = True
+
+        def read():
+            assert state["callback_finished"]
+            started.set()
+            return state["permit_id"]
+
+        identity = await access.run(
+            db, location_id, "recorded_read", read, on_acquired=acquired
+        )
+        assert identity == state["permit_id"] and started.is_set()
+        assert await count(test_engine, location_id) == 0
+
+
+async def test_failed_acquired_callback_settles_receipt_without_starting_io(
+    test_engine,
+):
+    async with world(test_engine) as (db, location_id):
+        started = threading.Event()
+
+        async def acquired(permit):
+            assert await count(test_engine, location_id) == 1
+            raise RuntimeError("owner evidence was not committed")
+
+        with pytest.raises(RuntimeError, match="owner evidence was not committed"):
+            await access.run(
+                db, location_id, "unrecorded_read", started.set, on_acquired=acquired
+            )
+        assert not started.is_set()
+        assert await count(test_engine, location_id) == 0
+
+
+async def test_cancelled_acquired_callback_settles_before_return_and_never_starts_io(
+    test_engine,
+):
+    async with world(test_engine) as (db, location_id):
+        admitted, release = asyncio.Event(), asyncio.Event()
+        started = threading.Event()
+
+        async def acquired(permit):
+            admitted.set()
+            await release.wait()
+
+        task = asyncio.create_task(
+            access.run(
+                db, location_id, "cancelled_read", started.set, on_acquired=acquired
+            )
+        )
+        try:
+            await asyncio.wait_for(admitted.wait(), 2)
+            assert await count(test_engine, location_id) == 1
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(task, 2)
+        finally:
+            release.set()
+        assert not started.is_set()
+        assert await count(test_engine, location_id) == 0

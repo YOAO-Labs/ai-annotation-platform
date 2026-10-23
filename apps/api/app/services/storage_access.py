@@ -249,11 +249,15 @@ async def run(
     expected_revision=None,
     node_id=None,
     timeout=None,
+    on_acquired=None,
     **kwargs,
 ):
+    """Persist optional owner evidence before starting registered executor I/O."""
     async with await acquire(
         db, location_id, purpose, expected_revision=expected_revision, node_id=node_id
-    ):
+    ) as permit:
+        if on_acquired is not None:
+            await on_acquired(permit)
         future = asyncio.get_running_loop().run_in_executor(
             None, copy_context().run, partial(call, *args, **kwargs)
         )
