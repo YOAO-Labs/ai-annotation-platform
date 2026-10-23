@@ -18,7 +18,14 @@ from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
 from app.db.models.prediction import Prediction, PredictionMeta
 from app.db.models.project import Project
-from app.db.models.project_member import ProjectMember
+from app.services.seed_membership_data import SeedMembershipWrites
+from app.services.workspace_seed_data import (
+    pin_seed_project_timestamps,
+    register_project_counter_projection,
+    register_seed_project_projection,
+    seed_members,
+    seed_projects,
+)
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.services.identity_commands import IdentityCommandService
@@ -349,7 +356,7 @@ async def prepare_screenshot_seed(
     adopt_keys: set[str] = set()
     for logical_key, spec in PROJECT_SPECS.items():
         project = await db.scalar(
-            select(Project).where(Project.display_id == spec.display_id)
+            select(seed_projects).where(seed_projects.display_id == spec.display_id)
         )
         dataset = await db.scalar(
             select(Dataset).where(Dataset.display_id == spec.dataset_display_id)
@@ -418,7 +425,7 @@ async def _resolve_owned_resources(
     projects = list(
         (
             await db.execute(
-                select(Project).where(Project.display_id == spec.display_id)
+                select(seed_projects).where(seed_projects.display_id == spec.display_id)
             )
         ).scalars()
     )
@@ -547,29 +554,31 @@ async def _resolve_owned_resources(
 
 async def _reconcile_members(
     db: AsyncSession, project: Project, users: dict[str, uuid.UUID]
-) -> None:
+) -> SeedMembershipWrites:
     assigned_by = users["project_admin"]
+    writes = SeedMembershipWrites(db)
     for user_key, role in (("annotator", "annotator"), ("reviewer", "reviewer")):
         user = users[user_key]
+        await writes.flush_before_read()
         member = await db.scalar(
-            select(ProjectMember).where(
-                ProjectMember.project_id == project.id,
-                ProjectMember.user_id == user,
+            select(seed_members).where(
+                seed_members.project_id == project.id,
+                seed_members.user_id == user,
             )
         )
         if member is None:
-            member = ProjectMember(
+            writes.add(
                 project_id=project.id,
                 user_id=user,
                 role=role,
                 assigned_by=assigned_by,
                 assigned_at=FIXED_TIME,
             )
-            db.add(member)
         else:
-            member.role = role
-            member.assigned_by = assigned_by
-            member.assigned_at = FIXED_TIME
+            writes.change(
+                member, role=role, assigned_by=assigned_by, assigned_at=FIXED_TIME
+            )
+    return writes
 
 
 async def _reconcile_batches(
@@ -578,6 +587,7 @@ async def _reconcile_batches(
     dataset: Dataset,
     tasks: dict[str, Task],
     users: dict[str, uuid.UUID],
+    membership_writes: SeedMembershipWrites,
 ) -> dict[str, TaskBatch]:
     spec = PROJECT_SPECS["image_demo"]
     expected_display_ids = {batch_spec.display_id for batch_spec in spec.batches}
@@ -636,7 +646,7 @@ async def _reconcile_batches(
         if not rows:
             db.add(batch)
         batches[batch_spec.key] = batch
-    await db.flush()
+    await membership_writes.flush()
 
     task_specs = {task_spec.key: task_spec for task_spec in spec.tasks}
     for key, task in tasks.items():
@@ -820,8 +830,12 @@ def _set_task_state(tasks: dict[str, Task], users: dict[str, uuid.UUID]) -> None
 
 
 def _sync_counters(
-    project: Project, batches: dict[str, TaskBatch], tasks: dict[str, Task]
+    db: AsyncSession,
+    project: Project,
+    batches: dict[str, TaskBatch],
+    tasks: dict[str, Task],
 ) -> None:
+    register_project_counter_projection(db, project.id)
     for key, batch in batches.items():
         batch_tasks = [task for task in tasks.values() if task.batch_id == batch.id]
         batch.total_tasks = len(batch_tasks)
@@ -849,17 +863,23 @@ def _task_display_id(logical_key: str, index: int) -> str:
 async def _pin_screenshot_timestamps(
     db: AsyncSession,
     resources: dict[str, tuple[Project, Dataset, dict[str, Task]]],
+    membership_writes: SeedMembershipWrites | None = None,
 ) -> None:
     # Flush counters, annotations and backend changes before explicit updates;
     # an ORM assignment before autoflush can be overwritten by onupdate=now().
-    await db.flush()
+    if membership_writes is None:
+        await db.flush()
+    else:
+        await membership_writes.flush()
     for logical_key, (project, dataset, tasks) in resources.items():
-        for model, resource in ((Project, project), (Dataset, dataset)):
-            await db.execute(
-                update(model)
-                .where(model.id == resource.id)
-                .values(created_at=FIXED_TIME, updated_at=FIXED_TIME)
-            )
+        await pin_seed_project_timestamps(
+            db, project, created_at=FIXED_TIME, updated_at=FIXED_TIME
+        )
+        await db.execute(
+            update(Dataset)
+            .where(Dataset.id == dataset.id)
+            .values(created_at=FIXED_TIME, updated_at=FIXED_TIME)
+        )
         for index, task_spec in enumerate(PROJECT_SPECS[logical_key].tasks):
             task = tasks[task_spec.key]
             created_at = FIXED_TIME + timedelta(minutes=index)
@@ -1123,6 +1143,7 @@ async def reconcile_screenshot_seed(
 
     axis_updates: list[tuple[uuid.UUID, str]] = []
     for logical_key, (project, dataset, tasks) in resources.items():
+        register_seed_project_projection(db, project.id)
         project_state = PROJECT_STATE[logical_key]
         dataset_state = DATASET_STATE[logical_key]
         for field in (
@@ -1176,6 +1197,7 @@ async def reconcile_screenshot_seed(
             task.total_predictions = 0
             task.is_labeled = False
         if logical_key != "image_demo":
+            register_project_counter_projection(db, project.id)
             project.total_tasks = len(tasks)
             project.completed_tasks = 0
             project.review_tasks = 0
@@ -1183,15 +1205,16 @@ async def reconcile_screenshot_seed(
             project.batch_summary = {}
 
     image_project, image_dataset, image_tasks = resources["image_demo"]
-    await _reconcile_members(db, image_project, users)
+    membership_writes = await _reconcile_members(db, image_project, users)
+    await membership_writes.flush_before_read()
     image_batches = await _reconcile_batches(
-        db, image_project, image_dataset, image_tasks, users
+        db, image_project, image_dataset, image_tasks, users, membership_writes
     )
     _set_task_state(image_tasks, users)
     await _reconcile_predictions(db, image_project, image_tasks)
     await _reconcile_annotations(db, image_project, image_tasks, users)
-    _sync_counters(image_project, image_batches, image_tasks)
-    await _pin_screenshot_timestamps(db, resources)
+    _sync_counters(db, image_project, image_batches, image_tasks)
+    await _pin_screenshot_timestamps(db, resources, membership_writes)
     await db.flush()
     spatial = AssetsSpatialGateway(db)
     for dataset_id, axis_convention in axis_updates:

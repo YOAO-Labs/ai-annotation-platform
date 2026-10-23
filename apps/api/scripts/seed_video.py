@@ -98,13 +98,16 @@ async def seed_video(
         ProjectDataset,
         VideoFrameIndex,
     )
-    from app.db.models.project import Project
+    from app.services.workspace_seed_data import (
+        create_media_seed_project,
+        seed_projects,
+    )
     from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
     from app.services.storage import storage_service
     from app.services.media_probe import probe_video_file, probe_video_frame_timetable
 
     existing = await db.scalar(
-        select(Project).where(Project.display_id == PROJECT_DISPLAY_ID)
+        select(seed_projects).where(seed_projects.display_id == PROJECT_DISPLAY_ID)
     )
     if existing:
         return None
@@ -117,19 +120,6 @@ async def seed_video(
     video_meta = probe_video_file(video)
     timetable = probe_video_frame_timetable(video)
 
-    project = Project(
-        display_id=PROJECT_DISPLAY_ID,
-        name="行车视频跟踪 (dev)",
-        type_label="视频 · 时序追踪",
-        type_key="video-track",
-        data_type="video",
-        owner_id=owner_id,
-        ai_enabled=True,
-        # 视频几何单位独立 (对齐图片): bbox / region(多边形) / polyline(折线) 各自类别与属性 schema。
-        tool_bindings=VIDEO_TOOL_BINDINGS,
-    )
-    db.add(project)
-
     ds = Dataset(
         display_id=DATASET_DISPLAY_ID,
         name=DATASET_NAME,
@@ -138,8 +128,14 @@ async def seed_video(
         created_by=owner_id,
     )
     db.add(ds)
-    await db.flush()
-    project_id = project.id
+    project_id = await create_media_seed_project(
+        db,
+        kind="video",
+        display_id=PROJECT_DISPLAY_ID,
+        name="行车视频跟踪 (dev)",
+        owner_id=owner_id,
+        tool_bindings=VIDEO_TOOL_BINDINGS,
+    )
 
     # 上传视频到 MinIO datasets 桶。
     bucket = storage_service.datasets_bucket

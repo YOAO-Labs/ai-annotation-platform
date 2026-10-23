@@ -43,6 +43,7 @@ from app.config import settings
 from app.db.base import async_session, engine
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
 from app.db.models.project import Project
+from app.services.workspace_seed_data import create_media_seed_project, seed_projects
 from app.db.models.task import Task
 from app.services.identity_commands import IdentityCommandService
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
@@ -253,7 +254,7 @@ async def _ensure_seed_graph(
                 f"owner {owner_email!r} is missing; run scripts/seed.py first"
             )
         project = await db.scalar(
-            select(Project).where(Project.display_id == PROJECT_DISPLAY_ID)
+            select(seed_projects).where(seed_projects.display_id == PROJECT_DISPLAY_ID)
         )
         dataset = await db.scalar(
             select(Dataset).where(Dataset.display_id == DATASET_DISPLAY_ID)
@@ -264,17 +265,6 @@ async def _ensure_seed_graph(
             )
 
         if project is None and dataset is None:
-            project = Project(
-                display_id=PROJECT_DISPLAY_ID,
-                name=PROJECT_NAME,
-                type_label="图像 · 实例分割",
-                type_key="image-seg",
-                data_type="image",
-                owner_id=owner_id,
-                ai_enabled=False,
-                ai_interactive_enabled=False,
-                tool_bindings=TOOL_BINDINGS,
-            )
             dataset = Dataset(
                 display_id=DATASET_DISPLAY_ID,
                 name=DATASET_NAME,
@@ -283,8 +273,19 @@ async def _ensure_seed_graph(
                 created_by=owner_id,
                 metadata_=_dataset_marker(manifest_version),
             )
-            db.add_all([project, dataset])
-            await db.flush()
+            db.add(dataset)
+            project_id = await create_media_seed_project(
+                db,
+                kind="large_image",
+                display_id=PROJECT_DISPLAY_ID,
+                name=PROJECT_NAME,
+                owner_id=owner_id,
+                tool_bindings=TOOL_BINDINGS,
+            )
+            project = await db.scalar(
+                select(seed_projects).where(seed_projects.id == project_id)
+            )
+            assert project is not None
         else:
             assert project is not None and dataset is not None
             marker = (dataset.metadata_ or {}).get("seed")

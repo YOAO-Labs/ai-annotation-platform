@@ -2761,6 +2761,29 @@ AAP_WORKSPACE_SEED_OPERATOR_LIVE=1 \
 SQL 失败／回滚保留旧状态和原始字节，旧对象清理发生在调用方提交后。该验证已通过，
 精确工件和日志见 `.worktree/workspace-seed-qualification.json`；主环境未切换。
 
+### 媒体种子与截图 Workspace 边界
+
+安装当前迁移并应用 module-data owner grants 后，可信操作账号先应用普通 Workspace
+consumer 围栏，再追加 `workspace-seed-operator-grants.sql` 的六项写入能力。普通 API／
+worker 保持原 32 项 Workspace 函数与事实读取。新的三项原生能力及事务语义见
+[运行指南](docs-site/api/guides/workspace-runtime.md#媒体及截图种子)。
+
+```bash
+apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/workspace-media-native.json \
+  --test-file tests/test_media_seed_workspace_native.py
+
+AAP_WORKSPACE_MEDIA_SEED_LIVE=1 apps/api/.venv/bin/python \
+  scripts/verify_module_data_boundary.py --output .worktree/workspace-media-cold.json \
+  --test-file tests/test_media_seed_workspace_live.py
+```
+
+冷运行需要与当前源码匹配的既有 API 工件身份变量；复用 Workspace CLI 的隔离
+PostgreSQL／Redis／S3 夹具。实际媒体入口使用只读小夹具与原始视频副本，检查权限
+撤销后的回滚、恢复、重跑和对象哈希；不下载完整数据集，也不调用真实 ML 模型。
+截图定向检查覆盖两种 autoflush、成员时间、项目计数和中间 flush 的后端字段，固定
+夹具通过既有删除 owner 清理。本组定向检查已通过，冷工件与安装验收尚待完成。
+
 ### 主种子冷运行验收
 
 复用当前 API 冷工件及上节镜像身份变量：

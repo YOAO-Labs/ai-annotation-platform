@@ -1,0 +1,143 @@
+{
+  "$defs": {
+    "SeedMemberAssignmentReceipt": {
+      "additionalProperties": false,
+      "description": "Receipt for pinning one existing ProjectMember's assigned_at value.",
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-seed-member-assignment/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "member_id": {
+          "format": "uuid",
+          "title": "Member Id",
+          "type": "string"
+        },
+        "found": {
+          "title": "Found",
+          "type": "boolean"
+        },
+        "assigned_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Assigned At",
+          "x-source-timezone": "UTC",
+          "x-timezone-aware": true
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Updated At",
+          "x-source-timezone": "UTC",
+          "x-timezone-aware": true
+        }
+      },
+      "required": ["schema", "member_id", "found", "assigned_at", "updated_at"],
+      "title": "SeedMemberAssignmentReceipt",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Receipt for pinning one existing ProjectMember's assigned_at value.",
+  "properties": {
+    "schema": {
+      "const": "aap-workspace-seed-member-assignment/v1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "member_id": {
+      "format": "uuid",
+      "title": "Member Id",
+      "type": "string"
+    },
+    "found": {
+      "title": "Found",
+      "type": "boolean"
+    },
+    "assigned_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Assigned At",
+      "x-source-timezone": "UTC",
+      "x-timezone-aware": true
+    },
+    "updated_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Updated At",
+      "x-source-timezone": "UTC",
+      "x-timezone-aware": true
+    }
+  },
+  "required": ["schema", "member_id", "found", "assigned_at", "updated_at"],
+  "title": "SeedMemberAssignmentReceipt",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-workspace-seed-member-assignment/v1",
+  "x-native-capabilities": {
+    "protocol": "aap-workspace-seed-member-assignment/v1",
+    "postgres_schema": "aap_workspace_v1",
+    "functions": [
+      {
+        "name": "pin_seed_member_assignment",
+        "signature": "aap_workspace_v1.pin_seed_member_assignment(uuid, timestamptz)",
+        "arguments": [
+          {
+            "name": "p_member_id",
+            "postgres_type": "uuid",
+            "json_schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "p_assigned_at",
+            "postgres_type": "timestamptz",
+            "json_schema": {
+              "format": "date-time",
+              "type": "string",
+              "x-timezone-aware": true,
+              "x-source-timezone": "UTC"
+            }
+          }
+        ],
+        "result_postgres_type": "jsonb",
+        "result_model": "SeedMemberAssignmentReceipt",
+        "result_schema_ref": "#/$defs/SeedMemberAssignmentReceipt",
+        "volatility": "VOLATILE",
+        "transaction_semantics": "For the exact existing ProjectMember, always set assigned_at to the requested value and updated_at=now() using normal UPDATE row-lock waiting. The caller invokes this function only when its original ORM history marked assigned_at dirty, so a stale cached value still preserves the original write even if the stored value has since become equal. A missing row returns found=false with both timestamps null. NULL arguments raise 22023. No upsert, authorization, role/version/weekly_target changes, retry, or independent transaction is added; the caller owns commit or rollback and ordinary database errors propagate."
+      }
+    ],
+    "authorization_boundary": "The trusted development seed caller retains authorization; this fixed capability adds no application authorization.",
+    "transaction_boundary": "The caller owns the active transaction and commit or rollback."
+  }
+}

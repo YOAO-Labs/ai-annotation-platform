@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-23
 ---
 
 # Workspace 私有运行与事务能力
@@ -239,9 +239,30 @@ baseline 与候选修订。Native setter 只写精确配置与事务时间戳，
 有变更才提交的行为；缺失更新目标或无效 owner 回复使本次 flush 回滚，调用方捕获异常
 后再次提交也不会落下部分结果。读取使用既有公开事实关系。
 
-可信运维追加配置现有三项 Workspace 写能力，普通 API／worker 仍是 32 项函数。
+可信运维追加配置现有六项 Workspace 写能力，普通 API／worker 仍是 32 项函数。
 账号创建由独立的 Identity 种子能力持有。此范围只包含主脚本自身的账号和成员操作；
 媒体子脚本及完整模块资格见[唯一台账](/dev/concepts/module-deployment#剩余工作台账)。
+
+### 媒体及截图种子
+
+媒体 Project 使用 `aap-workspace-media-seed-project/v1`，成员固定时间使用
+`aap-workspace-seed-member-assignment/v1`，均借用调用方事务：
+
+| 能力                                                        | 语义与回复                                                                                          |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `create_media_seed_project(uuid,text,text,uuid,text,jsonb)` | kind 为 coco8／video／ocr／large_image；插入原默认值，严格绑定 kind、display ID 与创建 UUID         |
+| `write_seed_project_projection(uuid,jsonb)`                 | 只写声明的种子元数据字段；返回 project_id、found 与 updated_at，缺行返回 false／null                |
+| `pin_seed_member_assignment(uuid,timestamptz)`              | 只写成员 assigned_at 与事务 updated_at；返回 member_id、found 及两项时间，缺行返回 false／null 时间 |
+
+Project 投影接受名称、类型、owner、状态、AI 标志、工具绑定、主后端／流水线及两项
+时间戳，拒绝未知或空补丁；计数继续由 Labeling owner 持有。未指定 updated_at 时
+使用事务时间，显式时间戳可用于截图固定；原外键、唯一约束和调用方提交／回滚保留。
+成员时间能力只在原脏字段需要写入时调用，保留陈旧缓存下的原 UPDATE 语义；同一
+调用方事务组合现有角色／分配人写入，保留 version 与 weekly_target。
+
+授权使用上述可信种子追加配置；普通 Workspace consumer 配置不授予三项新能力。旧 development 兼容
+角色继续可运行脚本，专用 maintenance LOGIN 仍保留原六项能力。实际调用边界和
+本地验收范围见[模块台账](/dev/concepts/module-deployment#workspace-媒体及截图种子)。
 
 ## 锁定权限与会话快照
 

@@ -4632,7 +4632,7 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   reused after start or settlement; redirect failure cannot erase an earlier
   send. Public exceptions are preserved; ambiguous sends stay unresolved.
   Bounded batch/interactive responses settle GPU work only after the body is
-  consumed; size-limit and interrupted-stream checks pass73 plus2 positive
+  consumed; size-limit and interrupted-stream checks pass 73 plus2 positive
   completion checks, with no release from response headers alone.
 - Resident leases release by exact lease/owner/generation after proven no-send.
   Cold loading uses the existing exact reservation rollback, keeping grant
@@ -4648,8 +4648,8 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   one-argument client factory contract, and the default path is also exercised.
 - The combined API/Native/Redis/HTTP run passes227. Focused source transport and
   controller checks pass33; later targeted cold, grant-reuse and default-client
-  checks pass7/15/2. These overlapping runs are not added together. Fresh
-  noneditable Inference plus shared routing-protocol checks pass375, with72
+  checks pass 7/15/2. These overlapping runs are not added together. Fresh
+  noneditable Inference plus shared routing-protocol checks pass 375, with72
   package files matching current source and API/ORM/Celery absent.
 - The actual TCP composition uses the real YOLO lifecycle with an in-memory
   model and test-issued GPU signatures. A wrong signature cannot unload; a valid
@@ -7611,3 +7611,38 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   It records nine qualified operation groups and the local module gates, with
   explicit Runtime assembly and global-goal limitations. No primary cutover,
   push, release, production deployment, remote CI or Go expansion occurred.
+
+### Workspace media and screenshot Project consumer migration
+
+- Continue from clean Root 4f9e0d97bb59a299451764787126692fcd968059 after the
+  completed Identity local gate. The full goal remains active. The bounded next
+  delivery is media/screenshot Project and member operations, with other-domain
+  writes retained under their existing ownership and Go kept experimental.
+- Read-only audit identified four media creators plus COCO8's add-only tool merge,
+  screenshot Project metadata/timestamps/member assignment, catalog reads and two
+  backend Project fields. Reuse public one-statement Project/member aliases,
+  existing deletion coordination and the Labeling counter bridge. Add only fixed
+  media creation, closed seed metadata projection and fixed member assignment.
+- Source worker commits d680b785bb9332b5a043bf85d6fd74c2a851c44a and
+  3e56e4e28c58fea33ff1cae141de816693d72b40 are integrated with Root's adapters,
+  consumers, grants and verifier. The new 0307/0308 artifacts leave older frozen
+  SQL/schemas unchanged. Root corrected a nonexistent PostgreSQL JSON function,
+  verified with an owned primitive before native acceptance. The verifier's stale
+  0306 guard was reproduced using the real migration graph and updated to 0308.
+- Before implementation, 25 existing screenshot/large-image checks and seven new
+  actual original media workflow/transaction goldens passed. Root's first native
+  cohort passed 60 cases; screenshot fixture setup and fixed-ID cleanup failures
+  were retained. The cleanup was isolated and fixed using the existing deletion
+  owner. The no-autoflush staged member flush now occurs at the original explicit
+  batch flush. Backend field projection is re-registered after its intermediate
+  service autoflush. Focused screenshot/backend checks pass 7; an independent Node
+  caller passes all three new capabilities, rejects private tables/Labeling fields
+  and proves rollback. The native union is 68 distinct cases, not repeated-run sum.
+  New closed-contract checks pass 37. All owned verifier cleanup and 0308 frozen SQL
+  roundtrips pass; original failed receipts remain under .worktree/workspace-media-\*.
+- Cold test/probe source 96008d825c38fdac92479ca578cc3c3b77d5374d is integrated.
+  Root shortened its test-only Dataset IDs to stay within varchar(20), and wired
+  the existing consumer/operator profile order into the verifier. Matching cold
+  images, non-editable installation and actual S3 execution are the next gate;
+  no complete Workspace, primary cutover, production or foreign-language provider
+  qualification is claimed at this source checkpoint.

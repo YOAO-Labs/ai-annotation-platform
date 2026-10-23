@@ -325,7 +325,7 @@ GRANT SELECT (
     annotation_guide, guide_assets, model_version, task_lock_ttl_seconds, due_date,
     created_at, updated_at
 ) ON public.projects TO :"workspace_owner";
-GRANT UPDATE (owner_id, updated_at) ON public.projects TO :"workspace_owner";
+GRANT UPDATE (owner_id, created_at, updated_at) ON public.projects TO :"workspace_owner";
 GRANT UPDATE (guide_assets) ON public.projects TO :"workspace_owner";
 GRANT SELECT (ml_backend_pool_id) ON public.projects TO :"workspace_owner";
 GRANT INSERT (
@@ -382,7 +382,7 @@ GRANT SELECT (id, project_id, user_id, role), INSERT (id, project_id, user_id, r
     UPDATE (id), DELETE
     ON public.project_members TO :"workspace_owner";
 GRANT SELECT (assigned_by, version, assigned_at, updated_at, weekly_target),
-    UPDATE (role, assigned_by, version, updated_at)
+    UPDATE (role, assigned_by, version, assigned_at, updated_at)
     ON public.project_members TO :"workspace_owner";
 GRANT SELECT (
     operation_id, actor_id, project_id, operation, request_hash, result, audit_id
@@ -1741,7 +1741,13 @@ ALTER FUNCTION aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)
     OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.write_seed_members(jsonb)
     OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1.pin_seed_member_assignment(uuid,timestamptz)
+    OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1.create_media_seed_project(uuid,text,text,uuid,text,jsonb)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION aap_workspace_v1.write_seed_project_projection(uuid,jsonb)
     OWNER TO :"workspace_owner";
 
 GRANT CREATE ON SCHEMA aap_inference_backend_probe_v1 TO :"inference_owner";

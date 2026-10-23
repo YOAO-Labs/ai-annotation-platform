@@ -14,7 +14,10 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_object_session
 
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
-from app.db.models.project import Project
+from app.services.workspace_seed_data import (
+    register_seed_project_projection,
+    seed_projects,
+)
 from app.config import settings
 from app.services.ml_backend import MLBackendService
 from app.services.ml_client import MLBackendClient
@@ -242,12 +245,13 @@ async def reconcile_screenshot_backends(
     bindings: dict[str, dict[str, str]] = {}
     for logical_key, spec in PROJECT_SPECS.items():
         project = await db.scalar(
-            select(Project).where(Project.display_id == spec.display_id)
+            select(seed_projects).where(seed_projects.display_id == spec.display_id)
         )
         if project is None:
             raise ScreenshotSeedBackendError(
                 f"screenshot project {spec.display_id} is missing"
             )
+        register_seed_project_projection(db, project.id)
         await db.execute(
             delete(ProjectMLBackendPool).where(
                 ProjectMLBackendPool.project_id == project.id
@@ -261,6 +265,7 @@ async def reconcile_screenshot_backends(
         await service.set_enabled(project.id, backend.id, True)
         # v0.23.3 ADR-0050 · 项目主绑定存 pool id; set_enabled 内部已解析 registry→pool。
         pool = await service._pool_for_registry(backend.id)
+        register_seed_project_projection(db, project.id)
         project.ml_backend_pool_id = pool.id if pool is not None else None
         requirement = BACKEND_REQUIREMENTS[spec.required_backend]
         if spec.default_pipeline_model_id:

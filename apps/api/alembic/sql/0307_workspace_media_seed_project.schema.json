@@ -1,0 +1,189 @@
+{
+  "$defs": {
+    "MediaSeedProjectCreated": {
+      "additionalProperties": false,
+      "description": "Receipt for inserting one media seed Project.",
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-media-seed-project/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "kind": {
+          "enum": ["coco8", "video", "ocr", "large_image"],
+          "title": "Kind",
+          "type": "string"
+        },
+        "display_id": { "title": "Display Id", "type": "string" },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        }
+      },
+      "required": ["schema", "kind", "display_id", "project_id"],
+      "title": "MediaSeedProjectCreated",
+      "type": "object"
+    },
+    "SeedProjectProjectionWrite": {
+      "additionalProperties": false,
+      "description": "Receipt for applying a closed Project projection patch.",
+      "properties": {
+        "schema": {
+          "const": "aap-workspace-media-seed-project/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "found": { "title": "Found", "type": "boolean" },
+        "updated_at": {
+          "anyOf": [{ "format": "date-time", "type": "string" }, { "type": "null" }],
+          "title": "Updated At",
+          "x-source-timezone": "UTC",
+          "x-timezone-aware": true
+        }
+      },
+      "required": ["schema", "project_id", "found", "updated_at"],
+      "title": "SeedProjectProjectionWrite",
+      "type": "object"
+    }
+  },
+  "anyOf": [
+    { "$ref": "#/$defs/MediaSeedProjectCreated" },
+    { "$ref": "#/$defs/SeedProjectProjectionWrite" }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-workspace-media-seed-project/v1",
+  "x-native-capabilities": {
+    "protocol": "aap-workspace-media-seed-project/v1",
+    "postgres_schema": "aap_workspace_v1",
+    "functions": [
+      {
+        "name": "create_media_seed_project",
+        "signature": "aap_workspace_v1.create_media_seed_project(uuid, text, text, uuid, text, jsonb)",
+        "arguments": [
+          {
+            "name": "p_project_id",
+            "postgres_type": "uuid",
+            "json_schema": { "format": "uuid", "type": "string" }
+          },
+          {
+            "name": "p_display_id",
+            "postgres_type": "text",
+            "json_schema": { "type": "string" }
+          },
+          {
+            "name": "p_name",
+            "postgres_type": "text",
+            "json_schema": { "type": "string" }
+          },
+          {
+            "name": "p_owner_id",
+            "postgres_type": "uuid",
+            "json_schema": { "format": "uuid", "type": "string" }
+          },
+          {
+            "name": "p_kind",
+            "postgres_type": "text",
+            "json_schema": {
+              "enum": ["coco8", "video", "ocr", "large_image"],
+              "type": "string"
+            }
+          },
+          {
+            "name": "p_tool_bindings",
+            "postgres_type": "jsonb",
+            "json_schema": {
+              "$defs": { "JsonValue": {} },
+              "additionalProperties": { "$ref": "#/$defs/JsonValue" },
+              "type": "object"
+            }
+          }
+        ],
+        "result_postgres_type": "jsonb",
+        "result_model": "MediaSeedProjectCreated",
+        "result_schema_ref": "#/$defs/MediaSeedProjectCreated",
+        "transaction_semantics": "Insert one Project with kind-specific fixed media type and AI defaults, using the caller-supplied UUID, display ID, name, owner, and tool bindings. This is not an upsert. The trusted caller owns authorization, the surrounding workflow transaction, and commit. Uniqueness, foreign-key, and length errors remain database errors."
+      },
+      {
+        "name": "write_seed_project_projection",
+        "signature": "aap_workspace_v1.write_seed_project_projection(uuid, jsonb)",
+        "arguments": [
+          {
+            "name": "p_project_id",
+            "postgres_type": "uuid",
+            "json_schema": { "format": "uuid", "type": "string" }
+          },
+          {
+            "name": "p_patch",
+            "postgres_type": "jsonb",
+            "json_schema": {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string" },
+                "type_label": { "type": "string" },
+                "type_key": { "type": "string" },
+                "data_type": { "type": "string" },
+                "owner_id": { "type": "string", "format": "uuid" },
+                "status": { "type": "string" },
+                "ai_enabled": { "type": "boolean" },
+                "ai_interactive_enabled": { "type": "boolean" },
+                "raster_mask_native_editing_enabled": { "type": "boolean" },
+                "tool_bindings": {
+                  "type": "object",
+                  "additionalProperties": {}
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "x-timezone-aware": true,
+                  "x-source-timezone": "UTC"
+                },
+                "updated_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "x-timezone-aware": true,
+                  "x-source-timezone": "UTC"
+                },
+                "ml_backend_pool_id": {
+                  "anyOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }]
+                },
+                "preannotate_pipeline": {
+                  "anyOf": [{ "type": "array", "items": {} }, { "type": "null" }]
+                }
+              }
+            }
+          }
+        ],
+        "result_postgres_type": "jsonb",
+        "result_model": "SeedProjectProjectionWrite",
+        "result_schema_ref": "#/$defs/SeedProjectProjectionWrite",
+        "transaction_semantics": "Update only the declared media seed Project projection fields in the caller's transaction. The patch must be a non-empty object containing only declared fields. updated_at uses the database current time unless the caller explicitly supplies it; created_at may be pinned. A missing Project returns found=false and updated_at=null. PostgreSQL casts, constraints, and foreign-key errors propagate. The trusted caller owns authorization and commit."
+      }
+    ],
+    "projection_fields": [
+      "name",
+      "type_label",
+      "type_key",
+      "data_type",
+      "owner_id",
+      "status",
+      "ai_enabled",
+      "ai_interactive_enabled",
+      "raster_mask_native_editing_enabled",
+      "tool_bindings",
+      "created_at",
+      "updated_at",
+      "ml_backend_pool_id",
+      "preannotate_pipeline"
+    ],
+    "authorization_boundary": "Trusted media seed callers retain authorization and workflow policy; these fixed maintenance functions add no application authorization.",
+    "transaction_boundary": "The caller owns the surrounding transaction and commit."
+  }
+}

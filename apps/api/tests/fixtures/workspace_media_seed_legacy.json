@@ -1,0 +1,915 @@
+{
+  "source_commit": "4f9e0d97bb59a299451764787126692fcd968059",
+  "consumer_inputs": {
+    "apps/api/scripts/seed_coco8.py": "8892c5159fca79fbeb413347c04da7051910583fb4e58c24fbc565a7b97f1e9a",
+    "apps/api/scripts/seed_video.py": "dd08863aeb90b9c1d24ae4a3a33b5d02829469686382665bb979727fd25ab940",
+    "apps/api/scripts/seed_ocr.py": "e2f0b6873d67b51b8a4bc4a0ac82689c11a3dd0cc8ec120def82b856bd6ee5c5",
+    "apps/api/scripts/seed_large_images.py": "fda145a03c70ce666f8b49fb2eae2a6277236eebceb3d451ab1d65fbcb07ada5",
+    "apps/api/scripts/seed_screenshot_profile.py": "934154c632f9198c4d127c05cc0ca28b375641d037f65c7c314f0c8cebb1cd28",
+    "apps/api/app/services/screenshot_seed_catalog.py": "ff9a253e5d52cb9f10d8e835bfec51f88047067ed1277139336cc83300e4c9f1"
+  },
+  "scope": "Actual original media Project fields, resume and COCO8 commit/rollback behavior; original unmodified consumers under owner-capable fixture",
+  "snapshots": {
+    "fresh-coco8": {
+      "name": "COCO8 图片检测 (dev)",
+      "status": "in_progress",
+      "due_date": null,
+      "sampling": "sequence",
+      "type_key": "image-det",
+      "data_type": "image",
+      "ai_enabled": true,
+      "scene_mode": false,
+      "type_label": "图像 · 目标检测",
+      "total_tasks": 2,
+      "guide_assets": [],
+      "label_config": {},
+      "review_tasks": 0,
+      "batch_summary": {},
+      "box_threshold": 0.35,
+      "model_version": null,
+      "tool_bindings": {
+        "bbox": {
+          "classes": [
+            {
+              "name": "person",
+              "order": 0
+            },
+            {
+              "name": "bicycle",
+              "order": 1
+            },
+            {
+              "name": "car",
+              "order": 2
+            },
+            {
+              "name": "motorcycle",
+              "order": 3
+            },
+            {
+              "name": "airplane",
+              "order": 4
+            },
+            {
+              "name": "bus",
+              "order": 5
+            },
+            {
+              "name": "train",
+              "order": 6
+            },
+            {
+              "name": "truck",
+              "order": 7
+            },
+            {
+              "name": "boat",
+              "order": 8
+            },
+            {
+              "name": "traffic light",
+              "order": 9
+            },
+            {
+              "name": "fire hydrant",
+              "order": 10
+            },
+            {
+              "name": "stop sign",
+              "order": 11
+            },
+            {
+              "name": "parking meter",
+              "order": 12
+            },
+            {
+              "name": "bench",
+              "order": 13
+            },
+            {
+              "name": "bird",
+              "order": 14
+            },
+            {
+              "name": "cat",
+              "order": 15
+            },
+            {
+              "name": "dog",
+              "order": 16
+            },
+            {
+              "name": "horse",
+              "order": 17
+            },
+            {
+              "name": "sheep",
+              "order": 18
+            },
+            {
+              "name": "cow",
+              "order": 19
+            },
+            {
+              "name": "elephant",
+              "order": 20
+            },
+            {
+              "name": "bear",
+              "order": 21
+            },
+            {
+              "name": "zebra",
+              "order": 22
+            },
+            {
+              "name": "giraffe",
+              "order": 23
+            },
+            {
+              "name": "backpack",
+              "order": 24
+            },
+            {
+              "name": "umbrella",
+              "order": 25
+            },
+            {
+              "name": "handbag",
+              "order": 26
+            },
+            {
+              "name": "tie",
+              "order": 27
+            },
+            {
+              "name": "suitcase",
+              "order": 28
+            },
+            {
+              "name": "frisbee",
+              "order": 29
+            },
+            {
+              "name": "skis",
+              "order": 30
+            },
+            {
+              "name": "snowboard",
+              "order": 31
+            },
+            {
+              "name": "sports ball",
+              "order": 32
+            },
+            {
+              "name": "kite",
+              "order": 33
+            },
+            {
+              "name": "baseball bat",
+              "order": 34
+            },
+            {
+              "name": "baseball glove",
+              "order": 35
+            },
+            {
+              "name": "skateboard",
+              "order": 36
+            },
+            {
+              "name": "surfboard",
+              "order": 37
+            },
+            {
+              "name": "tennis racket",
+              "order": 38
+            },
+            {
+              "name": "bottle",
+              "order": 39
+            },
+            {
+              "name": "wine glass",
+              "order": 40
+            },
+            {
+              "name": "cup",
+              "order": 41
+            },
+            {
+              "name": "fork",
+              "order": 42
+            },
+            {
+              "name": "knife",
+              "order": 43
+            },
+            {
+              "name": "spoon",
+              "order": 44
+            },
+            {
+              "name": "bowl",
+              "order": 45
+            },
+            {
+              "name": "banana",
+              "order": 46
+            },
+            {
+              "name": "apple",
+              "order": 47
+            },
+            {
+              "name": "sandwich",
+              "order": 48
+            },
+            {
+              "name": "orange",
+              "order": 49
+            },
+            {
+              "name": "broccoli",
+              "order": 50
+            },
+            {
+              "name": "carrot",
+              "order": 51
+            },
+            {
+              "name": "hot dog",
+              "order": 52
+            },
+            {
+              "name": "pizza",
+              "order": 53
+            },
+            {
+              "name": "donut",
+              "order": 54
+            },
+            {
+              "name": "cake",
+              "order": 55
+            },
+            {
+              "name": "chair",
+              "order": 56
+            },
+            {
+              "name": "couch",
+              "order": 57
+            },
+            {
+              "name": "potted plant",
+              "order": 58
+            },
+            {
+              "name": "bed",
+              "order": 59
+            },
+            {
+              "name": "dining table",
+              "order": 60
+            },
+            {
+              "name": "toilet",
+              "order": 61
+            },
+            {
+              "name": "tv",
+              "order": 62
+            },
+            {
+              "name": "laptop",
+              "order": 63
+            },
+            {
+              "name": "mouse",
+              "order": 64
+            },
+            {
+              "name": "remote",
+              "order": 65
+            },
+            {
+              "name": "keyboard",
+              "order": 66
+            },
+            {
+              "name": "cell phone",
+              "order": 67
+            },
+            {
+              "name": "microwave",
+              "order": 68
+            },
+            {
+              "name": "oven",
+              "order": 69
+            },
+            {
+              "name": "toaster",
+              "order": 70
+            },
+            {
+              "name": "sink",
+              "order": 71
+            },
+            {
+              "name": "refrigerator",
+              "order": 72
+            },
+            {
+              "name": "book",
+              "order": 73
+            },
+            {
+              "name": "clock",
+              "order": 74
+            },
+            {
+              "name": "vase",
+              "order": 75
+            },
+            {
+              "name": "scissors",
+              "order": 76
+            },
+            {
+              "name": "teddy bear",
+              "order": 77
+            },
+            {
+              "name": "hair drier",
+              "order": 78
+            },
+            {
+              "name": "toothbrush",
+              "order": 79
+            }
+          ],
+          "enabled": true
+        },
+        "region": {
+          "classes": [
+            {
+              "name": "car",
+              "order": 0
+            },
+            {
+              "name": "road",
+              "order": 1
+            },
+            {
+              "name": "sky",
+              "order": 2
+            },
+            {
+              "name": "building",
+              "order": 3
+            }
+          ],
+          "enabled": true
+        },
+        "polyline": {
+          "classes": [
+            {
+              "name": "lane marking",
+              "order": 0
+            },
+            {
+              "name": "curb",
+              "order": 1
+            }
+          ],
+          "enabled": true
+        },
+        "rotated_bbox": {
+          "classes": [
+            {
+              "name": "car",
+              "order": 0
+            },
+            {
+              "name": "bus",
+              "order": 1
+            },
+            {
+              "name": "truck",
+              "order": 2
+            }
+          ],
+          "enabled": true
+        }
+      },
+      "mask_qc_config": {},
+      "text_threshold": 0.25,
+      "video_sampling": {},
+      "completed_tasks": 0,
+      "organization_id": null,
+      "annotation_guide": null,
+      "default_variants": {},
+      "rendering_config": {},
+      "in_progress_tasks": 0,
+      "ml_backend_pool_id": null,
+      "show_overlap_first": false,
+      "iou_dedup_threshold": 0.7,
+      "maximum_annotations": 1,
+      "video_collaboration": {},
+      "preannotate_pipeline": null,
+      "task_lock_ttl_seconds": 300,
+      "ai_interactive_enabled": true,
+      "point_cloud_quality_config": {},
+      "scene_continuation_window_min": 30,
+      "prefer_same_scene_continuation": false,
+      "raster_mask_native_editing_enabled": true,
+      "task_count": 2,
+      "prediction_count": 2,
+      "uploaded_object_count": 2,
+      "resume_result": null
+    },
+    "fresh-ocr": {
+      "name": "OCR 文本识别 (dev)",
+      "status": "in_progress",
+      "due_date": null,
+      "sampling": "sequence",
+      "type_key": "image-ocr",
+      "data_type": "image",
+      "ai_enabled": true,
+      "scene_mode": false,
+      "type_label": "图像 · OCR",
+      "total_tasks": 1,
+      "guide_assets": [],
+      "label_config": {},
+      "review_tasks": 0,
+      "batch_summary": {},
+      "box_threshold": 0.35,
+      "model_version": null,
+      "tool_bindings": {
+        "region": {
+          "classes": [
+            {
+              "name": "text",
+              "color": "#00a455",
+              "order": 0
+            }
+          ],
+          "enabled": true,
+          "attribute_schema": {
+            "fields": [
+              {
+                "key": "text",
+                "type": "text",
+                "label": "识别文本"
+              },
+              {
+                "key": "language",
+                "type": "select",
+                "label": "语言",
+                "options": [
+                  {
+                    "label": "通用(中英)",
+                    "value": "universal"
+                  },
+                  {
+                    "label": "英文",
+                    "value": "en"
+                  }
+                ]
+              },
+              {
+                "key": "orientation",
+                "type": "select",
+                "label": "方向",
+                "options": [
+                  {
+                    "label": "0",
+                    "value": "0"
+                  },
+                  {
+                    "label": "180",
+                    "value": "180"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "mask_qc_config": {},
+      "text_threshold": 0.25,
+      "video_sampling": {},
+      "completed_tasks": 0,
+      "organization_id": null,
+      "annotation_guide": null,
+      "default_variants": {},
+      "rendering_config": {},
+      "in_progress_tasks": 0,
+      "ml_backend_pool_id": null,
+      "show_overlap_first": false,
+      "iou_dedup_threshold": 0.7,
+      "maximum_annotations": 1,
+      "video_collaboration": {},
+      "preannotate_pipeline": null,
+      "task_lock_ttl_seconds": 300,
+      "ai_interactive_enabled": true,
+      "point_cloud_quality_config": {},
+      "scene_continuation_window_min": 30,
+      "prefer_same_scene_continuation": false,
+      "raster_mask_native_editing_enabled": true,
+      "task_count": 1,
+      "prediction_count": 0,
+      "uploaded_object_count": 1,
+      "resume_result": {
+        "skipped": true
+      }
+    },
+    "fresh-video": {
+      "name": "行车视频跟踪 (dev)",
+      "status": "in_progress",
+      "due_date": null,
+      "sampling": "sequence",
+      "type_key": "video-track",
+      "data_type": "video",
+      "ai_enabled": true,
+      "scene_mode": false,
+      "type_label": "视频 · 时序追踪",
+      "total_tasks": 1,
+      "guide_assets": [],
+      "label_config": {},
+      "review_tasks": 0,
+      "batch_summary": {},
+      "box_threshold": 0.35,
+      "model_version": null,
+      "tool_bindings": {
+        "bbox": {
+          "classes": [
+            {
+              "name": "car",
+              "order": 0
+            },
+            {
+              "name": "person",
+              "order": 1
+            },
+            {
+              "name": "bus",
+              "order": 2
+            },
+            {
+              "name": "truck",
+              "order": 3
+            }
+          ],
+          "enabled": true
+        },
+        "region": {
+          "classes": [
+            {
+              "name": "car",
+              "order": 0
+            },
+            {
+              "name": "person",
+              "order": 1
+            },
+            {
+              "name": "bus",
+              "order": 2
+            },
+            {
+              "name": "truck",
+              "order": 3
+            }
+          ],
+          "enabled": true
+        },
+        "polyline": {
+          "classes": [
+            {
+              "name": "lane",
+              "order": 0
+            }
+          ],
+          "enabled": true
+        }
+      },
+      "mask_qc_config": {},
+      "text_threshold": 0.25,
+      "video_sampling": {},
+      "completed_tasks": 0,
+      "organization_id": null,
+      "annotation_guide": null,
+      "default_variants": {},
+      "rendering_config": {},
+      "in_progress_tasks": 0,
+      "ml_backend_pool_id": null,
+      "show_overlap_first": false,
+      "iou_dedup_threshold": 0.7,
+      "maximum_annotations": 1,
+      "video_collaboration": {},
+      "preannotate_pipeline": null,
+      "task_lock_ttl_seconds": 300,
+      "ai_interactive_enabled": true,
+      "point_cloud_quality_config": {},
+      "scene_continuation_window_min": 30,
+      "prefer_same_scene_continuation": false,
+      "raster_mask_native_editing_enabled": true,
+      "task_count": 1,
+      "prediction_count": 0,
+      "uploaded_object_count": 1,
+      "resume_result": null
+    },
+    "coco-existing-True-True": {
+      "result": {
+        "added_tool_units": ["rotated_bbox", "polyline"]
+      },
+      "pending_materialized": true,
+      "commits_in_helper": 0,
+      "pending_visible_before_action": false,
+      "commits_after_action": 1,
+      "project": {
+        "name": "Keep this name",
+        "status": "in_progress",
+        "due_date": null,
+        "sampling": "sequence",
+        "type_key": "image-det",
+        "data_type": "image",
+        "ai_enabled": false,
+        "scene_mode": false,
+        "type_label": "Keep",
+        "total_tasks": 0,
+        "guide_assets": [],
+        "label_config": {},
+        "review_tasks": 0,
+        "batch_summary": {},
+        "box_threshold": 0.35,
+        "model_version": null,
+        "tool_bindings": {
+          "bbox": {
+            "keep": true
+          },
+          "region": {
+            "custom": true
+          },
+          "polyline": {
+            "classes": [
+              {
+                "name": "lane marking",
+                "order": 0
+              },
+              {
+                "name": "curb",
+                "order": 1
+              }
+            ],
+            "enabled": true
+          },
+          "rotated_bbox": {
+            "classes": [
+              {
+                "name": "car",
+                "order": 0
+              },
+              {
+                "name": "bus",
+                "order": 1
+              },
+              {
+                "name": "truck",
+                "order": 2
+              }
+            ],
+            "enabled": true
+          }
+        },
+        "mask_qc_config": {},
+        "text_threshold": 0.25,
+        "video_sampling": {},
+        "completed_tasks": 0,
+        "organization_id": null,
+        "annotation_guide": null,
+        "default_variants": {},
+        "rendering_config": {},
+        "in_progress_tasks": 0,
+        "ml_backend_pool_id": null,
+        "show_overlap_first": false,
+        "iou_dedup_threshold": 0.7,
+        "maximum_annotations": 1,
+        "video_collaboration": {},
+        "preannotate_pipeline": null,
+        "task_lock_ttl_seconds": 300,
+        "ai_interactive_enabled": true,
+        "point_cloud_quality_config": {},
+        "scene_continuation_window_min": 30,
+        "prefer_same_scene_continuation": false,
+        "raster_mask_native_editing_enabled": true
+      },
+      "pending_visible_after_action": true
+    },
+    "coco-existing-False-True": {
+      "result": {
+        "added_tool_units": ["rotated_bbox", "polyline"]
+      },
+      "pending_materialized": false,
+      "commits_in_helper": 0,
+      "pending_visible_before_action": false,
+      "commits_after_action": 1,
+      "project": {
+        "name": "Keep this name",
+        "status": "in_progress",
+        "due_date": null,
+        "sampling": "sequence",
+        "type_key": "image-det",
+        "data_type": "image",
+        "ai_enabled": false,
+        "scene_mode": false,
+        "type_label": "Keep",
+        "total_tasks": 0,
+        "guide_assets": [],
+        "label_config": {},
+        "review_tasks": 0,
+        "batch_summary": {},
+        "box_threshold": 0.35,
+        "model_version": null,
+        "tool_bindings": {
+          "bbox": {
+            "keep": true
+          },
+          "region": {
+            "custom": true
+          },
+          "polyline": {
+            "classes": [
+              {
+                "name": "lane marking",
+                "order": 0
+              },
+              {
+                "name": "curb",
+                "order": 1
+              }
+            ],
+            "enabled": true
+          },
+          "rotated_bbox": {
+            "classes": [
+              {
+                "name": "car",
+                "order": 0
+              },
+              {
+                "name": "bus",
+                "order": 1
+              },
+              {
+                "name": "truck",
+                "order": 2
+              }
+            ],
+            "enabled": true
+          }
+        },
+        "mask_qc_config": {},
+        "text_threshold": 0.25,
+        "video_sampling": {},
+        "completed_tasks": 0,
+        "organization_id": null,
+        "annotation_guide": null,
+        "default_variants": {},
+        "rendering_config": {},
+        "in_progress_tasks": 0,
+        "ml_backend_pool_id": null,
+        "show_overlap_first": false,
+        "iou_dedup_threshold": 0.7,
+        "maximum_annotations": 1,
+        "video_collaboration": {},
+        "preannotate_pipeline": null,
+        "task_lock_ttl_seconds": 300,
+        "ai_interactive_enabled": true,
+        "point_cloud_quality_config": {},
+        "scene_continuation_window_min": 30,
+        "prefer_same_scene_continuation": false,
+        "raster_mask_native_editing_enabled": true
+      },
+      "pending_visible_after_action": true
+    },
+    "coco-existing-True-False": {
+      "result": {
+        "added_tool_units": ["rotated_bbox", "polyline"]
+      },
+      "pending_materialized": true,
+      "commits_in_helper": 0,
+      "pending_visible_before_action": false,
+      "commits_after_action": 0,
+      "project": {
+        "name": "Keep this name",
+        "status": "in_progress",
+        "due_date": null,
+        "sampling": "sequence",
+        "type_key": "image-det",
+        "data_type": "image",
+        "ai_enabled": false,
+        "scene_mode": false,
+        "type_label": "Keep",
+        "total_tasks": 0,
+        "guide_assets": [],
+        "label_config": {},
+        "review_tasks": 0,
+        "batch_summary": {},
+        "box_threshold": 0.35,
+        "model_version": null,
+        "tool_bindings": {
+          "bbox": {
+            "keep": true
+          },
+          "region": {
+            "custom": true
+          }
+        },
+        "mask_qc_config": {},
+        "text_threshold": 0.25,
+        "video_sampling": {},
+        "completed_tasks": 0,
+        "organization_id": null,
+        "annotation_guide": null,
+        "default_variants": {},
+        "rendering_config": {},
+        "in_progress_tasks": 0,
+        "ml_backend_pool_id": null,
+        "show_overlap_first": false,
+        "iou_dedup_threshold": 0.7,
+        "maximum_annotations": 1,
+        "video_collaboration": {},
+        "preannotate_pipeline": null,
+        "task_lock_ttl_seconds": 300,
+        "ai_interactive_enabled": true,
+        "point_cloud_quality_config": {},
+        "scene_continuation_window_min": 30,
+        "prefer_same_scene_continuation": false,
+        "raster_mask_native_editing_enabled": true
+      },
+      "pending_visible_after_action": false
+    },
+    "coco-existing-False-False": {
+      "result": {
+        "added_tool_units": ["rotated_bbox", "polyline"]
+      },
+      "pending_materialized": false,
+      "commits_in_helper": 0,
+      "pending_visible_before_action": false,
+      "commits_after_action": 0,
+      "project": {
+        "name": "Keep this name",
+        "status": "in_progress",
+        "due_date": null,
+        "sampling": "sequence",
+        "type_key": "image-det",
+        "data_type": "image",
+        "ai_enabled": false,
+        "scene_mode": false,
+        "type_label": "Keep",
+        "total_tasks": 0,
+        "guide_assets": [],
+        "label_config": {},
+        "review_tasks": 0,
+        "batch_summary": {},
+        "box_threshold": 0.35,
+        "model_version": null,
+        "tool_bindings": {
+          "bbox": {
+            "keep": true
+          },
+          "region": {
+            "custom": true
+          }
+        },
+        "mask_qc_config": {},
+        "text_threshold": 0.25,
+        "video_sampling": {},
+        "completed_tasks": 0,
+        "organization_id": null,
+        "annotation_guide": null,
+        "default_variants": {},
+        "rendering_config": {},
+        "in_progress_tasks": 0,
+        "ml_backend_pool_id": null,
+        "show_overlap_first": false,
+        "iou_dedup_threshold": 0.7,
+        "maximum_annotations": 1,
+        "video_collaboration": {},
+        "preannotate_pipeline": null,
+        "task_lock_ttl_seconds": 300,
+        "ai_interactive_enabled": true,
+        "point_cloud_quality_config": {},
+        "scene_continuation_window_min": 30,
+        "prefer_same_scene_continuation": false,
+        "raster_mask_native_editing_enabled": true
+      },
+      "pending_visible_after_action": false
+    }
+  }
+}

@@ -79,6 +79,9 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.read_import_project(text),
     aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb),
     aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb),
     aap_workspace_v1.write_seed_members(jsonb),
+    aap_workspace_v1.create_media_seed_project(uuid,text,text,uuid,text,jsonb),
+    aap_workspace_v1.write_seed_project_projection(uuid,jsonb),
+    aap_workspace_v1.pin_seed_member_assignment(uuid,timestamptz),
     aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb)
     TO :"application_role";
 GRANT USAGE ON SCHEMA aap_inference_backend_probe_v1 TO :"application_role";

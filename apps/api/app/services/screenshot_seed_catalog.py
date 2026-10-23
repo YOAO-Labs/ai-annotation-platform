@@ -24,7 +24,7 @@ from app.db.models.annotation import Annotation
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
 from app.db.models.prediction import Prediction
 from app.db.models.project import Project
-from app.db.models.project_member import ProjectMember
+from app.services.workspace_seed_data import seed_members, seed_projects
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.services.identity_commands import IdentityCommandService
@@ -638,7 +638,7 @@ async def _resolve_project(
     projects = list(
         (
             await db.execute(
-                select(Project).where(Project.display_id == spec.display_id)
+                select(seed_projects).where(seed_projects.display_id == spec.display_id)
             )
         ).scalars()
     )
@@ -660,7 +660,7 @@ async def _resolve_project(
         members = list(
             (
                 await db.execute(
-                    select(ProjectMember).where(ProjectMember.project_id == project.id)
+                    select(seed_members).where(seed_members.project_id == project.id)
                 )
             ).scalars()
         )
@@ -708,8 +708,8 @@ async def _resolve_optional_large_image_project(
     projects = list(
         (
             await db.execute(
-                select(Project).where(
-                    Project.display_id == LARGE_IMAGE_PROJECT_DISPLAY_ID
+                select(seed_projects).where(
+                    seed_projects.display_id == LARGE_IMAGE_PROJECT_DISPLAY_ID
                 )
             )
         ).scalars()

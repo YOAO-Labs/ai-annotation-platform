@@ -75,12 +75,15 @@ async def seed_ocr(
     from sqlalchemy import select
 
     from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
-    from app.db.models.project import Project
+    from app.services.workspace_seed_data import (
+        create_media_seed_project,
+        seed_projects,
+    )
     from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
     from app.services.storage import storage_service
 
     existing = await db.scalar(
-        select(Project).where(Project.display_id == PROJECT_DISPLAY_ID)
+        select(seed_projects).where(seed_projects.display_id == PROJECT_DISPLAY_ID)
     )
     if existing is not None:
         return {"project": PROJECT_DISPLAY_ID, "skipped": True}
@@ -88,18 +91,6 @@ async def seed_ocr(
     image = image or TEXT_IMG
     if not image.exists():
         raise FileNotFoundError(f"OCR 测试图缺失: {image}")
-
-    project = Project(
-        display_id=PROJECT_DISPLAY_ID,
-        name="OCR 文本识别 (dev)",
-        type_label="图像 · OCR",
-        type_key="image-ocr",
-        data_type="image",
-        owner_id=owner_id,
-        ai_enabled=True,
-        tool_bindings=OCR_TOOL_BINDINGS,
-    )
-    db.add(project)
 
     ds = Dataset(
         display_id=DATASET_DISPLAY_ID,
@@ -109,7 +100,14 @@ async def seed_ocr(
         created_by=owner_id,
     )
     db.add(ds)
-    await db.flush()
+    project_id = await create_media_seed_project(
+        db,
+        kind="ocr",
+        display_id=PROJECT_DISPLAY_ID,
+        name="OCR 文本识别 (dev)",
+        owner_id=owner_id,
+        tool_bindings=OCR_TOOL_BINDINGS,
+    )
 
     bucket = storage_service.datasets_bucket
     with Image.open(image) as im:
@@ -135,13 +133,13 @@ async def seed_ocr(
         )
     )
     ds.file_count = 1
-    db.add(ProjectDataset(project_id=project.id, dataset_id=ds.id))
+    db.add(ProjectDataset(project_id=project_id, dataset_id=ds.id))
     await db.flush()
 
     await DatasetTaskCreationWorkflow(db).create_tasks_for_linked_dataset(
-        dataset_id=ds.id, project_id=project.id, actor_id=owner_id
+        dataset_id=ds.id, project_id=project_id, actor_id=owner_id
     )
-    return {"project": PROJECT_DISPLAY_ID, "project_id": str(project.id)}
+    return {"project": PROJECT_DISPLAY_ID, "project_id": str(project_id)}
 
 
 async def main() -> None:

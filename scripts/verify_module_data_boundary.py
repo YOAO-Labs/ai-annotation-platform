@@ -273,6 +273,8 @@ SQL_ARTIFACTS = (
     "0304_identity_fixture_preferences.sql",
     "0305_identity_e2e_fixtures.sql",
     "0306_gpu_registry_delete_noop.sql",
+    "0307_workspace_media_seed_project.sql",
+    "0308_workspace_seed_member_assignment.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -391,6 +393,8 @@ SCHEMA_ARTIFACTS = (
     "0303_identity_scale_seed_actors.schema.json",
     "0304_identity_fixture_preferences.schema.json",
     "0305_identity_e2e_fixtures.schema.json",
+    "0307_workspace_media_seed_project.schema.json",
+    "0308_workspace_seed_member_assignment.schema.json",
 )
 TEST_FILES = (
     "tests/test_gpu_registry_delete_noop_native.py",
@@ -2383,6 +2387,9 @@ def _install_and_rollback_frozen_sql(
             "AND to_regprocedure('aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)') IS NULL "
             "AND to_regprocedure('aap_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb)') IS NULL "
             "AND to_regprocedure('aap_workspace_v1.write_seed_members(jsonb)') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.create_media_seed_project(uuid,text,text,uuid,text,jsonb)') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.write_seed_project_projection(uuid,jsonb)') IS NULL "
+            "AND to_regprocedure('aap_workspace_v1.pin_seed_member_assignment(uuid,timestamptz)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.create_seed_persona_account(jsonb)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.replace_fixture_preferences(uuid,jsonb)') IS NULL "
             "AND to_regnamespace('aap_identity_fixture_v1') IS NULL "
@@ -2974,8 +2981,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0306"]:
-            raise RuntimeError("module-data acceptance requires migration head 0306")
+        if heads != ["0308"]:
+            raise RuntimeError("module-data acceptance requires migration head 0308")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         phase = "downgrade-to-0189"
         _container_details(
@@ -3993,6 +4000,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         if (
             "tests/test_seed_parent_operator_native.py" in selected_test_paths
+            or "tests/test_media_seed_workspace_native.py" in selected_test_paths
+            or "tests/test_media_seed_workspace_live.py" in selected_test_paths
             or "tests/test_seed_parent_operator_live.py" in selected_test_paths
             or "tests/test_workspace_seed_operator_native.py" in selected_test_paths
             or "tests/test_workspace_seed_operator_live.py" in selected_test_paths
@@ -4040,9 +4049,17 @@ def main(argv: list[str] | None = None) -> int:
             "tests/test_seed_parent_operator_live.py" in selected_test_paths
             and os.environ.get("AAP_SEED_PARENT_OPERATOR_LIVE") == "1"
         )
-        seed_operator_live = seed_parent_live or (
-            "tests/test_workspace_seed_operator_live.py" in selected_test_paths
-            and os.environ.get("AAP_WORKSPACE_SEED_OPERATOR_LIVE") == "1"
+        workspace_media_seed_live = (
+            "tests/test_media_seed_workspace_live.py" in selected_test_paths
+            and os.environ.get("AAP_WORKSPACE_MEDIA_SEED_LIVE") == "1"
+        )
+        seed_operator_live = (
+            seed_parent_live
+            or workspace_media_seed_live
+            or (
+                "tests/test_workspace_seed_operator_live.py" in selected_test_paths
+                and os.environ.get("AAP_WORKSPACE_SEED_OPERATOR_LIVE") == "1"
+            )
         )
         media_seed_identity_live = (
             "tests/test_media_seed_identity_live.py" in selected_test_paths
@@ -4228,7 +4245,7 @@ def main(argv: list[str] | None = None) -> int:
                         "project_private_tables_denied": True,
                         "other_domains": "existing trusted operator runtime grants retained",
                     }
-                if seed_parent_live:
+                if seed_parent_live or workspace_media_seed_live:
                     phase = "install-identity-seed-operator-capabilities"
                     persona_grants = (
                         ROOT / "infra/docker/identity-seed-operator-grants.sql"
