@@ -69,6 +69,14 @@ from aap_notifications.read_state_postgres import NotificationReadStatePostgresD
 from aap_notifications.delete import NotificationDeleteManager
 from aap_notifications.delete_postgres import NotificationDeletePostgresData
 from aap_notifications.redis_pubsub import channel_for, publish_json as _publish_json
+from aap_notifications.terminal_append import NotificationTerminalAppendManager
+from aap_notifications.terminal_append_contract import (
+    TERMINAL_APPEND_PROTOCOL,
+    TerminalNotificationRequest,
+)
+from aap_notifications.terminal_append_postgres import (
+    NotificationTerminalAppendPostgresData,
+)
 
 
 log = logging.getLogger(__name__)
@@ -268,8 +276,20 @@ class NotificationService:
         target_id: uuid.UUID,
     ) -> bool:
         """Preserve the terminal helper's ORM SELECT/autoflush semantics."""
+        if self.db.autoflush:
+            await self.db.flush()
+        connection = await self.db.connection()
+        async with connection.begin_nested():
+            with self.db.no_autoflush:
+                result = await self.db.scalar(
+                    self._terminal_notification_query(user_id, type, target_id)
+                )
+        return result is not None
+
+    @staticmethod
+    def _terminal_notification_query(user_id, type: str, target_id):
         relation = notification_rows()
-        result = await self.db.scalar(
+        return (
             select(relation.id)
             .where(
                 relation.user_id == user_id,
@@ -279,7 +299,6 @@ class NotificationService:
             )
             .limit(1)
         )
-        return result is not None
 
     async def notify(
         self,
@@ -323,7 +342,12 @@ class NotificationService:
                 payload=notification_payload,
             )
         )
-        snapshot = appended.notification
+        row = await self._attach_notification_snapshot(appended.notification)
+        if not defer_publish:
+            await self.publish_committed([row])
+        return row
+
+    async def _attach_notification_snapshot(self, snapshot) -> Notification:
         row = Notification(
             id=snapshot.id,
             user_id=snapshot.user_id,
@@ -337,10 +361,49 @@ class NotificationService:
         make_transient_to_detached(row)
         row = await self.db.merge(row, load=False)
         await self.db.flush()
+        return row
 
-        if not defer_publish:
-            await self.publish_committed([row])
+    async def notify_terminal(
+        self,
+        *,
+        user_id: uuid.UUID,
+        type: str,
+        target_id: uuid.UUID,
+        payload: dict,
+    ) -> Notification | None:
+        """Append and publish one terminal notification if this call won the race."""
+        if self.db.autoflush:
+            await self.db.flush()
+        connection = await self.db.connection()
+        async with connection.begin_nested():
+            with self.db.no_autoflush:
+                existing = await self.db.scalar(
+                    self._terminal_notification_query(user_id, type, target_id)
+                )
+            if existing is not None:
+                return None
 
+            if await self._is_in_app_muted(user_id, type):
+                return None
+
+            request = TerminalNotificationRequest(
+                schema=TERMINAL_APPEND_PROTOCOL,
+                operation="append_job_terminal",
+                id=uuid.uuid4(),
+                user_id=user_id,
+                type=type,
+                target_id=target_id,
+                payload=payload,
+            )
+            appended = await NotificationTerminalAppendManager(
+                NotificationTerminalAppendPostgresData(self.db)
+            ).append(request)
+
+        if not appended.created:
+            return None
+
+        row = await self._attach_notification_snapshot(appended.notification)
+        await self.publish_committed([row])
         return row
 
     async def notify_many(

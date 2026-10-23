@@ -148,23 +148,18 @@ async def notify_job_terminal(db: AsyncSession, *, job_id: uuid.UUID) -> None:
         if notif_type is None:
             return
 
-        service = NotificationService(db)
-        if await service.terminal_notification_exists(job.user_id, notif_type, job.id):
-            return
-
         # This helper's documented contract is "write + publish before the
         # caller's commit" across 60+ worker call sites.  The WS delivery gate
         # briefly retries when the row is not yet visible in its own session, so
         # the message is delivered once the caller's commit lands instead of
         # being dropped; publish only after commit is not possible here without
         # touching every caller.
-        await service.notify(
+        service = NotificationService(db)
+        await service.notify_terminal(
             user_id=job.user_id,
             type=notif_type,
-            target_type="async_job",
             target_id=job.id,
             payload=_terminal_payload(job),
-            defer_publish=False,
         )
     except Exception:  # noqa: BLE001
         log.exception("async job terminal notification failed job=%s", job_id)

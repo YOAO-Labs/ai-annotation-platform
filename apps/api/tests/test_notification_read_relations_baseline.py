@@ -12,6 +12,9 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.notification import Notification
 from app.services.async_job_notify import notify_job_terminal
 from app.services.notification import NotificationService
+from aap_notifications.terminal_append_postgres import (
+    NotificationTerminalAppendPostgresData,
+)
 
 
 @pytest.mark.asyncio
@@ -101,8 +104,14 @@ async def test_legacy_terminal_dedupe_select_preserves_autoflush_modes(
     db_session, annotator, monkeypatch
 ):
     user, _ = annotator
-    notify = AsyncMock(return_value=None)
-    monkeypatch.setattr(NotificationService, "notify", notify)
+    command = AsyncMock(
+        return_value={
+            "schema": "aap-notification-terminal-append/v1",
+            "ok": False,
+            "error": {"code": "invalid_request"},
+        }
+    )
+    monkeypatch.setattr(NotificationTerminalAppendPostgresData, "command", command)
 
     def terminal_row(job: AsyncJob) -> Notification:
         return Notification(
@@ -130,7 +139,7 @@ async def test_legacy_terminal_dedupe_select_preserves_autoflush_modes(
 
     await notify_job_terminal(db_session, job_id=auto_job.id)
     assert pending_auto not in db_session.new
-    notify.assert_not_awaited()
+    command.assert_not_awaited()
 
     no_autoflush_job = AsyncJob(
         id=uuid.uuid4(),
@@ -148,7 +157,7 @@ async def test_legacy_terminal_dedupe_select_preserves_autoflush_modes(
     with db_session.no_autoflush:
         await notify_job_terminal(db_session, job_id=no_autoflush_job.id)
 
-    notify.assert_awaited_once()
+    command.assert_awaited_once()
     assert pending_no_autoflush in db_session.new
 
 

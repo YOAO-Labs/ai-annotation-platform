@@ -132,7 +132,7 @@ async def test_transient_frozen_input_wait_has_no_retry_side_effects(
 
     monkeypatch.setattr("app.services.accepted_inputs.input_gateway", fake_gateway)
     monkeypatch.setattr(async_job_service, "track_job", unexpected_side_effect)
-    monkeypatch.setattr(NotificationService, "notify", unexpected_side_effect)
+    monkeypatch.setattr(NotificationService, "notify_terminal", unexpected_side_effect)
 
     with pytest.raises(FrozenInputRetryDeferred, match=code):
         async with _prepare_retry_input(
