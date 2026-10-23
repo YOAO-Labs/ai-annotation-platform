@@ -100,11 +100,23 @@ export function DirectoryRegistrationProgress({
     setReviewed(false);
   }, [run?.phase, run?.status, run?.counts.ready_count, run?.counts.error_count]);
   useEffect(() => {
-    if (!registeredCount) return;
+    if (!run?.id || (!registeredCount && !run.comparison_complete)) return;
     void client.invalidateQueries({ queryKey: ["dataset-items", datasetId] });
+    void client.invalidateQueries({ queryKey: ["dataset-item", datasetId] });
+    void client.invalidateQueries({ queryKey: ["dataset-workbench", datasetId] });
+    void client.invalidateQueries({ queryKey: ["dataset", datasetId] });
     void client.invalidateQueries({ queryKey: ["datasets"] });
     void client.invalidateQueries({ queryKey: ["dataset-scan-entries", owner, scanId] });
-  }, [registeredCount, client, datasetId, owner, scanId]);
+  }, [
+    registeredCount,
+    run?.id,
+    run?.generation,
+    run?.comparison_complete,
+    client,
+    datasetId,
+    owner,
+    scanId,
+  ]);
   const act = async (work: () => Promise<unknown>) => {
     const current = capture();
     setBusy(true);
@@ -123,6 +135,9 @@ export function DirectoryRegistrationProgress({
           client.invalidateQueries({ queryKey: ["dataset-scan-entries", owner] }),
           client.invalidateQueries({ queryKey: ["directory-source-changes", owner] }),
           client.invalidateQueries({ queryKey: ["dataset-items", datasetId] }),
+          client.invalidateQueries({ queryKey: ["dataset-item", datasetId] }),
+          client.invalidateQueries({ queryKey: ["dataset-workbench", datasetId] }),
+          client.invalidateQueries({ queryKey: ["dataset", datasetId] }),
           ...[
             "datasets",
             "tasks",

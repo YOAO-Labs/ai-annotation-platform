@@ -2,6 +2,77 @@ import { useCallback, useEffect, useState } from "react";
 import { apiClient, ApiError } from "@/api/client";
 import { useAuthStore } from "@/stores/authStore";
 
+// Grid previews share the bounded snapshot service with foreground originals.
+const pendingPreviews = new Set<() => void>();
+let activePreviews = 0;
+
+function previewDelay(signal: AbortSignal, milliseconds: number) {
+  return new Promise<void>((resolve, reject) => {
+    const abort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
+      reject(new DOMException("预览请求已取消", "AbortError"));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", abort);
+      resolve();
+    }, milliseconds);
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+  });
+}
+
+async function fetchPreview(path: string, signal: AbortSignal) {
+  for (let attempt = 0; ; attempt++) {
+    signal.throwIfAborted();
+    try {
+      return await apiClient.getBlob(path, { signal });
+    } catch (error) {
+      const detail = error instanceof ApiError ? error.detailRaw : null;
+      if (
+        attempt >= 2 ||
+        !(error instanceof ApiError) ||
+        error.status !== 429 ||
+        !detail ||
+        typeof detail !== "object" ||
+        !("code" in detail) ||
+        detail.code !== "snapshot_capacity_exceeded"
+      )
+        throw error;
+      await previewDelay(signal, 500 * (attempt + 1));
+    }
+  }
+}
+
+function imageBlob(path: string, signal: AbortSignal): Promise<Blob> {
+  if (!path.endsWith("/preview")) return apiClient.getBlob(path, { signal });
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      pendingPreviews.delete(start);
+      signal.removeEventListener("abort", abort);
+      reject(new DOMException("预览请求已取消", "AbortError"));
+    };
+    const start = () => {
+      pendingPreviews.delete(start);
+      signal.removeEventListener("abort", abort);
+      if (signal.aborted) return abort();
+      activePreviews++;
+      void fetchPreview(path, signal)
+        .then(resolve, reject)
+        .finally(() => {
+          activePreviews--;
+          pendingPreviews.values().next().value?.();
+        });
+    };
+    if (signal.aborted) abort();
+    else if (activePreviews < 2) start();
+    else {
+      pendingPreviews.add(start);
+      signal.addEventListener("abort", abort, { once: true });
+    }
+  });
+}
+
 export function verifiedContentError(error: unknown): string {
   const code =
     error instanceof ApiError && error.detailRaw && typeof error.detailRaw === "object"
@@ -67,8 +138,7 @@ export function useVerifiedImage(path: string | null) {
       useAuthStore.getState().user?.id === userId &&
       useAuthStore.getState().sessionId === sessionId &&
       useAuthStore.getState().token === localStorage.getItem("token");
-    void apiClient
-      .getBlob(path, { signal: controller.signal })
+    void imageBlob(path, controller.signal)
       .then(async (blob) => {
         if (!current()) return;
         url = URL.createObjectURL(blob);

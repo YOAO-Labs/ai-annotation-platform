@@ -77,6 +77,8 @@ export function DirectorySyncSchedule({
   useEffect(() => {
     if (!row?.scan_id) return;
     void client.invalidateQueries({ queryKey: ["dataset-items", datasetId] });
+    void client.invalidateQueries({ queryKey: ["dataset-item", datasetId] });
+    void client.invalidateQueries({ queryKey: ["dataset-workbench", datasetId] });
     void client.invalidateQueries({ queryKey: ["datasets"] });
     void client.invalidateQueries({ queryKey: ["dataset", datasetId] });
     void client.invalidateQueries({ queryKey: ["dataset-scans", owner, sourceId] });

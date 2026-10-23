@@ -49,6 +49,43 @@ function mount(remaining: number) {
   );
 }
 describe("重定位后的新增接纳", () => {
+  it("纯预检完成后刷新工作台、分页和检查器，保留其他数据集缓存", async () => {
+    api.registration.mockResolvedValue({
+      id: "reg",
+      source_revision: 1,
+      generation: 2,
+      phase: "preflight",
+      status: "completed",
+      comparison_complete: true,
+      counts: { ready_count: 0, registered_count: 0, unchanged_count: 0 },
+    });
+    api.changes.mockResolvedValue({ complete: true, total: 0, items: [], counts: {} });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const keys = [
+      ["dataset-workbench", "dataset", "session"],
+      ["dataset-items", "dataset", { limit: 20 }],
+      ["dataset-item", "dataset", "item"],
+    ];
+    for (const key of keys) client.setQueryData(key, { previous: true });
+    client.setQueryData(["dataset-workbench", "other"], { previous: true });
+    const view = render(
+      <QueryClientProvider client={client}>
+        <DirectoryRegistrationProgress
+          scanId="scan"
+          datasetId="dataset"
+          owner="session"
+          sourceRevision={1}
+        />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => {
+      for (const key of keys) expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+    });
+    expect(client.getQueryState(["dataset-workbench", "other"])?.isInvalidated).toBe(false);
+    view.unmount();
+    client.clear();
+  });
+
   it("冻结added计数保留，但全部目标已消费时禁止再次登记", async () => {
     mount(0);
     await screen.findByText(/没有待登记的新增路径/);

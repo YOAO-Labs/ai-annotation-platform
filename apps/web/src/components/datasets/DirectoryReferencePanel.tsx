@@ -253,6 +253,8 @@ function DirectoryReferencePanelOwner({
         client.invalidateQueries({ queryKey: ["dataset-scans", owner] }),
         client.invalidateQueries({ queryKey: ["dataset-scan-entries", owner] }),
         client.invalidateQueries({ queryKey: ["dataset-items", datasetId] }),
+        client.invalidateQueries({ queryKey: ["dataset-item", datasetId] }),
+        client.invalidateQueries({ queryKey: ["dataset-workbench", datasetId] }),
         client.invalidateQueries({ queryKey: ["datasets"] }),
       ]);
     } catch (e) {

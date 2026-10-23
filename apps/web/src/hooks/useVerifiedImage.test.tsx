@@ -1,6 +1,6 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { apiClient } from "@/api/client";
+import { apiClient, ApiError } from "@/api/client";
 import { useAuthStore } from "@/stores/authStore";
 import { useVerifiedImage } from "./useVerifiedImage";
 import { useSessionGuard } from "./useSessionGuard";
@@ -44,6 +44,71 @@ afterEach(() => {
 });
 
 describe("verified original ownership", () => {
+  it("bounds grid preview requests and removes a cancelled queued preview", async () => {
+    const releases: Array<(value: Blob) => void> = [];
+    vi.mocked(apiClient.getBlob).mockImplementation(
+      () => new Promise<Blob>((resolve) => releases.push(resolve)),
+    );
+    const first = renderHook(() => useVerifiedImage("/one/preview"));
+    const second = renderHook(() => useVerifiedImage("/two/preview"));
+    const cancelled = renderHook(() => useVerifiedImage("/cancelled/preview"));
+    const queued = renderHook(() => useVerifiedImage("/queued/preview"));
+    expect(apiClient.getBlob).toHaveBeenCalledTimes(2);
+    cancelled.unmount();
+    await act(async () => releases[0](new Blob(["first"])));
+    await waitFor(() => expect(apiClient.getBlob).toHaveBeenCalledTimes(3));
+    expect(apiClient.getBlob).toHaveBeenLastCalledWith("/queued/preview", {
+      signal: expect.any(AbortSignal),
+    });
+    await act(async () => {
+      releases[1](new Blob(["second"]));
+      releases[2](new Blob(["queued"]));
+    });
+    expect(apiClient.getBlob).toHaveBeenCalledTimes(3);
+    first.unmount();
+    second.unmount();
+    queued.unmount();
+  });
+
+  it("retries a busy preview within a bounded budget and decodes the recovered image", async () => {
+    vi.mocked(apiClient.getBlob).mockRejectedValueOnce(
+      new ApiError(429, "Busy", { code: "snapshot_capacity_exceeded" }),
+    );
+    const { result } = renderHook(() => useVerifiedImage("/one/preview"));
+    await waitFor(() => expect(decodes).toHaveLength(1));
+    expect(apiClient.getBlob).toHaveBeenCalledTimes(2);
+    await act(async () => decodes[0]());
+    expect(result.current.ready).toBe(true);
+  });
+
+  it("does not retry authorization failures or send a retired preview retry", async () => {
+    vi.mocked(apiClient.getBlob).mockRejectedValueOnce(new ApiError(403, "Forbidden"));
+    const forbidden = renderHook(() => useVerifiedImage("/forbidden/preview"));
+    await waitFor(() => expect(forbidden.result.current.error).toBe("Forbidden"));
+    expect(apiClient.getBlob).toHaveBeenCalledTimes(1);
+    forbidden.unmount();
+    vi.mocked(apiClient.getBlob).mockRejectedValueOnce(
+      new ApiError(429, "Busy", { code: "snapshot_capacity_exceeded" }),
+    );
+    const retired = renderHook(() => useVerifiedImage("/retired/preview"));
+    await act(async () => {});
+    retired.unmount();
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    expect(apiClient.getBlob).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops a persistently busy preview after three attempts", async () => {
+    vi.mocked(apiClient.getBlob).mockRejectedValue(
+      new ApiError(429, "Busy", { code: "snapshot_capacity_exceeded" }),
+    );
+    const { result } = renderHook(() => useVerifiedImage("/busy/preview"));
+    await waitFor(() => expect(result.current.error).toBe("原图读取繁忙，请稍后重试"), {
+      timeout: 2500,
+    });
+    expect(apiClient.getBlob).toHaveBeenCalledTimes(3);
+    expect(result.current.url).toBeNull();
+  });
+
   it("discards a late decode after a task switch and revokes both owned URLs", async () => {
     const { result, rerender, unmount } = renderHook(({ path }) => useVerifiedImage(path), {
       initialProps: { path: "/one" },
