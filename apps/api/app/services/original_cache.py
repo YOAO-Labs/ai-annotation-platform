@@ -220,6 +220,8 @@ async def reserve(factory, source_id, asset_id, storage):
         )
         if existing:
             return None, "exists" if existing.state == "ready" else "filling"
+        if configured.size > configured.quota:
+            return None, "quota_too_small"
         if (
             await charged_bytes(db, configured.location_id) + configured.size
             > configured.quota
@@ -511,6 +513,12 @@ async def read(factory, source_id, asset_id):
             snapshot = await snapshots.capture(
                 lambda: stored_object(record, settled), record.sha256
             )
+        except snapshots.ContentError as exc:
+            if exc.status in {429, 504}:
+                # Admission/deadline pressure does not prove a corrupt object.
+                raise
+            damaged = True
+            return None
         except Exception:
             damaged = True
             return None

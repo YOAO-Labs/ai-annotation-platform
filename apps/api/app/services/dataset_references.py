@@ -1,5 +1,7 @@
 """Register immutable business references and read without committing caller state."""
 
+from copy import deepcopy
+import logging
 import uuid
 
 from fastapi import HTTPException
@@ -23,6 +25,8 @@ from app.services import filesystem_storage as fs
 from app.services import reference_storage
 from app.services import storage_location as locations
 from app.services.reference_keys import reference_key
+
+log = logging.getLogger(__name__)
 
 
 async def register_entry(
@@ -502,9 +506,7 @@ async def apply_reference(db, source, run, entry, dataset, actor):
     return {"item_id": item.id, "created": True, "sha256": receipt["sha256"]}
 
 
-async def reference_context(
-    db, item_id, actor, *, task_id=None, node_id=None, task_authorizer=None
-):
+async def _reference_state(db, item_id, actor, *, task_id=None, task_authorizer=None):
     if task_id is None:
         await scans.require_actor(db, actor.id)
     else:
@@ -610,6 +612,58 @@ async def reference_context(
         or (task_id is not None and task.file_path != item.file_path)
     ):
         raise snapshots.ContentError("content_binding_changed")
+    return source, location, run, entry, asset, accepted, item
+
+
+def _logical_context(state):
+    source, location, run, entry, asset, accepted, item = state
+    from app.services.source_selection import locator
+
+    return deepcopy(
+        dict(
+            source_id=source.id,
+            location_id=location.id,
+            item_id=item.id,
+            asset_id=asset.id,
+            sha256=asset.checksum_value,
+            size=asset.size_bytes,
+            width=item.width,
+            height=item.height,
+            accepted_revision_id=accepted.id if accepted else None,
+            source_revision=source.config_revision,
+            location_revision=location.config_revision,
+            policy_revision=source.policy_revision,
+            source_policy=source.cache_policy,
+            location_policy=location.config.get("cache_policy", "preview"),
+            run_id=run.id,
+            path_digest=entry.path_digest,
+            locator=locator(source.config),
+            origin_anchor=run.snapshot["anchor"],
+            content_receipt=entry.verified_content,
+        )
+    )
+
+
+async def reference_context(
+    db, item_id, actor, *, task_id=None, node_id=None, task_authorizer=None
+):
+    """Current logical authority and content; source reachability is separate."""
+    return _logical_context(
+        await _reference_state(
+            db, item_id, actor, task_id=task_id, task_authorizer=task_authorizer
+        )
+    )
+
+
+async def reference_source_context(
+    db, item_id, actor, *, task_id=None, node_id=None, task_authorizer=None
+):
+    """Qualify this reader's physical source access only when it is needed."""
+    state = await _reference_state(
+        db, item_id, actor, task_id=task_id, task_authorizer=task_authorizer
+    )
+    source, location, run, entry, asset, accepted, item = state
+    receipt = entry.verified_content
     node = node_id or locations.api_node_id()
     anchor = await locations.node_anchor(db, location, node)
     if anchor is None:
@@ -637,18 +691,13 @@ async def reference_context(
     ):
         raise snapshots.ContentError("content_binding_changed")
     return dict(
+        **_logical_context(state),
         config=configured,
         base=source.config["relative_path"],
         path=entry.relative_path,
         anchor=anchor,
         expected=dict(expected),
         source_identity=expected_source,
-        sha256=asset.checksum_value,
-        asset_id=asset.id,
-        size=asset.size_bytes,
-        accepted_revision_id=accepted.id if accepted else None,
-        source_revision=source.config_revision,
-        location_revision=location.config_revision,
     )
 
 
@@ -665,6 +714,7 @@ async def reference_snapshot(
     task_authorizer=None,
 ):
     from app.services.dataset_content import key_authority
+    from app.services import original_cache
 
     context = await reference_context(
         db,
@@ -677,33 +727,107 @@ async def reference_snapshot(
     proof = await key_authority(db, actor, api_key_id, scope)
     if expected_sha256 is not None and expected_sha256 != context["sha256"]:
         raise snapshots.ContentError("content_mismatch")
-    snapshot = await snapshots.capture(
-        lambda: reference_storage.content_file(
-            context["config"],
-            context["base"],
-            context["path"],
-            expected_anchor=context["anchor"],
-            expected=context["expected"],
-            expected_source_identity=context["source_identity"],
-        ),
-        context["sha256"],
+    cache_factory = (
+        _cache_factory(db)
+        if (context["source_policy"] == context["location_policy"] == "on_demand")
+        else None
     )
-    try:
-        if (
-            await reference_context(
-                db,
-                item_id,
-                actor,
-                task_id=task_id,
-                node_id=node_id,
-                task_authorizer=task_authorizer,
+    snapshot = None
+    if cache_factory:
+        from sqlalchemy.exc import SQLAlchemyError
+
+        try:
+            snapshot = await original_cache.read(
+                cache_factory, context["source_id"], context["asset_id"]
             )
-            != context
-        ):
+        except SQLAlchemyError:
+            log.warning("Original cache lookup deferred asset=%s", context["asset_id"])
+    from_source = snapshot is None
+    source_context = None
+    if from_source:
+        source_context = await reference_source_context(
+            db,
+            item_id,
+            actor,
+            task_id=task_id,
+            node_id=node_id,
+            task_authorizer=task_authorizer,
+        )
+        if any(source_context.get(key) != value for key, value in context.items()):
             raise snapshots.ContentError("content_binding_changed")
-        if await key_authority(db, actor, api_key_id, scope) != proof:
-            raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+        snapshot = await snapshots.capture(
+            lambda: reference_storage.content_file(
+                source_context["config"],
+                source_context["base"],
+                source_context["path"],
+                expected_anchor=source_context["anchor"],
+                expected=source_context["expected"],
+                expected_source_identity=source_context["source_identity"],
+            ),
+            context["sha256"],
+        )
+    try:
+
+        async def validate():
+            if (
+                await reference_context(
+                    db, item_id, actor, task_id=task_id, task_authorizer=task_authorizer
+                )
+                != context
+            ):
+                raise snapshots.ContentError("content_binding_changed")
+            if (
+                source_context is not None
+                and await reference_source_context(
+                    db,
+                    item_id,
+                    actor,
+                    task_id=task_id,
+                    node_id=node_id,
+                    task_authorizer=task_authorizer,
+                )
+                != source_context
+            ):
+                raise snapshots.ContentError("content_binding_changed")
+            if await key_authority(db, actor, api_key_id, scope) != proof:
+                raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+
+        await validate()
+        if from_source and cache_factory:
+            await _retain_snapshot(original_cache, cache_factory, context, snapshot)
+            await validate()
         return snapshot
     except BaseException:
         snapshot.close()
         raise
+
+
+def _cache_factory(db):
+    from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
+
+    # Never commit a caller-managed Connection/outer transaction. Production
+    # sessions bind to an Engine; resource transactions get their own connection.
+    return (
+        async_sessionmaker(db.bind, expire_on_commit=False)
+        if isinstance(db.bind, AsyncEngine)
+        else None
+    )
+
+
+async def _retain_snapshot(cache, factory, context, snapshot):
+    try:
+        for attempt in range(9):
+            result = await cache.store(
+                factory, context["source_id"], context["asset_id"], snapshot
+            )
+            if result != "quota_full":
+                return result
+            if attempt == 8:
+                return "quota_full"
+            identity = await cache.evict_lru(factory, context["location_id"])
+            if identity is None or await cache.purge(factory, identity) != "removed":
+                return "quota_full"
+        return "quota_full"
+    except Exception:
+        log.warning("Original cache retention deferred asset=%s", context["asset_id"])
+        return "fill_failed"

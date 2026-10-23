@@ -353,7 +353,7 @@ async def test_quota_full_returns_without_upload_and_delete_failure_keeps_charge
             "original_cache_quota_bytes": len(world.data) - 1,
         },
     )
-    assert await fill(world) == "quota_full" and not world.puts
+    assert await fill(world) == "quota_too_small" and not world.puts
     await alter(
         world,
         StorageLocation,

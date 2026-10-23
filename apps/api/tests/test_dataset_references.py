@@ -24,6 +24,11 @@ from app.services.storage import storage_service
 
 @pytest.fixture
 async def reference_world(db_session, content_world, annotator):
+    return await create_reference_world(db_session, content_world, annotator[0])
+
+
+async def create_reference_world(db_session, content_world, annotator):
+    """Build the same real reference flow with either transaction ownership model."""
     root, data, actor, dataset, location, source, run, entry = content_world
     registered = await register_entry(db_session, run.id, entry.path_digest, actor)
     project = Project(
@@ -44,10 +49,10 @@ async def reference_world(db_session, content_world, annotator):
         dataset.id, project.id, directory_authority=authority
     )
     task = await db_session.scalar(select(Task).where(Task.project_id == project.id))
-    task.assignee_id = annotator[0].id
+    task.assignee_id = annotator.id
     task.status = "in_progress"
     db_session.add(
-        ProjectMember(project_id=project.id, user_id=annotator[0].id, role="annotator")
+        ProjectMember(project_id=project.id, user_id=annotator.id, role="annotator")
     )
     await db_session.flush()
     return registered, project, task, content_world

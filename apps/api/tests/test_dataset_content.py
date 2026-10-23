@@ -30,6 +30,11 @@ def headers(actor):
 
 @pytest.fixture
 async def content_world(db_session, super_admin, tmp_path, monkeypatch):
+    return await create_content_world(db_session, super_admin[0], tmp_path, monkeypatch)
+
+
+async def create_content_world(db_session, actor, tmp_path, monkeypatch):
+    """Also usable with independently committed sessions in resource tests."""
     output = io.BytesIO()
     Image.new("RGB", (48, 32), "red").save(output, format="PNG")
     data = output.getvalue()
@@ -40,7 +45,6 @@ async def content_world(db_session, super_admin, tmp_path, monkeypatch):
     replacement.mkdir()
     os.link(root / "图片 空格.png", replacement / "图片 空格.png")
     monkeypatch.setattr(settings, "storage_filesystem_roots", {"test": str(tmp_path)})
-    actor = super_admin[0]
     dataset = Dataset(
         display_id=f"ds-{uuid.uuid4().hex[:10]}", name="Content", created_by=actor.id
     )

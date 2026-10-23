@@ -184,9 +184,9 @@ Job 外键 SET NULL，数据集删除只清空来源关联，长期观测账本�
 
 登记和项目关联共用 Dataset 锁；登记按扫描锁序取得来源后对 Dataset 使用 NOWAIT，繁忙返回409。Link 在锁后查重，各建档批次在锁内再次查已有 Task。普通标注写入与单任务生命周期在 Task 锁内完成有界原图核验并保持原事务，避免等待锁期间来源变化仍被保存；快照 helper 不 commit。独立扫描与 verify 仍锁外读取。最初 API Key 身份、当前授权和绑定在 I/O 后复查。
 
-业务读取使用当前 API 节点已固定锚点与实际完整读取，不因探测 TTL 到期自动重绑目录；缺失锚点、来源定位改变、停用或摘要不符会失败。来源改名、停用后恢复保留内容身份。首次登记仍需有效 read 探测。工作台按登录/任务/请求代次持有鉴权 Blob URL，原图未就绪禁用编辑；退休请求不能污染新任务或新账号，URL 按 owner 回收。
+业务从来源读取时使用当前 API 节点已固定锚点与实际完整读取，不因探测 TTL 到期自动重绑目录；缺失锚点、来源定位改变、停用或摘要不符会失败。来源改名、停用后恢复保留内容身份。首次登记仍需有效 read 探测。工作台按登录/任务/请求代次持有鉴权 Blob URL，原图未就绪禁用编辑；退休请求不能污染新任务或新账号，URL 按 owner 回收。
 
-应用回退保留0198及引用账本；空表才可降级。更多取舍见 [ADR0095](/dev/adr/0095-immutable-directory-reference-tasks)，管理员流程见[服务器目录原地引用](/user-guide/datasets/import-images#服务器目录原地引用)。周期同步、完整原图缓存和训练冻结另行交付。
+应用回退保留0198及引用账本；空表才可降级。更多取舍见 [ADR0095](/dev/adr/0095-immutable-directory-reference-tasks)，管理员流程见[服务器目录原地引用](/user-guide/datasets/import-images#服务器目录原地引用)。完整原图缓存的当前接入边界见下文。
 
 ## 可恢复的批量登记
 
@@ -208,7 +208,9 @@ Dataset.created_by 是目录数据集的最小管理边界：活跃超管管理�
 
 ### 完整原图缓存的资源归属
 
-`services/original_cache.py` 提供内部完整副本资源所有者，公开策略、来源读图和离线标注尚未接入。它要求来源和位置均选用按需策略、位置有显式正额度；默认额度为零。数据库保留该策略值，当前公开创建/更新仍只接受 `none/preview`。后续 resolver 必须在 I/O 前后完成业务授权与精确引用修订核验，本资源服务不签发读取权限。
+`services/original_cache.py` 提供内部完整副本资源所有者，统一引用 reader 已接入，公开按需策略、配置页和可用性展示仍未开放。它要求来源和位置均选用按需策略、位置有显式正额度；默认额度为零。数据库保留该策略值，当前公开创建/更新仍只接受 `none/preview`。`reference_context` 保存当前业务授权与逻辑内容身份，`reference_source_context` 只在实际读源或质量检查时获取来源节点、锚点和连接配置；`reference_snapshot` 在缓存/来源 I/O 前后复验身份与 Key，本资源服务不签发读取权限。
+
+缓存命中只替代来源物理可达性，不绕过任务分派、成员、账号、来源/位置启用和接受修订；最终事务仍锁住 Connection/Location/Source/Item/Asset，不再锁住与逻辑身份无关的 Probe。缓存缺失或损坏时重新按来源物理合同读取。首次严格读源成功后，独立连接提交可选保留；不提交调用方事务，外层持有业务锁时允许有界跳过保留。额度满时最多淘汰八代未被读取的完整缓存，再尝试保留；单图超过位置总额度时不淘汰。调用方显式管理外层 Connection 事务时跳过独立保留，继续严格来源读取。质量检查保持 `capture_for_quality` 的来源语义和坏图诊断，不借用缓存掩盖来源变化。
 
 `original_cache_entries` 独立保存来源位置、Asset/SHA、大小、策略修订、目的 binding/服务器指纹和 generation；没有指向业务对象的级联外键。上传前独立提交预约，位置级事务锁保证并发请求不超订；上传中、已就绪与待删除对象均占用原图额度。该额度与预览占用、整个对象桶和物理磁盘容量分别计量。同一 Asset 只允许一代正在填充或发布的缓存，旧代回收记录继续保留。
 
@@ -306,7 +308,7 @@ Worker 以 run generation、task/job ID、租约共同 fencing，逐成员事务
 
 `services/exporting/reference_media.py` 负责引用导出的固定选择、原请求授权证明和原图快照生命周期；`exporting/scope.py` 为大范围固定 ID 清单使用有界 SQL 参数。项目、批次与 Data Manager 在入队时封存私有 `export_authority`，包括原 API Key hash 与任务/Item/Asset/来源修订；`AsyncJobOut` 不返回该清单，幂等复投不替换它。
 
-导出按现有项目 `EXPORT_ANNOTATIONS` 能力授权；显式任务选择继续逐项检查可见性。严格 reader 的默认任务权限不变，导出通过内部 task 授权回调复用读取基座，避免冒用管理员或把整项目导出缩成个人待办范围。实际 Celery hostname 决定 `worker:<hostname>` 锚点，每份快照校验 SHA、大小和图片尺寸后再写包。
+导出按现有项目 `EXPORT_ANNOTATIONS` 能力授权；显式任务选择继续逐项检查可见性。严格 reader 的默认任务权限不变，导出通过内部 task 授权回调复用读取基座，避免冒用管理员或把整项目导出缩成个人待办范围。实际读源时由 Celery hostname 决定 `worker:<hostname>` 锚点；完整缓存路径按同一逻辑身份读取，每份快照校验 SHA、大小和图片尺寸后再写包。
 
 manifest 暂存于独占 TemporaryFile，避免同时打开两个 ZIP 写句柄；原图按块复制，逐项关闭快照，同时执行 entry、文件数和临时磁盘预算。标签、COCO、AAP 及掩码元数据共用包内路径，引用不经过平台桶签名器。引用包采用 job 隔离 cache key 并禁用 cache hit，托管缓存保持原合同。迁移 0211 将产物的完整格式列表扩展为 Text，旧值保留；已有长列表时拒绝降级，避免静默截断。
 

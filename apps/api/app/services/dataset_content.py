@@ -325,7 +325,7 @@ async def quality_identity(db, item_id, actor, *, node_id=None):
     """Resolve a dataset-managed original without borrowing Task authority."""
     from app.services.dataset_source_access import assert_dataset_manage
     from app.services.reference_keys import is_reference
-    from app.services.dataset_references import reference_context
+    from app.services.dataset_references import reference_source_context
 
     item = await db.get(DatasetItem, item_id, populate_existing=True)
     if item is None:
@@ -341,7 +341,7 @@ async def quality_identity(db, item_id, actor, *, node_id=None):
     if item.file_type != "image" or asset.media_type != "image":
         raise snapshots.ContentError("media_not_supported")
     if is_reference(item.file_path):
-        context = await reference_context(db, item_id, actor, node_id=node_id)
+        context = await reference_source_context(db, item_id, actor, node_id=node_id)
         return (asset.id, asset.checksum_value, asset.size_bytes, context)
     replica = await db.scalar(
         select(DatasetAssetLocation)

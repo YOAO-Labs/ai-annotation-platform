@@ -7,7 +7,6 @@ from app.db.models.dataset import DatasetItem
 from app.db.models.dataset_asset import (
     DatasetAsset,
     StorageLocation,
-    StorageLocationProbe,
 )
 from app.db.models.dataset_source import (
     DatasetReference,
@@ -127,20 +126,3 @@ async def lock_reference_bindings(db, bindings, node_id):
             .order_by(model.id)
             .with_for_update(read=True, nowait=True)
         )
-    # Refresh the probe identity before the strict context uses node_anchor.
-    await db.execute(
-        select(StorageLocationProbe)
-        .where(
-            ids_clause(
-                StorageLocationProbe.location_id,
-                {
-                    uuid.UUID(row["reference"]["location_id"])
-                    for row in bindings
-                    if "reference" in row
-                },
-            ),
-            StorageLocationProbe.node_id == node_id,
-        )
-        .with_for_update(read=True, nowait=True)
-        .execution_options(populate_existing=True)
-    )

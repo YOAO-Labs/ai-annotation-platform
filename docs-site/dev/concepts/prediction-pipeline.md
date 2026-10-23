@@ -238,9 +238,9 @@ crop 模式默认走 **presigned URL**：现有 HTTP 后端直接读取 import �
 
 后台 `bulk` 和工作台单题图片预标在 API 冻结实际 Task 范围、Task.version、原发起 Key proof、Item/Asset/SHA/大小/尺寸及来源修订，模型阶段写入不可变执行快照。skip 后不含引用的范围只固定 UUID，无需额外读图 scope 或模型快照；pending 幂等重发始终复用首次范围。没有服务器证明的旧队列仍不能消费引用。
 
-worker 使用 `worker:<Celery hostname>` 的已核验锚点捕获 strict snapshot，经 `PredictionInputs` 投递独占 `original/` 对象，geometry 复用同一 URL，ROI 从该快照解码，避免各阶段读到不同原件。逐阶段资格失败整题中止，不适用模型的 keep_parent/drop_box 软失败策略；引用在 frame 旧清理分支前拒绝。
+worker 通过统一引用 reader 捕获 strict snapshot，实际读源使用 `worker:<Celery hostname>` 的已核验锚点；内部完整缓存按同 Asset/SHA 和当前授权选择（公开按需配置仍待开放），随后经 `PredictionInputs` 投递独占 `original/` 对象，geometry 复用同一 URL，ROI 从该快照解码，避免各阶段读到不同原件。逐阶段资格失败整题中止，不适用模型的 keep_parent/drop_box 软失败策略；引用在 frame 旧清理分支前拒绝。
 
-最终短事务沿用作业取消锁、账号/项目/成员、原 Key、批次/Task，再持有来源/位置/连接和 Item/Asset/节点探测的生命周期锁，复核绑定与模型快照。签发的专有 receipt 绑定当前 session、非嵌套事务、Task 和内容，提交或回滚即失效；`PredictionService` 仅据该 receipt 放行引用候选写入。持久元数据只存必要的内容及执行溯源，不能充当授权，也不保存 Key proof、原件定位配置或临时 URL。内容绑定与短锁 helper 由导出和预测复用，两者业务权限仍分别检查。
+最终短事务沿用作业取消锁、账号/项目/成员、原 Key、批次/Task，再持有来源/位置/连接和 Item/Asset 的生命周期锁，复核绑定与模型快照；节点探测仅用于实际读源资格。签发的专有 receipt 绑定当前 session、非嵌套事务、Task 和内容，提交或回滚即失效；`PredictionService` 仅据该 receipt 放行引用候选写入。持久元数据只存必要的内容及执行溯源，不能充当授权，也不保存 Key proof、原件定位配置或临时 URL。内容绑定与短锁 helper 由导出和预测复用，两者业务权限仍分别检查。
 
 ### 引用失败重试与采纳
 
@@ -356,7 +356,7 @@ worker 累加各阶段 stats（源阶段 `{detected}`、下游 `{targeted, ok, f
 
 ### 引用图片的同步交互与原生掩码
 
-`reference_inference.ReferenceImageOperation` 固定本次 Task.version、Item/Asset/SHA/大小/尺寸、来源/位置/连接修订、API 节点锚点与原发起 Key proof。`interactive_predict` 和 `predict_test` 使用独立请求 UUID 及明确的输入账本 owner，不伪造业务 AsyncJob。初始权限与 Mask 提示授权后释放事务，再严格捕获原图并上传到独占临时输入；模型 setup 后、真正派发前再次校验。原图、掩码提示读取和模型 HTTP 均不跨持成员锁的事务。
+`reference_inference.ReferenceImageOperation` 固定本次 Task.version、Item/Asset/SHA/大小/尺寸、来源/位置/连接修订与原发起 Key proof；来源物理读取另核对实际 API 节点锚点，完整缓存命中也需当前逻辑身份和权限。`interactive_predict` 和 `predict_test` 使用独立请求 UUID 及明确的输入账本 owner，不伪造业务 AsyncJob。初始权限与 Mask 提示授权后释放事务，再严格捕获原图并上传到独占临时输入；模型 setup 后、真正派发前再次校验。原图、掩码提示读取和模型 HTTP 均不跨持成员锁的事务。
 
 响应边界取得账号/项目/成员、原 Key、Task 编辑 advisory、批次/Task 和内容生命周期锁，刷新批次状态及 fallback 分派，复核权限、绑定、版本与提示 Annotation 版本/digest；advisory 使用 try-lock，忙时返回 409。predict-test 保留管理者的可读测试语义，可以测试已完成任务；交互检查当前编辑权限、他人编辑锁与 AI 开关。请求取消时清理在受保护的取消范围内释放事务并回收输入；不确定 PUT 与硬中断仍由持久账本恢复。
 
