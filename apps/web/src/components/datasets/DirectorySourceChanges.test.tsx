@@ -24,6 +24,7 @@ const entry: DatasetSourceChangeOut = {
   accepted_revision_id: null,
   accepted_item_id: null,
   can_accept_revision: true,
+  can_revalidate: false,
   registration_state: "error",
   error_code: "reference_content_changed",
 };
@@ -108,7 +109,55 @@ describe("逐项内容修订确认", () => {
       />,
     );
     expect(screen.getByText(/已接受为新修订 · 新样本 new-item/)).toBeInTheDocument();
-    expect(screen.getByText(/身份观测已变化/)).toBeInTheDocument();
+    expect(screen.getByText(/文件观测已变化/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "接受为新修订" })).not.toBeInTheDocument();
+  });
+});
+
+describe("同内容重新核验", () => {
+  const observation = {
+    ...entry,
+    reason: "observation_changed",
+    candidate_sha256: entry.before_sha256,
+    can_accept_revision: false,
+    can_revalidate: true,
+  };
+  it("明确保留业务身份，核对后才确认", async () => {
+    const accept = vi.fn().mockResolvedValue(true);
+    render(
+      <DirectorySourceChanges
+        {...props}
+        data={{ ...data, items: [observation] }}
+        onAccept={accept}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "重新核验并保留样本" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent("继续使用原样本、任务和标注");
+    const confirm = screen.getByRole("button", { name: "确认重新核验此项" });
+    expect(confirm).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: /已核对同一内容/ }));
+    fireEvent.click(confirm);
+    await waitFor(() => expect(accept).toHaveBeenCalledWith(observation));
+  });
+  it("同样本结果展示重新核验，保留冻结差异", () => {
+    render(
+      <DirectorySourceChanges
+        {...props}
+        data={{
+          ...data,
+          items: [
+            {
+              ...observation,
+              can_revalidate: false,
+              accepted_revision_id: "r2",
+              accepted_item_id: entry.before_item_id,
+            },
+          ],
+        }}
+        onAccept={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/已重新核验 · 保留样本 old-item/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "重新核验并保留样本" })).not.toBeInTheDocument();
   });
 });

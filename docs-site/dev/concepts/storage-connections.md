@@ -225,7 +225,7 @@ lstat 链、句柄 stat、读取前后观测与完整 SHA 负责内容一致性�
 
 持续引用与连接器一次性复制导入共享连接配置，但保留独立的来源、扫描、预检及登记账本。预检在来源锁内从已接纳路径映射固定基线，完整读取内容后生成六类差异；上轮仅观测的条目不成为接纳基线。比较结果只有完整预检完成后才发布，取消或中断不推断缺失。
 
-确认仅新增会固定选择范围，相同项跳过，变化和未见保留历史绑定；恢复不能扩大已确认范围。正式登记仍重新严格读取，并在同一事务建立样本/项目任务与登记结果。分页差异与短期 AsyncJob 历史独立保留；旧引用始终使用原摘要、资格及观测，不通过新扫描重绑。详见 [API 合同](/api/guides/dataset-sources#手动增量差异) 和 [决策记录](/dev/adr/0100-preflight-owned-source-differences)。
+确认仅新增会固定选择范围，相同项跳过，变化和未见保留历史绑定；恢复不能扩大已确认范围。正式登记仍重新严格读取，并在同一事务建立样本/项目任务与登记结果。分页差异与短期 AsyncJob 历史独立保留；旧引用始终使用原摘要及资格；普通新扫描不重绑观测，只有显式同内容重新核验可以追加读取凭据。详见 [API 合同](/api/guides/dataset-sources#手动增量差异) 和 [决策记录](/dev/adr/0100-preflight-owned-source-differences)。
 
 ## 周期来源协调
 
@@ -242,3 +242,7 @@ DatasetSourceItem 是来源/路径的当前头；DatasetSourceRevision 保存不
 单项新修订仅用于完整预检中的实际内容变化。沿用严格读取、Source 序列化与 Dataset NOWAIT，在一个事务创建新样本及空白任务、追加修订并推进头；Key 原证明与当前授权在 I/O 后和提交前复查。托管复制跳过业务 SHA 去重，引用保持各自 ScanEntry。历史媒体所有权与来源影响统计查询全部修订；管理预览仅服务当前 Asset。删除历史 Item 不回退头，不丢失原业务身份。
 
 差异分类、原预检异常和仅新增确认范围不变；新修订接纳结果独立查询。周期核对门禁不因逐项接纳自动开放。应用回退保留0203与业务历史，禁止破坏性降级。详见 [ADR0102](/dev/adr/0102-explicit-directory-content-revisions)。
+
+### 同摘要观测重新核验
+
+完整预检的 observation_changed 可明确接受为同 Item/Asset 的新 SourceRevision，继承 owns_item，不改业务身份、原 Reference、标注及 metadata。读取先验证原始绑定，再按同 Source/path/Item/Asset 选最新接纳观测；不按当前路径头或 SHA 搜索样本，不在失败时回退旧凭据。返回上下文包含选中修订 ID，I/O 后切换证据会被发现。资格锚点变化保持阻断。无需 schema 迁移；回退入口后仍需保留已接纳账本与其严格读取。见 [ADR0103](/dev/adr/0103-explicit-same-content-revalidation)。

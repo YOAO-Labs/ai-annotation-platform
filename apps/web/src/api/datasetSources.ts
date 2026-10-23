@@ -63,6 +63,11 @@ export const datasetSourcesApi = {
     apiClient.post<DatasetRegistrationOut>(`/dataset-scans/${scanId}/registration`),
   confirmRegistration: (id: string, scope: DatasetRegistrationConfirm["scope"] = "all_safe") =>
     apiClient.post<DatasetRegistrationOut>(`/dataset-registrations/${id}/confirm`, { scope }),
+  revalidate: (id: string, digest: string, payload: SourceRevisionAccept) =>
+    apiClient.post<SourceRevisionResult>(
+      `/dataset-registrations/${id}/changes/${digest}/revalidate`,
+      payload,
+    ),
   acceptRevision: (id: string, digest: string, payload: SourceRevisionAccept) =>
     apiClient.post<SourceRevisionResult>(
       `/dataset-registrations/${id}/changes/${digest}/accept-revision`,

@@ -4,6 +4,7 @@ import uuid
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
+from sqlalchemy.orm import aliased
 
 from app.db.models.dataset_source import (
     DatasetSourceRevision as Revision,
@@ -56,7 +57,7 @@ async def append(db, source, scan, entry, result, asset, actor, *, resolution=No
         asset_id=asset.id,
         content_sha256=result["sha256"],
         ownership_mode=source.ownership_mode,
-        owns_item=result["created"],
+        owns_item=result.get("owns_item", result["created"]),
         previous_revision_id=previous.id if previous else None,
         registration_id=resolution["registration_id"] if resolution else None,
         accepted_by_id=actor.id,
@@ -79,7 +80,15 @@ def result_out(revision, created=False):
 
 
 async def accept(
-    db, registration_id, digest, payload, actor, *, api_key_id=None, node_id=None
+    db,
+    registration_id,
+    digest,
+    payload,
+    actor,
+    *,
+    api_key_id=None,
+    node_id=None,
+    revalidate=False,
 ):
     """A completed preflight grants no authority to silently replace old items."""
     from app.services.dataset_references import register_entry
@@ -112,7 +121,9 @@ async def accept(
         if (
             change is None
             or change.kind != "changed"
-            or change.reason != "content_changed"
+            or change.reason
+            != ("observation_changed" if revalidate else "content_changed")
+            or (revalidate and change.before_sha256 != payload.candidate_sha256)
             or not change.before_revision_id
             or change.before_revision_id != payload.before_revision_id
             or change.candidate_sha256 != payload.candidate_sha256
@@ -162,6 +173,7 @@ async def accept(
         registration_id=run.id,
         revision_id=new_id,
         before_revision_id=change.before_revision_id,
+        revalidate=revalidate,
     )
 
     async def before_apply(session):
@@ -207,16 +219,32 @@ async def history(db, source_id, digest, limit, offset):
     if digest:
         stmt = stmt.where(Revision.path_digest == digest)
     total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
-    rows = await db.scalars(
-        stmt.order_by(Revision.path_digest, Revision.revision_number.desc())
-        .offset(offset)
-        .limit(limit)
-    )
+    previous = aliased(Revision)
+    rows = (
+        await db.execute(
+            stmt.add_columns(previous)
+            .outerjoin(previous, previous.id == Revision.previous_revision_id)
+            .order_by(Revision.path_digest, Revision.revision_number.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    ).all()
     return dict(
         total=total,
         items=[
             dict(
                 **result_out(r),
+                acceptance_kind=(
+                    "initial"
+                    if p is None
+                    else "observation_revalidation"
+                    if (
+                        r.item_id_at_accept == p.item_id_at_accept
+                        and r.asset_id_at_accept == p.asset_id_at_accept
+                        and r.content_sha256 == p.content_sha256
+                    )
+                    else "content_revision"
+                ),
                 path_digest=r.path_digest,
                 scan_run_id=r.run_id,
                 registration_id=r.registration_id,
@@ -224,6 +252,6 @@ async def history(db, source_id, digest, limit, offset):
                 accepted_at=r.accepted_at,
                 item_available=r.dataset_item_id is not None,
             )
-            for r in rows
+            for r, p in rows
         ],
     )

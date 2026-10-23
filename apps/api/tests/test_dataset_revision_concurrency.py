@@ -3,6 +3,8 @@
 import asyncio
 import uuid
 
+import pytest
+
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -26,8 +28,9 @@ from tests.test_dataset_content import content_world
 from tests.test_dataset_source_revisions import candidate
 
 
+@pytest.mark.parametrize("revalidate", [False, True])
 async def test_concurrent_identical_confirmations_return_one_revision(
-    test_engine, tmp_path, monkeypatch
+    test_engine, tmp_path, monkeypatch, revalidate
 ):
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     async with maker() as db:
@@ -45,7 +48,9 @@ async def test_concurrent_identical_confirmations_return_one_revision(
             db, (actor, None), tmp_path, monkeypatch
         )
         await register_entry(db, world[6].id, world[7].path_digest, actor)
-        world, run, change, payload = await candidate(db, world)
+        world, run, change, payload = await candidate(
+            db, world, "red" if revalidate else "blue"
+        )
         actor_id, source_id, dataset_id, location_id, run_id = (
             actor.id,
             world[5].id,
@@ -75,7 +80,12 @@ async def test_concurrent_identical_confirmations_return_one_revision(
             async with maker() as db:
                 actor = await db.get(User, actor_id)
                 result = await revisions.accept(
-                    db, run_id, change["path_digest"], payload, actor
+                    db,
+                    run_id,
+                    change["path_digest"],
+                    payload,
+                    actor,
+                    revalidate=revalidate,
                 )
                 await db.commit()
                 return result
@@ -85,16 +95,13 @@ async def test_concurrent_identical_confirmations_return_one_revision(
         )
         assert first["revision_id"] == second["revision_id"]
         assert first["item_id"] == second["item_id"]
-        assert sum(r["created"] for r in (first, second)) == 1
+        assert sum(r["created"] for r in (first, second)) == (0 if revalidate else 1)
         async with maker() as db:
-            assert (
-                await db.scalar(
-                    select(func.count())
-                    .select_from(DatasetItem)
-                    .where(DatasetItem.dataset_id == dataset_id)
-                )
-                == 2
-            )
+            assert await db.scalar(
+                select(func.count())
+                .select_from(DatasetItem)
+                .where(DatasetItem.dataset_id == dataset_id)
+            ) == (1 if revalidate else 2)
             assert (
                 await db.scalar(
                     select(func.count())

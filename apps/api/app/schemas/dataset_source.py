@@ -143,6 +143,7 @@ class DatasetSourceChangeOut(BaseModel):
     accepted_revision_id: uuid.UUID | None
     accepted_item_id: uuid.UUID | None
     can_accept_revision: bool
+    can_revalidate: bool
     before_sha256: str | None
     candidate_sha256: str | None
     registration_state: str | None
@@ -166,6 +167,7 @@ class SourceRevisionResult(BaseModel):
 
 
 class SourceRevisionOut(SourceRevisionResult):
+    acceptance_kind: Literal["initial", "content_revision", "observation_revalidation"]
     path_digest: str
     scan_run_id: uuid.UUID
     registration_id: uuid.UUID | None

@@ -148,7 +148,30 @@ async def register_entry(
                 "sha256": mapping.content_sha256,
             }
         else:
-            if source.ownership_mode == "managed_copy":
+            revalidate = bool(revision_context and revision_context.get("revalidate"))
+            if revalidate:
+                previous = await db.get(
+                    DatasetSourceRevision,
+                    revision_context["before_revision_id"],
+                    populate_existing=True,
+                )
+                if (
+                    mapping is None
+                    or previous is None
+                    or previous.dataset_item_id is None
+                    or previous.asset_id is None
+                    or mapping.current_revision_id != previous.id
+                    or previous.content_sha256 != receipt["sha256"]
+                    or previous.ownership_mode != source.ownership_mode
+                ):
+                    raise HTTPException(409, detail={"code": "source_revision_changed"})
+                result = {
+                    "item_id": previous.dataset_item_id,
+                    "created": False,
+                    "sha256": previous.content_sha256,
+                    "owns_item": previous.owns_item,
+                }
+            elif source.ownership_mode == "managed_copy":
                 result = await apply_copy(
                     db,
                     source,
@@ -166,6 +189,15 @@ async def register_entry(
                     DatasetAsset.dataset_item_id == result["item_id"]
                 )
             )
+            if revalidate and (
+                asset is None
+                or asset.id != previous.asset_id
+                or asset.checksum_algorithm != "sha256"
+                or asset.checksum_value != receipt["sha256"]
+                or asset.size_bytes != receipt["size_bytes"]
+                or asset.verification_state != "verified"
+            ):
+                raise snapshots.ContentError("content_binding_changed")
             from app.services import dataset_source_revisions as revisions
 
             revision = await revisions.append(
@@ -189,27 +221,30 @@ async def register_entry(
             mapping.asset_id = asset.id
             mapping.content_sha256 = receipt["sha256"]
             mapping.ownership_mode = source.ownership_mode
-            mapping.owns_item = result["created"]
+            mapping.owns_item = revision.owns_item
             if revision_context:
                 item = await db.get(DatasetItem, result["item_id"])
-                item.metadata_ = {
-                    **(item.metadata_ or {}),
-                    "source_revision_id": str(revision.id),
-                    "source_revision_number": revision.revision_number,
-                    "previous_source_item_id": str(
-                        (
-                            await db.get(
-                                revisions.Revision, revision.previous_revision_id
-                            )
-                        ).item_id_at_accept
-                    ),
-                }
+                if not revalidate:
+                    item.metadata_ = {
+                        **(item.metadata_ or {}),
+                        "source_revision_id": str(revision.id),
+                        "source_revision_number": revision.revision_number,
+                        "previous_source_item_id": str(
+                            (
+                                await db.get(
+                                    revisions.Revision, revision.previous_revision_id
+                                )
+                            ).item_id_at_accept
+                        ),
+                    }
                 from app.services.audit import AuditService
 
                 await AuditService.log(
                     db,
                     actor=actor,
-                    action="dataset_source.accept_revision",
+                    action="dataset_source.revalidate"
+                    if revalidate
+                    else "dataset_source.accept_revision",
                     target_type="dataset_item",
                     target_id=str(item.id),
                     detail={
@@ -217,9 +252,9 @@ async def register_entry(
                         "revision_id": str(revision.id),
                         "previous_revision_id": str(revision.previous_revision_id),
                     },
-                    status_code=201,
+                    status_code=200 if revalidate else 201,
                 )
-                result.update(revisions.result_out(revision, created=True))
+                result.update(revisions.result_out(revision, created=result["created"]))
             await db.flush()
         # A historical replay must not republish its bytes as the current preview.
         preview = (
@@ -442,9 +477,41 @@ async def reference_context(db, item_id, actor, *, task_id=None):
     ):
         raise snapshots.ContentError("content_unverified")
     source = await db.get(DatasetSource, ref.source_id, populate_existing=True)
-    run = await db.get(DatasetScanRun, ref.run_id, populate_existing=True)
-    entry = await db.get(
+    original_run = await db.get(DatasetScanRun, ref.run_id, populate_existing=True)
+    original_entry = await db.get(
         DatasetScanEntry, (ref.run_id, ref.path_digest), populate_existing=True
+    )
+    if (
+        original_run is None
+        or original_run.source_id != ref.source_id
+        or not original_run.complete
+        or original_entry is None
+        or not original_entry.verified_content
+        or ref.source_revision != original_run.snapshot["source_revision"]
+        or ref.location_revision != original_run.snapshot["location_revision"]
+        or original_entry.verified_content["sha256"] != asset.checksum_value
+        or original_entry.verified_content["size_bytes"] != asset.size_bytes
+    ):
+        raise snapshots.ContentError("content_binding_changed")
+    # The original reference remains immutable. Only an explicit accepted
+    # receipt for this exact business asset can renew its read observation.
+    accepted = await db.scalar(
+        select(DatasetSourceRevision)
+        .where(
+            DatasetSourceRevision.source_id == ref.source_id,
+            DatasetSourceRevision.path_digest == ref.path_digest,
+            DatasetSourceRevision.dataset_item_id == item_id,
+            DatasetSourceRevision.asset_id == asset.id,
+            DatasetSourceRevision.ownership_mode == "reference",
+        )
+        .order_by(DatasetSourceRevision.revision_number.desc())
+        .limit(1)
+        .execution_options(populate_existing=True)
+    )
+    effective_run_id = accepted.run_id if accepted else ref.run_id
+    run = await db.get(DatasetScanRun, effective_run_id, populate_existing=True)
+    entry = await db.get(
+        DatasetScanEntry, (effective_run_id, ref.path_digest), populate_existing=True
     )
     if task_id is None and source is not None:
         await scans.require_actor(db, actor.id, source)
@@ -473,8 +540,14 @@ async def reference_context(db, item_id, actor, *, task_id=None):
     receipt = entry.verified_content
     if (
         source.config != run.snapshot["config"]
-        or ref.source_revision != run.snapshot["source_revision"]
-        or ref.location_revision != run.snapshot["location_revision"]
+        or run.snapshot["config"] != original_run.snapshot["config"]
+        or run.snapshot["anchor"] != original_run.snapshot["anchor"]
+        or (accepted is None and ref.source_revision != run.snapshot["source_revision"])
+        or (
+            accepted is None
+            and ref.location_revision != run.snapshot["location_revision"]
+        )
+        or (accepted is not None and accepted.content_sha256 != receipt["sha256"])
         or asset.checksum_algorithm != "sha256"
         or asset.checksum_value != receipt["sha256"]
         or asset.size_bytes != receipt["size_bytes"]
@@ -516,6 +589,7 @@ async def reference_context(db, item_id, actor, *, task_id=None):
         sha256=asset.checksum_value,
         asset_id=asset.id,
         size=asset.size_bytes,
+        accepted_revision_id=accepted.id if accepted else None,
         source_revision=source.config_revision,
         location_revision=location.config_revision,
     )

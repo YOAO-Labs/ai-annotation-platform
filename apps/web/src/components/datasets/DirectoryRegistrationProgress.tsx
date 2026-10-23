@@ -241,11 +241,15 @@ export function DirectoryRegistrationProgress({
                 run.phase === "preflight" && run.status === "completed" && !stale
                   ? (entry) =>
                       act(() =>
-                        api.acceptRevision(run.id, entry.path_digest, {
-                          expected_generation: run.generation,
-                          before_revision_id: entry.before_revision_id!,
-                          candidate_sha256: entry.candidate_sha256!,
-                        }),
+                        (entry.can_revalidate ? api.revalidate : api.acceptRevision)(
+                          run.id,
+                          entry.path_digest,
+                          {
+                            expected_generation: run.generation,
+                            before_revision_id: entry.before_revision_id!,
+                            candidate_sha256: entry.candidate_sha256!,
+                          },
+                        ),
                       )
                   : undefined
               }
@@ -264,7 +268,7 @@ export function DirectoryRegistrationProgress({
           )}
           {run.comparison_complete && !!changes.data?.counts.changed && (
             <p className="mt-2 text-status-caution">
-              接纳内容变化需在预检阶段逐项确认；如还需登记新增，请先处理内容变化。开始仅新增登记后，未处理的变化需重新扫描和预检。
+              接纳新内容或重新核验需在预检阶段逐项确认；如还需登记新增，请先处理变化项。开始仅新增登记后，未处理的变化需重新扫描和预检。
             </p>
           )}
           {run.phase === "preflight" && run.status === "completed" && (

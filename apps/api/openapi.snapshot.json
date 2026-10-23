@@ -12820,6 +12820,10 @@
             "title": "Can Accept Revision",
             "type": "boolean"
           },
+          "can_revalidate": {
+            "title": "Can Revalidate",
+            "type": "boolean"
+          },
           "candidate_sha256": {
             "anyOf": [
               {
@@ -12895,6 +12899,7 @@
           "accepted_revision_id",
           "accepted_item_id",
           "can_accept_revision",
+          "can_revalidate",
           "before_sha256",
           "candidate_sha256",
           "registration_state",
@@ -40051,6 +40056,15 @@
       },
       "SourceRevisionOut": {
         "properties": {
+          "acceptance_kind": {
+            "enum": [
+              "initial",
+              "content_revision",
+              "observation_revalidation"
+            ],
+            "title": "Acceptance Kind",
+            "type": "string"
+          },
           "accepted_at": {
             "anyOf": [
               {
@@ -40142,6 +40156,7 @@
           "item_id",
           "sha256",
           "created",
+          "acceptance_kind",
           "path_digest",
           "scan_run_id",
           "registration_id",
@@ -61248,6 +61263,73 @@
           }
         ],
         "summary": "Accept Content Revision",
+        "tags": [
+          "dataset-sources"
+        ]
+      }
+    },
+    "/api/v1/dataset-registrations/{registration_id}/changes/{path_digest}/revalidate": {
+      "post": {
+        "operationId": "revalidate_observation_api_v1_dataset_registrations__registration_id__changes__path_digest__revalidate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registration_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registration Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "path_digest",
+            "required": true,
+            "schema": {
+              "title": "Path Digest",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceRevisionAccept"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceRevisionResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Revalidate Observation",
         "tags": [
           "dataset-sources"
         ]

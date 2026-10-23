@@ -85,7 +85,7 @@ Run 的 `completed` 和 `complete=true` 只表示约定范围枚举与复核完�
 
 确认接口可带 JSON `{"scope":"additions_only"}`：须有完整差异且存在可登记新增，否则409 `comparison_incomplete/no_added_images`。选择范围固定为 `registration_scope`；重复同范围确认幂等，改变范围返回409 `registration_scope_changed`。本轮相同项标为 unchanged，不再登记，只有新增 ready 项进入正式登记；异常变化或未见项不接纳。正式登记仍逐项复读固定摘要和复查权限，确认后的外部覆盖会记异常。差异分类与候选摘要保留为预检证据，当前执行结果见 `registration_state/error_code`。已确认仅新增后，非新增错误不得通过 retry 扩大选择范围；变化项返回409 `source_change_requires_rescan`，需要新扫描及后续裁决能力。
 
-无请求体或 `{"scope":"all_safe"}` 保留既有确认方式；新预检中已变化项仍被阻断，旧账本 `comparison_available=false` 不支持仅新增。异步任务清理不清除此差异证据。接受变化形成新修订、移动重定位及删除裁决未开放。
+无请求体或 `{"scope":"all_safe"}` 保留既有确认方式；新预检中已变化项仍被阻断，旧账本 `comparison_available=false` 不支持仅新增。异步任务清理不清除此差异证据。不同摘要内容可逐项接受为新修订，同摘要观测变化可逐项重新核验；移动重定位及删除裁决未开放。
 
 ## 逐条登记原地图片
 
@@ -167,4 +167,12 @@ SFTP 复用逐目录检查点、取消恢复及末次目录清单核对，每目
 
 409 `revision_preflight_required`、`revision_selection_changed` 或 `source_revision_changed` 要求重新扫描和预检；`source_busy` 表示来源有在途扫描或登记。已接纳的新样本被删除后返回 `accepted_revision_item_deleted`，不会复活旧候选。文件再次变化、暂停/撤权或资格变化沿用严格读取错误。数据库或对象存储提交结果未知时，先重放原确认查询结果，避免推断未提交。
 
-`GET /dataset-sources/{source_id}/revisions?path_digest=摘要&limit=20&offset=0` 按路径和修订号倒序分页，要求来源管理权限与 `datasets:read`。返回接纳人/时间、观测 scan_run_id、确认 registration_id、前驱及 item_available；删除业务对象后保留原 Item 身份。历史回填的接纳人/时间为 null。历史原地引用仍指向原观测；旧目录字节覆盖后可能不可读，不能以新图或管理预览替代。
+`GET /dataset-sources/{source_id}/revisions?path_digest=摘要&limit=20&offset=0` 按路径和修订号倒序分页，要求来源管理权限与 `datasets:read`。返回接纳人/时间、观测 scan_run_id、确认 registration_id、前驱及 item_available；删除业务对象后保留原 Item 身份。历史回填的接纳人/时间为 null。历史原地引用保持原内容身份；显式同内容重新核验可追加读取观测，旧目录字节覆盖后可能不可读，不能以新图或管理预览替代。
+
+## 同内容重新核验
+
+`POST /dataset-registrations/{registration_id}/changes/{path_digest}/revalidate` 使用与内容接纳相同的请求和权限，只接受完整预检的 `changed/observation_changed`，要求前后 SHA 相同、前驱仍为当前头。差异行的 `can_revalidate` 表示可发起该操作；来源资格变化仍被阻断。
+
+重新完整读取后，追加同 Item/Asset 的接纳修订并推进当前路径头，`created=false`；不新建样本、Task 或原图副本，不改原 Reference、标注和样本元数据。托管复制继承原媒体所有权。原地任务只使用同来源/路径、同 Item/Asset 的最新已明确接纳观测严格读取；失败不回退其他凭据或同摘要样本。读取期间凭据切换会拒绝交付。
+
+重复确认返回原记录；过期前驱或候选变化返回409。差异、原错误和周期核对门禁保持历史语义。修订历史的 `acceptance_kind` 区分 `initial`、`content_revision` 与 `observation_revalidation`。已打开且读图失败的任务需要点击重新读取或重开页面。此操作不恢复外部已丢失的字节，不接纳路径移动或资格变更。

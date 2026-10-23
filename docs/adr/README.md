@@ -154,3 +154,4 @@
 - [0100](0100-preflight-owned-source-differences.md) — 增量差异固定已接纳基线，接纳范围贯穿恢复
 - [0101](0101-periodic-source-coordination.md) — 周期来源协调沿用领域运行和人工接纳
 - [0102](0102-explicit-directory-content-revisions.md) — 内容修订追加业务身份并推进来源路径头
+- [0103](0103-explicit-same-content-revalidation.md) — 同内容重新核验追加读取凭据并保留业务身份

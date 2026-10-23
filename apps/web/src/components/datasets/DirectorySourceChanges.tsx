@@ -15,7 +15,7 @@ const labels: Record<string, string> = {
 };
 const reasons: Record<string, string> = {
   content_changed: "内容摘要不同，不覆盖旧样本",
-  observation_changed: "内容相同，身份观测已变化，不重绑旧引用",
+  observation_changed: "内容相同，文件观测已变化，等待人工重新核验",
   qualification_changed: "来源资格已变化，不重绑旧引用",
   not_enumerated: "本轮未枚举到，可能未遍历；不代表删除",
   not_a_candidate: "已观察到该路径，但不属于本轮普通图片候选",
@@ -112,7 +112,9 @@ export function DirectorySourceChanges({
                     <td>{labels[entry.kind]}</td>
                     <td>
                       {entry.accepted_revision_id
-                        ? `已接受为新修订 · 新样本 ${entry.accepted_item_id}`
+                        ? entry.accepted_item_id === entry.before_item_id
+                          ? `已重新核验 · 保留样本 ${entry.accepted_item_id}，可重新读取或重开原任务`
+                          : `已接受为新修订 · 新样本 ${entry.accepted_item_id}`
                         : entry.reason
                           ? (reasons[entry.reason] ?? entry.reason)
                           : entry.registration_state === "error"
@@ -124,9 +126,9 @@ export function DirectorySourceChanges({
                                 : entry.kind === "added"
                                   ? "确认后登记为新增样本"
                                   : "保留已有样本与内容绑定"}
-                      {entry.can_accept_revision && onAccept && (
+                      {(entry.can_accept_revision || entry.can_revalidate) && onAccept && (
                         <Button size="sm" disabled={busy} onClick={() => setSelected({ ...entry })}>
-                          接受为新修订
+                          {entry.can_revalidate ? "重新核验并保留样本" : "接受为新修订"}
                         </Button>
                       )}
                     </td>

@@ -187,6 +187,16 @@ async def page(db, run, kind, limit, offset):
                     and c.reason == "content_changed"
                     and c.before_revision_id is not None
                 ),
+                can_revalidate=(
+                    r is None
+                    and run.phase == "preflight"
+                    and run.status == "completed"
+                    and c.kind == "changed"
+                    and c.reason == "observation_changed"
+                    and c.before_revision_id is not None
+                    and c.before_item_id is not None
+                    and c.before_sha256 == c.candidate_sha256
+                ),
                 before_sha256=c.before_sha256,
                 candidate_sha256=c.candidate_sha256,
                 registration_state=e.state if e else None,

@@ -1,17 +1,17 @@
 # EPIC-04：增量同步与后台任务编排
 
-> 状态：E04-A / E04-B1 / E04-B2 / E04-B3 completed；同摘要身份变化与移动裁决待独立推进；用户已授权推进和提交，不分配发布版本。
+> 状态：E04-A / E04-B1 / E04-B2 / E04-B3 / E04-B4 completed；用户要求完整完成 E04，移动与其余合同继续实施；用户已授权推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
-| 项目          | 内容                                                           |
-| ------------- | -------------------------------------------------------------- |
-| 状态          | E04-A、E04-B1、E04-B2、E04-B3 已完成本地验收；其余范围保留草案 |
-| 日期          | 2026-10-23（Asia/Shanghai）                                    |
-| 优先级 / 阶段 | P0：M1 幂等手动扫描与变化保护；P1：M2 周期同步与裁决           |
-| 负责角色      | 后端、任务系统维护者、前端、测试                               |
-| 最小依赖      | E01 身份模型、E02 位置契约、E03 来源配置                       |
-| 协作          | E05 校验与访问；E08 变化列表；E11 删除规则；E12 任务指标       |
+| 项目          | 内容                                                     |
+| ------------- | -------------------------------------------------------- |
+| 状态          | E04-A 至 E04-B4 已完成本地验收；其余合同继续实施         |
+| 日期          | 2026-10-23（Asia/Shanghai）                              |
+| 优先级 / 阶段 | P0：M1 幂等手动扫描与变化保护；P1：M2 周期同步与裁决     |
+| 负责角色      | 后端、任务系统维护者、前端、测试                         |
+| 最小依赖      | E01 身份模型、E02 位置契约、E03 来源配置                 |
+| 协作          | E05 校验与访问；E08 变化列表；E11 删除规则；E12 任务指标 |
 
 ## 本轮实施定案：E04-A
 
@@ -334,3 +334,33 @@ UI configure -> SourceSyncSchedule <- existing beat / bounded tick
 - Live acceptance: retained current-worktree dev stack at Web3100/API8100 with actual workers and beat. Browser confirmed candidate preview, explicit single-item confirmation, accepted-result priority and revision badge; opened the new task with the new image and zero annotations. Independent API assertions confirmed two Items/Tasks/revisions, the old annotation unchanged, old overwritten filesystem content rejected with409 and new content returned200. Browser error collection was empty.
 - Environment and cleanup: user-requested manual dev database, Redis, buckets, source fixtures and supervised services remain running; guide and restart helper are in ignored `.worktree/manual/`. Original three-image dataset remains usable; a separate revision demonstration is retained. Disposable test resources, task browser/auth entry and temporary test/build outputs are removed at completion. No backend image rebuild or shared configuration changes.
 - Remaining work: E04 remains active for same-SHA observation/qualification changes, move/rebind and missing decisions. Old external bytes are not backed up by this feature. Starting additions-only registration closes this preflight's revision action; unhandled content changes require a new scan/preflight. Frozen difference/error counts remain historical, and per-item acceptance does not automatically release the periodic review gate. New project links enumerate both retained old and new samples.
+
+## 本轮实施定案：E04-B4 同路径同摘要重新核验
+
+基线 `85f10fdc0`，工作区干净，人工验收环境 Web3100/API8100 正常且继续保留。用户授权推进与提交。本轮只开放完整预检中的 `changed/observation_changed`，即路径、来源资格和 SHA 相同、文件观测改变。资格锚点变化、移动、未见/删除及账本压缩仍保留草案；不修改部署资格，不重建镜像，不新增依赖、配置或服务。
+
+最小方案是改写原 Reference 的观测，但会丢失历史。本轮复用不可变 SourceRevision：追加同 Item/Asset/SHA 的接纳修订，继承原媒体所有权并推进路径头；原 Reference、业务对象、任务、标注和样本元数据不变。无需 schema 迁移。读取只选择原 Reference 同来源/路径、同 Item/Asset 的最新已接纳修订，按其固定观测重新严格读取；失败不回退旧凭据，不搜索其他同摘要样本。后续不同内容的新样本不会改变旧样本读取身份。
+
+新增 `POST /dataset-registrations/{registration_id}/changes/{path_digest}/revalidate`，请求与新内容接纳相同，固定 generation、前驱修订 ID 和候选 SHA。沿用 Location→Source→Dataset、两次严格快照及授权/Key proof/策略屏障；只接受同摘要且原样本和 Asset 仍存在的当前头。并发相同请求返回同一接纳记录，旧预检不能越过前驱，重复确认不回退后续头。审计区分重新核验与新内容接纳；差异与旧预检异常保持冻结，结果单列，周期门禁仍需人工继续。
+
+```text
+完整预检 + 同路径同SHA观测变化 -> 人工预览/确认 -> 严格读取 + 前驱CAS
+                                                     |
+                         同Item/Asset的追加接纳记录 + 当前路径头
+                                                     |
+                         原任务按最新明确接纳的观测严格读取
+```
+
+超过8文件：dataset_source_revisions/references/changes、API路由与schema、Web API/差异面板/确认弹窗/登记进度、后端并发/权限/引用回归与Web测试、API快照/SDK声明/路由索引、用户/API/开发文档、ADR0103、README/CHANGELOG及计划进度。复用当前所有者和界面，不增加管理页。
+
+验证：同字节重写前拒绝/确认后恢复原任务读取、Item/Asset/Task/标注及数量保持、多次重新核验、原Reference/回执不变、后续内容新修订不污染历史样本、托管复制不新增原图或丢失所有权、S3同字节新版本、SFTP观测兼容、普通登记不隐式恢复、错误类别/资格变更拒绝、过期generation/前驱与重复/并发、I/O文件变化/撤权/Key轮换及读取上下文变化。运行相关回归、API/SDK/Web/文档检查与真实浏览器确认，清理一次性test资源及产物；保留dev人工环境和演示数据。
+
+回退关闭新入口并保留已接纳记录与新版严格读取；应用整体回退会失去重新核验后的可读性，因此不删除账本或改写原引用来掩盖差异。该阶段不备份外部原图，也不自动接纳扫描变化。
+
+## Outcome — E04-B4
+
+- Delivered explicit same-path, same-SHA observation revalidation in completed preflight. Immutable revision receipts advance the path head while preserving Item/Asset, original Reference, metadata, Tasks, labels and ownership. Ordinary scans/registration never implicitly renew old reads. Qualification changes remain blocked; no schema migration.
+- Reads verify the original binding and use the latest accepted receipt for the exact source/path/business asset, with the selected revision ID checked across I/O. Later content revisions cannot retarget old samples. Historical API distinguishes initial acceptance, content revisions and observation revalidation; frozen differences and periodic review gates remain unchanged.
+- Verification: the 109-case backend regression passed 108 cases initially; its new S3 test used a nonexistent helper name, which was corrected and passed separately. An additional SFTP same-byte/changed-mtime case passed. Includes independent concurrent confirmations, both I/O authority barriers, original Key rotation/revocation, strict read before/after revalidation, no duplicate business objects, retained labels, managed-copy ownership/no new upload, and historical isolation. Five Web component cases, TypeScript, full Web lint/CSS tokens, Ruff, SDK/OpenAPI (4 cases), docs build and diff checks passed locally. Existing unrelated lint warnings remain; no remote CI claimed.
+- Actual browser acceptance: separate retained fixture showed a decoded candidate with matching old/new SHA, explicit checkbox and successful single-item revalidation. The original Workbench Task then displayed the original image and one retained manual box, with one Item/Task total. No browser errors. Current-checkout API, both workers and beat were refreshed without image rebuild; all user-requested manual fixtures/services remain.
+- Full-E04 scope audit: AC05 still requires explicit relocation. Original contracts also require opt-in pure-addition ingestion, filter-change impact review, schedule timezone display, source/history navigation, and a frozen-version invariance regression. Continue these before closing or archiving the Epic. Physical deletion, external qualification replacement, calendar cron and ledger compaction are outside the required closure; durable evidence remains retained under existing source budgets.

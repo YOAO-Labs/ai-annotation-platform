@@ -284,10 +284,11 @@ async def test_aba_and_deleted_historical_item_never_rebind_old_scan(
     )
 
 
+@pytest.mark.parametrize("revalidate", [False, True])
 @pytest.mark.parametrize("barrier", [1, 2])
 @pytest.mark.parametrize("revocation", ["actor", "source", "policy"])
 async def test_io_revocation_never_publishes_new_business_revision(
-    db_session, content_world, monkeypatch, barrier, revocation
+    db_session, content_world, monkeypatch, barrier, revocation, revalidate
 ):
     from app.services import content_snapshot as snapshots
     from app.services.filesystem_storage import FilesystemStorageError
@@ -295,7 +296,9 @@ async def test_io_revocation_never_publishes_new_business_revision(
 
     db, world = db_session, content_world
     await register_entry(db, world[6].id, world[7].path_digest, world[2])
-    world, run, change, payload = await candidate(db, world)
+    world, run, change, payload = await candidate(
+        db, world, "red" if revalidate else "blue"
+    )
     run_id, actor, source_id = run.id, world[2], world[5].id
     original = snapshots.capture
     calls = 0
@@ -326,7 +329,9 @@ async def test_io_revocation_never_publishes_new_business_revision(
 
     monkeypatch.setattr(snapshots, "capture", capture)
     with pytest.raises((HTTPException, FilesystemStorageError)):
-        await revisions.accept(db, run_id, change["path_digest"], payload, actor)
+        await revisions.accept(
+            db, run_id, change["path_digest"], payload, actor, revalidate=revalidate
+        )
     await db.rollback()
     assert await db.scalar(select(func.count()).select_from(DatasetItem)) == 1
     assert await db.scalar(select(func.count()).select_from(DatasetSourceRevision)) == 1
@@ -401,6 +406,7 @@ async def test_s3_new_revision_preserves_pinned_old_version(
     assert head.dataset_item_id == result["item_id"]
 
 
+@pytest.mark.parametrize("revalidate", [False, True])
 @pytest.mark.parametrize("barrier", [1, 2])
 @pytest.mark.parametrize("change_key", ["rotate", "revoke"])
 async def test_original_key_proof_survives_nested_snapshot_helpers(
@@ -411,6 +417,7 @@ async def test_original_key_proof_survives_nested_snapshot_helpers(
     monkeypatch,
     barrier,
     change_key,
+    revalidate,
 ):
     import uuid
     from datetime import datetime, timezone
@@ -419,7 +426,9 @@ async def test_original_key_proof_survives_nested_snapshot_helpers(
 
     db, world = db_session, content_world
     await register_entry(db, world[6].id, world[7].path_digest, world[2])
-    world, run, change, payload = await candidate(db, world)
+    world, run, change, payload = await candidate(
+        db, world, "red" if revalidate else "blue"
+    )
     run_id = run.id
     response = await httpx_client.post(
         "/api/v1/me/api-keys",
@@ -444,7 +453,7 @@ async def test_original_key_proof_survives_nested_snapshot_helpers(
 
     monkeypatch.setattr(snapshots, "capture", capture)
     response = await httpx_client.post(
-        f"/api/v1/dataset-registrations/{run_id}/changes/{change['path_digest']}/accept-revision",
+        f"/api/v1/dataset-registrations/{run_id}/changes/{change['path_digest']}/{'revalidate' if revalidate else 'accept-revision'}",
         json=payload.model_dump(mode="json"),
         headers={"Authorization": "Bearer " + response.json()["plaintext"]},
     )

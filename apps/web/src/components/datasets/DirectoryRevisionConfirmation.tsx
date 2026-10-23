@@ -20,13 +20,14 @@ export function DirectoryRevisionConfirmation({
   onConfirm: () => void;
 }) {
   const [reviewed, setReviewed] = useState(false);
+  const revalidate = entry.can_revalidate;
   const image = useVerifiedImage(
     `/dataset-scans/${scanId}/entries/${entry.path_digest}/content?sha256=${entry.candidate_sha256}`,
   );
   return (
     <Modal
       open
-      title="接受内容为新修订"
+      title={revalidate ? "重新核验并保留样本" : "接受内容为新修订"}
       onClose={() => {
         if (!busy) onClose();
       }}
@@ -34,7 +35,9 @@ export function DirectoryRevisionConfirmation({
     >
       <p className="break-all font-medium">{entry.relative_path}</p>
       <p className="mt-2">
-        为这一项创建新样本，并在已关联的图片项目中创建空白任务。旧样本、任务和标注保留；旧目录文件已被覆盖时，旧原图可能无法读取。
+        {revalidate
+          ? "候选与原图摘要相同。确认后按新的文件观测严格读取，继续使用原样本、任务和标注，并保留核验历史。"
+          : "为这一项创建新样本，并在已关联的图片项目中创建空白任务。旧样本、任务和标注保留；旧目录文件已被覆盖时，旧原图可能无法读取。"}
       </p>
       <dl className="my-3 space-y-2 break-all text-xs">
         <div>
@@ -78,7 +81,9 @@ export function DirectoryRevisionConfirmation({
           disabled={busy}
           onChange={(e) => setReviewed(e.target.checked)}
         />
-        已核对这一项，创建新样本与空白任务，保留旧标注
+        {revalidate
+          ? "已核对同一内容，按新观测读取并保留原样本、任务和标注"
+          : "已核对这一项，创建新样本与空白任务，保留旧标注"}
       </label>
       {error && (
         <p role="alert" className="mt-2 text-status-danger">
@@ -90,7 +95,7 @@ export function DirectoryRevisionConfirmation({
           取消
         </Button>
         <Button variant="primary" disabled={busy || !reviewed || !image.url} onClick={onConfirm}>
-          {busy ? "正在接纳…" : "确认接纳此项新修订"}
+          {busy ? "正在接纳…" : revalidate ? "确认重新核验此项" : "确认接纳此项新修订"}
         </Button>
       </div>
     </Modal>

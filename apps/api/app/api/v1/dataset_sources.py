@@ -840,6 +840,36 @@ async def accept_content_revision(
         raise content_http_error(exc) from None
 
 
+@router.post(
+    "/dataset-registrations/{registration_id}/changes/{path_digest}/revalidate",
+    response_model=SourceRevisionResult,
+)
+async def revalidate_observation(
+    registration_id: uuid.UUID,
+    path_digest: str,
+    payload: SourceRevisionAccept,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(manager),
+):
+    from app.services import dataset_source_revisions as revisions
+    from app.services.dataset_content import content_http_error
+
+    try:
+        return await revisions.accept(
+            db,
+            registration_id,
+            path_digest,
+            payload,
+            actor,
+            api_key_id=getattr(request.state, "api_key_id", None),
+            revalidate=True,
+        )
+    except Exception as exc:
+        await db.rollback()
+        raise content_http_error(exc) from None
+
+
 @router.get("/dataset-sources/{source_id}/revisions", response_model=SourceRevisionList)
 async def source_revision_history(
     source_id: uuid.UUID,
