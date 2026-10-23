@@ -73,7 +73,7 @@ ws://api.example.com/ws/notifications?token=eyJhbGciOi...
 }
 ```
 
-`type` 是开放枚举，由业务模块定义。前端把任何非空 `type` 当作刷新提示，不拒绝未知类型；只有当前用户偏好中启用了 `in_app` 和 `toast` 的类型才会产生瞬时提醒，未知文案使用通用提示。前端不根据 `target_type` 或 `target_id` 导航；已知 job 事件会按 `type` 和 `payload.kind` 额外失效对应查询。额外 envelope 字段保持可忽略，未来扩展不会阻止通知列表刷新。
+`type` 是开放枚举，由业务模块定义。前端把任意字符串 `type` 当作刷新提示，不拒绝未知类型；只有当前用户偏好中启用了 `in_app` 和 `toast` 的类型才会产生瞬时提醒，未知文案使用通用提示。前端不根据 `target_type` 或 `target_id` 导航；已知 job 事件会按 `type` 和 `payload.kind` 额外失效对应查询。额外 envelope 字段保持可忽略，未来扩展不会阻止通知列表刷新。
 
 #### 心跳（系统消息）
 
