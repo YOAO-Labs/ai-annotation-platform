@@ -284,9 +284,7 @@ async def _dispatch_while_workspace_read_is_blocked(
     evidence = None
     try:
         transaction = await connection.begin()
-        await connection.execute(
-            text("LOCK TABLE public.projects IN ACCESS EXCLUSIVE MODE")
-        )
+        await connection.execute(text("LOCK TABLE public.projects IN EXCLUSIVE MODE"))
         delivery = await asyncio.to_thread(
             sender.send_task,
             _TASK_NAME,

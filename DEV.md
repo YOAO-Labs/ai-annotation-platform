@@ -2688,8 +2688,10 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 ### Workspace 组合私网验收
 
 准备当前源码的非 editable Workspace 工件，以及下表四个冷镜像。每个镜像设置唯一的
-`org.aap.acceptance-id`，并用当前提交设置 `org.aap.source-revision`；对应 `IDENTITY`
-变量须与该镜像标签一致。六个 Workspace 服务复用同一个 owner 镜像。
+`org.aap.acceptance-id`，用构建时提交设置 `org.aap.source-revision`；对应 `IDENTITY`
+变量须与镜像标签一致。若全部 Docker COPY 输入的文件集合与哈希仍匹配，可以复用
+已验收工件；收据必须保留当前源码与工件输入对照。六个 Workspace 服务复用同一个
+owner 镜像。
 
 | Dockerfile                      | `org.aap.acceptance`             | 镜像／身份环境变量                                                                        |
 | ------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------- |
@@ -2726,6 +2728,26 @@ worker 案例检查真实 broker 投递、Native 项目资料、结果 owner 写
 确定性 HTTP peer 只用于协议联通，不证明真实 ML、来源读取或公共 retry 入队端点。
 当前通过边界、有限本地采样与遗留视频恢复缺口见
 [唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。主环境不自动切换。
+
+### Workspace cross-frame 冷 worker 验收
+
+同一冷 API 工件可执行跨帧任务。先核对完整 COPY 输入集合及哈希，确保工件中的任务
+实现匹配当前源码，再运行独占案例：
+
+```bash
+AAP_WORKSPACE_CROSS_FRAME_WORKER_LIVE=1 apps/api/.venv/bin/python \
+  scripts/verify_module_data_boundary.py --output .worktree/workspace-cross-frame-worker.json \
+  --test-file tests/test_workspace_cross_frame_worker_live.py
+```
+
+开关只用于验收夹具。worker 以受限 `identity_api_consumer` 连接自有 PostgreSQL／
+Redis 私网，所有十个桶均显式绑定隔离资源。普通员工通过 annotator 项目成员身份执行，
+不使用管理员权限绕过成员读取。任务注册、实际签名、队列、消息确认、数据库客户端
+身份和重启由实际容器核对；跨帧传播不调用 ML 服务。
+
+本案例验证 Workspace 的项目与成员调用边界，不代表完整 Labeling 或 Jobs 模块资格。
+最终通过状态和证据按[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)
+记录；主环境不自动切换。
 
 ### Workspace 冷运维导入验收
 

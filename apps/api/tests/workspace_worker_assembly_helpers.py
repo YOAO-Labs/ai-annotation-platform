@@ -35,6 +35,7 @@ class WorkspaceCeleryWorker:
         object_store_use_ssl: bool,
         object_store_access_key: str,
         object_store_secret_key: str,
+        object_store_buckets: dict[str, str] | None = None,
     ) -> None:
         self.test_engine = test_engine
         self.directory = Path(directory).resolve()
@@ -47,6 +48,17 @@ class WorkspaceCeleryWorker:
         self.object_store_use_ssl = object_store_use_ssl
         self.object_store_access_key = object_store_access_key
         self.object_store_secret_key = object_store_secret_key
+        self.object_store_buckets = dict(object_store_buckets or {})
+        if object_store_buckets is not None and (
+            len(self.object_store_buckets) != 10
+            or self.object_store_buckets.get("MINIO_BUCKET") != object_store_bucket
+            or "MINIO_EXPORT_BUCKET" not in self.object_store_buckets
+            or any(
+                not key.startswith("MINIO_") or not key.endswith("_BUCKET") or not value
+                for key, value in self.object_store_buckets.items()
+            )
+        ):
+            raise RuntimeError("Worker requires all ten owned object storage buckets")
         self.secret_key = secrets.token_urlsafe(32)
         self.identity = uuid.uuid4().hex[:20]
         self.network_name = f"aap-workspace-worker-{self.identity}"
@@ -171,6 +183,29 @@ class WorkspaceCeleryWorker:
         self.assert_runtime()
         self.assert_private_network()
 
+    def task_signature(self, task_name: str) -> dict:
+        """Inspect the callable in the same immutable image as the live worker."""
+        if task_name not in {
+            "app.workers.cross_frame_job.run_cross_frame_job",
+            "app.workers.export.run_export",
+            "app.workers.video_tracker.run_video_tracker_job",
+            "app.workers.predictions_retry.retry_failed_prediction",
+        }:
+            raise ValueError("Task is outside the qualified worker paths")
+        self.assert_runtime()
+        code = (
+            "import importlib,inspect,json,sys; "
+            "module,name=sys.argv[1].rsplit('.',1); "
+            "task=getattr(importlib.import_module(module),name); "
+            "print(json.dumps({'task':task.name,"
+            "'parameters':list(inspect.signature(task.run).parameters)}))"
+        )
+        return json.loads(
+            self._docker(
+                "exec", self.container_id, "/opt/venv/bin/python", "-c", code, task_name
+            )
+        )
+
     def stop(self) -> None:
         if self.container_id is not None:
             record = self._inspect(self.container_id, required=False)
@@ -258,6 +293,10 @@ class WorkspaceCeleryWorker:
             raise RuntimeError(
                 "Worker object storage identity is not the scoped Guide identity"
             )
+        if any(
+            env.get(key) != value for key, value in self.object_store_buckets.items()
+        ):
+            raise RuntimeError("Worker bucket bindings differ from its owned resources")
         if (
             env.get("WORKSPACE_GUIDE_OBJECTS_URL")
             or env.get("WORKSPACE_GUIDE_OBJECTS_TOKEN")
@@ -425,6 +464,7 @@ class WorkspaceCeleryWorker:
             values[f"{prefix}_URL"] = ""
             values[f"{prefix}_DATABASE_URL"] = ""
             values[f"{prefix}_DATABASE_URL_FILE"] = ""
+        values.update(self.object_store_buckets)
         self._write_env_file(self.environment_file, values)
 
     def _write_env_file(self, path: Path, values: dict[str, str]) -> None:

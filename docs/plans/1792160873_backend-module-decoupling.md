@@ -7869,3 +7869,29 @@ c69f2fb2427fdf570f503e26ec148a789893feec710816edcd2d26d51e2b6fd9.
 It binds the unchanged oracle, all 22 database cases, source check counts,
 11 cold commands, exact artifact identities, installer contract, worker cleanup,
 and preservation of the primary checkout, shared services and editable bindings.
+
+### Workspace cross-frame cold worker acceptance
+
+The cross-frame consumer already uses fixed Workspace project/read/access/member
+lock capabilities. This slice adds the missing actual cold worker evidence under
+the ordinary restricted API credential, using an employee annotator membership
+rather than an administrator fast path. Existing native behavior and task
+registration/queue contracts remain unchanged; there is no new business protocol,
+owner runtime, selector, migration, or production implementation.
+
+All 16 existing cross-frame behavior cases passed in an owned disposable database.
+The cold worker case is being integrated for membership revocation, bounded lock
+contention/retry, stale source, pending cancellation and process restart. The
+installed worker artifact may be reused only if every Docker COPY path and hash
+matches current source. Final scope and evidence remain in the sole ledger.
+
+A separate read-only export audit found a concrete recovery qualification gap at
+9271a2b09. The six-hour Redis build lock is released only in finally, while
+ExportBuildInProgress retries are bounded to roughly ten minutes. Running-job
+reentry with a different Celery task ID returns early; same-ID reentry can reach
+the abandoned lock. Export is not supported by the current cancellation port.
+No physical worker-loss test was run in this audit, so broker redelivery and
+actual task_failure terminalization remain unproven. After the cross-frame gate,
+the smallest required next experiment is an owned export paused after lock
+acquisition, actual worker loss, and inspection of job, lock, broker, object and
+same/new-ID replay behavior. Do not infer signal failure from source alone.
