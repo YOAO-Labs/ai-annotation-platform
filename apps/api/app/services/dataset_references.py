@@ -212,6 +212,23 @@ async def register_entry(
                     binding,
                     uploaded,
                     force_new=revision_context is not None,
+                    requested_by=actor.id,
+                    authority={
+                        "actor_id": str(actor.id),
+                        "api_key_id": str(api_key_id) if api_key_id else None,
+                        "key_proof": key_proof,
+                        "source_id": str(source.id),
+                        "run_id": str(run.id),
+                        "path_digest": path_digest,
+                        "source_revision": run.snapshot["source_revision"],
+                        "location_revision": run.snapshot["location_revision"],
+                        "maintenance_revision": run.snapshot.get(
+                            "maintenance_revision", 1
+                        ),
+                        "dataset_lifecycle_revision": run.snapshot.get(
+                            "dataset_lifecycle_revision", 1
+                        ),
+                    },
                 )
             else:
                 result = await apply_reference(db, source, run, entry, dataset, actor)
@@ -370,15 +387,23 @@ async def register_entry(
 
 
 async def apply_copy(
-    db, source, entry, dataset, snapshot, binding, uploaded, *, force_new=False
+    db,
+    source,
+    entry,
+    dataset,
+    snapshot,
+    binding,
+    uploaded,
+    *,
+    force_new=False,
+    requested_by=None,
+    authority=None,
 ):
-    from app.services.directory_previews import finish_io
     from app.services.dataset import DatasetService
     from app.services.dataset_assets import find_verified_content
     from app.services.dataset_content import stored_content
     from botocore.exceptions import ClientError
-    from app.services.dataset_storage_keys import managed_dataset_key
-    from app.services.storage import storage_service
+    from app.services import managed_original_creation as originals
 
     service = DatasetService(db)
     existing = (
@@ -416,31 +441,38 @@ async def apply_copy(
         ]
         logical_path = f"s3-{entry.path_digest}{extension}"
     name = await service._unique_file_name(dataset.id, logical_path)
-    key = managed_dataset_key(dataset.id, name)
-    uploaded.append((binding.bucket, key))
-    snapshot.file.seek(0)
-    response = await finish_io(
-        storage_service.client.put_object,
-        Bucket=binding.bucket,
-        Key=key,
-        Body=snapshot.file,
-        ContentLength=snapshot.size,
-        ContentType=snapshot.media_type,
+    allocation = await originals.allocate(
+        db,
+        dataset_id=dataset.id,
+        logical_path=name,
+        origin="directory_copy",
+        max_bytes=snapshot.size,
+        content_type=snapshot.media_type,
+        requested_by=requested_by,
+        authority=authority,
     )
     snapshot.file.seek(0)
+    creation = await originals.create_stream(
+        db, allocation, snapshot.file, content_type=snapshot.media_type
+    )
+    snapshot.file.seek(0)
+    if creation.sha256 != snapshot.sha256 or creation.size_bytes != snapshot.size:
+        raise snapshots.ContentError("reference_content_changed")
     item = await service.add_item(
         dataset.id,
         name,
-        key,
+        allocation["object_key"],
         "image",
-        file_size=snapshot.size,
+        file_size=creation.size_bytes,
+        content_hash=creation.md5,
         width=snapshot.width,
         height=snapshot.height,
-        sha256=snapshot.sha256,
-        object_etag=response.get("ETag"),
+        sha256=creation.sha256,
+        object_etag=creation.etag,
         storage_binding=binding,
         logical_path=name,
     )
+    await originals.attach(db, item, creation.creation_id)
     item.metadata_ = {**item.metadata_, "directory_owned_media": True}
     await db.flush()
     await service.create_tasks_for_items(dataset.id, [item.id])

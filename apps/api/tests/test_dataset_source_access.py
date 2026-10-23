@@ -514,34 +514,30 @@ async def test_directory_link_chunks_recheck_actor_before_next_commit(
     )
 
 
-async def test_directory_copy_ingest_cleans_own_object_after_revocation(
+async def test_directory_copy_ingest_retains_creation_after_revocation(
     db_session, managed_world, monkeypatch
 ):
-    import hashlib
     import io
+    from app.services import managed_original_creation as originals
     from app.services.dataset import DatasetService
     from app.services.storage import storage_service
-    from tests.test_dataset_assets import ObjectClient
+    from tests.fakes.managed_creation_storage import CreationStorage
 
     world, actor = managed_world
     authority = await access.capture_dataset_write(db_session, world[3].id, actor, None)
-    fake = ObjectClient()
+    fake = CreationStorage()
     monkeypatch.setattr(storage_service, "client", fake)
+    monkeypatch.setattr(originals, "create_client", lambda: fake)
+    create_stream = originals.create_stream
+    completed = []
 
-    def revoked(key, stream, **kwargs):
-        data = stream.read()
-        fake.objects[key] = data
+    async def revoked(db, allocation, stream, **kwargs):
+        receipt = await create_stream(db, allocation, stream, **kwargs)
+        completed.append(allocation)
         actor.role = "employee"
-        return (
-            hashlib.md5(data).hexdigest(),
-            hashlib.sha256(data).hexdigest(),
-            len(data),
-            data,
-        )
+        return receipt
 
-    monkeypatch.setattr(
-        DatasetService, "_upload_stream_to_dataset_bucket", staticmethod(revoked)
-    )
+    monkeypatch.setattr(originals, "create_stream", revoked)
     with pytest.raises(HTTPException):
         await DatasetService(db_session).ingest_one(
             world[3].id,
@@ -549,7 +545,16 @@ async def test_directory_copy_ingest_cleans_own_object_after_revocation(
             io.BytesIO(b"copy"),
             directory_authority=authority,
         )
-    assert fake.objects == {}
+    assert len(completed) == 1
+    allocation = completed[0]
+    assert fake.objects[allocation["object_key"]] == b"copy"
+    assert not any(call[0] == "delete" for call in fake.calls)
+    durable = await originals.for_key(
+        db_session,
+        dataset_id=world[3].id,
+        object_key=allocation["object_key"],
+    )
+    assert durable["status"] == "verified"
 
 
 async def test_async_job_does_not_expose_directory_authority(

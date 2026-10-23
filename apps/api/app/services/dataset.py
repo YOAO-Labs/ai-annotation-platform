@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import hashlib
 import logging
 import mimetypes
 import os
@@ -22,7 +21,6 @@ from app.services.display_id import next_display_id
 from app.services.dataset_assets import find_verified_content, register_item_asset
 from app.services.dataset_storage_keys import (
     MANAGED_DATASET_PREFIX,
-    managed_dataset_key,
     managed_dataset_prefix,
     normalize_dataset_relative_path,
     dataset_relative_path,
@@ -41,9 +39,6 @@ from app.services.reference_keys import is_reference, PREFIX
 from app.services.dataset_source_access import validate_dataset_write
 from app.services.dataset_lifecycle import require_writable
 
-_STREAM_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024
-_IMAGE_HEAD_BYTES = 256 * 1024
-
 # v0.13.11 · 用于 DatasetService.update 区分「未传参」与「显式传 None」(后者表示清除
 # metadata_["axis_convention"]，回退到默认 iso_8855)。
 _UNSET: object = object()
@@ -53,7 +48,12 @@ log = logging.getLogger(__name__)
 def ensure_dataset_storage_name_is_writable(name: str) -> None:
     first_part = name.strip("/").split("/", 1)[0]
     if first_part.startswith(
-        (TRUSTED_NUSCENES_PREFIX, MANAGED_DATASET_PREFIX, PREFIX.rstrip("/"))
+        (
+            TRUSTED_NUSCENES_PREFIX,
+            MANAGED_DATASET_PREFIX,
+            "__aap_upload_staging__",
+            PREFIX.rstrip("/"),
+        )
     ):
         raise HTTPException(
             status_code=422,
@@ -743,6 +743,9 @@ class DatasetService:
         object_etag: str | None = None,
         dest_relpath: str | None = None,
         directory_authority=None,
+        max_bytes: int | None = None,
+        creation_requested_by: uuid.UUID | None = None,
+        creation_authority: dict | None = None,
     ) -> IngestOutcome:
         """Ingest one source object into a dataset.
 
@@ -774,7 +777,7 @@ class DatasetService:
         base_for_ext = os.path.basename(final_name)
         ext = base_for_ext.rsplit(".", 1)[-1].lower() if "." in base_for_ext else ""
         file_type = _infer_file_type_from_ext(ext)
-        uploaded_storage = False
+        creation = None
 
         if storage_key:
             duplicate_path = await self._find_by_file_path(dataset_id, storage_key)
@@ -794,30 +797,44 @@ class DatasetService:
                 return IngestOutcome(
                     status="error", relpath=relpath, error="stream missing"
                 )
-            storage_key = managed_dataset_key(dataset_id, final_name)
+            from app.services import managed_original_creation as originals
+
+            if max_bytes is None:
+                limits = await SystemSettingsService.get_import_limits_snapshot(self.db)
+                max_bytes = limits["dataset_import_max_total_bytes"]
             content_type = (
                 mimetypes.guess_type(final_name)[0] or "application/octet-stream"
             )
-            content_hash, sha256, file_size, head_bytes = (
-                self._upload_stream_to_dataset_bucket(
-                    storage_key,
-                    stream,
-                    content_type=content_type,
-                )
+            allocation = await originals.allocate(
+                self.db,
+                dataset_id=dataset_id,
+                logical_path=final_name,
+                origin="connector",
+                max_bytes=max_bytes,
+                content_type=content_type,
+                requested_by=creation_requested_by,
+                authority=(
+                    creation_authority
+                    if creation_authority is not None
+                    else directory_authority
+                ),
             )
-            uploaded_storage = True
+            storage_key = allocation["object_key"]
+            creation = await originals.create_stream(
+                self.db, allocation, stream, content_type=content_type
+            )
+            content_hash, sha256, file_size, head_bytes = (
+                creation.md5,
+                creation.sha256,
+                creation.size_bytes,
+                creation.head_bytes,
+            )
+            object_etag = creation.etag
 
         async def check_authority(*, lock=False):
-            try:
-                await validate_dataset_write(
-                    self.db, dataset_id, directory_authority, lock=lock
-                )
-            except HTTPException:
-                if uploaded_storage:
-                    storage_service.delete_object(
-                        storage_key, bucket=storage_service.datasets_bucket
-                    )
-                raise
+            await validate_dataset_write(
+                self.db, dataset_id, directory_authority, lock=lock
+            )
 
         await check_authority()
         if sha256:
@@ -825,13 +842,6 @@ class DatasetService:
                 self.db, dataset_id, sha256, legacy_md5=content_hash
             )
             if existing is not None:
-                if uploaded_storage:
-                    try:
-                        storage_service.delete_object(
-                            storage_key, bucket=storage_service.datasets_bucket
-                        )
-                    except Exception:
-                        pass
                 return IngestOutcome(
                     status="skipped",
                     relpath=relpath,
@@ -872,6 +882,8 @@ class DatasetService:
             object_etag=object_etag,
             logical_path=final_name,
         )
+        if creation is not None:
+            await originals.attach(self.db, item, creation.creation_id)
         linked_tasks = await self.create_tasks_for_items(dataset_id, [item.id])
         await check_authority()
         return IngestOutcome(
@@ -965,88 +977,6 @@ class DatasetService:
         while f"{stem}-{i}{ext}" in existing:
             i += 1
         return f"{stem}-{i}{ext}"
-
-    def _upload_stream_to_dataset_bucket(
-        self,
-        storage_key: str,
-        stream: BinaryIO,
-        *,
-        content_type: str,
-    ) -> tuple[str, str, int, bytes]:
-        client = storage_service.client
-        bucket = storage_service.datasets_bucket
-        md5 = hashlib.md5()
-        sha256 = hashlib.sha256()
-        head = bytearray()
-        total = 0
-        part_number = 1
-        parts: list[dict] = []
-        upload_id: str | None = None
-
-        resp = client.create_multipart_upload(
-            Bucket=bucket,
-            Key=storage_key,
-            ContentType=content_type,
-        )
-        upload_id = resp["UploadId"]
-        try:
-            while True:
-                chunk = stream.read(_STREAM_UPLOAD_CHUNK_BYTES)
-                if not chunk:
-                    break
-                if isinstance(chunk, str):
-                    chunk = chunk.encode()
-                elif not isinstance(chunk, bytes):
-                    chunk = bytes(chunk)
-                total += len(chunk)
-                md5.update(chunk)
-                sha256.update(chunk)
-                if len(head) < _IMAGE_HEAD_BYTES:
-                    remaining = _IMAGE_HEAD_BYTES - len(head)
-                    head.extend(chunk[:remaining])
-                part = client.upload_part(
-                    Bucket=bucket,
-                    Key=storage_key,
-                    PartNumber=part_number,
-                    UploadId=upload_id,
-                    Body=chunk,
-                )
-                parts.append({"ETag": part["ETag"], "PartNumber": part_number})
-                part_number += 1
-
-            if parts:
-                client.complete_multipart_upload(
-                    Bucket=bucket,
-                    Key=storage_key,
-                    UploadId=upload_id,
-                    MultipartUpload={"Parts": parts},
-                )
-            else:
-                client.abort_multipart_upload(
-                    Bucket=bucket,
-                    Key=storage_key,
-                    UploadId=upload_id,
-                )
-                upload_id = None
-                client.put_object(
-                    Bucket=bucket,
-                    Key=storage_key,
-                    Body=b"",
-                    ContentType=content_type,
-                )
-        except Exception:
-            if upload_id is not None:
-                try:
-                    client.abort_multipart_upload(
-                        Bucket=bucket,
-                        Key=storage_key,
-                        UploadId=upload_id,
-                    )
-                except Exception:
-                    pass
-            raise
-
-        return md5.hexdigest(), sha256.hexdigest(), total, bytes(head)
 
     # ── Scan & import from bucket ─────────────────────────────────────────
 

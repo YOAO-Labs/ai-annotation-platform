@@ -150,6 +150,38 @@ def _collect_within_limits(
     return collected, total_bytes
 
 
+class _ImportByteBudget:
+    """Charge actual source reads, including failed and deduplicated entries."""
+
+    def __init__(self, limit: int):
+        if type(limit) is not int or limit < 0:
+            raise ValueError("invalid import byte limit")
+        self.limit = limit
+        self.consumed = 0
+
+    @property
+    def remaining(self):
+        return max(0, self.limit - self.consumed)
+
+    @property
+    def exceeded(self):
+        return self.consumed > self.limit
+
+    def stream(self, stream):
+        budget = self
+
+        class BoundedStream:
+            def read(self, size=-1):
+                requested = 1024 * 1024 if size < 0 else size
+                data = stream.read(min(requested, budget.remaining + 1))
+                budget.consumed += len(data)
+                if budget.exceeded:
+                    raise ContentError("creation_byte_budget_exceeded", 413)
+                return data
+
+        return BoundedStream()
+
+
 @asynccontextmanager
 async def _registered_source(db, conn, revision):
     """Retain admission through stream ingestion and verified adapter closure."""
@@ -211,6 +243,7 @@ def _result(
     errors: list[dict],
     linked_tasks: int,
     cancelled_at_index: int | None = None,
+    actual_read_bytes: int = 0,
 ) -> dict:
     out = {
         "total": total,
@@ -220,6 +253,7 @@ def _result(
         "error_count": error_count,
         "errors": errors,
         "linked_tasks": linked_tasks,
+        "actual_read_bytes": actual_read_bytes,
     }
     if cancelled_at_index is not None:
         out["cancelled_at_index"] = cancelled_at_index
@@ -335,6 +369,7 @@ async def _run_dataset_import(
                     errors: list[dict] = []
                     error_count = 0
                     last_pct = 5
+                    read_budget = _ImportByteBudget(max_total_bytes)
 
                     for index, obj in enumerate(objects, start=1):
                         await validate_dataset_write(db, dataset_id, authority)
@@ -351,6 +386,7 @@ async def _run_dataset_import(
                                     errors=errors,
                                     linked_tasks=linked_tasks,
                                     cancelled_at_index=index - 1,
+                                    actual_read_bytes=read_budget.consumed,
                                 ),
                             )
                             await notify_job_terminal(db, job_id=job_uuid)
@@ -373,13 +409,27 @@ async def _run_dataset_import(
                                 outcome = await svc.ingest_one(
                                     dataset_id,
                                     obj.relpath,
-                                    stream,
+                                    read_budget.stream(stream),
                                     size=obj.size,
                                     dest_relpath=dest_rel or None,
                                     directory_authority=authority,
+                                    max_bytes=read_budget.remaining,
+                                    creation_requested_by=job.user_id,
+                                    creation_authority={
+                                        "job_id": str(job.id),
+                                        "connection_id": str(connection_id),
+                                        "connection_revision": connection_revision,
+                                        "maintenance_revision": maintenance_revision,
+                                        "directory_authority": authority,
+                                        "connection_authority": payload.get(
+                                            "connection_authority"
+                                        ),
+                                    },
                                 )
                             finally:
                                 close_stream(stream)
+                            if read_budget.exceeded:
+                                raise ContentError("creation_byte_budget_exceeded", 413)
                             await check_source(lock=True)
                             if outcome.status == "added":
                                 added += 1
@@ -408,6 +458,10 @@ async def _run_dataset_import(
                         except (HTTPException, ContentError):
                             raise
                         except Exception as exc:  # noqa: BLE001
+                            if read_budget.exceeded:
+                                raise ContentError(
+                                    "creation_byte_budget_exceeded", 413
+                                ) from None
                             await db.rollback()
                             error_count += 1
                             _append_error(
@@ -428,7 +482,14 @@ async def _run_dataset_import(
                         pct = 5 + int(index / max(total, 1) * 90)
                         if pct >= last_pct + 5 or index == total:
                             await check_source(lock=True)
-                            await async_job_svc.update_progress(db, job_uuid, pct)
+                            await async_job_svc.update_progress(
+                                db,
+                                job_uuid,
+                                pct,
+                                extra_payload={
+                                    "actual_read_bytes": read_budget.consumed
+                                },
+                            )
                             await db.commit()
                             last_pct = pct
 
@@ -439,6 +500,7 @@ async def _run_dataset_import(
                         error_count=error_count,
                         errors=errors,
                         linked_tasks=linked_tasks,
+                        actual_read_bytes=read_budget.consumed,
                     )
                     await svc.assert_temporal_dataset_has_scenes(dataset_id)
                     await check_source(lock=True)
