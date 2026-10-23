@@ -2351,6 +2351,8 @@ API 与独立 Identity runtime 的用户能力 DSN 为 `IDENTITY_DEACTIVATION_DA
 
 Identity deactivation/outbox 的既有本地证据继续有效；发布器归属迁移的源码／独立安装与实际新进程验收分别记录，不把旧宿主机执行标为新 Notifications 镜像结果。Identity 整模块与 Notifications 剩余能力状态见[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)，逐项历史证据见[后端解耦计划](docs/plans/1792160873_backend-module-decoupling.md)。Go 月报仍是独立实验。
 
+独立镜像的定向用例是 `tests/test_notifications_publisher_image_live.py`，通过现有验证器的 `--test-file` 选择。仅在新建、独占的验证器测试库中运行，并显式设置 `AAP_NOTIFICATIONS_DELIVERY_LIVE_ACCEPTANCE=1`、不可变 SHA 镜像引用 `AAP_NOTIFICATIONS_DELIVERY_RUNTIME_IMAGE`、对应 label 的 `AAP_NOTIFICATIONS_DELIVERY_RUNTIME_IDENTITY`／`AAP_NOTIFICATIONS_DELIVERY_RUNTIME_SOURCE_REVISION`，以及已安装非 editable Identity 工件的 `AAP_IDENTITY_RUNTIME_PYTHON`。验证器提供测试角色、隔离 Redis 与依赖容器身份；用例先拒绝已有 pending outbox／发布器会话，再通过私网验证发布授权、重试、空批次重启和进程死亡后的租约接管。受控推进只作用于该用例的回执时间，不能据此推断生产恢复时限；密钥文件在自有容器清理后删除。
+
 ### Identity 邀请 owner 与 MailV2 durable sender
 
 本次把完整 invitation lifecycle 从 API ORM workflows 移到 Identity，而不是只挪 `InvitationService`。私有 `POST /v1/identity/invitations/execute` 使用 `aap-identity-invitations/v1`，覆盖 13 项操作：单人创建、批量预览／应用、数组读取、分页查询、统计、CSV/JSON 导出、撤销、换新链接、发送当前链接、匿名链接解析、首次注册和已有账号接受。公开路由、schemas、SDK fields、错误／HTTP status 与导出格式保持当前契约。

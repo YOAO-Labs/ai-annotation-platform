@@ -181,6 +181,8 @@ Notifications 源码 `0b6beeb28` 将 durable delivery 的协议、PostgreSQL 客
 
 父线源码 `89b51f43e` 已构建独立 Notifications 与 Identity 兼容镜像，在禁网、只读、非 root、1 CPU／512 MiB 下分别核对 32／171 项安装文件、非 editable 来源、delivery schema 和 CLI。Notifications 工件不含 Identity、API、SQLAlchemy、FastAPI 或 Celery；36／178 项 COPY 输入与当前源码匹配。两镜像均为本地 Linux ARM64，规范说明 `.worktree/notification-delivery-owner-image-qualification.json` SHA-256 为 `defa0b090f53dfddefd0f775eee497cd5d0e87161f15ec502ebe344e4028772b`。这是包装与导入资格，真实 PostgreSQL／Redis、故障重试和进程死亡接管尚未因此通过；API 兼容工件待新验收用例集成后统一构建。Workspace 间接依赖 Identity，原锁检查失败；补齐 Notifications COPY 输入并更新本地路径依赖锁后检查通过，未升级外部依赖。旧 Workspace 镜像的 COPY 集已变化，须重建后再验证，不能继续标为当前工件。
 
+新工件的定向门槛代码为 `37bfd87e8`、`0fd430d26` 与 `e0145db27`：绑定不可变镜像／网络身份，只在独占、无待处理 outbox 的自有测试库运行，复用真实 Identity 事件生产并使用受限 Redis ACL；覆盖拒绝发布后重试、稳定 ID、空批次重启与领取后进程死亡的租约接管。14 项纯夹具检查通过；原接线缺陷和后续修正分别保留。当前仅接线及纯检查通过，真实容器案例仍待执行，不把握手阻塞说成已发送 PUBLISH。
+
 Audit 源码 `4f762fb91` 将月报原始尾段、DuckDB Audit 同步、项目绩效的 ORM／原始 SQL 事件读取迁到既有公开关系；没有新增迁移、grant、提交或 flush。真实 PostgreSQL／API 26 项通过，DuckDB 目标数据检查 8 项与相关纯检查 15 项分别保存，不相加。`99589119a` 为受既有读取 helper 影响的 `MissingAudit` 测试替身显式补上 `autoflush=False`，生产 helper 未放宽；该失败案例单独补验通过，原失败 JUnit 保留。21 项证据／源码快照归档清单 SHA-256 为 `cfacebe42f905881df07bf39829fdd23475758f1d264b8abad9a43f516a6d695`；精确自有环境已销毁，收据 SHA-256 为 `fec3b1fd7c4b0f36c5b943f85ae8f82daccfa1e8232ce14400148206f0a2d8e8`。
 
 父线合并源码后，117 项包／兼容／API 边界／绩效及 DuckDB 目标检查通过，零失败／错误／跳过；它们包含上述部分案例，不与子线计数叠加。月报 MV、主动学习及分区／归档仍保留原有读取与维护路径，不能统一撤销 Audit 私表读取。当前改动不代表完整 Audit／Notifications、冷进程真实消费或主工作树采用；训练与 Assets 数据集／存储继续待最新功能合并。
