@@ -7504,3 +7504,19 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   migration/cleanup/preservation facts and retained original failures. Its status
   is diagnostics_verified, explicitly not a historical repair or complete module.
   No primary cutover, push, release, production deployment, remote CI or Go expansion.
+
+### Original full forwarding sequence
+
+- Continue from clean Root 64039945b1ceca08a8aba12d4d23a75e6b32ea69. The prior
+  turn added verified RPC diagnostics and negative controls, so it is progress;
+  neither the historical failure nor the full Identity goal is closed.
+- Reuse the original complete consumer test unchanged, including its original
+  operation order, mail, notifications, outages, replay and full restore. A small
+  test wrapper supplies the same ForwardedIdentityStack and preserves sanitized
+  traces before containers are stopped or recreated. Each variant gets a fresh
+  verifier database. This is a test binding, not a new deployment mode.
+- Extend only the test API command wrapper to observe body-read failures and the
+  context where IdentityGatewayUnavailable is created. Record error types and
+  source frame names, never exception messages, request bodies or secrets. Keep
+  the untraced variant on the existing original startup command. Compile the
+  embedded commands before actual current-image execution; no source fix is claimed.

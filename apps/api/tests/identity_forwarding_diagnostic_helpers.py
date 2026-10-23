@@ -115,26 +115,57 @@ main()
 """
 
 API_TRACE = r"""
-import json, time
+import contextvars, json, sys, time, traceback
 import httpx
+from app.services.identity_contracts import IdentityGatewayUnavailable
+last_rpc = contextvars.ContextVar("last_identity_rpc", default=None)
+def report(phase, started, error=None, **fields):
+    print("AAP_IDENTITY_ROUTE_TRACE " + json.dumps(dict(
+        phase=phase, rpc=last_rpc.get(), seconds=round(time.monotonic()-started,6),
+        error=type(error).__name__ if error else None, **fields)),flush=True)
 original_send = httpx.AsyncClient.send
 async def send(client, request, *args, **kwargs):
     if not request.url.path.startswith("/v1/identity/"):
         return await original_send(client, request, *args, **kwargs)
+    last_rpc.set(request.url.path)
     started = time.monotonic()
-    def emit(error=None, status=None):
-        print("AAP_IDENTITY_ROUTE_TRACE " + json.dumps(dict(
-            phase="api_http", rpc=request.url.path, status=status,
-            seconds=round(time.monotonic()-started,6),
-            error=type(error).__name__ if error else None)),flush=True)
     try:
         response = await original_send(client, request, *args, **kwargs)
     except BaseException as error:
-        emit(error)
+        report("api_http", started, error)
         raise
-    emit(status=response.status_code)
+    report("api_http", started, status=response.status_code)
     return response
 httpx.AsyncClient.send = send
+original_bytes = httpx.Response.aiter_bytes
+async def body(response, *args, **kwargs):
+    if not response.request.url.path.startswith("/v1/identity/"):
+        async for chunk in original_bytes(response,*args,**kwargs):
+            yield chunk
+        return
+    started, size = time.monotonic(), 0
+    try:
+        async for chunk in original_bytes(response,*args,**kwargs):
+            size += len(chunk)
+            yield chunk
+    except BaseException as error:
+        report("api_body", started, error, bytes_read=size)
+        raise
+    report("api_body", started, bytes_read=size)
+httpx.Response.aiter_bytes = body
+original_unavailable = IdentityGatewayUnavailable.__init__
+def unavailable(self,*args,**kwargs):
+    error, causes = sys.exception(), []
+    for _ in range(6):
+        if error is None:
+            break
+        causes.append(dict(type=type(error).__name__,sqlstate=getattr(error,"sqlstate",None)))
+        error = error.__context__
+    frames = [dict(file=f.filename.rsplit("/",1)[-1],line=f.lineno,function=f.name)
+              for f in traceback.extract_stack(limit=6)[:-1]]
+    report("api_unavailable",time.monotonic(),causes=causes,frames=frames)
+    original_unavailable(self,*args,**kwargs)
+IdentityGatewayUnavailable.__init__ = unavailable
 import uvicorn
 uvicorn.run("app.main:app",host="0.0.0.0",port=8000,access_log=False,timeout_graceful_shutdown=3)
 """

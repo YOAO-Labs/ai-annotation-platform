@@ -888,6 +888,58 @@ async def test_complete_compose_remote_api_workers_restart_and_restore(
 
 
 @pytest.mark.parametrize("trace", [True, False], ids=["traced", "untraced"])
+async def test_host_forwarded_identity_original_sequence(
+    test_engine, tmp_path, record_property, monkeypatch, trace
+):
+    """Replay the original full consumer order rather than a smaller RPC sample."""
+    from tests.identity_forwarding_diagnostic_helpers import ForwardedIdentityStack
+
+    evidence = {"trace_enabled": trace, "status": "failed", "traces": []}
+    receipt = (
+        ROOT / ".worktree" / f"identity-forwarded-sequence-{uuid.uuid4().hex}.json"
+    )
+
+    class ObservedStack(ForwardedIdentityStack):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, trace=trace, **kwargs)
+            self.trace_offsets = {}
+            self.trace_stage = "original"
+            evidence["project_name"] = self.project_name
+
+        def retain_traces(self):
+            counts = {}
+            ids = self.service_ids
+            for row in self.trace_records():
+                key = (row["service"], ids[row["service"]])
+                counts[key] = counts.get(key, 0) + 1
+                if counts[key] > self.trace_offsets.get(key, 0):
+                    evidence["traces"].append(
+                        {"stage": self.trace_stage, "container_id": key[1], **row}
+                    )
+            self.trace_offsets.update(counts)
+
+        async def stop(self):
+            self.retain_traces()
+            await super().stop()
+
+        async def switch_database(self, database_name):
+            self.retain_traces()
+            self.trace_stage = "restored"
+            await super().switch_database(database_name)
+
+    monkeypatch.setattr(sys.modules[__name__], "IdentityModuleStack", ObservedStack)
+    try:
+        await test_complete_compose_remote_api_workers_restart_and_restore(
+            test_engine, tmp_path, record_property
+        )
+        evidence["status"] = "passed"
+    finally:
+        receipt.touch(mode=0o600)
+        receipt.write_text(json.dumps(evidence, indent=2) + "\n")
+        record_property("original_forwarded_sequence_evidence", str(receipt))
+
+
+@pytest.mark.parametrize("trace", [True, False], ids=["traced", "untraced"])
 async def test_host_forwarded_identity_rpc_failures(
     test_engine, tmp_path, record_property, trace
 ):
