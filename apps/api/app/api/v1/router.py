@@ -49,6 +49,7 @@ from app.api.v1 import (
     storage,
     storage_connections,
     storage_locations,
+    storage_maintenance,
     dataset_sources,
     system_settings,
     tasks,
@@ -168,6 +169,7 @@ api_router.include_router(storage.router, prefix="/storage", tags=["storage"])
 api_router.include_router(
     storage_locations.router, prefix="/storage-locations", tags=["storage-locations"]
 )
+api_router.include_router(storage_maintenance.router, tags=["storage-locations"])
 api_router.include_router(
     storage_connections.router,
     prefix="/storage-connections",

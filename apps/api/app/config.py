@@ -180,6 +180,8 @@ class Settings(BaseSettings):
     connector_host_allowlist: Annotated[list[str], NoDecode] = []
     # 部署主机 SFTP 快捷项。只存 API 与 worker 共同可达的非敏感 hostname/IP；空值关闭。
     connector_deployment_sftp_host: str = ""
+    # Enable controls only after every consumer in the namespace uses admission.
+    storage_maintenance_protocol_enabled: bool = False
     # Deployment roots only. Runtime registrations store handles and subpaths.
     storage_filesystem_roots: dict[str, str] = Field(default_factory=dict)
     storage_sftp_roots: dict[str, SftpReferenceRoot] = Field(default_factory=dict)

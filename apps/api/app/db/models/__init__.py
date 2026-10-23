@@ -1,3 +1,4 @@
+from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
 from app.db.models.storage_usage import StorageUsageInventory, StorageUsageSnapshot
 from app.db.models.original_cache import OriginalCacheEntry, OriginalCacheReadLease
 from app.db.models.dataset_quality_review import (
@@ -153,6 +154,8 @@ from app.db.models.dataset_source import (
 )
 
 __all__ = [
+    "StorageMaintenanceGate",
+    "StorageOperation",
     "PredictionInputLease",
     "PredictionExecutionSnapshot",
     "TrainedModelVersion",
