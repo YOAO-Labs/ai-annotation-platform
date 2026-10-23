@@ -1,3 +1,6 @@
+import { storageAccessDenied } from "./storageQueryState";
+import { verifiedContentError } from "@/hooks/useVerifiedImage";
+import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
@@ -415,20 +418,43 @@ export function StorageConnectionForm({
   );
 }
 
-export function StorageConnectionsPanel({
-  showForm: showFormProp,
-  onShowFormChange,
-  hideHeaderAction = false,
-}: {
+interface StorageConnectionsPanelProps {
   showForm?: boolean;
   onShowFormChange?: (open: boolean) => void;
   hideHeaderAction?: boolean;
-} = {}) {
+  connectionId?: string;
+  hideList?: boolean;
+  allowManage?: boolean;
+  onCreated?: (connection: StorageConnection) => void;
+}
+
+export function StorageConnectionsPanel(props: StorageConnectionsPanelProps = {}) {
+  const revision = useSessionRevision();
+  const { role } = usePermissions();
+  return (
+    <StorageConnectionsPanelOwner
+      key={`${revision}/${role}/${props.connectionId ?? "new"}`}
+      {...props}
+    />
+  );
+}
+
+function StorageConnectionsPanelOwner({
+  showForm: showFormProp,
+  onShowFormChange,
+  hideHeaderAction = false,
+  connectionId,
+  hideList = false,
+  allowManage = true,
+  onCreated,
+}: StorageConnectionsPanelProps) {
+  const capture = useSessionGuard();
   const { role } = usePermissions();
   const isSuper = role === "super_admin";
-  const canManage = isSuper || role === "project_admin";
+  const canManage = allowManage && (isSuper || role === "project_admin");
   const pushToast = useToastStore((s) => s.push);
-  const { data: connections = [], isLoading } = useStorageConnections();
+  const { data: connectionData = [], isLoading, error: connectionsError } = useStorageConnections();
+  const connections = storageAccessDenied(connectionsError) ? [] : connectionData;
   const deploymentPreset = useDeploymentSftpPreset(isSuper);
   const createMutation = useCreateStorageConnection();
   const updateMutation = useUpdateStorageConnection();
@@ -445,6 +471,7 @@ export function StorageConnectionsPanel({
   const [testResults, setTestResults] = useState<Record<string, StorageConnectionTestResult>>({});
 
   const submitConnection = async (values: StorageConnectionFormValues) => {
+    const current = capture();
     try {
       if (editing) {
         await updateMutation.mutateAsync({
@@ -455,21 +482,25 @@ export function StorageConnectionsPanel({
             ...(values.secret ? { secret: values.secret } : {}),
           },
         });
+        if (!current()) return;
         pushToast({ msg: "连接器已更新", kind: "success" });
       } else {
-        await createMutation.mutateAsync({
+        const connection = await createMutation.mutateAsync({
           name: values.name,
           kind: values.kind,
           scope: values.scope,
           config: values.config,
           secret: values.secret ?? {},
         });
+        if (!current()) return;
+        onCreated?.(connection);
         pushToast({ msg: "连接器已创建", kind: "success" });
       }
       setEditing(null);
       setInitialValues(null);
       setShowForm(false);
     } catch (error) {
+      if (!current()) return;
       pushToast({
         msg: editing ? "连接器更新失败" : "连接器创建失败",
         sub: (error as Error).message,
@@ -479,9 +510,11 @@ export function StorageConnectionsPanel({
   };
 
   const runTest = (id: string) => {
+    const current = capture();
     setTestingId(id);
     testMutation.mutate(id, {
       onSuccess: (result) => {
+        if (!current()) return;
         setTestResults((prev) => ({ ...prev, [id]: result }));
         pushToast({
           msg: result.ok ? "连接成功" : "连接失败",
@@ -490,13 +523,17 @@ export function StorageConnectionsPanel({
         });
       },
       onError: (error) => {
+        if (!current()) return;
         pushToast({ msg: "连接测试失败", sub: (error as Error).message, kind: "warning" });
       },
-      onSettled: () => setTestingId(null),
+      onSettled: () => {
+        if (current()) setTestingId(null);
+      },
     });
   };
 
   const removeConnection = async (conn: StorageConnection) => {
+    const current = capture();
     if (
       !(await confirmDialog({
         tone: "danger",
@@ -506,9 +543,13 @@ export function StorageConnectionsPanel({
       }))
     )
       return;
+    if (!current()) return;
     deleteMutation.mutate(conn.id, {
-      onSuccess: () => pushToast({ msg: "连接器已删除", kind: "success" }),
+      onSuccess: () => {
+        if (current()) pushToast({ msg: "连接器已删除", kind: "success" });
+      },
       onError: (error) =>
+        current() &&
         pushToast({ msg: "连接器删除失败", sub: (error as Error).message, kind: "warning" }),
     });
   };
@@ -538,12 +579,16 @@ export function StorageConnectionsPanel({
           <div className={styles.subtitle}>S3 / OSS / SFTP</div>
         </div>
         <div className={styles.headerActions}>
-          {isSuper && deploymentPreset.data?.enabled && deploymentPreset.data.host && (
-            <Button size="sm" onClick={openDeploymentPreset}>
-              <Icon name="folderOpen" size={12} />
-              添加部署主机
-            </Button>
-          )}
+          {canManage &&
+            isSuper &&
+            !connectionId &&
+            deploymentPreset.data?.enabled &&
+            deploymentPreset.data.host && (
+              <Button size="sm" onClick={openDeploymentPreset}>
+                <Icon name="folderOpen" size={12} />
+                添加部署主机
+              </Button>
+            )}
           {canManage && !hideHeaderAction && (
             <Button
               size="sm"
@@ -561,7 +606,7 @@ export function StorageConnectionsPanel({
         </div>
       </div>
 
-      {canManage && (
+      {canManage && !storageAccessDenied(connectionsError) && (
         <Modal
           open={showForm}
           onClose={() => {
@@ -589,77 +634,89 @@ export function StorageConnectionsPanel({
         </Modal>
       )}
 
-      <div className={styles.list}>
-        {isLoading && <div className={styles.empty}>加载中...</div>}
-        {!isLoading && connections.length === 0 && <div className={styles.empty}>暂无连接器</div>}
-        {!isLoading &&
-          connections.map((conn) => {
-            const result = testResults[conn.id];
-            const canEditConn = canManage && (isSuper || conn.scope === "owner");
-            return (
-              <div key={conn.id} className={styles.connectionRow}>
-                <div className={styles.connectionIcon}>
-                  <Icon name={conn.kind === "s3" ? "db" : "folderOpen"} size={15} />
-                </div>
-                <div className={styles.connectionMain}>
-                  <div className={styles.connectionTop}>
-                    <span className={styles.connectionName}>{conn.name}</span>
-                    <span className={styles.badge}>{conn.kind.toUpperCase()}</span>
-                    <span className={styles.badge}>{roleLabel(conn.scope)}</span>
-                    <span className={conn.secret_set ? styles.secretOk : styles.secretMissing}>
-                      {conn.secret_set ? "已加密" : "未配置密钥"}
-                    </span>
-                  </div>
-                  <div className={styles.connectionMeta}>
-                    {connectionSummary(conn) || "未配置目标路径"}
-                  </div>
-                  {result && (
-                    <div
-                      className={cx(styles.testResult, result.ok ? styles.testOk : styles.testFail)}
-                    >
-                      {result.ok ? result.message : <CopyableError message={result.message} />}
-                      {result.sample_count !== null && ` · 样本 ${result.sample_count}`}
+      {connectionsError && (
+        <p role="alert" className="mb-2 text-xs text-status-danger">
+          读取连接配置失败：{verifiedContentError(connectionsError)}
+        </p>
+      )}
+      {!hideList && (
+        <div className={styles.list}>
+          {isLoading && <div className={styles.empty}>加载中...</div>}
+          {!isLoading && connections.length === 0 && <div className={styles.empty}>暂无连接器</div>}
+          {!isLoading &&
+            connections
+              .filter((conn) => !connectionId || conn.id === connectionId)
+              .map((conn) => {
+                const result = testResults[conn.id];
+                const canEditConn = canManage && (isSuper || conn.scope === "owner");
+                return (
+                  <div key={conn.id} className={styles.connectionRow}>
+                    <div className={styles.connectionIcon}>
+                      <Icon name={conn.kind === "s3" ? "db" : "folderOpen"} size={15} />
                     </div>
-                  )}
-                </div>
-                <div className={styles.rowActions}>
-                  <Button
-                    size="sm"
-                    onClick={() => runTest(conn.id)}
-                    disabled={testingId === conn.id}
-                  >
-                    <Icon name="activity" size={12} />
-                    {testingId === conn.id ? "测试中" : "测试"}
-                  </Button>
-                  {canEditConn && (
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setEditing(conn);
-                        setInitialValues(null);
-                        setShowForm(true);
-                      }}
-                    >
-                      <Icon name="edit" size={12} />
-                      编辑
-                    </Button>
-                  )}
-                  {canEditConn && (
-                    <Button
-                      size="sm"
-                      variant="danger"
-                      onClick={() => removeConnection(conn)}
-                      disabled={deleteMutation.isPending}
-                    >
-                      <Icon name="trash" size={12} />
-                      删除
-                    </Button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-      </div>
+                    <div className={styles.connectionMain}>
+                      <div className={styles.connectionTop}>
+                        <span className={styles.connectionName}>{conn.name}</span>
+                        <span className={styles.badge}>{conn.kind.toUpperCase()}</span>
+                        <span className={styles.badge}>{roleLabel(conn.scope)}</span>
+                        <span className={conn.secret_set ? styles.secretOk : styles.secretMissing}>
+                          {conn.secret_set ? "已加密" : "未配置密钥"}
+                        </span>
+                      </div>
+                      <div className={styles.connectionMeta}>
+                        {connectionSummary(conn) || "未配置目标路径"}
+                      </div>
+                      {result && (
+                        <div
+                          className={cx(
+                            styles.testResult,
+                            result.ok ? styles.testOk : styles.testFail,
+                          )}
+                        >
+                          {result.ok ? result.message : <CopyableError message={result.message} />}
+                          {result.sample_count !== null && ` · 样本 ${result.sample_count}`}
+                        </div>
+                      )}
+                    </div>
+                    <div className={styles.rowActions}>
+                      <Button
+                        size="sm"
+                        onClick={() => runTest(conn.id)}
+                        disabled={testingId === conn.id}
+                      >
+                        <Icon name="activity" size={12} />
+                        {testingId === conn.id ? "测试中" : "测试"}
+                      </Button>
+                      {canEditConn && (
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setEditing(conn);
+                            setInitialValues(null);
+                            setShowForm(true);
+                          }}
+                        >
+                          <Icon name="edit" size={12} />
+                          编辑
+                        </Button>
+                      )}
+                      {canEditConn && (
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => removeConnection(conn)}
+                          disabled={deleteMutation.isPending}
+                        >
+                          <Icon name="trash" size={12} />
+                          删除
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+        </div>
+      )}
     </section>
   );
 }

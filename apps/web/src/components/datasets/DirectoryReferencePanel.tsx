@@ -1,3 +1,5 @@
+import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { storageLocationLink } from "./storageNavigation";
 import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -50,6 +52,7 @@ export function ReferenceItemPreview({ filePath }: { filePath: string }) {
 }
 
 export interface DirectorySourceFocus {
+  persistUrl?: boolean;
   initialSourceId?: string;
   initialScanId?: string;
 }
@@ -67,7 +70,25 @@ function DirectoryReferencePanelOwner({
   datasetId,
   initialSourceId,
   initialScanId,
+  persistUrl = false,
 }: { datasetId: string } & DirectorySourceFocus) {
+  const navigation = useLocation();
+  const [, setSearchParams] = useSearchParams();
+  const syncFocus = (sourceId: string, scanId?: string) => {
+    if (!persistUrl || navigation.pathname !== `/datasets/${datasetId}`) return;
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.set("tab", "sources");
+        if (sourceId) next.set("source", sourceId);
+        else next.delete("source");
+        if (scanId) next.set("scan", scanId);
+        else next.delete("scan");
+        return next;
+      },
+      { replace: true },
+    );
+  };
   const session = useAuthStore((s) => s.sessionId);
   const userId = useAuthStore((s) => s.user?.id);
   const owner = `${userId}/${session}/${datasetId}`;
@@ -183,6 +204,13 @@ function DirectoryReferencePanelOwner({
   const candidateRun = selectedScanId ? selected.data : latestRun;
   const runMismatch = !!candidateRun && candidateRun.source_id !== source?.id;
   const run = !runMismatch ? candidateRun : undefined;
+  const sourceReturn = new URLSearchParams(navigation.search);
+  sourceReturn.set("tab", "sources");
+  if (source) sourceReturn.set("source", source.id);
+  const focusedScanId = selectedScanId || run?.id;
+  if (focusedScanId) sourceReturn.set("scan", focusedScanId);
+  else sourceReturn.delete("scan");
+  const sourceReturnPath = `${navigation.pathname.startsWith("/datasets/") ? navigation.pathname : `/datasets/${datasetId}`}?${sourceReturn}`;
   const registration = useQuery({
     queryKey: ["directory-active-registration", owner, source?.id],
     queryFn: ({ signal }) => api.activeRegistration(source!.id, signal),
@@ -197,6 +225,7 @@ function DirectoryReferencePanelOwner({
     run?.id !== latestRun?.id;
   const selectRun = (id: string) => {
     setSelectedScanId(id);
+    if (source) syncFocus(source.id, id);
     setOffset(0);
   };
   const entries = useQuery({
@@ -370,7 +399,9 @@ function DirectoryReferencePanelOwner({
               });
               if (current()) {
                 setSourceId(created.id);
+                syncFocus(created.id);
                 setSelectedScanId("");
+                syncFocus(source!.id);
                 setHistoryOffset(0);
                 setOffset(0);
                 setMessage("来源已配置，请运行只读预扫描");
@@ -429,6 +460,14 @@ function DirectoryReferencePanelOwner({
           {dirs.error && <span role="alert">{verifiedContentError(dirs.error)}</span>}
         </div>
       )}
+      {source && (
+        <Link
+          className="mt-3 inline-block text-brand underline"
+          to={storageLocationLink(source.location_id, sourceReturnPath)}
+        >
+          查看来源存储位置
+        </Link>
+      )}
       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
         <select
           aria-label="已有目录来源"
@@ -436,6 +475,7 @@ function DirectoryReferencePanelOwner({
           value={activeSource ?? ""}
           onChange={(e) => {
             setSourceId(e.target.value);
+            syncFocus(e.target.value);
             setIncompleteLink(false);
             setSelectedScanId("");
             setHistoryOffset(0);

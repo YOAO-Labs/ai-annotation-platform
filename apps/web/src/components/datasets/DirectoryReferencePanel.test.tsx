@@ -1,3 +1,4 @@
+import { MemoryRouter } from "react-router-dom";
 import { expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -71,7 +72,9 @@ it("refreshes a paused schedule revision after saving source rules before re-ena
     <QueryClientProvider
       client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
     >
-      <DirectoryReferencePanel datasetId="dataset" />
+      <MemoryRouter>
+        <DirectoryReferencePanel datasetId="dataset" />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
   await screen.findByRole("button", { name: "启用周期扫描" });

@@ -59,22 +59,25 @@ export interface DatasetImportFromConnectionResponse {
 }
 
 export const storageConnectionsApi = {
-  getAllowlist: () => apiClient.get<ConnectorAllowlist>("/storage-connections/allowlist"),
+  getAllowlist: (signal?: AbortSignal) =>
+    apiClient.get<ConnectorAllowlist>("/storage-connections/allowlist", { signal }),
 
   updateAllowlist: (entries: string[]) =>
     apiClient.put<ConnectorAllowlist>("/storage-connections/allowlist", { entries }),
 
   resetAllowlist: () => apiClient.delete<ConnectorAllowlist>("/storage-connections/allowlist"),
 
-  getDeploymentSftpPreset: () =>
-    apiClient.get<DeploymentSftpPreset>("/storage-connections/deployment-sftp-preset"),
+  getDeploymentSftpPreset: (signal?: AbortSignal) =>
+    apiClient.get<DeploymentSftpPreset>("/storage-connections/deployment-sftp-preset", { signal }),
 
-  list: () => apiClient.get<StorageConnection[]>("/storage-connections"),
+  list: (signal?: AbortSignal) =>
+    apiClient.get<StorageConnection[]>("/storage-connections", { signal }),
 
   create: (payload: StorageConnectionCreatePayload) =>
     apiClient.post<StorageConnection>("/storage-connections", payload),
 
-  get: (id: string) => apiClient.get<StorageConnection>(`/storage-connections/${id}`),
+  get: (id: string, signal?: AbortSignal) =>
+    apiClient.get<StorageConnection>(`/storage-connections/${id}`, { signal }),
 
   update: (id: string, payload: StorageConnectionUpdatePayload) =>
     apiClient.patch<StorageConnection>(`/storage-connections/${id}`, payload),

@@ -1,3 +1,4 @@
+import { storageAccessDenied } from "./storageQueryState";
 import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
 import { useState } from "react";
 import { StorageLocationAccessFields } from "./StorageLocationAccessFields";
@@ -11,12 +12,27 @@ import { Button } from "@/components/ui/Button";
 import type { StorageLocationOut, StorageProbeOut } from "@/api/generated/types.gen";
 
 const field = "rounded-md border border-input bg-background px-2 py-1.5 text-xs text-foreground";
-export function FilesystemLocationsPanel() {
+interface FilesystemLocationsPanelProps {
+  locationId?: string;
+  showProbe?: boolean;
+  onCreated?: (location: StorageLocationOut) => void;
+}
+export function FilesystemLocationsPanel(props: FilesystemLocationsPanelProps = {}) {
   const revision = useSessionRevision();
-  return <FilesystemLocationsPanelOwner key={revision} />;
+  const { role } = usePermissions();
+  return (
+    <FilesystemLocationsPanelOwner
+      key={`${revision}/${role}/${props.locationId ?? "new"}`}
+      {...props}
+    />
+  );
 }
 
-function FilesystemLocationsPanelOwner() {
+function FilesystemLocationsPanelOwner({
+  locationId,
+  onCreated,
+  showProbe = true,
+}: FilesystemLocationsPanelProps) {
   const capture = useSessionGuard();
   const { role } = usePermissions();
   const session = useAuthStore((s) => s.sessionId);
@@ -39,12 +55,15 @@ function FilesystemLocationsPanelOwner() {
   const [probe, setProbe] = useState<{ name: string; result: StorageProbeOut } | null>(null);
   const roots = useQuery({
     queryKey: ["storage-roots", session],
-    queryFn: () => apiClient.get<string[]>("/storage-locations/roots"),
-    enabled: allowed,
+    queryFn: ({ signal }) => apiClient.get<string[]>("/storage-locations/roots", { signal }),
+    enabled: allowed && !locationId,
   });
   const locations = useQuery({
-    queryKey: ["filesystem-locations", session],
-    queryFn: ({ signal }) => datasetSourcesApi.locations(signal),
+    queryKey: ["filesystem-locations", session, locationId],
+    queryFn: async ({ signal }) =>
+      locationId
+        ? { items: [await datasetSourcesApi.location(locationId, signal)], total: 1 }
+        : { items: [], total: 0 },
     enabled: allowed,
   });
   const act = async (work: (current: () => boolean) => Promise<unknown>) => {
@@ -54,7 +73,12 @@ function FilesystemLocationsPanelOwner() {
     try {
       await work(current);
       if (!current()) return;
-      await client.invalidateQueries({ queryKey: ["filesystem-locations", session] });
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["filesystem-locations", session] }),
+        client.invalidateQueries({ queryKey: ["storage-source-locations"] }),
+        client.invalidateQueries({ queryKey: ["storage-location"] }),
+        client.invalidateQueries({ queryKey: ["storage-location-probes"] }),
+      ]);
     } catch (e) {
       if (current()) setError(verifiedContentError(e));
     } finally {
@@ -68,101 +92,110 @@ function FilesystemLocationsPanelOwner() {
       <p className="mb-3 text-xs text-muted-foreground">
         仅登记部署时已挂载的根内子目录。新增子目录和平台登记无需重启；新增宿主机挂载通常需重建相关容器，无需重建镜像。
       </p>
-      <div className="flex flex-wrap items-end gap-2">
-        <label className="grid gap-1 text-xs">
-          位置名称
-          <input
-            className={field}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={100}
+      {!locationId && (
+        <>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="grid gap-1 text-xs">
+              位置名称
+              <input
+                className={field}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={100}
+              />
+            </label>
+            <label className="grid gap-1 text-xs">
+              受控根
+              <select className={field} value={root} onChange={(e) => setRoot(e.target.value)}>
+                <option value="">选择已挂载根</option>
+                {roots.data?.map((r) => (
+                  <option key={r}>{r}</option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1 text-xs">
+              根内相对目录
+              <input
+                className={field}
+                value={path}
+                onChange={(e) => setPath(e.target.value)}
+                placeholder="留空使用受控根"
+              />
+            </label>
+            <label className="grid gap-1 text-xs">
+              允许的缓存
+              <select
+                aria-label="位置缓存上限"
+                className={field}
+                value={cachePolicy}
+                onChange={(e) => setCachePolicy(e.target.value as "none" | "preview")}
+              >
+                <option value="preview">允许预览缓存</option>
+                <option value="none">禁止新增缓存</option>
+              </select>
+            </label>
+            <Button
+              size="sm"
+              disabled={!name.trim() || !root || busy}
+              onClick={() =>
+                void act(async (current) => {
+                  const location = await apiClient.post<StorageLocationOut>("/storage-locations", {
+                    name: name.trim(),
+                    root_handle: root,
+                    relative_path: path,
+                    scope,
+                    use_user_ids: userIds,
+                    cache_policy: cachePolicy,
+                  });
+                  if (current()) {
+                    setName("");
+                    onCreated?.(location);
+                  }
+                })
+              }
+            >
+              登记目录位置
+            </Button>
+          </div>
+          <StorageLocationAccessFields
+            session={session}
+            scope={scope}
+            userIds={userIds}
+            disabled={busy}
+            onScope={setScope}
+            onUsers={setUserIds}
           />
-        </label>
-        <label className="grid gap-1 text-xs">
-          受控根
-          <select className={field} value={root} onChange={(e) => setRoot(e.target.value)}>
-            <option value="">选择已挂载根</option>
-            {roots.data?.map((r) => (
-              <option key={r}>{r}</option>
-            ))}
-          </select>
-        </label>
-        <label className="grid gap-1 text-xs">
-          根内相对目录
-          <input
-            className={field}
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-            placeholder="留空使用受控根"
-          />
-        </label>
-        <label className="grid gap-1 text-xs">
-          允许的缓存
-          <select
-            aria-label="位置缓存上限"
-            className={field}
-            value={cachePolicy}
-            onChange={(e) => setCachePolicy(e.target.value as "none" | "preview")}
-          >
-            <option value="preview">允许预览缓存</option>
-            <option value="none">禁止新增缓存</option>
-          </select>
-        </label>
-        <Button
-          size="sm"
-          disabled={!name.trim() || !root || busy}
-          onClick={() =>
-            void act(async (current) => {
-              await apiClient.post<StorageLocationOut>("/storage-locations", {
-                name: name.trim(),
-                root_handle: root,
-                relative_path: path,
-                scope,
-                use_user_ids: userIds,
-                cache_policy: cachePolicy,
-              });
-              if (current()) setName("");
-            })
-          }
-        >
-          登记目录位置
-        </Button>
-      </div>
-      <StorageLocationAccessFields
-        session={session}
-        scope={scope}
-        userIds={userIds}
-        disabled={busy}
-        onScope={setScope}
-        onUsers={setUserIds}
-      />
-      {roots.data?.length === 0 && (
-        <p className="mt-2 text-xs text-muted-foreground">
-          当前 API 没有可用受控根，请由运维配置根映射与只读挂载。
-        </p>
+          {roots.data?.length === 0 && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              当前 API 没有可用受控根，请由运维配置根映射与只读挂载。
+            </p>
+          )}
+        </>
       )}
-      <div className="my-3 flex flex-wrap gap-2 text-xs">
-        <label className="grid gap-1">
-          探测节点
-          <input
-            className={field}
-            value={node}
-            onChange={(e) => setNode(e.target.value)}
-            placeholder="api 或 worker hostname"
-          />
-        </label>
-        <label className="grid gap-1">
-          可选样例文件
-          <input
-            className={field}
-            value={sample}
-            onChange={(e) => setSample(e.target.value)}
-            placeholder="相对位置路径，用于验证 read"
-          />
-        </label>
-      </div>
+      {locationId && showProbe && (
+        <div className="my-3 flex flex-wrap gap-2 text-xs">
+          <label className="grid gap-1">
+            探测节点
+            <input
+              className={field}
+              value={node}
+              onChange={(e) => setNode(e.target.value)}
+              placeholder="api 或 worker hostname"
+            />
+          </label>
+          <label className="grid gap-1">
+            可选样例文件
+            <input
+              className={field}
+              value={sample}
+              onChange={(e) => setSample(e.target.value)}
+              placeholder="相对位置路径，用于验证 read"
+            />
+          </label>
+        </div>
+      )}
       <ul className="divide-y divide-border text-xs">
-        {locations.data?.items
+        {(storageAccessDenied(locations.error) ? undefined : locations.data)?.items
           .filter((l) => l.kind === "filesystem")
           .map((l) => (
             <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
@@ -181,22 +214,24 @@ function FilesystemLocationsPanelOwner() {
               >
                 配置使用范围 {l.name}
               </Button>
-              <Button
-                size="sm"
-                disabled={busy || !l.enabled || !node}
-                onClick={() =>
-                  void act(async (current) => {
-                    const result = await datasetSourcesApi.probe(l.id, node, sample || undefined);
-                    if (current()) setProbe({ name: l.name, result });
-                  })
-                }
-              >
-                探测位置 {l.name}
-              </Button>
+              {showProbe && (
+                <Button
+                  size="sm"
+                  disabled={busy || !l.enabled || !node}
+                  onClick={() =>
+                    void act(async (current) => {
+                      const result = await datasetSourcesApi.probe(l.id, node, sample || undefined);
+                      if (current()) setProbe({ name: l.name, result });
+                    })
+                  }
+                >
+                  探测位置 {l.name}
+                </Button>
+              )}
             </li>
           ))}
       </ul>
-      {editing && (
+      {editing && !storageAccessDenied(locations.error) && (
         <div
           className="mt-3 rounded-md border border-border p-3"
           aria-label={`配置使用范围 ${editing.name}`}
@@ -250,7 +285,7 @@ function FilesystemLocationsPanelOwner() {
           </div>
         </div>
       )}
-      {probe && (
+      {probe && !storageAccessDenied(locations.error) && (
         <p role="status" className="mt-2 text-xs">
           {probe.name} · {probe.result.node_id} · {probe.result.ok ? "探测成功" : probe.result.code}{" "}
           ·{" "}
@@ -259,9 +294,9 @@ function FilesystemLocationsPanelOwner() {
             .join("，")}
         </p>
       )}
-      {(error || roots.error || locations.error) && (
+      {(error || (!locationId && roots.error) || locations.error) && (
         <p role="alert" className="mt-2 text-xs text-status-danger">
-          {error || verifiedContentError(roots.error || locations.error)}
+          {error || verifiedContentError((!locationId && roots.error) || locations.error)}
         </p>
       )}
     </section>

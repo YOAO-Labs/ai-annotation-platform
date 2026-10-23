@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createTestQueryClient } from "@/test/queryClient";
@@ -29,7 +29,7 @@ function mount() {
     </QueryClientProvider>
   );
   const view = render(tree());
-  return { refresh: () => view.rerender(tree()) };
+  return { client, refresh: () => view.rerender(tree()) };
 }
 beforeEach(() => {
   vi.clearAllMocks();
@@ -44,6 +44,7 @@ beforeEach(() => {
     total: 21,
   });
   api.sourceSummary.mockResolvedValue({
+    dataset_count: 2,
     total: 25,
     items: [
       {
@@ -71,7 +72,7 @@ it("queries one selected location, paginates sources/jobs independently and uses
     target: { value: "location" },
   });
   const link = await screen.findByRole("link", { name: "Vehicles / Fleet" });
-  expect(link).toHaveAttribute("href", "/datasets?dataset=dataset&source=source");
+  expect(link).toHaveAttribute("href", "/datasets/dataset?tab=sources&source=source");
   expect(screen.getByText("关联来源 · 25")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "下一页来源" }));
   await waitFor(() =>
@@ -111,4 +112,22 @@ it("does not query or render management navigation for an annotator", () => {
   mount();
   expect(api.locationPage).not.toHaveBeenCalled();
   expect(screen.queryByRole("region", { name: "存储位置关联来源" })).not.toBeInTheDocument();
+});
+
+it("clears retained private source names and task detail after location access is revoked", async () => {
+  const view = mount();
+  await screen.findByRole("option", { name: "CephFS · filesystem" });
+  fireEvent.change(screen.getByRole("combobox", { name: "查看关联来源的存储位置" }), {
+    target: { value: "location" },
+  });
+  await screen.findByRole("link", { name: "Vehicles / Fleet" });
+  fireEvent.click(await screen.findByRole("button", { name: /扫描 · failed/ }));
+  expect(screen.getByTestId("job")).toBeInTheDocument();
+  api.sourceSummary.mockRejectedValue(Object.assign(new Error("Access revoked"), { status: 403 }));
+  await act(async () => {
+    await view.client.invalidateQueries({ queryKey: ["storage-source-summary"] });
+  });
+  await screen.findByRole("alert");
+  expect(screen.queryByRole("link", { name: "Vehicles / Fleet" })).not.toBeInTheDocument();
+  expect(screen.queryByTestId("job")).not.toBeInTheDocument();
 });

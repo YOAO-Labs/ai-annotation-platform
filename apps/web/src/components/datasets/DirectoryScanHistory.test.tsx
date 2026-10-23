@@ -1,3 +1,4 @@
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -54,12 +55,24 @@ const failed = {
 const complete = { ...failed, id: "complete", status: "completed", complete: true };
 const clients: ReturnType<typeof createTestQueryClient>[] = [];
 afterEach(() => clients.splice(0).forEach((client) => client.clear()));
-function mount(props = {}) {
+function RouterState() {
+  const location = useLocation();
+  return (
+    <output data-testid="source-url">
+      {location.pathname}
+      {location.search}
+    </output>
+  );
+}
+function mount(props = {}, path = "/") {
   const client = createTestQueryClient();
   clients.push(client);
   const tree = () => (
     <QueryClientProvider client={client}>
-      <DirectoryReferencePanel datasetId="dataset" {...props} />
+      <MemoryRouter initialEntries={[path]}>
+        <DirectoryReferencePanel datasetId="dataset" {...props} />
+        <RouterState />
+      </MemoryRouter>
     </QueryClientProvider>
   );
   const view = render(tree());
@@ -179,7 +192,9 @@ it("refreshes last-complete and history when an older resumed scan finishes", as
   clients.push(client);
   render(
     <QueryClientProvider client={client}>
-      <DirectoryReferencePanel datasetId="dataset" />
+      <MemoryRouter>
+        <DirectoryReferencePanel datasetId="dataset" />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
   await screen.findByText("当前执行：扫描 running");
@@ -222,4 +237,44 @@ it("waits for registration state before enabling a new scan", async () => {
   expect(screen.getByRole("button", { name: "只读预扫描" })).toBeDisabled();
   await act(async () => resolve(null));
   await waitFor(() => expect(screen.getByRole("button", { name: "只读预扫描" })).toBeEnabled());
+});
+
+it("links the focused source and scan to storage with the original dataset query", async () => {
+  const datasetId = "11111111-1111-1111-1111-111111111111";
+  api.source.mockResolvedValue({ ...source, dataset_id: datasetId });
+  api.sources.mockResolvedValue({ items: [{ ...source, dataset_id: datasetId }], total: 1 });
+  mount({ datasetId, initialSourceId: "source", initialScanId: "complete" });
+  const link = await screen.findByRole("link", { name: "查看来源存储位置" });
+  const target = new URL(link.getAttribute("href")!, "https://local.test");
+  expect(target.pathname).toBe("/storage");
+  expect(target.searchParams.get("location")).toBe("location");
+  const back = new URL(target.searchParams.get("returnTo")!, "https://local.test");
+  expect(back.pathname).toBe(`/datasets/${datasetId}`);
+  expect(back.searchParams.get("source")).toBe("source");
+  expect(back.searchParams.get("scan")).toBe("complete");
+});
+
+it("persists detail source/scan choices in URL without losing filters and clears scan for another source", async () => {
+  const datasetId = "11111111-1111-1111-1111-111111111111";
+  const first = { ...source, dataset_id: datasetId };
+  const second = { ...first, id: "second", name: "Second source" };
+  api.sources.mockResolvedValue({ items: [first, second], total: 2 });
+  api.source.mockImplementation(async (id) => (id === "second" ? second : first));
+  mount(
+    { datasetId, initialSourceId: "source", persistUrl: true },
+    `/datasets/${datasetId}?tab=sources&page=3&q=vehicles&return=%2Fdatasets%3Fpage%3D2`,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "查看最近完整扫描" }));
+  let url = new URL(screen.getByTestId("source-url").textContent!, "https://local.test");
+  expect(url.searchParams.get("scan")).toBe("complete");
+  expect(url.searchParams.get("source")).toBe("source");
+  expect(url.searchParams.get("q")).toBe("vehicles");
+  expect(url.searchParams.get("page")).toBe("3");
+  fireEvent.change(screen.getByRole("combobox", { name: "已有目录来源" }), {
+    target: { value: "second" },
+  });
+  url = new URL(screen.getByTestId("source-url").textContent!, "https://local.test");
+  expect(url.searchParams.get("source")).toBe("second");
+  expect(url.searchParams.has("scan")).toBe(false);
+  expect(url.searchParams.get("return")).toBe("/datasets?page=2");
 });

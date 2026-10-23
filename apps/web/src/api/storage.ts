@@ -1,4 +1,5 @@
 import { apiClient } from "./client";
+import type { StorageBindingOut, StorageProbeOut } from "./generated/types.gen";
 
 export interface StorageHealthResponse {
   status: string;
@@ -62,11 +63,16 @@ export interface VideoAssetRetryResponse {
 }
 
 export const storageApi = {
+  bindings: (signal?: AbortSignal) =>
+    apiClient.get<StorageBindingOut[]>("/storage-locations/bindings", { signal }),
+  probes: (id: string, signal?: AbortSignal) =>
+    apiClient.get<StorageProbeOut[]>(`/storage-locations/${id}/probes`, { signal }),
   health: () => apiClient.get<StorageHealthResponse>("/storage/health"),
   buckets: () => apiClient.get<BucketsResponse>("/storage/buckets"),
-  videoAssetFailures: (limit = 50, offset = 0) =>
+  videoAssetFailures: (limit = 50, offset = 0, signal?: AbortSignal) =>
     apiClient.get<VideoAssetFailuresResponse>(
       `/storage/video-assets/failures?limit=${limit}&offset=${offset}`,
+      { signal },
     ),
   retryVideoAsset: (payload: VideoAssetRetryPayload) =>
     apiClient.post<VideoAssetRetryResponse>("/storage/video-assets/retry", payload),

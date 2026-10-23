@@ -8,6 +8,7 @@ import type {
   DatasetScanList,
   DatasetScanEntryList,
   StorageLocationList,
+  StorageLocationOut,
   StorageSourceSummary,
   StorageDirectoryPage,
   StorageProbeOut,
@@ -30,6 +31,8 @@ import type {
 } from "./generated/types.gen";
 
 export const datasetSourcesApi = {
+  location: (id: string, signal?: AbortSignal) =>
+    apiClient.get<StorageLocationOut>(`/storage-locations/${id}`, { signal }),
   previewRules: (id: string, payload: SourceRulesPreview, offset: number) =>
     apiClient.post<SourceRulesImpact>(
       `/dataset-sources/${id}/rules/preview?limit=20&offset=${offset}`,
@@ -45,8 +48,10 @@ export const datasetSourcesApi = {
     apiClient.post<SourceSyncScheduleOut>(`/dataset-sources/${id}/sync-schedule/continue`, payload),
   locations: (signal?: AbortSignal) =>
     apiClient.get<StorageLocationList>("/storage-locations?limit=200", { signal }),
-  locationPage: (offset: number, signal?: AbortSignal) =>
-    apiClient.get<StorageLocationList>(`/storage-locations?limit=20&offset=${offset}`, { signal }),
+  locationPage: (offset: number, signal?: AbortSignal, limit = 20) =>
+    apiClient.get<StorageLocationList>(`/storage-locations?limit=${limit}&offset=${offset}`, {
+      signal,
+    }),
   sourceSummary: (id: string, offset: number, jobsOffset: number, signal?: AbortSignal) =>
     apiClient.get<StorageSourceSummary>(
       `/storage-locations/${id}/source-summary?limit=20&offset=${offset}&jobs_limit=20&jobs_offset=${jobsOffset}`,
