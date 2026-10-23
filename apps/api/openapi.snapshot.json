@@ -42369,6 +42369,10 @@
             ],
             "title": "Project Id"
           },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
           "scope": {
             "enum": [
               "global",
@@ -42389,6 +42393,7 @@
         },
         "required": [
           "id",
+          "revision",
           "name",
           "kind",
           "config",
@@ -42445,6 +42450,11 @@
             ],
             "title": "Config"
           },
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
           "name": {
             "anyOf": [
               {
@@ -42471,6 +42481,9 @@
             "title": "Secret"
           }
         },
+        "required": [
+          "expected_revision"
+        ],
         "title": "StorageConnectionUpdate",
         "type": "object"
       },

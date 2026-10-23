@@ -35,6 +35,7 @@ last_reviewed: 2026-10-23
 | `config`     | `JSONB`       | **非密钥**配置（endpoint/bucket/host…），写入前经 `_validate_and_sanitize_config` 过滤 |
 | `secret_enc` | `LargeBinary` | Fernet 加密后的密钥密文，可空                                                          |
 | `scope`      | `String(20)`  | `global` 或 `owner`（CHECK 约束，默认 `owner`）                                        |
+| `revision`   | `Integer`     | 独立编辑修订，PATCH 使用 expected_revision 做条件保存                                  |
 | `created_by` | `UUID`        | 创建者                                                                                 |
 
 关键不变量：**明文密钥永不落库、永不出 API**。`config` 与 `secret` 在 schema 层就分离——`config` 是可读的连接参数，`secret`（access/secret key、密码、私钥）只进 `secret_enc`，对外仅以 `secret_set: bool` 表达"是否已配密钥"。
@@ -65,7 +66,7 @@ SFTP config: { host, username, port?, base_path?, auth_type }
 密钥用 **Fernet**（对称加密，自带时间戳）加密：
 
 - 加密：`encrypt_secret(secret: dict) -> bytes`，对 `json.dumps(sort_keys=True)` 后的明文加密，结果存入 `secret_enc`（`create`/`update` 时调用）。
-- 解密：`decrypt_secret(token: bytes) -> dict`，仅在 `test` 与导入任务里临时解密用于建立连接，解密失败抛 `ConnectorCryptoError`。
+- 解密：`decrypt_secret(token: bytes) -> dict`，仅在候选更新验证、`test` 与导入/引用读取中临时解密用于建立连接，解密失败抛 `ConnectorCryptoError`。
 - 密钥来源：环境变量 `CONNECTOR_ENCRYPTION_KEY`（与 JWT `secret_key` 隔离）。**未配置时**加解密路径直接拒绝，相关 API 返回 `503`。
 
 生成 key：
@@ -116,7 +117,7 @@ import-from-connection (202)
 
 ## 审计
 
-所有写操作与测试都记审计（见 [审计与通知](/dev/concepts/audit-and-notifications)）：`storage_connection.create / update / delete / test`、`connector.allowlist_update`。`update` 的 detail 含 `secret_rotated` 标记是否轮换了密钥；审计 detail 不含任何明文密钥。
+所有写操作与测试都记审计（见 [审计与通知](/dev/concepts/audit-and-notifications)）：`storage_connection.create / update / delete / test`、`connector.allowlist_update`。`update` 的 detail 含 `secret_rotated` 和新 `revision` 标记是否轮换了密钥及编辑代次；审计 detail 不含任何明文密钥。
 
 ## 相关文档
 
@@ -157,7 +158,7 @@ cd apps/api
 
 API/worker 各自加载根映射；Celery `worker_direct` 加实际 hostname 校验提供指定节点探测。首次节点探测信任部署映射，后续保留首次取得的有效根身份；失败、超时、配置变化与晚到结果不能重新绑定。数据库按 `(location_id, node_id)` 保留最新观察，证据有效5分钟。API本地等待3秒，远端等待5秒；超时线程结果不会自行落库，阻塞文件系统调用仍依赖内核恢复。跨节点能力证据不能证明字节相同，后续原地读取仍需内容核验。
 
-位置登记/修改仅超管；项目管理员按 global 或 use_user_ids 使用和探测，员工不得枚举目录。每页重新检查当前授权，游标绑定位置、修订、节点、路径摘要和目录快照。现有连接通过 connection_id 关联位置；凭据仍由 StorageConnection/Fernet 持有，未复制。连接修改按 connection→location 顺序加锁；有内容/用途引用时拒绝配置改向或删除。删除无引用连接级联清理关联与探测，既有项目级外键行为保持一致。
+位置登记/修改仅超管；项目管理员按 global 或 use_user_ids 使用和探测，员工不得枚举目录。每页重新检查当前授权，游标绑定位置、修订、节点、路径摘要和目录快照。现有连接通过 connection_id 关联位置；凭据仍由 StorageConnection/Fernet 持有，未复制。连接编辑使用独立 revision（迁移0210，旧行初始为1），按 connection→location 顺序加锁。候选认证与有界列举在行锁外进行，不修改 ORM 原配置；验证匹配的 SFTP 位置时复用 SftpAccess 的固定公钥与地址约束，普通复制连接继续使用系统 known_hosts。验证成功后加锁、重读当前修订、活跃账号/管理权限、原 API Key、最新白名单和引用，再原子发布。有效名称编辑仅推进连接 revision，实际配置变化或显式凭据轮换才推进位置 config_revision；旧探测因此失效。有内容/用途引用时拒绝实际配置改向或删除。删除无引用连接级联清理关联与探测，既有项目级外键行为保持一致。
 
 九用途绑定查询只读，缺失不自动 bootstrap，共桶不合并用途。当前没有用途切换入口；DatasetSource 提供下文的只读观测扫描及显式登记。完整接口见[受控存储位置](/api/guides/storage-locations)，决策见[ADR 0092](/dev/adr/archive/0092-controlled-storage-registry)。
 

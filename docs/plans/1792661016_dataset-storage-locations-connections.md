@@ -1,12 +1,37 @@
 # EPIC-02：存储位置、连接配置与业务用途绑定
 
-> 状态：E02-A completed locally；E02-B pending review；用户已授权本轮推进和提交，不分配发布版本。
+> 状态：E02-A completed locally；E02-B1/B2 completed locally；用户已授权持续推进和提交，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 > 优先级：P0（M1 基础）；负责人角色：后端、运维，前端协作。
 > 依赖：EPIC-01 的标识与适配契约；EPIC-11 的最小权限规则必须随 M1 一起交付。
 > 下游：EPIC-03 原地注册、EPIC-05 读取、EPIC-07 迁移、EPIC-09 存储控制台。
+
+## 继续实施定案：E02-B1/B2
+
+基线 `61d8ed982`，工作区干净，迁移单头 0209。E03/E04、严格原件读取、来源诊断及筛选冻结已落地；本轮不重复它们，也不因本轮交付开放用途绑定切换。人工环境 3100/8100 与其业务数据保留；Orca 中继不可用，修改串行完成。不构建镜像、不改 Compose、不引入依赖。
+
+- B1：0210 为 StorageConnection 增加独立 revision，既有行初始化为 1。GET/列表返回 revision；PATCH 必填 expected_revision，缺少返回422，旧修订返回409。所有接受的编辑递增连接修订；仅实际配置变化或显式轮换凭据才递增关联位置 config_revision。旧 API 调用者必须先读取修订；不提供忽略 CAS 的兼容旁路。
+- B2：更新配置或凭据时使用候选副本，复用白名单、Fernet 和现有 S3/SFTP 连接测试。外部 I/O 在 connection/location 行锁外执行，整体等待有上限；S3 只列至20项且关闭客户端，SFTP 认证/通道设超时并按迭代器最多取20项，不全目录列举。这里只证明 API 节点能认证并列举，不证明 read/range/write/预签名或扫描 worker 能力。
+- 验证成功后按 connection → location 加锁，重读账号/管理权限、API Key 原证明、连接 CAS、最新白名单与位置引用；失败、超时、撤权或竞争均不覆盖原配置/密文。受引用连接仍拒绝实际配置改向，保持名称编辑与凭据轮换。错误只返回固定分类，不回吐底层异常/凭据/签名 URL；现有测试入口同步使用有界、安全分类并拒绝旧修订结果。
+- UI 编辑固定打开时的 revision，保存失败保留草稿；冲突明确要求取消后重新打开，不自动把旧草稿套在新 revision 上。名称单独编辑不发送配置；配置/凭据保存显示验证说明。列表测试结果按 revision 隔离，防止旧成功显示在新配置上。
+
+范围超过8文件，准确 owner：`apps/api/app/db/models/storage_connection.py`、`alembic/versions/0210_storage_connection_revision.py`、`schemas/storage_connection.py`、`services/storage_connection.py`、`api/v1/storage_connections.py`、`tests/test_storage_connections_api.py`、`tests/test_storage_locations_api.py`、新增 `tests/test_storage_connection_updates.py` 与 `tests/test_migration_0210_storage_connection_revision.py`；Web `api/storageConnections.ts`、`components/connections/StorageConnectionsPanel.tsx` 及其测试，受新增必填 revision 影响的测试 fixtures；OpenAPI 快照/本地类型、README、CHANGELOG、三份连接器用户/API/架构文档与两份执行计划。若读取发现其他契约消费者，按必要兼容更新记录。
+
+```text
+编辑表单（固定 revision） -> PATCH + expected_revision -> 候选配置/密钥
+                                                        |
+当前权限/白名单 -------> 有界 API 节点列举验证（行锁外） <-+
+                                                        |
+账号/Key/白名单复查 -> connection CAS -> location 引用保护 -> 原子发布
+                                                        |
+                       独立连接 revision + 必要的位置 config_revision
+```
+
+验收：隔离 test 数据库验证迁移往返/历史密文不变、缺失修订、两方旧表单竞争、失败/超时保留旧值、验证中并发更新/删除/撤权/白名单变化、名称不失效探测、引用改向拒绝及安全错误；复用旧连接/位置/原地 S3/SFTP 回归，Web 验证固定修订和保存草稿、测试结果隔离，SDK/OpenAPI、类型、lint/CSS、文档与 diff 检查。真实隔离 e2e 环境用受控本机 MinIO 端点验证正确/错误凭据轮换、旧版本冲突与原值保留，检查编辑弹窗在桌面/窄屏和明暗主题的截图、溢出、控制台/请求。只清理本轮测试资源。随后迁移人工环境并确认可用，不重建镜像。
+
+回退：先回退客户端/API 后可保留 additive revision 列；需要降级迁移时只移除 revision，不触碰密文和位置数据。已生效的外部凭据不自动撤销旧凭据；外部凭据撤销及运行任务兼容窗口由部署者控制。完整 E02 仍保留用途历史定位、绑定切换、写入/浏览器能力资格及停用影响工作。
 
 ## 本轮实施定案：E02-A
 
@@ -206,9 +231,21 @@ Docker 部署已支持选择 MinIO 宿主机数据目录；本 Epic 新增的是
 ## Outcome
 
 - Landed changes: E02-A dynamic filesystem registry, legacy connector association, ACL/CAS, read-only directory pagination, versioned per-node capability probes and read-only nine-purpose bindings. Included in the commit containing this outcome; no release milestone assigned.
-- User documentation: `docs-site/user-guide/datasets/storage-connections.md`; current UI remains upload/copy import.
+- User documentation: `docs-site/user-guide/datasets/storage-connections.md`; current UI includes dynamic locations, source diagnostics and verified reference registration/reading delivered by successor slices.
 - API and developer documentation: `docs-site/api/guides/storage-locations.md`, `docs-site/dev/concepts/storage-connections.md`, `DEV.md`, generated environment/API references and SDK coverage manifest.
 - Deployment documentation: `docs-site/ops/deploy/docker-compose.md`; unified roots and explicit container/image distinction. No real business mount or backend image was changed.
 - ADR: `docs/adr/archive/0092-controlled-storage-registry.md`. CHANGELOG: Unreleased entry added.
 - Verification: 29 focused tests passed, including two real direct workers with readable/missing-root configurations; 106 compatibility checks passed and the shared-bucket case passed after correcting its fixture owner. SDK OpenAPI contract: 4 passed. Fresh/reversible/forward/restore migration validation passed through 0195 with no leftover owned databases. Final real offline-worker timeout and referenced-location rollback guard passed. Documentation build, ADR/frontmatter and internal-link checks passed. Base/production Compose parsed with empty/synthetic root maps.
-- Remaining work: E02-B binding-switch safety, impact analysis and full connector editing concurrency; E04-A scan jobs; E05-A content-verified reads; E03/E09 dataset/storage UI. These remain separately gated. This Epic stays active because these constraints still apply.
+- Remaining work: E02-B binding-switch safety and non-Item historical object identity, location retirement/impact and full write/browser capability qualification. E04 scanning, E05 strict reads, E03 registration and E09 primary UI are now delivered in their own plans; they are not remaining E02 prerequisites. This Epic stays active.
+
+### E02-B1/B2 继续交付
+
+- 本提交完成独立连接 revision/CAS（0210），候选配置与凭据在行锁外验证、保存前重新核对账号/管理权/原 Key/修订/白名单/引用，失败不覆盖旧值。名称编辑及相同配置不使位置证据失效；显式凭据轮换会失效旧探测。受引用位置仍禁止实际配置改向或删除。
+- S3 只列至20项并关闭客户端；SFTP 按迭代器采样并在截止时关闭传输，严格位置复用部署固定公钥。请求等待预算与后台 SDK 收尾分别说明，不把列举通过当作完整读写或多节点资格。
+- UI 固定打开时的修订；候选失败和409保留草稿及内联原因。SFTP 历史缺省 auth_type 的改名不发送配置；测试记录按修订隔离。嵌套编辑支持独立 Escape、焦点返回与窄屏滚动。
+- 正式文档：README、CHANGELOG Unreleased、`docs-site/user-guide/datasets/storage-connections.md`、`docs-site/api/guides/storage-connections.md`、`docs-site/dev/concepts/storage-connections.md`；API 快照与本地生成类型同步。未分配发布版本。
+- 本地验证：API 127项（含独立提交的并发/删除/撤权/白名单/引用竞争、密文保留、SDK错误脱敏、SFTP截止、0210往返及S3/SFTP/导入回归）；Web 11项、SDK合同4项，共142个不同用例。类型检查、完整Web lint/CSS检查通过；保留4条既有ESLint警告及2条既有样式建议。文档196份frontmatter与198页导航通过。最终提交运行完整hooks和diff检查；不代表远程CI。
+- 实际运行：隔离3200/8200经真实MinIO验证错误凭据返回400且保留原revision=1/可用凭据，正确现有凭据显式保存使连接revision=2/位置revision=2，随后外部并发改名推进至4，旧表单返回409并保留草稿。最终GET确认名称为并发赢家、位置修订仍2、已有凭据测试成功；没有更改共享MinIO凭据或创建外部IAM账号，独立新凭据的原子替换由专项用例证明。
+- 浏览器检查1440×1000/390×900明暗主题截图，无横向溢出；窄屏可滚至操作区。实际重新打开、取消、Escape及焦点返回已核验；等候表单真正卸载后再操作，避免将弹窗过渡帧当成页面故障。当前会话请求除预期409外没有其他失败，控制台无错误；首次会话的预期400已由保留草稿及原凭据仍可用证明。
+- 人工3100/8100保留原业务数据并应用0210，原管理服务刷新当前checkout API/两个worker，运行时端口覆盖固定为原地址；beat保留。不重建镜像。隔离test/e2e资源和本轮日志/截图/密钥/缓存在交付前按归属清理。
+- 整个E02仍未完成，不归档本计划；下一步按总队列收敛引用消费者和历史对象定位，再开放受控切换。

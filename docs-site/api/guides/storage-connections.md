@@ -1,9 +1,8 @@
 ---
 audience: [dev]
 type: reference
-since: v0.11.14
 status: stable
-last_reviewed: 2026-08-14
+last_reviewed: 2026-10-23
 ---
 
 # 存储连接器 API
@@ -59,6 +58,16 @@ SFTP config: { host, username, port?, base_path?, auth_type: "password"|"key" }
      secret: { password }  或  { private_key, passphrase? }
 ```
 
+PATCH 必填读取到的 `expected_revision`（正整数）。先 GET 或列表读取当前 `revision`，编辑时固定该值：
+
+```json
+{ "expected_revision": 1, "name": "new-name" }
+```
+
+缺少修订返回422；修订过期返回409，`detail.code=connection_revision_conflict`。取消编辑、重新读取再决定是否采用草稿，不能自动重试覆盖新版本。每次接受的编辑递增连接 `revision`；名称编辑不递增位置 `config_revision`。
+
+配置实际变化或提交新凭据时，服务器先在行锁外验证候选的认证与目录列举，成功后重新核对账号、管理权限、原 API Key、修订、白名单和引用，最后原子保存。失败返回400，保留原名称、配置、密文和修订；验证期间发生竞争或撤权不会发布候选。PATCH 的 API Key 需要 `datasets:write`，测试需要 `datasets:read`，JWT 登录不受 scope 限制。创建仍只做参数、加密和目标白名单校验。
+
 PATCH 中 `secret` 可省略——省略表示不轮换，沿用已存密钥；提供则整体替换。`kind` 与 `scope` 创建后不可变更。
 
 ### 响应体（`StorageConnectionOut`）
@@ -66,6 +75,7 @@ PATCH 中 `secret` 可省略——省略表示不轮换，沿用已存密钥；�
 ```jsonc
 {
   "id": "…",
+  "revision": 1,
   "name": "aliyun-oss-prod",
   "kind": "s3",
   "config": { "endpoint": "…", "bucket": "…", "use_ssl": true },
@@ -83,17 +93,21 @@ PATCH 中 `secret` 可省略——省略表示不轮换，沿用已存密钥；�
 POST /api/v1/storage-connections/{id}/test
 ```
 
-先过主机白名单门禁，再用解密后的密钥真实建连（S3 list / SFTP 登录）。响应：
+先过最新主机白名单门禁，再用解密后的密钥真实建连和列举，最多采样20项。DNS 单次等待5秒，远程列举单次等待35秒；超时请求停止等待，后台调用按 SDK 超时收尾，SFTP 另有到期关闭传输的保护。最多采样20项不代表整个远端目录已枚举完成。响应：
 
 ```jsonc
 {
   "ok": true,
-  "message": "连接成功",
+  "message": "认证与目录列举成功",
   "sample_count": 12, // 探测到的样本对象数，可能为 null
 }
 ```
 
-`ok=false` 时 `message` 给出失败原因（白名单拒绝、鉴权失败、网络不可达等）。
+`ok=false` 时 `message` 返回固定错误分类（认证失败、无目录列举权限、目标不存在、超时、网络不可达或目标不可用等），不透传底层异常、签名 URL 或凭据。白名单门禁拒绝返回400；测试期间连接修订变化返回409，撤权拒绝返回结果。
+
+匹配部署 `STORAGE_SFTP_ROOTS` 的 SFTP 连接复用严格读取的固定公钥与已验证地址连接；其他 SFTP 复制连接仍使用系统 known_hosts 和 RejectPolicy，不接受未知主机密钥。
+
+这项测试只证明 API 节点的认证与列举，不记录 read/range/write 能力，不替代存储位置的指定节点探测或浏览器预签名验收。
 
 ## 主机白名单（仅超管）
 
@@ -151,4 +165,4 @@ POST /api/v1/datasets/{dataset_id}/import-from-connection   →  202 Accepted
 
 ## 关联存储位置
 
-每个连接自动关联一份存储位置，复用原 ID 关系、owner/global 授权及加密凭据；位置接口不返回 endpoint 或密钥。修改连接配置或密钥递增位置修订，旧能力证据失效。连接被内容位置或用途绑定引用后，修改配置改向和删除返回409；名称更新与密钥轮换仍可用。无引用连接删除会清理关联位置及探测记录。参见[受控存储位置](./storage-locations)。
+每个连接自动关联一份存储位置，复用原 ID 关系、owner/global 授权及加密凭据；位置接口不返回 endpoint 或密钥。连接配置实际变化或密钥轮换递增位置修订，旧能力证据失效。连接被内容位置或用途绑定引用后，修改配置改向和删除返回409；名称更新与密钥轮换仍可用。无引用连接删除会清理关联位置及探测记录。参见[受控存储位置](./storage-locations)。

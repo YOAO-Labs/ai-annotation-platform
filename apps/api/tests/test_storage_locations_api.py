@@ -311,19 +311,32 @@ async def test_connector_location_preserves_scope_revision_and_reference_guards(
         connection_id
     )
     assert "SECRET" not in response.text and "8.8.8.8" not in response.text
-    await httpx_client.patch(
+    from app.services import storage_connection as connections
+
+    async def probe(*args, **kwargs):
+        return True, "ok", 0
+
+    monkeypatch.setattr(connections, "_probe", probe)
+    updated = await httpx_client.patch(
         f"/api/v1/storage-connections/{connection_id}",
         headers=headers(project_admin),
-        json={"config": {"endpoint": "http://8.8.8.8:9000", "bucket": "other"}},
+        json={
+            "expected_revision": 1,
+            "config": {"endpoint": "http://8.8.8.8:9000", "bucket": "other"},
+        },
     )
     response = await httpx_client.get(base, headers=headers(project_admin))
+    assert updated.status_code == 200, updated.text
     assert response.json()["config_revision"] == 2
     binding = StorageBinding(
         purpose="test-pinned", location_id=location_id, bucket="pinned"
     )
     db_session.add(binding)
     await db_session.flush()
-    for method, data in [("delete", None), ("patch", {"config": payload["config"]})]:
+    for method, data in [
+        ("delete", None),
+        ("patch", {"expected_revision": 2, "config": payload["config"]}),
+    ]:
         kwargs = {"json": data} if data else {}
         response = await httpx_client.request(
             method,

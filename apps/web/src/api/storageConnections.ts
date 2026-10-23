@@ -5,6 +5,7 @@ export type StorageConnectionScope = "global" | "owner";
 
 export interface StorageConnection {
   id: string;
+  revision: number;
   name: string;
   kind: StorageConnectionKind;
   config: Record<string, unknown>;
@@ -25,6 +26,7 @@ export interface StorageConnectionCreatePayload {
 }
 
 export interface StorageConnectionUpdatePayload {
+  expected_revision: number;
   name?: string;
   config?: Record<string, unknown>;
   secret?: Record<string, unknown>;
