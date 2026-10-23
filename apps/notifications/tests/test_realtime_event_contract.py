@@ -153,6 +153,8 @@ def test_event_builder_preserves_deep_native_jsonb_payload():
         ("created_at", "2026-10-24T24:00:00+05:30"),
         ("created_at", "2026-10-24T10:00:00"),
         ("created_at", "2026-10-24T10:00:00+24:00"),
+        ("created_at", "2026-10-24T10:00:00+00:60"),
+        ("created_at", "2026-10-24T10:00:00+01:99"),
     ],
 )
 def test_event_builder_rejects_invalid_uuid_and_datetime_without_rewriting(
@@ -318,6 +320,8 @@ def test_node_stdio_peer_rejects_malformed_event_without_echoing_it():
         ("created_at", "2026-10-24T24:00:00+05:30"),
         ("created_at", "2026-10-24T10:00:00"),
         ("created_at", "2026-10-24T10:00:00+24:00"),
+        ("created_at", "2026-10-24T10:00:00+00:60"),
+        ("created_at", "2026-10-24T10:00:00+01:99"),
     ],
 )
 def test_node_stdio_rejects_the_same_invalid_uuid_and_datetime(field, value):
