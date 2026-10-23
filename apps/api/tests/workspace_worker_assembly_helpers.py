@@ -226,6 +226,47 @@ class WorkspaceCeleryWorker:
             )
         )
 
+    def task_delivery_policy(self, task_name: str) -> dict:
+        self.task_signature(task_name)
+        code = (
+            "import importlib,json,sys; "
+            "module,name=sys.argv[1].rsplit('.',1); "
+            "task=getattr(importlib.import_module(module),name); "
+            "print(json.dumps({'acks_late':bool(task.acks_late),"
+            "'reject_on_worker_lost':bool(task.reject_on_worker_lost)}))"
+        )
+        return json.loads(
+            self._docker(
+                "exec", self.container_id, "/opt/venv/bin/python", "-c", code, task_name
+            )
+        )
+
+    def kill_prefork_child(self, pid: int) -> dict:
+        if type(pid) is not int or pid <= 1:
+            raise ValueError("Worker child PID must be an integer greater than one")
+        before = self.assert_runtime()
+        self.assert_private_network()
+        code = (
+            "import os,pathlib,signal,sys; "
+            "pid=int(sys.argv[1]); path=pathlib.Path('/proc')/str(pid); "
+            "status=dict(line.split(':',1) for line in (path/'status').read_text().splitlines() if ':' in line); "
+            "assert int(status['PPid'])==1; "
+            "assert path.stat().st_uid==os.getuid()==10003; "
+            "assert b'celery' in (path/'cmdline').read_bytes(); "
+            "os.kill(pid,signal.SIGKILL)"
+        )
+        self._docker(
+            "exec", self.container_id, "/opt/venv/bin/python", "-c", code, str(pid)
+        )
+        after = self.assert_runtime()
+        if after["started_at"] != before["started_at"]:
+            raise RuntimeError("Losing the child also restarted the worker parent")
+        return {
+            "container_id": self.container_id,
+            "child_pid": pid,
+            "parent_unchanged": True,
+        }
+
     def stop(self) -> None:
         if self.container_id is not None:
             record = self._inspect(self.container_id, required=False)
