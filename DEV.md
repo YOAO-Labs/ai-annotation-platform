@@ -1157,7 +1157,7 @@ API／worker 默认用现有数据库连接保存检查点；设置 `PREANNOTATI
 
 本地真实重投递验收由 `scripts/verify_module_data_boundary.py` 的一次性资源承载；`RUN_BATCH_RESULT_WORKER_LIVE_TEST=1` 显式启用强制终止子进程用例。不要在日常开发库或共享 worker 上运行该用例。
 
-日常开发库已从 `0228` 升到 `0234`：先备份，再将实际备份恢复到一次性数据库验证升级，最后更新主 checkout 与 Python 依赖。日常库的核心业务表原为空，切换后保持为空；有历史内容的保护使用隔离样本验证。API 已确认包导入路径、只读回收预览和热重载，公开 OpenAPI 与快照一致，DB／Redis／MinIO 健康。八类 worker／beat 镜像已重建并核对安装内容，仍未启动，因此默认 `/health` 和 `/health/celery` 为 503。Go 不加入正常运行路径。
+日常开发库已采用通过整模块本地验收的 Identity 检查点，并从 `0234` 升到 `0306`。采用前保留私有数据库与集群角色备份，实际备份在独占 PostgreSQL 恢复后与原数据一致；升级后 171 张原有业务关系及唯一业务行保持。主 checkout 按锁文件只新增 Identity 和共享邮件包，原 macOS LaunchAgent 已重启；DB／Redis／MinIO、注册策略读取、未认证拒绝、OpenAPI 快照及真实源码热重载通过。日常 API 仍使用既有内嵌绑定，独立 owner 拓扑没有切换。八类 worker／beat 仍未启动，其旧镜像尚未按本检查点刷新；启用前需要重建并核对实际安装内容，因此默认 `/health` 和 `/health/celery` 仍为 503。Go 不加入正常运行路径。
 
 ## 视频媒体的独立控制与执行
 
