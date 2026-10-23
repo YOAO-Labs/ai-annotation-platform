@@ -7469,3 +7469,19 @@ B/C 已有成果服务于 D/E 的逐模块抽取，不能把流程状态相加�
   This did not reproduce or repair the original defect. The next bounded check
   pairs the same case without instrumentation and adds a controlled connection
   denial/recovery, proving that a real failure is visible to the diagnostic path.
+
+- Before the full failure control, a disposable PostgreSQL primitive probe proved
+  ordinary LOGIN rejection at connection limit zero (actual SQLSTATE 53300), then
+  successful login after restoring the original limit; its container was removed.
+  Source 3dbff02e73aedfabc95258b25465019380113a25 passed normal hooks.
+- The traced control case passed in 84.198 seconds; its untraced counterpart reused
+  the exact current images on a different fresh database and passed in 84.080
+  seconds. Each records 67 public calls, including one expected 503 and subsequent 201. The traced refusal is TooManyConnectionsError/53300 at connect, followed by
+  raw owner/API 503; no invitation was written during refusal. Both full restores,
+  migration head 0306/frozen SQL rollback and all owned cleanup pass.
+- Six original auth/users route and gateway/account/invitation/offboarding adapter
+  hashes match the old failing image. Neither current variant reproduced the
+  historical intermittent failure. No business fix is inferred from this evidence.
+  Keep the overall goal and Identity blocker open; the next bounded diagnostic is
+  the original full business sequence on that host-forwarded path, preserving the
+  same safe tracing and comparing authentication and account-read RPCs separately.

@@ -2143,6 +2143,25 @@ AAP_IDENTITY_LIVE_ACCEPTANCE=1 apps/api/.venv/bin/python \
 精确证据及尚未覆盖的环境见[模块台账](docs-site/dev/concepts/module-deployment.md#identity-整模块独立装配)。
 日常运行环境没有切换。
 
+旧宿主机 PostgreSQL 转发路径的定向诊断复用上述镜像和凭据。两项用例各自单独
+选择并使用新的验收数据库；普通 API 的凭据、签名隔离与 Compose 资源检查保持。
+
+```bash
+AAP_IDENTITY_LIVE_ACCEPTANCE=1 apps/api/.venv/bin/python \
+  scripts/verify_module_data_boundary.py --output .worktree/identity-forwarding-traced.json \
+  --test-file 'tests/test_identity_module_assembly_live.py::test_host_forwarded_identity_rpc_failures[traced]'
+
+AAP_IDENTITY_LIVE_ACCEPTANCE=1 apps/api/.venv/bin/python \
+  scripts/verify_module_data_boundary.py --output .worktree/identity-forwarding-untraced.json \
+  --test-file 'tests/test_identity_module_assembly_live.py::test_host_forwarded_identity_rpc_failures[untraced]'
+```
+
+插桩只记录 RPC 路径、阶段、耗时、原始状态、异常类型、SQLSTATE、函数和数据库身份，
+不记录请求内容、令牌、密码或任意 SQL。每项包含真实邀请／离职、连接拒绝及恢复，
+以及完整备份恢复后的资料读取；受控拒绝通过修改一次性 PostgreSQL 中普通邀请
+LOGIN 的连接上限实现，并在 finally 恢复。诊断收据路径写入 JUnit property。
+两项均已通过；它们仍未复现历史间歇故障，不能作为故障已修复或生产容量结论。
+
 ### 独立自助账户命令
 
 安装当前迁移并重新应用 `module-data-grants.sql` 后，为无角色成员关系的 `identity_account_client`、`identity_presence_client` LOGIN 授权；数据库须已撤销 PUBLIC TEMP。账户角色只有策略、准备、提交三个函数，扫描角色只有一项批量更新函数；不能直接访问 User、回执或 Audit 表：
