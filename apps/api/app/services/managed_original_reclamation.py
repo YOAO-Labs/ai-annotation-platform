@@ -38,6 +38,26 @@ _OBSERVATION = text(
     """
 WITH clock AS (
     SELECT statement_timestamp() AS measured_at
+), active_declared_holds AS MATERIALIZED (
+    SELECT retirement_id,
+        count(*) FILTER (WHERE kind = 'backup') AS backup_holds,
+        count(*) FILTER (WHERE kind = 'migration') AS migration_holds
+    FROM managed_original_retention_holds
+    WHERE released_at IS NULL
+    GROUP BY retirement_id
+), peer_protection AS MATERIALIZED (
+    -- Group complete exact bucket/key peers before pagination. Endpoint identity
+    -- differences cannot weaken this conservative recorded-locator protection.
+    SELECT r.bucket, r.object_key,
+        count(*) AS peer_assertions,
+        bool_or(r.retain_until IS NULL) AS indefinite_retention,
+        CASE WHEN bool_or(r.retain_until IS NULL) THEN NULL
+            ELSE max(r.retain_until) END AS effective_retain_until,
+        COALESCE(sum(h.backup_holds), 0) AS declared_backup_holds,
+        COALESCE(sum(h.migration_holds), 0) AS declared_migration_holds
+    FROM managed_original_retirements r
+    LEFT JOIN active_declared_holds h ON h.retirement_id = r.id
+    GROUP BY r.bucket, r.object_key
 ), training_documents AS MATERIALIZED (
     SELECT id, snapshot,
         COALESCE(jsonb_typeof(snapshot) = 'object'
@@ -181,6 +201,8 @@ WITH clock AS (
             ))
 ), evidence AS MATERIALIZED (
     SELECT r.*, clock.measured_at,
+        p.peer_assertions, p.indefinite_retention, p.effective_retain_until,
+        p.declared_backup_holds, p.declared_migration_holds,
         CASE WHEN r.identity_state <> 'verified_binding' OR r.storage_identity IS NULL
             OR r.binding_generation IS NULL OR r.location_config_revision IS NULL
             THEN 'unknown'
@@ -212,7 +234,9 @@ WITH clock AS (
         (SELECT count(DISTINCT s.id) FROM training_samples s WHERE
             (s.sample->>'source_bucket' = r.bucket AND s.sample->>'source_key' = r.object_key)
             OR EXISTS (SELECT 1 FROM managed_original_retirements peer
-                WHERE peer.bucket = r.bucket
+                WHERE md5(peer.bucket) = md5(r.bucket)
+                    AND md5(peer.object_key) = md5(r.object_key)
+                    AND peer.bucket = r.bucket
                     AND peer.object_key = r.object_key
                     AND (s.sample->'asset_reference'->>'asset_id' = CAST(peer.asset_id AS text)
                         OR s.sample->'asset_reference'->>'dataset_item_id' = CAST(peer.dataset_item_id AS text)))
@@ -231,15 +255,20 @@ WITH clock AS (
         u.count AS unknown_training_versions,
         au.count AS unknown_active_learning_rounds
     FROM managed_original_retirements r
+    JOIN peer_protection p ON md5(p.bucket) = md5(r.bucket)
+        AND md5(p.object_key) = md5(r.object_key)
+        AND p.bucket = r.bucket AND p.object_key = r.object_key
     CROSS JOIN clock CROSS JOIN training_unknown u CROSS JOIN learning_unknown au
     LEFT JOIN storage_bindings b ON b.purpose = 'datasets'
     LEFT JOIN storage_locations l ON l.id = r.location_id
 ), classified AS MATERIALIZED (
     SELECT e.*,
         (asset_locations + dataset_items + tasks + task_dataset_links
-            + training_versions + active_learning_roots > 0) AS protected,
-        (retain_until IS NULL OR retain_until > measured_at) AS retained,
-        (retain_until IS NOT NULL AND retain_until <= measured_at
+            + training_versions + active_learning_roots
+            + declared_backup_holds + declared_migration_holds > 0) AS protected,
+        (indefinite_retention OR effective_retain_until > measured_at) AS retained,
+        (NOT indefinite_retention AND effective_retain_until <= measured_at
+            AND declared_backup_holds = 0 AND declared_migration_holds = 0
             AND current_identity = 'current'
             AND asset_verification_state = 'verified' AND sha256 IS NOT NULL
             AND sha256 ~ '^[0-9a-f]{64}$'
@@ -270,7 +299,13 @@ SELECT clock.measured_at, __CONFIGURATION__ AS configuration_fingerprint,
     COALESCE((SELECT jsonb_agg(jsonb_build_object(
         'id', p.id, 'asset_id', p.asset_id, 'dataset_id', p.dataset_id,
         'dataset_item_id', p.dataset_item_id, 'retired_at', p.retired_at,
-        'retain_until', p.retain_until, 'size_bytes', p.size_bytes,
+        'policy_revision', p.policy_revision, 'retain_until', p.retain_until,
+        'effective_retain_until', p.effective_retain_until,
+        'indefinite_retention', p.indefinite_retention,
+        'peer_assertions', p.peer_assertions,
+        'declared_backup_holds', p.declared_backup_holds,
+        'declared_migration_holds', p.declared_migration_holds,
+        'size_bytes', p.size_bytes,
         'identity_state', p.current_identity,
         'status', CASE WHEN p.protected THEN 'protected'
             WHEN p.retained THEN 'retained' ELSE 'blocked' END,
@@ -291,6 +326,13 @@ SELECT clock.measured_at, __CONFIGURATION__ AS configuration_fingerprint,
             CASE WHEN p.active_learning_roots > 0 THEN 'active_learning_history' END,
             CASE WHEN p.retain_until IS NULL THEN 'indefinite_retention' END,
             CASE WHEN p.retain_until > p.measured_at THEN 'retention_window' END,
+            CASE WHEN p.retain_until IS NOT NULL AND p.indefinite_retention
+                THEN 'related_indefinite_retention' END,
+            CASE WHEN p.effective_retain_until > p.measured_at
+                AND p.retain_until < p.effective_retain_until
+                THEN 'related_retention_window' END,
+            CASE WHEN p.declared_backup_holds > 0 THEN 'declared_backup_hold' END,
+            CASE WHEN p.declared_migration_holds > 0 THEN 'declared_migration_hold' END,
             CASE WHEN p.current_identity = 'unknown' THEN 'storage_identity_unknown' END,
             CASE WHEN p.current_identity = 'mismatch' THEN 'storage_identity_mismatch' END,
             CASE WHEN p.asset_verification_state <> 'verified' OR p.sha256 IS NULL

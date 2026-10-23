@@ -14,6 +14,9 @@ class ManagedOriginalReclamationCoverage(BaseModel):
     exclusive_ownership: Literal["not_established"] = "not_established"
     backup_holds: Literal["unknown"] = "unknown"
     migration_holds: Literal["unknown"] = "unknown"
+    declared_requirements: Literal["registered_retirement_peers_only"] = (
+        "registered_retirement_peers_only"
+    )
     training_snapshots: Literal["recorded_supported_shapes"] = (
         "recorded_supported_shapes"
     )
@@ -53,6 +56,10 @@ ReclamationBlocker = Literal[
     "active_learning_history",
     "indefinite_retention",
     "retention_window",
+    "related_indefinite_retention",
+    "related_retention_window",
+    "declared_backup_hold",
+    "declared_migration_hold",
     "storage_identity_unknown",
     "storage_identity_mismatch",
     "content_identity_unverified",
@@ -73,7 +80,13 @@ class ManagedOriginalReclamationItem(BaseModel):
     dataset_id: uuid.UUID
     dataset_item_id: uuid.UUID
     retired_at: datetime
+    policy_revision: int
     retain_until: datetime | None
+    effective_retain_until: datetime | None
+    indefinite_retention: bool
+    peer_assertions: int
+    declared_backup_holds: int
+    declared_migration_holds: int
     size_bytes: int | None
     identity_state: Literal["current", "unknown", "mismatch"]
     status: Literal["retained", "protected", "blocked"]

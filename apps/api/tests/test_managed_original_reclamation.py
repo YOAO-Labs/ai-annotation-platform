@@ -11,6 +11,9 @@ from sqlalchemy import event, update
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation
 from app.db.models.managed_original_retirement import ManagedOriginalRetirement
+from app.db.models.managed_original_retention_hold import (
+    ManagedOriginalRetentionHold,
+)
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.services import managed_original_reclamation as planner
@@ -61,6 +64,32 @@ async def assertion(db, **fields):
     db.add(row)
     await db.flush()
     return row
+
+
+async def declared_hold(db, anchor, actor, *, kind="backup", released=False):
+    row = ManagedOriginalRetentionHold(
+        id=uuid.uuid4(),
+        retirement_id=anchor.id,
+        kind=kind,
+        reference_code=f"declared-{uuid.uuid4().hex}",
+        reason="Declared requirement; no recovery proof claimed",
+        created_by=actor.id,
+        revision=2 if released else 1,
+        released_at=datetime.now(timezone.utc) if released else None,
+        released_by=actor.id if released else None,
+        release_reason="Requirement explicitly released" if released else None,
+    )
+    db.add(row)
+    await db.flush()
+    return row
+
+
+async def release_declared_hold(db, hold, actor):
+    hold.released_at = datetime.now(timezone.utc)
+    hold.released_by = actor.id
+    hold.release_reason = "Requirement explicitly released"
+    hold.revision = 2
+    await db.flush()
 
 
 async def version(db, project_id, samples, *, status="ready", **fields):
@@ -151,6 +180,7 @@ async def test_global_preview_is_read_only_bounded_and_reports_assertion_units(
     assert len(result.items) == 1 and result.has_more
     assert result.coverage.backup_holds == result.coverage.migration_holds == "unknown"
     assert result.coverage.unregistered_originals == "not_recorded"
+    assert result.coverage.declared_requirements == "registered_retirement_peers_only"
     encoded = result.model_dump_json()
     for private in (
         first.object_key,
@@ -163,6 +193,205 @@ async def test_global_preview_is_read_only_bounded_and_reports_assertion_units(
     assert not other.has_more
     empty = await planner.preview(db, retirement_admin, offset=10)
     assert empty.items == [] and empty.counts.total_assertions == 2
+
+
+@pytest.mark.parametrize(
+    "peer_identity",
+    [
+        {},
+        {"storage_identity": "f" * 64},
+        {
+            "identity_state": "unknown",
+            "storage_identity": None,
+            "identity_error_code": "historical_identity_unknown",
+        },
+    ],
+)
+async def test_any_indefinite_peer_protects_complete_group_across_identity_gaps(
+    db_session, retirement_admin, peer_identity
+):
+    db = db_session
+    elapsed = datetime.now(timezone.utc) - timedelta(seconds=1)
+    first = await assertion(db, retain_until=elapsed, policy_revision=2)
+    peer = await assertion(db, object_key=first.object_key, **peer_identity)
+    result = await planner.preview(db, retirement_admin, limit=1)
+    assert result.counts.total_assertions == result.counts.retained_assertions == 2
+    assert result.counts.policy_candidate_assertions == 0
+    row = result.items[0]
+    assert row.id == first.id and row.policy_revision == 2
+    assert row.retain_until == elapsed
+    assert row.indefinite_retention and row.effective_retain_until is None
+    assert row.peer_assertions == 2 and not row.policy_candidate
+    assert "related_indefinite_retention" in row.blockers
+    assert "indefinite_retention" not in row.blockers
+    second = (await planner.preview(db, retirement_admin, offset=1)).items[0]
+    assert second.id == peer.id and "indefinite_retention" in second.blockers
+
+
+async def test_effective_policy_uses_latest_finite_peer_deadline_and_exact_locator(
+    db_session, retirement_admin
+):
+    db = db_session
+    checked = datetime.now(timezone.utc)
+    first = await assertion(db, retain_until=checked - timedelta(days=1))
+    earlier = await assertion(
+        db, object_key=first.object_key, retain_until=checked + timedelta(days=1)
+    )
+    latest = await assertion(
+        db, object_key=first.object_key, retain_until=checked + timedelta(days=2)
+    )
+    independent = await assertion(
+        db,
+        object_key=first.object_key + "-neighbor",
+        retain_until=checked - timedelta(days=1),
+    )
+    other_bucket = await assertion(
+        db,
+        bucket=first.bucket + "-neighbor",
+        object_key=first.object_key,
+        retain_until=checked - timedelta(days=1),
+    )
+    result = await planner.preview(db, retirement_admin)
+    rows = {row.id: row for row in result.items}
+    for owner in (first, earlier, latest):
+        row = rows[owner.id]
+        assert row.peer_assertions == 3 and not row.indefinite_retention
+        assert row.effective_retain_until == latest.retain_until
+        assert row.status == "retained" and not row.policy_candidate
+    assert "related_retention_window" in rows[first.id].blockers
+    assert "retention_window" not in rows[first.id].blockers
+    assert "related_retention_window" in rows[earlier.id].blockers
+    assert "retention_window" in rows[earlier.id].blockers
+    assert "related_retention_window" not in rows[latest.id].blockers
+    assert (
+        rows[independent.id].peer_assertions
+        == rows[other_bucket.id].peer_assertions
+        == 1
+    )
+    assert rows[independent.id].policy_candidate
+    assert not rows[other_bucket.id].policy_candidate  # Identity is not current.
+    assert result.counts.retained_assertions == 3
+    assert result.counts.blocked_assertions == 2
+    assert result.counts.policy_candidate_assertions == 1
+
+
+async def test_declared_holds_protect_peers_and_new_assertions_until_each_is_released(
+    db_session, retirement_admin
+):
+    db = db_session
+    expired = datetime.now(timezone.utc) - timedelta(days=1)
+    first = await assertion(db, retain_until=expired)
+    second = await assertion(db, object_key=first.object_key, retain_until=expired)
+    backup = await declared_hold(db, first, retirement_admin)
+    other_backup = await declared_hold(db, second, retirement_admin)
+    migration = await declared_hold(db, first, retirement_admin, kind="migration")
+    await declared_hold(db, second, retirement_admin, released=True)
+    added = await assertion(
+        db,
+        object_key=first.object_key,
+        retain_until=expired,
+        storage_identity="f" * 64,
+    )
+    result = await planner.preview(db, retirement_admin)
+    assert result.counts.protected_assertions == 3
+    assert result.counts.retained_assertions == result.counts.blocked_assertions == 0
+    assert result.counts.policy_candidate_assertions == 0
+    for row in result.items:
+        assert row.peer_assertions == 3
+        assert row.declared_backup_holds == 2 and row.declared_migration_holds == 1
+        assert row.status == "protected" and not row.policy_candidate
+        assert row.retain_until == row.effective_retain_until == expired
+        assert not row.indefinite_retention
+        assert "declared_backup_hold" in row.blockers
+        assert "declared_migration_hold" in row.blockers
+        assert all(value == 0 for value in row.roots.model_dump().values())
+    assert {row.id for row in result.items} == {first.id, second.id, added.id}
+    await release_declared_hold(db, backup, retirement_admin)
+    result = await planner.preview(db, retirement_admin)
+    assert all(row.declared_backup_holds == 1 for row in result.items)
+    assert result.counts.protected_assertions == 3
+    await release_declared_hold(db, migration, retirement_admin)
+    result = await planner.preview(db, retirement_admin)
+    assert all(row.declared_migration_holds == 0 for row in result.items)
+    assert all("declared_migration_hold" not in row.blockers for row in result.items)
+    assert result.counts.protected_assertions == 3
+    await release_declared_hold(db, other_backup, retirement_admin)
+    result = await planner.preview(db, retirement_admin)
+    assert result.counts.blocked_assertions == 3
+    assert result.counts.policy_candidate_assertions == 2
+    assert all(
+        row.declared_backup_holds == row.declared_migration_holds == 0
+        for row in result.items
+    )
+    assert all(row.policy_candidate for row in result.items if row.id != added.id)
+    assert not next(row for row in result.items if row.id == added.id).policy_candidate
+    assert result.coverage.backup_holds == result.coverage.migration_holds == "unknown"
+
+
+async def test_group_hold_status_precedes_indefinite_policy_and_released_history_is_inactive(
+    db_session, retirement_admin
+):
+    db = db_session
+    first = await assertion(db)
+    await declared_hold(db, first, retirement_admin, kind="migration", released=True)
+    before = await planner.preview(db, retirement_admin)
+    assert before.items[0].status == "retained"
+    assert before.items[0].declared_migration_holds == 0
+    await declared_hold(db, first, retirement_admin)
+    after = await planner.preview(db, retirement_admin)
+    assert after.items[0].status == "protected"
+    assert after.items[0].indefinite_retention
+    assert (
+        after.counts.protected_assertions == 1 and after.counts.retained_assertions == 0
+    )
+
+
+async def test_full_group_counts_before_maximum_page_remain_select_only_and_bounded(
+    db_session, retirement_admin, monkeypatch
+):
+    db = db_session
+    first = await assertion(db)
+    shared = {
+        column.key: getattr(first, column.key)
+        for column in ManagedOriginalRetirement.__table__.columns
+        if column.key not in {"id", "assertion_digest", "asset_id", "dataset_item_id"}
+    }
+    db.add_all(
+        [
+            ManagedOriginalRetirement(
+                **shared,
+                id=uuid.uuid4(),
+                assertion_digest=uuid.uuid4().hex + uuid.uuid4().hex,
+                asset_id=uuid.uuid4(),
+                dataset_item_id=uuid.uuid4(),
+            )
+            for _ in range(101)
+        ]
+    )
+    await db.flush()
+    await declared_hold(db, first, retirement_admin)
+    forbid_object_io(monkeypatch)
+    with recorded_statements(db) as statements:
+        result = await planner.preview(db, retirement_admin, limit=100)
+    assert len(statements) == 4
+    assert all(
+        statement.lstrip().upper().startswith(("SELECT", "WITH"))
+        for statement in statements
+    )
+    assert result.counts.total_assertions == result.counts.protected_assertions == 102
+    assert result.counts.known_asserted_bytes == 102 * first.size_bytes
+    assert result.counts.policy_candidate_assertions == 0
+    assert len(result.items) == 100 and result.has_more
+    assert all(
+        row.peer_assertions == 102 and row.declared_backup_holds == 1
+        for row in result.items
+    )
+    last = await planner.preview(db, retirement_admin, limit=100, offset=100)
+    assert len(last.items) == 2 and not last.has_more
+    assert result.counts == last.counts
+    assert not {row.id for row in result.items}.intersection(
+        row.id for row in last.items
+    )
 
 
 async def test_past_retention_is_only_a_policy_candidate_and_cannot_authorize_deletion(

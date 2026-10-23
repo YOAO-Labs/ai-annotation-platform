@@ -23602,6 +23602,12 @@
             "title": "Backup Holds",
             "type": "string"
           },
+          "declared_requirements": {
+            "const": "registered_retirement_peers_only",
+            "default": "registered_retirement_peers_only",
+            "title": "Declared Requirements",
+            "type": "string"
+          },
           "exclusive_ownership": {
             "const": "not_established",
             "default": "not_established",
@@ -23660,6 +23666,10 @@
                 "active_learning_history",
                 "indefinite_retention",
                 "retention_window",
+                "related_indefinite_retention",
+                "related_retention_window",
+                "declared_backup_hold",
+                "declared_migration_hold",
                 "storage_identity_unknown",
                 "storage_identity_mismatch",
                 "content_identity_unverified",
@@ -23687,6 +23697,26 @@
             "title": "Dataset Item Id",
             "type": "string"
           },
+          "declared_backup_holds": {
+            "title": "Declared Backup Holds",
+            "type": "integer"
+          },
+          "declared_migration_holds": {
+            "title": "Declared Migration Holds",
+            "type": "integer"
+          },
+          "effective_retain_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Retain Until"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -23701,9 +23731,21 @@
             "title": "Identity State",
             "type": "string"
           },
+          "indefinite_retention": {
+            "title": "Indefinite Retention",
+            "type": "boolean"
+          },
+          "peer_assertions": {
+            "title": "Peer Assertions",
+            "type": "integer"
+          },
           "policy_candidate": {
             "title": "Policy Candidate",
             "type": "boolean"
+          },
+          "policy_revision": {
+            "title": "Policy Revision",
+            "type": "integer"
           },
           "retain_until": {
             "anyOf": [
@@ -23752,7 +23794,13 @@
           "dataset_id",
           "dataset_item_id",
           "retired_at",
+          "policy_revision",
           "retain_until",
+          "effective_retain_until",
+          "indefinite_retention",
+          "peer_assertions",
+          "declared_backup_holds",
+          "declared_migration_holds",
           "size_bytes",
           "identity_state",
           "status",
