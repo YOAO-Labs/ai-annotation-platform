@@ -295,6 +295,15 @@ class _MediaJobDispatcherStub:
         self.video_frames.append((item_id, requests))
 
 
+class _VideoTrackerJobDispatcherStub:
+    def __init__(self) -> None:
+        self.jobs: list[UUID] = []
+
+    def dispatch_tracker_job(self, job_id: UUID) -> str:
+        self.jobs.append(job_id)
+        return str(uuid4())
+
+
 @pytest.fixture
 def media_dispatcher(app_module):
     from app.deps import get_media_job_dispatcher
@@ -303,6 +312,18 @@ def media_dispatcher(app_module):
     app_module.dependency_overrides[get_media_job_dispatcher] = lambda: dispatcher
     yield dispatcher
     app_module.dependency_overrides.pop(get_media_job_dispatcher, None)
+
+
+@pytest.fixture
+def video_tracker_job_dispatcher(app_module):
+    from app.deps import get_video_tracker_job_dispatcher
+
+    dispatcher = _VideoTrackerJobDispatcherStub()
+    app_module.dependency_overrides[get_video_tracker_job_dispatcher] = lambda: (
+        dispatcher
+    )
+    yield dispatcher
+    app_module.dependency_overrides.pop(get_video_tracker_job_dispatcher, None)
 
 
 @pytest.fixture
@@ -320,7 +341,9 @@ def dataset_dispatcher(monkeypatch, app_module):
 
 @pytest.fixture
 async def httpx_client(
-    app_module, db_session: AsyncSession, media_dispatcher: _MediaJobDispatcherStub
+    app_module,
+    db_session: AsyncSession,
+    media_dispatcher: _MediaJobDispatcherStub,
 ):
     """ASGI httpx client，dependency_overrides[get_db] 绑定到 db_session。
 

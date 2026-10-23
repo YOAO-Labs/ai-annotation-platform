@@ -40,6 +40,22 @@ _DIRECT_PROJECT_SQL = re.compile(
 @asynccontextmanager
 async def _restricted_http_world(test_engine, app_module, monkeypatch):
     _configure_actual_api(test_engine, monkeypatch)
+    from app.deps import get_video_tracker_job_dispatcher
+
+    class Dispatcher:
+        def __init__(self):
+            self.jobs = []
+
+        def dispatch_tracker_job(self, job_id):
+            self.jobs.append(job_id)
+            return str(uuid.uuid4())
+
+    dispatcher = Dispatcher()
+    monkeypatch.setitem(
+        app_module.dependency_overrides,
+        get_video_tracker_job_dispatcher,
+        lambda: dispatcher,
+    )
     async with _restricted(test_engine) as (owner, api, world, _url, _batches):
         from app.middleware import audit as audit_middleware
 
@@ -47,7 +63,7 @@ async def _restricted_http_world(test_engine, app_module, monkeypatch):
         statements = []
         # Video journals and business audits are retained until owned DB teardown.
         async with _restricted_api_client(app_module, api, statements) as client:
-            yield owner, world, client, statements
+            yield owner, world, client, statements, dispatcher
 
 
 async def _seed_fixture(owner, **options):
@@ -224,6 +240,7 @@ async def test_cancelled_unretired_execution_blocks_and_retries_after_retirement
         _world,
         client,
         statements,
+        dispatcher,
     ):
         fixture = await _seed_fixture(owner, bound=False, status="running")
         operation_id = uuid.uuid4()
@@ -241,6 +258,7 @@ async def test_cancelled_unretired_execution_blocks_and_retries_after_retirement
         )
         assert cancelled.status_code == 200, cancelled.text
         assert cancelled.json()["status"] == "cancelled"
+        assert dispatcher.jobs == [fixture["job_id"]]
         after_cancel = await _snapshot(owner, fixture)
         assert after_cancel["journal"][2] is False
         _assert_blocked(
@@ -278,6 +296,7 @@ async def test_terminal_job_with_unretired_current_journal_still_blocks_http_del
         _world,
         client,
         statements,
+        dispatcher,
     ):
         fixture = await _seed_fixture(
             owner, bound=True, journal=True, status=status, claimed=True
@@ -291,6 +310,7 @@ async def test_terminal_job_with_unretired_current_journal_still_blocks_http_del
         )
         assert await _snapshot(owner, fixture) == before
         _assert_no_direct_project_sql(statements)
+        assert dispatcher.jobs == []
 
 
 @pytest.mark.parametrize("kind", ["project", "unlink"])
@@ -302,6 +322,7 @@ async def test_unbound_execution_can_be_deleted_after_native_retirement_with_liv
         _world,
         client,
         statements,
+        dispatcher,
     ):
         fixture = await _seed_fixture(
             owner, bound=False, journal=True, status="cancelled", claimed=True
@@ -312,6 +333,7 @@ async def test_unbound_execution_can_be_deleted_after_native_retirement_with_liv
         await _assert_retired_lease_stays_live(owner, fixture)
         before = await _snapshot(owner, fixture)
         assert before["journal"][2] is True
+        assert dispatcher.jobs == []
         response = await _request_delete(
             client, kind, fixture, operation_id=operation_id
         )
