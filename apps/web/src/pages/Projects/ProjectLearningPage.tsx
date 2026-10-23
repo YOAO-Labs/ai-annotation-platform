@@ -1,3 +1,8 @@
+import {
+  readDatasetTrainingFilter,
+  datasetTrainingFilterSummary,
+} from "../Datasets/datasetTrainingSelection";
+import type { DatasetItemFilters } from "@/api/datasets";
 import { randomId } from "@/utils/id";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
@@ -87,9 +92,10 @@ export function ProjectLearningPage() {
   const token = useAuthStore((state) => state.token);
   const revision = useTrainingSessionRevision();
   const sourceDataset = params.get("dataset_id") ?? "";
+  const filterUrl = params.get("dataset_filter");
   const owner = useMemo(
-    () => ({ id, userId, token, revision, sourceDataset, key: randomId() }),
-    [id, userId, token, revision, sourceDataset],
+    () => ({ id, userId, token, revision, sourceDataset, filterUrl, key: randomId() }),
+    [id, userId, token, revision, sourceDataset, filterUrl],
   );
   if (params.get("new") === "1") {
     const next = new URLSearchParams();
@@ -190,8 +196,18 @@ function ProjectLearningContent({
   const [name, setName] = useState(() => initialBody?.name ?? newTrainingVersionName());
   const [batchId, setBatchId] = useState(initialBody?.batch_id ?? "");
   const [sourceDatasetId, setSourceDatasetId] = useState(
-    initialBody?.dataset_id ?? params.get("dataset_id") ?? "",
+    initialBody ? (initialBody.dataset_id ?? "") : (params.get("dataset_id") ?? ""),
   );
+  const initialFilter = initialBody
+    ? readDatasetTrainingFilter(
+        initialBody.dataset_filter == null ? null : JSON.stringify(initialBody.dataset_filter),
+        initialBody.dataset_id ?? "",
+      )
+    : readDatasetTrainingFilter(params.get("dataset_filter"), params.get("dataset_id") ?? "");
+  const [datasetFilter, setDatasetFilter] = useState<DatasetItemFilters | undefined>(
+    initialFilter.filter,
+  );
+  const [datasetFilterError, setDatasetFilterError] = useState(initialFilter.error);
   const [sourceDatasetConfirmed, setSourceDatasetConfirmed] = useState(false);
   const projectDatasets = useProjectDatasets(projectId);
   const [bridge, setBridge] = useState<InstanceMaskBridge | undefined>(
@@ -256,6 +272,8 @@ function ProjectLearningContent({
     name,
     batchId,
     sourceDatasetId,
+    datasetFilter,
+    datasetFilterError,
     parentId,
     bridge,
     mode,
@@ -283,6 +301,7 @@ function ProjectLearningContent({
       ...(bridge ? { bridge } : {}),
       batch_id: batchId || null,
       ...(sourceDatasetId ? { dataset_id: sourceDatasetId } : {}),
+      ...(datasetFilter !== undefined ? { dataset_filter: datasetFilter } : {}),
       parent_id: parentId || null,
       mode,
       seed: Number(seed),
@@ -295,6 +314,7 @@ function ProjectLearningContent({
       bridge,
       batchId,
       sourceDatasetId,
+      datasetFilter,
       parentId,
       mode,
       seed,
@@ -395,13 +415,22 @@ function ProjectLearningContent({
     enabled: tab === "data",
   });
   const taskList = useQuery({
-    queryKey: ["learning-tasks", projectId, scope, sourceDatasetId, batchId, taskPage],
+    queryKey: [
+      "learning-tasks",
+      projectId,
+      scope,
+      sourceDatasetId,
+      datasetFilter,
+      batchId,
+      taskPage,
+    ],
     queryFn: async ({ signal }) => {
       assert(signal);
       const value = await tasksApi.listByProject(
         projectId,
         {
           dataset_id: sourceDatasetId || undefined,
+          dataset_filter: datasetFilter,
           batch_id: batchId || undefined,
           limit: 25,
           offset: taskPage * 25,
@@ -411,7 +440,7 @@ function ProjectLearningContent({
       assert(signal);
       return value;
     },
-    enabled: tab === "data" && mode === "manager_confirmed",
+    enabled: tab === "data" && mode === "manager_confirmed" && !datasetFilterError,
   });
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["task-datasets", projectId] });
@@ -430,6 +459,7 @@ function ProjectLearningContent({
           !projectDatasets.data?.some((dataset) => dataset.id === sourceDatasetId))
       )
         throw new Error("请确认当前项目关联的数据集范围后再检查");
+      if (datasetFilterError) throw new Error(datasetFilterError);
       if (!bridgeQualified) throw new Error("当前训练执行器未提供原生实例掩码桥接资格");
       return trainingDatasetsApi.preflight(projectId, selection);
     },
@@ -627,7 +657,12 @@ function ProjectLearningContent({
           ? {
               name: body.name,
               batchId: body.batch_id ?? "",
-              sourceDatasetId: body.dataset_id ?? params.get("dataset_id") ?? "",
+              sourceDatasetId: body.dataset_id ?? "",
+              datasetFilter: readDatasetTrainingFilter(
+                body.dataset_filter == null ? null : JSON.stringify(body.dataset_filter),
+                body.dataset_id ?? "",
+              ).filter,
+              datasetFilterError: "",
               parentId: body.parent_id ?? "",
               bridge: nativeBridgeOf(body.bridge),
               mode: body.mode ?? "reviewed",
@@ -648,6 +683,18 @@ function ProjectLearningContent({
       setName(draft?.name ?? newTrainingVersionName());
       setBatchId(draft?.batchId ?? "");
       setSourceDatasetId(draft?.sourceDatasetId ?? params.get("dataset_id") ?? "");
+      setDatasetFilter(
+        draft
+          ? draft.datasetFilter
+          : readDatasetTrainingFilter(params.get("dataset_filter"), params.get("dataset_id") ?? "")
+              .filter,
+      );
+      setDatasetFilterError(
+        draft
+          ? draft.datasetFilterError
+          : readDatasetTrainingFilter(params.get("dataset_filter"), params.get("dataset_id") ?? "")
+              .error,
+      );
       setSourceDatasetConfirmed(false);
       setParentId(draft?.parentId ?? "");
       setMode(draft?.mode ?? "reviewed");
@@ -1143,6 +1190,8 @@ function ProjectLearningContent({
                     onChange={(event) =>
                       updateSelection(() => {
                         setSourceDatasetId(event.target.value);
+                        setDatasetFilter(undefined);
+                        setDatasetFilterError("");
                         setSourceDatasetConfirmed(false);
                         setSelected([]);
                         setNegatives([]);
@@ -1153,7 +1202,7 @@ function ProjectLearningContent({
                     <option value="">整个项目的任务</option>
                     {sourceDatasetId &&
                       !projectDatasets.data?.some((dataset) => dataset.id === sourceDatasetId) && (
-                        <option value={sourceDatasetId}>指定数据集（正在核验关联与权限）</option>
+                        <option value={sourceDatasetId}>指定数据集</option>
                       )}
                     {projectDatasets.data?.map((dataset) => (
                       <option key={dataset.id} value={dataset.id}>
@@ -1162,6 +1211,40 @@ function ProjectLearningContent({
                     ))}
                   </select>
                 </label>
+                {(datasetFilter !== undefined || datasetFilterError) && (
+                  <div className="space-y-2 rounded-md border border-border p-3 text-sm sm:col-span-2">
+                    <p className="font-medium">数据集筛选范围</p>
+                    {datasetFilterError ? (
+                      <p role="alert" className="text-status-danger">
+                        {datasetFilterError}
+                      </p>
+                    ) : (
+                      <p className="break-all text-xs leading-relaxed text-muted-foreground">
+                        {datasetTrainingFilterSummary(datasetFilter!)}
+                      </p>
+                    )}
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      仅选择当前项目中匹配条件的任务，再应用下方批次与标注资格。预检与创建核对成员，创建后固定范围；没有项目任务的样本不纳入。
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={busy || !!pendingCreate || !!storageError}
+                      onClick={() =>
+                        updateSelection(() => {
+                          setDatasetFilter(undefined);
+                          setDatasetFilterError("");
+                          setSelected([]);
+                          setNegatives([]);
+                          setTaskPage(0);
+                          setSourceDatasetConfirmed(false);
+                        })
+                      }
+                    >
+                      清除数据集筛选
+                    </Button>
+                  </div>
+                )}
                 {sourceDatasetId && (
                   <div className="rounded-md bg-muted p-3 text-xs sm:col-span-2">
                     <p className="mb-2">
@@ -1450,6 +1533,7 @@ function ProjectLearningContent({
                     !!pendingCreate ||
                     !selectedTaskEnabled ||
                     !bridgeQualified ||
+                    !!datasetFilterError ||
                     (!!sourceDatasetId &&
                       (!sourceDatasetConfirmed ||
                         !projectDatasets.data?.some(

@@ -324,19 +324,10 @@ async def require_filter_source(db, dataset_id, source_id, actor):
         raise HTTPException(404, "Dataset source not found")
 
 
-async def item_page(
-    db,
-    dataset_id,
-    actor,
-    *,
-    limit,
-    offset,
-    source_id=None,
-    state=None,
-    search=None,
-    item_id=None,
-    filters=None,
+async def item_query(
+    db, dataset_id, actor, *, source_id=None, state=None, search=None, filters=None
 ):
+    """Authorized item relation shared by pages and immutable training selection."""
     await require_dataset(db, dataset_id)
     obs = observations(dataset_id, actor, preferred_source_id=source_id)
     query = select(obs)
@@ -416,6 +407,51 @@ async def item_page(
             query = query.where(
                 obs.c.item_id.in_(select(DatasetItem.id).where(*predicates))
             )
+    return query, obs
+
+
+async def project_filtered_item_ids(db, project_id, dataset_id, filters, actor):
+    if not await db.scalar(
+        select(ProjectDataset.project_id).where(
+            ProjectDataset.project_id == project_id,
+            ProjectDataset.dataset_id == dataset_id,
+        )
+    ):
+        raise HTTPException(404, "数据集未关联当前项目")
+    query, _ = await item_query(
+        db,
+        dataset_id,
+        actor,
+        source_id=filters.source_id,
+        state=filters.availability,
+        search=filters.search,
+        filters=filters,
+    )
+    return select(query.subquery().c.item_id)
+
+
+async def item_page(
+    db,
+    dataset_id,
+    actor,
+    *,
+    limit,
+    offset,
+    source_id=None,
+    state=None,
+    search=None,
+    item_id=None,
+    filters=None,
+):
+    query, obs = await item_query(
+        db,
+        dataset_id,
+        actor,
+        source_id=source_id,
+        state=state,
+        search=search,
+        filters=filters,
+    )
     if item_id is not None:
         query = query.where(obs.c.item_id == item_id)
     total = await db.scalar(select(func.count()).select_from(query.subquery()))

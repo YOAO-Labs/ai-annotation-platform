@@ -155,3 +155,22 @@ it("keeps native mask and polygon requests separate without changing the legacy 
   expect(removeMatchingTrainingDatasetDraft(maskOwner, mask)).toBeNull();
   expect(readTrainingDatasetDraft(polygonOwner).body).toEqual(polygon);
 });
+
+it("preserves the original filtered request and rejects corrupt filter restoration", () => {
+  const scoped = {
+    ...body,
+    dataset_id: "11111111-2222-4333-8444-555555555555",
+    dataset_filter: { extension: "png", min_width: 100 },
+  };
+  expect(saveTrainingDatasetDraft(owner, scoped)).toBeNull();
+  expect(readTrainingDatasetDraft(owner)).toEqual({ body: scoped, error: null });
+  expect(
+    saveTrainingDatasetDraft(owner, { ...scoped, dataset_filter: { extension: "jpg" } }),
+  ).toContain("另一个页面");
+  const key = trainingDatasetDraftKey(owner);
+  localStorage.setItem(
+    key,
+    JSON.stringify({ version: 1, ownerKey: key, body: { ...scoped, dataset_filter: { page: 9 } } }),
+  );
+  expect(readTrainingDatasetDraft(owner).error).toBeTruthy();
+});

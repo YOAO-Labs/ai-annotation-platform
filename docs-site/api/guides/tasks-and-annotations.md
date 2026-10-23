@@ -3,7 +3,7 @@ audience: [dev]
 type: reference
 since: v0.1.0
 status: stable
-last_reviewed: 2026-09-12
+last_reviewed: 2026-10-23
 ---
 
 # 任务与标注
@@ -19,6 +19,10 @@ pending → in_progress → completed → review
                  ↑          ↘ reviewer reject
                  └────────────── pending
 ```
+
+## 数据集筛选下的任务选择
+
+`GET /api/v1/tasks` 保留原查询参数，并可在 `dataset_id` 外提供 `dataset_filter`（最多2000字符的 JSON 对象），合同为数据集的 DatasetItemFilters。仅项目管理者使用此范围；API Key 还需 `datasets:read`。数据集必须关联当前项目，Scene/来源逐次校验归属与权限。无数据集、非法JSON、未知字段或不合法范围422，失效条件404；不忽略条件扩大选择。过滤在游标/offset分页和首页计数之前执行，与训练预检复用同一SQL。未传新参数保留原任务可见性和后续页 total=null 的合同。
 
 ## 拉取下一个任务
 

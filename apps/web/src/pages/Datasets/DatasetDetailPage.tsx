@@ -23,6 +23,11 @@ import {
 } from "@/hooks/useDatasets";
 import { DatasetItemFilters } from "./DatasetItemFilters";
 import { DatasetQualityPanel } from "./DatasetQualityPanel";
+import {
+  datasetTrainingFilterJSON,
+  datasetTrainingFilterSummary,
+  datasetTrainingPath,
+} from "./datasetTrainingSelection";
 import { DatasetSavedViews } from "./DatasetSavedViews";
 import { projectsApi } from "@/api/projects";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -170,6 +175,14 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const state = parseDatasetDetailUrl(params);
+  const [freezeFilter, setFreezeFilter] = useState<{ query: string; signature: string } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (freezeFilter && freezeFilter.signature !== location.key) setFreezeFilter(null);
+  }, [freezeFilter, location.key]);
+  const filterJson = datasetTrainingFilterJSON(state.filters);
+  const freezeButtonRef = useRef<HTMLButtonElement>(null);
   const capture = useSessionGuard();
   const currentOwner = capture();
   const { role } = usePermissions();
@@ -382,6 +395,36 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
       )}
       {state.tab === "data" && (
         <section aria-label="数据浏览" className="rounded-lg border border-border bg-card">
+          {freezeFilter && freezeFilter.signature === location.key && (
+            <Modal
+              open
+              returnFocusRef={freezeButtonRef}
+              title="冻结当前筛选"
+              onClose={() => setFreezeFilter(null)}
+            >
+              <div className="space-y-4 text-sm">
+                <p>选择管理的关联项目，使用该项目的标注准备训练版本。</p>
+                <p className="break-all text-xs leading-relaxed text-muted-foreground">
+                  {datasetTrainingFilterSummary(JSON.parse(freezeFilter.query))}
+                </p>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  当前条件仍为动态查询。进入项目后检查最终任务、标注资格与复制体量，再创建固定版本；页面分页不限制范围。
+                </p>
+                {!workbench.error &&
+                  projects
+                    .filter((project) => project.can_manage)
+                    .map((project) => (
+                      <Link
+                        key={project.id}
+                        to={datasetTrainingPath(project.id, ds.id, freezeFilter.query)}
+                        className="block rounded-md border border-border px-3 py-2 text-primary hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        在“{project.name}”中准备版本
+                      </Link>
+                    ))}
+              </div>
+            </Modal>
+          )}
           <DatasetSavedViews
             datasetId={ds.id}
             filters={state.filters}
@@ -414,7 +457,27 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
               sources={sources}
               onChange={(filters) => patch({ ...datasetFilterPatch(filters), page: undefined })}
             />
-            <div className="mt-3 flex justify-end gap-1">
+            <div className="mt-3 flex flex-wrap justify-end gap-2">
+              {projects.some((project) => project.can_manage) && (
+                <Button
+                  size="sm"
+                  ref={freezeButtonRef}
+                  disabled={
+                    state.restoreSavedView ||
+                    !files.data ||
+                    files.isFetching ||
+                    !!files.error ||
+                    filterJson === null ||
+                    !!workbench.error
+                  }
+                  onClick={() => {
+                    if (currentOwner() && filterJson !== null)
+                      setFreezeFilter({ query: filterJson, signature: location.key });
+                  }}
+                >
+                  冻结当前筛选
+                </Button>
+              )}
               <Button
                 size="sm"
                 aria-label="表格视图"
@@ -663,9 +726,9 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
                     {project.can_manage && (
                       <Link
                         className="text-xs text-primary hover:underline"
-                        to={`/projects/${project.id}/learning?${new URLSearchParams({ tab: "data", dataset_id: ds.id })}`}
+                        to={datasetTrainingPath(project.id, ds.id)}
                       >
-                        创建训练版本
+                        为整份数据集创建版本
                       </Link>
                     )}
                     {canManage && project.can_manage && (
@@ -770,9 +833,9 @@ function DatasetDetailContent({ ds }: { ds: DatasetResponse }) {
                   <Link
                     key={project.id}
                     className="text-xs text-primary hover:underline"
-                    to={`/projects/${project.id}/learning?${new URLSearchParams({ tab: "data", dataset_id: ds.id })}`}
+                    to={datasetTrainingPath(project.id, ds.id)}
                   >
-                    为“{project.name}”创建版本
+                    为“{project.name}”冻结整份数据集
                   </Link>
                 ))}
             </div>

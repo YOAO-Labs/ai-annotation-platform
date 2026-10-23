@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor, cleanup } from "@testing-library/react";
+import { act, render, screen, waitFor, cleanup, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { trainingDatasetsApi } from "@/api/trainingDatasets";
 import { trainingRunsApi } from "@/api/trainingRuns";
 import { batchesApi } from "@/api/batches";
@@ -108,11 +108,23 @@ const clients: QueryClient[] = [];
 
 function Location() {
   const location = useLocation();
+  const navigate = useNavigate();
   return (
-    <p>
-      {location.pathname}
-      {location.search}
-    </p>
+    <>
+      <button
+        onClick={() => {
+          const next = new URLSearchParams(location.search);
+          next.set("dataset_filter", JSON.stringify({ extension: "jpg" }));
+          navigate(`${location.pathname}?${next}`);
+        }}
+      >
+        切换训练筛选
+      </button>
+      <p>
+        {location.pathname}
+        {location.search}
+      </p>
+    </>
   );
 }
 function mount(path = "/projects/project-1/learning?tab=data") {
@@ -1341,4 +1353,132 @@ it("keeps the native mask bridge unavailable when an older catalog omits qualifi
   expect(
     await screen.findByRole("option", { name: "原生实例掩码训练（当前执行器尚未取得资格）" }),
   ).toBeDisabled();
+});
+
+it("passes the same dataset filter to preflight, creation and manager task pages", async () => {
+  const datasetId = "11111111-2222-4333-8444-555555555555";
+  const filter = { extension: "png", min_width: 640 };
+  vi.mocked(useProjectDatasets).mockReturnValue({
+    data: [{ id: datasetId, name: "目录样本" }],
+    isLoading: false,
+  } as never);
+  const user = userEvent.setup();
+  mount(
+    `/projects/project-1/learning?tab=data&dataset_id=${datasetId}&dataset_filter=${encodeURIComponent(JSON.stringify(filter))}`,
+  );
+  await user.click(await screen.findByRole("button", { name: "准备新版本" }));
+  expect(screen.getByText(/扩展名：png/)).toBeVisible();
+  await user.click(
+    screen.getByRole("checkbox", { name: "我已确认所选数据集与当前项目的冻结范围" }),
+  );
+  await user.click(screen.getByRole("button", { name: "检查训练数据" }));
+  await screen.findByText("数据检查通过");
+  expect(trainingDatasetsApi.preflight).toHaveBeenCalledWith(
+    "project-1",
+    expect.objectContaining({ dataset_filter: filter }),
+  );
+  await user.click(screen.getByRole("button", { name: "创建数据版本" }));
+  await waitFor(() =>
+    expect(trainingDatasetsApi.create).toHaveBeenCalledWith(
+      "project-1",
+      expect.objectContaining({ dataset_filter: filter }),
+    ),
+  );
+  cleanup();
+  mount(
+    `/projects/project-1/learning?tab=data&dataset_id=${datasetId}&dataset_filter=${encodeURIComponent(JSON.stringify(filter))}`,
+  );
+  await user.click(await screen.findByRole("button", { name: "准备新版本" }));
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "标注纳入方式" }),
+    "manager_confirmed",
+  );
+  await waitFor(() =>
+    expect(tasksApi.listByProject).toHaveBeenCalledWith(
+      "project-1",
+      expect.objectContaining({ dataset_filter: filter, limit: 25 }),
+      expect.anything(),
+    ),
+  );
+});
+
+it("blocks malformed filter URLs until explicitly cleared", async () => {
+  const datasetId = "11111111-2222-4333-8444-555555555555";
+  vi.mocked(useProjectDatasets).mockReturnValue({
+    data: [{ id: datasetId, name: "目录样本" }],
+    isLoading: false,
+  } as never);
+  const user = userEvent.setup();
+  mount(`/projects/project-1/learning?tab=data&dataset_id=${datasetId}&dataset_filter=null`);
+  await user.click(await screen.findByRole("button", { name: "准备新版本" }));
+  expect(screen.getByText(/数据集筛选条件无效/)).toBeVisible();
+  await user.click(
+    screen.getByRole("checkbox", { name: "我已确认所选数据集与当前项目的冻结范围" }),
+  );
+  expect(screen.getByRole("button", { name: "检查训练数据" })).toBeDisabled();
+  expect(trainingDatasetsApi.preflight).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "清除数据集筛选" }));
+  expect(screen.queryByText(/数据集筛选条件无效/)).not.toBeInTheDocument();
+});
+
+it("restores a pending filtered request unchanged on a different filter URL", async () => {
+  const datasetId = "11111111-2222-4333-8444-555555555555";
+  vi.mocked(useProjectDatasets).mockReturnValue({
+    data: [{ id: datasetId, name: "目录样本" }],
+    isLoading: false,
+  } as never);
+  vi.mocked(trainingDatasetsApi.create).mockRejectedValueOnce(new Error("连接中断"));
+  const path = (extension: string) =>
+    `/projects/project-1/learning?tab=data&dataset_id=${datasetId}&dataset_filter=${encodeURIComponent(JSON.stringify({ extension }))}`;
+  const user = userEvent.setup();
+  const firstPage = mount(path("png"));
+  await user.click(await screen.findByRole("button", { name: "准备新版本" }));
+  await user.click(
+    screen.getByRole("checkbox", { name: "我已确认所选数据集与当前项目的冻结范围" }),
+  );
+  await user.click(screen.getByRole("button", { name: "检查训练数据" }));
+  await screen.findByText("数据检查通过");
+  await user.click(screen.getByRole("button", { name: "创建数据版本" }));
+  await waitFor(() => expect(trainingDatasetsApi.create).toHaveBeenCalledOnce());
+  const original = structuredClone(vi.mocked(trainingDatasetsApi.create).mock.calls[0][1]);
+  firstPage.unmount();
+  mount(path("jpg"));
+  await user.click(await screen.findByRole("button", { name: "准备新版本" }));
+  expect(screen.getByText(/扩展名：png/)).toBeVisible();
+  expect(screen.queryByText(/扩展名：jpg/)).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "确认原创建请求" }));
+  await waitFor(() => expect(trainingDatasetsApi.create).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(trainingDatasetsApi.create).mock.calls[1][1]).toEqual(original);
+});
+
+it("retires a preflight when only the filter URL changes within the same dataset", async () => {
+  const datasetId = "11111111-2222-4333-8444-555555555555";
+  vi.mocked(useProjectDatasets).mockReturnValue({
+    data: [{ id: datasetId, name: "目录样本" }],
+    isLoading: false,
+  } as never);
+  let finish!: (value: typeof report) => void;
+  vi.mocked(trainingDatasetsApi.preflight).mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        finish = done;
+      }),
+  );
+  const user = userEvent.setup();
+  mount(
+    `/projects/project-1/learning?tab=data&dataset_id=${datasetId}&dataset_filter=${encodeURIComponent(JSON.stringify({ extension: "png" }))}`,
+  );
+  await user.click(await screen.findByRole("button", { name: "准备新版本" }));
+  await user.click(
+    screen.getByRole("checkbox", { name: "我已确认所选数据集与当前项目的冻结范围" }),
+  );
+  await user.click(screen.getByRole("button", { name: "检查训练数据" }));
+  await waitFor(() => expect(trainingDatasetsApi.preflight).toHaveBeenCalledOnce());
+  fireEvent.click(screen.getByRole("button", { name: "切换训练筛选", hidden: true }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  await act(async () => finish(report));
+  await user.click(screen.getByRole("button", { name: "准备新版本" }));
+  expect(screen.getByText(/扩展名：jpg/)).toBeVisible();
+  expect(screen.queryByText("数据检查通过")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "创建数据版本" })).toBeDisabled();
 });

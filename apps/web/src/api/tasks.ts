@@ -1,4 +1,5 @@
 import { apiClient } from "./client";
+import type { DatasetItemFilters } from "./datasets";
 import type {
   TaskResponse,
   AnnotationResponse,
@@ -88,6 +89,7 @@ export interface TaskListResponse {
 }
 
 export interface TaskListParams {
+  dataset_filter?: DatasetItemFilters;
   dataset_id?: string;
   status?: string;
   assignee_id?: string;
@@ -311,6 +313,8 @@ export const tasksApi = {
   listByProject: (projectId: string, params?: TaskListParams, init?: RequestInit) => {
     const q = new URLSearchParams({ project_id: projectId });
     if (params?.dataset_id) q.set("dataset_id", params.dataset_id);
+    if (params?.dataset_filter !== undefined)
+      q.set("dataset_filter", JSON.stringify(params.dataset_filter));
     if (params?.status) q.set("status", params.status);
     if (params?.assignee_id) q.set("assignee_id", params.assignee_id);
     if (params?.batch_id) q.set("batch_id", params.batch_id);

@@ -1,3 +1,4 @@
+import { validDatasetTrainingFilter } from "../Datasets/datasetTrainingSelection";
 import type { TrainingDatasetCreate } from "@/api/trainingDatasets";
 import { instanceMaskBridge } from "./trainingDatasetBridges";
 import { trainingDraftOwner } from "./trainingDraftStorage";
@@ -53,6 +54,7 @@ function validBody(
           "bridge",
           "batch_id",
           "dataset_id",
+          "dataset_filter",
           "parent_id",
           "mode",
           "seed",
@@ -89,6 +91,8 @@ function validBody(
       (typeof value.validation_fraction === "number" &&
         value.validation_fraction >= 0.05 &&
         value.validation_fraction <= 0.5)) &&
+    (value.dataset_filter == null ||
+      (typeof value.dataset_id === "string" && validDatasetTrainingFilter(value.dataset_filter))) &&
     identifiers(value.task_ids) &&
     identifiers(value.confirmed_negative_ids)
   );

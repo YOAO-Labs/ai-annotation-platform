@@ -138,6 +138,7 @@ function Location() {
       </p>
       <button onClick={() => navigate("/datasets/dataset-two")}>切换数据集</button>
       <button onClick={() => navigate("?q=changed")}>切换筛选条件</button>
+      <button onClick={() => navigate(-1)}>返回先前筛选</button>
     </>
   );
 }
@@ -478,11 +479,13 @@ describe("Dataset detail workbench", () => {
     const second = screen.getByRole("link", { name: "路口复查" }).closest("article")!;
     expect(within(first).getByText("35")).toBeVisible();
     expect(within(second).getByText("3")).toBeVisible();
-    expect(within(first).getByRole("link", { name: "创建训练版本" })).toHaveAttribute(
+    expect(within(first).getByRole("link", { name: "为整份数据集创建版本" })).toHaveAttribute(
       "href",
       "/projects/p-one/learning?tab=data&dataset_id=dataset-one",
     );
-    expect(within(second).queryByRole("link", { name: "创建训练版本" })).not.toBeInTheDocument();
+    expect(
+      within(second).queryByRole("link", { name: "为整份数据集创建版本" }),
+    ).not.toBeInTheDocument();
   });
   it("paginates associated versions and links to the existing training detail", async () => {
     mount("/datasets/dataset-one?tab=versions&version_page=2");
@@ -592,4 +595,34 @@ it("keeps Scene identity through advanced-filter clearing", async () => {
   await waitFor(() => expect(screen.getByTestId("location")).not.toHaveTextContent("extension="));
   expect(screen.getByTestId("location")).toHaveTextContent("scene_id=scene-a");
   expect(screen.getByRole("combobox", { name: "Scene 筛选" })).toHaveValue("scene-a");
+});
+
+it("offers the complete current filter in a centered project choice", async () => {
+  const user = userEvent.setup();
+  mount("/datasets/dataset-one?extension=png&min_width=640&page=2");
+  await user.click(await screen.findByRole("button", { name: "冻结当前筛选" }));
+  const dialog = screen.getByRole("dialog", { name: "冻结当前筛选" });
+  const link = within(dialog).getByRole("link", { name: "在“车辆检测”中准备版本" });
+  const url = new URL(link.getAttribute("href")!, "http://localhost");
+  expect(url.searchParams.get("dataset_id")).toBe("dataset-one");
+  expect(JSON.parse(url.searchParams.get("dataset_filter")!)).toEqual({
+    extension: "png",
+    min_width: 640,
+  });
+  expect(url.searchParams.has("page")).toBe(false);
+  expect(within(dialog).queryByRole("link", { name: /路口复查/ })).not.toBeInTheDocument();
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  expect(screen.getByRole("button", { name: "冻结当前筛选" })).toHaveFocus();
+});
+
+it("retires the filter project dialog across navigation and browser return", async () => {
+  const user = userEvent.setup();
+  mount("/datasets/dataset-one?q=car");
+  await user.click(await screen.findByRole("button", { name: "冻结当前筛选" }));
+  fireEvent.click(screen.getByRole("button", { name: "切换筛选条件", hidden: true }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "返回先前筛选" }));
+  await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("q=car"));
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });

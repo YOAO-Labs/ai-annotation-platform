@@ -47046,6 +47046,16 @@
             "title": "Confirmed Negative Ids",
             "type": "array"
           },
+          "dataset_filter": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DatasetItemFilters"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "dataset_id": {
             "anyOf": [
               {
@@ -48496,6 +48506,16 @@
             "maxItems": 20000,
             "title": "Confirmed Negative Ids",
             "type": "array"
+          },
+          "dataset_filter": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DatasetItemFilters"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "dataset_id": {
             "anyOf": [
@@ -89802,6 +89822,23 @@
                 }
               ],
               "title": "Dataset Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dataset_filter",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dataset Filter"
             }
           },
           {

@@ -119,6 +119,8 @@ last_reviewed: 2026-10-23
 
 #### 原地引用的冻结读取
 
+组合筛选冻结复用 `dataset_workbench.item_query`，返回数据库关系并在训练的单条 PG 任务/Item/类别/标注查询内限定成员，不先把分页列表搬到客户端。`dataset_filter` 必须绑定已关联数据集；来源和 Scene 的归属/权限验证与工作台共用。新过滤选择在 snapshot.dataset_selection 中固定定义、task/item/version 成员，source 保存定义、数量和证据摘要；它与最终合格样本一起进入原预检摘要。创建重新核对，之后 Worker 只消费原 snapshot，不重跑动态视图。旧请求无过滤字段时 canonical 字节保留，历史快照和包不回填。
+
 `training_dataset_sources.py` 将引用样本接入 `dataset_references.reference_snapshot`，固定 DatasetItem、Asset、SHA-256 与字节数。来源身份使用独立的 `asset_source_contract` / `asset_reference` 嵌套 schema（均为 1）；图片/几何训练合同保持原定义。仅新含引用的 snapshot/manifest 写入这些字段，历史内容与摘要不回填。导出清单只记录业务身份和摘要，不包含挂载路径或凭据。
 
 API 预检逐项执行有界严格读取并及时关闭临时快照，报告引用数量及预计新增原图字节。Worker 将自身真实 Celery 节点传入 resolver，使用该节点已核验的 anchor，不能借用 API 节点的挂载证明。原图满足固定内容与尺寸后写入既有 training 版本前缀；失败/取消重试先核验已保留媒体的快照摘要、实际字节 SHA 及固定 Asset SHA。没有保留副本时才读取当前来源。

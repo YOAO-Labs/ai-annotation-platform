@@ -1,17 +1,45 @@
 # EPIC-10：数据集版本、血缘与训练消费
 
-> 状态：E10-A complete；E10-B/C 保留为后续切片，不分配发布版本。
+> 状态：E10-A、E10-B1 complete；E10-B2 血缘增强与 E10-C 缓存保留后续切片，不分配发布版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 | 项目          | 内容                                                                                |
 | ------------- | ----------------------------------------------------------------------------------- |
-| 状态          | E10-A 已完成；E10-B/C 待独立评审                                                    |
+| 状态          | E10-A/B1 已完成；E10-B2/C 待独立评审                                                |
 | 日期          | 2026-10-22（Asia/Shanghai）                                                         |
 | 优先级 / 阶段 | P0：M1 既有冻结不退化及单目录最小冻结；P1：M2 多来源与视图版本；P2：M3 按需训练缓存 |
 | 负责角色      | 训练平台后端、数据集后端、算法使用者、测试                                          |
 | 最小依赖      | E01 内容身份、E05 验证读取、E11 最小版本权限                                        |
 | 协作          | E04 源变化；E06 训练节点可达性；E08 筛选/质量；E12 容量与恢复                       |
+
+## E10-B1 / E08-B5 晋升复核与实施合同
+
+2026-10-23 基于 `51ed89ab1` 复核，工作树干净。上一轮完成 Scene，现有单条 PG 标注快照、严格原图读取、项目规范版本流和幂等创建均已实现；本轮只补当前组合筛选到该链路的成员衔接，不重复建设多来源冻结。用户已授权整套当前环境可实施部分；3100/8100及现有数据保留，不重建镜像。
+
+```text
+Dataset filter / restored personal view -> explicit project choice
+                  |                                  |
+                  +---- strict dataset_filter -------+
+                                      |
+shared authorized item SQL -> paged project task picker
+                                      |
+          one PG task/item/class/annotation snapshot + selection evidence
+                                      |
+           preflight digest -> same digest on create -> existing frozen version
+                                      |
+                     existing Worker / verified copy / manifest / ZIP
+```
+
+新增可选 TrainingDatasetSelection.dataset_filter，复用 DatasetItemFilters，必须同时提供 dataset_id。无过滤字段与显式 null 的旧请求保持原 canonical 字节。具体查询定义独立于视图ID、分页、布局；不能静默忽略非法字段、尺寸或 Scene/来源。服务端把列表筛选抽成同一 SQL owner，来源/Scene验证、观测及权限、条件组合先于 Task 范围；分页任务选择与训练预检均复用。新 GET /tasks 的 dataset_filter 为最多2000字符的严格 JSON，仅项目管理者使用，必须是当前项目关联数据集。显式任务选择不在条件内则404，不静默求交后成功。
+
+最终范围是当前项目中匹配条件的任务，再应用批次、显式任务和既有标注资格；未关联的样本不是训练任务。预检显示所选/合格/排除，源观测筛选不替代严格读取。新过滤选择在 snapshot 中保留带 schema 的定义及匹配 task/item/version 成员证据，并将摘要、数量和定义写入 source；新成员或筛选变化使预检摘要失效。固定样本、媒体及标注继续由既有版本 owner 保存；创建后条件、新成员、Scene删除或标注编辑不能改写旧 snapshot/manifest/package。历史请求、快照和包不回填。
+
+Web 在数据页提供“冻结当前筛选”的居中项目选择；已有两处整个数据集入口明确其范围。只有查询已成功、个人视图已恢复且条件可编码时开放当前筛选入口。项目准备页显示具体条件，保留原数据集范围确认，可明确清除过滤或切换数据集。任务勾选分页与过滤一致。URL 同数据集换条件会重建 owner，旧预检回调失效；未确认创建请求优先按原 body 恢复和幂等重发，不套用新URL，不新增草稿存储 owner。无效URL/本地过滤阻断检查，不能变成整集。
+
+本轮超过8文件、跨 API/Web/合同/正式文档。准确范围：API `schemas/{training_dataset,dataset_view}.py`、`services/{dataset_workbench,training_datasets}.py`、`api/v1/tasks/list.py`；新增 `tests/test_training_dataset_filters.py`，扩展既有 training/workbench/Scene 回归及必要任务分页测试。Web `pages/Datasets/{DatasetDetailPage,datasetTrainingSelection}.tsx/ts` 与测试、`pages/Projects/ProjectLearningPage.tsx` 与测试、`pages/Training/trainingDatasetDraftStorage.ts` 与测试、`api/tasks.ts` 及测试；必要新增轻量过滤摘要组件沿用这些 owner。OpenAPI、本地生成类型、API index、SDK合同；`README.md`、`CHANGELOG.md`、数据集用户指南、训练版本用户/API/架构指南、任务API指南，本计划/E08/队列/路线索引。没有迁移、依赖或新任务。Worker直接消费固定 snapshot，无重新求筛选；其共享训练模块若需刷新仅重启本工作树受影响Worker，确认实际注册及执行，不重建镜像。
+
+验证：一次性 test DB 下运行新过滤测试、既有训练版本/引用冻结/工作台/Scene回归，覆盖查询等价/跨页、组合、任务范围、非法/删除/跨数据集/来源撤权、预检后新增或标注改动409、固定旧版本/幂等、旧 canonical。Web 验证URL完整定义与恢复门、过滤下任务分页、清除/切数据集、会话/URL迟到回调、原创建草稿保留，SDK合同、OpenAPI、tsc/lint/css、文档和diff。真实浏览器验证当前筛选进入项目、检查/创建到ready、保存视图变化后旧成员/包不变、明暗桌面/窄屏、网络/控制台；使用任务自有或独立e2e数据，清理所有临时模式和产物，保留长期人工环境。回退提交可关闭新选择入口；已创建版本仍按固定snapshot消费，新过滤创建请求须确认或导出后降级，不能丢弃字段重发。
 
 ## 本次实施：E10-A（2026-10-23）
 
@@ -251,11 +279,23 @@ M1 必须让一个已关联项目的原地图片目录，通过统一 resolver �
 
 ## Outcome
 
-- E10-A 完成；提交 `74bd04c12`（`feat(training): freeze verified reference originals into training versions`）。E10-B 多来源视图/增强血缘、E10-C 节点缓存仍待评审，本计划保留在根目录。
+- E10-A 完成；提交 `74bd04c12`（`feat(training): freeze verified reference originals into training versions`）。E10-B1 筛选视图冻结已由下节交付；E10-B2 血缘增强、E10-C 节点缓存仍待独立推进，本计划保留在根目录。
 - 实现：项目级固定快照接入现有严格 resolver，固定 Item/Asset/SHA/字节；真实 Worker 节点读取证明；独立训练原图与 ZIP；失败/取消同快照重试，优先验证保留副本；预检展示预计持久复制量。新来源使用独立嵌套 schema，旧合同和摘要不回写，无迁移或依赖变更。
 - 后端证据：既有训练/桥接/分析/删除/版本流/托管冻结不变性/RLE/引用读取共 171 项通过；新增引用冻结 18 项通过。新增矩阵覆盖检测、多边形、真实栅格 RLE、实际 MinIO 外部 S3 来源、源覆盖/离线/未核验节点、固定标注、两项目隔离、失败/取消重试、伪造保留媒体、读取中账号/API Key 撤权、保留副本重试撤权。随后扩展的 3 个合同用例再次通过训练执行器 `validate_dataset`，并验证解除关联/删除活跃数据集后冻结媒体不变。
 - Web：准备版本页 53 项通过，typecheck、受影响 ESLint、CSS tokens、Python Ruff check/format、OpenAPI 一致性、SDK 合同 4 项、文档 frontmatter/navigation 及 `git diff --check` 通过。未宣称全量 Web 或远程 CI 验收。
 - 实际浏览器：当前工作树 3100/8100，刷新真实 general/export Worker 后，从项目负责人确认 3 个引用任务，预检显示 17,778 字节，创建版本后实际任务 ready；浏览冻结样本和标注、点击下载、现有新建训练入口可用。版本 `da621d70-54af-47d4-aa8a-7795a56d63f5`。随后专用来源覆盖 vehicle-1、移除 vehicle-2；浏览器仍显示原 vehicle-1 与固定框，API 校验全部 3 张原图、标签和 ZIP SHA 不变，2 个实时源读取明确拒绝，原标注保留。浏览器错误为空；未启动原生模型训练。
 - 正式文档：`docs-site/user-guide/online-learning/data-versions.md`、`docs-site/user-guide/datasets/import-images.md`、`docs-site/dev/concepts/training-datasets.md`、`docs-site/api/guides/training-datasets.md`、`README.md`；`CHANGELOG.md` Unreleased 已更新。
 - 人工环境与专用演示数据继续保留，说明及固定摘要在忽略的 `.worktree/manual/README.md` / `training-fixture.json`。测试资源、报告、截图、专属浏览器会话按验证流程清理；不重建镜像、不推送、不分配发布版本。
-- 用户指定的后续 E08-A/E09-A 页面整合已完成，记录见 [E08 Outcome](1792661016_dataset-workbench-quality.md#outcome) 和 [E09 Outcome](1792661016_dataset-storage-console-boundaries.md#outcome)；动态质量视图、节点缓存、运维统计仍遵守各自独立范围。
+- 用户指定的后续 E08-A/E09-A 页面整合已完成，记录见 [E08 Outcome](1792661016_dataset-workbench-quality.md#outcome) 和 [E09 Outcome](1792661016_dataset-storage-console-boundaries.md#outcome)；后续质量、筛选和运维切片以各Epic当前Outcome为准，节点缓存仍遵守独立触发条件。
+
+### E10-B1 / E08-B5：从筛选视图固定训练成员
+
+2026-10-23 完成，实现与本节记录同提交，基线 `51ed89ab1`。`dataset_filter` 复用已有组合筛选模型，必须绑定当前项目关联的数据集；列表、任务选择和冻结预检共用授权 SQL。Task/Item/类别/活跃标注继续从单条 PG 语句读取。新选择固定 schema 1 的定义与 task/item/version 成员证据，预检 source 显示其摘要和数量；新未审核成员同样改变摘要，创建409要求重检。显式任务超范围拒绝，失效来源/Scene或非法条件不扩大选择。未过滤与显式null保留旧 canonical，旧快照/清单/包不回填；无新迁移、依赖或 Worker 逻辑。
+
+数据页提供居中“冻结当前筛选”项目选择，等个人视图恢复与查询成功后开放；原有入口明确整份数据集。项目显示具体条件、范围确认及相同过滤的分页任务勾选；清除/切数据集使预检和勾选失效。URL只改条件也更换owner，旧回调无效；弹层随导航退休，返回不重开旧目标。未确认的创建请求优先原样恢复body，包括原过滤与摘要，不因新URL改范围或创建新的草稿owner。
+
+本地验证：API/DB 66个不同用例（新过滤10、原训练/工作台/Scene38、真实引用冻结18）、Web分批111个不同用例、SDK合同4项，共181项通过。覆盖组合/count/任务分页、Scene/来源失效、显式任务越界、Key的datasets:read、数据集关联、canonical兼容、新排除成员409、幂等与快照固定、引用真实包/严格读取及旧冻结回归；Web涵盖选项与完整定义、坏URL/非有限数、范围清除、任务分页、原请求异URL恢复、同数据集换条件的迟到预检、弹层导航和焦点。TypeScript、Ruff、Web ESLint/CSS tokens、文档frontmatter196/导航198及diff检查通过；原有4条ESLint warning与2条无关样式建议保留，未运行远程CI。
+
+真实浏览器在独立3200/8200与当前 checkout Worker中执行，无mock。3张已审核图片，个人视图仅ID恢复后以文件名car+png限定2张；居中选择关联项目，负责人模式只列2个匹配任务，回到已审核模式预检后创建 `ff396a7b-bd3f-4422-8614-a9c5a2363bb1`，实际到ready，训练/验证各1张。随后把个人视图改为other，旧版本仍为原2张。运行验证读取ZIP、逐图核对manifest SHA和包SHA，覆盖任务自有源图片后包、snapshot与manifest保持不变；包SHA256为 `37c6cb1ddafb16650a5321f635c15d13c0fcefba883395c7913a02f9d0c426ee`。项目选择与准备表单均检查1440×1000/390×900明暗截图，提示位于控件外，弹层内部滚动，无根横向溢出；全流程无控制台错误或失败请求。
+
+正式说明同步用户数据集/训练版本指南、训练/任务API及架构文档、README、CHANGELOG与OpenAPI/本地类型。独立e2e与test数据库、Redis、九用途桶、样本、视图、版本和Worker均按owner销毁，专用浏览器关闭，测试报告、截图、脚本和缓存清理。原3100/8100、普通/维护Worker及人工演示数据保留，不重建镜像；未推送或发布。此切片完成筛选冻结衔接，E10-B2进一步血缘/diff解释、E10-C条件触发缓存和完整验收矩阵仍须独立推进，整个Epic未完成。

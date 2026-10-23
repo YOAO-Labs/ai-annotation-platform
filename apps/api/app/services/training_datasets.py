@@ -263,6 +263,18 @@ async def freeze_selection(
                 "dataset_not_linked", "数据集未关联当前项目", status_code=404
             )
         stmt = stmt.where(DatasetItem.dataset_id == selection.dataset_id)
+    if selection.dataset_filter is not None:
+        from app.services.dataset_workbench import project_filtered_item_ids
+
+        actor = await db.get(User, actor_id, populate_existing=True)
+        if actor is None or not actor.is_active:
+            raise TrainingDatasetError(
+                "authority_revoked", "数据版本创建权限已撤销", status_code=403
+            )
+        item_ids = await project_filtered_item_ids(
+            db, project.id, selection.dataset_id, selection.dataset_filter, actor
+        )
+        stmt = stmt.where(Task.dataset_item_id.in_(item_ids))
     if selection.task_ids:
         stmt = stmt.where(Task.id.in_(selection.task_ids))
     rows = (await db.execute(stmt.execution_options(populate_existing=True))).all()
@@ -297,6 +309,30 @@ async def freeze_selection(
     }
     if selection.dataset_id:
         source["dataset_id"] = str(selection.dataset_id)
+    dataset_selection = None
+    if selection.dataset_filter is not None:
+        dataset_selection = {
+            "schema": 1,
+            "dataset_id": str(selection.dataset_id),
+            "filters": selection.dataset_filter.model_dump(
+                mode="json", exclude_none=True
+            ),
+            "members": [
+                {
+                    "task_id": str(task.id),
+                    "task_version": task.version,
+                    "dataset_item_id": str(item.id),
+                    "scene_id": str(item.scene_id) if item.scene_id else None,
+                }
+                for task, item, *_ in rows
+            ],
+        }
+        source["dataset_selection"] = {
+            "schema": 1,
+            "filters": dataset_selection["filters"],
+            "matched_tasks": len(rows),
+            "digest": content_digest(dataset_selection),
+        }
     samples, excluded, issues = [], [], []
     excluded_annotations = 0
     negatives = {str(value) for value in selection.confirmed_negative_ids}
@@ -494,6 +530,11 @@ async def freeze_selection(
                 }
             }
             if references
+            else {}
+        ),
+        **(
+            {"dataset_selection": dataset_selection}
+            if dataset_selection is not None
             else {}
         ),
         "annotation_scope": annotation_scope,
