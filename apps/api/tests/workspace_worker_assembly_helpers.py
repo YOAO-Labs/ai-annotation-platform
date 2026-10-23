@@ -188,6 +188,8 @@ class WorkspaceCeleryWorker:
         before = self.assert_runtime()
         self.assert_private_network()
         self._docker("kill", "--signal", "KILL", self.container_id)
+        if self._docker("wait", self.container_id, timeout=20) != "137":
+            raise RuntimeError("Owned worker did not exit from SIGKILL")
         record = self._inspect(self.container_id)
         self._verify_container_record(record)
         state = record.get("State") or {}
