@@ -649,6 +649,7 @@
 | GET | `/bindings` |
 | GET | `/{location_id}` |
 | GET | `/{location_id}/source-summary` |
+| POST | `/{location_id}/change-preview` |
 | PATCH | `/{location_id}` |
 | GET | `/{location_id}/maintenance-impact` |
 | GET | `/{location_id}/original-cache` |
@@ -1006,4 +1007,4 @@
 
 ---
 
-_共 90 模块 / 584 路由_
+_共 90 模块 / 585 路由_

@@ -26,7 +26,12 @@ from tests.test_reference_original_cache import (
     referenced_cache as referenced_cache,
     seed_cache,
 )
-from tests.test_storage_locations_api import root as root, create, headers
+from tests.test_storage_locations_api import (
+    root as root,
+    create,
+    headers,
+    reviewed_patch,
+)
 from tests.test_dataset_source_changes import rescan, preflight
 
 
@@ -75,9 +80,12 @@ async def test_public_location_combines_patch_before_validating_budget(
     path = f"/api/v1/storage-locations/{location['id']}"
     base = {"expected_revision": 1, "cache_policy": "on_demand"}
     assert (
-        await httpx_client.patch(path, headers=headers(super_admin), json=base)
+        await reviewed_patch(
+            httpx_client, path, headers=headers(super_admin), json=base
+        )
     ).status_code == 422
-    result = await httpx_client.patch(
+    result = await reviewed_patch(
+        httpx_client,
         path,
         headers=headers(super_admin),
         json={
@@ -90,7 +98,8 @@ async def test_public_location_combines_patch_before_validating_budget(
     assert result.json()["original_cache_ttl_seconds"] == 61
     assert result.json()["config_revision"] == 2
     assert (
-        await httpx_client.patch(
+        await reviewed_patch(
+            httpx_client,
             path,
             headers=headers(super_admin),
             json={
@@ -100,7 +109,8 @@ async def test_public_location_combines_patch_before_validating_budget(
         )
     ).status_code == 422
     assert (
-        await httpx_client.patch(
+        await reviewed_patch(
+            httpx_client,
             path,
             headers=headers(project_admin),
             json={
@@ -110,7 +120,8 @@ async def test_public_location_combines_patch_before_validating_budget(
         )
     ).status_code == 403
     assert (
-        await httpx_client.patch(
+        await reviewed_patch(
+            httpx_client,
             path,
             headers=headers(super_admin),
             json={
@@ -119,7 +130,8 @@ async def test_public_location_combines_patch_before_validating_budget(
             },
         )
     ).status_code == 409
-    result = await httpx_client.patch(
+    result = await reviewed_patch(
+        httpx_client,
         path,
         headers=headers(super_admin),
         json={
@@ -168,7 +180,8 @@ async def test_source_effective_policy_and_location_configuration_stay_separate(
     path = f"/api/v1/dataset-sources/{world.source_id}"
     source = (await client.get(path, headers=auth)).json()
     assert source["cache_policy"] == source["effective_cache_policy"] == "on_demand"
-    result = await client.patch(
+    result = await reviewed_patch(
+        client,
         f"/api/v1/storage-locations/{world.location_id}",
         headers=auth,
         json={
@@ -328,6 +341,15 @@ async def test_admin_mutations_recheck_authority_after_waiting_for_locks(
         reached.set()
         return proof
 
+    preview = await client.post(
+        path + "/change-preview",
+        headers=api_auth,
+        json={
+            "expected_revision": entry.location_revision,
+            "original_cache_quota_bytes": 10000,
+        },
+    )
+    assert preview.status_code == 200, preview.text
     monkeypatch.setattr(routes, "key_authority", observed)
     async with world.factory() as blocker:
         actor = await blocker.scalar(
@@ -341,6 +363,7 @@ async def test_admin_mutations_recheck_authority_after_waiting_for_locks(
                     json={
                         "expected_revision": entry.location_revision,
                         "original_cache_quota_bytes": 10000,
+                        "impact_token": preview.json()["impact_token"],
                     },
                 )
             )

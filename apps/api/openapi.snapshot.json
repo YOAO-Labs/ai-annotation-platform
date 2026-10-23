@@ -42747,6 +42747,194 @@
         "title": "StorageDirectoryPage",
         "type": "object"
       },
+      "StorageLocationApply": {
+        "additionalProperties": false,
+        "properties": {
+          "cache_policy": {
+            "anyOf": [
+              {
+                "enum": [
+                  "none",
+                  "preview",
+                  "on_demand"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cache Policy"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "impact_token": {
+            "maxLength": 8192,
+            "minLength": 1,
+            "title": "Impact Token",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "original_cache_quota_bytes": {
+            "anyOf": [
+              {
+                "maximum": 1125899906842624.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Cache Quota Bytes"
+          },
+          "original_cache_ttl_seconds": {
+            "anyOf": [
+              {
+                "maximum": 2592000.0,
+                "minimum": 60.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Cache Ttl Seconds"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "enum": [
+                  "restricted",
+                  "global"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
+          "use_user_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Use User Ids"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "impact_token"
+        ],
+        "title": "StorageLocationApply",
+        "type": "object"
+      },
+      "StorageLocationChangePreview": {
+        "properties": {
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/StorageLocationFieldChange"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "config_revision": {
+            "title": "Config Revision",
+            "type": "integer"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "impact": {
+            "$ref": "#/components/schemas/StorageMaintenanceImpact"
+          },
+          "impact_token": {
+            "title": "Impact Token",
+            "type": "string"
+          },
+          "location_id": {
+            "format": "uuid",
+            "title": "Location Id",
+            "type": "string"
+          },
+          "measured_at": {
+            "format": "date-time",
+            "title": "Measured At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "location_id",
+          "config_revision",
+          "measured_at",
+          "expires_at",
+          "impact_token",
+          "changes",
+          "impact"
+        ],
+        "title": "StorageLocationChangePreview",
+        "type": "object"
+      },
+      "StorageLocationFieldChange": {
+        "properties": {
+          "after": {
+            "title": "After"
+          },
+          "before": {
+            "title": "Before"
+          },
+          "field": {
+            "title": "Field",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "before",
+          "after"
+        ],
+        "title": "StorageLocationFieldChange",
+        "type": "object"
+      },
       "StorageLocationList": {
         "properties": {
           "items": {
@@ -89880,7 +90068,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/StorageLocationUpdate"
+                "$ref": "#/components/schemas/StorageLocationApply"
               }
             }
           },
@@ -89914,6 +90102,64 @@
           }
         ],
         "summary": "Update Location",
+        "tags": [
+          "storage-locations"
+        ]
+      }
+    },
+    "/api/v1/storage-locations/{location_id}/change-preview": {
+      "post": {
+        "operationId": "preview_location_change_api_v1_storage_locations__location_id__change_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Location Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StorageLocationUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageLocationChangePreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview Location Change",
         "tags": [
           "storage-locations"
         ]

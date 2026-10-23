@@ -1,7 +1,7 @@
 """Public registry contracts; deployment paths and node anchors stay private."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 import uuid
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -31,6 +31,10 @@ class StorageLocationUpdate(BaseModel):
     cache_policy: CachePolicy | None = None
     original_cache_quota_bytes: CacheQuota | None = None
     original_cache_ttl_seconds: CacheTTL | None = None
+
+
+class StorageLocationApply(StorageLocationUpdate):
+    impact_token: str = Field(min_length=1, max_length=8192)
 
 
 class StorageLocationOut(BaseModel):
@@ -90,6 +94,22 @@ class StorageMaintenanceImpact(BaseModel):
     frozen_coverage: Literal["recorded_location_lineage_only"]
     input_coverage: Literal["current_task_links_only"]
     execution_permission: Literal[False]
+
+
+class StorageLocationFieldChange(BaseModel):
+    field: str
+    before: Any
+    after: Any
+
+
+class StorageLocationChangePreview(BaseModel):
+    location_id: uuid.UUID
+    config_revision: int
+    measured_at: datetime
+    expires_at: datetime
+    impact_token: str
+    changes: list[StorageLocationFieldChange]
+    impact: StorageMaintenanceImpact
 
 
 class StorageOriginalCounts(BaseModel):

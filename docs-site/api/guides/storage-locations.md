@@ -23,7 +23,8 @@ last_reviewed: 2026-10-24
 | POST  | 空路径                 | 超管；登记 filesystem 位置，返回201                                               |
 | GET   | `/{id}`                | 可见该位置的管理员；读取脱敏详情                                                  |
 | GET   | `/{id}/source-summary` | 当前可见来源及已有后台任务摘要，独立分页                                          |
-| PATCH | `/{id}`                | 超管；更新 filesystem 名称、授权、启停，必须提供 expected_revision                |
+| POST  | `/{id}/change-preview` | 超管；预览候选字段与已保存关系，签发五分钟确认令牌                                |
+| PATCH | `/{id}`                | 超管；提交同一候选，必须提供 expected_revision 与 impact_token                    |
 | GET   | `/{id}/directories`    | 可见该位置的管理员；根内单层子目录分页                                            |
 | POST  | `/{id}/probe`          | 可见该位置的管理员；探测 API 或指定 Celery hostname                               |
 | GET   | `/{id}/probes`         | 可见该位置的管理员；查看按位置、修订、执行节点记录的证据                          |
@@ -45,6 +46,39 @@ last_reviewed: 2026-10-24
 `restricted` 默认仅超管可用；`use_user_ids` 可授权活跃项目管理员，`global` 允许所有平台管理员使用。授权只允许项目管理员管理自己创建的数据集，不授予其他数据集管理权；普通员工沿用任务读取权限。浏览及探测在 I/O 前后复查账号、位置授权和最初 API Key，撤权后不交付目录结果或发布探测证据。位置只读；绝对路径、父级跳转、符号链接和跨子挂载被拒绝。根目录和位置基目录在每个节点固定身份，替换后返回 `root_identity_changed`，不能通过重试静默重新绑定。
 
 PATCH 允许 `name / enabled / cache_policy / original_cache_quota_bytes / original_cache_ttl_seconds / scope / use_user_ids`，不允许改根或基目录。每次更新递增 `config_revision`；旧 `expected_revision` 返回409。外部 S3/SFTP 位置的启用、缓存策略、原图额度与TTL可由超管经此接口修改；名称、使用范围、定位和密钥需通过原连接器端点更新。平台固定位置不可修改。配置或密钥变化使位置修订递增；已被内容或用途引用的连接配置不能改向其他目标，也不能删除。
+
+## 配置变更预览与确认
+
+位置配置更新须先调用 `POST /storage-locations/{id}/change-preview`，再以同一候选调用 PATCH。两个端点均要求当前有效超级管理员和 `datasets:write`，预览无源I/O、配置写入或任务投递。例如：
+
+```json
+{ "expected_revision": 3, "scope": "restricted", "use_user_ids": [] }
+```
+
+预览返回 `location_id`、`config_revision`、`measured_at`、`expires_at`、`changes: [{field,before,after}]`、`impact` 和 `impact_token`。`impact` 沿用下方只读维护盘点的范围、计数及历史覆盖限制。令牌有效五分钟，绑定操作者、原API Key、位置/连接修订、标准化候选及所盘点关系的身份和相关状态。人员列表去重排序；未变化的字段不列入差异，保存仍递增配置修订。
+
+```json
+{
+  "expected_revision": 3,
+  "scope": "restricted",
+  "use_user_ids": [],
+  "impact_token": "<本次预览返回的令牌>"
+}
+```
+
+PATCH在当前权限和配置锁下重新盘点；预览之后新增关系、等量替换记录或相关状态改变，均要求重新预览。旧版直接PATCH缺少令牌返回422。失效令牌不修改位置：
+
+| 状态 | code                                | 处理                                 |
+| ---- | ----------------------------------- | ------------------------------------ |
+| 409  | `storage_change_preview_expired`    | 超过有效期，重新预览                 |
+| 409  | `storage_change_preview_invalid`    | 签名/用途无效，重新预览              |
+| 409  | `storage_change_preview_changed`    | 候选、身份或关系变化，刷新并重新预览 |
+| 409  | `storage_location_revision_changed` | 位置修订已变化，刷新当前配置再预览   |
+| 403  | 当前权限错误                        | 重新核对身份、Key及权限              |
+
+成功的 `storage_location.update` 审计保存安全字段差异、前后修订、预览及复核时间与影响计数，不保存令牌、源路径或连接秘密；失败请求由独立审计记录状态。重新启用位置也须走新的预览，不能重放旧令牌。
+
+关系复核以提交时单条SQL快照为准，位置锁保护配置CAS；Task、标注、冻结等owner仍可按自身合同并发工作。此确认只授权候选逻辑配置更新，所有者的停止/撤权检查、保留和回收协议仍各自执行。预览没有归档、物理退役或删除外部文件的权限。
 
 ## 目录分页
 

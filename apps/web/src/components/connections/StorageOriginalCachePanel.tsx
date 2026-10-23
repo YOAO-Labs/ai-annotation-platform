@@ -1,3 +1,4 @@
+import { StorageLocationChangeButton } from "./StorageLocationChangeButton";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
@@ -94,24 +95,22 @@ export function StorageOriginalCachePanel({ location }: { location: StorageLocat
             保存后，旧配置生成的缓存将停止读取并由后台回收，重新读源后可生成副本。缓存满时按需读取，优先淘汰未在读取中的旧副本；不会删除来源文件。
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button
-              size="sm"
+            <StorageLocationChangeButton
+              location={location}
+              payload={{
+                expected_revision: location.config_revision,
+                cache_policy: policy,
+                original_cache_quota_bytes: values.original_cache_quota_bytes,
+                original_cache_ttl_seconds: values.original_cache_ttl_seconds,
+              }}
+              label="预览缓存配置变更"
               disabled={busy || !changed || !values.valid}
-              onClick={() =>
-                void act(async () => {
-                  const owner = capture();
-                  await apiClient.patch(`/storage-locations/${location.id}`, {
-                    expected_revision: location.config_revision,
-                    cache_policy: policy,
-                    original_cache_quota_bytes: values.original_cache_quota_bytes,
-                    original_cache_ttl_seconds: values.original_cache_ttl_seconds,
-                  });
-                  if (owner()) setMessage("缓存配置已保存。");
-                })
-              }
-            >
-              保存缓存配置
-            </Button>
+              onApplied={async () => {
+                setMessage("缓存配置已保存。");
+                await refresh();
+              }}
+              onDenied={() => setForbidden(true)}
+            />
             <Button size="sm" disabled={busy} onClick={() => void refresh()}>
               刷新配置与用量
             </Button>

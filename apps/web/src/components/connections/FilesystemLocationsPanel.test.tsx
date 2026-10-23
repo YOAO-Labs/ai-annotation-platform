@@ -6,7 +6,10 @@ import { FilesystemLocationsPanel } from "./FilesystemLocationsPanel";
 const state = vi.hoisted(() => ({ role: "super_admin" }));
 const clientApi = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn() }));
 const sources = vi.hoisted(() => ({ location: vi.fn(), probe: vi.fn() }));
-vi.mock("@/api/client", () => ({ apiClient: clientApi }));
+vi.mock("@/api/client", async (original) => ({
+  ...(await original<typeof import("@/api/client")>()),
+  apiClient: clientApi,
+}));
 vi.mock("@/api/datasetSources", () => ({ datasetSourcesApi: sources }));
 vi.mock("@/hooks/usePermissions", () => ({ usePermissions: () => ({ role: state.role }) }));
 vi.mock("@/hooks/useSessionGuard", () => ({
@@ -75,11 +78,60 @@ it("configures the exact detail identity with revision checking and hides regist
   fireEvent.click(await screen.findByRole("button", { name: "配置使用范围 Archive" }));
   expect(screen.queryByRole("button", { name: "登记目录位置" })).not.toBeInTheDocument();
   expect(clientApi.get).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "保存使用范围" }));
+  clientApi.post.mockResolvedValueOnce({
+    location_id: "location",
+    config_revision: 4,
+    measured_at: new Date().toISOString(),
+    expires_at: new Date(Date.now() + 300_000).toISOString(),
+    impact_token: "scope-review",
+    changes: [],
+    impact: {
+      location_id: "location",
+      config_revision: 4,
+      measured_at: new Date().toISOString(),
+      scope: "stored_dependencies",
+      frozen_coverage: "recorded_location_lineage_only",
+      input_coverage: "current_task_links_only",
+      execution_permission: false,
+      counts: {
+        sources: 0,
+        enabled_sources: 0,
+        unregistered_sources: 0,
+        items: 0,
+        reference_items: 0,
+        datasets: 0,
+        projects: 0,
+        tasks: 0,
+        annotations: 0,
+        active_scans: 0,
+        active_registrations: 0,
+        enabled_schedules: 0,
+        ready_previews: 0,
+        failed_previews: 0,
+        preview_bytes: 0,
+        cache_entries: 0,
+        cache_bytes: 0,
+        active_cache_read_leases: 0,
+        active_input_leases: 0,
+        cleanup_input_leases: 0,
+        ready_lineage_versions: 0,
+        unfinished_lineage_versions: 0,
+      },
+    },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "预览使用范围变更" }));
+  await screen.findByRole("dialog", { name: "确认位置配置变更" });
+  expect(clientApi.patch).not.toHaveBeenCalled();
+  expect(clientApi.post).toHaveBeenCalledWith("/storage-locations/location/change-preview", {
+    expected_revision: 4,
+    scope: "restricted",
+    use_user_ids: [],
+  });
+  fireEvent.click(screen.getByRole("button", { name: "确认保存位置配置" }));
   await waitFor(() =>
     expect(clientApi.patch).toHaveBeenCalledWith(
       "/storage-locations/location",
-      expect.objectContaining({ expected_revision: 4 }),
+      expect.objectContaining({ expected_revision: 4, impact_token: "scope-review" }),
     ),
   );
 });

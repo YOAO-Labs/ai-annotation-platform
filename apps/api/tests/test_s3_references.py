@@ -500,8 +500,8 @@ async def test_platform_location_cannot_be_mutated_or_used_as_external_source(
     db_session.add(dataset)
     await db_session.commit()
     headers = {"Authorization": f"Bearer {super_admin[1]}"}
-    response = await httpx_client.patch(
-        f"/api/v1/storage-locations/{LEGACY_LOCATION_ID}",
+    response = await httpx_client.post(
+        f"/api/v1/storage-locations/{LEGACY_LOCATION_ID}/change-preview",
         json={"expected_revision": 1, "cache_policy": "none"},
         headers=headers,
     )

@@ -429,6 +429,7 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "POST /api/v1/dataset-sources/{source_id}/rules" = { status = "excluded", reason = "separate-connector-epic" }
 
 "GET /api/v1/storage-locations/{location_id}/source-summary" = { status = "excluded", reason = "separate-connector-epic" }
+"POST /api/v1/storage-locations/{location_id}/change-preview" = { status = "excluded", reason = "separate-connector-epic" }
 "GET /api/v1/storage-locations/{location_id}/maintenance-impact" = { status = "excluded", reason = "separate-connector-epic" }
 "GET /api/v1/dataset-sources/{source_id}/active-registration" = { status = "excluded", reason = "separate-connector-epic" }
 

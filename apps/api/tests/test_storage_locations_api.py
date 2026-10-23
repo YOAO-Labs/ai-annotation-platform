@@ -28,6 +28,18 @@ def headers(actor):
     return {"Authorization": f"Bearer {actor[1]}"}
 
 
+async def reviewed_patch(client, url, *, headers, json):
+    """Explicitly review location edits; preserve the preview's validation failures."""
+    preview = await client.post(url + "/change-preview", headers=headers, json=json)
+    if preview.status_code != 200:
+        return preview
+    return await client.patch(
+        url,
+        headers=headers,
+        json={**json, "impact_token": preview.json()["impact_token"]},
+    )
+
+
 async def create(client, admin, **kwargs):
     response = await client.post(
         "/api/v1/storage-locations",
@@ -52,7 +64,8 @@ async def test_registration_permissions_dynamic_children_and_private_paths(
         await httpx_client.get(base, headers=headers(project_admin))
     ).status_code == 404
     assert (await httpx_client.get(base, headers=headers(annotator))).status_code == 403
-    response = await httpx_client.patch(
+    response = await reviewed_patch(
+        httpx_client,
         base,
         headers=headers(super_admin),
         json={"expected_revision": 1, "use_user_ids": [str(project_admin[0].id)]},
@@ -75,13 +88,15 @@ async def test_registration_permissions_dynamic_children_and_private_paths(
         )
     ).status_code == 403
     assert (
-        await httpx_client.patch(
+        await reviewed_patch(
+            httpx_client,
             base,
             headers=headers(super_admin),
             json={"expected_revision": 1, "enabled": False},
         )
     ).status_code == 409
-    response = await httpx_client.patch(
+    response = await reviewed_patch(
+        httpx_client,
         base,
         headers=headers(super_admin),
         json={"expected_revision": 2, "use_user_ids": []},
@@ -153,7 +168,8 @@ async def test_node_probe_is_separate_expiring_and_invalidated_by_revision(
     with pytest.raises(HTTPException) as exc:
         await svc.require_scan_node(db_session, row, "worker:offline@host")
     assert exc.value.status_code == 409
-    await httpx_client.patch(
+    await reviewed_patch(
+        httpx_client,
         base,
         headers=headers(super_admin),
         json={"expected_revision": 1, "enabled": False},

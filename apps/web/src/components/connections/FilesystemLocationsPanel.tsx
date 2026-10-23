@@ -1,3 +1,4 @@
+import { StorageLocationChangeButton } from "./StorageLocationChangeButton";
 import { StorageCacheFields } from "./StorageCacheFields";
 import { originalCacheValues, type CachePolicy } from "@/utils/cachePolicy";
 import { storageAccessDenied } from "./storageQueryState";
@@ -272,22 +273,25 @@ function FilesystemLocationsPanelOwner({
             保存会更新位置修订，使旧扫描与登记任务停止继续写入；已登记样本和外部原图保留。撤回人员使用权不撤销既有任务的分配权限。
           </p>
           <div className="flex gap-2">
-            <Button
-              size="sm"
+            <StorageLocationChangeButton
+              location={editing}
+              payload={{
+                expected_revision: editing.config_revision,
+                scope: editScope,
+                use_user_ids: editUsers,
+              }}
+              label="预览使用范围变更"
               disabled={busy}
-              onClick={() =>
-                void act(async (current) => {
-                  await apiClient.patch(`/storage-locations/${editing.id}`, {
-                    expected_revision: editing.config_revision,
-                    scope: editScope,
-                    use_user_ids: editUsers,
-                  });
+              onApplied={() =>
+                act(async (current) => {
                   if (current()) setEditing(null);
                 })
               }
-            >
-              保存使用范围
-            </Button>
+              onDenied={() => {
+                setEditing(null);
+                void client.invalidateQueries({ queryKey: ["filesystem-locations", session] });
+              }}
+            />
             <Button size="sm" disabled={busy} onClick={() => setEditing(null)}>
               取消使用范围修改
             </Button>

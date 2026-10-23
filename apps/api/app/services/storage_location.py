@@ -248,7 +248,8 @@ async def create_filesystem(db, payload):
     return location
 
 
-async def update_filesystem(db, location, payload):
+async def update_candidate(db, location, payload):
+    """Validate and normalize public edits without mutating the stored location."""
     if location.kind != "filesystem":
         if location.connection_id is None:
             raise HTTPException(409, "Platform storage bindings are immutable")
@@ -260,7 +261,7 @@ async def update_filesystem(db, location, payload):
                 409, "Manage connector identity and scope through its connection"
             )
     if location.config_revision != payload.expected_revision:
-        raise HTTPException(409, "Storage configuration revision changed")
+        raise HTTPException(409, detail={"code": "storage_location_revision_changed"})
     if payload.use_user_ids is not None:
         await validate_grants(db, payload.use_user_ids)
     config = dict(location.config)
@@ -276,11 +277,18 @@ async def update_filesystem(db, location, payload):
         config["scope"] = payload.scope
     if payload.use_user_ids is not None:
         config["use_user_ids"] = sorted({str(value) for value in payload.use_user_ids})
-    if payload.name is not None:
-        location.name = payload.name
-    if payload.enabled is not None:
-        location.enabled = payload.enabled
-    location.config = config
+    return {
+        "name": payload.name if payload.name is not None else location.name,
+        "enabled": payload.enabled if payload.enabled is not None else location.enabled,
+        "config": config,
+    }
+
+
+async def update_filesystem(db, location, payload):
+    candidate = await update_candidate(db, location, payload)
+    location.name = candidate["name"]
+    location.enabled = candidate["enabled"]
+    location.config = candidate["config"]
     location.config_revision += 1
     await db.flush()
 

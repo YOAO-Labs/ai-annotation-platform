@@ -41,6 +41,47 @@ beforeEach(() => {
   vi.clearAllMocks();
   api.get.mockResolvedValue(usage);
   api.patch.mockResolvedValue(location);
+  api.post.mockImplementation(async () => ({
+    location_id: "cache-location",
+    config_revision: 8,
+    measured_at: new Date().toISOString(),
+    expires_at: new Date(Date.now() + 300_000).toISOString(),
+    impact_token: "cache-review",
+    changes: [],
+    impact: {
+      location_id: "cache-location",
+      config_revision: 8,
+      measured_at: new Date().toISOString(),
+      scope: "stored_dependencies",
+      frozen_coverage: "recorded_location_lineage_only",
+      input_coverage: "current_task_links_only",
+      execution_permission: false,
+      counts: {
+        sources: 0,
+        enabled_sources: 0,
+        unregistered_sources: 0,
+        items: 0,
+        reference_items: 0,
+        datasets: 0,
+        projects: 0,
+        tasks: 0,
+        annotations: 0,
+        active_scans: 0,
+        active_registrations: 0,
+        enabled_schedules: 0,
+        ready_previews: 0,
+        failed_previews: 0,
+        preview_bytes: 0,
+        cache_entries: 0,
+        cache_bytes: 0,
+        active_cache_read_leases: 0,
+        active_input_leases: 0,
+        cleanup_input_leases: 0,
+        ready_lineage_versions: 0,
+        unfinished_lineage_versions: 0,
+      },
+    },
+  }));
 });
 function mount() {
   const client = createTestQueryClient();
@@ -56,14 +97,18 @@ it("preserves exact byte and TTL values and binds saving to location revision", 
   mount();
   await screen.findByText(/已计费/);
   expect(screen.getByRole("spinbutton", { name: "保留时间（秒）" })).toHaveValue(61);
-  expect(screen.getByRole("button", { name: "保存缓存配置" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "预览缓存配置变更" })).toBeDisabled();
   fireEvent.change(screen.getByRole("combobox", { name: "位置缓存上限" }), {
     target: { value: "preview" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "保存缓存配置" }));
+  fireEvent.click(screen.getByRole("button", { name: "预览缓存配置变更" }));
+  await screen.findByRole("dialog", { name: "确认位置配置变更" });
+  expect(api.patch).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "确认保存位置配置" }));
   await waitFor(() =>
     expect(api.patch).toHaveBeenCalledWith("/storage-locations/cache-location", {
       expected_revision: 8,
+      impact_token: "cache-review",
       cache_policy: "preview",
       original_cache_quota_bytes: 12345,
       original_cache_ttl_seconds: 61,
@@ -97,18 +142,25 @@ it("sends the confirmed observation cutoff and reports queued deletion honestly"
 it("retains edits on a revision conflict and hides old accounting after denied mutation until revalidated", async () => {
   mount();
   await screen.findByText(/已计费/);
-  fireEvent.change(screen.getByRole("spinbutton", { name: "保留时间（秒）" }), {
+  const ttlInput = screen.getByRole("spinbutton", { name: "保留时间（秒）" });
+  fireEvent.change(ttlInput, {
     target: { value: "62" },
   });
   api.patch.mockRejectedValueOnce({
     status: 409,
     message: "Storage configuration revision changed",
   });
-  fireEvent.click(screen.getByRole("button", { name: "保存缓存配置" }));
+  fireEvent.click(screen.getByRole("button", { name: "预览缓存配置变更" }));
+  fireEvent.click(await screen.findByRole("button", { name: "确认保存位置配置" }));
   await screen.findByRole("alert");
-  expect(screen.getByRole("spinbutton", { name: "保留时间（秒）" })).toHaveValue(62);
+  expect(ttlInput).toHaveValue(62);
   api.patch.mockRejectedValueOnce({ status: 403, message: "Forbidden" });
-  fireEvent.click(screen.getByRole("button", { name: "保存缓存配置" }));
+  expect(screen.getByRole("button", { name: "确认保存位置配置" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "重新预览" }));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "确认保存位置配置" })).toBeEnabled(),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "确认保存位置配置" }));
   fireEvent.click(await screen.findByRole("button", { name: "重新核对权限与用量" }));
   await screen.findByRole("spinbutton", { name: "保留时间（秒）" });
   expect(api.get).toHaveBeenCalledTimes(2);

@@ -23,6 +23,8 @@ from app.schemas.storage_location import (
     StorageLocationList,
     StorageLocationOut,
     StorageLocationUpdate,
+    StorageLocationApply,
+    StorageLocationChangePreview,
     StorageMaintenanceImpact,
     StorageSourceSummary,
     StorageProbeOut,
@@ -174,18 +176,69 @@ async def source_summary(
     )
 
 
-@router.patch("/{location_id}", response_model=StorageLocationOut)
-async def update_location(
+async def lock_change_location(db, location_id, actor):
+    from app.db.models.storage_connection import StorageConnection
+
+    initial = await svc.get_visible(db, location_id, actor)
+    connection_id = initial.connection_id
+    if connection_id is not None:
+        # Connector changes own Connection -> Location. Keep that order when
+        # binding a location review to the connector's current revision.
+        await db.scalar(
+            select(StorageConnection)
+            .where(StorageConnection.id == connection_id)
+            .with_for_update(read=True)
+            .execution_options(populate_existing=True)
+        )
+    location = await svc.get_visible(db, location_id, actor, lock=True)
+    if location.connection_id != connection_id:
+        raise HTTPException(409, detail={"code": "storage_change_preview_changed"})
+    return location
+
+
+@router.post(
+    "/{location_id}/change-preview", response_model=StorageLocationChangePreview
+)
+async def preview_location_change(
     location_id: uuid.UUID,
     payload: StorageLocationUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(super_admin),
 ):
+    from app.services.storage_location_change import preview
+
     actor = await lock_current_admin(db, actor, request)
-    location = await svc.get_visible(db, location_id, actor, lock=True)
+    location = await lock_change_location(db, location_id, actor)
+    return await preview(
+        db,
+        location,
+        payload,
+        actor,
+        api_key_id=getattr(request.state, "api_key_id", None),
+    )
+
+
+@router.patch("/{location_id}", response_model=StorageLocationOut)
+async def update_location(
+    location_id: uuid.UUID,
+    payload: StorageLocationApply,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(super_admin),
+):
+    from app.services.storage_location_change import apply
+
+    actor = await lock_current_admin(db, actor, request)
+    location = await lock_change_location(db, location_id, actor)
     try:
-        await svc.update_filesystem(db, location, payload)
+        detail = await apply(
+            db,
+            location,
+            payload,
+            actor,
+            api_key_id=getattr(request.state, "api_key_id", None),
+        )
     except IntegrityError:
         raise HTTPException(409, "Storage location name already exists") from None
     await AuditService.log(
@@ -196,10 +249,7 @@ async def update_location(
         target_id=str(location.id),
         request=request,
         status_code=200,
-        detail={
-            "config_revision": location.config_revision,
-            "enabled": location.enabled,
-        },
+        detail=detail,
     )
     await db.commit()
     return await svc.to_out(db, location, actor)

@@ -1,8 +1,8 @@
 """Read-only stored dependencies, never a permit to retire or reclaim storage."""
 
 from fastapi import HTTPException
-from sqlalchemy import case, cast, func, literal, select, union
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Text, case, cast, func, literal, select, union
+from sqlalchemy.dialects.postgresql import JSONB, aggregate_order_by
 
 from app.db.enums import UserRole
 from app.db.models.annotation import Annotation
@@ -33,7 +33,7 @@ async def administrator(db, actor):
     return current
 
 
-def dependencies(location_id):
+def dependencies(location_id, *, with_fingerprint=False):
     """One SQL snapshot and fixed-size result, independent of source pagination."""
     sources = select(DatasetSource.id).where(DatasetSource.location_id == location_id)
     assets = select(DatasetAssetLocation.asset_id).where(
@@ -172,10 +172,118 @@ def dependencies(location_id):
             TrainingDatasetVersion.status.in_(["pending", "running"]),
         ),
     }
-    return select(
-        func.statement_timestamp().label("measured_at"),
-        *(value.label(name) for name, value in counts.items()),
-    )
+    columns = [value.label(name) for name, value in counts.items()]
+    if with_fingerprint:
+        # Hash semantic row identities in SQL. The application receives a fixed-size
+        # proof, even for large retained histories. Heartbeats/access times are not
+        # maintenance dependencies. This snapshot does not fence all owner writes.
+        def digest(value):
+            return func.encode(func.sha256(func.convert_to(value, "UTF8")), "hex")
+
+        def footprint(model, fields, *where):
+            values = [getattr(model, field) for field in fields.split()]
+            row_digest = digest(cast(func.jsonb_build_array(*values), Text))
+            return (
+                select(
+                    digest(
+                        func.coalesce(
+                            func.string_agg(
+                                row_digest, aggregate_order_by(literal(""), *values)
+                            ),
+                            "",
+                        )
+                    )
+                )
+                .select_from(model)
+                .where(*where)
+                .scalar_subquery()
+            )
+
+        fingerprints = [
+            footprint(
+                DatasetSource,
+                "id dataset_id config_revision policy_revision enabled unregistered_at generation",
+                DatasetSource.id.in_(sources),
+            ),
+            footprint(
+                DatasetSourceRevision,
+                "id dataset_item_id asset_id",
+                DatasetSourceRevision.source_id.in_(sources),
+            ),
+            footprint(
+                DatasetReference,
+                "dataset_item_id source_id run_id path_digest source_revision location_revision",
+                DatasetReference.source_id.in_(sources),
+            ),
+            footprint(
+                DatasetAssetLocation,
+                "asset_id location_id bucket object_key role reference_state",
+                DatasetAssetLocation.location_id == location_id,
+            ),
+            footprint(DatasetAsset, "id dataset_item_id", DatasetAsset.id.in_(assets)),
+            footprint(DatasetItem, "id dataset_id", DatasetItem.id.in_(items)),
+            footprint(
+                ProjectDataset,
+                "id dataset_id project_id",
+                ProjectDataset.dataset_id.in_(datasets),
+            ),
+            footprint(Task, "id dataset_item_id project_id", Task.id.in_(tasks)),
+            footprint(Annotation, "id task_id", Annotation.task_id.in_(tasks)),
+            footprint(
+                DatasetScanRun,
+                "id source_id status generation async_job_id",
+                DatasetScanRun.source_id.in_(sources),
+                DatasetScanRun.status.in_(["pending", "running"]),
+            ),
+            footprint(
+                DatasetRegistrationRun,
+                "id source_id status generation async_job_id",
+                DatasetRegistrationRun.source_id.in_(sources),
+                DatasetRegistrationRun.status.in_(["pending", "running"]),
+            ),
+            footprint(
+                DatasetSourceSyncSchedule,
+                "source_id revision enabled",
+                DatasetSourceSyncSchedule.source_id.in_(sources),
+                DatasetSourceSyncSchedule.enabled,
+            ),
+            footprint(
+                DatasetSourcePreview,
+                "source_id path_digest asset_id generation policy_revision state size_bytes",
+                previews,
+            ),
+            footprint(
+                OriginalCacheEntry,
+                "id source_id asset_id state size_bytes source_revision policy_revision location_revision",
+                cache,
+            ),
+            footprint(
+                OriginalCacheReadLease,
+                "id entry_id expires_at",
+                OriginalCacheReadLease.entry_id.in_(
+                    select(OriginalCacheEntry.id).where(cache)
+                ),
+                OriginalCacheReadLease.expires_at > func.statement_timestamp(),
+            ),
+            footprint(
+                PredictionInputLease,
+                "id task_id state",
+                PredictionInputLease.task_id.in_(tasks),
+                PredictionInputLease.state.in_(["active", "cleanup_pending"]),
+            ),
+            footprint(
+                TrainingDatasetVersion,
+                "id status snapshot_digest",
+                lineage,
+                TrainingDatasetVersion.status.in_(["pending", "running", "ready"]),
+            ),
+        ]
+        columns.append(
+            digest(cast(func.jsonb_build_array(*fingerprints), Text)).label(
+                "dependency_fingerprint"
+            )
+        )
+    return select(func.statement_timestamp().label("measured_at"), *columns)
 
 
 async def impact(db, location_id, actor, *, api_key_id=None):

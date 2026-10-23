@@ -51,30 +51,6 @@ function ImpactOwner({ location }: { location: StorageLocationOut }) {
     (query.data.config_revision !== location.config_revision ||
       query.data.location_id !== location.id);
   const data = denied || changed ? undefined : query.data;
-  const c = data?.counts;
-  const rows = c
-    ? [
-        ["来源", `${c.sources} 个 · 启用 ${c.enabled_sources} · 已注销 ${c.unregistered_sources}`],
-        ["业务关系", `${c.datasets} 个数据集 · ${c.projects} 个项目`],
-        ["业务样本", `${c.items} 个 · 其中原地引用 ${c.reference_items}`],
-        ["任务与标注", `${c.tasks} 个任务 · ${c.annotations} 条标注`],
-        ["活动扫描与登记", `${c.active_scans} 个扫描 · ${c.active_registrations} 个预检/登记`],
-        ["已启用自动同步", `${c.enabled_schedules} 个来源`],
-        [
-          "预览记录",
-          `就绪 ${c.ready_previews} · 失败 ${c.failed_previews} · ${cacheBytes(c.preview_bytes)}`,
-        ],
-        [
-          "完整原图缓存账本",
-          `${c.cache_entries} 条 · ${cacheBytes(c.cache_bytes)} · 有效读租约 ${c.active_cache_read_leases}`,
-        ],
-        ["可关联临时输入", `活动状态 ${c.active_input_leases} · 待清理 ${c.cleanup_input_leases}`],
-        [
-          "有位置血缘的冻结版本",
-          `就绪 ${c.ready_lineage_versions} · 未完成 ${c.unfinished_lineage_versions}`,
-        ],
-      ]
-    : [];
   return (
     <details
       className="mt-4 rounded-lg border border-border text-sm"
@@ -107,34 +83,62 @@ function ImpactOwner({ location }: { location: StorageLocationOut }) {
               正在盘点已保存的关系…
             </p>
           )}
-          {data && (
-            <>
-              <p className="mb-2 text-xs text-muted-foreground">
-                统计于 {new Date(data.measured_at).toLocaleString("zh-CN")}
-              </p>
-              <dl className="divide-y divide-border">
-                {rows.map(([label, value]) => (
-                  <div key={label} className="grid gap-1 py-2 sm:grid-cols-2 sm:gap-4">
-                    <dt className="text-xs text-muted-foreground">{label}</dt>
-                    <dd className="min-w-0 break-words tabular-nums">{value}</dd>
-                  </div>
-                ))}
-              </dl>
-              <div className="mt-3 space-y-2 text-xs leading-relaxed text-muted-foreground">
-                <p>
-                  位置配置保存后，旧扫描和登记会在后续检查点停止写入，自动同步会在后续检查中阻塞。旧完整缓存将失配，后续回收仍受读租约保护；预览按当前策略和内容判断是否可复用。副本记录不代表文件此刻可读。
-                </p>
-                <p>
-                  停用位置会拒绝新的引用原图读取，包括完整缓存。撤回目录使用权影响来源管理；已有任务仍按项目权限读取。已就绪冻结内容按项目权限独立保留。
-                </p>
-                <p>
-                  临时输入按记录状态计数，含已到期但尚未转入清理的记录，不代表运行作业或有效下载凭证；仅包含当前任务仍可关联的输入，未覆盖全部预测、修复及孤儿输入。冻结数量仅包含已记录位置血缘的版本，托管和缺少位置血缘的历史未计入。零数量不能证明无引用；此盘点不提供归档、退役或回收许可。
-                </p>
-              </div>
-            </>
-          )}
+          {data && <StorageMaintenanceDetails data={data} />}
         </div>
       )}
     </details>
+  );
+}
+
+export function StorageMaintenanceDetails({ data }: { data: Impact }) {
+  const c = data.counts;
+  const rows = c
+    ? [
+        ["来源", `${c.sources} 个 · 启用 ${c.enabled_sources} · 已注销 ${c.unregistered_sources}`],
+        ["业务关系", `${c.datasets} 个数据集 · ${c.projects} 个项目`],
+        ["业务样本", `${c.items} 个 · 其中原地引用 ${c.reference_items}`],
+        ["任务与标注", `${c.tasks} 个任务 · ${c.annotations} 条标注`],
+        ["活动扫描与登记", `${c.active_scans} 个扫描 · ${c.active_registrations} 个预检/登记`],
+        ["已启用自动同步", `${c.enabled_schedules} 个来源`],
+        [
+          "预览记录",
+          `就绪 ${c.ready_previews} · 失败 ${c.failed_previews} · ${cacheBytes(c.preview_bytes)}`,
+        ],
+        [
+          "完整原图缓存账本",
+          `${c.cache_entries} 条 · ${cacheBytes(c.cache_bytes)} · 有效读租约 ${c.active_cache_read_leases}`,
+        ],
+        ["可关联临时输入", `活动状态 ${c.active_input_leases} · 待清理 ${c.cleanup_input_leases}`],
+        [
+          "有位置血缘的冻结版本",
+          `就绪 ${c.ready_lineage_versions} · 未完成 ${c.unfinished_lineage_versions}`,
+        ],
+      ]
+    : [];
+  return (
+    <>
+      <p className="mb-2 text-xs text-muted-foreground">
+        统计于 {new Date(data.measured_at).toLocaleString("zh-CN")}
+      </p>
+      <dl className="divide-y divide-border">
+        {rows.map(([label, value]) => (
+          <div key={label} className="grid gap-1 py-2 sm:grid-cols-2 sm:gap-4">
+            <dt className="text-xs text-muted-foreground">{label}</dt>
+            <dd className="min-w-0 break-words tabular-nums">{value}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="mt-3 space-y-2 text-xs leading-relaxed text-muted-foreground">
+        <p>
+          位置配置保存后，旧扫描和登记会在后续检查点停止写入，自动同步会在后续检查中阻塞。旧完整缓存将失配，后续回收仍受读租约保护；预览按当前策略和内容判断是否可复用。副本记录不代表文件此刻可读。
+        </p>
+        <p>
+          停用位置会拒绝新的引用原图读取，包括完整缓存。撤回目录使用权影响来源管理；已有任务仍按项目权限读取。已就绪冻结内容按项目权限独立保留。
+        </p>
+        <p>
+          临时输入按记录状态计数，含已到期但尚未转入清理的记录，不代表运行作业或有效下载凭证；仅包含当前任务仍可关联的输入，未覆盖全部预测、修复及孤儿输入。冻结数量仅包含已记录位置血缘的版本，托管和缺少位置血缘的历史未计入。零数量不能证明无引用；此盘点不提供归档、退役或回收许可。
+        </p>
+      </div>
+    </>
   );
 }
