@@ -6,11 +6,12 @@ from copy import deepcopy
 from contextlib import asynccontextmanager
 from hashlib import sha256
 from io import BytesIO
+from types import SimpleNamespace
 
 import asyncpg
 from botocore.exceptions import ClientError
 import pytest
-from sqlalchemy.engine import URL
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import DBAPIError
 
 from tests.legacy_video_fence_helpers import (
@@ -19,6 +20,7 @@ from tests.legacy_video_fence_helpers import (
     build_local_fence_evidence,
     inventory_worker_database_credentials,
     inspect_worker_write_selectors,
+    owned_worker_identity,
     prove_s3_write_access,
     prove_s3_write_denied,
     prove_stale_worker_dsns_denied,
@@ -235,6 +237,10 @@ def _preflight() -> dict:
             "registry_id": "f" * 36,
             "scope_id": "11234567-89ab-cdef-0123-456789abcdef",
             "closed": False,
+            "state": "active",
+            "attempt_count": 0,
+            "permit_count": 0,
+            "no_live_admission": True,
             "job_status": "running",
             "job_started_at": "2026-10-23T00:00:00Z",
             "input_referenced": True,
@@ -437,6 +443,35 @@ def test_worker_write_selectors_bind_only_to_owned_media_and_s3_identities():
         )
 
 
+@pytest.mark.parametrize("fingerprint", ["A" * 40, "unexpected-secret"])
+def test_worker_write_inventory_recognizes_only_public_gpg_fingerprints(fingerprint):
+    environment = {
+        "SECRET_KEY": "process-secret",
+        "ASSETS_MEDIA_TOKEN": "media-token",
+        "MINIO_ACCESS_KEY": "aapcln0123456789",
+        "MINIO_SECRET_KEY": "minio-secret",
+        "GPG_KEY": fingerprint,
+    }
+    if fingerprint == "A" * 40:
+        assert (
+            inspect_worker_write_selectors(
+                environment,
+                expected_s3_access_key="aapcln0123456789",
+                expected_media_token="media-token",
+            )["s3_principal_id"]
+            == "aapcln0123456789"
+        )
+    else:
+        with pytest.raises(
+            LocalFenceRefused, match="unrecognized_worker_write_selector"
+        ):
+            inspect_worker_write_selectors(
+                environment,
+                expected_s3_access_key="aapcln0123456789",
+                expected_media_token="media-token",
+            )
+
+
 def test_postgres_ownership_requires_exact_disposable_loopback_identity():
     record = _postgres_record()
     url = URL.create(
@@ -563,6 +598,50 @@ def test_worker_identity_rejects_gpu_queue_or_restartable_container():
         )
 
 
+@pytest.mark.parametrize("database", ["0", "1"])
+def test_worker_broker_identity_uses_the_parsed_redis_database(monkeypatch, database):
+    from tests.workspace_worker_assembly_helpers import WorkspaceCeleryWorker
+
+    owner_url = make_url("redis://127.0.0.1:56379/0")
+    monkeypatch.setenv("CELERY_BROKER_URL", str(owner_url))
+    monkeypatch.setenv("AAP_MODULE_DATA_REDIS_CONTAINER_NAME", "owned-redis")
+    monkeypatch.setenv("AAP_MODULE_DATA_REDIS_OWNER", "owned-redis-label")
+    monkeypatch.setattr(
+        "tests.test_identity_sessions_live._verify_redis", lambda: owner_url
+    )
+    worker_record = _worker_record()
+    redis_record = {
+        "Id": "1" * 64,
+        "Name": "/owned-redis",
+        "Config": {"Labels": {"org.aap.worktree-owner": "owned-redis-label"}},
+        "NetworkSettings": {
+            "Ports": {"6379/tcp": [{"HostIp": "127.0.0.1", "HostPort": "56379"}]}
+        },
+    }
+    worker = SimpleNamespace(
+        container_id="c" * 64,
+        container_name="aap-workspace-worker-0123456789abcdef0123",
+        identity="0123456789abcdef0123",
+        queue="legacy_video_fence_0123456789abcdef0123",
+        _image_record={"id": "sha256:" + "d" * 64, "source_revision": "e" * 40},
+        image_identity="9876543210abcdef98765432",
+        _redis_url=f"redis://worker-redis:6379/{database}",
+        _redis_owner_url=owner_url,
+        _same_redis_target=WorkspaceCeleryWorker._same_redis_target,
+        _inspect=lambda key: redis_record if key == "owned-redis" else worker_record,
+        assert_runtime=lambda: {"started_at": worker_record["State"]["StartedAt"]},
+        assert_private_network=lambda: None,
+        network_id="f" * 64,
+        network_name="aap-workspace-worker-0123456789abcdef0123",
+        _database_name=_DATABASE,
+    )
+    if database == "0":
+        assert owned_worker_identity(worker)["broker"]["database"] == "0"
+    else:
+        with pytest.raises(LocalFenceRefused, match="worker_broker_identity_mismatch"):
+            owned_worker_identity(worker)
+
+
 def test_fence_evidence_rejects_raw_credentials_and_connection_urls():
     safe = {
         "schema": "aap-local-video-fence/v1",
@@ -618,6 +697,10 @@ def test_complete_preflight_can_run_fence_operation():
         lambda plan: plan["worker"].update({"queue": "gpu"}),
         lambda plan: plan["worker"].update({"image_acceptance_id": ""}),
         lambda plan: plan["worker_database_credentials"].pop(),
+        lambda plan: plan["scope"].update({"state": "reserved"}),
+        lambda plan: plan["scope"].update({"attempt_count": 1}),
+        lambda plan: plan["scope"].update({"permit_count": 1}),
+        lambda plan: plan["scope"].update({"no_live_admission": False}),
         lambda plan: plan["storage"].update({"owner_verified": False}),
         lambda plan: plan["storage"]["write_probe"].update(
             {"succeeded_before_revoke": False}

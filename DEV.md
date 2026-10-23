@@ -480,7 +480,7 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 先安装当前迁移和 module-data owner grants。`infra/docker/audit-append-grants.sql` 仅向明确的 API 角色及独立函数客户端授予追加能力，撤销现有 Audit 父表／分区的 INSERT 和对应序列写权限，保留其他尚未迁移操作需要的权限。它会拒绝 API 拥有分区树或未来默认授权不安全的配置，不修改整个 public schema 的默认权限。现有 LAN 脚本仍把分区树交给 API，因此完整严格配置须等待维护所有权和未来分区权限收口；新增的固定函数授权只保证既有绑定可调用新代码。**排空旧 API／worker 并部署新工件后才撤销直接写权限**。
 
-模块 Node peer 的锁定依赖按 `apps/audit/conformance/node/README.md` 安装到该目录，验收器在创建资源前检查三项 Node peer。组合冷验收复用同一 API 镜像执行真实 Audit task，覆盖相同载荷的两次投递和孤儿 actor 的匿名保存；实际运行通过前不计作该门槛完成。查询／领域事实、分析投影、分区归档及整模块资格按[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)分别跟踪。
+模块 Node peer 的锁定依赖按 `apps/audit/conformance/node/README.md` 安装到该目录，验收器在创建资源前检查三项 Node peer。组合冷验收复用同一 API 镜像执行真实 Audit task，覆盖相同载荷的两次投递和孤儿 actor 的匿名保存；该三次真实投递已通过组合验收；它只证明功能路径，冷 worker 的旧 Audit 分区所有权尚未收口。查询／领域事实、分析投影、分区归档及整模块资格按[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)分别跟踪。
 
 ### Notifications 偏好事务内能力
 
@@ -496,7 +496,7 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 先安装当前迁移与 module-data owner 授权，再使用 `infra/docker/notification-append-grants.sql` 的明确数据库／角色参数。严格配置撤销 API 的通知表直接 INSERT，函数账号只拥有偏好和追加两项能力；Node 用同一连接和事务组合两次调用。必须先更新 API／worker 并排空旧写表消费者再撤权。普通工作树生成的运行角色已列出这两项函数并检查授权，无新增服务或环境变量。回退迁移时也要匹配调用代码与旧 grants，不能让新代码调用已移除的函数。
 
-操作级证据来自明确自有的工作树测试数据库，包含普通 API 角色及函数账号检查；它不等同于完整冷装配或整模块验收。下一次新工件与完整迁移往返会与 Audit 追加能力统一验证。收件箱查询、已读／删除、WebSocket、通用投递／重放和独立通道装配继续按[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)推进。
+操作级证据来自明确自有的工作树测试数据库，包含普通 API 角色及函数账号检查；它不等同于完整冷装配或整模块验收。与 Audit 的组合新工件、受限 Node 和完整迁移往返已通过，具体边界见唯一台账。收件箱查询、已读／删除、WebSocket、通用投递／重放和独立通道装配继续按[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)推进。
 
 ### 视频输入回收的保留前提
 
@@ -2823,6 +2823,20 @@ Media 与确定性推理 peer 仍通过 `host.docker.internal` 访问，沿用�
 转发依赖。当前已通过一个冷组合案例和一个独立 HTTP 撤权前置案例；五个 task ID
 共六次真实接收，最终队列与 unacked 均归零，完整迁移及自有资源清理通过。
 限定资格与恢复延迟限制见[唯一台账](docs-site/dev/concepts/module-deployment.md#workspace-video-tracker-cold-worker)。
+
+### 本地旧视频凭据围栏验收
+
+复用前节不可变 API 镜像及身份变量；额外将 `AAP_LEGACY_VIDEO_FENCE_API_SOURCE_REVISION` 设为该镜像的 `org.aap.source-revision` 标签。此开关仅用于验收器独占 PostgreSQL 和随机专用队列：
+
+```bash
+AAP_LEGACY_VIDEO_FENCE_LIVE=1 apps/api/.venv/bin/python \
+  scripts/verify_module_data_boundary.py --output .worktree/local-video-fence.json \
+  --test-file tests/test_legacy_video_fence_live.py
+```
+
+夹具播种历史 Job 和 scope-only 形态，不能代表旧二进制或有效 admission；不关闭 tracker permit，也不生成 Jobs execution、journal 或 clearance。先成功写入／读回专用 S3 对象，再核验进程、资源、凭据及 scope 身份；随后真实退役 scope、停止进程、撤销存储身份及该独占 PostgreSQL 的全部非 owner LOGIN，最后用相同旧凭据重投原任务并要求失败。未知 worker、DB 选择器或共享资源均拒绝继续；不 purge 全局 broker。
+
+该案例必须最后执行，因为后续普通账号已不能登录。验收器在核对同一专属 PostgreSQL 容器后，仅用 owner 完成资源销毁，保留所有所有权检查，不重启已围栏角色。最新端到端案例及清理通过；它只关闭本地物理围栏前提，正式旧 Jobs 退役凭证和历史输入修复仍待实现。范围和证据见[组合验收台账](docs-site/dev/concepts/module-deployment.md#coherent-owner-operations)。
 
 ### Workspace 冷运维导入验收
 

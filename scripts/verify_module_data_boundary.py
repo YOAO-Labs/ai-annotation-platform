@@ -5307,7 +5307,25 @@ SELECT pg_catalog.jsonb_build_object(
                         container_identity,
                         require_running=True,
                     )
-                backend.destroy(backend.resources["confirmation"])
+                cleanup_backend = backend
+                if (
+                    container_id
+                    and "tests/test_legacy_video_fence_live.py" in selected_test_paths
+                    and os.environ.get("AAP_LEGACY_VIDEO_FENCE_LIVE") == "1"
+                ):
+                    # This fixture deliberately disables every ordinary LOGIN.
+                    cleanup_backend = LocalResources(
+                        backend.resources,
+                        backend.settings.model_copy(
+                            update={
+                                "database_url": backend.url.render_as_string(
+                                    hide_password=False
+                                )
+                            }
+                        ),
+                        code_root=ROOT,
+                    )
+                cleanup_backend.destroy(backend.resources["confirmation"])
                 evidence["cleanup"]["local_resources_destroyed"] = True
                 local_resources_destroyed = True
             except Exception as error:

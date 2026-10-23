@@ -22,13 +22,12 @@ from celery import Celery
 import httpx
 import pytest
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from aap_inference_contract.routing import RoutingScopeView
 from aap_inference_contract.scope_retirement import make_scope_retirement_request
 from app.config import settings
+from app.services.ml_backend import MLBackendService
 from app.services.ml_routing.authority import RoutingAuthority
-from app.services.ml_routing.contracts import RouterMode
-from app.services.ml_routing.router import MLBackendRouter
 from tests.legacy_video_fence_helpers import (
     LocalFenceRefused,
     build_local_fence_evidence,
@@ -52,6 +51,7 @@ from tests.project_guide_asset_owner_helpers import (
     endpoint_url,
 )
 from tests.test_video_input_live import _video_bytes, _video_runtime
+from tests.test_inference_routing_control_recovery import _add_open_scope, _connect
 from tests.test_video_window_recovery_live import (
     _bbox_artifact,
     _checkpoint_cpu_backend,
@@ -125,30 +125,37 @@ def _worker(
     )
 
 
-async def _create_scope_only_route(test_engine, world):
-    sessions = async_sessionmaker(
-        test_engine, class_=AsyncSession, expire_on_commit=False
-    )
-    async with sessions() as db:
-        pool_id = await db.scalar(
-            text("SELECT ml_backend_pool_id FROM public.projects WHERE id=:project"),
-            {"project": world["project_id"]},
-        )
-        if pool_id is None:
-            raise LocalFenceRefused("tracker_pool_missing")
-        router = MLBackendRouter(db, ledger=None, mode=RouterMode.OFF)
-        selection = await router.acquire(
-            pool_id,
-            owner=f"tracker:{world['job_id']}",
-            operation="tracker",
-            project_id=world["project_id"],
-            registry_id=world["registry_id"],
-            required_instance_id=world["registry_id"],
-        )
-        await db.rollback()
-    if selection.rejection is not None or selection.lease is None:
-        raise LocalFenceRefused("legacy_route_scope_unavailable")
-    scope = selection.lease.scope
+async def _seed_scope_only_route(test_engine, world):
+    await assert_owned_test_database(test_engine)
+    owner = await _connect(test_engine)
+    try:
+        async with owner.transaction():
+            pool_id = await owner.fetchval(
+                "SELECT ml_backend_pool_id FROM public.projects WHERE id=$1",
+                world["project_id"],
+            )
+            if pool_id is None:
+                raise LocalFenceRefused("tracker_pool_missing")
+            scope_id = uuid4()
+            await _add_open_scope(
+                owner,
+                {"registry_id": world["registry_id"], "pool_id": pool_id},
+                scope_id,
+            )
+            # Seed the pre-ledger shape using the existing owner fixture pattern.
+            await owner.execute(
+                "UPDATE aap_inference_routing_v1.scopes SET owner=$1,"
+                "operation='tracker',project_id=$2 WHERE id=$3",
+                f"tracker:{world['job_id']}",
+                world["project_id"],
+                scope_id,
+            )
+            raw = await owner.fetchval(
+                "SELECT aap_inference_routing_v1._routing_scope_view($1,true)", scope_id
+            )
+            scope = RoutingScopeView.model_validate_json(raw)
+    finally:
+        await owner.close(timeout=5)
     if (
         scope.owner != f"tracker:{world['job_id']}"
         or scope.operation != "tracker"
@@ -532,13 +539,22 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
                 "reject_on_worker_lost": True,
             }:
                 raise LocalFenceRefused("accepted_worker_task_contract_mismatch")
-            bootstrap = worker.bootstrap_tracker_routes({"legacy": world})
-            if bootstrap != [
+            # This scope-only peer is owned by the host fixture, not the worker.
+            async with media.sessions.begin() as health_db:
+                service = MLBackendService(health_db)
+                if not await service.check_health(world["registry_id"]):
+                    raise LocalFenceRefused("owned_backend_health_not_ready")
+            bootstrap = await RoutingAuthority(test_engine).execute(
+                "reconcile",
                 {
                     "registry_id": str(world["registry_id"]),
-                    "phase": "completed",
-                }
-            ]:
+                    "control_id": str(uuid4()),
+                },
+            )
+            if (
+                bootstrap.registry_id != world["registry_id"]
+                or bootstrap.phase != "completed"
+            ):
                 raise LocalFenceRefused("owned_backend_control_not_ready")
 
             # Seed the historical started/unbound state; this accepted binary
@@ -551,7 +567,7 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
                     ),
                     {"job": world["job_id"]},
                 )
-            scope = await _create_scope_only_route(test_engine, world)
+            scope = await _seed_scope_only_route(test_engine, world)
             async with test_engine.connect() as db:
                 input_id = await db.scalar(
                     text(
@@ -611,6 +627,25 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
                     {"scope": scope.id},
                 )
                 scope_facts = _json_value(scope_facts_raw)
+                scope_observation = (
+                    (
+                        await db.execute(
+                            text(
+                                "SELECT (SELECT count(*) FROM aap_inference_routing_v1.attempts "
+                                "WHERE scope_id=:scope) AS attempt_count,"
+                                "(SELECT count(*) FROM aap_inference_routing_v1.video_execution_scope_permits "
+                                "WHERE scope_id=:scope) AS permit_count,"
+                                "(SELECT phase FROM aap_inference_routing_v1.scope_retirements "
+                                "WHERE scope_id=:scope) AS retirement_phase,"
+                                "admission_expires_at<=pg_catalog.clock_timestamp() AS no_live_admission "
+                                "FROM aap_inference_routing_v1.scopes WHERE id=:scope"
+                            ),
+                            {"scope": scope.id},
+                        )
+                    )
+                    .mappings()
+                    .one()
+                )
             if (
                 scope_facts is None
                 or scope_facts.get("owner") != f"tracker:{world['job_id']}"
@@ -664,7 +699,7 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
                     "deletion_guard_still_409": preflight_job_state[
                         "deletion_guard_still_409"
                     ],
-                    "retirement_phase": None,
+                    **dict(scope_observation),
                     "jobs_execution_present": not preflight_job_state[
                         "execution_absent"
                     ],
@@ -672,6 +707,7 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
                     "deletion_clearance_present": not preflight_job_state[
                         "clearance_absent"
                     ],
+                    "historical_state_source": "owner_seeded_job_and_scope_only_fixture",
                 },
                 "postgres": postgres.evidence(),
                 "worker": worker_identity,

@@ -345,13 +345,13 @@ def owned_worker_identity(worker: Any) -> dict[str, Any]:
         or broker_url.query
         or broker_url.host != "worker-redis"
         or broker_url.port != 6379
-        or broker_url.database != "/0"
+        or broker_url.database != "0"
         or external_broker_url.drivername != "redis"
         or external_broker_url.host not in _LOCAL_HOSTS
         or external_broker_url.username is not None
         or external_broker_url.password is not None
         or external_broker_url.query
-        or external_broker_url.database != "/0"
+        or external_broker_url.database != "0"
         or not worker._same_redis_target(worker._redis_owner_url, external_broker_url)
     ):
         raise LocalFenceRefused("worker_broker_identity_mismatch")
@@ -775,6 +775,10 @@ def validate_local_fence_preflight(value: Mapping[str, Any]) -> None:
         or scope.get("input_referenced") is not True
         or scope.get("deletion_guard_still_409") is not True
         or scope.get("closed") is not False
+        or scope.get("state") != "active"
+        or scope.get("attempt_count") != 0
+        or scope.get("permit_count") != 0
+        or scope.get("no_live_admission") is not True
         or scope.get("retirement_phase") is not None
         or scope.get("jobs_execution_present") is not False
         or scope.get("jobs_journal_present") is not False
@@ -1250,6 +1254,8 @@ def inspect_worker_write_selectors(
         if re.search(r"(?i)(?:TOKEN|KEY|SECRET|PASSWORD)", key)
         and isinstance(value, str)
         and value
+        # Python's base image publishes its GPG verification fingerprint.
+        and not (key == "GPG_KEY" and re.fullmatch(r"[0-9A-F]{40}", value))
     }
     allowed = {
         "SECRET_KEY",
