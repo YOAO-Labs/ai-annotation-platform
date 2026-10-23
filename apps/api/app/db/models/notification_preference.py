@@ -14,7 +14,7 @@ class NotificationPreference(Base):
 
     - ``in_app``：接收开关；False 时未来事件不落库也不推送。无记录默认 true。
     - ``toast``：弹出提示（瞬时提醒）选择；键缺省表示未选择，GET 按类型的
-      默认重要程度（services/notification_preferences.py）计算有效值。
+      默认重要程度（Notifications preference policy）计算有效值。
       关闭接收不重置已存的弹出选择，重新开启接收时恢复。
     - ``email``：保留待邮件渠道落地。
 

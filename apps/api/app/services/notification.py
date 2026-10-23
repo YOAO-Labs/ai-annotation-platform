@@ -36,7 +36,6 @@ from app.db.enums import (
 )
 from app.db.models.async_job import AsyncJob
 from app.db.models.notification import Notification
-from app.db.models.notification_preference import NotificationPreference
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.services.identity_account_lock_data import IdentityAccountLockData
@@ -54,6 +53,8 @@ from app.services.workspace_read_relations import (
     project_facts,
     project_search_scope,
 )
+from aap_notifications.preferences import NotificationPreferenceManager
+from aap_notifications.preferences_postgres import NotificationPreferencesPostgresData
 
 
 log = logging.getLogger(__name__)
@@ -222,18 +223,9 @@ class NotificationService:
     async def _is_in_app_muted(self, user_id: uuid.UUID, type: str) -> bool:
         """v0.7.0：查 notification_preferences；channels.in_app=False 表示用户已静音此 type。
         无记录默认 in_app=True（现网用户向后兼容）。"""
-        row = (
-            await self.db.execute(
-                select(NotificationPreference.channels).where(
-                    NotificationPreference.user_id == user_id,
-                    NotificationPreference.type == type,
-                )
-            )
-        ).scalar_one_or_none()
-        if row is None:
-            return False
-        in_app = row.get("in_app", True) if isinstance(row, dict) else True
-        return not bool(in_app)
+        return await NotificationPreferenceManager(
+            NotificationPreferencesPostgresData(self.db)
+        ).is_in_app_muted(user_id, type)
 
     async def notify(
         self,

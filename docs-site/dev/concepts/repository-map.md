@@ -291,7 +291,7 @@ last_reviewed: 2026-10-21
    讨论流的 `services/task_discussion.py` 与 `services/discussion_notifications.py` 直接调用
    `project_access.resolve_project_access_by_id` 和任务可见性所有者，不依赖 HTTP 装配；
    对实际接收人复核当前项目/任务资格，移除成员后不再成为受限讨论通知目的地。
-8. 通知偏好 PUT 由 `app/services/notification_preferences_command.py` 原子合并频道；HTTP 入口仍绑定 JWT 用户、处理缺失/null/未知类型错误并提交，只有提交成功后才经 `NotificationService` 向 `notify:{user_id}` 发布同步事件。
+8. 通知偏好 GET／PUT 经 `aap_notifications.preferences` 调用 `aap_notifications_v1.preference_command(jsonb)`；HTTP 入口绑定 JWT 用户并校验请求，owner 在调用方事务中返回有效偏好、执行静音检查或原子合并频道。PUT 由请求 Session 提交后才经 `NotificationService` 向 `notify:{user_id}` 发布同步事件。
 
 ## 4. ML backend 调用链
 

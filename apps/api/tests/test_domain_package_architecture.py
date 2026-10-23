@@ -48,6 +48,8 @@ _SPATIAL_RETIRED_MODULES = (
 REMOVED_MODULES = (
     "app.services.workspace_contract",
     "app.services.project_template",
+    "app.services.notification_preferences",
+    "app.services.notification_preferences_command",
     "app.application.project_workspace_configuration",
     "app.services.project_membership",
     "app.application.project_membership",
@@ -242,14 +244,6 @@ DOMAIN_PACKAGES = (
         package="audit_summary",
         legacy_facades=(),
         allowed_app_imports=("app.schemas.audit",),
-    ),
-    DomainSpec(
-        package="notification_preferences_command",
-        legacy_facades=(),
-        allowed_app_imports=(
-            "app.db.models.notification_preference",
-            "app.services.notification_preferences",
-        ),
     ),
     DomainSpec(package="identity_group_commands", legacy_facades=()),
     DomainSpec(package="identity_directory_commands", legacy_facades=()),

@@ -763,6 +763,10 @@ GRANT UPDATE ON public.system_settings TO :"settings_owner";
 GRANT SELECT, INSERT ON public.notifications TO :"notifications_owner";
 GRANT SELECT (user_id, type, channels)
     ON public.notification_preferences TO :"notifications_owner";
+GRANT INSERT (user_id, type, channels)
+    ON public.notification_preferences TO :"notifications_owner";
+GRANT UPDATE (channels, updated_at)
+    ON public.notification_preferences TO :"notifications_owner";
 GRANT SELECT (
     notification_id, operation_id, recipient_id, notification_type, state,
     attempt, available_at, worker_id, lease_id, lease_expires_at,
