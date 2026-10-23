@@ -23,6 +23,7 @@ from app.services import content_snapshot as snapshots
 from app.services import dataset_scans as scans
 from app.services import filesystem_storage as fs
 from app.services import reference_storage
+from app.services import storage_access
 from app.services import storage_location as locations
 from app.services.reference_keys import reference_key
 
@@ -106,7 +107,9 @@ async def register_entry(
         await before_apply(db)
     receipt = entry.verified_content
     config = await reference_storage.configuration(db, location)
-    final = await snapshots.capture(
+    final = await snapshots.capture_from_location(
+        db,
+        location.id,
         lambda: reference_storage.content_file(
             config,
             source.config["relative_path"],
@@ -116,6 +119,9 @@ async def register_entry(
             expected_source_identity=observation.get("source_identity"),
         ),
         receipt["sha256"],
+        expected_revision=run.snapshot.get("maintenance_revision", 1),
+        node_id=node,
+        purpose="reference_registration",
     )
     uploaded = []
     retired = []
@@ -343,6 +349,12 @@ async def register_entry(
         )
         if on_result is not None:
             await on_result(db, result)
+        await storage_access.check(
+            db,
+            location.id,
+            expected_revision=run.snapshot.get("maintenance_revision", 1),
+            lock=True,
+        )
         committing = True
         await db.commit()
         await previews.delete_owned(retired)
@@ -620,11 +632,12 @@ async def _reference_state(db, item_id, actor, *, task_id=None, task_authorizer=
         or (task_id is not None and task.file_path != item.file_path)
     ):
         raise snapshots.ContentError("content_binding_changed")
-    return source, location, run, entry, asset, accepted, item
+    maintenance_revision = await storage_access.check(db, location.id)
+    return source, location, run, entry, asset, accepted, item, maintenance_revision
 
 
 def _logical_context(state):
-    source, location, run, entry, asset, accepted, item = state
+    source, location, run, entry, asset, accepted, item, maintenance_revision = state
     from app.services.source_selection import locator
 
     return deepcopy(
@@ -640,6 +653,7 @@ def _logical_context(state):
             accepted_revision_id=accepted.id if accepted else None,
             source_revision=source.config_revision,
             location_revision=location.config_revision,
+            maintenance_revision=maintenance_revision,
             policy_revision=source.policy_revision,
             source_policy=source.cache_policy,
             location_policy=location.config.get("cache_policy", "preview"),
@@ -670,7 +684,7 @@ async def reference_source_context(
     state = await _reference_state(
         db, item_id, actor, task_id=task_id, task_authorizer=task_authorizer
     )
-    source, location, run, entry, asset, accepted, item = state
+    source, location, run, entry, asset, accepted, item, maintenance_revision = state
     receipt = entry.verified_content
     node = node_id or locations.api_node_id()
     anchor = await locations.node_anchor(db, location, node)
@@ -763,7 +777,9 @@ async def reference_snapshot(
         )
         if any(source_context.get(key) != value for key, value in context.items()):
             raise snapshots.ContentError("content_binding_changed")
-        snapshot = await snapshots.capture(
+        snapshot = await snapshots.capture_from_location(
+            db,
+            context["location_id"],
             lambda: reference_storage.content_file(
                 source_context["config"],
                 source_context["base"],
@@ -773,6 +789,8 @@ async def reference_snapshot(
                 expected_source_identity=source_context["source_identity"],
             ),
             context["sha256"],
+            expected_revision=context["maintenance_revision"],
+            node_id=node_id,
         )
     try:
 
@@ -826,7 +844,11 @@ async def _retain_snapshot(cache, factory, context, snapshot):
     try:
         for attempt in range(9):
             result = await cache.store(
-                factory, context["source_id"], context["asset_id"], snapshot
+                factory,
+                context["source_id"],
+                context["asset_id"],
+                snapshot,
+                expected_revision=context["maintenance_revision"],
             )
             if result != "quota_full":
                 return result
@@ -836,6 +858,11 @@ async def _retain_snapshot(cache, factory, context, snapshot):
             if identity is None or await cache.purge(factory, identity) != "removed":
                 return "quota_full"
         return "quota_full"
+    except snapshots.ContentError as exc:
+        if exc.code.startswith("storage_"):
+            raise
+        log.warning("Original cache retention deferred asset=%s", context["asset_id"])
+        return "fill_failed"
     except Exception:
         log.warning("Original cache retention deferred asset=%s", context["asset_id"])
         return "fill_failed"

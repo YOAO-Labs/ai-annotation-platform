@@ -9,13 +9,15 @@ from sqlalchemy import String, and_, cast, false, func, select
 from app.db.enums import UserRole
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem
-from app.db.models.dataset_asset import DatasetAsset
+from app.db.models.dataset_asset import DatasetAsset, StorageLocation
 from app.db.models.dataset_source import DatasetReference, DatasetSource
 from app.db.models.dataset_quality import (
     DatasetQualityRun as Run,
     DatasetQualityResult as Result,
 )
 from app.services import async_job as jobs
+from app.services import storage_access
+from app.services.content_snapshot import ContentError
 from app.services import dataset_source_access as access
 from app.services.async_job_notify import notify_job_terminal
 from app.services.audit import AuditService
@@ -90,7 +92,36 @@ async def authority(db, run):
     ):
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
     await require_write(db, run.dataset_id, snapshot=run.authority)
+    await maintenance_authority(db, run, lock=True)
     return actor
+
+
+async def maintenance_authority(db, run, *, lock=False):
+    location_ids = set(
+        await db.scalars(
+            select(DatasetSource.location_id)
+            .join(Result, Result.source_id == DatasetSource.id)
+            .where(Result.run_id == run.id)
+            .distinct()
+        )
+    )
+    captured = run.authority.get("storage_maintenance", {})
+    locations = sorted(location_ids | {uuid.UUID(key) for key in captured}, key=str)
+    if lock and locations:
+        await db.execute(
+            select(StorageLocation.id)
+            .where(StorageLocation.id.in_(locations))
+            .order_by(StorageLocation.id)
+            .with_for_update(read=True, nowait=True)
+        )
+    # Old queued runs belong to epoch 1, not whatever epoch is current on retry.
+    for location_id in locations:
+        await storage_access.check(
+            db,
+            location_id,
+            expected_revision=captured.get(str(location_id), 1),
+            lock=lock,
+        )
 
 
 async def require_write(db, dataset_id, *, snapshot=None):
@@ -104,6 +135,8 @@ async def require_write(db, dataset_id, *, snapshot=None):
 
 
 def failure_code(exc):
+    if isinstance(exc, ContentError) and exc.code.startswith("storage_"):
+        return exc.code
     if isinstance(exc, HTTPException):
         if exc.status_code in {401, 403, 404}:
             return "access_revoked"
@@ -118,7 +151,9 @@ def failure_code(exc):
 
 async def attach_job(db, run, actor, key_id):
     dataset = await require_write(db, run.dataset_id, snapshot=run.authority)
+    await maintenance_authority(db, run, lock=True)
     run.authority = dict(
+        storage_maintenance=run.authority.get("storage_maintenance", {}),
         dataset_lifecycle_revision=dataset.lifecycle_revision,
         actor_id=str(actor.id),
         api_key_id=str(key_id) if key_id else None,
@@ -167,11 +202,25 @@ async def start(db, dataset_id, actor, config, key_id=None):
     ).all()
     if len(members) > MAX_MEMBERS:
         raise HTTPException(422, "Quality runs support at most 10000 fixed members")
-    for source_id in {s for _, _, s in members if s}:
-        await access.require_source(db, source_id, actor)
+    maintenance = {}
+    for source_id in sorted({s for _, _, s in members if s}, key=str):
+        source = await access.require_source(db, source_id, actor)
+        await db.execute(
+            select(StorageLocation.id)
+            .where(StorageLocation.id == source.location_id)
+            .with_for_update(read=True, nowait=True)
+        )
+        maintenance[str(source.location_id)] = await storage_access.check(
+            db,
+            source.location_id,
+            lock=True,
+        )
     run = Run(
         dataset_id=dataset_id,
-        authority={"dataset_lifecycle_revision": dataset.lifecycle_revision},
+        authority={
+            "dataset_lifecycle_revision": dataset.lifecycle_revision,
+            "storage_maintenance": maintenance,
+        },
         config=config.model_dump(),
         total=len(members),
         processed=0,
@@ -245,6 +294,7 @@ async def resume(db, dataset_id, run_id, actor, key_id=None):
 async def finish(db, run, status, error=None):
     if status == "completed":
         await require_write(db, run.dataset_id, snapshot=run.authority)
+        await maintenance_authority(db, run, lock=True)
     run.status, run.error_code, run.completed_at, run.lease_until = (
         status,
         error,

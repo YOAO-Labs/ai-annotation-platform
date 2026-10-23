@@ -31,6 +31,8 @@ from app.services.project_write_guard import (
 )
 from app.services.reference_bindings import (
     lock_reference_bindings,
+    normalize_binding,
+    normalize_reference,
     reference_binding,
     task_binding,
 )
@@ -40,7 +42,15 @@ from app.services.task_lock import TaskLockService, TaskLockConflictError
 from app.services.task_scope import lock_task_scope
 
 
-_IDENTITY = ("dataset_id", "asset_id", "sha256", "size", "width", "height")
+_IDENTITY = (
+    "dataset_id",
+    "asset_id",
+    "sha256",
+    "size",
+    "width",
+    "height",
+    "maintenance_revision",
+)
 _ISSUER = object()
 
 
@@ -335,11 +345,16 @@ async def qualify_native_acceptance(db, task, actor, request, data):
             access = await resolve_project_access(db, user=actor, project=project)
             _validate_replay(current, request_digest, actor, access=access)
             evidence = (current.response_json or {}).get("_reference_input") or {}
-            origin = {key: evidence.get(key) for key in owner.identity()}
+            origin = {
+                key: evidence.get(key, 1 if key == "maintenance_revision" else None)
+                for key in owner.identity()
+            }
         elif existing:
             raise ContentError("prediction_reference_receipt_invalid")
         else:
             origin = claims.get("reference_input")
+        if isinstance(origin, dict):
+            origin = normalize_reference(origin)
         if origin != owner.identity():
             raise ContentError("prediction_requires_reference_provenance")
         return _NativeReceipt(
@@ -391,7 +406,7 @@ async def validate_native_receipt(
     ):
         raise ContentError("prediction_reference_receipt_invalid")
     binding = {**task_binding(task), "reference": await reference_binding(db, task)}
-    if json.dumps(binding, sort_keys=True) != receipt.binding:
+    if binding != normalize_binding(json.loads(receipt.binding)):
         raise ContentError("content_binding_changed")
     if data is not None:
         from app.services.ai_mask_accept import ai_mask_accept_request_digest

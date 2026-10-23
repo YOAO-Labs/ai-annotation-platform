@@ -21,6 +21,7 @@ from app.services.prediction_inputs import PredictionInputs
 from app.services.project_access import resolve_project_access
 from app.services.reference_bindings import (
     lock_reference_bindings,
+    normalize_binding,
     reference_binding,
     task_binding,
 )
@@ -127,7 +128,7 @@ async def validate_receipt(db, task_id, project_id, receipt):
     ):
         raise ContentError("prediction_reference_receipt_invalid")
     binding = {**task_binding(task), "reference": await reference_binding(db, task)}
-    if json.dumps(binding, sort_keys=True) != receipt.binding:
+    if binding != normalize_binding(json.loads(receipt.binding)):
         raise ContentError("content_binding_changed")
     return json.loads(receipt.evidence)
 
@@ -159,7 +160,9 @@ class ReferencePredictionJob:
         )
         self.project_id, self.actor_id, self.scope = project_id, actor_id, scope
         self.job_kind = job_kind
-        self.bindings = {uuid.UUID(row["task_id"]): row for row in proof["tasks"]}
+        self.bindings = {
+            uuid.UUID(row["task_id"]): normalize_binding(row) for row in proof["tasks"]
+        }
         if (
             proof.get("schema") != 1
             or job_kind not in {"batch_predict", "prediction_retry"}
@@ -353,6 +356,7 @@ class ReferencePredictionJob:
                 "source_id",
                 "source_revision",
                 "accepted_revision_id",
+                "maintenance_revision",
             )
         }
         evidence.update(

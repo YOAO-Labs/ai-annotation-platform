@@ -26,6 +26,7 @@ from app.services.reference_bindings import (
     task_binding,
     reference_binding,
     lock_reference_bindings,
+    normalize_binding,
 )
 from app.services.reference_keys import is_reference
 from app.services.storage_location import api_node_id
@@ -97,8 +98,17 @@ async def _check_content(db, task, binding, prediction, metadata, *, final=False
         evidence.get("item_id") != str(task.dataset_item_id)
         or prediction.project_id != task.project_id
         or any(
-            evidence.get(key) != binding["reference"].get(key)
-            for key in ("dataset_id", "asset_id", "sha256", "size", "width", "height")
+            evidence.get(key, 1 if key == "maintenance_revision" else None)
+            != binding["reference"].get(key)
+            for key in (
+                "dataset_id",
+                "asset_id",
+                "sha256",
+                "size",
+                "width",
+                "height",
+                "maintenance_revision",
+            )
         )
     ):
         raise ContentError("content_binding_changed")
@@ -276,7 +286,7 @@ async def validate_acceptance(db, prediction, actor_id, receipt):
     prediction, metadata = await _candidate(db, task.id, prediction.id)
     binding = {**task_binding(task), "reference": await reference_binding(db, task)}
     if (
-        json.dumps(binding, sort_keys=True) != receipt.binding
+        binding != normalize_binding(json.loads(receipt.binding))
         or _fingerprint(prediction, metadata) != receipt.candidate
     ):
         raise ContentError("prediction_acceptance_receipt_invalid")

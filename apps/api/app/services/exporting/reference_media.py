@@ -22,6 +22,7 @@ from app.services.reference_bindings import (
     task_binding as _task_binding,
     reference_binding as _reference_binding,
     lock_reference_bindings,
+    normalize_binding,
 )
 
 
@@ -167,7 +168,9 @@ class ReferenceExportMedia:
             != (sorted(str(v) for v in task_ids) if task_ids is not None else None)
         ):
             raise ContentError("export_scope_changed")
-        self.bindings = {uuid.UUID(row["task_id"]): row for row in proof["tasks"]}
+        self.bindings = {
+            uuid.UUID(row["task_id"]): normalize_binding(row) for row in proof["tasks"]
+        }
         self.task_ids = sorted(self.bindings, key=str)
         self.contexts = {}
         self.paths = {}

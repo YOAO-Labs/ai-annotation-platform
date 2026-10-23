@@ -21,6 +21,7 @@ from app.services import dataset_scans as scans
 from app.services import filesystem_storage as fs
 from app.services import storage_location as locations
 from app.services import reference_storage
+from app.services import storage_access
 from app.services.dataset_assets import LEGACY_LOCATION_ID, validate_legacy_bindings
 from app.services.storage import storage_service
 
@@ -154,7 +155,9 @@ async def scan_snapshot(
     if before_io is not None:
         await before_io(db)
     await db.commit()  # No database locks span filesystem I/O.
-    snapshot = await snapshots.capture(
+    snapshot = await snapshots.capture_from_location(
+        db,
+        location.id,
         lambda: reference_storage.content_file(
             config,
             base,
@@ -164,6 +167,9 @@ async def scan_snapshot(
             expected_source_identity=expected_source,
         ),
         digest,
+        expected_revision=run.snapshot.get("maintenance_revision", 1),
+        node_id=node,
+        purpose="scan_content",
     )
     try:
         (
@@ -190,6 +196,12 @@ async def scan_snapshot(
             and current.verified_content["sha256"] != snapshot.sha256
         ):
             raise snapshots.ContentError("content_mismatch")
+        await storage_access.check(
+            db,
+            current_location.id,
+            expected_revision=run.snapshot.get("maintenance_revision", 1),
+            lock=True,
+        )
         if before_commit is not None:
             await before_commit(db)
         if verify and current.verified_content is None:
@@ -400,7 +412,19 @@ async def quality_snapshot(
             return stored_content(locator[0], locator[1], identity[2])
 
     # The caller releases its lease lock before entering this function.
-    snapshot = await snapshots.capture_for_quality(factory, identity[1])
+    if isinstance(locator, dict):
+        snapshot = await snapshots.capture_from_location(
+            db,
+            locator["location_id"],
+            factory,
+            identity[1],
+            expected_revision=locator["maintenance_revision"],
+            node_id=node_id,
+            purpose="quality_read",
+            inspect_quality=True,
+        )
+    else:
+        snapshot = await snapshots.capture_for_quality(factory, identity[1])
     try:
         if await quality_identity(db, item_id, actor, node_id=node_id) != identity:
             raise snapshots.ContentError("content_binding_changed")

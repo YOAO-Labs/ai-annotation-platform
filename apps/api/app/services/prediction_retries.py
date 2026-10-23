@@ -107,7 +107,8 @@ async def prepare_retry(db, failure, actor, request, *, project_id=None):
             original.get("task_id") != str(task.id)
             or original.get("item_id") != str(task.dataset_item_id)
             or any(
-                current.get(key) != old.get(key)
+                current.get(key)
+                != old.get(key, 1 if key == "maintenance_revision" else None)
                 for key in (
                     "dataset_id",
                     "asset_id",
@@ -115,6 +116,7 @@ async def prepare_retry(db, failure, actor, request, *, project_id=None):
                     "size",
                     "width",
                     "height",
+                    "maintenance_revision",
                 )
             )
         ):

@@ -117,18 +117,19 @@ async def test_cancelled_and_timed_out_readers_keep_slot_until_thread_stops(
         assert await asyncio.to_thread(entered.wait, 1)
         if finish == "cancel":
             task.cancel()
-        with pytest.raises(
-            asyncio.CancelledError if finish == "cancel" else svc.ContentError
-        ):
-            await task
+        await asyncio.sleep(0.08)
+        assert not task.done()
+        assert not closed.is_set()
         with pytest.raises(svc.ContentError, match="capacity"):
             await svc.capture(reader(image_bytes()))
     finally:
         release.set()
-    assert await asyncio.to_thread(closed.wait, 1)
-    async with asyncio.timeout(2):
-        while svc._slots._value != 1:
-            await asyncio.sleep(0.01)
+    with pytest.raises(
+        asyncio.CancelledError if finish == "cancel" else svc.ContentError
+    ):
+        await task
+    assert closed.is_set()
+    assert svc._slots._value == 1
 
 
 async def test_response_send_failure_closes_snapshot(monkeypatch):
@@ -200,3 +201,85 @@ async def test_filesystem_content_rejects_unsafe_and_replaced_sources(
 
     with pytest.raises(fs.FilesystemStorageError):
         await svc.capture(factory)
+
+
+@pytest.mark.parametrize("finish", ["cancel", "timeout"])
+async def test_late_success_after_interruption_is_disposed_once(monkeypatch, finish):
+    """Even a non-cooperative factory cannot escape the physical lifetime fence."""
+    import contextvars
+
+    marker = contextvars.ContextVar("snapshot-context", default=None)
+    marker.set("request-owner")
+    entered, release = threading.Event(), threading.Event()
+    monkeypatch.setattr(svc, "_slots", threading.BoundedSemaphore(1))
+    returned = []
+
+    def late_capture(*args):
+        assert marker.get() == "request-owner"
+        entered.set()
+        assert release.wait(3)
+        snapshot = svc.Snapshot(io.BytesIO(b"x"), "a" * 64, 1, {}, "image/png", 1, 1)
+        returned.append(snapshot)
+        return snapshot
+
+    monkeypatch.setattr(svc, "_capture", late_capture)
+    if finish == "timeout":
+        monkeypatch.setattr(svc, "WAIT_SECONDS", 0.01)
+    task = asyncio.create_task(svc.capture(lambda: None))
+    try:
+        assert await asyncio.to_thread(entered.wait, 1)
+        if finish == "cancel":
+            task.cancel()
+        await asyncio.sleep(0.03)
+        assert not task.done()
+        task.cancel()  # A second cancellation must also wait for the real Future.
+        await asyncio.sleep(0)
+        assert not task.done()
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert len(returned) == 1 and returned[0].file.closed
+    assert svc._slots._value == 1
+
+
+@pytest.mark.parametrize("finish", ["cancel", "timeout"])
+async def test_late_handle_close_uncertainty_survives_interruption(monkeypatch, finish):
+    entered, release = threading.Event(), threading.Event()
+    monkeypatch.setattr(svc, "_slots", threading.BoundedSemaphore(1))
+
+    class Blocked(io.BytesIO):
+        def read(self, count):
+            entered.set()
+            assert release.wait(3)
+            return super().read(count)
+
+    @contextmanager
+    def source():
+        body = Blocked(image_bytes())
+        try:
+            yield body, {"size": len(image_bytes())}
+        finally:
+            body.close()
+            # Model a provider that could not prove every source handle closed.
+            error = OSError("source handle closure unknown")
+            error.storage_operation_unsettled = True
+            raise error
+
+    if finish == "timeout":
+        monkeypatch.setattr(svc, "WAIT_SECONDS", 0.01)
+    pending = asyncio.create_task(svc.capture(source))
+    try:
+        assert await asyncio.to_thread(entered.wait, 1)
+        if finish == "cancel":
+            pending.cancel()
+        await asyncio.sleep(0.03)
+        assert not pending.done()
+    finally:
+        release.set()
+    with pytest.raises(
+        asyncio.CancelledError if finish == "cancel" else svc.ContentError
+    ) as error:
+        await pending
+    assert error.value.storage_operation_unsettled is True
+    assert svc._slots._value == 1

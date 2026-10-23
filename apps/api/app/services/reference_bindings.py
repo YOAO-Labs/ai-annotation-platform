@@ -15,6 +15,7 @@ from app.db.models.dataset_source import (
 )
 from app.db.models.storage_connection import StorageConnection
 from app.services.content_snapshot import ContentError
+from app.services import storage_access
 from app.services.task_scope import ids_clause
 
 
@@ -27,6 +28,20 @@ def task_binding(task):
         "file_name": task.file_name,
         "version": task.version,
     }
+
+
+def normalize_reference(reference):
+    """Historical delegations belong to the initial maintenance epoch."""
+    return {
+        **reference,
+        "maintenance_revision": reference.get("maintenance_revision", 1),
+    }
+
+
+def normalize_binding(binding):
+    if "reference" not in binding:
+        return binding
+    return {**binding, "reference": normalize_reference(binding["reference"])}
 
 
 async def reference_binding(db, task):
@@ -85,6 +100,7 @@ async def reference_binding(db, task):
         "source_revision": source.config_revision,
         "location_id": str(location.id),
         "location_revision": location.config_revision,
+        "maintenance_revision": await storage_access.check(db, location.id),
         "connection_id": str(connection.id) if connection else None,
         "connection_revision": connection.revision if connection else None,
     }
@@ -126,3 +142,16 @@ async def lock_reference_bindings(db, bindings, node_id):
             .order_by(model.id)
             .with_for_update(read=True, nowait=True)
         )
+
+    # Hold these SHARE locks in the caller's final transaction through publish.
+    for row in sorted(
+        bindings, key=lambda row: row.get("reference", {}).get("location_id", "")
+    ):
+        reference = row.get("reference")
+        if reference:
+            await storage_access.check(
+                db,
+                uuid.UUID(reference["location_id"]),
+                expected_revision=reference.get("maintenance_revision", 1),
+                lock=True,
+            )

@@ -448,9 +448,7 @@ async def test_policy_change_during_upload_prevents_publication(cache_world):
         await pending
 
 
-async def test_read_cancellation_preserves_lease_until_bounded_expiry(
-    cache_world, monkeypatch
-):
+async def test_read_cancellation_preserves_lease_until_physical_completion(cache_world):
     world = cache_world
     assert await fill(world) == "stored"
     world.get_started, world.get_release = threading.Event(), threading.Event()
@@ -461,8 +459,8 @@ async def test_read_cancellation_preserves_lease_until_bounded_expiry(
         assert await asyncio.to_thread(world.get_started.wait, 3)
         assert await cache.evict_lru(world.factory, world.location_id) is None
         pending.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await pending
+        await asyncio.sleep(0.03)
+        assert not pending.done()
         async with world.factory() as db:
             lease = await db.scalar(
                 select(ReadLease).where(ReadLease.entry_id == (await record(world)).id)
@@ -475,14 +473,15 @@ async def test_read_cancellation_preserves_lease_until_bounded_expiry(
             await pending
         except asyncio.CancelledError:
             pass
-        # The strict snapshot owner drains its late thread and closes the body.
-        for _ in range(100):
-            if all(body.closed for body in world.bodies) and all(
-                client.closed for client in world.clients
-            ):
-                break
-            await asyncio.sleep(0.01)
-    monkeypatch.setattr(cache, "now", lambda: lease.expires_at + timedelta(seconds=1))
+        assert all(body.closed for body in world.bodies)
+        assert all(client.closed for client in world.clients)
+    async with world.factory() as db:
+        assert (
+            await db.scalar(
+                select(ReadLease).where(ReadLease.entry_id == lease.entry_id)
+            )
+            is None
+        )
     identity = await cache.evict_lru(world.factory, world.location_id)
     assert identity is not None
     assert await cache.purge(world.factory, identity) == "removed"

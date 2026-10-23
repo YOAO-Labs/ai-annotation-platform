@@ -601,6 +601,10 @@ async def freeze_selection(
     # continue under their captured content and current project permissions.
     for dataset_id, revision in dataset_revisions.items():
         await require_writable(db, dataset_id, expected_revision=revision, lock=True)
+    if report["ready"] and references:
+        from app.services.training_dataset_sources import lock_source_maintenance
+
+        await lock_source_maintenance(db, snapshot)
     return snapshot, report
 
 

@@ -32,6 +32,7 @@ from app.services.training_dataset_bridge import (
     instance_rle_text,
 )
 from app.services.training_datasets import MAX_IMAGE_BYTES, assert_dataset_authority
+from app.services.content_snapshot import ContentError
 from app.services.reference_keys import is_reference
 from training_contract.dataset import (
     is_instance_rle,
@@ -180,7 +181,13 @@ def materialize_image(
 
 
 async def materialize_sample(
-    db, version, sample, prefix, snapshot_digest, directory, node_id
+    db,
+    version,
+    sample,
+    prefix,
+    snapshot_digest,
+    directory,
+    node_id,
 ):
     """Try retained bytes first, then resolve an authorized reference if needed."""
     try:
@@ -216,6 +223,7 @@ async def materialize_sample(
             verified_reference=content,
         )
         await assert_dataset_authority(db, version)
+        result["_source_backed"] = True
         return result
     finally:
         content.close()
@@ -288,6 +296,7 @@ async def _build_dataset(
             with tempfile.TemporaryDirectory(prefix="aap-training-") as temporary:
                 directory = Path(temporary)
                 media = []
+                source_reads = []
                 for index, sample in enumerate(snapshot["samples"]):
                     media.append(
                         await materialize_sample(
@@ -306,6 +315,8 @@ async def _build_dataset(
                             node_id,
                         )
                     )
+                    if media[-1].pop("_source_backed", False):
+                        source_reads.append(sample)
                     version = (
                         await db.execute(
                             select(TrainingDatasetVersion)
@@ -359,6 +370,12 @@ async def _build_dataset(
                     or version.status != "running"
                 ):
                     return
+                if source_reads:
+                    from app.services.training_dataset_sources import (
+                        lock_source_maintenance,
+                    )
+
+                    await lock_source_maintenance(db, {"samples": source_reads})
                 version.manifest = manifest
                 version.package_key = package_key
                 version.package_sha256 = package_digest
@@ -395,12 +412,16 @@ async def _build_dataset(
                 version.status = "failed"
                 version.error_code = (
                     exc.code
-                    if isinstance(exc, (TrainingDatasetError, DatasetContractError))
+                    if isinstance(
+                        exc, (TrainingDatasetError, DatasetContractError, ContentError)
+                    )
                     else "build_failed"
                 )
                 version.error_message = (
                     str(exc)
-                    if isinstance(exc, (TrainingDatasetError, DatasetContractError))
+                    if isinstance(
+                        exc, (TrainingDatasetError, DatasetContractError, ContentError)
+                    )
                     else "训练数据构建失败，请检查素材或重试"
                 )
                 version.completed_at = datetime.now(timezone.utc)

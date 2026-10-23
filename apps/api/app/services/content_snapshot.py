@@ -2,6 +2,8 @@
 
 import asyncio
 from dataclasses import dataclass, field
+import contextvars
+from functools import partial
 import hashlib
 import tempfile
 import threading
@@ -157,28 +159,87 @@ def _capture(factory, expected_sha256, stop, inspect_quality=False):
                 _slots.release()
 
 
-def _dispose(task):
-    try:
-        task.result().close()
-    except BaseException:
-        pass  # Errors have no returned snapshot; the reader owns cleanup.
-
-
 async def _capture_bounded(factory, expected_sha256=None, *, inspect_quality=False):
     if not _slots.acquire(blocking=False):
         raise ContentError("snapshot_capacity_exceeded", 429)
     stop = threading.Event()
-    task = asyncio.create_task(
-        asyncio.to_thread(_capture, factory, expected_sha256, stop, inspect_quality)
-    )
+    # Executor Futures survive asyncio.run's Task cancellation sweep.
+    context = contextvars.copy_context()
     try:
-        return await asyncio.wait_for(asyncio.shield(task), WAIT_SECONDS)
+        pending = asyncio.get_running_loop().run_in_executor(
+            None,
+            context.run,
+            partial(_capture, factory, expected_sha256, stop, inspect_quality),
+        )
+    except BaseException:
+        _slots.release()
+        raise
+    try:
+        return await asyncio.wait_for(asyncio.shield(pending), WAIT_SECONDS)
     except (TimeoutError, asyncio.CancelledError) as exc:
         stop.set()
-        task.add_done_callback(_dispose)
-        if isinstance(exc, asyncio.CancelledError):
-            raise
-        raise ContentError("content_read_timeout", 504) from None
+        cancelled = isinstance(exc, asyncio.CancelledError)
+        # Deadlines are cooperative. A blocked SDK read must physically end
+        # before its handle, snapshot slot and source permit can be released.
+        while not pending.done():
+            try:
+                await asyncio.shield(pending)
+            except asyncio.CancelledError:
+                cancelled = True
+            except BaseException:
+                break
+        unsettled = False
+        try:
+            pending.result().close()
+        except BaseException as late:
+            unsettled = getattr(late, "storage_operation_unsettled", False)
+        error = (
+            asyncio.CancelledError()
+            if cancelled
+            else ContentError("content_read_timeout", 504)
+        )
+        if unsettled:
+            error.storage_operation_unsettled = True
+        raise error from None
+
+
+async def capture_from_location(
+    db,
+    location_id,
+    factory,
+    expected_sha256=None,
+    *,
+    expected_revision=None,
+    node_id=None,
+    purpose="reference_read",
+    inspect_quality=False,
+):
+    """Account for physical reads, including cancellation and late cleanup."""
+    from app.services import storage_access
+
+    snapshot = None
+    try:
+        async with await storage_access.acquire(
+            db,
+            location_id,
+            purpose,
+            expected_revision=expected_revision,
+            node_id=node_id,
+        ):
+            snapshot = await _capture_bounded(
+                factory, expected_sha256, inspect_quality=inspect_quality
+            )
+        return snapshot
+    except BaseException as exc:
+        if snapshot is not None:
+            snapshot.close()
+        if isinstance(exc, Exception) and getattr(
+            exc, "storage_operation_unsettled", False
+        ):
+            error = ContentError("storage_operation_unsettled", 503)
+            error.storage_operation_unsettled = True
+            raise error from None
+        raise
 
 
 async def capture(factory, expected_sha256=None):

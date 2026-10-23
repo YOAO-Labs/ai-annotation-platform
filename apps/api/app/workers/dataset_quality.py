@@ -104,10 +104,13 @@ async def process_one(db, run_id, job_id, task_id, generation, node_id):
             )
             if identity[:3] != pinned:
                 raise ContentError("content_binding_changed")
+            await svc.maintenance_authority(db, run)
             snapshot = await content.quality_snapshot(
                 db, item_id, actor, identity, api_key_id=key_id, node_id=node_id
             )
     except Exception as exc:
+        if isinstance(exc, ContentError) and exc.code.startswith("storage_"):
+            raise
         error = content.content_http_error(exc)
         if error.status_code in {401, 403, 404}:
             raise HTTPException(403, detail={"code": "access_revoked"}) from None
@@ -173,7 +176,7 @@ async def execute(db, run_id, task_id, node_id):
         return
     try:
         await svc.authority(db, run)
-    except HTTPException as exc:
+    except (HTTPException, ContentError) as exc:
         await svc.finish(db, run, "failed", svc.failure_code(exc))
         await db.commit()
         return
@@ -241,7 +244,7 @@ async def recover(db):
             continue
         try:
             await svc.authority(db, run)
-        except HTTPException as exc:
+        except (HTTPException, ContentError) as exc:
             await svc.finish(db, run, "failed", svc.failure_code(exc))
             await db.commit()
             continue

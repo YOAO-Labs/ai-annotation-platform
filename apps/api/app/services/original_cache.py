@@ -31,6 +31,7 @@ from app.db.models.original_cache import (
     OriginalCacheReadLease as ReadLease,
 )
 from app.services import content_snapshot as snapshots
+from app.services import storage_access
 from app.services.dataset_assets import validate_legacy_bindings
 from app.services.prediction_inputs import settled_io
 from app.services.storage import StorageService
@@ -79,9 +80,10 @@ class Scope:
     location_revision: int
     quota: int
     ttl: int
+    maintenance_revision: int = 1
 
 
-async def scope(db, source_id, asset_id, *, lock=False):
+async def scope(db, source_id, asset_id, *, lock=False, check_maintenance=True):
     """Internal policy ceiling; this deliberately does not replace actor checks."""
     source = await db.get(DatasetSource, source_id, populate_existing=True)
     asset = await db.get(DatasetAsset, asset_id, populate_existing=True)
@@ -140,6 +142,9 @@ async def scope(db, source_id, asset_id, *, lock=False):
         location.config_revision,
         quota,
         ttl,
+        await storage_access.check(db, location.id, lock=lock)
+        if check_maintenance
+        else 1,
     )
 
 
@@ -272,11 +277,17 @@ def matches(record, configured):
     )
 
 
-async def reserve(factory, source_id, asset_id, storage):
+async def reserve(factory, source_id, asset_id, storage, *, expected_revision=None):
     async with factory() as db:
         configured = await scope(db, source_id, asset_id)
         if configured is None:
             return None, "disabled"
+        if expected_revision is not None:
+            await storage_access.check(
+                db,
+                configured.location_id,
+                expected_revision=expected_revision,
+            )
         await budget_lock(db, configured.location_id)
         # Re-read after waiting for another reservation's transaction.
         if await scope(db, source_id, asset_id) != configured:
@@ -322,6 +333,7 @@ async def reserve(factory, source_id, asset_id, storage):
             retain_until=writer_until + timedelta(days=RECOVERY_DAYS),
             next_check_at=writer_until,
         )
+        record._maintenance_revision = configured.maintenance_revision
         db.add(record)
         await db.commit()  # Independent durable ownership before the first PUT.
         return record, "reserved"
@@ -342,15 +354,15 @@ def stored_object(record, settled=None):
             raise snapshots.ContentError("cache_content_mismatch")
         yield body, {"size": record.size_bytes}
     finally:
+        closed = False
         try:
             if body is not None:
-                body.close()
+                storage_access.close_registered(body)
+            closed = True
         finally:
-            try:
-                storage.client.close()
-            finally:
-                if settled is not None:
-                    settled.set()
+            storage_access.close_registered(storage.client)
+            if closed and settled is not None:
+                settled.set()
 
 
 def verify_stored(record):
@@ -476,11 +488,17 @@ async def publish(factory, record, storage):
         current.next_check_at = min(
             current.expires_at, checked + timedelta(seconds=CHECK_SECONDS)
         )
+        await storage_access.check(
+            db,
+            record.scope_location_id,
+            expected_revision=getattr(record, "_maintenance_revision", 1),
+            lock=True,
+        )
         await db.commit()
         return True
 
 
-async def store(factory, source_id, asset_id, snapshot):
+async def store(factory, source_id, asset_id, snapshot, *, expected_revision=None):
     """Best-effort retention; the caller retains ownership of its verified snapshot."""
     if (
         not isinstance(snapshot, snapshots.Snapshot)
@@ -490,7 +508,9 @@ async def store(factory, source_id, asset_id, snapshot):
         raise snapshots.ContentError("cache_snapshot_invalid")
     storage, record, confirmed_put = make_storage(), None, False
     try:
-        record, status = await reserve(factory, source_id, asset_id, storage)
+        record, status = await reserve(
+            factory, source_id, asset_id, storage, expected_revision=expected_revision
+        )
         if record is None:
             return status
         if (record.sha256, record.size_bytes) != (snapshot.sha256, snapshot.size):
@@ -521,7 +541,9 @@ async def store(factory, source_id, asset_id, snapshot):
                 await retire(factory, record.id, uncertain=not confirmed_put)
             except Exception:
                 log.warning("Original cache recovery deferred entry=%s", record.id)
-        if not isinstance(exc, Exception):
+        if not isinstance(exc, Exception) or (
+            isinstance(exc, snapshots.ContentError) and exc.code.startswith("storage_")
+        ):
             raise
         log.warning(
             "Original cache fill deferred entry=%s", record.id if record else None
@@ -581,11 +603,17 @@ async def read(factory, source_id, asset_id):
             record.last_accessed_at = checked
             await db.commit()
         try:
-            snapshot = await snapshots.capture(
-                lambda: stored_object(record, settled), record.sha256
-            )
+            async with factory() as permit_db:
+                snapshot = await snapshots.capture_from_location(
+                    permit_db,
+                    configured.location_id,
+                    lambda: stored_object(record, settled),
+                    record.sha256,
+                    expected_revision=configured.maintenance_revision,
+                    purpose="original_cache_read",
+                )
         except snapshots.ContentError as exc:
-            if exc.status in {429, 504}:
+            if exc.status in {429, 504} or exc.code.startswith("storage_"):
                 # Admission/deadline pressure does not prove a corrupt object.
                 raise
             damaged = True
@@ -613,8 +641,7 @@ async def read(factory, source_id, asset_id):
             snapshot.close()
         raise
     finally:
-        # Cancellation of capture can precede its physical SDK thread. In that
-        # case preserve the lease until expiry; never unpin an active read early.
+        # Bounded capture now waits for the SDK thread and handle to settle.
         if identity and settled.is_set():
             try:
                 async with factory() as db:
@@ -677,7 +704,9 @@ async def purge(factory, identity):
             if record.state == "uploading" and record.writer_until > now():
                 return "skipped"
             if record.state == "ready":
-                configured = await scope(db, record.source_id, record.asset_id)
+                configured = await scope(
+                    db, record.source_id, record.asset_id, check_maintenance=False
+                )
                 total = await charged_bytes(db, record.scope_location_id)
                 if (
                     record.expires_at > now()

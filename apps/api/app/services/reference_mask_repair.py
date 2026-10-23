@@ -31,6 +31,7 @@ from app.services.reference_bindings import (
     task_binding,
     reference_binding,
     lock_reference_bindings,
+    normalize_binding,
 )
 from app.services.reference_keys import is_reference
 from app.services.task_lock import TaskLockService
@@ -169,6 +170,8 @@ async def capture_job_authority(
             Task, uuid.UUID(str(item["task_id"])), populate_existing=True
         )
         frozen = item.get("reference_input")
+        if frozen:
+            frozen = normalize_binding(frozen)
         if not frozen and (task is None or not is_reference(task.file_path)):
             continue
         if not frozen or task is None or task.file_type != "image":
@@ -216,7 +219,7 @@ class ReferenceRepairUnit:
         self.ai = not attempt.rollback and items[0]["kind"] == "rerun_local_sam"
         self.model = deepcopy(items[0].get("reference_model")) if self.ai else None
         self.unit_digest = canonical_digest(items)
-        self.plan_binding = deepcopy(bindings[0])
+        self.plan_binding = normalize_binding(deepcopy(bindings[0]))
         self.proof = None
         self.context = self.snapshot = self.inputs = self.url = self.transaction = None
         self.closed = False
@@ -265,9 +268,11 @@ class ReferenceRepairUnit:
             raise ContentError("content_binding_changed")
         actor = await authorize_repair_task(db, task, actor, ai=self.ai)
         binding = {**task_binding(task), "reference": await reference_binding(db, task)}
-        if binding != proof.get("bindings", {}).get(str(task.id)) or {
-            k: v for k, v in binding.items() if k != "version"
-        } != {k: v for k, v in self.plan_binding.items() if k != "version"}:
+        if binding != normalize_binding(
+            proof.get("bindings", {}).get(str(task.id), {})
+        ) or {k: v for k, v in binding.items() if k != "version"} != {
+            k: v for k, v in self.plan_binding.items() if k != "version"
+        }:
             raise ContentError("content_binding_changed")
         self.binding = binding
         if [
@@ -466,6 +471,7 @@ class ReferenceRepairUnit:
                     "source_id",
                     "source_revision",
                     "accepted_revision_id",
+                    "maintenance_revision",
                 )
             },
             "job_id": str(self.attempt.job_id),
@@ -570,7 +576,7 @@ async def qualify_repair_candidate(
     if len(matches) != 1:
         raise ContentError("repair_candidate_provenance_invalid")
     index, item = matches[0]
-    frozen = item.get("reference_input") or {}
+    frozen = normalize_binding(item.get("reference_input") or {})
     if (
         frozen.get("item_id") != str(task.dataset_item_id)
         or frozen.get("file_path") != task.file_path

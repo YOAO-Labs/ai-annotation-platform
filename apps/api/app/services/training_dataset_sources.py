@@ -2,11 +2,15 @@
 
 import uuid
 
+from sqlalchemy import select
+from app.db.models.dataset_asset import StorageLocation
+
 from fastapi import HTTPException
 from training_contract.dataset import DatasetContractError
 from training_contract.lineage import SOURCE_LINEAGE_CONTRACT, validate_source_lineage
 
 from app.services.content_snapshot import ContentError
+from app.services import storage_access
 from app.services.dataset_references import reference_context, reference_snapshot
 from app.services.reference_keys import parse_reference
 from app.services.training_dataset_bridge import TrainingDatasetError
@@ -59,6 +63,26 @@ async def training_reference_snapshot(
         context = await reference_context(
             db, item_id, actor, task_id=uuid.UUID(sample["task_id"]), node_id=node_id
         )
+        captured = sample.get("source_maintenance")
+        if not freeze_lineage:
+            await storage_access.check(
+                db,
+                context["location_id"],
+                expected_revision=(
+                    captured.get("revision", 1)
+                    if captured
+                    else 1
+                    if sample.get("asset_reference")
+                    else context["maintenance_revision"]
+                ),
+            )
+            if captured and captured["location_id"] != str(context["location_id"]):
+                raise ContentError("content_binding_changed")
+        else:
+            sample["source_maintenance"] = {
+                "location_id": str(context["location_id"]),
+                "revision": context["maintenance_revision"],
+            }
         identity = {
             "schema": 1,
             "dataset_id": sample["dataset_id"],
@@ -127,3 +151,42 @@ async def training_reference_snapshot(
         raise TrainingDatasetError(
             "reference_media_unavailable", "无法读取引用原图，请核对来源与节点连接"
         ) from exc
+
+
+async def lock_source_maintenance(db, snapshot):
+    """Fence new source-backed publication, never retained-copy downloads."""
+    for sample in snapshot.get("samples", []):
+        if not sample.get("asset_reference"):
+            continue
+        proof = sample.get("source_maintenance")
+        if proof:
+            location_id, revision = proof["location_id"], proof["revision"]
+        else:
+            lineage = sample.get("source_lineage") or {}
+            location_id, revision = lineage.get("location_id"), 1
+            if not location_id:
+                from app.db.models.dataset_source import DatasetReference, DatasetSource
+
+                reference = await db.get(
+                    DatasetReference, uuid.UUID(sample["dataset_item_id"])
+                )
+                source = (
+                    await db.get(DatasetSource, reference.source_id)
+                    if reference
+                    else None
+                )
+                if source is None:
+                    raise ContentError("source_unavailable")
+                location_id = source.location_id
+        location_id = uuid.UUID(str(location_id))
+        await db.execute(
+            select(StorageLocation.id)
+            .where(StorageLocation.id == location_id)
+            .with_for_update(read=True, nowait=True)
+        )
+        await storage_access.check(
+            db,
+            location_id,
+            expected_revision=revision,
+            lock=True,
+        )

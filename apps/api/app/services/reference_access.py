@@ -192,6 +192,10 @@ async def reference_task_guard(
     try:
         item_id, sha = parse_reference(task.file_path)
         scope = "annotations:write" if "/annotations" in path else "tasks:write"
+        from app.services.dataset_references import reference_context
+        from app.services import storage_access
+
+        context = await reference_context(db, item_id, actor, task_id=task.id)
         snapshot = await reference_snapshot(
             db,
             item_id,
@@ -204,7 +208,6 @@ async def reference_task_guard(
         snapshot.close()
         from app.db.models.dataset_source import DatasetReference, DatasetSource
         from app.db.models.dataset_asset import StorageLocation
-        from app.services.dataset_references import reference_context
         from sqlalchemy.exc import DBAPIError
 
         ref = await db.get(DatasetReference, item_id)
@@ -227,7 +230,14 @@ async def reference_task_guard(
             if getattr(exc.orig, "sqlstate", None) != "55P03":
                 raise
             raise HTTPException(409, detail={"code": "source_busy"}) from None
-        await reference_context(db, item_id, actor, task_id=task.id)
+        await storage_access.check(
+            db,
+            source.location_id,
+            expected_revision=context["maintenance_revision"],
+            lock=True,
+        )
+        if await reference_context(db, item_id, actor, task_id=task.id) != context:
+            raise HTTPException(409, detail={"code": "content_binding_changed"})
         if await key_authority(db, actor, key_id, scope) != key_proof:
             raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
         request.state.reference_verified_task_id = task.id
