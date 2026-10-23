@@ -94,7 +94,12 @@ class PredictionInputs:
 
     @classmethod
     async def create(cls, factory, *, owner_id, owner_kind, task_id, storage=None):
-        if owner_kind not in {"batch_predict", "prediction_retry"}:
+        if owner_kind not in {
+            "batch_predict",
+            "prediction_retry",
+            "interactive_predict",
+            "predict_test",
+        }:
             raise ValueError("unsupported prediction input owner")
         owner_id, task_id = uuid.UUID(str(owner_id)), uuid.UUID(str(task_id))
         storage = storage or make_storage()

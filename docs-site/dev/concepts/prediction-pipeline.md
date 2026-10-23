@@ -236,7 +236,7 @@ worker 使用 `worker:<Celery hostname>` 的已核验锚点捕获 strict snapsho
 
 引用 worker 复用 `ReferencePredictionJob` 和同快照输入，不持 FailedPrediction 行锁等待原图或模型 I/O。最终按 job→账号/项目/成员→失败项→Key→批次/Task→内容生命周期锁复验本 attempt，再一起提交候选、同快照 partial 替代、失败删除和作业完成。异常先回滚业务，再用 job→失败项锁独立记录本次失败与计数；Celery failure/revoked 使用相同边界，重复或迟到回调只处理匹配的 attempt，不清除后续 claim。发布响应丢失时不撤销已运行的 attempt。
 
-普通几何采纳由 `prediction_acceptance` 核验 URL Task 与候选归属、当前标注/读取权限及严格 API 原图，并与候选内容溯源比对。历史推理版本不作为永久门槛；当次操作固定当前版本与来源修订。最终持有账号/项目/成员、Key、批次/Task、Prediction/Meta 和内容生命周期锁，专有 receipt 绑定 session、非嵌套事务、actor、Task、候选及正文/溯源摘要，提交或回滚后失效。沿用类别、属性、贡献者、审核证据与统计流程；原生掩码和视频形态仍拒绝。交互、predict-test 和 mask repair 继续逐入口资格验证，不全局放宽旧 URL resolver。
+普通几何采纳由 `prediction_acceptance` 核验 URL Task 与候选归属、当前标注/读取权限及严格 API 原图，并与候选内容溯源比对。历史推理版本不作为永久门槛；当次操作固定当前版本与来源修订。最终持有账号/项目/成员、Key、批次/Task、Prediction/Meta 和内容生命周期锁，专有 receipt 绑定 session、非嵌套事务、actor、Task、候选及正文/溯源摘要，提交或回滚后失效。沿用类别、属性、贡献者、审核证据与统计流程；原生掩码和视频形态仍拒绝。同步交互和 predict-test 使用下述独立请求 owner；mask repair 和后台原生掩码仍保留门禁，不全局放宽旧 URL resolver。
 
 ### 单层并行兄弟（声明式，非 Celery chord）
 
@@ -341,6 +341,16 @@ worker 累加各阶段 stats（源阶段 `{detected}`、下游 `{targeted, ok, f
   - `observe` 模式：在所有可加载端点的 HTTP 发送前，按稳定 `gpu_resource_id` 对同卡预算和新鲜 residency 快照计算 `would-*` 决策，只写结构化日志且旁路短超时放行，不改变业务请求结果。
   - `enforce` 模式：使用 Redis lease 执行 Resident 快路与 cold admission；cold token 暴露后，完整 HTTP 响应触发新 challenge 探测，在逐卡持久锁内将 `Loading` 收口为 `Resident`、CPU fallback、`Unloaded` 或保守 `Unknown`。
   - **容量不足时的驱逐策略**：authority 在 target cold intent 之前按「优先级 + LRU」依次驱逐同一完整资源 ID 上的空闲 victim，仅在严格 drain ACK、新鲜 health proof 与终态 CAS 全部成功后释放预算；不确定结果保守收口为 `Unknown` 并停止后续驱逐。
+
+### 引用图片的同步交互与原生掩码
+
+`reference_inference.ReferenceImageOperation` 固定本次 Task.version、Item/Asset/SHA/大小/尺寸、来源/位置/连接修订、API 节点锚点与原发起 Key proof。`interactive_predict` 和 `predict_test` 使用独立请求 UUID 及明确的输入账本 owner，不伪造业务 AsyncJob。初始权限与 Mask 提示授权后释放事务，再严格捕获原图并上传到独占临时输入；模型 setup 后、真正派发前再次校验。原图、掩码提示读取和模型 HTTP 均不跨持成员锁的事务。
+
+响应边界取得账号/项目/成员、原 Key、Task 编辑 advisory、批次/Task 和内容生命周期锁，刷新批次状态及 fallback 分派，复核权限、绑定、版本与提示 Annotation 版本/digest；advisory 使用 try-lock，忙时返回 409。predict-test 保留管理者的可读测试语义，可以测试已完成任务；交互检查当前编辑权限、他人编辑锁与 AI 开关。请求取消时清理在受保护的取消范围内释放事务并回收输入；不确定 PUT 与硬中断仍由持久账本恢复。
+
+交互候选的 HMAC receipt 和加密 logits 会话增加服务器生成的 `reference_input` 原图身份，续点同时核对内容、模型、参数和源 Mask。原生采纳在原有 atomic owner 之前重新严格核验原图及当前读取/写入权限，以独立私有 receipt 绑定 session、非嵌套事务、actor、Task、请求摘要和掩码 digest；Prediction writer 仅为这一专用 receipt 接受单个原生图片 Mask，普通后台 receipt 继续拒绝原生形态。Prediction、Annotation、贡献者、审计与 decision 仍同事务提交，精修保持源版本和 If-Match 合同。
+
+decision 内保留非授权的原图溯源，15 分钟候选 receipt 到期后仍可在既有 24 小时 decision 期限内重放相同请求；重放同样复核当前权限和严格原图，不额外写候选。私有证据不在公开响应中输出，公开客户端仍只提交原有候选凭证。批量 mask repair 和后台原生掩码尚未取得该专用资格。
 
 ## 代码索引
 

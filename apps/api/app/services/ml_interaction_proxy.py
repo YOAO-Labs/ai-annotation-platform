@@ -66,6 +66,7 @@ def prepare_interactive_context(
     task_id: str,
     frame_index: int | None = None,
     requested_backend_id: str | None = None,
+    reference_input: dict | None = None,
 ) -> tuple[dict[str, Any], str | None]:
     """Resolve one image-interactive model and bind its safe prompt contract."""
 
@@ -358,6 +359,7 @@ def prepare_interactive_context(
             "model_id": model_id,
             "source": source,
             "model_variants": prepared.get("model_variants") or {},
+            "reference_input": reference_input,
         }
         if any(claims.get(key) != value for key, value in expected_session.items()):
             _error(
@@ -387,6 +389,7 @@ def prepare_interactive_context(
                 "model_id": model_id,
                 "context": revision_context,
                 "session_origin": session_origin,
+                "reference_input": reference_input,
             },
             ensure_ascii=False,
             separators=(",", ":"),

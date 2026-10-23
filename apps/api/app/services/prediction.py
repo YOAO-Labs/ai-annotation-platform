@@ -9,7 +9,12 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.prediction import Prediction, PredictionMeta, FailedPrediction
+from app.db.models.prediction import (
+    Prediction,
+    PredictionMeta,
+    FailedPrediction,
+    INTERACTIVE_ACCEPT_PREDICTION_SOURCE,
+)
 from app.db.models.task import Task
 from app.schemas._jsonb_types import TOOL_UNIT_IDS as _SCHEMA_TOOL_UNIT_IDS
 from app.services.annotation_propagation import _new_track_id
@@ -484,12 +489,26 @@ class PredictionService:
         ml_backend_pool_id: uuid.UUID | None = None,
         model_provenance: dict | None = None,
         reference_receipt=None,
+        native_reference_receipt=None,
     ) -> Prediction:
         # v0.21.1 · 检测式追踪原生 int track_id → trk_<uuid> (读路径不得再生 uuid, 见 _remap_track_ids)。
         from app.services.reference_access import reject_reference_scope
 
         reference_evidence = None
-        if reference_receipt is None:
+        if native_reference_receipt is not None:
+            from app.services.reference_inference import validate_native_receipt
+            from app.services.content_snapshot import ContentError
+
+            if (
+                reference_receipt is not None
+                or source != INTERACTIVE_ACCEPT_PREDICTION_SOURCE
+                or (token_meta or {}).get("mask_objects") is not None
+            ):
+                raise ContentError("prediction_reference_receipt_invalid")
+            reference_evidence = await validate_native_receipt(
+                self.db, task_id, project_id, native_reference_receipt, result=result
+            )
+        elif reference_receipt is None:
             await reject_reference_scope(self.db, task_ids=[task_id])
         else:
             from app.services.prediction_references import validate_receipt

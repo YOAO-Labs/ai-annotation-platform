@@ -70,6 +70,7 @@ def ai_mask_accept_request_digest(data: AiMaskAcceptRequest) -> str:
 
 def _replay_response(decision: AiMaskAcceptDecision) -> AiMaskAcceptResponse:
     snapshot = dict(decision.response_json or {})
+    snapshot.pop("_reference_input", None)
     snapshot["replayed"] = True
     return AiMaskAcceptResponse.model_validate(snapshot)
 
@@ -428,6 +429,23 @@ async def accept_ai_mask_candidate(
         raise AiMaskAcceptError(
             status_code=404, reason="task_not_found", message="task was not found"
         )
+    from app.services.reference_keys import is_reference
+
+    native_reference_receipt = getattr(
+        request.state, "reference_native_acceptance", None
+    )
+    native_reference_evidence = None
+    if is_reference(task.file_path):
+        from app.services.reference_inference import validate_native_receipt
+
+        native_reference_evidence = await validate_native_receipt(
+            db,
+            task.id,
+            task.project_id,
+            native_reference_receipt,
+            actor_id=current_user.id,
+            data=data,
+        )
     _assert_task_still_editable(task, current_user, access=access)
     from app.api.v1.tasks._shared import (
         _assert_review_adjustment_evidence,
@@ -609,6 +627,7 @@ async def accept_ai_mask_candidate(
         model_version=data.inference.model_version,
         inference_time_ms=inference_time_ms,
         source=INTERACTIVE_ACCEPT_PREDICTION_SOURCE,
+        native_reference_receipt=native_reference_receipt,
         pipeline_extra={
             "mask_ai_accept": {
                 "candidate_id": candidate.candidate_id,
@@ -712,7 +731,14 @@ async def accept_ai_mask_candidate(
         source_version=source_version,
         result_version=annotation.version,
         actor_id=current_user.id,
-        response_json=response.model_dump(mode="json"),
+        response_json={
+            **response.model_dump(mode="json"),
+            **(
+                {"_reference_input": native_reference_evidence}
+                if native_reference_evidence
+                else {}
+            ),
+        },
     )
     db.add(decision)
     await db.flush()

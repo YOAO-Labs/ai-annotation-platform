@@ -19,6 +19,8 @@
 
 C2 最终合同：入队固定实际任务、任务版本、原发起 Key proof、模型快照及 Item/Asset/SHA/来源修订；真实 worker 节点捕获严格快照，经独占临时输入交付现有 HTTP 协议，根阶段、geometry 和 ROI 共用同份字节。最终事务与取消共锁，复验后以服务器专有 receipt 写候选；失败重试采用新授权但保留原模型/内容。采纳使用当次权限和严格原图证明，不把历史 Task.version 永久相等作为采纳条件，保留 draft 预标后分派/激活的合法流程。交互、predict-test、mask repair 按同一合同分别获得资格，不全局移除 `resolve_task_url` 的引用门禁。
 
+当前增量定案：同步交互与 predict-test 使用独立请求 UUID 和清理账本，经 API 节点严格原图快照投递现有 HTTP 协议；原发起 Key、Task.version、绑定与当前权限在响应前复验。predict-test 保持项目管理者的可读测试语义；交互保持任务编辑、分派、锁和 AI 开关语义。原生掩码候选凭证与续点会话绑定原图 Item/Asset/SHA/尺寸，采纳重新严格读图并以独立私有事务 receipt 接入既有原子采纳 owner。批量 mask repair 继续单独实施其入队、取消、结果事务和确定性修复资格；本增量不把它视为已完成。
+
 本轮先实施 C2-A 共用输入资源所有者，并实际接入现有多阶段预标及 snapshot retry 的 ROI 上传。上传前独立提交回收记录，使用服务生成的 attempt UUID 前缀；正常结束主动清理，删除失败持久重试，过期/失联尝试持续扫除可能迟到的写入。记录不随 job/task/project 删除级联消失，固定存储身份不匹配时拒绝访问新后端。原图快照转移所有权及同字节 image loader 也由该 owner 提供，后续 C2-B 接入引用、receipt、取消事务与重试/采纳；C2-A 不宣称已开放引用预标。
 
 C2-B 首个前置增量处理既有结果事务缺口（基线 `5b012036f`）：图片覆盖删除后移，与全部候选、元信息和显式 partial 失败记录同事务；写入异常先完整回滚，再记录失败。成功数和费用在提交后累加，回滚后的下一题按固定 UUID 刷新状态，路由客户端按 registry ID 重新解析。取消 API、逐题写入、最终批次/作业完成及迟到失败回调共用 fresh AsyncJob 行锁；作业元信息合并保留已提交取消标记，broker revoke 在数据库提交后执行。视频逐帧仍由独立 owner 负责，保留原派发前清理合同。该增量不开放引用门禁，Task/内容/Key 冻结、同快照投递、专有 receipt 和重试/采纳仍是 C2-B 的后续必要部分。
@@ -330,3 +332,15 @@ M1 严格方案：对需要与标注绑定的可变原图，读取到受限临�
 - Ruff、OpenAPI 快照、196 页 frontmatter、198 页导航及最终 diff 检查通过。同步 README、用户/API/架构文档、CHANGELOG 与执行队列；无新公共参数、依赖、环境变量、迁移或版本号。
 - 人工环境3100/8100保留原dev数据，无活动作业时刷新普通/maintenance worker和beat；验证真实新retry签名、8/2队列和cleanup派发，不重建镜像。验证用独立test资源按owner销毁，脚本/日志/XML/缓存清理，未声称远程CI。
 - 后续继续逐入口完成交互/predict-test/mask repair/native mask资格、E05-B缓存及E10血缘；完整E05与整套Epic仍未完成，不归档。
+
+### E05-C2-B 同步交互、预测测试与原生掩码采纳 Outcome
+
+- 已实现 `reference_inference.ReferenceImageOperation`：引用图片的同步交互和 predict-test 固定当前 Task.version、Item/Asset/SHA/大小/尺寸、来源/位置/连接修订、API 节点及原 Key proof，经严格原图快照和独占临时输入调用现有 HTTP 后端。请求使用独立 UUID 与明确账本 owner，不创建伪造 AsyncJob，不重建镜像。
+- 响应前按账号/项目/成员→Key→Task 编辑 advisory→批次/Task→内容生命周期复验，刷新批次状态和 fallback 分派。advisory 使用 try-lock，忙时有界返回 409；授权检查只读未过期编辑锁，避免清理副作用跨 I/O。predict-test 保留管理者可读测试语义，交互保持可编辑、分派、编辑锁、审核证据和 AI 开关约束；setup 后、真正推理前重新验证。
+- 原生候选 HMAC receipt 与 logits 会话绑定原图身份，旧无证据或另一份内容的会话拒绝。原生采纳重新严格核验当前原图、读取/写入及精修读取权限，经独立私有 receipt 接入现有 atomic owner；receipt 绑定当前 session、非嵌套事务、actor、Task、请求与掩码摘要，普通后台 receipt 继续拒绝原生 Mask。精修保留 If-Match 与源 Annotation 版本/digest 合同。
+- Prediction、Annotation、内容血缘、贡献者、审计和 decision 同事务。decision 持久保留非授权原图证据，候选凭证 15 分钟到期后，相同请求仍可在原 decision 期限内核验重放，不重复写候选；当前权限或原图失效仍拒绝。公开响应不输出内部 decision 证据。
+- 本地累计 **233 个不同用例**的最终结果通过，包含托管交互/原生掩码/模型权限、流水线验证、引用预标/重试/采纳、临时输入、任务锁及新增同步专项；最后干净环境 93 例与只读锁调整后 54 例通过，重复运行不重复累计。覆盖中途撤 Key/收 scope/停账户、Task/来源/位置变化、批次单独变更、其他人编辑锁、取消、PUT 不确定恢复、旧 logits、跨 session/事务/actor/请求/掩码的私有凭证拒绝、凭证和 decision 不同 TTL 重放。
+- 真实 ASGI→现有 HTTP 协议夹具→一次性 MinIO 验证原生掩码创建、同对象精修及采纳、predict-test；三个推理请求实际读取与原件一致的字节和 SHA。输出 Mask 经过真实对象存储与既有像素验证，临时输入对象和账本清零；夹具输出对象按精确键清理。这证明协议与事务接入，不宣称实际 SAM 模型质量或生产网络资格。
+- OpenAPI snapshot 无变化，Ruff 和格式检查通过，196 页 frontmatter 与 198 页导航检查通过。正式文档同步 README、CHANGELOG、用户预标/目录导入说明、ML/预测/严格内容/Mask 采纳 API、预测管线与存储架构。
+- 人工环境保留 3100/8100，空闲后刷新普通/维护 worker；doctor healthy，两个 HTTP 入口均 200，两个节点队列分别 8/2，实际清理任务成功，beat 正常，未重建后端或 ML 镜像。一次性测试数据库、Redis、九用途桶及本轮脚本/日志/缓存清理；Orca 指定中继仍 ECONNREFUSED，不切换二进制或另建工作树。
+- 后续推进批量 mask repair 的入队授权、worker 严格输入、取消与候选结果共事务，以及确定性修复/恢复资格；后台原生掩码、E05-B 缓存与 E10 血缘继续分别实施。完整 E05 与整套 Epic 仍在执行，不归档。

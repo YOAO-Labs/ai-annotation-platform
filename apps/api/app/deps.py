@@ -25,6 +25,11 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
+def get_prediction_input_session_factory():
+    """Independent commits retain cleanup intent outside the request transaction."""
+    return async_session
+
+
 def get_gpu_shadow_session_factory() -> GPUShadowSessionFactory:
     """可覆写的 observe 短会话工厂；业务请求 session 不交给旁路关闭。"""
 
