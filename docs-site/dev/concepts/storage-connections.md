@@ -280,3 +280,11 @@ Worker 以 run generation、task/job ID、租约共同 fencing，逐成员事务
 批量复核另使用 `dataset_quality_review_batches` 和 `dataset_quality_review_members` 保存不可扩张的预览范围与逐项 checkpoint，执行继续复用 AsyncJob 和单项复核 owner。筛选 SQL 与质量结果列表共用；预览固定规则、内容证据和 review_revision，摘要绑定决定和原因，确认不再查询动态范围。Result 锁使用 populate_existing，防止等待行锁后沿用会话缓存的旧修订。
 
 每个成员的决定、审计及处理结果同事务提交。冲突/阻止明确保留，部分完成作为领域终态；取消后恢复只遍历 pending。批次锁、当前 Job/task/generation 和租约共同阻止迟到 Worker 或 failure signal 写入；Beat 每30秒恢复过期租约，派发失败保留持久意图。每项前后检查当前管理、来源与 key 授权，无源文件 I/O；历史证据不继承到新内容。通用任务保留策略不删除复核账本。回退批量复核迁移前先停止执行并导出批次证据；已应用的单项决定与审计仍保留在原质量表及 AuditLog。
+
+## 位置来源诊断的只读口径
+
+`storage_source_summary` 先按当前账号裁剪位置和来源，再对当前来源页批量汇总。`storage_source_diagnostics` 复用 Workbench 的 `observations`，显式限定 `DatasetReference.source_id`，避免将托管样本的多来源 provenance 任意归到某个来源。无 Dataset 时必须提供引用来源范围，禁止意外扩大为全局观测。
+
+计数单位是保留的业务样本，含旧内容身份，非当前路径头；原件仍使用已有持久观测六态。预览通过当前 SourceItem 的业务 Item/Asset/SHA 联结，允许显式移动后的同一身份，拒绝旧样本继承新内容预览；当前策略禁用或来源停用优先阻断。它是生成记录摘要，不执行对象存在性检查。当前内容的合法缓存复用沿用现有读取合同，不增加仅诊断端生效的策略修订条件。
+
+扫描和预检分别按来源批量查询，活动轮次优先，并独立保留最近完整成功记录。配置匹配由当前修订判断，不外露 snapshot。AsyncJob 保留期不删除领域证据。整个 GET 无源 I/O、写入或后台派发，不需要迁移或刷新 Worker。

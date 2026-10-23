@@ -48,6 +48,63 @@ class StorageLocationList(BaseModel):
     total: int
 
 
+class StorageOriginalCounts(BaseModel):
+    verified: int
+    missing: int
+    changed: int
+    preview_only: int
+    unavailable: int
+    unverified: int
+
+
+class StoragePreviewCounts(BaseModel):
+    ready: int
+    failed: int
+    unrecorded: int
+    not_requested: int
+    blocked: int
+
+
+class StorageReferenceEvidence(BaseModel):
+    scope: Literal["stored_reference_items"]
+    total: int
+    original_counts: StorageOriginalCounts
+    preview_counts: StoragePreviewCounts
+    observed_from: datetime | None
+    observed_through: datetime | None
+    preview_recorded_at: datetime | None
+
+
+class StorageSourceRunEvidence(BaseModel):
+    run_id: uuid.UUID
+    scan_run_id: uuid.UUID
+    job_id: uuid.UUID | None
+    status: Literal["pending", "running", "completed", "failed", "cancelled"]
+    phase: Literal[
+        "enumerating",
+        "validating",
+        "resume_validation",
+        "preflight",
+        "registering",
+        "unknown",
+    ]
+    complete: bool
+    matches_current_config: bool
+    created_at: datetime
+    completed_at: datetime | None
+
+
+class StorageSourceRunHistory(BaseModel):
+    recent: StorageSourceRunEvidence | None
+    last_complete: StorageSourceRunEvidence | None
+
+
+class StorageSourceDiagnostics(BaseModel):
+    references: StorageReferenceEvidence
+    scan: StorageSourceRunHistory
+    preflight: StorageSourceRunHistory
+
+
 class StorageSourceSummaryItem(BaseModel):
     source_id: uuid.UUID
     source_name: str
@@ -55,6 +112,7 @@ class StorageSourceSummaryItem(BaseModel):
     dataset_name: str | None
     enabled: bool
     unregistered_at: datetime | None
+    diagnostics: StorageSourceDiagnostics
 
 
 class StorageSourceJob(BaseModel):

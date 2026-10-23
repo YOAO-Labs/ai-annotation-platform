@@ -42651,6 +42651,44 @@
         "title": "StorageLocationUpdate",
         "type": "object"
       },
+      "StorageOriginalCounts": {
+        "properties": {
+          "changed": {
+            "title": "Changed",
+            "type": "integer"
+          },
+          "missing": {
+            "title": "Missing",
+            "type": "integer"
+          },
+          "preview_only": {
+            "title": "Preview Only",
+            "type": "integer"
+          },
+          "unavailable": {
+            "title": "Unavailable",
+            "type": "integer"
+          },
+          "unverified": {
+            "title": "Unverified",
+            "type": "integer"
+          },
+          "verified": {
+            "title": "Verified",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "verified",
+          "missing",
+          "changed",
+          "preview_only",
+          "unavailable",
+          "unverified"
+        ],
+        "title": "StorageOriginalCounts",
+        "type": "object"
+      },
       "StorageOverview": {
         "properties": {
           "bucket_count": {
@@ -42763,6 +42801,39 @@
         "title": "StorageOverview",
         "type": "object"
       },
+      "StoragePreviewCounts": {
+        "properties": {
+          "blocked": {
+            "title": "Blocked",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "not_requested": {
+            "title": "Not Requested",
+            "type": "integer"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "integer"
+          },
+          "unrecorded": {
+            "title": "Unrecorded",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ready",
+          "failed",
+          "unrecorded",
+          "not_requested",
+          "blocked"
+        ],
+        "title": "StoragePreviewCounts",
+        "type": "object"
+      },
       "StorageProbeOut": {
         "properties": {
           "capabilities": {
@@ -42838,6 +42909,92 @@
         "title": "StorageProbeRequest",
         "type": "object"
       },
+      "StorageReferenceEvidence": {
+        "properties": {
+          "observed_from": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed From"
+          },
+          "observed_through": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed Through"
+          },
+          "original_counts": {
+            "$ref": "#/components/schemas/StorageOriginalCounts"
+          },
+          "preview_counts": {
+            "$ref": "#/components/schemas/StoragePreviewCounts"
+          },
+          "preview_recorded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview Recorded At"
+          },
+          "scope": {
+            "const": "stored_reference_items",
+            "title": "Scope",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "scope",
+          "total",
+          "original_counts",
+          "preview_counts",
+          "observed_from",
+          "observed_through",
+          "preview_recorded_at"
+        ],
+        "title": "StorageReferenceEvidence",
+        "type": "object"
+      },
+      "StorageSourceDiagnostics": {
+        "properties": {
+          "preflight": {
+            "$ref": "#/components/schemas/StorageSourceRunHistory"
+          },
+          "references": {
+            "$ref": "#/components/schemas/StorageReferenceEvidence"
+          },
+          "scan": {
+            "$ref": "#/components/schemas/StorageSourceRunHistory"
+          }
+        },
+        "required": [
+          "references",
+          "scan",
+          "preflight"
+        ],
+        "title": "StorageSourceDiagnostics",
+        "type": "object"
+      },
       "StorageSourceJob": {
         "properties": {
           "completed_at": {
@@ -42902,6 +43059,123 @@
         "title": "StorageSourceJobs",
         "type": "object"
       },
+      "StorageSourceRunEvidence": {
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "matches_current_config": {
+            "title": "Matches Current Config",
+            "type": "boolean"
+          },
+          "phase": {
+            "enum": [
+              "enumerating",
+              "validating",
+              "resume_validation",
+              "preflight",
+              "registering",
+              "unknown"
+            ],
+            "title": "Phase",
+            "type": "string"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "scan_run_id": {
+            "format": "uuid",
+            "title": "Scan Run Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "scan_run_id",
+          "job_id",
+          "status",
+          "phase",
+          "complete",
+          "matches_current_config",
+          "created_at",
+          "completed_at"
+        ],
+        "title": "StorageSourceRunEvidence",
+        "type": "object"
+      },
+      "StorageSourceRunHistory": {
+        "properties": {
+          "last_complete": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StorageSourceRunEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StorageSourceRunEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "recent",
+          "last_complete"
+        ],
+        "title": "StorageSourceRunHistory",
+        "type": "object"
+      },
       "StorageSourceSummary": {
         "properties": {
           "dataset_count": {
@@ -42963,6 +43237,9 @@
             ],
             "title": "Dataset Name"
           },
+          "diagnostics": {
+            "$ref": "#/components/schemas/StorageSourceDiagnostics"
+          },
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
@@ -42995,7 +43272,8 @@
           "dataset_id",
           "dataset_name",
           "enabled",
-          "unregistered_at"
+          "unregistered_at",
+          "diagnostics"
         ],
         "title": "StorageSourceSummaryItem",
         "type": "object"

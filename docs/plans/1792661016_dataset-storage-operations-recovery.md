@@ -1,7 +1,28 @@
 # EPIC-12：运维观测、容量口径与备份恢复
 
-> 状态：approved；2026-10-23 按用户“继续推进下一阶段”授权的 E12-A1 / E09-B1 已完成；其余切片仍待独立复核，不分配发布版本。
+> 状态：approved；2026-10-23 按用户“继续推进下一阶段”授权的 E12-A1/A2 与 E09-B1/B2 已完成；其余切片仍待独立复核，不分配发布版本。
 > 晋升基线：`5b764eaa5`；工作树干净，保留 `1822b025369a33f4` 的 dev 人工验收环境，不重建后端镜像。
+
+## 本轮定稿：E12-A2 / E09-B2（已交付）
+
+2026-10-23 用户继续授权；基线 `08d5d5ed2`，工作树干净。本轮交付位置内来源诊断，不新增数据库表、任务或环境变量，不重建后端镜像。
+
+```text
+Location modal -> source-summary GET -> current-authority source page
+                                      -> reference observations + preview records
+                                      -> active/latest scan and preflight + last complete
+              -> dataset/source/scan links + shared AsyncJob modal
+```
+
+- 只聚合本页授权来源的 `DatasetReference` 业务样本，含保留的历史修订；托管复制和未登记路径不计入。原件复用 Workbench 六态及观测时间范围，明确是历史观测，不是实时健康检查。
+- 预览独立计数：当前 Item/Asset/SHA、SourceItem 与规格匹配的 ready/failed 记录，无匹配为 unrecorded；策略关闭和来源停用分别计数。当前内容可合法复用已有预览；不要求策略修订相等。ready 还核对当前平台绑定，只表明生成记录，不证明对象此刻存在。
+- 扫描、预检分别展示活动优先的最近轮次，以及最近完整成功轮次；恢复旧轮不能被新失败记录遮住。完整性、时间、配置修订匹配分别表达；预检不依附于最新扫描。配置不匹配的历史原件观测不改写成当前健康。
+- GET 只查数据库，不读取文件、HEAD/LIST 对象、探测节点或生成预览。页内批量 SQL，无逐来源查询。继续沿用 manager、位置和来源授权及 `datasets:read`；只返回白名单字段，配置、路径、证明和原始错误不外露。
+- UI 来源列表占满宽度，原件/预览/扫描分开，细项和任务历史折叠，活动任务和失败摘要可见。保留独立分页、数据集/来源/扫描深链与 return、居中任务详情、Escape 和焦点恢复、切换账号及撤权隔离。
+- 文件范围（超过 8 文件，跨 API/Web/docs，以共同只读合同提交）：`app/services/{dataset_workbench,storage_source_summary,storage_source_diagnostics}.py`、`app/schemas/storage_location.py`、`tests/test_storage_source_diagnostics.py`、现有摘要/Workbench 回归、OpenAPI snapshot、`StorageLocationSourceSummary{.tsx,.test.tsx}`、`StorageSourceDiagnostics.tsx`、README/CHANGELOG、存储位置 API/用户指南/架构文档、E09/E12 及 backlog 进度。API 路径前缀均为 `apps/api/`，Web 路径前缀为 `apps/web/src/components/connections/`。
+- 验证：一次性 test DB；原件变化/失踪、历史内容身份及移动、预览规格/SHA/策略/绑定、活动旧轮/失败/不完整/旧配置、任务历史删除、权限及页范围、GET 零源 I/O。Web 验证独立分页、诊断口径、深链、撤权与刷新失败。生成 OpenAPI/types，SDK 合同、tsc/lint/css tokens、文档检查及 diff 检查。
+- 人工环境保留：在当前 dev 中用已有 D-7 观测查看实际 API/UI；桌面和窄屏、明暗主题、嵌套详情/Escape/焦点/返回与无溢出，检查网络及控制台。清理本轮 test 资源与临时截图，不删除验收业务数据。
+- 回退：回退应用提交即可；本轮无迁移、写入或新后台执行。E12 其余容量/配额/恢复及 E09 其余诊断不宣称完成。
 
 ## 本轮定稿：E12-A1 / E09-B1
 
@@ -285,4 +306,17 @@ E12-A1 / E09-B1 已完成。主实现提交 `0e85ce496`；本次交付记录同�
 - 真实浏览器：使用独立会话、无 mock。首次未知、成功零值、九桶采样时间、默认折叠和展开、连续刷新不产生盘点 POST、任务居中与 Escape 返回焦点通过。1440×1000 和 390×844 明暗主题均检查截图；窄屏明细改为容器内横向滚动，页面宽度仍为 390，无页面溢出；窄屏任务弹窗为 342×318，居中且可关闭。控制台没有 error/warn，仅 debug/info；页面错误与失败网络请求均为零。权限、失败、部分覆盖及进程丢失故障以本地测试验证，未在保留的业务环境注入故障。
 - 正式文档：`docs-site/user-guide/datasets/storage-connections.md`、`docs-site/api/guides/storage-locations.md`、`docs-site/dev/reference/storage-buckets.md`、`README.md`、`CHANGELOG.md` Unreleased 与生成 API 索引同步；SDK coverage 明确将平台运维入口排除为 Web 专用。
 - 清理：一次性 `1822b025369a33f4:test` 数据库/Redis/九桶按 owner 校验销毁；本轮截图、报告、日志、临时脚本、测试缓存及专用浏览器会话清理。保留 dev 人工环境、原演示数据、已有冻结版本与本轮可查看的成功/取消任务记录。
-- 剩余：E12-A 的原件/预览/扫描关联诊断、E12-B 分项归因/配额与一致恢复、E12-C 规模基准仍需独立复核；E09-B 的 E11 清理影响预览和 E07 迁移/退役合同未实施。本计划继续保留为活动计划，外部源索引字节、历史版本/分片与底层物理容量不冒充已测量。
+- A1 交付时剩余：E12-A 的原件/预览/扫描关联诊断、E12-B 分项归因/配额与一致恢复、E12-C 规模基准仍需独立复核；E09-B 的 E11 清理影响预览和 E07 迁移/退役合同未实施。本计划继续保留为活动计划，外部源索引字节、历史版本/分片与底层物理容量不冒充已测量。
+
+### E12-A2 / E09-B2 来源诊断交付
+
+本轮实现提交随最终交付记录补充；无迁移、无依赖或 Worker 改动，不重建后端镜像。本切片已完成，不宣称完整 E12-A/E12 或 E09-B 完成，未分配发布版本。
+
+- 交付：位置摘要按当前来源页批量聚合原地引用样本的六态原件观测、当前内容的独立预览记录、扫描与预检的活动优先轮次和最近完整成功；显示历史配置和观测时间。包含历史修订，移动保持身份；托管复制和未登记路径不混入。GET 零源 I/O，不改变既有读取/接纳合同。
+- 界面：全宽来源列表，四类证据分开，数量细项和后台任务历史折叠；任务历史独立分页并保持展开状态。保留来源/扫描/返回深链，任务居中展示，Escape 仅关闭上层并恢复焦点。刷新失败保留并标明旧结果，撤权隐藏私有数据。
+- API/DB：36 个不同用例通过（来源摘要 8、诊断 14、Workbench 14；夹具修正后仅重验失败项，不重复累计）。覆盖权限/孤儿历史/页范围，GET 禁止存储调用，预览 SHA/Asset/规格/目标绑定，策略停用/恢复，历史修订与移动，空/缺失 Asset，旧活动轮与新失败、配置修订及任务删除。1 与 5 个来源的查询次数未随行数增长。
+- Web：摘要 7、位置控制台 12，共 19 项通过；SDK OpenAPI 合同 4 项通过。tsc、完整 Web lint、CSS tokens、Ruff、OpenAPI/TS 生成、API 索引、文档 frontmatter（196）/navigation（198）及 diff 检查通过。仅保留既有 4 条无关 ESLint warning 与训练页两处 z-10 建议。总计 59 个不同本地用例；不宣称全量套件或远程 CI。
+- 实际浏览器：保留的 3100/8100 dev 无 mock；D-7 来源为已验证 1、失踪 1、变化 1，独立预览记录为 3。历史来源最近扫描失败、不完整、历史配置及上次完整成功同时可见。刷新只有一条摘要 GET 200，未创建任务。任务详情居中、Escape 和焦点恢复；来源往返存储原位置、历史任务第二页与来源第一页独立保持。1440×1000 和 390×900 明暗主题截图已检查，无横向溢出、页面 JS 错误或失败 HTTP 请求。
+- 正式文档：`docs-site/api/guides/storage-locations.md`、`docs-site/user-guide/datasets/storage-connections.md`、`docs-site/dev/concepts/storage-connections.md`、`README.md`、`CHANGELOG.md` Unreleased 及 OpenAPI 同步。API 路由未新增，生成 API 索引与 SDK coverage 无需变更。
+- 清理：交付收尾按 owner 销毁本轮 test DB/Redis/桶及临时资源，清理日志、报告、截图、测试缓存和专用浏览器；保留 dev、D-7 来源、质检/复核记录及原 ready 冻结版本。最终提交记录补充清理结果。
+- 剩余：运维告警/日志关联与跨节点失败分类仍需独立合同；E12-B 分项归因、配额和一致恢复，E12-C 规模基准、E09 的 E11/E07 维护影响预览仍未完成。本次记录不是实时读取证明，也不提供物理容量或完整源索引字节。活动计划继续保留，不归档整套 Epic。

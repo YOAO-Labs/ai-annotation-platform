@@ -81,8 +81,12 @@ def visible_mapping_query(item_id, actor):
     )
 
 
-def observations(dataset_id, actor, *, preferred_source_id=None):
+def observations(
+    dataset_id, actor, *, preferred_source_id=None, reference_source_ids=None
+):
     """One SQL relation for both filtering and display, without source I/O."""
+    if dataset_id is None and reference_source_ids is None:
+        raise ValueError("Observations require a dataset or explicit reference sources")
     provenance_query = visible_mapping_query(DatasetItem.id, actor).with_only_columns(
         DatasetSourceItem.source_id
     )
@@ -232,8 +236,11 @@ def observations(dataset_id, actor, *, preferred_source_id=None):
         .outerjoin(DatasetSource, DatasetSource.id == source_id)
         .outerjoin(StorageLocation, StorageLocation.id == DatasetSource.location_id)
         .outerjoin(changes, literal(True))
-        .where(DatasetItem.dataset_id == dataset_id)
     )
+    if dataset_id is not None:
+        base = base.where(DatasetItem.dataset_id == dataset_id)
+    if reference_source_ids is not None:
+        base = base.where(DatasetReference.source_id.in_(reference_source_ids))
     return base.subquery("item_observations")
 
 

@@ -1,5 +1,5 @@
 import { storageAccessDenied } from "./storageQueryState";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { datasetSourcesApi as api } from "@/api/datasetSources";
@@ -8,6 +8,8 @@ import { AsyncJobDetailModal } from "@/components/jobs/AsyncJobDetailModal";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useSessionRevision } from "@/hooks/useSessionGuard";
 import { useAuthStore } from "@/stores/authStore";
+import { SourceDiagnostics, evidenceDate, sourceHref } from "./StorageSourceDiagnostics";
+import { JOB_STATUS_LABEL } from "@/components/jobs/asyncJobPresentation";
 import { verifiedContentError } from "@/hooks/useVerifiedImage";
 
 function Pagination({
@@ -24,7 +26,10 @@ function Pagination({
   onChange: (offset: number) => void;
 }) {
   return (
-    <nav aria-label={`${label}分页`} className="mt-2 flex items-center gap-2">
+    <nav
+      aria-label={`${label}分页`}
+      className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
+    >
       <Button
         size="sm"
         disabled={!offset || loading}
@@ -58,6 +63,12 @@ export function StorageLocationSourceSummary(props: SummaryProps = {}) {
 
 function SummaryOwner({ locationId: selectedLocationId, returnTo }: SummaryProps) {
   const locationHint = useId();
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const refreshRef = useRef<HTMLButtonElement>(null);
+  const openJob = (id: string, trigger: HTMLElement) => {
+    returnFocusRef.current = trigger;
+    setJobId(id);
+  };
   const { role } = usePermissions();
   const session = useAuthStore((s) => s.sessionId);
   const actor = useAuthStore((s) => s.user?.id);
@@ -67,6 +78,7 @@ function SummaryOwner({ locationId: selectedLocationId, returnTo }: SummaryProps
   const locationId = selectedLocationId ?? pickedLocationId;
   const [sourceOffset, setSourceOffset] = useState(0);
   const [jobsOffset, setJobsOffset] = useState(0);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
   const locations = useQuery({
     queryKey: ["storage-source-locations", actor, session, role, locationOffset],
@@ -85,6 +97,16 @@ function SummaryOwner({ locationId: selectedLocationId, returnTo }: SummaryProps
     ],
     queryFn: ({ signal }) => api.sourceSummary(locationId, sourceOffset, jobsOffset, signal),
     enabled: allowed && !!locationId,
+    refetchInterval: (query) => {
+      if (storageAccessDenied(query.state.error)) return false;
+      return query.state.data?.items.some((item) =>
+        [item.diagnostics.scan.recent, item.diagnostics.preflight.recent].some(
+          (run) => run && ["pending", "running"].includes(run.status),
+        ),
+      )
+        ? 5000
+        : false;
+    },
   });
   const denied =
     storageAccessDenied(summary.error) ||
@@ -97,24 +119,38 @@ function SummaryOwner({ locationId: selectedLocationId, returnTo }: SummaryProps
       aria-label="存储位置关联来源"
       className="mb-5 rounded-lg border border-border bg-card p-4 text-sm"
     >
-      <h2 className="mb-1 text-md font-semibold">位置关联来源与后台任务</h2>
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-md font-semibold">来源诊断</h2>
+        {locationId && (
+          <Button
+            ref={refreshRef}
+            size="sm"
+            variant="default"
+            disabled={summary.isFetching}
+            onClick={() => void summary.refetch()}
+          >
+            刷新诊断
+          </Button>
+        )}
+      </div>
       <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
-        选择存储位置，查看当前账号可见的来源和任务；进入数据集查看同步差异与扫描历史。
+        只读已有观测，不探测原件或生成预览。原件、预览和任务进展分别展示，详细差异可进入数据集查看。
       </p>
       {!selectedLocationId && (
         <>
-          <label className="flex flex-wrap items-center gap-2">
+          <label className="flex max-w-full flex-col items-start gap-2">
             存储位置历史
             <select
               aria-label="查看关联来源的存储位置"
               aria-describedby={locationHint}
-              className="rounded-md border border-input bg-background px-2 py-1.5 text-foreground"
+              className="max-w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground"
               value={locationId}
               onChange={(event) => {
                 setLocationId(event.target.value);
                 setSourceOffset(0);
                 setJobsOffset(0);
                 setJobId(null);
+                setHistoryOpen(false);
               }}
             >
               <option value="" disabled hidden />
@@ -144,74 +180,120 @@ function SummaryOwner({ locationId: selectedLocationId, returnTo }: SummaryProps
         </>
       )}
       {locationId && (
-        <div className="mt-3 grid gap-4 lg:grid-cols-2">
-          <div>
-            <h3 className="mb-2 text-sm font-semibold">关联来源 · {sourceData?.total ?? "…"}</h3>
-            <p className="mb-2 text-xs text-muted-foreground">
-              受影响数据集 · {sourceData?.dataset_count ?? "待统计"}
+        <div className="mt-3 space-y-4">
+          {summary.isPending && (
+            <p role="status" className="text-muted-foreground">
+              正在读取来源诊断…
             </p>
-            {sourceData && (
-              <Link
-                className="mb-3 inline-block text-brand underline"
-                to={`/datasets?${new URLSearchParams({ location_id: locationId, ...(returnTo ? { return: returnTo } : {}) })}`}
+          )}
+          {sourceData && (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold">关联来源 · {sourceData.total}</h3>
+                <Link
+                  className="text-xs text-brand underline"
+                  to={`/datasets?${new URLSearchParams({ location_id: locationId, ...(returnTo ? { return: returnTo } : {}) })}`}
+                >
+                  查看受影响数据集 · {sourceData.dataset_count}
+                </Link>
+              </div>
+              {!sourceData.items.length && (
+                <p className="text-muted-foreground">此页暂无可见来源。</p>
+              )}
+              {sourceData.items.map((source) => (
+                <article
+                  key={source.source_id}
+                  className="min-w-0 rounded-md border border-border p-3 leading-relaxed"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="min-w-0 break-words text-sm font-semibold">
+                      {source.dataset_id ? (
+                        <Link
+                          className="text-brand underline"
+                          to={sourceHref(source.dataset_id, source.source_id, returnTo)}
+                        >
+                          {source.dataset_name} / {source.source_name}
+                        </Link>
+                      ) : (
+                        <span>{source.source_name}（原数据集已删除）</span>
+                      )}
+                    </h3>
+                    <span className="text-xs text-muted-foreground">
+                      {source.unregistered_at ? "已注销" : source.enabled ? "已启用" : "已停用"}
+                    </span>
+                  </div>
+                  <SourceDiagnostics
+                    value={source.diagnostics}
+                    datasetId={source.dataset_id}
+                    sourceId={source.source_id}
+                    returnTo={returnTo}
+                    onJob={openJob}
+                  />
+                </article>
+              ))}
+              <Pagination
+                label="来源"
+                offset={sourceOffset}
+                total={sourceData.total}
+                loading={summary.isFetching}
+                onChange={setSourceOffset}
+              />
+              <details
+                open={historyOpen}
+                onToggle={(event) => setHistoryOpen(event.currentTarget.open)}
+                className="rounded-md border border-border p-3"
               >
-                查看受影响数据集
-              </Link>
-            )}
-            {sourceData?.items.map((source) => (
-              <p
-                key={source.source_id}
-                className="mb-2 rounded-md border border-border p-3 leading-relaxed"
-              >
-                {source.dataset_id ? (
-                  <Link
-                    className="text-brand underline"
-                    to={`/datasets/${source.dataset_id}?${new URLSearchParams({ tab: "sources", source: source.source_id, ...(returnTo ? { return: returnTo } : {}) })}`}
-                  >
-                    {source.dataset_name} / {source.source_name}
-                  </Link>
-                ) : (
-                  <span>{source.source_name}（原数据集已删除）</span>
-                )}
-                {source.unregistered_at ? " · 已注销" : !source.enabled ? " · 已停用" : ""}
-              </p>
-            ))}
-            <Pagination
-              label="来源"
-              offset={sourceOffset}
-              total={sourceData?.total ?? 0}
-              loading={summary.isFetching}
-              onChange={setSourceOffset}
-            />
-          </div>
-          <div>
-            <h3 className="mb-2 text-sm font-semibold">
-              关联后台任务 · {sourceData?.jobs.total ?? "…"}
-            </h3>
-            {sourceData?.jobs.items.map((job) => (
-              <p key={job.id} className="mb-2">
-                <Button size="sm" onClick={() => setJobId(job.id)}>
-                  {job.kind === "dataset_scan" ? "扫描" : "预检 / 登记"} · {job.status} ·{" "}
-                  {new Date(job.created_at).toLocaleString("zh-CN")}
-                </Button>
-              </p>
-            ))}
-            <Pagination
-              label="任务"
-              offset={jobsOffset}
-              total={sourceData?.jobs.total ?? 0}
-              loading={summary.isFetching}
-              onChange={setJobsOffset}
-            />
-          </div>
+                <summary className="cursor-pointer text-sm font-semibold">
+                  关联后台任务历史 · {sourceData.jobs.total}
+                </summary>
+                <div className="mt-3 space-y-2">
+                  {!sourceData.jobs.items.length && (
+                    <p className="text-muted-foreground">此页暂无保留的任务记录。</p>
+                  )}
+                  {sourceData.jobs.items.map((job) => (
+                    <div key={job.id}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-auto max-w-full whitespace-normal text-left"
+                        onClick={(event) => openJob(job.id, event.currentTarget)}
+                      >
+                        {job.kind === "dataset_scan" ? "扫描" : "预检 / 登记"} ·{" "}
+                        {JOB_STATUS_LABEL[job.status as keyof typeof JOB_STATUS_LABEL] ??
+                          job.status}{" "}
+                        · {evidenceDate(job.created_at)}
+                      </Button>
+                    </div>
+                  ))}
+                  <Pagination
+                    label="任务"
+                    offset={jobsOffset}
+                    total={sourceData.jobs.total}
+                    loading={summary.isFetching}
+                    onChange={setJobsOffset}
+                  />
+                </div>
+              </details>
+            </>
+          )}
         </div>
       )}
       {(locations.error || summary.error) && (
         <p role="alert" className="mt-2 text-status-danger">
+          {sourceData ? "诊断刷新失败，当前显示上次结果。" : ""}
           {verifiedContentError(locations.error || summary.error)}
         </p>
       )}
-      {jobId && !denied && <AsyncJobDetailModal jobId={jobId} onClose={() => setJobId(null)} />}
+      {jobId && !denied && (
+        <AsyncJobDetailModal
+          jobId={jobId}
+          returnFocusRef={returnFocusRef}
+          onClose={() => {
+            if (!returnFocusRef.current?.isConnected) returnFocusRef.current = refreshRef.current;
+            setJobId(null);
+          }}
+        />
+      )}
     </section>
   );
 }

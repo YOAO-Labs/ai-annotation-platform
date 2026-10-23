@@ -82,7 +82,16 @@ SFTP 连接 base_path 须为 `/`，整个账号命名空间为位置授权范围
 
 ## 来源与任务摘要
 
-`GET /{location_id}/source-summary` 返回 `location_id / items / total / dataset_count / jobs:{items,total}`。来源行只有 source_id/source_name、可空的 dataset_id/dataset_name、enabled/unregistered_at；任务行只有 id/kind/status/created_at/completed_at。不返回凭据、执行证明或内部配置，不探测或遍历外部存储。
+`GET /{location_id}/source-summary` 返回 `location_id / items / total / dataset_count / jobs:{items,total}`。来源行包含 source_id/source_name、可空的 dataset_id/dataset_name、enabled/unregistered_at 和下列 `diagnostics`；任务行只有 id/kind/status/created_at/completed_at。不返回凭据、执行证明或内部配置，不探测或遍历外部存储。
+
+`diagnostics` 仅聚合**当前来源页**的已授权来源，固定范围为保留的原地引用业务样本（`DatasetReference`），包含历史修订；不是路径头数量、已扫描文件数或容量，不含托管复制和未登记路径：
+
+- `references.scope=stored_reference_items`、`total`、`original_counts:{verified,missing,changed,preview_only,unavailable,unverified}` 复用 Workbench 持久观测。`observed_from/observed_through` 是观测时间范围，无样本为 null；已验证不保证当前原件仍可读。
+- `preview_counts:{ready,failed,unrecorded,not_requested,blocked}` 独立于原件计数。ready/failed 要求当前业务 Item、Asset、SHA、来源路径头及预览规格匹配；ready 另核对当前平台位置、桶和用途绑定。旧内容或旧规格记录不计为当前成功/失败；允许同内容预览在重新启用策略后复用。策略关闭为 not_requested，来源/位置停用或注销为 blocked。`preview_recorded_at` 为匹配的成功或失败生成记录的最近时间；ready 不验证对象此刻存在。
+- `scan` 与 `preflight` 各含 `recent`、`last_complete`，无记录为 null。recent 优先活动轮次，再按创建时间排序，旧轮恢复不会被新失败记录遮住；last_complete 为最近完整成功轮次。预检按来源独立查找，不仅限最新扫描。
+- 轮次摘要只含 `run_id/scan_run_id/job_id/status/phase/complete/matches_current_config/created_at/completed_at`。complete 对扫描表示完整枚举，对预检表示完整比较，不能替代 status。配置匹配核对来源/位置修订，预检另核对来源策略修订；历史原件观测仍保留，不因配置变化被当成新验证。任务历史删除后 job_id 可为 null，领域轮次仍保留，可用 scan_run_id 导航。
+
+GET 只查询数据库，不读源文件、不 HEAD/LIST 对象、不启动扫描或预览生成。manager 角色和当前位置/来源权限仍逐请求复查，API Key 需要 `datasets:read`。无样本返回明确的零计数与空时间，不推断为健康。
 
 来源使用 limit/offset，任务使用 jobs_limit/jobs_offset，各自默认20、最多200。任务范围覆盖该位置全部可见来源，独立于当前来源页，并包括恢复前的历史尝试。项目管理员仍需拥有数据集管理权和位置使用权；全局位置不公开其他人的来源数量。停用、注销历史保留；原数据集已删除的来源仅超管可见，dataset 字段为空。任务详情、取消和恢复沿用原任务及来源接口。
 

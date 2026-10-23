@@ -7,6 +7,7 @@ from app.db.models.dataset import Dataset
 from app.db.models.dataset_source import DatasetSource
 from app.services import dataset_source_access as access
 from app.services import storage_location
+from app.services.storage_source_diagnostics import diagnostics
 
 
 async def summary(db, location_id, actor, *, limit, offset, jobs_limit, jobs_offset):
@@ -23,14 +24,17 @@ async def summary(db, location_id, actor, *, limit, offset, jobs_limit, jobs_off
     dataset_count = await db.scalar(
         select(func.count(func.distinct(DatasetSource.dataset_id))).where(*scope)
     )
-    rows = await db.execute(
-        select(DatasetSource, Dataset.name)
-        .outerjoin(Dataset, Dataset.id == DatasetSource.dataset_id)
-        .where(*scope)
-        .order_by(DatasetSource.created_at.desc(), DatasetSource.id)
-        .limit(limit)
-        .offset(offset)
-    )
+    rows = (
+        await db.execute(
+            select(DatasetSource, Dataset.name)
+            .outerjoin(Dataset, Dataset.id == DatasetSource.dataset_id)
+            .where(*scope)
+            .order_by(DatasetSource.created_at.desc(), DatasetSource.id)
+            .limit(limit)
+            .offset(offset)
+        )
+    ).all()
+    evidence = await diagnostics(db, [source.id for source, _ in rows], actor)
     jobs = select(AsyncJob).where(access.job_scope_clause(actor, source_ids))
     job_total = await db.scalar(select(func.count()).select_from(jobs.subquery()))
     job_rows = await db.scalars(
@@ -48,6 +52,7 @@ async def summary(db, location_id, actor, *, limit, offset, jobs_limit, jobs_off
                 "dataset_name": name,
                 "enabled": source.enabled,
                 "unregistered_at": source.unregistered_at,
+                "diagnostics": evidence[source.id],
             }
             for source, name in rows
         ],
