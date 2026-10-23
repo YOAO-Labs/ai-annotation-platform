@@ -15,6 +15,14 @@ describe("后台任务结果", () => {
       "枚举完成",
     );
   });
+  it("批量复核保留成功、冲突与阻止的独立数量", () => {
+    expect(
+      jobResultSummary({
+        kind: "dataset_quality_review",
+        result: { applied_count: 8, conflict_count: 2, blocked_count: 0 },
+      }),
+    ).toBe("已复核 8 / 冲突 2 / 已阻止 0");
+  });
   it("准确保留成功零条，不把未知结果写成零", () => {
     expect(jobResultSummary({ kind: "dataset_import", result: { imported: 0, skipped: 3 } })).toBe(
       "导入 0 / 跳过 3",

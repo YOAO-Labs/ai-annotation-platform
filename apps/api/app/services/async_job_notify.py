@@ -32,6 +32,7 @@ TERMINAL_NOTIFY_KINDS = {
     "dataset_scan",
     "dataset_registration",
     "dataset_quality",
+    "dataset_quality_review",
     "mask_qc",
     "mask_repair",
     "mask_repair_rollback",
@@ -78,6 +79,10 @@ _PAYLOAD_SUMMARY_KEYS = (
 )
 
 _RESULT_SUMMARY_KEYS = (
+    "applied_count",
+    "conflict_count",
+    "blocked_count",
+    "partial",
     "processed_count",
     "directory_count",
     "complete",

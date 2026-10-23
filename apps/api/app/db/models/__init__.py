@@ -1,3 +1,7 @@
+from app.db.models.dataset_quality_review import (
+    DatasetQualityReviewBatch,
+    DatasetQualityReviewMember,
+)
 from app.db.models.dataset_quality import DatasetQualityRun, DatasetQualityResult
 from app.db.models.dataset_saved_view import DatasetSavedView
 from app.db.models.user import User
@@ -278,3 +282,5 @@ __all__ += [
 ]
 
 __all__ += ["DatasetQualityRun", "DatasetQualityResult"]
+
+__all__ += ["DatasetQualityReviewBatch", "DatasetQualityReviewMember"]

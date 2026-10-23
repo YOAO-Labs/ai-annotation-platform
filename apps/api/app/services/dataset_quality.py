@@ -301,10 +301,9 @@ async def summary(db, run_id):
     }
 
 
-async def result_page(
-    db, run, *, limit, offset, finding=None, review=None, sha256=None
-):
-    groups = duplicate_groups(run.id)
+def result_query(run_id, *, finding=None, review=None, sha256=None):
+    """One filter contract for browsing and materializing a review scope."""
+    groups = duplicate_groups(run_id)
     stmt = (
         select(
             Result,
@@ -323,7 +322,7 @@ async def result_page(
         )
         .outerjoin(DatasetItem, DatasetItem.id == Result.item_id)
         .outerjoin(DatasetAsset, DatasetAsset.dataset_item_id == DatasetItem.id)
-        .where(Result.run_id == run.id)
+        .where(Result.run_id == run_id)
     )
     if finding == "exact_duplicate":
         stmt = stmt.where(groups.c.n > 1)
@@ -335,6 +334,13 @@ async def result_page(
         stmt = stmt.where(Result.review_state == review)
     if sha256:
         stmt = stmt.where(Result.bytes_verified.is_(True), Result.sha256 == sha256)
+    return stmt
+
+
+async def result_page(
+    db, run, *, limit, offset, finding=None, review=None, sha256=None
+):
+    stmt = result_query(run.id, finding=finding, review=review, sha256=sha256)
     total = await db.scalar(
         select(func.count()).select_from(stmt.order_by(None).subquery())
     )
@@ -359,11 +365,12 @@ async def result_page(
     return {"items": values, "total": total}
 
 
-async def review_result(db, run, result_id, actor, payload):
+async def review_result(db, run, result_id, actor, payload, *, batch_id=None):
     row = await db.scalar(
         select(Result)
         .where(Result.run_id == run.id, Result.id == result_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if row is None:
         raise HTTPException(404, "Quality result not found")
@@ -394,6 +401,7 @@ async def review_result(db, run, result_id, actor, payload):
             "state": row.review_state,
             "note": row.review_note,
             "revision": row.review_revision,
+            **({"batch_id": str(batch_id)} if batch_id else {}),
         },
     )
     return {"review_revision": row.review_revision}

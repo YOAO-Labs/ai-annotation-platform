@@ -172,9 +172,11 @@ export function AsyncJobDetailModal({
         await datasetsApi.get(datasetId);
         if (!current()) return;
         url =
-          job?.kind === "dataset_quality"
-            ? `/datasets/${encodeURIComponent(datasetId)}?tab=quality&quality_run=${encodeURIComponent(jobString(job.payload, "run_id") ?? "")}`
-            : `/datasets?dataset=${encodeURIComponent(datasetId)}`;
+          job?.kind === "dataset_quality_review"
+            ? `/datasets/${encodeURIComponent(datasetId)}?tab=quality&quality_run=${encodeURIComponent(jobString(job.payload, "run_id") ?? "")}&quality_batch=${encodeURIComponent(jobString(job.payload, "batch_id") ?? "")}`
+            : job?.kind === "dataset_quality"
+              ? `/datasets/${encodeURIComponent(datasetId)}?tab=quality&quality_run=${encodeURIComponent(jobString(job.payload, "run_id") ?? "")}`
+              : `/datasets?dataset=${encodeURIComponent(datasetId)}`;
       } else if (kind === "dashboard") {
         url = "/dashboard";
       } else if (job.project_id) {

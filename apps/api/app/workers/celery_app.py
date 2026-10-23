@@ -46,6 +46,7 @@ celery_app = Celery(
         "app.workers.dataset_scan",
         "app.workers.dataset_registration",
         "app.workers.dataset_quality",
+        "app.workers.dataset_quality_review",
         "app.workers.dataset_source_sync",
         # v0.12.0 · B4 建任务异步化（大 dataset link → Celery 建 task）
         "app.workers.create_tasks",
@@ -265,6 +266,10 @@ celery_app.conf.update(
             "schedule": crontab(hour=2, minute=30),
         },
         # v0.10.16 · async_jobs 终态 retention purge：30 天后清 completed/failed/cancelled
+        "recover-dataset-quality-reviews": {
+            "task": "app.workers.dataset_quality_review.recover_quality_reviews",
+            "schedule": 30.0,
+        },
         "recover-dataset-quality": {
             "task": "app.workers.dataset_quality.recover_quality",
             "schedule": 30.0,

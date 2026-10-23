@@ -81,3 +81,24 @@ last_reviewed: 2026-10-23
 结果固定 Item、Asset、可信 SHA/size。`bytes_verified` 仅表示本轮完整读取通过；无法解码仍可保留完整字节证明。`state=skipped` 不代表质量通过或损坏，原因区分未核验、媒体/编码不支持、读取/像素预算、不可读或内容变化。`findings` 保存解码/尺寸问题；`duplicate_count>1` 是本轮完整字节证明形成的组大小，不使用旧 MD5、ETag 或文件名。可用 `sha256` 分页读取同组。`stale` 标识当前 Item/Asset 绑定已变化或删除；不声称原图此刻仍可读。
 
 复核只更新本条证据的决定与修订，并追加审计记录，不改检测事实、原图、任务或冻结版本。重复组与解码/尺寸异常可重叠；摘要分别提供异常样本数、重复组数及重复成员数，不能简单相加。取消使用 `POST /async-jobs/{id}/cancel`，以 fencing 阻止运行中的旧回调继续写入，不强杀 Worker。
+
+### 固定范围批量复核
+
+以下路径接在 `/{run_id}/review-batches` 后；当前管理权限、引用来源权限及 API key scopes 与质量运行相同。创建预览要求父检测已停止；仅预览创建者可首次确认，已执行历史对当前有权管理该数据集的账号可见，未确认预览仅创建者可见。
+
+| 方法 | 相对路径              | 合同                                                                                 |
+| ---- | --------------------- | ------------------------------------------------------------------------------------ |
+| POST | `/preview`            | `{scope,result_ids?,query?,state,note}`；固定名单并返回影响，尚不创建任务            |
+| GET  | 空路径                | 批次历史，`limit` 1–100、`offset`；items/total                                       |
+| GET  | `/{batch_id}`         | 范围摘要、决定/原因、状态、计数、过期时间、任务 ID                                   |
+| GET  | `/{batch_id}/members` | 固定证据和成员处理结果，`limit` 1–100、`offset`                                      |
+| POST | `/{batch_id}/execute` | `{scope_digest,range_policy:"snapshot"}`；首次确认创建一次任务，重复确认返回同一批次 |
+| POST | `/{batch_id}/resume`  | 只恢复 failed/cancelled 批次中的 pending 成员，创建新 AsyncJob                       |
+
+`scope=selected` 要求 1–200 个不重复的本轮 result UUID，`query` 不再缩小明确勾选的名单；`scope=filtered` 禁止传 result_ids，使用与结果列表相同的 finding/review/sha256 条件，包含所有分页且上限 10000。空范围或超限422、成员不属于父运行404。预览有效10分钟，每人每轮最多20个有效未确认预览；创建时可清理本人过期未执行预览。过期、摘要不符或全部不可复核时执行409。
+
+批次保存规则/配置，成员快照保存 Result/Item/Asset/SHA/size、检测证据与预期 review_revision；scope_digest 同时绑定成员、决定与原因。确认不重新执行筛选。pending 检测结果在预览中固定为 blocked，后续不会升级。历史绑定变化是提示而非复核阻止条件：仅复核原始证据，不读取源文件。
+
+逐项锁定并比较完整证据及复核修订；变化记录 conflict，其他成员继续。成功决定、审计和 applied checkpoint 同事务提交；即使状态相同也追加这次复核。批次状态为 preview/pending/running/completed/partial/failed/cancelled；summary 提供 applied_count、conflict_count、blocked_count、processed_count、partial。含冲突或阻止的执行终态为 partial，通用 AsyncJob 为 completed 并附计数。取消使用通用任务接口；恢复不重放 applied/conflict/blocked。
+
+通用任务类型为 `dataset_quality_review`，payload 中 run_id 始终指父质量运行，batch_id 指本批次；不含成员数组、凭据或内部授权证明。工作节点在每项写入前后重新授权，租约恢复及旧 task/generation fencing 保留已提交进度。任务清理 SET NULL 后重复确认仍返回账本，不重新派发。

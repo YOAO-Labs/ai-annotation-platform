@@ -413,11 +413,18 @@ async def test_quality_schema_roundtrip(db_session, monkeypatch):
         monkeypatch.setattr(
             migration, "op", Operations(MigrationContext.configure(sync.connection()))
         )
+        child_path = path.with_name("0208_dataset_quality_review.py")
+        child_spec = importlib.util.spec_from_file_location(child_path.stem, child_path)
+        child = importlib.util.module_from_spec(child_spec)
+        child_spec.loader.exec_module(child)
+        monkeypatch.setattr(child, "op", migration.op)
+        child.downgrade()
         migration.downgrade()
         assert (
             "dataset_quality_runs" not in inspect(sync.connection()).get_table_names()
         )
         migration.upgrade()
+        child.upgrade()
         schema = inspect(sync.connection())
         foreign = schema.get_foreign_keys("dataset_quality_runs")
         assert (

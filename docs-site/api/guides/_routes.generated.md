@@ -262,6 +262,16 @@
 | POST | `/projects/{project_id}/data-manager/tracks/query` |
 | GET | `/projects/{project_id}/data-manager/tracks/{track_ref}/detail` |
 
+## `dataset_quality_review.py`
+
+| Method | Path |
+|---|---|
+| POST | `/preview` |
+| GET | `/{batch_id}` |
+| GET | `/{batch_id}/members` |
+| POST | `/{batch_id}/execute` |
+| POST | `/{batch_id}/resume` |
+
 ## `dataset_quality.py`
 
 | Method | Path |
@@ -990,4 +1000,4 @@
 
 ---
 
-_共 88 模块 / 573 路由_
+_共 89 模块 / 578 路由_

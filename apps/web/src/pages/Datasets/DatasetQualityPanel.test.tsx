@@ -4,6 +4,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { DatasetQualityPanel } from "./DatasetQualityPanel";
 import { datasetQualityApi, type QualityRun, type QualityResult } from "@/api/datasetQuality";
+vi.mock("./DatasetQualityBulkReview", () => ({
+  DatasetQualityBulkReview: () => <p>批量复核入口</p>,
+}));
 const mocks = vi.hoisted(() => ({
   run: undefined as unknown,
   rows: [] as unknown[],
@@ -153,6 +156,28 @@ describe("dataset quality review", () => {
     await act(async () => resolve({ ...run, id: "late-run" }));
     expect(screen.getByTestId("url").textContent).toContain("quality_run=run-b");
     expect(screen.getByTestId("url").textContent).not.toContain("late-run");
+  });
+  it("closing a pending start retires its later navigation", async () => {
+    let resolve!: (value: QualityRun) => void;
+    vi.mocked(datasetQualityApi.start).mockReturnValue(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "新建检测" }));
+    fireEvent.click(screen.getByRole("button", { name: "开始检测" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "关闭" })[0]);
+    await act(async () => resolve({ ...run, id: "late-run" }));
+    expect(screen.getByTestId("url").textContent).toContain("quality_run=run-a");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+  it("shrinking filtered results recovers an out-of-range page", async () => {
+    mount("/datasets/dataset-a?tab=quality&quality_run=run-a&quality_review=open&quality_page=2");
+    await waitFor(() =>
+      expect(screen.getByTestId("url").textContent).not.toContain("quality_page"),
+    );
+    expect(screen.getByTestId("url").textContent).toContain("quality_review=open");
   });
   it("keeps an explicit missing run instead of falling back to another history entry", () => {
     mount("/datasets/dataset-a?tab=quality&quality_run=missing-run");

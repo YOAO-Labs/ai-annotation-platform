@@ -26,6 +26,7 @@ from app.deps import get_current_user, get_db, assert_request_scopes
 from app.services.async_job_terminal import reconcile_domain_terminal
 from app.services import dataset_source_access as source_access
 from app.services import dataset_quality as quality_svc
+from app.services import dataset_quality_review as review_svc
 from app.services.project_aggregates import project_scope_clause
 from app.schemas.async_job import (
     AsyncJobListResponse,
@@ -47,6 +48,7 @@ CANCELLABLE_KINDS = {
     "dataset_scan",
     "dataset_registration",
     "dataset_quality",
+    "dataset_quality_review",
     "mask_qc",
     "mask_repair",
     "mask_format_import",
@@ -92,9 +94,15 @@ def _build_async_job_query(
             or_(
                 source_access.job_scope_clause(current_user),
                 quality_svc.job_scope_clause(current_user),
+                review_svc.job_scope_clause(current_user),
                 and_(
                     AsyncJob.kind.not_in(
-                        ["dataset_scan", "dataset_registration", "dataset_quality"]
+                        [
+                            "dataset_scan",
+                            "dataset_registration",
+                            "dataset_quality",
+                            "dataset_quality_review",
+                        ]
                     ),
                     AsyncJob.user_id == current_user.id,
                     or_(
@@ -141,7 +149,7 @@ async def _can_access_job(db: AsyncSession, *, job: AsyncJob, user: User) -> boo
     be able to see the job's project, and the reviewer scope-expansion paths use
     the *current* project role rather than a stale global account role.
     """
-    if job.kind == "dataset_quality":
+    if job.kind in {"dataset_quality", "dataset_quality_review"}:
         try:
             actor = await source_access.require_manager(db, user.id)
         except HTTPException:
@@ -149,7 +157,12 @@ async def _can_access_job(db: AsyncSession, *, job: AsyncJob, user: User) -> boo
         return bool(
             await db.scalar(
                 select(AsyncJob.id).where(
-                    AsyncJob.id == job.id, quality_svc.job_scope_clause(actor)
+                    AsyncJob.id == job.id,
+                    (
+                        review_svc
+                        if job.kind == "dataset_quality_review"
+                        else quality_svc
+                    ).job_scope_clause(actor),
                 )
             )
         )
@@ -265,7 +278,12 @@ async def list_async_jobs(
     if scopes is not None and "*" not in scopes and "datasets:read" not in scopes:
         stmt = stmt.where(
             AsyncJob.kind.not_in(
-                ["dataset_scan", "dataset_registration", "dataset_quality"]
+                [
+                    "dataset_scan",
+                    "dataset_registration",
+                    "dataset_quality",
+                    "dataset_quality_review",
+                ]
             )
         )
     count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
@@ -297,7 +315,12 @@ async def get_async_job(
         raise HTTPException(status_code=404, detail="async_job not found")
     if not await _can_access_job(db, job=job, user=current_user):
         raise HTTPException(status_code=403, detail="not your job")
-    if job.kind in {"dataset_scan", "dataset_registration", "dataset_quality"}:
+    if job.kind in {
+        "dataset_scan",
+        "dataset_registration",
+        "dataset_quality",
+        "dataset_quality_review",
+    }:
         assert_request_scopes(request, "datasets:read")
     return await _to_async_job_out(db, job)
 
@@ -333,13 +356,15 @@ async def cancel_async_job(
     from app.services import async_job as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
 
-    if job.kind == "dataset_quality":
+    if job.kind in {"dataset_quality", "dataset_quality_review"}:
         assert_request_scopes(request, "datasets:write")
         from app.services.dataset_content import key_authority
 
         key_id = getattr(request.state, "api_key_id", None)
         proof = await key_authority(db, current_user, key_id, "datasets:write")
-        await quality_svc.cancel_job(db, job, current_user)
+        await (
+            review_svc if job.kind == "dataset_quality_review" else quality_svc
+        ).cancel_job(db, job, current_user)
         if await key_authority(db, current_user, key_id, "datasets:write") != proof:
             raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
         await db.commit()

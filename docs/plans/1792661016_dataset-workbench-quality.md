@@ -1,6 +1,6 @@
 # EPIC-08：数据集工作台与质量管理
 
-> 状态：E08-A complete；E08-B1 complete；E08-B2 complete；固定批量范围待后续晋升；未分配发布版本。
+> 状态：E08-A complete；E08-B1 complete；E08-B2 complete；E08-B3 固定批量复核实施中；未分配发布版本。
 > 转入日期：2026-10-22；A 切片验收：2026-10-23；初始调研基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
 > 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
@@ -11,6 +11,32 @@
 | 依赖     | EPIC-01/02/03/05 的身份、来源、接入与读取；EPIC-11 的权限切片      |
 | 协同     | EPIC-04 提供同步；EPIC-09 统一页面边界；EPIC-10 提供冻结版本       |
 | 交付阶段 | M1 最小工作台；M2 质量、视图与批量管理；近似重复能力按实际需求后置 |
+
+## E08-B3 晋升复核与实施合同
+
+用户已授权继续，基线 `2e9fc393b`，工作树干净。本切片将质量页已有单项复核扩展为固定范围批量复核：显式勾选（最多200项）或全部筛选结果（最多10000项），先物化影响预览，再按原快照确认。复用现有决定和审计，不放大 Task 批操作，也不增加移除样本、项目关联或源文件删除。
+
+本次超过8个文件。准确范围：API 新增 `db/models/dataset_quality_review.py`、`schemas/dataset_quality_review.py`、`services/dataset_quality_review.py`、`workers/dataset_quality_review.py`、`api/v1/dataset_quality_review.py`；扩展 `db/models/{__init__,async_job}.py`、`services/{dataset_quality,async_job_notify,async_job_terminal}.py`、`workers/{celery_app,signals}.py`、`api/v1/{router,async_jobs}.py`；迁移 `0208_dataset_quality_review.py`、测试 `test_dataset_quality_review.py` 及必要原复核回归。Web 新增 `api/datasetQualityReview.ts`、`hooks/useDatasetQualityReview.ts`、`pages/Datasets/DatasetQualityBulkReview.tsx` 与相关测试，扩展质量页及共享任务显示/详情、取消列表。同步 OpenAPI、SDK 覆盖清单、本地生成类型、数据集用户/API/架构文档、README、CHANGELOG、本计划和路线索引。
+
+```text
+quality result filters / explicit selection
+                  |
+        shared SQL -> immutable preview + member proofs
+                  |                   |
+     centered impact confirmation    expiry / blocked pending rows
+                  |
+      AsyncJob -> fenced bounded worker -> Result CAS + audit + checkpoint
+                  |
+       paged outcomes / cancel / resume pending members
+```
+
+范围只来自当前质量运行，过滤复用列表的 finding/review/sha256 SQL，分页不参与范围。预览固定 Result、Item/Asset/SHA/size、规则/配置、检测证据与 review_revision，目标决定和原因一并纳入 SHA256 摘要。预览有效10分钟；每用户/运行最多20个有效未确认预览，创建时可清理其已过期且未执行的预览。只有预览创建者可首次确认；确认提交预览摘要及显式 snapshot 策略，不再查询动态条件。并发/重复确认返回同一执行。运行中的检测须先完成或取消，避免把 pending 证据当成可复核结果；已有 pending 结果固定为阻断项。
+
+复核历史内容沿用单项语义：预览明确历史绑定数量，决定只写确切历史证据，不读取原图、继承到新内容或改变任务/训练资格。源离线不会被误判为无权复核；来源/数据集权限仍逐次检查。执行逐项锁定并刷新 Result，核对完整证据和复核修订；冲突跳过，结果/审计/checkpoint 同事务。已成功项不重复复核；失败或取消仅恢复 pending，冲突需重新预览。新匹配结果不扩大原范围。
+
+两张表保存批次及成员证据，与 AsyncJob 关联 SET NULL；新 kind 为 dataset_quality_review，沿用 generation/task/job/租约 fencing、逐项提交、分块续派、专用旧信号检查及 Beat 恢复。通用任务仅保存安全摘要，列表/详情/取消同时检查当前数据集、来源权限和 API key scopes。部分成功以批次 partial 与通用任务已完成+冲突/阻断计数区分；错误和撤权不伪装成功。
+
+验证：独立 test 库迁移往返、共享筛选跨页、预览后新增不扩大、修订与身份冲突/ABA、重复确认、部分提交取消恢复/旧任务/旧信号、过期预览、父子/创建者/来源/API key 权限、历史结果复核、每项审计唯一。前端验证选择范围、预览失效、明确按快照确认、会话/路由迟到回调、结果分页和终态刷新。人工 dev 环境升级0208并刷新 Worker/Beat，保留3100/8100与既有数据，不重建镜像；桌面/窄屏及明暗截图、网络/控制台验收。回退先停止批次并导出证据，降级仅移除批次账本，已提交复核和审计保留；测试资源与中间产物清理后提交。
 
 ## E08-B2 晋升复核与实施合同
 

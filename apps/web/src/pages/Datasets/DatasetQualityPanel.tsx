@@ -17,7 +17,8 @@ import { listStyles } from "@/components/ui/listStyles";
 import { CopyableError } from "@/components/ui/CopyableError";
 import { AsyncJobDetailModal } from "@/components/jobs/AsyncJobDetailModal";
 import { JOB_STATUS_LABEL } from "@/components/jobs/asyncJobPresentation";
-import { pageNumber } from "./datasetsUrlState";
+import { DatasetQualityBulkReview } from "./DatasetQualityBulkReview";
+import { clampDatasetPage, pageNumber } from "./datasetsUrlState";
 
 const input =
   "w-full rounded-md border border-input bg-background px-2.5 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -119,15 +120,57 @@ export function DatasetQualityPanel({
   const [jobId, setJobId] = useState<string | null>(null);
   const trigger = useRef<HTMLElement | null>(null);
   const context = `${datasetId}/${selected}/${finding}/${review}/${sha}/${page}/${size}/${owner.revision}`;
+  const selectionContext = `${datasetId}/${selected}/${finding}/${review}/${sha}/${owner.revision}`;
+  const [selection, setSelection] = useState<{ context: string; ids: string[] }>({
+    context: selectionContext,
+    ids: [],
+  });
+  const selectedIds = selection.context === selectionContext ? selection.ids : [];
+  function toggleRows(ids: string[], checked: boolean) {
+    setSelection((previous) => {
+      const values = new Set(previous.context === selectionContext ? previous.ids : []);
+      ids.forEach((id) => {
+        if (!checked) values.delete(id);
+        else if (values.size < 200) values.add(id);
+      });
+      return { context: selectionContext, ids: [...values] };
+    });
+  }
+  const pageIds =
+    results.data?.items.filter((row) => row.state !== "pending").map((row) => row.id) ?? [];
+  const operation = useRef(0);
   const contextRef = useRef(context);
   contextRef.current = context;
   useEffect(() => {
+    operation.current++;
     setForm(null);
     setError(null);
+    setPending(false);
   }, [context]);
+  useEffect(() => {
+    if (!results.data || results.isFetching || results.error) return;
+    const clamped = clampDatasetPage(page, size, results.data.total);
+    if (clamped !== page)
+      setUrl(
+        (previous) => {
+          const next = new URLSearchParams(previous);
+          if (clamped) next.set("quality_page", String(clamped + 1));
+          else next.delete("quality_page");
+          return next;
+        },
+        { replace: true },
+      );
+  }, [results.data, results.isFetching, results.error, page, size, setUrl]);
+  function closeForm() {
+    operation.current++;
+    setForm(null);
+    setError(null);
+    setPending(false);
+  }
   function patch(values: Record<string, string | undefined>) {
     setUrl((previous) => {
       const next = new URLSearchParams(previous);
+      next.delete("quality_batch");
       Object.entries(values).forEach(([key, value]) =>
         value ? next.set(key, value) : next.delete(key),
       );
@@ -137,21 +180,24 @@ export function DatasetQualityPanel({
   async function perform(work: () => Promise<unknown>, done?: (value: unknown) => void) {
     if (pending) return;
     const operationContext = contextRef.current;
+    const token = ++operation.current;
+    const current = () =>
+      alive.current && contextRef.current === operationContext && operation.current === token;
     setPending(true);
     setError(null);
     try {
       owner.assert();
       const value = await work();
       owner.assert();
-      if (!alive.current) return;
+      if (!current()) return;
       await client.invalidateQueries({ queryKey: ["dataset-quality", datasetId] });
-      if (!alive.current) return;
+      if (!current()) return;
       owner.assert();
-      if (contextRef.current === operationContext) done?.(value);
+      if (current()) done?.(value);
     } catch (e) {
-      if (alive.current && contextRef.current === operationContext) setError(e);
+      if (current()) setError(e);
     } finally {
-      if (alive.current) setPending(false);
+      if (current()) setPending(false);
     }
   }
   function openReview(result: QualityResult, target: HTMLElement) {
@@ -327,6 +373,24 @@ export function DatasetQualityPanel({
               刷新结果
             </Button>
           </div>
+          <DatasetQualityBulkReview
+            key={selectionContext}
+            datasetId={datasetId}
+            run={run.data}
+            selectedIds={selectedIds}
+            clearSelection={() => setSelection({ context: selectionContext, ids: [] })}
+            query={{
+              finding:
+                (finding as
+                  | "decode_failed"
+                  | "dimensions_out_of_range"
+                  | "exact_duplicate"
+                  | "skipped") || undefined,
+              review: (review as "open" | "confirmed" | "dismissed") || undefined,
+              sha256: sha || undefined,
+            }}
+            context={context}
+          />
           <p className="text-xs text-muted-foreground">
             重复仅依据本轮完整读取的 SHA-256 与字节数。
             {active
@@ -338,6 +402,17 @@ export function DatasetQualityPanel({
               <table className={`${listStyles.table} min-w-3xl`}>
                 <thead>
                   <tr>
+                    <th>
+                      <input
+                        type="checkbox"
+                        aria-label="勾选本页可复核结果"
+                        disabled={active || !pageIds.length}
+                        checked={
+                          !!pageIds.length && pageIds.every((id) => selectedIds.includes(id))
+                        }
+                        onChange={(e) => toggleRows(pageIds, e.target.checked)}
+                      />
+                    </th>
                     <th>样本</th>
                     <th>检测结果</th>
                     <th>检测尺寸</th>
@@ -348,6 +423,19 @@ export function DatasetQualityPanel({
                 <tbody>
                   {results.data?.items.map((row) => (
                     <tr key={row.id}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          aria-label={`勾选 ${row.file_name}`}
+                          checked={selectedIds.includes(row.id)}
+                          disabled={
+                            active ||
+                            row.state === "pending" ||
+                            (selectedIds.length >= 200 && !selectedIds.includes(row.id))
+                          }
+                          onChange={(e) => toggleRows([row.id], e.target.checked)}
+                        />
+                      </td>
                       <td>
                         <button
                           className="max-w-64 break-all text-left text-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -413,7 +501,7 @@ export function DatasetQualityPanel({
                   ))}
                   {!results.isLoading && !results.data?.items.length && (
                     <tr>
-                      <td colSpan={5} className={listStyles.empty}>
+                      <td colSpan={6} className={listStyles.empty}>
                         没有符合条件的质量结果
                       </td>
                     </tr>
@@ -494,7 +582,7 @@ export function DatasetQualityPanel({
       {form && (
         <Modal
           open
-          onClose={() => setForm(null)}
+          onClose={closeForm}
           title={form.kind === "start" ? "新建图片质量检测" : "复核质量证据"}
           returnFocusRef={trigger}
           width={560}
@@ -637,7 +725,7 @@ export function DatasetQualityPanel({
             )}
             {!!error && <Failure error={error} />}
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setForm(null)}>
+              <Button type="button" variant="ghost" onClick={closeForm}>
                 关闭
               </Button>
               <Button type="submit" disabled={pending}>

@@ -276,3 +276,7 @@ DatasetSourceItem 是来源/路径的当前头；DatasetSourceRevision 保存不
 Worker 以 run generation、task/job ID、租约共同 fencing，逐成员事务提交；每块最多25项或60秒。引用成员派到来源指定节点的 direct queue，托管成员进入 media；跨节点成员在块边界让出后续派。120秒租约过期由30秒 Beat 调度恢复，旧投递和旧失败信号不再有写权限。取消立即使 generation 失效，保留已提交证据；显式恢复创建新 AsyncJob，只消费 pending 成员。
 
 人工决定与计算事实分离：成员保存当前决定、修订和操作者，每次变化追加到现有审计日志，乐观修订防止覆盖并发复核。检测与决定均不自动改变训练资格。回退迁移前应停止质量运行并导出证据；迁移只增加质量表，不迁移样本/来源或冻结数据。
+
+批量复核另使用 `dataset_quality_review_batches` 和 `dataset_quality_review_members` 保存不可扩张的预览范围与逐项 checkpoint，执行继续复用 AsyncJob 和单项复核 owner。筛选 SQL 与质量结果列表共用；预览固定规则、内容证据和 review_revision，摘要绑定决定和原因，确认不再查询动态范围。Result 锁使用 populate_existing，防止等待行锁后沿用会话缓存的旧修订。
+
+每个成员的决定、审计及处理结果同事务提交。冲突/阻止明确保留，部分完成作为领域终态；取消后恢复只遍历 pending。批次锁、当前 Job/task/generation 和租约共同阻止迟到 Worker 或 failure signal 写入；Beat 每30秒恢复过期租约，派发失败保留持久意图。每项前后检查当前管理、来源与 key 授权，无源文件 I/O；历史证据不继承到新内容。通用任务保留策略不删除复核账本。回退批量复核迁移前先停止执行并导出批次证据；已应用的单项决定与审计仍保留在原质量表及 AuditLog。

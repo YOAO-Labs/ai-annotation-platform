@@ -438,3 +438,10 @@ watched_tags = ["projects", "datasets", "batches", "tasks", "annotations", "anno
 "GET /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/results" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/results/{result_id}/review" = { status = "excluded", reason = "web-only" }
 "POST /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/resume" = { status = "excluded", reason = "web-only" }
+
+"GET /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/review-batches" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/review-batches/preview" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/review-batches/{batch_id}" = { status = "excluded", reason = "web-only" }
+"GET /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/review-batches/{batch_id}/members" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/review-batches/{batch_id}/execute" = { status = "excluded", reason = "web-only" }
+"POST /api/v1/datasets/{dataset_id}/quality-runs/{run_id}/review-batches/{batch_id}/resume" = { status = "excluded", reason = "web-only" }

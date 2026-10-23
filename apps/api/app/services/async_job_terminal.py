@@ -238,3 +238,23 @@ async def reconcile_dataset_quality(db, job, *, cancelled, error):
 
 
 DOMAIN_TERMINAL_RECONCILERS["dataset_quality"] = reconcile_dataset_quality
+
+
+async def reconcile_dataset_quality_review(db, job, *, cancelled, error):
+    from app.db.models.dataset_quality_review import DatasetQualityReviewBatch
+    from app.services.dataset_quality_review import now
+
+    batch = await db.scalar(
+        select(DatasetQualityReviewBatch)
+        .where(DatasetQualityReviewBatch.async_job_id == job.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if batch is not None and _locks_open(batch.status):
+        batch.status = "cancelled" if cancelled else "failed"
+        batch.error_code = "cancelled" if cancelled else "worker_failed"
+        batch.completed_at, batch.lease_until = now(), None
+        batch.generation += 1
+
+
+DOMAIN_TERMINAL_RECONCILERS["dataset_quality_review"] = reconcile_dataset_quality_review

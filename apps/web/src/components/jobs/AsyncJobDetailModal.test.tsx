@@ -101,6 +101,21 @@ describe("共享后台任务详情", () => {
     act(() => useAuthStore.getState().logout());
   });
 
+  it("批量复核任务回到确切父运行和批次", async () => {
+    mocks.get.mockResolvedValue({
+      ...job,
+      kind: "dataset_quality_review",
+      payload: { dataset_id: "d1", run_id: "run-1", batch_id: "batch-1" },
+      result: { applied_count: 3 },
+    });
+    renderModal();
+    fireEvent.click(await screen.findByRole("button", { name: "查看数据集" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/datasets/d1?tab=quality&quality_run=run-1&quality_batch=batch-1",
+      ),
+    );
+  });
   it.each([
     ["查看数据集", "/datasets?dataset=d1"],
     ["查看项目数据", "/projects/p1/data-manager"],
