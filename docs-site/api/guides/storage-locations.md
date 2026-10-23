@@ -15,17 +15,18 @@ last_reviewed: 2026-10-23
 
 所有路径前缀为 `/api/v1/storage-locations`。无权访问的位置返回 `404`；员工无目录浏览权限。所有 GET 要求 `datasets:read`，POST/PATCH 要求 `datasets:write`；JWT 保留当前角色权限。
 
-| 方法  | 路径                | 权限与行为                                                                        |
-| ----- | ------------------- | --------------------------------------------------------------------------------- |
-| GET   | `/roots`            | 超管；仅返回配置的根句柄，不返回绝对路径                                          |
-| GET   | `/bindings`         | 超管；只读显示九个用途，即使共用桶仍逐项返回；不初始化绑定                        |
-| GET   | 空路径              | 超管看全部，项目管理员看 global 或获授权位置；limit 默认100、最多200，支持 offset |
-| POST  | 空路径              | 超管；登记 filesystem 位置，返回201                                               |
-| GET   | `/{id}`             | 可见该位置的管理员；读取脱敏详情                                                  |
-| PATCH | `/{id}`             | 超管；更新 filesystem 名称、授权、启停，必须提供 expected_revision                |
-| GET   | `/{id}/directories` | 可见该位置的管理员；根内单层子目录分页                                            |
-| POST  | `/{id}/probe`       | 可见该位置的管理员；探测 API 或指定 Celery hostname                               |
-| GET   | `/{id}/probes`      | 可见该位置的管理员；查看按位置、修订、执行节点记录的证据                          |
+| 方法  | 路径                   | 权限与行为                                                                        |
+| ----- | ---------------------- | --------------------------------------------------------------------------------- |
+| GET   | `/roots`               | 超管；仅返回配置的根句柄，不返回绝对路径                                          |
+| GET   | `/bindings`            | 超管；只读显示九个用途，即使共用桶仍逐项返回；不初始化绑定                        |
+| GET   | 空路径                 | 超管看全部，项目管理员看 global 或获授权位置；limit 默认100、最多200，支持 offset |
+| POST  | 空路径                 | 超管；登记 filesystem 位置，返回201                                               |
+| GET   | `/{id}`                | 可见该位置的管理员；读取脱敏详情                                                  |
+| GET   | `/{id}/source-summary` | 当前可见来源及已有后台任务摘要，独立分页                                          |
+| PATCH | `/{id}`                | 超管；更新 filesystem 名称、授权、启停，必须提供 expected_revision                |
+| GET   | `/{id}/directories`    | 可见该位置的管理员；根内单层子目录分页                                            |
+| POST  | `/{id}/probe`          | 可见该位置的管理员；探测 API 或指定 Celery hostname                               |
+| GET   | `/{id}/probes`         | 可见该位置的管理员；查看按位置、修订、执行节点记录的证据                          |
 
 ## 登记和修改
 
@@ -78,3 +79,9 @@ API本地探测等待窗口3秒，远端等待窗口5秒。超时后台结果不
 SFTP 连接 base_path 须为 `/`，整个账号命名空间为位置授权范围。path/sample_file 只接受其下严格相对路径，拒绝绝对路径、父级跳转及探测到的符号链接。浏览对最多5000项的完整目录清单排序分页；游标固定清单摘要，目录变化须重选。探测仅验证 list 和显式样本 read；range/write/delete/presign/conditional_read 均为 unsupported。
 
 客户端仅信任部署指定的完整主机公钥，使用白名单校验后固定的 socket 地址连接。服务器只读 jail 由部署者实际核验，不能从探测成功推断。API 与指定 worker 必须具有相同资格；错误公钥、未获资格、目录不可读或超时均不能发布成功证据。
+
+## 来源与任务摘要
+
+`GET /{location_id}/source-summary` 返回 `location_id / items / total / jobs:{items,total}`。来源行只有 source_id/source_name、可空的 dataset_id/dataset_name、enabled/unregistered_at；任务行只有 id/kind/status/created_at/completed_at。不返回凭据、执行证明或内部配置，不探测或遍历外部存储。
+
+来源使用 limit/offset，任务使用 jobs_limit/jobs_offset，各自默认20、最多200。任务范围覆盖该位置全部可见来源，独立于当前来源页，并包括恢复前的历史尝试。项目管理员仍需拥有数据集管理权和位置使用权；全局位置不公开其他人的来源数量。停用、注销历史保留；原数据集已删除的来源仅超管可见，dataset 字段为空。任务详情、取消和恢复沿用原任务及来源接口。

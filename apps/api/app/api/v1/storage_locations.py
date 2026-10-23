@@ -23,6 +23,7 @@ from app.schemas.storage_location import (
     StorageLocationList,
     StorageLocationOut,
     StorageLocationUpdate,
+    StorageSourceSummary,
     StorageProbeOut,
     StorageProbeRequest,
 )
@@ -116,6 +117,29 @@ async def get_location(
     actor: User = Depends(manager),
 ):
     return await svc.to_out(db, await svc.get_visible(db, location_id, actor), actor)
+
+
+@router.get("/{location_id}/source-summary", response_model=StorageSourceSummary)
+async def source_summary(
+    location_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(manager),
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    jobs_limit: int = Query(20, ge=1, le=200),
+    jobs_offset: int = Query(0, ge=0),
+):
+    from app.services.storage_source_summary import summary
+
+    return await summary(
+        db,
+        location_id,
+        actor,
+        limit=limit,
+        offset=offset,
+        jobs_limit=jobs_limit,
+        jobs_offset=jobs_offset,
+    )
 
 
 @router.patch("/{location_id}", response_model=StorageLocationOut)

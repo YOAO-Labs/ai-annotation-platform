@@ -276,6 +276,7 @@
 | POST | `/dataset-sources/{source_id}/scans` |
 | GET | `/dataset-sources/{source_id}/scans` |
 | GET | `/dataset-scans/{run_id}` |
+| GET | `/dataset-sources/{source_id}/active-registration` |
 | GET | `/dataset-scans/{run_id}/entries` |
 | POST | `/dataset-scans/{run_id}/resume` |
 | POST | `/dataset-scans/{run_id}/entries/{path_digest}/verify` |
@@ -616,6 +617,7 @@
 | GET | `/roots` |
 | GET | `/bindings` |
 | GET | `/{location_id}` |
+| GET | `/{location_id}/source-summary` |
 | PATCH | `/{location_id}` |
 | GET | `/{location_id}/directories` |
 | POST | `/{location_id}/probe` |
@@ -968,4 +970,4 @@
 
 ---
 
-_共 86 模块 / 561 路由_
+_共 86 模块 / 563 路由_

@@ -12694,6 +12694,10 @@
             "title": "Source Id",
             "type": "string"
           },
+          "source_revision": {
+            "title": "Source Revision",
+            "type": "integer"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -12702,6 +12706,7 @@
         "required": [
           "id",
           "source_id",
+          "source_revision",
           "async_job_id",
           "status",
           "phase",
@@ -41274,6 +41279,163 @@
         "title": "StorageProbeRequest",
         "type": "object"
       },
+      "StorageSourceJob": {
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "created_at",
+          "completed_at"
+        ],
+        "title": "StorageSourceJob",
+        "type": "object"
+      },
+      "StorageSourceJobs": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StorageSourceJob"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "StorageSourceJobs",
+        "type": "object"
+      },
+      "StorageSourceSummary": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StorageSourceSummaryItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "jobs": {
+            "$ref": "#/components/schemas/StorageSourceJobs"
+          },
+          "location_id": {
+            "format": "uuid",
+            "title": "Location Id",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "location_id",
+          "items",
+          "total",
+          "jobs"
+        ],
+        "title": "StorageSourceSummary",
+        "type": "object"
+      },
+      "StorageSourceSummaryItem": {
+        "properties": {
+          "dataset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
+          },
+          "dataset_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Name"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "source_id": {
+            "format": "uuid",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_name": {
+            "title": "Source Name",
+            "type": "string"
+          },
+          "unregistered_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unregistered At"
+          }
+        },
+        "required": [
+          "source_id",
+          "source_name",
+          "dataset_id",
+          "dataset_name",
+          "enabled",
+          "unregistered_at"
+        ],
+        "title": "StorageSourceSummaryItem",
+        "type": "object"
+      },
       "StudyBudgets": {
         "additionalProperties": false,
         "properties": {
@@ -62710,6 +62872,62 @@
         ]
       }
     },
+    "/api/v1/dataset-sources/{source_id}/active-registration": {
+      "get": {
+        "operationId": "active_registration_api_v1_dataset_sources__source_id__active_registration_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/DatasetRegistrationOut"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Active Registration Api V1 Dataset Sources  Source Id  Active Registration Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Active Registration",
+        "tags": [
+          "dataset-sources"
+        ]
+      }
+    },
     "/api/v1/dataset-sources/{source_id}/entries/{path_digest}/preview": {
       "get": {
         "operationId": "read_directory_preview_api_v1_dataset_sources__source_id__entries__path_digest__preview_get",
@@ -63148,6 +63366,32 @@
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "complete",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Complete"
+            }
+          },
+          {
+            "in": "query",
+            "name": "active_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Active Only",
+              "type": "boolean"
             }
           }
         ],
@@ -85534,6 +85778,100 @@
           }
         ],
         "summary": "Probes",
+        "tags": [
+          "storage-locations"
+        ]
+      }
+    },
+    "/api/v1/storage-locations/{location_id}/source-summary": {
+      "get": {
+        "operationId": "source_summary_api_v1_storage_locations__location_id__source_summary_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "location_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Location Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "jobs_limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Jobs Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "jobs_offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Jobs Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageSourceSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Source Summary",
         "tags": [
           "storage-locations"
         ]

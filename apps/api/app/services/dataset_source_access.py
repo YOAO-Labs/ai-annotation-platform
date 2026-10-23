@@ -120,15 +120,18 @@ async def require_run(db, model, run_id, actor):
     return run
 
 
-def job_scope_clause(actor):
+def job_scope_clause(actor, source_ids=None):
     # Payload identifies retained attempts after a resume replaces async_job_id.
     # Compare strings; malformed legacy payloads must not raise UUID cast errors.
+    scope = source_scope_clause(actor)
+    if source_ids is not None:
+        scope = and_(scope, DatasetSource.id.in_(source_ids))
     scan = (
         select(1)
         .select_from(DatasetScanRun)
         .join(DatasetSource, DatasetSource.id == DatasetScanRun.source_id)
         .where(
-            source_scope_clause(actor),
+            scope,
             or_(
                 DatasetScanRun.async_job_id == AsyncJob.id,
                 cast(DatasetScanRun.id, String) == AsyncJob.payload["run_id"].astext,
@@ -141,7 +144,7 @@ def job_scope_clause(actor):
         .select_from(DatasetRegistrationRun)
         .join(DatasetSource, DatasetSource.id == DatasetRegistrationRun.source_id)
         .where(
-            source_scope_clause(actor),
+            scope,
             or_(
                 DatasetRegistrationRun.async_job_id == AsyncJob.id,
                 cast(DatasetRegistrationRun.id, String)

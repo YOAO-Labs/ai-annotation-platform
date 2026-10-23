@@ -86,6 +86,10 @@ class DatasetScanRun(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    @property
+    def source_revision(self):
+        return self.snapshot.get("source_revision", 0)
+
     __table_args__ = (
         CheckConstraint(
             "status IN ('pending','running','completed','failed','cancelled')",

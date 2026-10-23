@@ -343,12 +343,30 @@ async def _build_dataset(version_id, job_id, attempt_id, session_factory) -> Non
         finally:
             await db.rollback()
             if prefix and not published:
+                cleanup = False
                 try:
-                    await asyncio.to_thread(
-                        storage_service.delete_prefix,
-                        f"{prefix}/attempts/{attempt_id}/",
-                        bucket=storage_service.training_bucket,
+                    # A commit acknowledgement can fail after publication succeeded.
+                    referenced_key = await db.scalar(
+                        select(TrainingDatasetVersion.package_key).where(
+                            TrainingDatasetVersion.id == version_id
+                        )
                     )
+                    cleanup = (
+                        referenced_key != f"{prefix}/attempts/{attempt_id}/dataset.zip"
+                    )
+                except Exception:
+                    log.exception(
+                        "Cannot verify training attempt cleanup: %s", attempt_id
+                    )
+                finally:
+                    await db.rollback()
+                try:
+                    if cleanup:
+                        await asyncio.to_thread(
+                            storage_service.delete_prefix,
+                            f"{prefix}/attempts/{attempt_id}/",
+                            bucket=storage_service.training_bucket,
+                        )
                 except Exception:
                     log.exception("Training attempt cleanup failed: %s", attempt_id)
 

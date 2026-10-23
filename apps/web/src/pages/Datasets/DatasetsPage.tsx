@@ -202,7 +202,13 @@ function DatasetRow({
   );
 }
 
-function DatasetDetail({ ds }: { ds: DatasetResponse }) {
+function DatasetDetail({
+  ds,
+  sourceFocus,
+}: {
+  ds: DatasetResponse;
+  sourceFocus?: { initialSourceId?: string; initialScanId?: string };
+}) {
   const { role } = usePermissions();
   const actorId = useAuthStore((s) => s.user?.id);
   const canManageDirectory =
@@ -274,7 +280,11 @@ function DatasetDetail({ ds }: { ds: DatasetResponse }) {
       <td colSpan={7} className="block border-b border-border p-0! whitespace-normal xl:table-cell">
         <div className="bg-background px-3 py-4 sm:px-5">
           {canManageDirectory && isImageDataset && !ds.is_temporal && (
-            <DirectoryReferencePanel key={`${ds.id}/${sessionId}`} datasetId={ds.id} />
+            <DirectoryReferencePanel
+              key={`${ds.id}/${sessionId}`}
+              datasetId={ds.id}
+              {...sourceFocus}
+            />
           )}
           <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(220px,1fr)]">
             {/* 文件列表 */}
@@ -713,6 +723,12 @@ const PAGE_TABS = ["数据集管理", "数据连接器"] as const;
 export function DatasetsPage() {
   const referenceSession = useAuthStore((s) => s.sessionId);
   const [activeTab, setActiveTab] = useState<string>("数据集管理");
+  const [sourceLink, setSourceLink] = useState<{
+    session: string | null;
+    datasetId: string;
+    initialSourceId?: string;
+    initialScanId?: string;
+  } | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showReferenceCreate, setShowReferenceCreate] = useState(false);
@@ -831,6 +847,12 @@ export function DatasetsPage() {
     if (!datasets.some((ds) => ds.id === target)) return;
     setActiveTab("数据集管理");
     setExpandedId(target);
+    setSourceLink({
+      session: referenceSession,
+      datasetId: target,
+      initialSourceId: searchParams.get("source") ?? undefined,
+      initialScanId: searchParams.get("scan") ?? undefined,
+    });
     requestAnimationFrame(() => {
       document
         .getElementById(`dataset-row-${target}`)
@@ -841,6 +863,8 @@ export function DatasetsPage() {
       (current) => {
         const next = new URLSearchParams(current);
         next.delete("dataset");
+        next.delete("source");
+        next.delete("scan");
         return next;
       },
       { replace: true },
@@ -984,7 +1008,17 @@ export function DatasetsPage() {
                           isExpanded={expandedId === ds.id}
                           onToggle={() => setExpandedId(expandedId === ds.id ? null : ds.id)}
                         />
-                        {expandedId === ds.id && <DatasetDetail ds={ds} />}
+                        {expandedId === ds.id && (
+                          <DatasetDetail
+                            ds={ds}
+                            sourceFocus={
+                              sourceLink?.session === referenceSession &&
+                              sourceLink.datasetId === ds.id
+                                ? sourceLink
+                                : undefined
+                            }
+                          />
+                        )}
                       </Fragment>
                     ))}
                   {!isLoading && datasets.length === 0 && (

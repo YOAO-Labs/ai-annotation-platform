@@ -7,6 +7,7 @@ const api = vi.hoisted(() => ({
   locations: vi.fn(),
   scans: vi.fn(),
   syncSchedule: vi.fn(),
+  activeRegistration: vi.fn().mockResolvedValue(null),
   previewRules: vi.fn(),
   applyRules: vi.fn(),
   configureSync: vi.fn(),
@@ -93,3 +94,5 @@ it("refreshes a paused schedule revision after saving source rules before re-ena
     }),
   );
 });
+
+vi.mock("@/components/jobs/AsyncJobDetailModal", () => ({ AsyncJobDetailModal: () => null }));

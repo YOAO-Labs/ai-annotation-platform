@@ -2,7 +2,7 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-22
+last_reviewed: 2026-10-23
 ---
 
 # 存储连接器（Storage Connections）
@@ -256,3 +256,13 @@ DatasetSourceItem 是来源/路径的当前头；DatasetSourceRevision 保存不
 周期计划显式持久化 `new_file_policy=manual|pure_additions` 与有效 IANA 显示时区（默认 manual/UTC）。纯新增策略固定在扫描快照并传给预检；整轮只含新增/相同且无错误才以真实 worker 节点走既有 additions_only 确认。任何其他差异整轮留在门禁，策略中途打开不会接管人工轮次。确认嵌套 I/O 后复核计划 revision/token、原账号与 Key proof，自动正式登记仅在原授权完全相符时由协调器恢复；人工正式登记仅观察。0205降级前须暂停自动计划。固定分钟间隔不表达日历定时，时区仅控制显示。见 [ADR0105](/dev/adr/0105-opt-in-pure-addition-sync)。
 
 选择规则通过独立 preview/apply 入口更新，仅 recursive/include_globs/exclude_globs。预览绑定提议规则、Source/Location修订和排序接纳头修订身份，防止移动或重新核验后复用同计数旧预览；仅评估已接纳路径，不读取外部来源。保存拒绝活动尝试，原子递增来源修订与代次并阻断旧周期计划。观测账本保持；新差异按复用的后端选择语义识别规则外路径。业务 reader 只排除这三个字段进行定位比较，其他未知配置、原根/资格/回执与内容屏障继续严格校验。见 [ADR0106](/dev/adr/0106-reviewed-source-selection-changes)。
+
+## 同步导航与证据留存
+
+来源历史通过数据库分页读取，最近完整扫描和活动扫描分别查询，不依赖最近20条。来源级活动登记独立于最新扫描。Web 深链保存同会话的 dataset/source/scan 上下文，再分别校验父子关系；直接来源查询支持第一页之外的来源。历史和停用来源禁用写操作，权限变更使旧会话视图退休。
+
+位置摘要仅执行有界数据库查询：可见来源计数/分页、该位置全部可见来源的任务计数/分页。复用 dataset_source_access 的真实 Run/FK 或历史 payload 关联，不以提交者或 payload.source_id 授权；字符串比较避免把坏旧 ID 强转UUID。最小 DTO 不返回 payload。位置可见性不能扩大数据集所有权。
+
+领域账本持续保留，无自动压缩、过期删除或缺失等待期。每来源最多一个周期计划、活动扫描和活动登记；不设部署级计划总量上限，调度每次有界唤醒100个到期来源，扫描受原预算约束。运维应监控账本增长，不能把清理 AsyncJob 当作压缩领域事实。
+
+托管训练冻结复用独立媒体与快照。构建提交应答异常时，清理前重新读取 package_key；已被版本引用或查询无法确认的 attempt ZIP 保留，避免删除实际已发布包。明确未发布的本尝试前缀才可清理。重扫、新修订、未见及取消不修改旧训练版本。外部引用训练冻结属于独立接入范围。

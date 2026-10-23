@@ -1,8 +1,10 @@
 /**
  * StoragePage 单测 — 存储桶/数据集/视频资产失败 主路径.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, within, fireEvent, waitFor } from "@testing-library/react";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createTestQueryClient } from "@/test/queryClient";
 import { MemoryRouter } from "react-router-dom";
 import userEvent from "@testing-library/user-event";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -100,11 +102,19 @@ const SAMPLE_VIDEO_FAILURE = {
   task_display_id: "T-001",
 };
 
+const queryClients: ReturnType<typeof createTestQueryClient>[] = [];
+afterEach(() => {
+  queryClients.splice(0).forEach((client) => client.clear());
+});
 function renderUI() {
+  const client = createTestQueryClient();
+  queryClients.push(client);
   return render(
-    <MemoryRouter>
-      <StoragePage />
-    </MemoryRouter>,
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <StoragePage />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -251,7 +261,9 @@ describe("StoragePage", () => {
   it("点击「刷新状态」→ invalidateQueries 被调用", () => {
     renderUI();
     fireEvent.click(screen.getByRole("button", { name: /刷新状态/ }));
-    expect(mockInvalidateQueries).toHaveBeenCalledTimes(3);
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["storage-source-summary"] });
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["storage-source-locations"] });
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ["storage-buckets"] });
   });
 
   it("视频资产加载中 → 显示加载态文字", () => {

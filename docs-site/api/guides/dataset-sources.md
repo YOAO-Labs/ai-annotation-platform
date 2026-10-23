@@ -11,17 +11,18 @@ last_reviewed: 2026-10-23
 
 先用[存储位置 API](./storage-locations)登记受控根内位置，成功探测指定 worker 的 list 能力，再创建来源。所有路径均以 `/api/v1` 为前缀。
 
-| 方法  | 路径                                 | 行为                                                              |
-| ----- | ------------------------------------ | ----------------------------------------------------------------- |
-| POST  | `/dataset-sources`                   | 为已有数据集创建只读观测来源，返回201                             |
-| GET   | `/dataset-sources`                   | 按 dataset_id 可选过滤，limit 默认100、最多200，offset 分页       |
-| GET   | `/dataset-sources/{source_id}`       | 查看来源配置，不返回绝对根或内部节点指纹                          |
-| PATCH | `/dataset-sources/{source_id}`       | expected_revision + name/enabled；活动扫描及登记须先取消          |
-| POST  | `/dataset-sources/{source_id}/scans` | 启动手动扫描，返回202；同来源已有活动运行时复用                   |
-| GET   | `/dataset-sources/{source_id}/scans` | 分页查看独立扫描历史                                              |
-| GET   | `/dataset-scans/{run_id}`            | 查看状态、阶段、完整性、累计数和当前 async_job_id                 |
-| GET   | `/dataset-scans/{run_id}/entries`    | limit/offset 分页读取观测、verified_content 与 registered_item_id |
-| POST  | `/dataset-scans/{run_id}/resume`     | 恢复未完成运行，保留目录检查点，返回202和新任务ID                 |
+| 方法  | 路径                                               | 行为                                                                    |
+| ----- | -------------------------------------------------- | ----------------------------------------------------------------------- |
+| POST  | `/dataset-sources`                                 | 为已有数据集创建只读观测来源，返回201                                   |
+| GET   | `/dataset-sources`                                 | 按 dataset_id 可选过滤，limit 默认100、最多200，offset 分页             |
+| GET   | `/dataset-sources/{source_id}`                     | 查看来源配置，不返回绝对根或内部节点指纹                                |
+| PATCH | `/dataset-sources/{source_id}`                     | expected_revision + name/enabled；活动扫描及登记须先取消                |
+| POST  | `/dataset-sources/{source_id}/scans`               | 启动手动扫描，返回202；同来源已有活动运行时复用                         |
+| GET   | `/dataset-sources/{source_id}/scans`               | 分页查看独立扫描历史；complete 可选过滤完整性，active_only 只取活动扫描 |
+| GET   | `/dataset-sources/{source_id}/active-registration` | 返回当前来源的活动预检/登记或 null，不限于最新扫描                      |
+| GET   | `/dataset-scans/{run_id}`                          | 查看状态、阶段、完整性、累计数和当前 async_job_id                       |
+| GET   | `/dataset-scans/{run_id}/entries`                  | limit/offset 分页读取观测、verified_content 与 registered_item_id       |
+| POST  | `/dataset-scans/{run_id}/resume`                   | 恢复未完成运行，保留目录检查点，返回202和新任务ID                       |
 
 来源、扫描、登记与明细的直接 ID 访问和列表/total 使用同一管理范围；权限不足返回404，员工不能枚举来源。读接口要求 `datasets:read`，写接口要求 `datasets:write`。后台任务按真实 Run→Source 关联授权，包括恢复前的历史尝试，不以任务提交者代替当前来源权限；缺少读取 scope 的 Key 不会在任务列表取得这些记录。
 
@@ -199,3 +200,9 @@ SFTP 复用逐目录检查点、取消恢复及末次目录清单核对，每目
 确认在相同请求中增加 `impact_proof`。当前账号、原 Key 权限、Source/Location修订、接纳头身份或活动尝试变化返回409 `rules_impact_changed`；仍有活动尝试返回409 `source_busy`。必须结束或取消任务后重新预览。成功只更新选择规则并递增来源修订；旧扫描、预检和检查点不得复用，已有周期计划立即阻断，需重新配置启用。无变化请求保留现状。
 
 本地目录与 SFTP 的排除目录会剪掉子树；外部 S3 按原始对象相对键作平面 fnmatch，排除 `dir` 不隐含排除 `dir/...`，应使用 `dir/*`。不归一化 S3 重复斜线或编码。新预检将规则外旧路径列为 excluded，未遍历到不误判为未见。已接纳 Item、Task、标注及原内容身份保持，旧任务不因过滤条件改变而拒读；定位、根、资格和内容仍按原严格合同验证。
+
+## 历史查询与留存
+
+扫描响应包含固定的 source_revision。历史列表按创建时间倒序；`complete=true&limit=1` 按完成时间取最近完整扫描，独立于默认历史页；`active_only=true` 查询来源的活动扫描，即使它是恢复的较早轮次。来源级 active-registration 返回至多一个 pending/running 预检或登记，避免以最新扫描推断后台状态。
+
+扫描、预检、差异和接纳修订账本不随短期 AsyncJob 清理，不自动按时间压缩或删除。当前只提供分页查询与每来源单活动扫描、单活动登记、单周期计划的约束，没有租户级计划数量上限；调度每轮最多100个到期计划，单扫描继续遵守50000条观测等固定预算。not_seen 没有自动等待期或删除倒计时，只保留候选，不能因持续未见而推断物理删除。

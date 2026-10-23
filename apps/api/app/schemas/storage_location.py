@@ -47,6 +47,36 @@ class StorageLocationList(BaseModel):
     total: int
 
 
+class StorageSourceSummaryItem(BaseModel):
+    source_id: uuid.UUID
+    source_name: str
+    dataset_id: uuid.UUID | None
+    dataset_name: str | None
+    enabled: bool
+    unregistered_at: datetime | None
+
+
+class StorageSourceJob(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    kind: str
+    status: str
+    created_at: datetime
+    completed_at: datetime | None
+
+
+class StorageSourceJobs(BaseModel):
+    items: list[StorageSourceJob]
+    total: int
+
+
+class StorageSourceSummary(BaseModel):
+    location_id: uuid.UUID
+    items: list[StorageSourceSummaryItem]
+    total: int
+    jobs: StorageSourceJobs
+
+
 class DirectoryEntry(BaseModel):
     name: str
     relative_path: str

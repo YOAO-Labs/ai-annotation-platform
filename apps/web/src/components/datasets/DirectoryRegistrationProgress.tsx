@@ -43,11 +43,13 @@ export function DirectoryRegistrationProgress({
   datasetId,
   owner,
   sourceRevision,
+  readOnly = false,
 }: {
   scanId: string;
   datasetId: string;
   owner: string;
   sourceRevision: number;
+  readOnly?: boolean;
 }) {
   const client = useQueryClient();
   const capture = useSessionGuard();
@@ -65,7 +67,8 @@ export function DirectoryRegistrationProgress({
       q.state.data && ["pending", "running"].includes(q.state.data.status) ? 1500 : false,
   });
   const run = registration.data;
-  const stale = !!run && run.source_revision !== sourceRevision;
+  const revisionMismatch = !!run && run.source_revision !== sourceRevision;
+  const stale = readOnly || revisionMismatch;
   const active = !!run && ["pending", "running"].includes(run.status);
   const entries = useQuery({
     queryKey: ["directory-registration-entries", owner, run?.id, offset, errorsOnly],
@@ -187,10 +190,13 @@ export function DirectoryRegistrationProgress({
             </Button>
           )}
       </div>
-      {stale && (
+      {revisionMismatch && (
         <p role="status" className="mt-2 text-status-caution">
           来源或位置已变更，本轮历史保留。请重新扫描和预检；旧尝试不能继续。
         </p>
+      )}
+      {readOnly && (
+        <p className="mt-2 text-muted-foreground">本轮历史仅供查看，不能继续或接纳变更。</p>
       )}
       {registration.isPending && <p role="status">正在读取登记进度…</p>}
       <p className="mt-2 text-muted-foreground">

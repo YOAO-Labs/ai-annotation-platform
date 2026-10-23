@@ -6,6 +6,16 @@ import { act, render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
 
+const permissions = vi.hoisted(() => ({ role: "" }));
+vi.mock("@/hooks/usePermissions", () => ({ usePermissions: () => ({ role: permissions.role }) }));
+vi.mock("@/components/datasets/DirectoryReferencePanel", () => ({
+  DirectoryReferencePanel: (props: {
+    datasetId: string;
+    initialSourceId?: string;
+    initialScanId?: string;
+  }) => <output data-testid="source-focus">{JSON.stringify(props)}</output>,
+  ReferenceItemPreview: () => null,
+}));
 const mockUseDatasets = vi.fn();
 const mockListDatasets = vi.fn();
 const mockUseCreateDataset = vi.fn();
@@ -102,6 +112,7 @@ function LocationProbe() {
 
 describe("DatasetsPage", () => {
   beforeEach(() => {
+    permissions.role = "";
     HTMLElement.prototype.scrollIntoView = scrollIntoView;
     scrollIntoView.mockClear();
     mockUseDatasets.mockReset();
@@ -279,6 +290,23 @@ describe("DatasetsPage", () => {
     );
     await waitFor(() => expect(screen.getByTestId("location-search")).toHaveTextContent("q=clip"));
     expect(screen.getByRole("button", { name: /收起/ })).toBeInTheDocument();
+  });
+
+  it("retains dataset/source/scan link context after consuming the URL", async () => {
+    permissions.role = "super_admin";
+    mockUseDatasets.mockReturnValue({
+      data: {
+        items: [{ id: "ds1", name: "Linked", data_type: "image", file_count: 0, project_count: 0 }],
+        total: 1,
+      },
+      isLoading: false,
+    });
+    renderUI("/datasets?dataset=ds1&source=source201&scan=older-scan");
+    const focus = await screen.findByTestId("source-focus");
+    expect(focus).toHaveTextContent('"initialSourceId":"source201"');
+    expect(focus).toHaveTextContent('"initialScanId":"older-scan"');
+    await waitFor(() => expect(screen.getByTestId("location-search")).toHaveTextContent(/^$/));
+    expect(screen.getByTestId("source-focus")).toHaveTextContent("older-scan");
   });
 
   it("locates and expands a linked dataset beyond the first server page", async () => {

@@ -17,6 +17,7 @@ import type { BucketSummary, VideoAssetFailureItem, VideoAssetKind } from "@/api
 import type { IconName } from "@/components/ui/Icon";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { CopyableError } from "@/components/ui/CopyableError";
+import { StorageLocationSourceSummary } from "@/components/connections/StorageLocationSourceSummary";
 import { FilesystemLocationsPanel } from "@/components/connections/FilesystemLocationsPanel";
 
 const TYPE_ICONS: Record<string, IconName> = {
@@ -312,6 +313,8 @@ export function StoragePage() {
   }, [datasetsData, datasetsFetching, totalDatasets, pagination]);
 
   const handleRefresh = () => {
+    qc.invalidateQueries({ queryKey: ["storage-source-locations"] });
+    qc.invalidateQueries({ queryKey: ["storage-source-summary"] });
     qc.invalidateQueries({ queryKey: ["storage-buckets"] });
     qc.invalidateQueries({ queryKey: ["datasets"] });
     qc.invalidateQueries({ queryKey: ["storage-video-asset-failures"] });
@@ -334,6 +337,7 @@ export function StoragePage() {
       </div>
 
       <FilesystemLocationsPanel />
+      <StorageLocationSourceSummary />
       {/* Stats */}
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard icon="db" label="存储后端" value="MinIO (S3)" />

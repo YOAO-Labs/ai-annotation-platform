@@ -243,17 +243,28 @@ async def list_scans(
     source_id: uuid.UUID,
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    complete: bool | None = None,
+    active_only: bool = False,
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(manager),
 ):
     await access.require_source(db, source_id, actor)
     query = select(DatasetScanRun).where(DatasetScanRun.source_id == source_id)
+    if complete is not None:
+        query = query.where(DatasetScanRun.complete == complete)
+    if active_only:
+        query = query.where(DatasetScanRun.status.in_(["pending", "running"]))
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
-    rows = await db.scalars(
-        query.order_by(DatasetScanRun.created_at.desc(), DatasetScanRun.id)
-        .limit(limit)
-        .offset(offset)
+    ordering = (
+        (
+            DatasetScanRun.completed_at.desc().nulls_last(),
+            DatasetScanRun.created_at.desc(),
+            DatasetScanRun.id,
+        )
+        if complete is True
+        else (DatasetScanRun.created_at.desc(), DatasetScanRun.id)
     )
+    rows = await db.scalars(query.order_by(*ordering).limit(limit).offset(offset))
     return {"items": list(rows), "total": total}
 
 
@@ -265,6 +276,24 @@ async def get_scan(
 ):
     run = await access.require_run(db, DatasetScanRun, run_id, actor)
     return run
+
+
+@router.get(
+    "/dataset-sources/{source_id}/active-registration",
+    response_model=DatasetRegistrationOut | None,
+)
+async def active_registration(
+    source_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    actor: User = Depends(manager),
+):
+    await access.require_source(db, source_id, actor)
+    return await db.scalar(
+        select(DatasetRegistrationRun).where(
+            DatasetRegistrationRun.source_id == source_id,
+            DatasetRegistrationRun.status.in_(["pending", "running"]),
+        )
+    )
 
 
 @router.get("/dataset-scans/{run_id}/entries", response_model=DatasetScanEntryList)

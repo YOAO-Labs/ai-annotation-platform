@@ -1,5 +1,5 @@
 import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { datasetSourcesApi as api } from "@/api/datasetSources";
 import { Button } from "@/components/ui/Button";
@@ -8,6 +8,7 @@ import { useVerifiedImage, verifiedContentError } from "@/hooks/useVerifiedImage
 import { DirectoryRegistrationProgress } from "./DirectoryRegistrationProgress";
 import { DirectorySyncSchedule } from "./DirectorySyncSchedule";
 import { DirectoryCachedPreview, DirectorySourceControls } from "./DirectorySourceControls";
+import { AsyncJobDetailModal } from "@/components/jobs/AsyncJobDetailModal";
 import { parseReference } from "@/utils/referenceContent";
 
 const field = "rounded-md border border-input bg-background px-2 py-1.5 text-xs text-foreground";
@@ -48,18 +49,35 @@ export function ReferenceItemPreview({ filePath }: { filePath: string }) {
   );
 }
 
-export function DirectoryReferencePanel(props: { datasetId: string }) {
+export interface DirectorySourceFocus {
+  initialSourceId?: string;
+  initialScanId?: string;
+}
+export function DirectoryReferencePanel(props: { datasetId: string } & DirectorySourceFocus) {
   const revision = useSessionRevision();
-  return <DirectoryReferencePanelOwner key={revision} {...props} />;
+  return (
+    <DirectoryReferencePanelOwner
+      key={`${revision}/${props.datasetId}/${props.initialSourceId ?? ""}/${props.initialScanId ?? ""}`}
+      {...props}
+    />
+  );
 }
 
-function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
+function DirectoryReferencePanelOwner({
+  datasetId,
+  initialSourceId,
+  initialScanId,
+}: { datasetId: string } & DirectorySourceFocus) {
   const session = useAuthStore((s) => s.sessionId);
   const userId = useAuthStore((s) => s.user?.id);
   const owner = `${userId}/${session}/${datasetId}`;
   const capture = useSessionGuard();
   const client = useQueryClient();
-  const [sourceId, setSourceId] = useState("");
+  const [sourceId, setSourceId] = useState(initialSourceId ?? "");
+  const [selectedScanId, setSelectedScanId] = useState(initialScanId ?? "");
+  const [historyOffset, setHistoryOffset] = useState(0);
+  const [incompleteLink, setIncompleteLink] = useState(!!initialScanId && !initialSourceId);
+  const [jobId, setJobId] = useState<string | null>(null);
   const [locationId, setLocationId] = useState("");
   const [directory, setDirectory] = useState("");
   const [node, setNode] = useState("");
@@ -83,7 +101,25 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
     queryFn: ({ signal }) => api.locations(signal),
   });
   const activeSource = sourceId || sources.data?.items[0]?.id;
-  const source = sources.data?.items.find((s) => s.id === activeSource);
+  const focusedSource = useQuery({
+    queryKey: ["dataset-source", owner, sourceId],
+    queryFn: ({ signal }) => api.source(sourceId, signal),
+    enabled: !!sourceId,
+  });
+  const candidateSource = sourceId
+    ? focusedSource.data
+    : incompleteLink
+      ? undefined
+      : sources.data?.items[0];
+  const source = candidateSource?.dataset_id === datasetId ? candidateSource : undefined;
+  const sourceMismatch = !!candidateSource && candidateSource.dataset_id !== datasetId;
+  const sourceOptions = sources.data?.items ?? [];
+  const visibleSources = source
+    ? sourceOptions.some((s) => s.id === source.id)
+      ? sourceOptions.map((item) => (item.id === source.id ? source : item))
+      : [source, ...sourceOptions]
+    : sourceOptions;
+  const writable = !!source?.enabled && !source.unregistered_at;
   const samplePath = (path: string) => {
     const base = source!.relative_path;
     return locations.data?.items.find((l) => l.id === source!.location_id)?.kind === "s3"
@@ -91,13 +127,78 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
       : [base, path].filter(Boolean).join("/");
   };
   const scans = useQuery({
-    queryKey: ["dataset-scans", owner, activeSource],
-    queryFn: ({ signal }) => api.scans(activeSource!, signal),
-    enabled: !!activeSource,
+    queryKey: ["dataset-scans", owner, source?.id, historyOffset],
+    queryFn: ({ signal }) => api.scans(source!.id, signal, { offset: historyOffset }),
+    enabled: !!source,
     refetchInterval: (q) =>
       q.state.data?.items.some((r) => ["pending", "running"].includes(r.status)) ? 2000 : false,
   });
-  const run = scans.data?.items[0];
+  const latest = useQuery({
+    queryKey: ["dataset-scans", owner, source?.id, 0],
+    queryFn: ({ signal }) => api.scans(source!.id, signal, { offset: 0 }),
+    enabled: !!source,
+    refetchInterval: (q) =>
+      q.state.data?.items.some((r) => ["pending", "running"].includes(r.status)) ? 2000 : false,
+  });
+  const complete = useQuery({
+    queryKey: ["dataset-scans", owner, source?.id, "complete"],
+    queryFn: ({ signal }) => api.scans(source!.id, signal, { complete: true, limit: 1 }),
+    enabled: !!source,
+  });
+  const active = useQuery({
+    queryKey: ["dataset-scans", owner, source?.id, "active"],
+    queryFn: ({ signal }) => api.scans(source!.id, signal, { active_only: true, limit: 1 }),
+    enabled: !!source,
+    refetchInterval: writable ? 5000 : false,
+  });
+  const selected = useQuery({
+    queryKey: ["dataset-scans", owner, source?.id, "selected", selectedScanId],
+    queryFn: ({ signal }) => api.scan(selectedScanId, signal),
+    enabled: !!source && !!selectedScanId,
+    refetchInterval: (q) =>
+      q.state.data && ["pending", "running"].includes(q.state.data.status) ? 2000 : false,
+  });
+  const latestRun = latest.data?.items[0];
+  useEffect(() => {
+    if (latestRun?.status === "completed")
+      void client.invalidateQueries({ queryKey: ["dataset-scans", owner, source?.id, "complete"] });
+  }, [client, owner, source?.id, latestRun?.id, latestRun?.status]);
+  const activeRun = active.data?.items[0];
+  const previousActive = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (!active.isSuccess) return;
+    const current = activeRun?.id ?? null;
+    if (previousActive.current !== undefined && previousActive.current !== current) {
+      void client.invalidateQueries({ queryKey: ["dataset-scans", owner, source?.id, "complete"] });
+      void client.invalidateQueries({
+        predicate: (query) =>
+          query.queryKey[0] === "dataset-scans" &&
+          query.queryKey[1] === owner &&
+          query.queryKey[2] === source?.id &&
+          typeof query.queryKey[3] === "number",
+      });
+    }
+    previousActive.current = current;
+  }, [active.isSuccess, activeRun?.id, client, owner, source?.id]);
+  const candidateRun = selectedScanId ? selected.data : latestRun;
+  const runMismatch = !!candidateRun && candidateRun.source_id !== source?.id;
+  const run = !runMismatch ? candidateRun : undefined;
+  const registration = useQuery({
+    queryKey: ["directory-active-registration", owner, source?.id],
+    queryFn: ({ signal }) => api.activeRegistration(source!.id, signal),
+    enabled: !!source,
+    refetchInterval: writable ? 5000 : false,
+  });
+  const activeRegistration = registration.data;
+  const readOnly =
+    !writable ||
+    !!activeRun ||
+    run?.source_revision !== source?.config_revision ||
+    run?.id !== latestRun?.id;
+  const selectRun = (id: string) => {
+    setSelectedScanId(id);
+    setOffset(0);
+  };
   const entries = useQuery({
     queryKey: ["dataset-scan-entries", owner, run?.id, offset],
     queryFn: ({ signal }) => api.entries(run!.id, offset, signal),
@@ -118,6 +219,7 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
       if (!current()) return;
       await Promise.all([
         client.invalidateQueries({ queryKey: ["dataset-sources", owner] }),
+        client.invalidateQueries({ queryKey: ["dataset-source", owner] }),
         client.invalidateQueries({ queryKey: ["source-sync-schedule", owner] }),
         client.invalidateQueries({ queryKey: ["dataset-scans", owner] }),
         client.invalidateQueries({ queryKey: ["dataset-scan-entries", owner] }),
@@ -268,6 +370,8 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
               });
               if (current()) {
                 setSourceId(created.id);
+                setSelectedScanId("");
+                setHistoryOffset(0);
                 setOffset(0);
                 setMessage("来源已配置，请运行只读预扫描");
               }
@@ -332,11 +436,14 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
           value={activeSource ?? ""}
           onChange={(e) => {
             setSourceId(e.target.value);
+            setIncompleteLink(false);
+            setSelectedScanId("");
+            setHistoryOffset(0);
             setOffset(0);
           }}
         >
           <option value="">选择来源</option>
-          {sources.data?.items.map((s) => (
+          {visibleSources.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name}
               {s.unregistered_at ? "（已注销）" : !s.enabled ? "（停用）" : ""}
@@ -346,7 +453,14 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
         <Button
           size="sm"
           disabled={
-            !source?.enabled || busy || run?.status === "running" || run?.status === "pending"
+            !writable ||
+            busy ||
+            !!activeRun ||
+            active.isPending ||
+            active.isError ||
+            registration.isPending ||
+            registration.isError ||
+            !!activeRegistration
           }
           onClick={() =>
             void act(async (current) => {
@@ -354,7 +468,11 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
               if (!current()) return;
               if (!probe.ok) throw new Error(`扫描节点不可用：${probe.code}`);
               await api.start(source!.id);
-              if (current()) setOffset(0);
+              if (current()) {
+                setOffset(0);
+                setSelectedScanId("");
+                setHistoryOffset(0);
+              }
             })
           }
         >
@@ -363,26 +481,129 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
         {run && (
           <>
             <span role="status">
-              {run.status === "completed" ? "扫描完成，尚需确认登记" : `扫描 ${run.status}`} ·{" "}
+              {run.status === "completed" ? "扫描完整，登记与差异见下方" : `扫描 ${run.status}`} ·{" "}
               {JSON.stringify(run.counts)}
             </span>
             <Button
               size="sm"
               onClick={() => {
-                void scans.refetch();
+                void client.invalidateQueries({ queryKey: ["dataset-scans", owner, source?.id] });
+                void registration.refetch();
                 if (run.complete) void entries.refetch();
               }}
             >
               刷新扫描
             </Button>
             {["failed", "cancelled"].includes(run.status) && (
-              <Button size="sm" disabled={busy} onClick={() => void act(() => api.resume(run.id))}>
+              <Button
+                size="sm"
+                disabled={busy || readOnly || !!activeRun || !!activeRegistration}
+                onClick={() => void act(() => api.resume(run.id))}
+              >
                 恢复扫描
               </Button>
             )}
           </>
         )}
       </div>
+      {source && (
+        <section aria-label="扫描历史" className="mt-3 rounded-md border border-border p-3">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <h5 className="text-sm font-semibold">扫描历史</h5>
+            <span>
+              最近完整扫描：
+              {complete.data?.items[0]
+                ? new Date(
+                    complete.data.items[0].completed_at ?? complete.data.items[0].created_at,
+                  ).toLocaleString("zh-CN")
+                : "暂无"}
+            </span>
+            {complete.data?.items[0] && (
+              <Button size="sm" onClick={() => selectRun(complete.data!.items[0].id)}>
+                查看最近完整扫描
+              </Button>
+            )}
+            <Button size="sm" onClick={() => selectRun("")}>
+              查看最新扫描
+            </Button>
+            <span role="status">
+              当前执行：
+              {active.isError || registration.isError
+                ? "无法确认，请刷新"
+                : active.isPending || registration.isPending
+                  ? "读取中…"
+                  : activeRun
+                    ? `扫描 ${activeRun.status}`
+                    : activeRegistration
+                      ? `预检 / 登记 ${activeRegistration.status}`
+                      : "无"}
+            </span>
+            {(activeRun?.async_job_id || activeRegistration?.async_job_id) && (
+              <Button
+                size="sm"
+                onClick={() =>
+                  setJobId(activeRun?.async_job_id ?? activeRegistration!.async_job_id)
+                }
+              >
+                查看当前后台任务
+              </Button>
+            )}
+          </div>
+          <ul className="grid gap-1">
+            {scans.data?.items.map((item) => (
+              <li key={item.id} className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  aria-pressed={run?.id === item.id}
+                  onClick={() => selectRun(item.id)}
+                >
+                  {new Date(item.created_at).toLocaleString("zh-CN")} · {item.status} ·{" "}
+                  {item.id.slice(0, 8)}
+                </Button>
+                {item.async_job_id && (
+                  <Button size="sm" onClick={() => setJobId(item.async_job_id)}>
+                    查看扫描任务
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+          <div className="mt-2 flex items-center gap-2">
+            <Button
+              size="sm"
+              disabled={!historyOffset || scans.isFetching}
+              onClick={() => setHistoryOffset((n) => Math.max(0, n - 20))}
+            >
+              上一页扫描
+            </Button>
+            <span>
+              第 {historyOffset / 20 + 1} 页 · 共 {scans.data?.total ?? 0} 次
+            </span>
+            <Button
+              size="sm"
+              disabled={scans.isFetching || historyOffset + 20 >= (scans.data?.total ?? 0)}
+              onClick={() => setHistoryOffset((n) => n + 20)}
+            >
+              下一页扫描
+            </Button>
+          </div>
+          {run && (
+            <p className="mt-2 break-all">
+              当前查看扫描：{run.id}
+              {readOnly ? " · 历史只读" : ""}
+            </p>
+          )}
+          {!writable && (
+            <p className="mt-2 text-muted-foreground">来源已停用或注销，仅查看保留历史。</p>
+          )}
+        </section>
+      )}
+      {jobId && <AsyncJobDetailModal jobId={jobId} onClose={() => setJobId(null)} />}
+      {(sourceMismatch || runMismatch || incompleteLink) && (
+        <p role="alert" className="mt-2 text-status-danger">
+          链接中的数据集、来源与扫描不匹配，请重新选择来源。
+        </p>
+      )}
       {source && (
         <DirectorySourceControls
           key={`${source.id}/${source.config_revision}`}
@@ -398,13 +619,14 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
           datasetId={datasetId}
         />
       )}
-      {run?.complete && source?.enabled && !source.unregistered_at && (
+      {run?.complete && source && (
         <DirectoryRegistrationProgress
           key={run.id}
           scanId={run.id}
           datasetId={datasetId}
           owner={owner}
           sourceRevision={source.config_revision}
+          readOnly={readOnly}
         />
       )}
       {run?.complete && (
@@ -431,7 +653,7 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
                     ) : entry.kind === "file" && entry.state === "observed" ? (
                       <Button
                         size="sm"
-                        disabled={busy || !source?.enabled || !!source.unregistered_at}
+                        disabled={busy || readOnly || !!activeRun || !!activeRegistration}
                         onClick={() =>
                           void act(async (current) => {
                             const sample = samplePath(entry.relative_path);
@@ -467,7 +689,7 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
                       !source.unregistered_at && (
                         <Button
                           size="sm"
-                          disabled={busy}
+                          disabled={busy || readOnly || !!activeRun || !!activeRegistration}
                           onClick={() =>
                             void act(async (current) => {
                               const sample = samplePath(entry.relative_path);
@@ -508,10 +730,31 @@ function DirectoryReferencePanelOwner({ datasetId }: { datasetId: string }) {
           </div>
         </div>
       )}
-      {(error || sources.error || locations.error || scans.error || entries.error) && (
+      {(error ||
+        sources.error ||
+        focusedSource.error ||
+        locations.error ||
+        scans.error ||
+        complete.error ||
+        active.error ||
+        latest.error ||
+        selected.error ||
+        registration.error ||
+        entries.error) && (
         <p role="alert" className="mt-2 text-status-danger">
           {error ||
-            verifiedContentError(sources.error || locations.error || scans.error || entries.error)}
+            verifiedContentError(
+              sources.error ||
+                focusedSource.error ||
+                locations.error ||
+                scans.error ||
+                complete.error ||
+                active.error ||
+                latest.error ||
+                selected.error ||
+                registration.error ||
+                entries.error,
+            )}
         </p>
       )}
       {message && (

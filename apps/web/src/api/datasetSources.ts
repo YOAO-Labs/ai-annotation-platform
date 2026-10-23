@@ -8,6 +8,7 @@ import type {
   DatasetScanList,
   DatasetScanEntryList,
   StorageLocationList,
+  StorageSourceSummary,
   StorageDirectoryPage,
   StorageProbeOut,
   DatasetSourceOut,
@@ -44,6 +45,17 @@ export const datasetSourcesApi = {
     apiClient.post<SourceSyncScheduleOut>(`/dataset-sources/${id}/sync-schedule/continue`, payload),
   locations: (signal?: AbortSignal) =>
     apiClient.get<StorageLocationList>("/storage-locations?limit=200", { signal }),
+  locationPage: (offset: number, signal?: AbortSignal) =>
+    apiClient.get<StorageLocationList>(`/storage-locations?limit=20&offset=${offset}`, { signal }),
+  sourceSummary: (id: string, offset: number, jobsOffset: number, signal?: AbortSignal) =>
+    apiClient.get<StorageSourceSummary>(
+      `/storage-locations/${id}/source-summary?limit=20&offset=${offset}&jobs_limit=20&jobs_offset=${jobsOffset}`,
+      { signal },
+    ),
+  source: (id: string, signal?: AbortSignal) =>
+    apiClient.get<DatasetSourceOut>(`/dataset-sources/${id}`, { signal }),
+  scan: (id: string, signal?: AbortSignal) =>
+    apiClient.get<DatasetScanOut>(`/dataset-scans/${id}`, { signal }),
   browse: (id: string, path: string, cursor?: string, signal?: AbortSignal) =>
     apiClient.get<StorageDirectoryPage>(
       `/storage-locations/${id}/directories?${new URLSearchParams({ path, limit: "50", ...(cursor ? { cursor } : {}) })}`,
@@ -66,6 +78,11 @@ export const datasetSourcesApi = {
     apiClient.get<SourceLifecycleImpact>(`/dataset-sources/${id}/lifecycle-impact`),
   lifecycle: (id: string, payload: SourceLifecycleChange) =>
     apiClient.post<DatasetSourceOut>(`/dataset-sources/${id}/lifecycle`, payload),
+  activeRegistration: (sourceId: string, signal?: AbortSignal) =>
+    apiClient.get<DatasetRegistrationOut | null>(
+      `/dataset-sources/${sourceId}/active-registration`,
+      { signal },
+    ),
   registration: (scanId: string, signal?: AbortSignal) =>
     apiClient.get<DatasetRegistrationOut | null>(`/dataset-scans/${scanId}/registration`, {
       signal,
@@ -108,8 +125,15 @@ export const datasetSourcesApi = {
       `/dataset-registrations/${id}/entries?limit=20&offset=${offset}${errorsOnly ? "&state=error" : ""}`,
       { signal },
     ),
-  scans: (sourceId: string, signal?: AbortSignal) =>
-    apiClient.get<DatasetScanList>(`/dataset-sources/${sourceId}/scans?limit=20`, { signal }),
+  scans: (
+    sourceId: string,
+    signal?: AbortSignal,
+    options: { offset?: number; complete?: boolean; active_only?: boolean; limit?: number } = {},
+  ) =>
+    apiClient.get<DatasetScanList>(
+      `/dataset-sources/${sourceId}/scans?${new URLSearchParams({ limit: "20", ...Object.fromEntries(Object.entries(options).map(([key, value]) => [key, String(value)])) })}`,
+      { signal },
+    ),
   start: (sourceId: string) => apiClient.post<DatasetScanOut>(`/dataset-sources/${sourceId}/scans`),
   resume: (runId: string) => apiClient.post<DatasetScanOut>(`/dataset-scans/${runId}/resume`),
   entries: (runId: string, offset: number, signal?: AbortSignal) =>

@@ -60,6 +60,7 @@ class DatasetScanOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     source_id: uuid.UUID
+    source_revision: int
     async_job_id: uuid.UUID | None
     status: str
     phase: str

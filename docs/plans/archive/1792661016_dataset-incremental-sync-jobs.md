@@ -1,12 +1,12 @@
 # EPIC-04：增量同步与后台任务编排
 
-> 状态：E04-A / E04-B1 / E04-B2 / E04-B3 / E04-B4 / E04-B5 / E04-B6 completed；用户要求完整完成 E04，规则、导航与剩余验收继续实施；用户已授权推进和提交，不分配发布版本。
+> 状态：完整 E04 已完成本地回归与真实浏览器验收，归档；人工验收环境继续保留。未推送、未发布、未分配版本。
 > 转入日期：2026-10-22；本地核验基线：`e169d9ef53a9eda60abd4e67bf553ab4e6ab618e`。
-> 实施前须通过 [backlog promotion gate](backlog/README.md#promotion-gate)。[草案总览](backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](backlog/1792661016_dataset-storage-architecture.md)和[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
+> 实施前须通过 [backlog promotion gate](../backlog/README.md#promotion-gate)。[草案总览](../backlog/1792661016_dataset-storage-roadmap.md)、[架构契约](../backlog/1792661016_dataset-storage-architecture.md)和[交付验收](../backlog/1792661016_dataset-storage-delivery-acceptance.md)共同约束本系列。
 
 | 项目          | 内容                                                     |
 | ------------- | -------------------------------------------------------- |
-| 状态          | E04-A 至 E04-B6 已完成本地验收；其余合同继续实施         |
+| 状态          | 完整 E04 已验收并归档         |
 | 日期          | 2026-10-23（Asia/Shanghai）                              |
 | 优先级 / 阶段 | P0：M1 幂等手动扫描与变化保护；P1：M2 周期同步与裁决     |
 | 负责角色      | 后端、任务系统维护者、前端、测试                         |
@@ -56,17 +56,17 @@
 
 | 当前 owner / 代码锚点                                                     | 已有能力、缺口与复用约束                                                                                                                   |
 | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| [dataset_import.py](../../apps/api/app/workers/dataset_import.py)         | 现有逐文件提交、文件间取消、最多 100 条 JSON 错误摘要；先收集限额内条目，没有持久游标、单项账本或扫描租约，枚举/大文件传输中取消仍需新增。 |
-| [dataset.py](../../apps/api/app/services/dataset.py)                      | 建任务用 NOT EXISTS 等顺序去重，项目/样本对无数据库唯一约束，不等于并发幂等。\_unique_file_name 逐项查文件名全集可批量优化。               |
-| [async_jobs_cleanup.py](../../apps/api/app/workers/async_jobs_cleanup.py) | 终态 job 有清理期限，长期扫描/变化审计不能只寄存在 job JSON；仍沿用同一任务中心。                                                          |
+| [dataset_import.py](../../../apps/api/app/workers/dataset_import.py)         | 现有逐文件提交、文件间取消、最多 100 条 JSON 错误摘要；先收集限额内条目，没有持久游标、单项账本或扫描租约，枚举/大文件传输中取消仍需新增。 |
+| [dataset.py](../../../apps/api/app/services/dataset.py)                      | 建任务用 NOT EXISTS 等顺序去重，项目/样本对无数据库唯一约束，不等于并发幂等。\_unique_file_name 逐项查文件名全集可批量优化。               |
+| [async_jobs_cleanup.py](../../../apps/api/app/workers/async_jobs_cleanup.py) | 终态 job 有清理期限，长期扫描/变化审计不能只寄存在 job JSON；仍沿用同一任务中心。                                                          |
 
-候选修改入口：[dataset_import.py](../../apps/api/app/workers/dataset_import.py)、[dataset.py](../../apps/api/app/services/dataset.py)、[async_job.py](../../apps/api/app/services/async_job.py)、[async_job.py](../../apps/api/app/db/models/async_job.py)、[async_jobs.py](../../apps/api/app/api/v1/async_jobs.py)、[AsyncJobDetailModal.tsx](../../apps/web/src/components/jobs/AsyncJobDetailModal.tsx)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
+候选修改入口：[dataset_import.py](../../../apps/api/app/workers/dataset_import.py)、[dataset.py](../../../apps/api/app/services/dataset.py)、[async_job.py](../../../apps/api/app/services/async_job.py)、[async_job.py](../../../apps/api/app/db/models/async_job.py)、[async_jobs.py](../../../apps/api/app/api/v1/async_jobs.py)、[AsyncJobDetailModal.tsx](../../../apps/web/src/components/jobs/AsyncJobDetailModal.tsx)。新增表、适配器、迁移、测试和准确文件范围在晋升时固定，不直接由逻辑实体生成数据库。
 
 ## 1. 问题与现有基础
 
 原地目录会不断增加、改名、覆盖或丢失文件。“首次可登记”之后，还需要一条可以解释和恢复的同步链路。最危险的情况不是同步稍慢，而是一次网络故障被当成全部删除，或同名新图片直接继承旧图片的标注。
 
-现有系统已有 Celery 导入任务、AsyncJob 历史、阶段、取消、错误和跳转。继续扩展这些能力，并为来源扫描增加逐条结果与幂等状态，不另建一套任务中心。[代码依据：导入 worker](../../apps/api/app/workers/dataset_import.py)、[JobsBell](../../apps/web/src/components/shell/JobsBell.tsx)、[任务详情](../../apps/web/src/components/jobs/AsyncJobDetailModal.tsx)
+现有系统已有 Celery 导入任务、AsyncJob 历史、阶段、取消、错误和跳转。继续扩展这些能力，并为来源扫描增加逐条结果与幂等状态，不另建一套任务中心。[代码依据：导入 worker](../../../apps/api/app/workers/dataset_import.py)、[JobsBell](../../../apps/web/src/components/shell/JobsBell.tsx)、[任务详情](../../../apps/web/src/components/jobs/AsyncJobDetailModal.tsx)
 
 ## 2. 目标与范围
 
@@ -135,7 +135,7 @@
 - 文件错误明细分页存储；日志不把整份失败清单写进单个 JSON 字段。
 - 扫描既有文件名时使用索引/批量查询，避免每处理一项都读一遍整个数据集文件名。
 
-现有 `_unique_file_name` 对逐项查询模式是优化切入点；实际成本需基准测量，不以静态代码推断精确耗时。[代码依据：数据集服务](../../apps/api/app/services/dataset.py)
+现有 `_unique_file_name` 对逐项查询模式是优化切入点；实际成本需基准测量，不以静态代码推断精确耗时。[代码依据：数据集服务](../../../apps/api/app/services/dataset.py)
 
 ## 7. 数据与 API 草案
 
@@ -190,12 +190,12 @@
 
 ## 12. 工程任务与完成定义
 
-- [ ] 实现 ScanRun、条目结果和变化候选模型。
-- [ ] 复用 AsyncJob 阶段、取消、历史与错误展示。
-- [ ] 实现来源级租约、运行代次、幂等登记和任务创建去重。
-- [ ] 实现完整扫描核对与保守缺失规则。
-- [ ] 实现单项重试、周期计划和变化裁决界面。
-- [ ] 通过故障注入与已有标注/冻结版本不变性测试。
+- [x] 实现 ScanRun、条目结果和变化候选模型。
+- [x] 复用 AsyncJob 阶段、取消、历史与错误展示。
+- [x] 实现来源级租约、运行代次、幂等登记和任务创建去重。
+- [x] 实现完整扫描核对与保守缺失规则。
+- [x] 实现单项重试、周期计划和变化裁决界面。
+- [x] 通过故障注入与已有标注/冻结版本不变性测试。
 
 完成定义：目录持续变化时，系统能说明新增了什么、哪里不可用、哪些变化尚待确认；重试和故障不会悄悄改变样本内容或销毁业务历史。
 
@@ -210,11 +210,11 @@
 
 前置合同不等于等待前置 Epic 全量完成。每个切片合并后系统仍须可用；含新来源的回退保留兼容读取和授权，不能把其相对路径交给旧 S3 拼接逻辑。预计多数切片涉及超过 8 个文件，实施时明确大范围边界与准确清单。
 
-已有回归入口：[test_dataset_import.py](../../apps/api/tests/test_dataset_import.py)、[test_dataset_link.py](../../apps/api/tests/test_dataset_link.py)、[test_task_dataset_link.py](../../apps/api/tests/test_task_dataset_link.py)、[AsyncJobDetailModal.test.tsx](../../apps/web/src/components/jobs/AsyncJobDetailModal.test.tsx)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
+已有回归入口：[test_dataset_import.py](../../../apps/api/tests/test_dataset_import.py)、[test_dataset_link.py](../../../apps/api/tests/test_dataset_link.py)、[test_task_dataset_link.py](../../../apps/api/tests/test_task_dataset_link.py)、[AsyncJobDetailModal.test.tsx](../../../apps/web/src/components/jobs/AsyncJobDetailModal.test.tsx)。这些仅为旧行为回归起点，新合同/状态/故障场景须补有意义的用例；不能以旧测试通过替代本 Epic 验收。分层命令、真实浏览器矩阵和产物清理见[交付验收](../backlog/1792661016_dataset-storage-delivery-acceptance.md#本项目验证与文档交付)。
 
-实现时同步：[storage-connections.md](../../docs-site/dev/concepts/storage-connections.md)、[index.md](../../docs-site/user-guide/datasets/index.md)、[debug-celery.md](../../docs-site/dev/how-to/debug-celery.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
+实现时同步：[storage-connections.md](../../../docs-site/dev/concepts/storage-connections.md)、[index.md](../../../docs-site/user-guide/datasets/index.md)、[debug-celery.md](../../../docs-site/dev/how-to/debug-celery.md)，以及适用 API 指南/快照/前端类型、`CHANGELOG.md` Unreleased。新增配置同步 `.env.example`、`pnpm docs:gen-env-vars`、`DEV.md`；涉及 SDK 合同按对应 skill 核验。正式 ADR 在实施时分配可用编号。
 
-完成实施后按[计划规范](README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
+完成实施后按[计划规范](../README.md#required-completion-steps)追加 `## Outcome`，列实际提交、正式文档、验证证据、清理与剩余限制；草案清单不等于已实现。
 
 ## Outcome
 
@@ -429,3 +429,45 @@ Changes exceed eight files: shared rules helper, rule service, scan/S3/changes/r
 - Actual browser: separate retained nested-path fixture previewed fleet/vehicle.png leaving scope, required explicit review, saved fleet exclusion, then ran a new scan/preflight. Difference showed excluded1/not_seen0 with readable explanation. Opened the exact original Task and visually inspected its original image and one bbox annotation. Read-only assertions confirmed Source revision2, original single Item/Task/label, one original acceptance receipt and original content200. Browser errors were empty. Original dev fixtures remain.
 - Completed the remaining B6 live gate: real beat cycle with one changed and one added file stopped at awaiting_review; browser and API confirmed no partial automatic ingestion and original single Item/Task. The demo is paused for inspection.
 - Remaining full-E04 work: last-complete/history and storage fault navigation; existing managed frozen-version invariance regression; final acceptance matrix, retention decisions and plan archival. Disposable test resources and task temporary artifacts are cleaned between slices. No image rebuild, push or release.
+
+
+## Execution contract — E04-B8
+
+Base: `775fd5649`. Complete source navigation with independently queried last-complete and active scans, paginated retained history, and selected historical scan details. Source/scan links must validate dataset→source→scan membership and survive clearing URL query parameters within the same authenticated session. Direct source lookup supports sources outside the first200 list entries. Inactive/unregistered sources retain read-only history; selecting an older scan cannot hide active work or enable conflicting actions.
+
+Add a storage-location source summary with separate source/job pagination, fixed query count, current manager/location visibility, and source ownership scope. Existing job payload matching retains prior attempts after resume without casting untrusted payloads to UUID. Related jobs cover all visible sources at that location, not only one source page; open the existing job detail modal. Location list is paginated across all backends and fetched summaries only for the selected location. No source credentials or full configuration are returned.
+
+Changes exceed eight files: API/schema/access, Web API/source panel/registration/Storage/Datasets page and tests, frozen-training integration regression, generated API/SDK/routes, user/API/developer docs and CHANGELOG, final Epic acceptance and roadmap/plan archival. No migration, dependency, environment variable, image or service changes. Fix the existing StoragePage test provider fixture while touching that surface.
+
+Verify source/job scope and pagination, last-complete beyond20 failed attempts, source201 deep link, invalid relationships, active-versus-history behavior, session isolation and read-only history. Build a real managed-copy training version against disposable test MinIO, then rescan changed/removed originals, accept a new revision, cancel another scan and replay the ready build. Assert frozen snapshot, manifest, package and media bytes remain identical. Reference freezing remains E10 scope. Run relevant local checks and real browser history/storage navigation; retain the manual dev stack and fixtures, clean disposable test resources and intermediates. Record final AC01–AC10 evidence and retention/budget limits, archive E04 only after all checks pass, commit without push/release/version assignment.
+
+B8 audit found and reproduced a frozen-package cleanup bug independent of source mutation: a successful ready commit followed by an acknowledgement exception deleted the published attempt ZIP. The B8 repair checks the persisted package_key before cleanup, retains referenced or unverified objects, and covers commit-then-raise against real test MinIO. Source history additionally exposes pinned source_revision and source-level active registration; older resumed runs require refreshing last-complete/history when the active scan changes or disappears. Complete-filter ordering uses completion time rather than creation time.
+
+
+## Outcome — Complete E04 acceptance and archival
+
+- Landed slices: A/B1–B7 recorded above, including `c6b80e026`, `85f10fdc0`, `03308a2ad`, `050b40832`, `a8b6e0cca`, `775fd5649`; B8 lands in this archival commit. Release milestone: not yet determined.
+- B8 delivers independently queried last-complete and active scans, source-level active registration,20-row history, exact source/scan deep links with membership/session checks, and read-only inactive/history inspection. Older resumed scan completion invalidates history and last-complete even when the newest scan failed. Complete filtering orders by completion time. Sources beyond the first200 remain directly addressable.
+- Location summary uses current manager/location/source scope, independent bounded source/job pages over all visible sources, historical job attempts and existing detail modal. It returns minimal navigation fields with no credentials/proofs/config payload and makes no external I/O.
+- Fixed a reproduced published training ZIP deletion after lost commit acknowledgement. Cleanup rechecks persisted package_key, retaining referenced or unverifiable objects. Real managed-copy integration covers unchanged frozen snapshot/manifest/package/media bytes after changed and removed originals, explicit new revision/replay, cancelled stale scan and ready-build replay. Tests also cover cleanup verification being unavailable. External-reference freezing remains E10.
+- Local verification:121 backend regressions passed, including source access/scan/rules/schedules, existing training behavior and migrations0196/0201–0205. Final navigation8 and frozen3 case suites passed; frozen3 adds the unavailable-verification case. Web45 focused cases passed, including pending/error current-task guards and late-session retirement. The pre-existing14 StoragePage provider failures are resolved using a fresh test QueryClient. TypeScript, full Web lint/CSS, Ruff, OpenAPI consistency, SDK contract4, docs build and diff checks passed. Existing unrelated lint warnings remain; no all-Web, remote CI or production claim.
+- Actual B8 browser: from the storage location, opened a real failed task showing path_unavailable/incomplete, paginated related jobs, followed the exact source link, viewed history page2 of22 and opened the older complete scan/preflight/differences despite21 newer failures. Pausing retained history and disabled ingestion. Mismatched dataset/source/scan links were rejected; valid exact historical deep links worked. A viewport screenshot was visually inspected and browser errors were empty. The21 failures were generated by real workers against a task-owned temporarily unavailable directory, restored in finally; no fabricated DB history. Earlier B1–B7 live evidence is retained above rather than repeated.
+
+| Acceptance | Evidence and result |
+| --- | --- |
+| AC01 | B1 three unchanged scan regressions and unchanged live rescan; no Item/Task growth, immutable accepted identity and new observations retained in scan history. |
+| AC02 | B1 additions-only registration/replay/concurrency regressions and live25-item result; B6 pure-addition automatic live1 Item/1 Task. |
+| AC03 | A scan failure/cancellation, unavailable paths, partial enumeration and recovery regressions; B8 real21 incomplete failures preserve last complete and zero new business items. No missing/deletion inference. |
+| AC04 | B3 source-revision tests and browser old/new Task demonstration; distinct new blank Task, original labels retained. |
+| AC05 | B5 explicit same-source relocation, multiple same-SHA candidates and stale/replay guards; original Task/bbox live continuity. |
+| AC06 | A/B1/B2 duplicate messages, competing scans/coordination, leases and stale generation fences; source active uniqueness. |
+| AC07 | A/B1/B2 recovery, cancellation, expired lease and publication-gap regressions; B6 exact delegation recovery; B8 cancelled stale scan commit rejected. |
+| AC08 | B1 selected repaired-entry retry and frozen scope; B7 rule impact/CAS/current authority and stale checkpoint rejection; browser reviewed fleet exclusion. |
+| AC09 | B1 not_seen preserves bindings; B3–B5 preserve labels; B8 real managed-copy frozen snapshot/ZIP/media unchanged under mutations, cancellation and replay. Reference freezing separately E10. |
+| AC10 | Existing task stage/unknown-total presentation and B1 six-category count/pagination browser evidence; B8 history, existing failed-job detail and related-job pagination live. |
+
+Retention decisions are explicit: durable Scan/Registration/Change/Revision evidence has no automatic expiry or compaction; AsyncJob uses its existing independent retention. not_seen has no deletion countdown. Each source has one schedule and at most one active scan plus one active registration; there is no deployment-wide schedule cap. Coordination wakes at most100 due plans per tick, scans retain existing50000-entry/5000-directory/per-directory budgets, and history is paginated. Monitor ledger growth; compaction, physical deletion, cross-source moves, qualification replacement and calendar cron are not required E04 closure.
+
+Official documentation: `README.md`, `CHANGELOG.md` Unreleased, `docs-site/user-guide/datasets/import-images.md`, `docs-site/api/guides/{dataset-sources,storage-locations}.md`, generated routes/API snapshot and SDK coverage, `docs-site/dev/concepts/storage-connections.md`; architectural decisions ADR0093 and0095–0106 as relevant to prior slices. Roadmap and plan links are updated with archival.
+
+Disposable test database/Redis/buckets and task-owned temporary artifacts are cleaned; current-checkout dev API/Web, general/maintenance workers, beat and all manual fixtures are preserved. Manual Web3100/API8100 remain available. No backend image rebuild, shared configuration change, push, release or version assignment. Remaining required E04 work: none; other Epics retain their own plans and gates.
