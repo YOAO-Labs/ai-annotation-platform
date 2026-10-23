@@ -24,6 +24,9 @@ DECLARE
     v_append_oid oid := pg_catalog.to_regprocedure(
         'aap_notifications_v1.append_notification(jsonb)'
     )::oid;
+    v_terminal_oid oid := pg_catalog.to_regprocedure(
+        'aap_notifications_v1.append_job_terminal_notification(jsonb)'
+    )::oid;
     v_preference_oid oid := pg_catalog.to_regprocedure(
         'aap_notifications_v1.preference_command(jsonb)'
     )::oid;
@@ -52,7 +55,7 @@ BEGIN
     FROM pg_catalog.pg_roles AS role WHERE role.rolname = v_api;
     SELECT role.oid INTO v_client_oid
     FROM pg_catalog.pg_roles AS role WHERE role.rolname = v_client;
-    IF v_append_oid IS NULL OR v_preference_oid IS NULL
+    IF v_append_oid IS NULL OR v_terminal_oid IS NULL OR v_preference_oid IS NULL
        OR v_read_state_oid IS NULL OR v_delete_oid IS NULL
        OR NOT EXISTS (
             SELECT 1 FROM pg_catalog.pg_roles AS role
@@ -80,6 +83,8 @@ BEGIN
     END IF;
     IF (SELECT function.proowner FROM pg_catalog.pg_proc AS function
         WHERE function.oid = v_append_oid) IS DISTINCT FROM v_owner_oid
+       OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
+           WHERE function.oid = v_terminal_oid) IS DISTINCT FROM v_owner_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = v_preference_oid) IS DISTINCT FROM v_owner_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
@@ -147,6 +152,8 @@ GRANT CONNECT ON DATABASE :"expected_database" TO :"append_role";
 GRANT USAGE ON SCHEMA aap_notifications_v1 TO :"api_role", :"append_role";
 GRANT EXECUTE ON FUNCTION aap_notifications_v1.append_notification(jsonb)
     TO :"api_role", :"append_role";
+GRANT EXECUTE ON FUNCTION aap_notifications_v1.append_job_terminal_notification(jsonb)
+    TO :"api_role", :"append_role";
 GRANT EXECUTE ON FUNCTION aap_notifications_v1.read_state_command(jsonb)
     TO :"api_role", :"append_role";
 GRANT EXECUTE ON FUNCTION aap_notifications_v1.delete_command(pg_catalog.jsonb)
@@ -163,6 +170,9 @@ DECLARE
     v_allowed oid := pg_catalog.to_regprocedure(
         'aap_notifications_v1.append_notification(jsonb)'
     )::oid;
+    v_terminal oid := pg_catalog.to_regprocedure(
+        'aap_notifications_v1.append_job_terminal_notification(jsonb)'
+    )::oid;
     v_preference oid := pg_catalog.to_regprocedure(
         'aap_notifications_v1.preference_command(jsonb)'
     )::oid;
@@ -173,12 +183,14 @@ DECLARE
         'aap_notifications_v1.delete_command(pg_catalog.jsonb)'
     )::oid;
 BEGIN
-    IF v_allowed IS NULL OR v_preference IS NULL OR v_read_state IS NULL
+    IF v_allowed IS NULL OR v_terminal IS NULL OR v_preference IS NULL OR v_read_state IS NULL
        OR v_delete IS NULL
        OR NOT pg_catalog.has_function_privilege(v_client, v_allowed, 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_client, v_terminal, 'EXECUTE')
        OR NOT pg_catalog.has_function_privilege(v_client, v_preference, 'EXECUTE')
        OR NOT pg_catalog.has_function_privilege(v_client, v_read_state, 'EXECUTE')
        OR NOT pg_catalog.has_function_privilege(v_api, v_allowed, 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_api, v_terminal, 'EXECUTE')
        OR NOT pg_catalog.has_function_privilege(v_api, v_read_state, 'EXECUTE')
        OR NOT pg_catalog.has_function_privilege(v_api, v_delete, 'EXECUTE')
        OR EXISTS (
@@ -189,7 +201,7 @@ BEGIN
             WHERE namespace.nspname = 'aap_notifications_v1'
               AND pg_catalog.has_function_privilege(v_client, function.oid, 'EXECUTE')
               AND function.oid NOT IN (
-                  v_allowed, v_preference, v_read_state, v_delete
+                  v_allowed, v_terminal, v_preference, v_read_state, v_delete
               )
        ) OR pg_catalog.has_table_privilege(
             v_client, 'public.notifications',

@@ -563,6 +563,7 @@ class BucketUpgradeTests(unittest.TestCase):
         privileges = {
             "preferences": True,
             "append": True,
+            "terminal_append": True,
             "read_state": True,
             "notification_delete": True,
             "notification_private": False,
@@ -680,6 +681,7 @@ class BucketUpgradeTests(unittest.TestCase):
             self.assertNotIn(excluded, " ".join(statements))
 
         for key in (
+            "terminal_append",
             "notification_private",
             "notification_column_private",
             "notification_facts",

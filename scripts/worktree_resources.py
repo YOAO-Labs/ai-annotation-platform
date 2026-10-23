@@ -119,6 +119,7 @@ IDENTITY_RUNTIME_CAPABILITIES = (
 NOTIFICATION_RUNTIME_CAPABILITIES = (
     "aap_notifications_v1.preference_command(jsonb)",
     "aap_notifications_v1.append_notification(jsonb)",
+    "aap_notifications_v1.append_job_terminal_notification(jsonb)",
     "aap_notifications_v1.read_state_command(jsonb)",
     "aap_notifications_v1.delete_command(pg_catalog.jsonb)",
 )
@@ -1251,6 +1252,9 @@ class LocalResources:
                         "'aap_notifications_v1.append_notification(jsonb)'), 'EXECUTE') "
                         "AS append, pg_catalog.has_function_privilege("
                         ":role, pg_catalog.to_regprocedure("
+                        "'aap_notifications_v1.append_job_terminal_notification(jsonb)'), 'EXECUTE') "
+                        "AS terminal_append, pg_catalog.has_function_privilege("
+                        ":role, pg_catalog.to_regprocedure("
                         "'aap_notifications_v1.read_state_command(jsonb)'), 'EXECUTE') "
                         "AS read_state, pg_catalog.has_function_privilege("
                         ":role, pg_catalog.to_regprocedure("
@@ -1297,6 +1301,7 @@ class LocalResources:
                 if (
                     notification_grants["preferences"] is not True
                     or notification_grants["append"] is not True
+                    or notification_grants["terminal_append"] is not True
                     or notification_grants["read_state"] is not True
                     or notification_grants["notification_delete"] is not True
                     or notification_grants["notification_private"] is not False

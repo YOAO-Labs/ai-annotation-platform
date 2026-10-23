@@ -154,6 +154,7 @@ GRANT EXECUTE ON FUNCTION aap_audit_v1.append_events(jsonb),
     aap_audit_v1.query_events(pg_catalog.jsonb),
     aap_notifications_v1.preference_command(jsonb),
     aap_notifications_v1.append_notification(jsonb),
+    aap_notifications_v1.append_job_terminal_notification(jsonb),
     aap_notifications_v1.read_state_command(jsonb),
     aap_notifications_v1.delete_command(pg_catalog.jsonb)
     TO :"application_role";

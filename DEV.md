@@ -506,21 +506,27 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 迁移 `0314` 安装 `aap_notifications_v1.append_notification(jsonb)`，合同为 `aap-notification-append/v1`。`NotificationService.notify`／`notify_many` 保留既有静音预检、逐用户去重、顺序及返回的 ORM 对象，并通过该固定能力写入。追加在原完整 flush 之前执行；在 `no_autoflush` 下保留旧预检视图和待删除用户的级联顺序，不为新用户添加特殊 flush。新记录的 `created_at` 仍来自数据库事务时间；调用方控制提交／回滚和原 `defer_publish` 行为。
 
-先安装当前迁移与 module-data owner 授权，再使用 `infra/docker/notification-append-grants.sql` 的明确数据库／角色参数。严格配置撤销 API 的通知表直接 INSERT，函数账号拥有偏好、追加、已读状态和删除四项固定能力；Node 用同一连接和事务组合两次调用。必须先更新 API／worker 并排空旧写表消费者再撤权。普通工作树生成的运行角色已列出这些函数并检查授权，无新增服务或环境变量。回退迁移时也要匹配调用代码与旧 grants，不能让新代码调用已移除的函数。
+先安装当前迁移与 module-data owner 授权，再使用 `infra/docker/notification-append-grants.sql` 的明确数据库／角色参数。严格配置撤销 API 的通知表直接 INSERT，函数账号拥有偏好、普通追加、终态追加、已读状态和删除五项固定能力；Node 用同一连接和事务组合调用。必须先更新 API／worker 并排空旧写表消费者再撤权。普通工作树生成的运行角色已列出这些函数并检查授权，无新增服务或环境变量。回退迁移时也要匹配调用代码与旧 grants，不能让新代码调用已移除的函数。
 
 操作级证据来自明确自有的工作树测试数据库，包含普通 API 角色及函数账号检查；它不等同于完整冷装配或整模块验收。与 Audit 的组合新工件、受限 Node 和完整迁移往返已通过，具体边界见唯一台账。收件箱查询、WebSocket、通用投递／重放和独立通道装配继续按[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)推进。
+
+### Notifications 作业终态原子追加
+
+迁移 `0321` 安装 `aap_notifications_v1.append_job_terminal_notification(jsonb)`，合同与冻结 schema 为 `aap-notification-terminal-append/v1`。它按收件人、类型、`async_job` 目标和作业 ID 原子查重，返回 `created` 及数据库通知快照；只由新建者执行原有提交前即时发布。`notify_job_terminal(db, job_id=...)` 的调用入口、作业类型白名单、payload 投影和静音预检保持，长 scope 不新增大小上限。新函数不读取 Jobs 或 Identity 私表，与冻结的数据集导入通知函数共用原事务锁键。
+
+该能力要求 `READ COMMITTED`，其他隔离级别返回 `unsupported_isolation` 且不写入。API 在借用连接的局部保存点内组合偏好、追加和回包校验，通知 SQL 失败不再静默丢失外层作业更新；保存点不会强制提交或提前 flush `no_autoflush` 的待处理状态。授权沿用上节五函数账号与普通 API／工作树角色，Node peer 复用同一数据库参数；没有新增 DSN、服务或环境变量。完整合同和运行证据见 `apps/notifications/README.md` 与[模块台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
 
 ### Notifications 已读事务内能力
 
 迁移 `0316` 安装 `aap_notifications_v1.read_state_command(jsonb)`；`aap-notification-read-state/v1` 覆盖单条和全部已读。API 仍传认证用户 ID 和原 caller UTC 时间，保留单条 404、全部更新数量、完整事务及提交后 `notifications.sync`。固定 owner 只更新该用户的未读行，回执含实际更新 ID；API 不回读私表，owner 调用后复用锁定 SQLAlchemy 的纯内存批量同步，保留新插入、脏值、过期字段及保存点回滚行为。该兼容绑定只本地编译旧语句，不执行另一条 UPDATE；升级 ORM 前须重验。
 
-先部署匹配代码与迁移，再按上节安装 module-data、preferences 和 notification-append grants。追加函数账号现在拥有四项固定能力；严格配置撤销普通 API 的通知表／列 UPDATE，owner 只可更新 `read_at`。**先更新并排空旧直接 UPDATE 消费者后才撤权**，回退也须匹配旧代码与 grants。独立测试库的 API／Node、事务回滚、旧 ORM 对照、临时类型遮蔽及完整迁移往返已通过；它不包含当前新镜像、收件箱和完整投递装配，见[已读台账](docs-site/dev/concepts/module-deployment.md#notification-read-state-owner)。
+先部署匹配代码与迁移，再按上节安装 module-data、preferences 和 notification-append grants。追加函数账号拥有上节列出的五项固定能力；严格配置撤销普通 API 的通知表／列 UPDATE，owner 只可更新 `read_at`。**先更新并排空旧直接 UPDATE 消费者后才撤权**，回退也须匹配旧代码与 grants。独立测试库的 API／Node、事务回滚、旧 ORM 对照、临时类型遮蔽及完整迁移往返已通过；它不包含当前新镜像、收件箱和完整投递装配，见[已读台账](docs-site/dev/concepts/module-deployment.md#notification-read-state-owner)。
 
 ### Notifications 删除事务内能力
 
 迁移 `0318` 安装 `aap_notifications_v1.delete_command(jsonb)`，`aap-notification-delete/v1` 覆盖单条删除和清空当前用户已读行。API 保留原 boolean／数量、404、autoflush、事务及提交后同步，删除回执不携带全量 ID；本地缓存按锁定 ORM 的删除规则同步，升级 SQLAlchemy 前须重验。通知 outbox 仍随通知级联删除，业务目标保留。
 
-先部署匹配代码和迁移，排空旧直接 DELETE 消费者后，再应用 module-data、preferences 与 notification-append grants。普通 API 直接 DELETE 被撤销，函数客户端现在组合四项能力；回退时须匹配旧代码与授权。完整迁移和授权阶段与修复后的 Node 定点证据分别保留，原整轮失败记录不改写。详情见[删除台账](docs-site/dev/concepts/module-deployment.md#notification-delete-owner)；完整收件箱、WebSocket 与投递装配尚未完成。
+先部署匹配代码和迁移，排空旧直接 DELETE 消费者后，再应用 module-data、preferences 与 notification-append grants。普通 API 直接 DELETE 被撤销，函数客户端组合上节五项能力；回退时须匹配旧代码与授权。完整迁移和授权阶段与修复后的 Node 定点证据分别保留，原整轮失败记录不改写。详情见[删除台账](docs-site/dev/concepts/module-deployment.md#notification-delete-owner)；完整收件箱、WebSocket 与投递装配尚未完成。
 
 ### Notifications 公开通知关系
 

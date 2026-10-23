@@ -336,6 +336,7 @@ SQL_ARTIFACTS = (
     "0318_notifications_delete.sql",
     "0319_notifications_read_relations.sql",
     "0320_audit_read_relations.sql",
+    "0321_notifications_terminal_append.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0191_task_append.schema.json",
@@ -468,6 +469,7 @@ SCHEMA_ARTIFACTS = (
     "0318_notifications_delete.schema.json",
     "0319_notifications_read_relations.schema.json",
     "0320_audit_read_relations.schema.json",
+    "0321_notifications_terminal_append.schema.json",
 )
 TEST_FILES = (
     "tests/test_scale_seed_workspace_native.py",
@@ -654,6 +656,7 @@ TEST_FILES = (
     "tests/test_async_jobs.py",
     "tests/test_async_job_actor_freshness.py",
     "tests/test_notifications.py",
+    "tests/test_notification_terminal_append.py",
     "tests/test_notification_read_state_cache.py",
     "tests/test_notification_delete_cache.py",
     "tests/test_notifications_delete_baseline.py",
@@ -2733,6 +2736,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_identity_offboarding_v1') IS NULL "
             "AND to_regnamespace('aap_identity_briefs_v1') IS NULL "
             "AND to_regprocedure('aap_notifications_v1.delete_command(pg_catalog.jsonb)') IS NULL "
+            "AND to_regprocedure('aap_notifications_v1.append_job_terminal_notification(jsonb)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.read_provisioning_account(text)') IS NULL "
             "AND to_regprocedure('aap_identity_v1.create_provisioning_account(jsonb)') IS NULL "
             "AND to_regprocedure('aap_audit_v1.record_identity_bootstrap_admin(uuid,text,text)') IS NULL "
@@ -2945,6 +2949,13 @@ def main(argv: list[str] | None = None) -> int:
             "function_only_role_grant": False,
             "node_contract_check": False,
         },
+        "notification_terminal_append": {
+            "node_prerequisites": "not_checked",
+            "api_function_grant": False,
+            "api_function_call": False,
+            "function_only_role_grant": False,
+            "node_contract_check": False,
+        },
         "notification_read_state": {
             "node_prerequisites": "not_checked",
             "api_function_grant": False,
@@ -3068,6 +3079,9 @@ def main(argv: list[str] | None = None) -> int:
         append_node_provider = (
             ROOT / "apps/notifications/conformance/node/append_provider.mjs"
         )
+        terminal_append_node_provider = (
+            ROOT / "apps/notifications/conformance/node/terminal_append_provider.mjs"
+        )
         read_state_node_provider = (
             ROOT / "apps/notifications/conformance/node/read_state_provider.mjs"
         )
@@ -3088,6 +3102,7 @@ def main(argv: list[str] | None = None) -> int:
             node_bin is None
             or not node_provider.is_file()
             or not append_node_provider.is_file()
+            or not terminal_append_node_provider.is_file()
             or not read_state_node_provider.is_file()
             or not delete_node_provider.is_file()
             or not notification_read_node_provider.is_file()
@@ -3097,6 +3112,9 @@ def main(argv: list[str] | None = None) -> int:
         ):
             evidence["notification_preferences"]["node_prerequisites"] = "unavailable"
             evidence["notification_append"]["node_prerequisites"] = "unavailable"
+            evidence["notification_terminal_append"]["node_prerequisites"] = (
+                "unavailable"
+            )
             evidence["notification_read_state"]["node_prerequisites"] = "unavailable"
             evidence["notification_delete"]["node_prerequisites"] = "unavailable"
             evidence["notification_read_relations"]["node_prerequisites"] = (
@@ -3137,6 +3155,24 @@ def main(argv: list[str] | None = None) -> int:
             raise RuntimeError(
                 "Notifications append peer prerequisites failed; install its locked "
                 "dependencies using apps/notifications/conformance/node/README.md"
+            )
+        phase = "preflight-node-notification-terminal-append"
+        terminal_append_node_check = subprocess.run(
+            [node_bin, str(terminal_append_node_provider), "--self-check"],
+            cwd=terminal_append_node_provider.parent,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if terminal_append_node_check.returncode:
+            node_diagnostic = _node_failure_diagnostic(
+                phase, terminal_append_node_check
+            )
+            evidence["notification_terminal_append"]["node_prerequisites"] = (
+                "self_check_failed"
+            )
+            raise RuntimeError(
+                "Notifications terminal append peer prerequisites failed"
             )
         phase = "preflight-node-notification-read-state"
         read_state_node_check = subprocess.run(
@@ -3236,6 +3272,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         evidence["notification_preferences"]["node_prerequisites"] = "passed"
         evidence["notification_append"]["node_prerequisites"] = "passed"
+        evidence["notification_terminal_append"]["node_prerequisites"] = "passed"
         evidence["notification_read_state"]["node_prerequisites"] = "passed"
         evidence["notification_delete"]["node_prerequisites"] = "passed"
         evidence["notification_read_relations"]["node_prerequisites"] = "passed"
@@ -3680,8 +3717,8 @@ def main(argv: list[str] | None = None) -> int:
         database = resources["database"]
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
-        if heads != ["0320"]:
-            raise RuntimeError("module-data acceptance requires migration head 0320")
+        if heads != ["0321"]:
+            raise RuntimeError("module-data acceptance requires migration head 0321")
         evidence["migrations"]["head_before_downgrade"] = heads[0]
         relation_sql_hashes = _read_relation_sql_input_sha256()
         evidence["migrations"]["read_relation_sql_input_sha256"] = relation_sql_hashes
@@ -3697,6 +3734,17 @@ def main(argv: list[str] | None = None) -> int:
             read_relations_before
         )
         installed_function_bodies = {
+            "aap_notifications_v1.append_job_terminal_notification(jsonb)": (
+                _installed_function_body_sha256(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    database=database,
+                    owner_password=owner_password,
+                    signature="aap_notifications_v1.append_job_terminal_notification(jsonb)",
+                    sql_name="0321_notifications_terminal_append.sql",
+                )
+            ),
             "aap_audit_v1.query_events(pg_catalog.jsonb)": (
                 _installed_function_body_sha256(
                     container_id,
@@ -3777,6 +3825,17 @@ def main(argv: list[str] | None = None) -> int:
         )
         evidence["migrations"]["read_relations_after_upgrade"] = read_relations_after
         if {
+            "aap_notifications_v1.append_job_terminal_notification(jsonb)": (
+                _installed_function_body_sha256(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    database=database,
+                    owner_password=owner_password,
+                    signature="aap_notifications_v1.append_job_terminal_notification(jsonb)",
+                    sql_name="0321_notifications_terminal_append.sql",
+                )
+            ),
             "aap_audit_v1.query_events(pg_catalog.jsonb)": (
                 _installed_function_body_sha256(
                     container_id,
@@ -4182,6 +4241,8 @@ def main(argv: list[str] | None = None) -> int:
         evidence["notification_append"]["api_function_grant"] = True
         evidence["notification_append"]["api_insert_revoked"] = True
         evidence["notification_append"]["function_only_role_grant"] = True
+        evidence["notification_terminal_append"]["api_function_grant"] = True
+        evidence["notification_terminal_append"]["function_only_role_grant"] = True
         evidence["notification_read_state"]["api_function_grant"] = True
         evidence["notification_read_state"]["api_update_revoked"] = True
         evidence["notification_read_state"]["function_only_role_grant"] = True
@@ -4376,6 +4437,35 @@ def main(argv: list[str] | None = None) -> int:
         )
         if api_append_result.strip() != "true":
             raise RuntimeError("API LOGIN could not call Notifications append owner")
+        phase = "verify-notification-terminal-append-api"
+        terminal_append_request = json.dumps(
+            {
+                "schema": "aap-notification-terminal-append/v1",
+                "operation": "append_job_terminal",
+                "id": str(uuid4()),
+                "user_id": notification_preference_user_id,
+                "type": "job.completed",
+                "target_id": str(uuid4()),
+                "payload": {"kind": "batch_predict", "status": "completed"},
+            },
+            separators=(",", ":"),
+        )
+        api_terminal_append_result = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="legacy_runtime",
+            password=runtime_password,
+            database=database,
+            sql=(
+                "SELECT aap_notifications_v1.append_job_terminal_notification("
+                f"'{terminal_append_request}'::jsonb) -> 'data' ->> 'created';"
+            ),
+        )
+        if api_terminal_append_result.strip() != "true":
+            raise RuntimeError("API LOGIN could not call terminal Notifications owner")
+        evidence["notification_terminal_append"]["api_function_call"] = True
+        phase = "verify-notification-append-api"
         api_direct_insert_id = str(uuid4())
         try:
             _psql(
@@ -4544,6 +4634,7 @@ def main(argv: list[str] | None = None) -> int:
         for statement in (
             "SELECT aap_notifications_v1.preference_command('{}'::jsonb)",
             "SELECT aap_notifications_v1.append_notification('{}'::jsonb)",
+            "SELECT aap_notifications_v1.append_job_terminal_notification('{}'::jsonb)",
             "SELECT aap_notifications_v1.read_state_command('{}'::jsonb)",
             "SELECT aap_notifications_v1.delete_command('{}'::jsonb)",
             "SELECT aap_notifications_v1.identity_delivery_policy()",
@@ -4816,6 +4907,22 @@ def main(argv: list[str] | None = None) -> int:
             node_diagnostic = _node_failure_diagnostic(phase, append_node_result)
             raise RuntimeError("Node Notifications append check failed")
         evidence["notification_append"]["node_contract_check"] = True
+        phase = "verify-notification-terminal-append-node"
+        terminal_append_node_result = subprocess.run(
+            [node_bin, str(terminal_append_node_provider)],
+            cwd=terminal_append_node_provider.parent,
+            env=node_environment,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if terminal_append_node_result.returncode:
+            node_diagnostic = _node_failure_diagnostic(
+                phase, terminal_append_node_result
+            )
+            raise RuntimeError("Node Notifications terminal append check failed")
+        evidence["notification_terminal_append"]["node_contract_check"] = True
         node_environment["NOTIFICATION_READ_STATE_DATABASE_URL"] = (
             notification_append_url
         )
