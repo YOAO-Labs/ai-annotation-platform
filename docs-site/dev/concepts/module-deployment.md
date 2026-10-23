@@ -79,8 +79,8 @@ last_reviewed: 2026-10-24
 | Notifications：单条删除／清除已读                   | 固定 `delete_command(jsonb)` 与版本化合同已实现                                               | 两个服务入口迁移；保留用户隔离、404／数量、ORM 删除同步、outbox 级联和原提交后同步                         | [删除 owner](#notification-delete-owner)：16 项受控混合案例、真实 Node、完整 0318 迁移与授权阶段通过                                              | 操作级资格闭合；聚合原失败收据与 Node 修复分别保存；完整模块和当前组合工件未验收                                                                                                                                                                                                                                                                                 |
 | Notifications：收件箱、计数与可见性                 | 公开 notification_facts 关系与版本化合同已实现                                                | notification、async_job_notify 和 ws 已迁移；API 保留项目／作业授权及 ORM 缓存语义                         | [读取组合](#support-read-relations)：受限 API／只读 LOGIN／Node 和私表拒绝通过                                                                    | 读取操作的限定本地资格闭合；当前冷 API 文件／导入核验通过；Jobs 通知范围事实的独立 LOGIN 已验收；冷进程真实消费与整模块未闭合                                                                                                                                                                                                                                    |
 | Notifications：终态作业通知及去重                   | 固定原子追加合同与同事务去重已实现；SQL 失败隔离保护作业更新                                  | 57 个调用点保持；API 组合 Jobs 范围、偏好与原提交前发布，只有新建者发布                                    | [终态追加](#notification-terminal-append)：父线 28 项数据库／调用案例、真实受限 Node、完整 0321 往返及 65 项纯检查通过                            | 操作及当前镜像文件／导入已完成限定本地验收；冷进程业务与完整模块仍待收口，训练消费者不扩大改造                                                                                                                                                                                                                                                                   |
-| Notifications：Redis 通道与同步发布                 | 即时频道、传输、开放事件／sync 合同与 durable executor 均归 Notifications                     | API 与 durable publisher 共用消息构造，保留不同编码、提交及错误策略                                        | [实时消息](#notification-realtime-wire)：父线 50 项包、13 项 API 纯检查，Python／Node parity；真实 socket 待验收                                  | 消息合同源码已集成；完整独立 WS／发布编排及当前冷工件仍待收口                                                                                                                                                                                                                                                                                                    |
-| Notifications：用户 WebSocket 与逐条授权            | 握手、逐帧认证和当前投递授权保持，取消／退订错误时关闭 PubSub                                 | API 仍持有 socket 生命周期与授权；浏览器接受开放事件／sync                                                 | [实时消息](#notification-realtime-wire)：父线 10 项 relay／取消兼容检查与 28 项浏览器 hook 回归；实际 socket 待验收                               | WS owner／权限数据协议、独立运行与完整恢复仍待收口，当前仅迁移消息合同                                                                                                                                                                                                                                                                                           |
+| Notifications：Redis 通道与同步发布                 | 即时频道、传输、开放事件／sync 合同与 durable executor 均归 Notifications                     | API 与 durable publisher 共用消息构造，保留不同编码、提交及错误策略                                        | [实时消息](#notification-realtime-wire)：父线 50 项包、13 项 API 纯检查，Python／Node parity；8 项真实 socket／调用组合案例通过                   | 消息合同与既有网关消费者的限定本地资格闭合；完整独立 WS／发布编排及当前冷工件仍待收口                                                                                                                                                                                                                                                                            |
+| Notifications：用户 WebSocket 与逐条授权            | 握手、逐帧认证和当前投递授权保持，取消／退订错误时关闭 PubSub                                 | API 仍持有 socket 生命周期与授权；浏览器接受开放事件／sync                                                 | [实时消息](#notification-realtime-wire)：父线 10 项 relay／取消兼容检查与 28 项浏览器 hook 回归；8 项实际 socket／调用组合案例通过                | WS owner／权限数据协议、独立运行与完整恢复仍待收口，当前仅迁移消息合同                                                                                                                                                                                                                                                                                           |
 | Notifications：持久 outbox、租约与重放              | 协议、客户端、配置、worker 和独立运行工件已由 Notifications 持有                              | API 使用新 owner；Identity 原导入／CLI 与现有 Compose 保留兼容                                             | [独立发布器](#support-delivery-and-analytics)：真实请求／完成事件、受限 Redis、重启与真实进程死亡租约接管完成限定本地验收                         | 两类注销事件的原镜像门槛闭合；普通发布、WS 及完整模块恢复继续收口                                                                                                                                                                                                                                                                                                |
 | Runtime assembly：全模块启动、迁移和运维            | 已有独立包、受限角色及 Compose 模式可复用                                                     | 主 API 仍承担过渡装配；旧绑定继续工作                                                                      | 各切片冷镜像证据单独保存                                                                                                                          | 逐模块完成入口、凭据、启动／健康、全局迁移升级／回退及独立恢复；[宿主机转发诊断](#runtime-host-forwarding)已完成本机抓包，35／65 秒复用对照高度吻合活跃 gVisor 的 TIME_WAIT 转发缺陷；尚无已验收的修复构建，旧路径仍未修复；历史三类业务 503 的逐次归因仍未证实，保持已验收的私网数据库路径                                                                      |
 
@@ -1649,10 +1649,22 @@ API 镜像仍由启动方指定非 root 用户；日常主环境未切换。
 
 两项实际复现证明订阅被取消或退订失败会跳过 PubSub 关闭，修复后连同退订取消
 及既有 relay／授权共 10 项纯检查通过。独立测试数据、认证角色及跨频道订阅拒绝
-已由只读预审收口；真实 PostgreSQL／Redis／loopback ASGI socket 案例尚待运行。
+已由只读预审收口；父线在干净提交 `b23eaa074` 完成 8 项组合案例，零失败／跳过。
+真实 API 与认证 LOGIN、私表拒绝和单频道订阅 ACL 均已验证；Node 的实际 stdio 帧
+经 Redis 进入 socket，五种历史载荷继续送达。未提交行的第一次真实查询未命中后提交，
+后续查询送达；成员移除、缺失行四次查询及停用账号均拒绝相应帧。正常断连和精确
+handler 取消后，订阅数与连接占用均归零，所有自有资源清理通过。
+
+3,826 项后端输入在运行前后保持一致，完整 0323→0189→0323、冻结 SQL 回滚及
+已安装函数体校验通过。原 JUnit 的 xunit2 property 警告保留，实际 socket 属性仍存在
+并已从 XML 解析。规范证据 `.worktree/notifications-wire-socket-qualification.json`
+的 SHA-256 为 `4aa99bc5fd6d7a667b71117b71ae099db736f0d5ded7a23f75e0074842e35cda`。
 
 源码集成与子线原始收据分别保存在
 `.worktree/notifications-wire-contract-evidence/` 与
 `.worktree/notifications-web-consumer-evidence/`。当前工件资格继续绑定此前实际源码；
 新合同的冷工件将随下一次完整运行边界批量验收，不把旧镜像标为当前。
+两套本轮源码 worktree 在精确归属、干净状态和五项 cherry-pick 等价检查后已移除；
+原始源码 tips 的已验证 bundle、收据、临时测试配置与最终图稿均保留在父线归档。
 这仍未关闭完整 Notifications：WS、当前范围授权和即时发布编排仍由 API 持有。
+下一步迁移收件箱查询与投递可见性策略，保留各自原有事务和缓存语义。
