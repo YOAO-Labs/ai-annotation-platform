@@ -2772,6 +2772,27 @@ AAP_WORKSPACE_EXPORT_WORKER_LIVE=1 apps/api/.venv/bin/python \
 消失。采用新的 PostgreSQL 会话锁前须排空旧 export worker；主环境不会自动切换。
 当前资格及限制见[唯一台账](docs-site/dev/concepts/module-deployment.md#workspace-export-recovery)。
 
+### Workspace video-tracker 冷 worker 验收
+
+复用既有冷镜像与身份变量，重新构建包含当前夹具的 API 工件并核对完整 COPY 输入后，
+选择独占的视频执行案例：
+
+```bash
+AAP_WORKSPACE_VIDEO_TRACKER_WORKER_LIVE=1 apps/api/.venv/bin/python \
+  scripts/verify_module_data_boundary.py --output .worktree/workspace-video-tracker-worker.json \
+  --test-file tests/test_workspace_video_tracker_worker_live.py
+```
+
+夹具沿用 `identity_api_consumer` 的 Workspace 围栏、私网 PostgreSQL／Redis 和真实
+Celery 任务，分别绑定既有 Inference Routing 与 Labeling 视频写入能力。案例覆盖普通
+annotator 的执行、HTTP 取消后保留已提交帧、排队后撤员／停用，以及 prefork 子进程
+丢失后的同 ID 重投。模型对照读取真实冻结的视频输入，退役必须来自实际 owner 和
+后端控制器；恢复时只将精确旧代次的租约置为到期以控制夹具耗时，不证明默认恢复延迟。
+
+Media 与确定性推理 peer 仍通过 `host.docker.internal` 访问，沿用当前未修复的宿主机
+转发依赖。此入口目前只有夹具和静态检查，冷执行尚未验收；最终状态按
+[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)记录。
+
 ### Workspace 冷运维导入验收
 
 复用上表 API 冷镜像及其身份变量，使用独占验收数据库和全部十个隔离桶：

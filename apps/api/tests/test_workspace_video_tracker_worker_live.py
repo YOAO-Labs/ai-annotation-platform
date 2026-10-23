@@ -467,6 +467,7 @@ def _stop_worker(worker, record_property) -> None:
         worker.stop()
     except Exception as exc:
         record_property("workspace_video_tracker_cleanup_error", type(exc).__name__)
+        raise
 
 
 def _delete_worker_queue(sender, worker, record_property) -> None:
@@ -476,6 +477,7 @@ def _delete_worker_queue(sender, worker, record_property) -> None:
         record_property(
             "workspace_video_tracker_queue_cleanup_error", type(exc).__name__
         )
+        raise
 
 
 async def test_real_video_tracker_cold_worker_uses_workspace_acl_and_genuine_retirement(
@@ -587,7 +589,9 @@ async def test_real_video_tracker_cold_worker_uses_workspace_acl_and_genuine_ret
                 "PostgreSQL and Redis use verified private container aliases; Assets Media and deterministic backend use the existing host.docker.internal forwarding route.",
             )
 
-            bootstrap = worker.bootstrap_tracker_routes({"success": worlds["success"]})
+            bootstrap = await asyncio.to_thread(
+                worker.bootstrap_tracker_routes, {"success": worlds["success"]}
+            )
             assert bootstrap == [
                 {
                     "registry_id": str(worlds["success"]["registry_id"]),
@@ -637,7 +641,9 @@ async def test_real_video_tracker_cold_worker_uses_workspace_acl_and_genuine_ret
 
             cancel_world = worlds["cancel"]
             cancel_peer = peer_specs["cancel"]
-            bootstrap = worker.bootstrap_tracker_routes({"cancel": cancel_world})
+            bootstrap = await asyncio.to_thread(
+                worker.bootstrap_tracker_routes, {"cancel": cancel_world}
+            )
             assert bootstrap == [
                 {
                     "registry_id": str(cancel_world["registry_id"]),
@@ -728,7 +734,9 @@ async def test_real_video_tracker_cold_worker_uses_workspace_acl_and_genuine_ret
 
             replay_world = worlds["replay"]
             replay_peer = peer_specs["replay"]
-            bootstrap = worker.bootstrap_tracker_routes({"replay": replay_world})
+            bootstrap = await asyncio.to_thread(
+                worker.bootstrap_tracker_routes, {"replay": replay_world}
+            )
             assert bootstrap == [
                 {
                     "registry_id": str(replay_world["registry_id"]),
@@ -770,6 +778,11 @@ async def test_real_video_tracker_cold_worker_uses_workspace_acl_and_genuine_ret
                 expected_generation=1,
             )
             replay_peer.release[1].set()
+            async with asyncio.timeout(180):
+                while (
+                    await asyncio.to_thread(lambda: replay_delivery.state)
+                ) != "SUCCESS":
+                    await asyncio.sleep(0.25)
             replay_ack = await _wait_broker_ack(sender, worker, replay_world["job_id"])
             replay_result = await asyncio.to_thread(
                 replay_delivery.get, timeout=10, propagate=False
