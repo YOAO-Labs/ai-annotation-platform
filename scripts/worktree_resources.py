@@ -120,6 +120,7 @@ NOTIFICATION_RUNTIME_CAPABILITIES = (
     "aap_notifications_v1.preference_command(jsonb)",
     "aap_notifications_v1.append_notification(jsonb)",
 )
+AUDIT_RUNTIME_CAPABILITIES = ("aap_audit_v1.append_events(jsonb)",)
 _IDENTITY_PRIVATE_RUNTIME_ACL = """
 -- Preserve embedded command capabilities while denying direct Identity storage.
 DO $identity_private_acl$
@@ -895,6 +896,7 @@ class LocalResources:
                 self.resources["database"]
             )
             video_function_grant = ", ".join(VIDEO_RUNTIME_CAPABILITIES)
+            audit_function_grant = ", ".join(AUDIT_RUNTIME_CAPABILITIES)
             identity_capabilities = IDENTITY_RUNTIME_CAPABILITIES
             if self.resources["database"].endswith(("_test", "_e2e")):
                 identity_capabilities += (
@@ -939,7 +941,7 @@ class LocalResources:
                     *fixture_grants,
                     f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {role}",
                     f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}",
-                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_membership_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_inference_pipelines_v1, aap_inference_backend_probe_v1, aap_inference_health_observation_v1, aap_inference_health_data_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, aap_assets_v1, aap_labeling_v1, aap_labeling_class_query_v1, aap_jobs_v1, aap_learning_v1, aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_briefs_v1, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_notifications_v1, aap_settings_v1 TO {role}",
+                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_membership_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_inference_pipelines_v1, aap_inference_backend_probe_v1, aap_inference_health_observation_v1, aap_inference_health_data_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, aap_assets_v1, aap_labeling_v1, aap_labeling_class_query_v1, aap_jobs_v1, aap_learning_v1, aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_briefs_v1, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_audit_v1, aap_notifications_v1, aap_settings_v1 TO {role}",
                     "GRANT SELECT ON aap_assets_v1.spatial_item_references, "
                     f"aap_assets_v1.spatial_scene_references TO {role}",
                     "GRANT SELECT ON aap_identity_v1.account_profiles, "
@@ -1187,6 +1189,7 @@ class LocalResources:
                     "aap_jobs_v1.fail_task_creation_job(uuid, uuid, text), "
                     f"aap_jobs_v1.cancel_task_creation_job(uuid, uuid) TO {role}",
                     f"GRANT EXECUTE ON FUNCTION {video_function_grant} TO {role}",
+                    f"GRANT EXECUTE ON FUNCTION {audit_function_grant} TO {role}",
                     f"GRANT EXECUTE ON FUNCTION {identity_function_grant} TO {role}",
                     f"GRANT EXECUTE ON FUNCTION {notification_function_grant} TO {role}",
                     f"GRANT EXECUTE ON FUNCTION {image_media_function_grant} TO {role}",
@@ -1219,7 +1222,10 @@ class LocalResources:
                         "AS preferences, pg_catalog.has_function_privilege("
                         ":role, pg_catalog.to_regprocedure("
                         "'aap_notifications_v1.append_notification(jsonb)'), 'EXECUTE') "
-                        "AS append"
+                        "AS append, pg_catalog.has_function_privilege("
+                        ":role, pg_catalog.to_regprocedure("
+                        "'aap_audit_v1.append_events(jsonb)'), 'EXECUTE') "
+                        "AS audit_append"
                     ),
                     {"role": runtime.username},
                 )
@@ -1227,9 +1233,10 @@ class LocalResources:
                 if (
                     notification_grants["preferences"] is not True
                     or notification_grants["append"] is not True
+                    or notification_grants["audit_append"] is not True
                 ):
                     raise WorktreeError(
-                        "Notifications preference and append capabilities were not granted"
+                        "Notifications and Audit append capabilities were not granted"
                     )
         finally:
             await engine.dispose()

@@ -402,7 +402,7 @@ GRANT SELECT (operation_id, actor_id, project_id, request, result, created_at),
 GRANT SELECT (operation_id, actor_id, dataset_id, project_id, request, result, created_at),
     INSERT (operation_id, actor_id, dataset_id, project_id, request, result),
     UPDATE (operation_id) ON public.dataset_unlink_operations TO :"workspace_owner";
-GRANT SELECT (id, actor_id), INSERT (
+GRANT SELECT (id, actor_id, created_at), INSERT (
     actor_id, actor_email, actor_role, action, target_type, target_id,
     method, path, status_code, ip, request_id, detail_json
 ), UPDATE (actor_email, actor_role) ON public.audit_logs TO :"audit_owner";
@@ -2604,6 +2604,7 @@ ALTER FUNCTION aap_audit_v1.record_dataset_unlink(
 ALTER FUNCTION aap_audit_v1.record_dataset_source_deletion(
     uuid, uuid, uuid, uuid, bigint, bigint, bigint, bigint, bigint, bigint, jsonb
 ) OWNER TO :"audit_owner";
+ALTER FUNCTION aap_audit_v1.append_events(jsonb) OWNER TO :"audit_owner";
 REVOKE CREATE ON SCHEMA aap_audit_v1 FROM :"audit_owner";
 
 -- Import and spatial helpers stay with their schema owner; runtime roles gain no DDL.

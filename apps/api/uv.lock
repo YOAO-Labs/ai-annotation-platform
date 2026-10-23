@@ -182,6 +182,28 @@ requires-dist = [
 provides-extras = ["client", "server", "importer", "test"]
 
 [[package]]
+name = "aap-audit"
+version = "0.1.0"
+source = { editable = "../audit" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.optional-dependencies]
+postgres = [
+    { name = "sqlalchemy", extra = ["asyncio"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
+    { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'postgres'", specifier = ">=2.0.0" },
+]
+provides-extras = ["postgres", "test"]
+
+[[package]]
 name = "aap-audit-contract"
 version = "0.1.0"
 source = { editable = "../_shared/audit_contract" }
@@ -571,6 +593,7 @@ dependencies = [
     { name = "aap-assets-mask-content", extra = ["client", "storage"] },
     { name = "aap-assets-media", extra = ["client", "runtime"] },
     { name = "aap-assets-source" },
+    { name = "aap-audit", extra = ["postgres"] },
     { name = "aap-audit-contract" },
     { name = "aap-identity", extra = ["postgres"] },
     { name = "aap-inference" },
@@ -632,6 +655,7 @@ requires-dist = [
     { name = "aap-assets-mask-content", extras = ["client", "storage"], editable = "../assets-mask-content" },
     { name = "aap-assets-media", extras = ["client", "runtime"], editable = "../assets-media" },
     { name = "aap-assets-source", editable = "../assets-source" },
+    { name = "aap-audit", extras = ["postgres"], editable = "../audit" },
     { name = "aap-audit-contract", editable = "../_shared/audit_contract" },
     { name = "aap-identity", extras = ["postgres"], editable = "../identity" },
     { name = "aap-inference", editable = "../inference" },

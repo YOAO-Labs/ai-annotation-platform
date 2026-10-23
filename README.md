@@ -363,6 +363,8 @@ Data Manager 将未解决问题与普通评论分别计数，兼容旧反馈筛�
 
 通知偏好的读取、原子更新和静音判断，以及普通通知的同事务追加，由 `apps/notifications` 的语言无关合同与固定 owner 函数持有。原调用方继续控制提交、回滚及提交后推送；收件箱读取和完整投递仍按模块台账推进。切换受限凭据前须更新并排空旧 API／worker，详见 [Notifications 能力](./apps/notifications/README.md)和[开发运行说明](./DEV.md#notifications-偏好事务内能力)。
 
+业务审计、HTTP 元数据及其 Celery 持久化现通过 `apps/audit` 的版本化追加能力写入，保留原事务、actor 快照及匿名重试。查询、归档及完整凭据边界仍在推进；现有 LAN 的分区所有权还不能直接采用严格追加配置，见 [Audit 能力](./apps/audit/README.md)与[模块台账](./docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
+
 命名布局预设通过账号偏好 API 跨设备保存；`namedPresets` 采用带 revision 的整份 map 替换与省略删除语义，陈旧设备写入返回冲突，而 `contexts` 可在预设专用 PATCH 中缺席。安全更新方式与兼容规则见[账号偏好与命名布局预设](./docs-site/api/guides/auth.md#账号偏好与命名布局预设)。
 
 资料、偏好、心跳、自助改密和头像引用可由同一独立 Identity 工件处理；偏好合并、当前凭据校验、状态和业务审计在所有者事务内提交。头像字节继续通过现有存储入口处理，在线扫描使用独立权限。协议见[自助账户命令](./docs-site/api/guides/identity-runtime.md#自助账户命令)，完整 Identity 与其他模块继续按[模块台账](./docs-site/dev/concepts/module-deployment.md)推进。

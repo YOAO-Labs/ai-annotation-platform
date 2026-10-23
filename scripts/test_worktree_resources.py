@@ -14,6 +14,7 @@ from sqlalchemy.engine import make_url
 
 from worktree_env import atomic_json, load_identity, read_state, topology
 from worktree_resources import (
+    AUDIT_RUNTIME_CAPABILITIES,
     IDENTITY_RUNTIME_CAPABILITIES,
     IMAGE_ACCEPTED_INPUT_RUNTIME_CAPABILITIES,
     IMAGE_ACCEPTED_RUNTIME_CAPABILITIES,
@@ -550,8 +551,22 @@ class BucketUpgradeTests(unittest.TestCase):
                 statements.append(sql)
 
             async def execute(self, sql, parameters):
+                if "has_function_privilege" in str(sql):
+                    assert parameters == {"role": "app"}
+                    return FunctionPrivileges()
                 assert parameters == {"role": "app", "database": "aap_test"}
                 statements.append(str(sql))
+
+        class FunctionPrivileges:
+            def mappings(self):
+                return self
+
+            def one(self):
+                return {
+                    "preferences": True,
+                    "append": True,
+                    "audit_append": True,
+                }
 
         class Preparer:
             @staticmethod
@@ -577,6 +592,18 @@ class BucketUpgradeTests(unittest.TestCase):
             + ' TO "app"'
         )
         self.assertIn(expected, statements)
+        self.assertIn(
+            "GRANT EXECUTE ON FUNCTION "
+            + ", ".join(AUDIT_RUNTIME_CAPABILITIES)
+            + ' TO "app"',
+            statements,
+        )
+        self.assertTrue(
+            any(
+                "GRANT USAGE ON SCHEMA" in statement and "aap_audit_v1" in statement
+                for statement in statements
+            )
+        )
         self.assertIn(
             "GRANT EXECUTE ON FUNCTION "
             + ", ".join(IMAGE_MEDIA_RUNTIME_CAPABILITIES)

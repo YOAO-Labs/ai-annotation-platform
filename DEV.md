@@ -474,6 +474,14 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 它不验证生产容量，也不提供完整 assets/labeling 模块的独立部署资格。具体事务约束
 见 [ADR-0092](docs/adr/0092-transactional-module-data-capabilities.md)。
 
+### Audit 同事务追加能力
+
+迁移 `0315` 与 `apps/audit` 发布 `aap-audit-append/v1`，固定函数为 `aap_audit_v1.append_events(jsonb)`。`AuditService.log`／`log_many`、HTTP 同步回退、原 Celery 持久化任务及筛选夹具的追加复用该能力。原始 actor／request 快照和开放 action 保留；业务追加先在原事务视图中写入，再合并干净 ORM 对象并执行原 full flush，不额外读取 Audit 私表。数据库仍分配 ID 和事务时间，业务调用方保留提交／回滚权。HTTP 元数据继续 best-effort；不存在的 actor 仍回滚后以匿名重试，没有增加 exactly-once 语义。
+
+先安装当前迁移和 module-data owner grants。`infra/docker/audit-append-grants.sql` 仅向明确的 API 角色及独立函数客户端授予追加能力，撤销现有 Audit 父表／分区的 INSERT 和对应序列写权限，保留其他尚未迁移操作需要的权限。它会拒绝 API 拥有分区树或未来默认授权不安全的配置，不修改整个 public schema 的默认权限。现有 LAN 脚本仍把分区树交给 API，因此完整严格配置须等待维护所有权和未来分区权限收口；新增的固定函数授权只保证既有绑定可调用新代码。**排空旧 API／worker 并部署新工件后才撤销直接写权限**。
+
+模块 Node peer 的锁定依赖按 `apps/audit/conformance/node/README.md` 安装到该目录，验收器在创建资源前检查三项 Node peer。组合冷验收复用同一 API 镜像执行真实 Audit task，覆盖相同载荷的两次投递和孤儿 actor 的匿名保存；实际运行通过前不计作该门槛完成。查询／领域事实、分析投影、分区归档及整模块资格按[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)分别跟踪。
+
 ### Notifications 偏好事务内能力
 
 `apps/notifications` 发布 `aap-notification-preferences/v1` 合同、类型与默认值策略，以及借用 API `AsyncSession` 的 PostgreSQL 客户端。迁移 `0311` 安装 `aap_notifications_v1.preference_command(jsonb)`；GET、局部更新和通知静音检查共用该能力。owner 计算新行默认值，JSONB 原子合并保留未提供的频道及扩展键，API 仍在成功提交之后发布 `notifications.sync`，没有新增 HTTP 服务或环境变量。

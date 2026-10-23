@@ -9,9 +9,8 @@ from starlette.types import ASGIApp
 
 from app.config import settings
 from app.db.base import async_session
-from app.db.models.audit_log import AuditLog
 from app.middleware.request_id import request_id_var
-from app.services.audit import extract_client_ip
+from app.services.audit import append_http_metadata, extract_client_ip
 
 logger = logging.getLogger(__name__)
 
@@ -99,47 +98,9 @@ def _enqueue_audit(payload: dict) -> bool:
 
 
 async def _persist_audit_sync(payload: dict) -> None:
-    from uuid import UUID
-
-    from sqlalchemy.exc import IntegrityError
-
-    actor_id_raw = payload.get("actor_id")
-    actor_id: UUID | None = None
-    if actor_id_raw:
-        try:
-            actor_id = UUID(actor_id_raw)
-        except (ValueError, TypeError):
-            actor_id = None
-
-    def _build(aid: UUID | None) -> AuditLog:
-        return AuditLog(
-            actor_id=aid,
-            actor_email=None,
-            actor_role=payload.get("actor_role"),
-            action=payload["action"],
-            target_type=None,
-            target_id=None,
-            method=payload["method"],
-            path=payload["path"],
-            status_code=payload["status_code"],
-            ip=payload.get("ip"),
-            detail_json=None,
-            request_id=payload.get("request_id"),
-        )
-
     async with async_session() as session:
-        session.add(_build(actor_id))
         try:
-            await session.commit()
-        except IntegrityError:
-            # actor_id 指向已不存在的用户 → FK 违约。置空重插一次保住审计行 (同 workers/audit.py)。
-            await session.rollback()
-            if actor_id is None:
-                raise
-            logger.warning(
-                "audit actor_id=%s not in users; persisted as anonymous", actor_id
-            )
-            session.add(_build(None))
+            await append_http_metadata(session, payload)
             await session.commit()
         except Exception:
             await session.rollback()

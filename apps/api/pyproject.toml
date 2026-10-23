@@ -16,6 +16,7 @@ dependencies = [
     "aap-assets-cleanup",
     "aap-assets-source",
     "aap-audit-contract",
+    "aap-audit[postgres]",
     "aap-notifications[postgres]",
     "aap-media-probe[client]",
     "aap-task-contract",
@@ -74,6 +75,7 @@ aap-preannotation-results = { path = "../preannotation-results", editable = true
 aap-assets-cleanup = { path = "../assets-cleanup", editable = true }
 aap-assets-source = { path = "../assets-source", editable = true }
 aap-audit-contract = { path = "../_shared/audit_contract", editable = true }
+aap-audit = { path = "../audit", editable = true }
 aap-notifications = { path = "../notifications", editable = true }
 aap-media-probe = { path = "../media-probe", editable = true }
 aap-task-contract = { path = "../_shared/task_contract", editable = true }

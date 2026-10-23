@@ -210,6 +210,7 @@ class WorkspaceCeleryWorker:
             "app.workers.export.run_export",
             "app.workers.video_tracker.run_video_tracker_job",
             "app.workers.predictions_retry.retry_failed_prediction",
+            "app.workers.audit.persist_audit_entry",
         }:
             raise ValueError("Task is outside the qualified worker paths")
         self.assert_runtime()
@@ -461,6 +462,23 @@ class WorkspaceCeleryWorker:
             ).password
             or "",
         ]
+        for name, value_from_environment in getattr(
+            self, "_tracker_environment", {}
+        ).items():
+            if (
+                not isinstance(value_from_environment, str)
+                or not value_from_environment
+            ):
+                continue
+            if re.search(r"(?i)(?:TOKEN|KEY|SECRET|PASSWORD)", name):
+                secrets.append(value_from_environment)
+            if "DATABASE_URL" in name:
+                secrets.append(value_from_environment)
+                try:
+                    secrets.append(make_url(value_from_environment).password or "")
+                except Exception:
+                    # The full selector is already scrubbed if it cannot be parsed.
+                    pass
         for secret in sorted(set(secrets), key=len, reverse=True):
             if secret:
                 value = value.replace(secret, "<redacted>")

@@ -281,6 +281,24 @@ async def _checkpoint_cpu_backend(
         )
     )
     task = asyncio.create_task(server.serve(sockets=[listener]))
+    stopped = False
+
+    async def stop_peer() -> None:
+        nonlocal stopped
+        if stopped:
+            return
+        for gate in release:
+            gate.set()
+        server.should_exit = True
+        try:
+            await asyncio.wait_for(task, timeout=10)
+        except TimeoutError:
+            server.force_exit = True
+            await asyncio.wait_for(task, timeout=5)
+        listener.close()
+        await storage.aclose()
+        stopped = True
+
     try:
         async with asyncio.timeout(10):
             while not server.started:
@@ -295,18 +313,13 @@ async def _checkpoint_cpu_backend(
             entered=entered,
             release=release,
             sessions=sessions,
+            origin=f"http://127.0.0.1:{listener.getsockname()[1]}",
+            server_task=task,
+            stop=stop_peer,
+            is_stopped=lambda: stopped,
         )
     finally:
-        for gate in release:
-            gate.set()
-        server.should_exit = True
-        try:
-            await asyncio.wait_for(task, timeout=10)
-        except TimeoutError:
-            server.force_exit = True
-            await asyncio.wait_for(task, timeout=5)
-        listener.close()
-        await storage.aclose()
+        await stop_peer()
 
 
 def _worker_environment(

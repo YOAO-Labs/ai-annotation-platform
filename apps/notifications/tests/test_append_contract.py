@@ -75,6 +75,23 @@ def test_request_is_closed_and_preserves_caller_generated_identity():
         )
 
 
+@pytest.mark.parametrize(
+    "value", [float("nan"), float("inf"), float("-inf"), uuid.uuid4()]
+)
+def test_request_rejects_payload_values_the_jsonb_writer_could_not_store(value):
+    with pytest.raises(ValidationError, match="finite JSON values"):
+        AppendNotificationRequest(
+            schema="aap-notification-append/v1",
+            operation="append",
+            id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            type="future.notification",
+            target_type="task",
+            target_id=uuid.uuid4(),
+            payload={"nested": [value]},
+        )
+
+
 def test_reply_decoder_parses_server_timestamp_and_requires_notification_snapshot():
     notification_id = uuid.uuid4()
     user_id = uuid.uuid4()

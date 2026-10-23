@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
+import pytest
 from starlette.requests import Request
+from starlette.responses import Response
 
-from app.middleware.audit import _build_payload
+from app.middleware.audit import AuditMiddleware, _build_payload
 
 
 def _request(*, state: dict, authorization: str | None = None) -> Request:
@@ -51,3 +54,22 @@ def test_audit_does_not_infer_actor_from_bearer_claims():
 
     assert payload["actor_id"] is None
     assert payload["actor_role"] is None
+
+
+@pytest.mark.asyncio
+async def test_metadata_write_failure_does_not_change_http_response(monkeypatch):
+    from app.middleware import audit as audit_module
+
+    request = _request(state={})
+    response = Response("committed", status_code=201)
+    persist = AsyncMock(side_effect=RuntimeError("audit store unavailable"))
+    monkeypatch.setattr(audit_module.settings, "audit_async", False)
+    monkeypatch.setattr(audit_module, "_persist_audit_sync", persist)
+
+    async def call_next(_request):
+        return response
+
+    result = await AuditMiddleware(lambda *_args: None).dispatch(request, call_next)
+
+    assert result is response
+    persist.assert_awaited_once()

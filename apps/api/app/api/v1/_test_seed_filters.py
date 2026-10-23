@@ -1366,8 +1366,10 @@ async def _seed_operations(
     from app.services.identity_e2e_fixtures import IdentityE2EFixtures
     from aap_identity.e2e_fixture_contract import FixtureInvitation
     from app.db.models.async_job import AsyncJob
-    from app.db.models.audit_log import AuditLog
     from app.db.models.bug_report import BugReport
+    from app.middleware.request_id import request_id_var
+    from app.services.audit import AuditService
+    from app.services.audit_origin_contract import AuditOriginContext
 
     admin, annotator = users["admin"], users["anno"]
     identity = IdentityE2EFixtures(db)
@@ -1564,36 +1566,38 @@ async def _seed_operations(
     ]
     db.add_all(bugs)
     await identity.create_invitations(invitations)
-    audit_rows = [
-        AuditLog(
-            actor_id=admin.id,
-            actor_email=admin.email,
-            actor_role=admin.role,
-            action="filter.fixture.created",
-            target_type="project",
-            target_id=str(project_a.id),
-            method="POST",
-            path="/api/v1/__test/seed/filtering",
-            status_code=201,
-            detail_json=_filter_audit_detail(ids, "alpha"),
-            created_at=now,
-        ),
-        AuditLog(
-            actor_id=admin.id,
-            actor_email=admin.email,
-            actor_role=admin.role,
-            action="filter.fixture.failed",
-            target_type="job",
-            target_id=str(jobs[1].id),
-            method="POST",
-            path="/api/v1/__test/seed/filtering",
-            status_code=500,
-            detail_json=_filter_audit_detail(ids, "beta"),
-            created_at=now + timedelta(microseconds=1),
-        ),
-    ]
-    db.add_all(audit_rows)
-    await db.flush()
+    audit_rows = []
+    request_id_token = request_id_var.set(None)
+    try:
+        origin = AuditOriginContext(
+            method="POST", path="/api/v1/__test/seed/filtering", ip=None
+        )
+        audit_rows.append(
+            await AuditService.log(
+                db,
+                actor=admin,
+                action="filter.fixture.created",
+                target_type="project",
+                target_id=project_a.id,
+                origin=origin,
+                status_code=201,
+                detail=_filter_audit_detail(ids, "alpha"),
+            )
+        )
+        audit_rows.append(
+            await AuditService.log(
+                db,
+                actor=admin,
+                action="filter.fixture.failed",
+                target_type="job",
+                target_id=jobs[1].id,
+                origin=origin,
+                status_code=500,
+                detail=_filter_audit_detail(ids, "beta"),
+            )
+        )
+    finally:
+        request_id_var.reset(request_id_token)
     return FilteringOperationsManifest(
         project_ids=[str(project_a.id), str(project_b.id)],
         dataset_ids=[str(dataset.id) for dataset in datasets],

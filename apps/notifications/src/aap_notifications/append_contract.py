@@ -35,6 +35,15 @@ class AppendNotificationRequest(_ClosedModel):
     target_id: uuid.UUID
     payload: dict[str, Any]
 
+    @field_validator("payload")
+    @classmethod
+    def json_payload(cls, value: dict[str, Any]) -> dict[str, Any]:
+        try:
+            json.dumps(value, allow_nan=False)
+        except (TypeError, ValueError):
+            raise ValueError("payload must contain finite JSON values") from None
+        return value
+
     @field_validator("type")
     @classmethod
     def no_control_characters(cls, value: str) -> str:

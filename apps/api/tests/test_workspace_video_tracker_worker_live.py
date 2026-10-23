@@ -1033,6 +1033,74 @@ async def test_real_video_tracker_cold_worker_uses_workspace_acl_and_genuine_ret
             )
             record_property("video_tracker_replay_retirement", replay_execution)
 
+            audit_task = "app.workers.audit.persist_audit_entry"
+            assert worker.task_signature(audit_task) == {
+                "task": audit_task,
+                "parameters": ["payload"],
+            }
+            audit_request_id = str(uuid.uuid4())
+            anonymous_request_id = str(uuid.uuid4())
+            audit_payload = {
+                "actor_id": str(worlds["success"]["actor_id"]),
+                "actor_role": "employee",
+                "action": "request.POST",
+                "method": "POST",
+                "path": "/api/v1/fixture-audit",
+                "status_code": 200,
+                "ip": "127.0.0.1",
+                "request_id": audit_request_id,
+            }
+            audit_acks = []
+            for payload in (
+                audit_payload,
+                audit_payload,
+                {
+                    **audit_payload,
+                    "actor_id": str(uuid.uuid4()),
+                    "request_id": anonymous_request_id,
+                },
+            ):
+                task_id = uuid.uuid4()
+                delivery = await asyncio.to_thread(
+                    sender.send_task,
+                    audit_task,
+                    args=[payload],
+                    queue=worker.queue,
+                    task_id=str(task_id),
+                )
+                deliveries.append(delivery)
+                audit_acks.append(await _wait_broker_ack(sender, worker, task_id))
+                assert await asyncio.to_thread(delivery.get, timeout=10) is None
+            async with media.sessions() as db:
+                rows = (
+                    (
+                        await db.execute(
+                            text(
+                                "SELECT actor_id,request_id,jsonb_typeof(detail_json) AS detail_kind "
+                                "FROM public.audit_logs WHERE request_id IN (:known,:anonymous)"
+                            ),
+                            {
+                                "known": audit_request_id,
+                                "anonymous": anonymous_request_id,
+                            },
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+            known_rows = [row for row in rows if row["request_id"] == audit_request_id]
+            anonymous_rows = [
+                row for row in rows if row["request_id"] == anonymous_request_id
+            ]
+            assert len(known_rows) == 2 and all(
+                row["actor_id"] == worlds["success"]["actor_id"] for row in known_rows
+            )
+            assert len(anonymous_rows) == 1 and anonymous_rows[0]["actor_id"] is None
+            assert all(row["detail_kind"] == "null" for row in rows)
+            record_property("audit_metadata_worker_acks", audit_acks)
+            record_property("audit_metadata_duplicate_payload_rows", len(known_rows))
+            record_property("audit_metadata_missing_actor_rows", len(anonymous_rows))
+
             for delivery in deliveries:
                 await asyncio.to_thread(delivery.forget)
             record_property("video_tracker_cold_acceptance", "completed")
