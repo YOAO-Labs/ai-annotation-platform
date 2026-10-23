@@ -7969,3 +7969,20 @@ suffix. Observation now uses pg_catalog.host(client_addr), retaining the exact
 worker-address predicate and every user/database/capability/wait assertion. This
 is an evidence-format correction; it does not change worker execution or ACLs.
 The failed wired-gate receipt is retained with successful resource cleanup.
+
+Authoritative final qualification is the seventh cold attempt at source
+3692d02ea, passed in 62.836 seconds. Its retained database observation records
+identity_api_consumer in the owned database, the verified worker private address,
+a relation-lock wait and lock_project_reference_nowait. It then completes all
+seven acknowledged deliveries. This final receipt supersedes earlier cold
+attempts for the complete observed-session qualification; the fifth receipt is
+retained as earlier business-matrix evidence only. Current artifacts are bound
+by .worktree/workspace-cross-frame-seventh-images.json and the matching complete
+COPY-input verification. No further execution or implementation changes are
+needed for this bounded Workspace operation; the overall goal remains open.
+
+Aggregate evidence .worktree/workspace-cross-frame-qualification.json has SHA256
+72628c8e5dd170a3fba346ba6b3e8ecd2bee4138c83d0fe3b94fbe8cdc8e2a60.
+It binds the 17-case native union, 21 resource unit checks, the final observed
+worker identity and seven acknowledgements, exact artifacts, retained failures,
+worker archive, migration roundtrip and preserved primary/shared environment.
